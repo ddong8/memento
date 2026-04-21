@@ -1,0 +1,61 @@
+[project]
+name = "memento-brain-collector"
+version = "0.0.1"
+description = "Cross-platform agent that collects AI coding tool memory files and syncs to a central server"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ddong8"},
+]
+keywords = ["ai", "memento", "memento-brain", "collector", "claude", "codex", "obsidian", "antigravity", "cursor", "openclaw"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Monitoring",
+]
+dependencies = [
+    "watchdog>=4.0",
+    "httpx>=0.27",
+    "python-frontmatter>=1.1",
+    "tomli>=2.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "cryptography>=41.0",
+    "memento-brain-memory>=0.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.urls]
+Homepage = "https://github.com/ddong8/memento"
+Repository = "https://github.com/ddong8/memento"
+Issues = "https://github.com/ddong8/memento/issues"
+
+[project.scripts]
+# Primary — matches pkg name
+memento-brain-collector = "collector.cli:cli_main"
+memento-brain-export-codex = "collector.codex_export:main"
+# Short aliases — back-compat and convenience
+memento-collector = "collector.cli:cli_main"
+memento-export-codex = "collector.codex_export:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["collector"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

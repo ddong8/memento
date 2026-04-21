@@ -1,0 +1,477 @@
+@import "tailwindcss";
+
+/* =========================================================================
+   DESIGN SYSTEM — three skins × light/dark
+   skins: aurora (glass + violet) | arc (paper + electric blue) | baseline (tailwind)
+   Variables are abstract so components work across all skins.
+   ========================================================================= */
+
+/* Default light (aurora) */
+:root,
+:root[data-skin="aurora"][data-theme="light"] {
+  --aurora-bg: #FAFAFB;
+  --aurora-glow1: #A78BFA;
+  --aurora-glow2: #FBA5C9;
+  --aurora-glow3: #7DD3FC;
+  --aurora-glow4: #FDE68A;
+  --aurora-surface: rgba(255, 255, 255, 0.72);
+  --aurora-surface-solid: #FFFFFF;
+  --aurora-surface-mute: rgba(255, 255, 255, 0.5);
+  --aurora-sidebar: rgba(255, 255, 255, 0.55);
+  --aurora-border: rgba(15, 15, 30, 0.06);
+  --aurora-border-strong: rgba(15, 15, 30, 0.10);
+  --aurora-fg1: #0B0B14;
+  --aurora-fg2: #3A3A48;
+  --aurora-fg3: #6E6E80;
+  --aurora-fg4: #9D9DAE;
+  --aurora-fg5: #C9C9D4;
+  --aurora-accent: #6D28D9;
+  --aurora-accent-soft: rgba(109, 40, 217, 0.10);
+  --aurora-chip: rgba(15, 15, 30, 0.05);
+  --aurora-primary-grad: linear-gradient(135deg, #6D28D9, #DB2777);
+  --aurora-primary-grad-hover: linear-gradient(135deg, #7C3AED, #EC4899);
+  --aurora-brand-grad: linear-gradient(135deg, #6D28D9, #EC4899, #06B6D4);
+  --aurora-card-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.4) inset,
+    0 18px 40px -24px rgba(15, 15, 40, 0.14),
+    0 2px 8px -3px rgba(15, 15, 40, 0.06);
+  --aurora-card-shadow-hover:
+    0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
+    0 28px 60px -24px rgba(124, 58, 237, 0.22),
+    0 4px 14px -4px rgba(15, 15, 40, 0.08);
+  --aurora-blur: blur(20px) saturate(180%);
+  --aurora-blur-heavy: blur(24px) saturate(180%);
+  --aurora-radius-card: 20px;
+  --aurora-radius-btn: 12px;
+  --aurora-btn-shadow: 0 4px 14px -4px rgba(109, 40, 217, 0.4);
+  --aurora-btn-shadow-hover: 0 8px 24px -8px rgba(109, 40, 217, 0.55);
+}
+
+:root[data-skin="aurora"][data-theme="dark"] {
+  --aurora-bg: #0A0A12;
+  --aurora-glow1: #7C3AED;
+  --aurora-glow2: #DB2777;
+  --aurora-glow3: #0891B2;
+  --aurora-glow4: #F59E0B;
+  --aurora-surface: rgba(22, 22, 34, 0.65);
+  --aurora-surface-solid: #15151F;
+  --aurora-surface-mute: rgba(22, 22, 34, 0.4);
+  --aurora-sidebar: rgba(15, 15, 24, 0.55);
+  --aurora-border: rgba(255, 255, 255, 0.06);
+  --aurora-border-strong: rgba(255, 255, 255, 0.12);
+  --aurora-fg1: #F4F4F8;
+  --aurora-fg2: #C5C5D2;
+  --aurora-fg3: #8E8E9E;
+  --aurora-fg4: #6A6A7A;
+  --aurora-fg5: #3F3F4E;
+  --aurora-accent: #A78BFA;
+  --aurora-accent-soft: rgba(167, 139, 250, 0.16);
+  --aurora-chip: rgba(255, 255, 255, 0.06);
+  --aurora-primary-grad: linear-gradient(135deg, #A78BFA, #F472B6);
+  --aurora-primary-grad-hover: linear-gradient(135deg, #C4B5FD, #F9A8D4);
+  --aurora-brand-grad: linear-gradient(135deg, #A78BFA, #F472B6, #67E8F9);
+  --aurora-card-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 24px 60px -28px rgba(0, 0, 0, 0.6),
+    0 6px 20px -8px rgba(0, 0, 0, 0.35);
+  --aurora-card-shadow-hover:
+    0 1px 0 0 rgba(255, 255, 255, 0.08) inset,
+    0 32px 80px -28px rgba(147, 92, 255, 0.5),
+    0 10px 30px -8px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- ARC (paper minimalist) ---------- */
+:root[data-skin="arc"][data-theme="light"] {
+  --aurora-bg: #FAFAF7;
+  --aurora-glow1: transparent;
+  --aurora-glow2: transparent;
+  --aurora-glow3: transparent;
+  --aurora-surface: #FFFFFF;
+  --aurora-surface-solid: #FFFFFF;
+  --aurora-surface-mute: #F4F4F0;
+  --aurora-sidebar: #FFFFFF;
+  --aurora-border: rgba(0, 0, 0, 0.08);
+  --aurora-border-strong: rgba(0, 0, 0, 0.14);
+  --aurora-fg1: #0A0A0A;
+  --aurora-fg2: #3A3A38;
+  --aurora-fg3: #6B6B68;
+  --aurora-fg4: #9A9A95;
+  --aurora-fg5: #BFBFB8;
+  --aurora-accent: #C2410C;
+  --aurora-accent-soft: rgba(194, 65, 12, 0.08);
+  --aurora-chip: #F0F0EB;
+  --aurora-primary-grad: #C2410C;
+  --aurora-primary-grad-hover: #9A3412;
+  --aurora-brand-grad: #C2410C;
+  --aurora-card-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  --aurora-card-shadow-hover: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.10);
+  --aurora-blur: none;
+  --aurora-blur-heavy: none;
+  --aurora-radius-card: 10px;
+  --aurora-radius-btn: 8px;
+  --aurora-btn-shadow: none;
+  --aurora-btn-shadow-hover: 0 2px 8px -2px rgba(194, 65, 12, 0.3);
+}
+
+:root[data-skin="arc"][data-theme="dark"] {
+  --aurora-bg: #0B0B0A;
+  --aurora-glow1: transparent;
+  --aurora-glow2: transparent;
+  --aurora-glow3: transparent;
+  --aurora-surface: #141413;
+  --aurora-surface-solid: #141413;
+  --aurora-surface-mute: #1C1C1A;
+  --aurora-sidebar: #141413;
+  --aurora-border: rgba(255, 255, 255, 0.08);
+  --aurora-border-strong: rgba(255, 255, 255, 0.14);
+  --aurora-fg1: #F5F5F2;
+  --aurora-fg2: #C8C8C3;
+  --aurora-fg3: #8A8A85;
+  --aurora-fg4: #5C5C57;
+  --aurora-fg5: #3A3A37;
+  --aurora-accent: #F97316;
+  --aurora-accent-soft: rgba(249, 115, 22, 0.14);
+  --aurora-chip: #1F1F1D;
+  --aurora-primary-grad: #F97316;
+  --aurora-primary-grad-hover: #FB923C;
+  --aurora-brand-grad: #F97316;
+  --aurora-card-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
+  --aurora-card-shadow-hover: 0 4px 16px -4px rgba(0, 0, 0, 0.5);
+  --aurora-blur: none;
+  --aurora-blur-heavy: none;
+  --aurora-radius-card: 10px;
+  --aurora-radius-btn: 8px;
+  --aurora-btn-shadow: none;
+  --aurora-btn-shadow-hover: 0 2px 8px -2px rgba(249, 115, 22, 0.4);
+}
+
+/* ---------- BASELINE (original Tailwind aesthetic) ---------- */
+:root[data-skin="baseline"][data-theme="light"] {
+  --aurora-bg: #f9fafb;
+  --aurora-glow1: transparent;
+  --aurora-glow2: transparent;
+  --aurora-glow3: transparent;
+  --aurora-surface: #ffffff;
+  --aurora-surface-solid: #ffffff;
+  --aurora-surface-mute: #f3f4f6;
+  --aurora-sidebar: #111827;
+  --aurora-border: #f3f4f6;
+  --aurora-border-strong: #e5e7eb;
+  --aurora-fg1: #111827;
+  --aurora-fg2: #374151;
+  --aurora-fg3: #6b7280;
+  --aurora-fg4: #9ca3af;
+  --aurora-fg5: #d1d5db;
+  --aurora-accent: #2563eb;
+  --aurora-accent-soft: #dbeafe;
+  --aurora-chip: #f3f4f6;
+  --aurora-primary-grad: #2563eb;
+  --aurora-primary-grad-hover: #1d4ed8;
+  --aurora-brand-grad: #2563eb;
+  --aurora-card-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --aurora-card-shadow-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  --aurora-blur: none;
+  --aurora-blur-heavy: none;
+  --aurora-radius-card: 12px;
+  --aurora-radius-btn: 8px;
+  --aurora-btn-shadow: none;
+  --aurora-btn-shadow-hover: 0 2px 8px -2px rgba(37, 99, 235, 0.3);
+}
+
+:root[data-skin="baseline"][data-theme="dark"] {
+  --aurora-bg: #0f172a;
+  --aurora-glow1: transparent;
+  --aurora-glow2: transparent;
+  --aurora-glow3: transparent;
+  --aurora-surface: #1e293b;
+  --aurora-surface-solid: #1e293b;
+  --aurora-surface-mute: #0f172a;
+  --aurora-sidebar: #0f172a;
+  --aurora-border: #334155;
+  --aurora-border-strong: #475569;
+  --aurora-fg1: #f1f5f9;
+  --aurora-fg2: #cbd5e1;
+  --aurora-fg3: #94a3b8;
+  --aurora-fg4: #64748b;
+  --aurora-fg5: #475569;
+  --aurora-accent: #3b82f6;
+  --aurora-accent-soft: rgba(59, 130, 246, 0.15);
+  --aurora-chip: #334155;
+  --aurora-primary-grad: #3b82f6;
+  --aurora-primary-grad-hover: #60a5fa;
+  --aurora-brand-grad: #3b82f6;
+  --aurora-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --aurora-card-shadow-hover: 0 4px 14px -4px rgba(0, 0, 0, 0.5);
+  --aurora-blur: none;
+  --aurora-blur-heavy: none;
+  --aurora-radius-card: 12px;
+  --aurora-radius-btn: 8px;
+  --aurora-btn-shadow: none;
+  --aurora-btn-shadow-hover: 0 2px 8px -2px rgba(59, 130, 246, 0.4);
+}
+
+/* =========================================================================
+   Base shell
+   ========================================================================= */
+
+html, body { overflow-x: hidden; }
+html { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+body {
+  color: var(--aurora-fg1);
+  background: var(--aurora-bg);
+  font-feature-settings: "ss01", "cv01";
+  letter-spacing: -0.005em;
+}
+
+/* Aurora-only ambient background rendered by <AuroraBackdrop /> React component */
+@keyframes aurFloat1 {
+  0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
+  33%  { transform: translate(6%, 4%) scale(1.08) rotate(8deg); }
+  66%  { transform: translate(-4%, 8%) scale(0.96) rotate(-6deg); }
+  100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+}
+@keyframes aurFloat2 {
+  0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
+  40%  { transform: translate(-6%, 6%) scale(1.05) rotate(-10deg); }
+  70%  { transform: translate(5%, -4%) scale(0.94) rotate(6deg); }
+  100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+}
+@keyframes aurFloat3 {
+  0%   { transform: translate(0, 0) scale(1) rotate(0deg); }
+  30%  { transform: translate(4%, -5%) scale(1.06) rotate(12deg); }
+  75%  { transform: translate(-5%, 3%) scale(0.98) rotate(-4deg); }
+  100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+}
+@keyframes aurFloat4 {
+  0%   { transform: translate(0, 0) scale(1); opacity: 0.8; }
+  50%  { transform: translate(-3%, 5%) scale(1.1); opacity: 1; }
+  100% { transform: translate(0, 0) scale(1); opacity: 0.8; }
+}
+
+/* stagger entry animation (Arc) */
+@keyframes drFadeIn {
+  from { transform: translateY(4px); }
+  to   { transform: translateY(0); }
+}
+.dr-stagger > * {
+  animation: drFadeIn .4s cubic-bezier(.2,.8,.2,1) both;
+}
+.dr-stagger > *:nth-child(1) { animation-delay: .02s; }
+.dr-stagger > *:nth-child(2) { animation-delay: .06s; }
+.dr-stagger > *:nth-child(3) { animation-delay: .1s; }
+.dr-stagger > *:nth-child(4) { animation-delay: .14s; }
+.dr-stagger > *:nth-child(5) { animation-delay: .18s; }
+.dr-stagger > *:nth-child(n+6) { animation-delay: .22s; }
+
+@keyframes drPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.dr-pulse { animation: drPulse 1.8s ease-in-out infinite; }
+
+.overflow-wrap-anywhere { overflow-wrap: anywhere; word-break: break-word; }
+
+/* =========================================================================
+   Primitive utility classes
+   ========================================================================= */
+
+.aurora-card {
+  background: var(--aurora-surface-solid);
+  border: 1px solid var(--aurora-border);
+  border-radius: var(--aurora-radius-card);
+  box-shadow: var(--aurora-card-shadow);
+  transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s cubic-bezier(.2,.8,.2,1);
+}
+.aurora-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--aurora-card-shadow-hover);
+}
+.aurora-glass {
+  background: var(--aurora-surface);
+  backdrop-filter: var(--aurora-blur);
+  -webkit-backdrop-filter: var(--aurora-blur);
+  border: 1px solid var(--aurora-border);
+  border-radius: var(--aurora-radius-card);
+}
+
+.aurora-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 9999px;
+  background: var(--aurora-chip);
+  color: var(--aurora-fg2);
+  letter-spacing: -0.005em;
+}
+.aurora-chip-accent {
+  background: var(--aurora-accent-soft);
+  color: var(--aurora-accent);
+}
+
+.aurora-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--aurora-radius-btn);
+  cursor: pointer;
+  background: var(--aurora-primary-grad);
+  color: #fff;
+  border: 0;
+  box-shadow: var(--aurora-btn-shadow);
+  letter-spacing: -0.01em;
+  transition: all .2s cubic-bezier(.2,.8,.2,1);
+}
+.aurora-btn:hover {
+  background: var(--aurora-primary-grad-hover);
+  box-shadow: var(--aurora-btn-shadow-hover);
+}
+.aurora-btn-glass {
+  background: var(--aurora-surface);
+  color: var(--aurora-fg1);
+  border: 1px solid var(--aurora-border);
+  backdrop-filter: var(--aurora-blur);
+  box-shadow: none;
+}
+.aurora-btn-glass:hover {
+  background: var(--aurora-surface-solid);
+  box-shadow: 0 4px 14px -4px rgba(0,0,0,0.08);
+}
+.aurora-btn-ghost {
+  background: transparent;
+  color: var(--aurora-fg2);
+  box-shadow: none;
+}
+.aurora-btn-ghost:hover {
+  background: var(--aurora-chip);
+}
+.aurora-btn-sm { padding: 6px 12px; font-size: 12px; }
+.aurora-btn-lg { padding: 14px 22px; font-size: 14px; }
+.aurora-btn-danger {
+  background: linear-gradient(135deg, #EF4444, #EC4899);
+  box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.4);
+}
+html[data-skin="arc"] .aurora-btn-danger,
+html[data-skin="baseline"] .aurora-btn-danger {
+  background: #DC2626;
+  box-shadow: none;
+}
+.aurora-btn-danger:hover {
+  background: linear-gradient(135deg, #F87171, #F472B6);
+  box-shadow: 0 8px 24px -8px rgba(239, 68, 68, 0.5);
+}
+html[data-skin="arc"] .aurora-btn-danger:hover,
+html[data-skin="baseline"] .aurora-btn-danger:hover {
+  background: #B91C1C;
+  box-shadow: 0 2px 8px -2px rgba(220, 38, 38, 0.4);
+}
+
+.aurora-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--aurora-surface);
+  backdrop-filter: var(--aurora-blur);
+  border: 1px solid var(--aurora-border);
+  border-radius: var(--aurora-radius-btn);
+  transition: all .2s;
+  color: var(--aurora-fg1);
+}
+.aurora-input:focus-within {
+  border-color: var(--aurora-accent);
+  box-shadow: 0 0 0 4px var(--aurora-accent-soft);
+}
+.aurora-input input,
+.aurora-input select {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--aurora-fg1);
+  font-size: 14px;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+}
+
+/* =========================================================================
+   Scrollbar
+   ========================================================================= */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--aurora-border-strong);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--aurora-fg5); }
+
+/* =========================================================================
+   Markdown
+   ========================================================================= */
+.prose pre {
+  background: #1e293b;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+.prose code { font-size: 0.875rem; word-break: break-all; }
+
+/* =========================================================================
+   iPhone safe area
+   ========================================================================= */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* =========================================================================
+   Dark-mode overrides for bare Tailwind classes used in legacy spots.
+   These run only when skin is not "baseline" AND dark — so baseline dark
+   keeps Tailwind's actual dark colors via the vars. We remap bg-white etc.
+   ========================================================================= */
+html[data-theme="dark"] .bg-white { background: var(--aurora-surface-solid) !important; color: var(--aurora-fg1); }
+html[data-theme="dark"] .bg-gray-50 { background: var(--aurora-surface-mute) !important; }
+html[data-theme="dark"] .bg-gray-100 { background: var(--aurora-chip) !important; }
+html[data-theme="dark"] .border-gray-100 { border-color: var(--aurora-border) !important; }
+html[data-theme="dark"] .border-gray-200 { border-color: var(--aurora-border) !important; }
+html[data-theme="dark"] .border-gray-300 { border-color: var(--aurora-border-strong) !important; }
+html[data-theme="dark"] .text-gray-900 { color: var(--aurora-fg1) !important; }
+html[data-theme="dark"] .text-gray-700 { color: var(--aurora-fg2) !important; }
+html[data-theme="dark"] .text-gray-600 { color: var(--aurora-fg2) !important; }
+html[data-theme="dark"] .text-gray-500 { color: var(--aurora-fg3) !important; }
+html[data-theme="dark"] .text-gray-400 { color: var(--aurora-fg4) !important; }
+html[data-theme="dark"] .text-gray-300 { color: var(--aurora-fg4) !important; }
+
+/* =========================================================================
+   Arc-specific overrides — no glass blur on sidebar, sharper sections
+   ========================================================================= */
+html[data-skin="arc"] aside,
+html[data-skin="baseline"] aside {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Baseline: sidebar dark navy rail even in light mode (matches original) */
+html[data-skin="baseline"][data-theme="light"] aside {
+  background: #111827 !important;
+  color: #d1d5db;
+  border-right-color: transparent !important;
+}
+html[data-skin="baseline"][data-theme="light"] aside a,
+html[data-skin="baseline"][data-theme="light"] aside button {
+  color: #d1d5db;
+}

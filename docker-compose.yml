@@ -1,0 +1,125 @@
+name: memento
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: memento_postgres
+    environment:
+      POSTGRES_DB: memento
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for Celery broker + cache)
+  redis:
+    image: redis:7-alpine
+    container_name: memento_redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO (S3-compatible storage for large files)
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # BGE-M3 embedding server runs on host (MPS GPU acceleration)
+  # Start: launchctl load ~/Library/LaunchAgents/com.memento.embedding.plist
+  # API connects via host.docker.internal:8002
+
+  # FastAPI server
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: memento_api
+    ports:
+      - "8001:8000"
+    environment:
+      MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/memento
+      MEMENTO_REDIS_URL: redis://redis:6379/0
+      MEMENTO_PORT: "8000"
+      MEMENTO_S3_ENDPOINT: http://minio:9000
+      MEMENTO_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MEMENTO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MEMENTO_COLLECTOR_TOKEN: ${MEMENTO_COLLECTOR_TOKEN:-collector-dev-token}
+      MEMENTO_SECRET_KEY: ${MEMENTO_SECRET_KEY:-change-me-in-production}
+      MEMENTO_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
+      MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
+      MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
+      MEMENTO_EMBEDDING_SERVER_URL: http://host.docker.internal:8002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  # Celery worker (async tasks: AI summaries)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command: celery -A server.tasks.celery_app worker --loglevel=info
+    environment:
+      MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/memento
+      MEMENTO_REDIS_URL: redis://redis:6379/0
+      MEMENTO_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
+      MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
+      MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery beat (scheduled tasks: daily digest)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    command: celery -A server.tasks.celery_app beat --loglevel=info
+    environment:
+      MEMENTO_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Next.js frontend
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: memento_web
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,41 @@
+[project]
+name = "memento-brain-memory"
+version = "0.0.1"
+description = "MCP Memory Server — personal AI memory powered by Memento data"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "ddong8"}]
+keywords = ["memento", "mcp", "memory", "ai", "claude", "knowledge-graph"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "mcp>=1.26",
+    "asyncpg>=0.30",
+    "sqlalchemy[asyncio]>=2.0",
+    "pgvector>=0.3",
+    "openai>=1.30",
+    "httpx>=0.27",
+]
+
+[project.urls]
+Homepage = "https://github.com/ddong8/memento"
+Repository = "https://github.com/ddong8/memento"
+Issues = "https://github.com/ddong8/memento/issues"
+
+[project.scripts]
+# Primary — matches pkg name
+memento-brain-memory = "mcp_server.__main__:main"
+# Short alias — back-compat and convenience
+memento-memory = "mcp_server.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_server"]

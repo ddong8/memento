@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memento.embedding</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python}</string>
+        <string>-m</string>
+        <string>server.services.embedding_server</string>
+        <string>--port</string>
+        <string>8002</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{repo}/server</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>{logdir}/embedding_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{logdir}/embedding_stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTORCH_ENABLE_MPS_FALLBACK</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>{path}</string>
+    </dict>
+</dict>
+</plist>

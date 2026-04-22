@@ -176,6 +176,10 @@ class DailySummary(Base):
     __tablename__ = "daily_summaries"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # user_id scopes the summary to its owner. Historically this table was
+    # global (single AI digest per date per tool across the whole instance),
+    # which leaked one user's aggregated activity to every other user.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     summary_date: Mapped[date] = mapped_column(Date, nullable=False)
     tool_id: Mapped[str | None] = mapped_column(ForeignKey("tools.id"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
@@ -186,7 +190,9 @@ class DailySummary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        Index("uq_daily_summary_date_tool", "summary_date", "tool_id", unique=True),
+        # Uniqueness now includes user_id so each user gets their own summary.
+        Index("uq_daily_summary_user_date_tool", "user_id", "summary_date", "tool_id", unique=True),
+        Index("idx_daily_summary_user", "user_id"),
     )
 
 

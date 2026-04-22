@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth-context";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { Icon, ToolGlyph, PlatformGlyph } from "@/components/aurora/Icon";
 
@@ -19,6 +20,7 @@ type IconName = Parameters<typeof Icon>[0]["name"];
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const { t } = useI18n();
+  const { user } = useAuth();
   const [devices, setDevices] = useState<SidebarDevice[]>([]);
 
   useEffect(() => {
@@ -45,13 +47,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     return devices.length > 1 && id !== currentDeviceId;
   };
 
+  const isAdmin = user?.role === "admin" || user?.role === "owner";
   const STATIC_NAV: { href: string; label: string; icon: IconName }[] = [
     { href: "/projects", label: t.nav.projects, icon: "folder" },
     { href: "/memory", label: t.nav.memory || "Memory", icon: "brain" },
     { href: "/daily", label: t.nav.daily, icon: "calendar" },
     { href: "/search", label: t.nav.search, icon: "search" },
     { href: "/devices", label: t.nav.devices, icon: "devices" },
-    { href: "/admin", label: t.nav.admin, icon: "lock" },
+    ...(isAdmin ? [{ href: "/admin", label: t.nav.admin, icon: "lock" as IconName }] : []),
   ];
 
   const OVERVIEW_HREF = "/app";

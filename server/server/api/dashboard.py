@@ -168,7 +168,15 @@ async def get_dashboard(
     doc_count_q = _apply_device_filter(doc_count_q, device_id)
     doc_count_q = apply_user_filter(doc_count_q, mids, Document.machine_id)
     total_docs = (await db.execute(doc_count_q)).scalar() or 0
-    total_projects = (await db.execute(select(func.count()).select_from(Project))).scalar() or 0
+    # Count only projects the user has ingested into — Project has no user_id,
+    # so scope via Document.machine_id → Machine.user_id (same path as mids).
+    proj_count_q = (
+        select(func.count(func.distinct(Document.project_id)))
+        .where(Document.project_id.isnot(None))
+    )
+    proj_count_q = _apply_device_filter(proj_count_q, device_id)
+    proj_count_q = apply_user_filter(proj_count_q, mids, Document.machine_id)
+    total_projects = (await db.execute(proj_count_q)).scalar() or 0
 
     return {
         "tools": tools,

@@ -48,7 +48,7 @@ async def get_conversation(
     related_plans = []
     session_id = doc.metadata_.get("session_id") or doc.metadata_.get("cascade_id")
     if session_id and doc.tool_id == "antigravity":
-        plans_result = await db.execute(
+        plans_q = (
             select(Document)
             .where(
                 Document.tool_id == "antigravity",
@@ -57,6 +57,11 @@ async def get_conversation(
             )
             .order_by(Document.synced_at.desc())
         )
+        # Scope related plans to same user — matching session_id alone could
+        # surface another user's brain artifacts if they happened to share an ID.
+        if mids is not None:
+            plans_q = plans_q.where(Document.machine_id.in_(mids))
+        plans_result = await db.execute(plans_q)
         for p in plans_result.scalars().all():
             # Skip resolved versions and metadata JSON
             if ".resolved" in p.relative_path or ".metadata.json" in p.relative_path:

@@ -144,10 +144,11 @@ async def get_daily(
 
     total_messages = sum(c["user_messages"] + c["assistant_messages"] for c in conversations)
 
-    # Get daily summaries
-    summary_result = await db.execute(
-        select(DailySummary).where(DailySummary.summary_date == target_date)
-    )
+    # Get daily summaries — scoped to the current user. admin/owner see all.
+    summary_q = select(DailySummary).where(DailySummary.summary_date == target_date)
+    if _user.role not in ("admin", "owner"):
+        summary_q = summary_q.where(DailySummary.user_id == _user.id)
+    summary_result = await db.execute(summary_q)
     summaries = summary_result.scalars().all()
 
     return {
@@ -250,10 +251,12 @@ async def get_daily_summary(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
 
-    result = await db.execute(
-        select(DailySummary)
-        .where(DailySummary.summary_date == target_date, DailySummary.tool_id.is_(None))
+    q = select(DailySummary).where(
+        DailySummary.summary_date == target_date,
+        DailySummary.tool_id.is_(None),
+        DailySummary.user_id == _user.id,
     )
+    result = await db.execute(q)
     summary = result.scalar_one_or_none()
 
     if not summary:
@@ -346,10 +349,14 @@ async def generate_daily_summary_endpoint(
     if not summary_text:
         raise HTTPException(status_code=500, detail="AI summary generation failed")
 
-    # Upsert daily summary
+    # Upsert daily summary for this user
     existing = await db.execute(
         select(DailySummary)
-        .where(DailySummary.summary_date == target_date, DailySummary.tool_id.is_(None))
+        .where(
+            DailySummary.summary_date == target_date,
+            DailySummary.tool_id.is_(None),
+            DailySummary.user_id == _user.id,
+        )
     )
     summary = existing.scalar_one_or_none()
 
@@ -358,6 +365,7 @@ async def generate_daily_summary_endpoint(
         summary.summary = summary_text
     else:
         summary = DailySummary(
+            user_id=_user.id,
             summary_date=target_date,
             tool_id=None,
             title=f"AI 日报 - {date_str}",

@@ -40,6 +40,33 @@ def _run_migrations(conn) -> None:
     if "collector_token" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN collector_token VARCHAR(64) UNIQUE"))
 
+    # DailySummary.user_id + swap unique index so each user has their own digest
+    # per date+tool. Before this, the table was globally scoped and any user's
+    # call to /generate-summary wrote a summary visible to every other user.
+    if "daily_summaries" in tables:
+        ds_cols = {c["name"] for c in insp.get_columns("daily_summaries")}
+        if "user_id" not in ds_cols:
+            conn.execute(text(
+                "ALTER TABLE daily_summaries ADD COLUMN user_id UUID "
+                "REFERENCES users(id) ON DELETE CASCADE"
+            ))
+        # Drop old (summary_date, tool_id) unique index if present; create the
+        # user-scoped one. Wrapped in savepoints so the overall tx doesn't abort
+        # if the old index name varies or already exists.
+        for stmt in (
+            "DROP INDEX IF EXISTS uq_daily_summary_date_tool",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_summary_user_date_tool "
+            "ON daily_summaries (user_id, summary_date, tool_id)",
+            "CREATE INDEX IF NOT EXISTS idx_daily_summary_user "
+            "ON daily_summaries (user_id)",
+        ):
+            sp2 = conn.begin_nested()
+            try:
+                conn.execute(text(stmt))
+                sp2.commit()
+            except Exception:
+                sp2.rollback()
+
     # Data migration: assign owner token + bind existing machines to owner
     result = conn.execute(text(
         "SELECT id, collector_token FROM users WHERE role = 'owner' AND status = 'active' LIMIT 1"

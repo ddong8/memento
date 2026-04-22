@@ -248,9 +248,20 @@ async def send_command(
 async def send_command_by_collector_id(
     collector_id: str,
     action: str = "resync",
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Send a command using the collector's device_id (survives purge)."""
+    # Authorize: non-admin can only command devices they own. Without this,
+    # a logged-in user could guess/obtain another user's collector token hash
+    # and force resync/purge on their device.
+    result = await db.execute(
+        select(Machine).where(Machine.collector_token_hash == collector_id)
+    )
+    machine = result.scalar_one_or_none()
+    if _user.role not in ("admin", "owner"):
+        if not machine or machine.user_id != _user.id:
+            raise HTTPException(status_code=404, detail="Device not found")
     cmd_id = _enqueue_command(collector_id, action)
     return {"status": "queued", "command_id": cmd_id, "action": action}
 

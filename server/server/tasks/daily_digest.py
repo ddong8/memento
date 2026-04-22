@@ -68,7 +68,14 @@ async def _generate_digest(target_date: date) -> None:
         await db.commit()
 
 
-@celery_app.task(name="server.tasks.daily_digest.generate_daily_digest")
+@celery_app.task(
+    name="server.tasks.daily_digest.generate_daily_digest",
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_backoff_max=600,
+    acks_late=True,
+)
 def generate_daily_digest(date_str: str | None = None) -> str:
     """Generate the daily digest. Defaults to today."""
     target = date.fromisoformat(date_str) if date_str else date.today()

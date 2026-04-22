@@ -114,6 +114,11 @@ class Document(Base):
     # State
     visibility: Mapped[str] = mapped_column(String(20), default="private")
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Tracks the outcome of the embedding pipeline so failures don't silently
+    # drop documents. Values: pending (just ingested), ok (embedded), failed
+    # (call errored — retry candidate), skipped (too short / binary — intentional).
+    embedding_status: Mapped[str] = mapped_column(String(20), default="pending")
+    embedding_attempts: Mapped[int] = mapped_column(Integer, default=0)
 
     # Timestamps
     source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

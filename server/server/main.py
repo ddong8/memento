@@ -40,6 +40,39 @@ def _run_migrations(conn) -> None:
     if "collector_token" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN collector_token VARCHAR(64) UNIQUE"))
 
+    # Document.embedding_status + embedding_attempts: tracks whether the
+    # embedding pipeline produced vectors so failures can be retried instead
+    # of silently dropped. Existing rows get 'ok' if they already have any
+    # embedding rows, else 'pending' — the periodic retry task picks those up.
+    doc_cols = {c["name"] for c in insp.get_columns("documents")}
+    if "embedding_status" not in doc_cols:
+        conn.execute(text(
+            "ALTER TABLE documents ADD COLUMN embedding_status VARCHAR(20) "
+            "NOT NULL DEFAULT 'pending'"
+        ))
+        # Classify existing rows so retry loop (which scans 'failed' only)
+        # picks up historical ingest failures without blasting the embedding
+        # server with docs that were legitimately skipped.
+        conn.execute(text(
+            "UPDATE documents SET embedding_status = 'ok' "
+            "WHERE id IN (SELECT DISTINCT document_id FROM document_embeddings)"
+        ))
+        conn.execute(text(
+            "UPDATE documents SET embedding_status = 'skipped' "
+            "WHERE embedding_status = 'pending' "
+            "AND (content IS NULL OR LENGTH(content) < 100 "
+            "     OR content_type IN ('sqlite', 'sqlite_export', 'binary'))"
+        ))
+        conn.execute(text(
+            "UPDATE documents SET embedding_status = 'failed' "
+            "WHERE embedding_status = 'pending'"
+        ))
+    if "embedding_attempts" not in doc_cols:
+        conn.execute(text(
+            "ALTER TABLE documents ADD COLUMN embedding_attempts INTEGER "
+            "NOT NULL DEFAULT 0"
+        ))
+
     # DailySummary.user_id + swap unique index so each user has their own digest
     # per date+tool. Before this, the table was globally scoped and any user's
     # call to /generate-summary wrote a summary visible to every other user.
@@ -101,6 +134,12 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_documents_title_trgm ON documents USING gin (title gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_documents_path_trgm ON documents USING gin (relative_path gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_documents_content_trgm ON documents USING gin (content gin_trgm_ops)",
+        # Vector ANN index for semantic search. Without this, /api/memory/semantic
+        # seq-scans document_embeddings — fine at 50 rows, fatal at 1M. HNSW
+        # preferred over IVFFlat: no training step, better recall, pgvector
+        # 0.5+ required. Dim must match Vector(1024) in DocumentEmbedding.
+        "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw "
+        "ON document_embeddings USING hnsw (embedding vector_cosine_ops)",
     ):
         sp = conn.begin_nested()
         try:

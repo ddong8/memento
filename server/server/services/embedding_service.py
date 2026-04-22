@@ -89,15 +89,25 @@ async def _call_embedding_server(texts: list[str]) -> list[list[float]] | None:
 
 
 async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
-    """Generate and store embeddings for a document. Returns count of chunks created."""
+    """Generate and store embeddings for a document. Returns count of chunks created.
+
+    Writes ``doc.embedding_status`` so the retry loop in
+    ``server.tasks.embedding_retry`` can find and reprocess failed docs instead
+    of letting them rot silently.
+    """
+    doc.embedding_attempts = (doc.embedding_attempts or 0) + 1
+
     if not doc.content or len(doc.content) < 100:
+        doc.embedding_status = "skipped"
         return 0
 
     if doc.content_type in ("sqlite", "sqlite_export", "binary"):
+        doc.embedding_status = "skipped"
         return 0
 
     chunks = _chunk_text(doc.content)
     if not chunks:
+        doc.embedding_status = "skipped"
         return 0
 
     # Cap at 50 chunks per document (~100KB) to avoid overloading embedding server
@@ -106,10 +116,12 @@ async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
     logger.info("Embedding %d chunks for %s", len(chunks), doc.relative_path)
     embeddings = await _call_embedding_server(chunks)
     if embeddings is None:
+        doc.embedding_status = "failed"
         return 0
 
     if len(embeddings[0]) != EMBEDDING_DIM:
         logger.warning("Embedding dim mismatch: got %d, expected %d", len(embeddings[0]), EMBEDDING_DIM)
+        doc.embedding_status = "failed"
         return 0
 
     # Clear old embeddings
@@ -127,5 +139,6 @@ async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
         ))
 
     await db.flush()
+    doc.embedding_status = "ok"
     logger.info("Generated %d embeddings for %s/%s", len(chunks), doc.tool_id, doc.relative_path)
     return len(chunks)

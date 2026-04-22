@@ -43,7 +43,14 @@ async def _generate_summary(document_id: str) -> None:
             await db.commit()
 
 
-@celery_app.task(name="server.tasks.summary_tasks.generate_document_summary_task")
+@celery_app.task(
+    name="server.tasks.summary_tasks.generate_document_summary_task",
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_backoff_max=600,
+    acks_late=True,
+)
 def generate_document_summary_task(document_id: str) -> str:
     """Celery task wrapper for async summary generation."""
     asyncio.run(_generate_summary(document_id))

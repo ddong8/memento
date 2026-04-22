@@ -354,11 +354,13 @@ export const api = {
     if (tool) params.set("tool", tool);
     return apiFetch<SearchResult>(`/api/search?${params}`);
   },
-  register: (email: string, password: string, name?: string) =>
+  register: (email: string, password: string, name?: string, inviteCode?: string) =>
     apiFetch<UserInfo>("/api/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, invite_code: inviteCode }),
     }),
+  getRegistrationMode: () =>
+    apiFetch<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean }>("/api/auth/registration-mode"),
   login: (email: string, password: string) =>
     apiFetch<TokenResponse>("/api/auth/login", {
       method: "POST",

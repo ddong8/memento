@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
-import type { UserInfo } from "@/lib/api-client";
+import { api, type UserInfo } from "@/lib/api-client";
 
 // Defined at module scope — NOT inside RegisterPage. Otherwise every keystroke
 // re-creates the component type and React remounts the subtree, stealing focus.
@@ -25,16 +25,22 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState<UserInfo | null>(null);
+  const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean } | null>(null);
   const { register } = useAuth();
   const { t } = useI18n();
+
+  useEffect(() => {
+    api.getRegistrationMode().then(setMode).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     try {
-      const info = await register(email, password, name || undefined);
+      const info = await register(email, password, name || undefined, inviteCode || undefined);
       setRegistered(info);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t.auth.invalidCredentials);
@@ -112,6 +118,14 @@ export default function RegisterPage() {
       <p style={{ margin: "6px 0 22px", fontSize: 13, color: "var(--aurora-fg3)", textAlign: "center" }}>
         {t.app.title}
       </p>
+      {mode?.mode === "closed" && mode.has_any_user && (
+        <div style={{
+          padding: 10, borderRadius: 10, marginBottom: 12,
+          background: "rgba(239,68,68,0.10)", color: "#B91C1C", fontSize: 13,
+        }}>
+          {t.auth.registrationClosed}
+        </div>
+      )}
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {error && (
           <div
@@ -129,7 +143,24 @@ export default function RegisterPage() {
         <GhostInput type="text" placeholder={t.auth.name} value={name} onChange={(e) => setName(e.target.value)} icon="user" />
         <GhostInput type="email" placeholder={t.auth.email} value={email} onChange={(e) => setEmail(e.target.value)} required icon="message" />
         <GhostInput type="password" placeholder={t.auth.password} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} icon="lock" />
-        <Btn type="submit" size="lg" style={{ marginTop: 6, width: "100%", justifyContent: "center" }} iconRight="arrow_right">
+        {/* Invite code: required if mode=invite_only (and not first user), optional otherwise */}
+        {mode && !(mode.mode === "open" && !mode.has_any_user /* first-user shortcut */) && (
+          <GhostInput
+            type="text"
+            placeholder={mode.mode === "invite_only" ? t.auth.inviteCodeRequired : t.auth.inviteCodeOptional}
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value)}
+            required={mode.mode === "invite_only" && mode.has_any_user}
+            icon="sparkles"
+          />
+        )}
+        <Btn
+          type="submit"
+          size="lg"
+          style={{ marginTop: 6, width: "100%", justifyContent: "center" }}
+          iconRight="arrow_right"
+          disabled={mode?.mode === "closed" && mode.has_any_user}
+        >
           {t.register}
         </Btn>
       </form>

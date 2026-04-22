@@ -9,7 +9,7 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string) => Promise<UserInfo>;
+  register: (email: string, password: string, name?: string, inviteCode?: string) => Promise<UserInfo>;
   logout: () => void;
   refreshMe: () => Promise<UserInfo | null>;
   setUser: (u: UserInfo | null) => void;
@@ -68,8 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(me);
   };
 
-  const register = async (email: string, password: string, name?: string) => {
-    return await api.register(email, password, name);
+  const register = async (email: string, password: string, name?: string, inviteCode?: string) => {
+    return await api.register(email, password, name, inviteCode);
   };
 
   const logout = () => {

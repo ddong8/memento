@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
+    # Registration control:
+    #   open        — anyone can self-register (pending, needs admin approval)
+    #   invite_only — must provide a valid invite_code at registration
+    #   closed      — registration endpoint refuses everyone
+    registration_mode: str = "open"
+
     def validate_production(self) -> None:
         """Refuse to start with dev defaults when debug is off."""
         bad = []

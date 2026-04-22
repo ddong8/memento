@@ -98,11 +98,31 @@ class RemoteClient:
 
     # --- Memory search ---
     async def search(self, query: str, limit: int = 5, tool_filter: str | None = None) -> list[dict]:
+        """Semantic (vector) search first; if the embedding server is down or
+        returns nothing, fall back to trigram title/path match so callers still
+        get *some* result for direct keyword lookups."""
+        sem_params: dict = {"q": query, "limit": limit}
+        if tool_filter:
+            sem_params["tool_filter"] = tool_filter
+        sem = await self._get("/api/memory/semantic", sem_params)
+        if isinstance(sem, dict) and sem.get("results"):
+            return sem["results"]
+
         params = {"q": query, "limit": limit}
         if tool_filter:
             params["tool"] = tool_filter
         result = await self._get("/api/search", params)
         return result.get("results", []) if isinstance(result, dict) else []
+
+    # --- Memory store ---
+    async def store_observation(
+        self, content: str, entity_name: str | None, entity_type: str,
+    ) -> dict:
+        return await self._post("/api/memory/observations", {
+            "content": content,
+            "entity_name": entity_name,
+            "entity_type": entity_type,
+        })
 
     # --- Projects ---
     async def list_projects(self) -> list[dict]:

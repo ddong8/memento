@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -321,3 +322,122 @@ async def reset_memory(
             "embeddings": embs,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Direct memory writes — MCP memory_store tool calls this
+# ---------------------------------------------------------------------------
+class ObservationCreate(BaseModel):
+    content: str
+    entity_name: str | None = None
+    entity_type: str = "concept"
+
+
+@router.post("/observations")
+async def create_observation(
+    body: ObservationCreate,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Store a free-form memory observation attached to a (possibly new) entity.
+
+    Closes the previous remote-mode stub in mcp_server — memory_store now
+    actually persists. Always scoped to the calling user via user_id; the
+    unique constraint (user_id, name, entity_type) upserts entities across
+    repeated stores with the same name.
+    """
+    name = (body.entity_name or "").strip() or "Note"
+    etype = (body.entity_type or "concept").strip() or "concept"
+
+    existing = (await db.execute(
+        select(KnowledgeEntity).where(
+            KnowledgeEntity.user_id == _user.id,
+            KnowledgeEntity.name == name,
+            KnowledgeEntity.entity_type == etype,
+        ).limit(1)
+    )).scalar_one_or_none()
+
+    if existing is None:
+        entity = KnowledgeEntity(user_id=_user.id, name=name, entity_type=etype)
+        db.add(entity)
+        await db.flush()
+    else:
+        entity = existing
+
+    obs = KnowledgeObservation(entity_id=entity.id, content=body.content)
+    db.add(obs)
+    await db.commit()
+    return {
+        "status": "stored",
+        "entity_id": str(entity.id),
+        "entity_name": entity.name,
+        "observation_id": str(obs.id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Vector-backed semantic search over DocumentEmbedding
+# ---------------------------------------------------------------------------
+@router.get("/semantic")
+async def semantic_search(
+    q: str = Query(..., min_length=1, max_length=1000),
+    limit: int = Query(5, ge=1, le=20),
+    tool_filter: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Semantic search over document chunks via BGE-M3 embeddings.
+
+    Embeds the query against the host-side embedding server, ranks
+    DocumentEmbedding rows by pgvector cosine distance, deduplicates by
+    document keeping the best-scoring chunk's text as snippet. Returns empty
+    list if the embedding server is unavailable — caller should fall back to
+    substring search.
+    """
+    from ..services.embedding_service import _call_embedding_server
+
+    mids = await user_machine_ids(db, _user)
+
+    embeds = await _call_embedding_server([q])
+    if not embeds or not embeds[0]:
+        return {"results": [], "note": "embedding-server-unavailable"}
+
+    qvec = embeds[0]
+    dist_col = DocumentEmbedding.embedding.cosine_distance(qvec).label("dist")
+
+    stmt = (
+        select(
+            DocumentEmbedding.chunk_text,
+            Document.id, Document.tool_id, Document.title,
+            Document.relative_path, Document.category, Document.synced_at,
+            dist_col,
+        )
+        .join(Document, DocumentEmbedding.document_id == Document.id)
+        .order_by(dist_col.asc())
+        .limit(limit * 4)  # Overfetch: multiple chunks per doc; we'll dedup
+    )
+    if tool_filter:
+        stmt = stmt.where(Document.tool_id == tool_filter)
+    if mids is not None:
+        stmt = stmt.where(Document.machine_id.in_(mids))
+
+    rows = (await db.execute(stmt)).all()
+
+    seen: dict = {}
+    for chunk, did, tid, title, rpath, cat, synced, dist in rows:
+        if did in seen:
+            continue
+        seen[did] = {
+            "id": str(did),
+            "tool_id": tid,
+            "title": title or (rpath.split("/")[-1] if rpath else ""),
+            "relative_path": rpath,
+            "category": cat,
+            "snippet": (chunk or "")[:400],
+            "synced_at": synced.isoformat() if synced else None,
+            "score": round(1.0 - float(dist), 4),
+        }
+        if len(seen) >= limit:
+            break
+
+    return {"results": list(seen.values())}

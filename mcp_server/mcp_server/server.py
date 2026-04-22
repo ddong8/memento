@@ -150,8 +150,16 @@ async def memory_recall(
             except Exception:
                 continue
 
-        # Filter by date and project
-        filtered = [f for f in all_files if (f.get("synced_at") or "") >= cutoff_str]
+        # Filter by date and project; drop subagent noise (.meta.json sidecars
+        # and .resolved transient files) which pollute recent-conversation lists.
+        def _noise(path: str) -> bool:
+            p = path or ""
+            return p.endswith(".meta.json") or ".resolved" in p
+        filtered = [
+            f for f in all_files
+            if (f.get("synced_at") or "") >= cutoff_str
+            and not _noise(f.get("relative_path", ""))
+        ]
         if project:
             filtered = [f for f in filtered if project.lower() in (f.get("relative_path") or "").lower()]
 
@@ -218,7 +226,10 @@ async def memory_context(project_name: str) -> str:
         parts.append(f"**Tool**: {project.get('tool_id', '')}")
         if project.get("source_path"):
             parts.append(f"**Path**: `{project['source_path']}`")
-        docs = project.get("documents", [])
+        def _noise(d: dict) -> bool:
+            p = d.get("relative_path", "") or ""
+            return p.endswith(".meta.json") or ".resolved" in p
+        docs = [d for d in project.get("documents", []) if not _noise(d)]
         if docs:
             parts.append(f"\n## Documents ({len(docs)})")
             for d in docs[:10]:
@@ -247,7 +258,14 @@ async def memory_store(
         entity_type: Entity type (project/tool/concept/person/technology)
     """
     if _remote:
-        return f"Noted: {content[:200]}... (remote storage coming soon)"
+        try:
+            res = await _remote.store_observation(content, entity_name, entity_type)
+        except Exception as e:
+            return f"Store failed: {e}"
+        return (
+            f"Stored observation on entity **{res.get('entity_name', entity_name or 'Note')}** "
+            f"({res.get('entity_id', '')[:8]}…)"
+        )
 
     from .graph import store_observation
     async with _session_factory() as db:

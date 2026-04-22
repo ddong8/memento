@@ -100,7 +100,7 @@ export default function AdminPage() {
       {tab === "invites" && <InvitesTab headers={headers} flash={flash} />}
       {tab === "perms" && <PermissionsTab headers={headers} flash={flash} />}
       {tab === "audit" && <AuditTab headers={headers} />}
-      {tab === "sync" && <SyncStatusTab headers={headers} />}
+      {tab === "sync" && <SyncStatusTab headers={headers} flash={flash} />}
     </div>
   );
 }
@@ -696,16 +696,50 @@ function AuditTab({ headers }: { headers: Headers }) {
 // Sync status tab
 // ──────────────────────────────────────────────────────────────────────────
 
-function SyncStatusTab({ headers }: { headers: Headers }) {
+function SyncStatusTab({ headers, flash }: { headers: Headers; flash: Flash }) {
   const { t, locale } = useI18n();
   const [rows, setRows] = useState<SyncStatus[]>([]);
+  const [vacuuming, setVacuuming] = useState(false);
   const dateFmt = locale === "zh-CN" ? "zh-CN" : "en-US";
 
   useEffect(() => {
     authFetch(`${getApiBase()}/api/admin/sync/status`, { headers }).then((r) => r.json()).then(setRows).catch(() => {});
   }, [headers]);
 
+  const handleVacuum = async () => {
+    if (!confirm(t.admin.memoryVacuumConfirm)) return;
+    setVacuuming(true);
+    try {
+      const r = await authFetch(`${getApiBase()}/api/memory/vacuum`, { method: "POST", headers });
+      const d = await r.json();
+      flash("ok", fmt(t.admin.memoryVacuumSuccess, {
+        ents: String(d.entities_deleted ?? 0),
+        rels: String(d.relations_deleted ?? 0),
+      }));
+    } catch (e) {
+      flash("err", e instanceof Error ? e.message : "vacuum failed");
+    } finally {
+      setVacuuming(false);
+    }
+  };
+
   return (
+    <>
+      <Glass padding={16} radius={20} style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--aurora-fg1)" }}>
+              {t.admin.memoryVacuum}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 4, lineHeight: 1.5 }}>
+              {t.admin.memoryVacuumHint}
+            </div>
+          </div>
+          <Btn size="sm" icon="refresh" onClick={handleVacuum} disabled={vacuuming}>
+            {vacuuming ? "…" : t.admin.memoryVacuum}
+          </Btn>
+        </div>
+      </Glass>
     <Glass padding={6} radius={20}>
       {rows.map((s, i) => (
         <div key={s.tool_id} style={{
@@ -730,6 +764,7 @@ function SyncStatusTab({ headers }: { headers: Headers }) {
         </div>
       ))}
     </Glass>
+    </>
   );
 }
 

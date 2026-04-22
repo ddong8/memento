@@ -230,6 +230,11 @@ const zhCN = {
     deleteConfirm: "确定要删除设备 {name} 吗？\n\n将彻底清除：设备记录、所有文档/对话/嵌入、相关知识图谱观察、孤立项目。此操作不可逆！",
     deleteSuccess: "已删除设备 {name}（清除 {count} 个文档）",
     docsCount: "{count} 个文件",
+    // Memory maintenance
+    memoryVacuum: "清理孤儿记忆",
+    memoryVacuumHint: "清掉观察记录已被删光的僵尸实体和它们的关系（不影响活跃实体）。",
+    memoryVacuumConfirm: "确定要清理零观察记录的记忆实体吗？",
+    memoryVacuumSuccess: "已清理 {ents} 个实体 + {rels} 条关系",
     // Tabs
     tabUsers: "用户",
     tabDevices: "设备",

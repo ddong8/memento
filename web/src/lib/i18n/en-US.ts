@@ -220,6 +220,11 @@ const enUS: Translations = {
     deleteConfirm: "Delete device {name}?\n\nThis permanently removes: the device record, all documents/messages/embeddings, related knowledge observations, and orphaned projects. This cannot be undone!",
     deleteSuccess: "Device {name} deleted ({count} documents removed)",
     docsCount: "{count} files",
+    // Memory maintenance
+    memoryVacuum: "Vacuum orphan memory",
+    memoryVacuumHint: "Drop zombie entities whose observations have all been deleted, plus their relations (active entities are untouched).",
+    memoryVacuumConfirm: "Delete knowledge entities that have zero observations left?",
+    memoryVacuumSuccess: "Vacuumed {ents} entities + {rels} relations",
     // Tabs
     tabUsers: "Users",
     tabDevices: "Devices",

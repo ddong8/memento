@@ -441,3 +441,61 @@ async def semantic_search(
             break
 
     return {"results": list(seen.values())}
+
+
+# ---------------------------------------------------------------------------
+# Vacuum — drop entities that ended up with zero observations
+# ---------------------------------------------------------------------------
+@router.post("/vacuum")
+async def vacuum_memory(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Remove 'zombie' knowledge entities that no longer have any observations.
+
+    Why this exists: `_purge_device_data` already drops orphan entities inline
+    when it deletes a device, but that cleanup was added after the product
+    shipped — older installations still carry zero-observation entities from
+    pre-cleanup device deletes. This endpoint is a one-shot/on-demand sweep
+    so admin can nuke them without shelling into psql.
+
+    Scope: non-admin hits only their own entities (user_id = _user.id).
+    admin/owner cleans globally.
+    """
+    from sqlalchemy import delete
+
+    admin = _is_admin(_user)
+
+    orphan_q = select(KnowledgeEntity.id).where(
+        ~KnowledgeEntity.id.in_(
+            select(KnowledgeObservation.entity_id).where(
+                KnowledgeObservation.entity_id.isnot(None)
+            )
+        )
+    )
+    if not admin:
+        orphan_q = orphan_q.where(KnowledgeEntity.user_id == _user.id)
+
+    orphan_ids = [r[0] for r in (await db.execute(orphan_q)).all()]
+    rels_deleted = 0
+    ents_deleted = 0
+    if orphan_ids:
+        r1 = await db.execute(
+            delete(KnowledgeRelation).where(
+                KnowledgeRelation.source_id.in_(orphan_ids)
+                | KnowledgeRelation.target_id.in_(orphan_ids)
+            )
+        )
+        rels_deleted = r1.rowcount or 0
+        r2 = await db.execute(
+            delete(KnowledgeEntity).where(KnowledgeEntity.id.in_(orphan_ids))
+        )
+        ents_deleted = r2.rowcount or 0
+
+    await db.commit()
+    return {
+        "status": "vacuumed",
+        "scope": "all" if admin else "self",
+        "entities_deleted": ents_deleted,
+        "relations_deleted": rels_deleted,
+    }

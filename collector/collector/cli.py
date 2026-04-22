@@ -19,7 +19,9 @@ WIN_TASK_NAME = "MementoCollector"
 # don't end up with duplicate services running under the old branding.
 _LEGACY_PLIST_NAME = "com.dailyreport.collector"
 _LEGACY_SYSTEMD_UNIT = "daily-report-collector"
-_LEGACY_WIN_TASK_NAME = WIN_TASK_NAME
+# Windows task name *before* rebrand. Keep this as the old string so
+# install/uninstall flow tries to clean it up on upgrade.
+_LEGACY_WIN_TASK_NAME = "DailyReportCollector"
 
 
 # ---------------------------------------------------------------------------
@@ -494,8 +496,19 @@ def _install_windows_task() -> None:
         print(f"  Command: {tr_cmd}")
         print(f"  (no console window)")
     else:
-        print(f"Failed to install: {result.stderr}")
-        print(f"You can run manually: \"{pythonw}\" -m collector.main")
+        stderr = (result.stderr or "").strip()
+        print(f"Failed to install: {stderr}")
+        # Common case on corporate / UAC-restricted Windows: /Create requires
+        # admin when a same-named task already exists under a different
+        # owner. Guide the user toward the two workarounds without making
+        # them chase the error message.
+        print()
+        print("This usually means schtasks needs admin privileges (UAC).")
+        print("Two ways forward:")
+        print("  1. Run PowerShell as Administrator, then rerun: memento-collector setup")
+        print(f"  2. Skip auto-start — run manually whenever you want to sync:")
+        print(f"       memento-collector start")
+        print(f"     Or directly:  \"{pythonw}\" -m collector.main")
 
 
 def _uninstall_windows_task() -> None:

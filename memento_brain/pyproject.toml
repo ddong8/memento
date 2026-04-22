@@ -1,6 +1,6 @@
 [project]
 name = "memento-brain"
-version = "0.0.3"
+version = "0.0.4"
 description = "Memento — a shared brain for your AI coding tools (umbrella/meta package)"
 readme = "README.md"
 license = {text = "MIT"}

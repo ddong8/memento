@@ -25,6 +25,30 @@ _LEGACY_WIN_TASK_NAME = "DailyReportCollector"
 _LEGACY_DATA_DIR = Path.home() / ".daily-report"
 
 
+def _uninstall_legacy_pip_packages() -> None:
+    """Quietly pip-uninstall the pre-rebrand daily-report-* packages if they
+    are still installed. Leaves memento-brain-* alone. Without this, both the
+    new and old modules can coexist in site-packages and `import collector`
+    resolves to whichever comes first on sys.path — usually the old one, so
+    setup ends up running pre-rebrand code even after upgrading.
+    """
+    for pkg in ("daily-report-collector", "daily-report-memory"):
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "pip", "show", pkg],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                continue
+            print(f"Uninstalling legacy package: {pkg}")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "uninstall", "-y", pkg],
+                capture_output=True,
+            )
+        except Exception:
+            pass  # best-effort; not worth aborting setup for
+
+
 def _migrate_legacy_data_dir() -> None:
     """Pre-rebrand users had config + queue databases under ~/.daily-report.
     Copy anything still there into ~/.memento on first setup, so upgrading
@@ -64,6 +88,7 @@ def setup() -> None:
     """
     noninteractive = os.environ.get("MEMENTO_NONINTERACTIVE") == "1"
     _migrate_legacy_data_dir()  # ~/.daily-report → ~/.memento for upgraders
+    _uninstall_legacy_pip_packages()  # purge pre-rebrand daily-report-* packages
     config = CollectorConfig()
     config.ensure_dirs()
     config_path = _default_data_dir() / "config.json"
@@ -298,7 +323,11 @@ def _setup_mcp(server_url: str, token: str) -> None:
 def _inject_mcp_json(config_path: Path, mcp_entry: dict) -> bool:
     """Inject memento-memory into a JSON config file under mcpServers key.
 
-    Merges with existing content (does not overwrite other settings).
+    Merges with existing content (does not overwrite other settings). Also
+    purges pre-rebrand leftover entries (daily-report-memory, any entry whose
+    command/args reference the old daily_report_memory Python module) so a
+    fresh setup on an upgraded machine ends with exactly one memento-memory
+    entry instead of two competing MCP servers.
     """
     try:
         existing = {}
@@ -310,7 +339,18 @@ def _inject_mcp_json(config_path: Path, mcp_entry: dict) -> bool:
         if "mcpServers" not in existing:
             existing["mcpServers"] = {}
 
-        existing["mcpServers"]["memento-memory"] = mcp_entry
+        # Purge legacy entries before writing the new one.
+        servers = existing["mcpServers"]
+        for key in list(servers.keys()):
+            if key in ("daily-report-memory", "dr-memory"):
+                del servers[key]
+                continue
+            entry = servers.get(key) or {}
+            blob = json.dumps(entry)
+            if "daily_report_memory" in blob or "daily-report-memory" in blob:
+                del servers[key]
+
+        servers["memento-memory"] = mcp_entry
 
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -332,14 +372,16 @@ def _inject_codex_mcp(config_path: Path, python_path: str, server_url: str, toke
         if config_path.exists():
             content = config_path.read_text(encoding="utf-8")
 
-        # Check if already configured
-        if "mcp_servers.memento-memory" in content:
-            # Remove old entry (between [mcp_servers.memento-memory] and next [section])
-            import re
+        # Remove any memento-memory or legacy daily-report-memory block. We
+        # always rewrite from scratch so setup is idempotent + stale pre-rebrand
+        # entries don't linger alongside the new one.
+        import re
+        for legacy_key in ("memento-memory", "daily-report-memory", "dr-memory"):
             content = re.sub(
-                r'\[mcp_servers\.memento-memory\].*?(?=\n\[|\Z)',
+                r'\[mcp_servers\.' + re.escape(legacy_key) + r'\].*?(?=\n\[|\Z)',
                 '', content, flags=re.DOTALL,
-            ).strip()
+            )
+        content = content.strip()
 
         # Append new entry
         args_toml = json.dumps(["-m", "mcp_server", "--server", server_url, "--token", token])

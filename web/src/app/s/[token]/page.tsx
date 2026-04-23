@@ -126,7 +126,7 @@ export default function PublicSharePage() {
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--aurora-fg3)" }}>
           <span>{t.share.sharedBy} {meta.owner_name}</span>
-          <Chip tone="info">
+          <Chip tone="accent">
             <Icon name="eye" size={11} style={{ marginRight: 4, verticalAlign: -1 }} />
             {meta.view_count}
           </Chip>
@@ -138,7 +138,7 @@ export default function PublicSharePage() {
         </div>
       </div>
 
-      {payload.kind === "timeline" && <TimelineView data={payload.data} />}
+      {payload.kind === "timeline" && <TimelineView data={payload.data} locale={locale} t={t} />}
       {payload.kind === "daily" && <DailyView data={payload.data} />}
 
       <div style={{ marginTop: 40, textAlign: "center", fontSize: 11, color: "var(--aurora-fg4)" }}>
@@ -156,7 +156,7 @@ function Centered({ msg }: { msg: string }) {
   );
 }
 
-function TimelineView({ data }: { data: TimelineData }) {
+function TimelineView({ data, locale, t }: { data: TimelineData; locale: string; t: ReturnType<typeof useI18n>["t"] }) {
   return (
     <>
       {data.sessions.map((s) => (
@@ -174,6 +174,8 @@ function TimelineView({ data }: { data: TimelineData }) {
                 key={i}
                 msg={{ id: i, line_number: i, role: m.role, content: m.content,
                        tool_name: m.tool_name, tool_input: m.tool_input, timestamp: m.timestamp ?? null }}
+                locale={locale}
+                t={t}
               />
             ))}
           </div>

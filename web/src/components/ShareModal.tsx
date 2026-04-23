@@ -195,7 +195,7 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
                 <a href={publicUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                   <Btn variant="glass" size="sm" icon="external_link">{t.share.openInTab}</Btn>
                 </a>
-                <Chip tone="info">
+                <Chip tone="accent">
                   {t.share.viewCount}: {viewCount}
                 </Chip>
                 {existing.expires_at && (

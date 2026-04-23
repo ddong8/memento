@@ -15,7 +15,7 @@ type IconName =
   | "settings" | "target" | "code" | "terminal" | "edit"
   | "activity" | "zap" | "grid" | "inbox" | "command"
   | "arrow_up" | "arrow_down" | "refresh" | "check" | "close"
-  | "menu" | "trash";
+  | "menu" | "trash" | "link" | "copy" | "external_link" | "eye";
 
 const PATHS: Record<IconName, React.ReactElement> = {
   home: <><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-7h4v7h4a1 1 0 0 0 1-1V10"/></>,
@@ -70,6 +70,10 @@ const PATHS: Record<IconName, React.ReactElement> = {
   close: <path d="M6 6l12 12M18 6l-12 12"/>,
   menu: <path d="M4 6h16M4 12h16M4 18h16"/>,
   trash: <><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></>,
+  link: <><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 1 0-7.07-7.07L11 5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 1 0 7.07 7.07L13 19"/></>,
+  copy: <><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
+  external_link: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14L21 3"/></>,
+  eye: <><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></>,
 };
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name"> {

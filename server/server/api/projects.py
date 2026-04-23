@@ -340,6 +340,7 @@ async def get_project_conversations(
     project_id: uuid.UUID,
     session_offset: int = Query(0, ge=0),
     session_limit: int = Query(10, ge=1, le=50),
+    max_messages_per_session: int = Query(0, ge=0, le=10000),
     order: str = Query("asc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -477,6 +478,14 @@ async def get_project_conversations(
         if messages and messages[0].get("timestamp"):
             messages.sort(key=lambda x: x.get("timestamp") or "")
 
+        # Preview mode: clip to first N messages per session (0 = no limit).
+        # The /timeline page uses this to keep initial payload under a few
+        # hundred KB even for sessions with thousands of tool-heavy turns;
+        # the actual conversation reader passes 0 to get everything.
+        total_msgs = len(messages)
+        if max_messages_per_session and total_msgs > max_messages_per_session:
+            messages = messages[-max_messages_per_session:]
+
         # Get artifacts for this session
         artifacts = []
         for p in plans_by_session.get(session_id, []):
@@ -494,8 +503,9 @@ async def get_project_conversations(
             "title": d.title or session_id[:8],
             "conversation_id": str(d.id),
             "timestamp": ts,
-            "message_count": len(messages),
+            "message_count": total_msgs,  # true total, not the clipped count
             "messages": messages,
+            "truncated": bool(max_messages_per_session and total_msgs > max_messages_per_session),
             "artifacts": artifacts,
         })
 

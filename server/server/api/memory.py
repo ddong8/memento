@@ -398,7 +398,9 @@ async def semantic_search(
 
     mids = await user_machine_ids(db, _user)
 
-    embeds = await _call_embedding_server([q])
+    # Short timeout so a stuck BGE-M3 server doesn't stall the MCP client past
+    # its 30s limit (which would surface as "Search failed: " with no message).
+    embeds = await _call_embedding_server([q], timeout=8.0)
     if not embeds or not embeds[0]:
         return {"results": [], "note": "embedding-server-unavailable"}
 

@@ -52,8 +52,16 @@ def _chunk_text(text: str, chunk_chars: int = CHUNK_SIZE, overlap_chars: int = C
     return [c for c in chunks if len(c) > 50]
 
 
-async def _call_embedding_server(texts: list[str]) -> list[list[float]] | None:
-    """Call the external embedding HTTP server."""
+async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> list[list[float]] | None:
+    """Call the external embedding HTTP server.
+
+    timeout: total request timeout per batch. Default 120s is for the
+    ingest/retry path which tolerates long model loads; the interactive
+    query path (``/api/memory/semantic``) should pass a small value (e.g.
+    8s) so a stuck BGE-M3 server doesn't stall the MCP client past its
+    own 30s ceiling, which surfaces as an empty-string ReadTimeout in
+    the user's UI.
+    """
     global _server_available, _last_check_time
     import time
     if _server_available is False and (time.time() - _last_check_time) < 60:
@@ -63,7 +71,7 @@ async def _call_embedding_server(texts: list[str]) -> list[list[float]] | None:
         import httpx
         all_embeddings: list[list[float]] = []
         batch_size = 10
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             for i in range(0, len(texts), batch_size):
                 batch = texts[i:i + batch_size]
                 resp = await client.post(

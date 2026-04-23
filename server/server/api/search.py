@@ -25,16 +25,9 @@ async def search(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
-    """Full-text search over document title, path, and content.
+    """Search documents by title and path (fast, trgm-indexed).
 
-    All three columns have trigram GIN indexes (idx_documents_title_trgm,
-    idx_documents_path_trgm, idx_documents_content_trgm) so ilike with a
-    %-padded pattern is index-scanned, not seq-scan. This is the literal
-    keyword fallback for when BGE-M3 semantic search is unavailable or
-    returns nothing — without the content column here, any keyword that
-    only appears in the body of an ingested doc (e.g. a Kubernetes resource
-    named "PVC" inside a conversation) comes back as "no matches" even
-    though the raw text is in the DB.
+    Content search goes through embedding/semantic search (/api/memory/search).
     """
     mids = await user_machine_ids(db, _user)
     search_term = f"%{q}%"
@@ -43,7 +36,6 @@ async def search(
         or_(
             Document.title.ilike(search_term),
             Document.relative_path.ilike(search_term),
-            Document.content.ilike(search_term),
         )
     )
 

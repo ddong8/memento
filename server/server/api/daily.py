@@ -32,6 +32,16 @@ async def list_daily_dates(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List dates with conversation activity in the last N days."""
+    from ..services.cache import cache_get, cache_set
+    # Cache by (user, days, tz). The underlying GROUP BY on
+    # conversation_messages does a 33K-row seq scan + 65MB block read on cold
+    # cache (2-3s). The answer itself is small and stable across a minute,
+    # so even a short TTL hides the cold path for repeat visits / tab loads.
+    cache_key = f"daily:dates:{_user.id}:{days}:{tz_offset}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     mids = await user_machine_ids(db, _user)
     tz = _user_tz(tz_offset)
     cutoff = datetime.now(tz) - timedelta(days=days)
@@ -59,7 +69,7 @@ async def list_daily_dates(
     q = q.group_by("day").order_by(cast(tz_adjusted, Date).desc())
     result = await db.execute(q)
 
-    return [
+    payload = [
         {
             "date": str(row.day),
             "document_count": row.total,
@@ -68,6 +78,11 @@ async def list_daily_dates(
         }
         for row in result.all()
     ]
+    # 60s TTL — daily list updates only when ingest writes new messages, so
+    # the data lifecycle is "minutes", not seconds. Short enough for users
+    # not to notice staleness on a fresh ingest.
+    await cache_set(cache_key, payload, ttl_seconds=60)
+    return payload
 
 
 @router.get("/{date_str}")
@@ -78,6 +93,12 @@ async def get_daily(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Get all activity for a specific date — built from conversation_messages table."""
+    from ..services.cache import cache_get, cache_set
+    cache_key = f"daily:detail:{_user.id}:{date_str}:{tz_offset}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     mids = await user_machine_ids(db, _user)
 
     try:
@@ -151,7 +172,7 @@ async def get_daily(
     summary_result = await db.execute(summary_q)
     summaries = summary_result.scalars().all()
 
-    return {
+    payload = {
         "date": date_str,
         "total_messages": total_messages,
         "overview": {
@@ -170,6 +191,8 @@ async def get_daily(
             for s in summaries
         ],
     }
+    await cache_set(cache_key, payload, ttl_seconds=60)
+    return payload
 
 
 @router.get("/{date_str}/messages")

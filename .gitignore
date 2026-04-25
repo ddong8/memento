@@ -33,3 +33,7 @@ node_modules/
 Thumbs.db
 .env
 .claude/
+
+# GeoIP DB (downloaded on demand by scripts/download_geoip.sh, ~125MB binary)
+server/data/geoip/
+*.mmdb

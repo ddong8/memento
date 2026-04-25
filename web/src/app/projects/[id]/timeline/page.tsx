@@ -166,6 +166,32 @@ const SessionMessages = memo(function SessionMessages({
   const firstUserMsg = session.messages.find((m) => m.role === "user" && m.content && !m.content.startsWith("[Result]") && !m.content.startsWith("[Tool:"));
   const lastAssistantMsg = [...session.messages].reverse().find((m) => m.role === "assistant" && m.content && !m.content.startsWith("[Tool:"));
 
+  // Snippet renderer: strip the most common markdown syntax so the preview
+  // reads as plain text. Doing real markdown rendering on a 240-char snippet
+  // is fragile (block elements eat the line-clamp; truncated mid-syntax
+  // looks weird). Quick regex pass is good enough for "is this the session
+  // I want to open" decisions.
+  const stripMd = (s: string): string => {
+    return s
+      .replace(/```[\s\S]*?```/g, " ")            // fenced code blocks
+      .replace(/`([^`]+)`/g, "$1")                // inline code
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")      // images
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")    // links → text
+      .replace(/^#+\s+/gm, "")                    // ATX headings
+      .replace(/^\s*[-*+]\s+/gm, "")              // bullet markers
+      .replace(/^\s*\d+\.\s+/gm, "")              // ordered list markers
+      .replace(/^\s*>\s?/gm, "")                  // blockquote markers
+      .replace(/\*\*([^*]+)\*\*/g, "$1")          // bold
+      .replace(/\*([^*]+)\*/g, "$1")              // italic
+      .replace(/__([^_]+)__/g, "$1")              // __bold__
+      .replace(/_([^_]+)_/g, "$1")                // _italic_
+      .replace(/~~([^~]+)~~/g, "$1")              // strikethrough
+      .replace(/\n{2,}/g, " · ")                   // collapse paragraph breaks into a separator
+      .replace(/\n/g, " ")                         // collapse single newlines
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
   // Group consecutive subagent messages for collapsible rendering
   type MsgItem = { msg: SessionMessage; isSubagent: boolean; subagentName: string };
   const items: MsgItem[] = session.messages.map((m) => ({
@@ -258,7 +284,7 @@ const SessionMessages = memo(function SessionMessages({
             <div style={{ display: "flex", gap: 8, marginBottom: lastAssistantMsg ? 8 : 0 }}>
               <span style={{ flexShrink: 0, fontWeight: 600, color: "var(--aurora-accent)" }}>U</span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
-                {firstUserMsg.content.slice(0, 240)}
+                {stripMd(firstUserMsg.content).slice(0, 240)}
               </span>
             </div>
           )}
@@ -266,7 +292,7 @@ const SessionMessages = memo(function SessionMessages({
             <div style={{ display: "flex", gap: 8 }}>
               <span style={{ flexShrink: 0, fontWeight: 600, color: "var(--aurora-fg2)" }}>A</span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
-                {lastAssistantMsg.content.slice(0, 240)}
+                {stripMd(lastAssistantMsg.content).slice(0, 240)}
               </span>
             </div>
           )}

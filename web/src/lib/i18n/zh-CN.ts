@@ -355,7 +355,7 @@ const zhCN = {
     cta_dashboard: "进入面板",
     cta_install: "一键安装",
     hero_title: "你的 AI 编程记忆,一个地方找到",
-    hero_sub: "自动采集 Claude Code / Codex / Cursor / Obsidian 等 6+ 工具的对话、计划、记忆文件,本地部署,跨设备同步。",
+    hero_sub: "自动采集 Claude Code / Codex / Cursor / Hermes / Obsidian 等 7+ 工具的对话、计划、记忆文件,本地部署,跨设备同步。",
     stats_files: "个文件",
     stats_devices: "台设备",
     stats_tools: "个工具",

@@ -16,6 +16,7 @@ export const BRAND_COLORS: Record<string, string> = {
   vscode:      "#2B7CD3",
   antigravity: "#4F46E5",
   openclaw:    "#7C3AED",
+  hermes:      "#0EA5E9",
   notes:       "#F59E0B",
 };
 
@@ -77,6 +78,15 @@ const BRAND_PATHS: Record<BrandId, (fill: string) => React.ReactElement> = {
     <g fill="none" stroke={fill} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 4h10l4 4v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
       <path d="M14 4v5h5M8 13h8M8 17h5" />
+    </g>
+  ),
+  hermes: (fill) => (
+    /* Winged staff (caduceus simplified) — messenger of the gods */
+    <g fill="none" stroke={fill} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="4.5" r="1.6" fill={fill} stroke="none" />
+      <line x1="12" y1="6.5" x2="12" y2="20" />
+      <path d="M12 8c-2-1.2-4-1.2-5.5 0 1.5 1 3.5 1.2 5.5 0z" fill={fill} stroke="none" />
+      <path d="M12 8c2-1.2 4-1.2 5.5 0-1.5 1-3.5 1.2-5.5 0z" fill={fill} stroke="none" />
     </g>
   ),
 };

@@ -9,6 +9,7 @@ export const TOOL_ICONS: Record<string, string> = {
   cursor: "⚡",
   windsurf: "🏄",
   vscode: "💠",
+  hermes: "✦",
 };
 
 export const PLATFORM_ICONS: Record<string, string> = {
@@ -27,6 +28,7 @@ export const TOOL_COLORS: Record<string, string> = {
   cursor: "border-l-cyan-500",
   windsurf: "border-l-teal-500",
   vscode: "border-l-indigo-500",
+  hermes: "border-l-sky-500",
 };
 
 /** Category display icons. */

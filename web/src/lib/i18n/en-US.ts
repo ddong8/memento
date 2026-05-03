@@ -341,7 +341,7 @@ const enUS: Translations = {
     cta_dashboard: "Open dashboard",
     cta_install: "One-line install",
     hero_title: "All your AI coding memory in one place",
-    hero_sub: "Automatically collects conversations, plans, and memory files from 6+ AI coding tools — Claude Code, Codex, Cursor, Obsidian and more. Self-hosted, cross-device.",
+    hero_sub: "Automatically collects conversations, plans, and memory files from 7+ AI coding tools — Claude Code, Codex, Cursor, Hermes, Obsidian and more. Self-hosted, cross-device.",
     stats_files: "files",
     stats_devices: "devices",
     stats_tools: "tools",

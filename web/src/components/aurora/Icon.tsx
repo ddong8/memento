@@ -111,12 +111,13 @@ export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
   cursor:      { h: 190, bg: "linear-gradient(135deg,#22D3EE,#0891B2)" },
   windsurf:    { h: 170, bg: "linear-gradient(135deg,#5EEAD4,#0D9488)" },
   vscode:      { h: 240, bg: "linear-gradient(135deg,#818CF8,#4F46E5)" },
+  hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
 };
 
 export const TOOL_ICON_NAME: Record<string, IconName> = {
   claude_code: "sparkles", openclaw: "octopus", codex: "box",
   antigravity: "rocket", obsidian: "diamond", cursor: "lightning",
-  windsurf: "surf", vscode: "code",
+  windsurf: "surf", vscode: "code", hermes: "zap",
 };
 
 export const PLATFORM_ICON_NAME: Record<string, IconName> = {

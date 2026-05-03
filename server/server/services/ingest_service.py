@@ -26,6 +26,7 @@ TOOL_DISPLAY_NAMES = {
     "antigravity": "Antigravity",
     "obsidian": "Obsidian",
     "cursor": "Cursor",
+    "hermes": "Hermes",
 }
 
 # Re-sanitize patterns (defense-in-depth)

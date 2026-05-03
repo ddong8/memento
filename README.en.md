@@ -45,6 +45,7 @@ graph TB
         CUR["Cursor<br/>~/.cursor"]
         AG["Antigravity<br/>~/.gemini/antigravity"]
         OC["OpenClaw<br/>~/.openclaw"]
+        HM["Hermes<br/>~/.hermes"]
         OBS["Obsidian Vault"]
         COL["memento-brain-collector<br/>watchdog listener<br/>SQLite offline queue<br/>sanitizer on enqueue"]
         CC --- COL
@@ -52,6 +53,7 @@ graph TB
         CUR --- COL
         AG --- COL
         OC --- COL
+        HM --- COL
         OBS --- COL
     end
 
@@ -111,7 +113,7 @@ graph TB
     classDef server fill:#dbeafe,stroke:#2563eb,color:#1e40af
     classDef client fill:#fce7f3,stroke:#db2777,color:#831843
     classDef public fill:#dcfce7,stroke:#16a34a,color:#14532d
-    class CC,CDX,CUR,AG,OC,OBS,COL device
+    class CC,CDX,CUR,AG,OC,HM,OBS,COL device
     class API,WEB,CW,CB,PG,RD,S3,EMB,NGX server
     class MCC,MCDX,MCUR,MAG,MCP client
     class SHARE,GEO public
@@ -158,6 +160,7 @@ sequenceDiagram
 | **Antigravity** | full conversations (built-in `.pb` decryption), plans, code snapshots | Protobuf / Markdown |
 | **Obsidian** | all notes | Markdown |
 | **Cursor** | conversations, skills, MCP config | JSONL / Markdown |
+| **Hermes** | full conversations (incl. tool calls), persona, skills, CLI history | JSON / Markdown / SQLite |
 
 ## 🚀 Quick start
 

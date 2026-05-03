@@ -11,6 +11,7 @@ const TOOLS = [
   { id: "antigravity", name: "Antigravity", content: "full conversations via aghistory, plans, snapshots", format: "Markdown / Protobuf" },
   { id: "cursor",      name: "Cursor",      content: "conversations · skills · MCP config",      format: "JSONL / Markdown" },
   { id: "obsidian",    name: "Obsidian",    content: "all notes in the vault",                   format: "Markdown" },
+  { id: "hermes",      name: "Hermes",      content: "sessions · persona · skills · CLI history", format: "JSON / Markdown / SQLite" },
   { id: "windsurf",    name: "Windsurf",    content: "conversations · rules",                    format: "JSONL / Markdown" },
   { id: "vscode",      name: "VS Code",     content: "settings · extensions · rules",            format: "JSON / Markdown" },
 ];

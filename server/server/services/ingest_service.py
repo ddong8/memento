@@ -347,7 +347,10 @@ async def ingest_file(
 
     # Extract conversation messages into conversation_messages table
     # For DELTA mode, only parse new content; for FULL mode, re-parse all
-    if content_type == "jsonl" and category == "conversation":
+    if category == "conversation" and (
+        content_type == "jsonl"
+        or (content_type == "json" and tool_id == "hermes")
+    ):
         await _extract_messages(db, doc, content, mode)
 
     # Update sync state
@@ -440,6 +443,35 @@ async def _extract_messages(
 ) -> None:
     """Parse conversation content and store normalized messages."""
     from .conversation_parser import _iter_json_objects, parse_conversation_line
+
+    # Hermes stores a whole session as a single top-level JSON, not JSONL.
+    # Always full-replace (file is rewritten on each turn).
+    if doc.tool_id == "hermes":
+        from sqlalchemy import delete
+        from .conversation_parser import parse_conversation
+        await db.execute(
+            delete(ConversationMessage).where(ConversationMessage.document_id == doc.id)
+        )
+        msgs = parse_conversation(content, "hermes")
+        for i, m in enumerate(msgs, start=1):
+            ts = None
+            if m.timestamp:
+                try:
+                    ts = datetime.fromisoformat(m.timestamp.replace("Z", "+00:00"))
+                except (ValueError, AttributeError):
+                    pass
+            db.add(ConversationMessage(
+                document_id=doc.id,
+                line_number=i,
+                message_type=m.role,
+                role=m.role,
+                content=(m.content or "").replace("\x00", ""),
+                metadata_={"tool_name": m.tool_name} if m.tool_name else {},
+                timestamp=ts,
+            ))
+        if msgs:
+            await db.flush()
+        return
 
     # Get current max line number for delta mode
     if mode == "delta":

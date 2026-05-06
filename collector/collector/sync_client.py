@@ -32,7 +32,10 @@ class SyncClient:
             collector_version = "dev"
 
         from concurrent.futures import ThreadPoolExecutor
-        self._pool = ThreadPoolExecutor(max_workers=5)
+        # 10 concurrent uploads: network upload is IO-bound, doubling worker
+        # count roughly halves drain time on big resyncs. Server-side 24-slot
+        # ingest semaphore + 32 DB pool keep headroom for 2-3 devices each at 10.
+        self._pool = ThreadPoolExecutor(max_workers=10)
         self._client = httpx.Client(
             base_url=config.server.url,
             timeout=httpx.Timeout(60.0, connect=10.0),

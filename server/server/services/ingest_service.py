@@ -32,7 +32,7 @@ def _get_ingest_semaphore() -> "asyncio.Semaphore":
     global _ingest_semaphore
     if _ingest_semaphore is None:
         import asyncio as _asyncio
-        _ingest_semaphore = _asyncio.Semaphore(16)
+        _ingest_semaphore = _asyncio.Semaphore(24)
     return _ingest_semaphore
 
 from sqlalchemy import select

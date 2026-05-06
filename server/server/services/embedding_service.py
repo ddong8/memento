@@ -99,23 +99,34 @@ async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> li
 async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
     """Generate and store embeddings for a document. Returns count of chunks created.
 
-    Writes ``doc.embedding_status`` so the retry loop in
-    ``server.tasks.embedding_retry`` can find and reprocess failed docs instead
-    of letting them rot silently.
+    Writes ``doc.embedding_status`` via raw UPDATE statements (not ORM attribute
+    assignment) so concurrent ingests of the same file don't trigger
+    SQLAlchemy's stale-row detection — under load every collector resend used
+    to roll back the whole transaction and lose the embeddings.
     """
-    doc.embedding_attempts = (doc.embedding_attempts or 0) + 1
+    from sqlalchemy import update as _update
+
+    async def _set_status(status: str, *, bump_attempts: bool = False) -> None:
+        values: dict = {"embedding_status": status}
+        if bump_attempts:
+            values["embedding_attempts"] = (doc.embedding_attempts or 0) + 1
+        await db.execute(
+            _update(Document).where(Document.id == doc.id).values(**values)
+        )
+
+    await _set_status(doc.embedding_status or "pending", bump_attempts=True)
 
     if not doc.content or len(doc.content) < 100:
-        doc.embedding_status = "skipped"
+        await _set_status("skipped")
         return 0
 
     if doc.content_type in ("sqlite", "sqlite_export", "binary"):
-        doc.embedding_status = "skipped"
+        await _set_status("skipped")
         return 0
 
     chunks = _chunk_text(doc.content)
     if not chunks:
-        doc.embedding_status = "skipped"
+        await _set_status("skipped")
         return 0
 
     # Cap at 50 chunks per document (~100KB) to avoid overloading embedding server
@@ -124,12 +135,12 @@ async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
     logger.info("Embedding %d chunks for %s", len(chunks), doc.relative_path)
     embeddings = await _call_embedding_server(chunks)
     if embeddings is None:
-        doc.embedding_status = "failed"
+        await _set_status("failed")
         return 0
 
     if len(embeddings[0]) != EMBEDDING_DIM:
         logger.warning("Embedding dim mismatch: got %d, expected %d", len(embeddings[0]), EMBEDDING_DIM)
-        doc.embedding_status = "failed"
+        await _set_status("failed")
         return 0
 
     # Clear old embeddings
@@ -147,6 +158,6 @@ async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
         ))
 
     await db.flush()
-    doc.embedding_status = "ok"
+    await _set_status("ok")
     logger.info("Generated %d embeddings for %s/%s", len(chunks), doc.tool_id, doc.relative_path)
     return len(chunks)

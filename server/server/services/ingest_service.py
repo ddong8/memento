@@ -9,6 +9,18 @@ from datetime import datetime, timezone
 
 # Set of background tasks — prevents GC from collecting them before completion
 _background_tasks: set = set()
+# Cap concurrent post-ingest work (each holds a DB connection + a BGE-M3 slot
+# for ~10s). Without this, a re-sync storm exhausts the connection pool and
+# user web requests time out.
+_post_ingest_semaphore: "asyncio.Semaphore | None" = None
+
+
+def _get_post_ingest_semaphore() -> "asyncio.Semaphore":
+    global _post_ingest_semaphore
+    if _post_ingest_semaphore is None:
+        import asyncio as _asyncio
+        _post_ingest_semaphore = _asyncio.Semaphore(8)
+    return _post_ingest_semaphore
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -405,6 +417,14 @@ async def _run_post_ingest(doc_id, tool_id: str, category: str) -> None:
     if category not in ("conversation", "memory", "learning", "plan", "identity"):
         return
 
+    sem = _get_post_ingest_semaphore()
+    async with sem:
+        await _run_post_ingest_inner(doc_id, tool_id, category)
+
+
+async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
+    import logging
+    logger = logging.getLogger("post_ingest")
     logger.info("Post-ingest starting for %s/%s (category=%s)", tool_id, doc_id, category)
     try:
         from ..db.session import async_session_factory

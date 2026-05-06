@@ -2,6 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Backup uses pure SQL COPY TO STDOUT (no pg_dump binary needed).
+# Schema rebuild via _run_migrations on fresh deploy; backup only carries
+# data. Avoids the bookworm libldap / pgdg client version mess.
+
 # Install server
 COPY server/pyproject.toml .
 COPY server/server/ server/

@@ -107,12 +107,20 @@ async def generate_document_embeddings(db: AsyncSession, doc: Document) -> int:
     from sqlalchemy import update as _update
 
     async def _set_status(status: str, *, bump_attempts: bool = False) -> None:
+        """Update embedding_status in its own short transaction.
+
+        Critical: commits IMMEDIATELY so the documents-row write lock is
+        released before any long-running await (BGE-M3 call can take 10+s).
+        Without this, the doc row stays locked the whole time, heartbeat /
+        ingest contention piles up and the connection pool dies.
+        """
         values: dict = {"embedding_status": status}
         if bump_attempts:
             values["embedding_attempts"] = (doc.embedding_attempts or 0) + 1
         await db.execute(
             _update(Document).where(Document.id == doc.id).values(**values)
         )
+        await db.commit()
 
     await _set_status(doc.embedding_status or "pending", bump_attempts=True)
 

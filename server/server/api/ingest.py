@@ -13,9 +13,21 @@ from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
 from ..services.device_service import ensure_device
-from ..services.ingest_service import ingest_file
+from ..services.ingest_service import ingest_file, _get_ingest_semaphore
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
+
+
+async def throttle_ingest():
+    """Cap concurrent ingest endpoint handlers at 16 (see _get_ingest_semaphore).
+    Collector storms beyond that get queued at the semaphore, NOT at the
+    DB connection pool, so login / dashboard / search keep their own slots."""
+    sem = _get_ingest_semaphore()
+    await sem.acquire()
+    try:
+        yield
+    finally:
+        sem.release()
 
 
 class IngestFileRequest(BaseModel):
@@ -43,6 +55,7 @@ class IngestResponse(BaseModel):
 async def ingest_file_endpoint(
     req: IngestFileRequest,
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
@@ -75,6 +88,7 @@ async def ingest_file_upload(
     metadata: str = Form(...),
     content: UploadFile = File(...),
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
@@ -108,6 +122,7 @@ async def ingest_file_upload(
 async def ingest_sqlite_rows(
     req: dict,
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
@@ -143,6 +158,7 @@ async def ingest_file_chunk(
     metadata: str = Form(...),
     content: UploadFile = File(...),
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
@@ -207,6 +223,7 @@ async def ingest_file_chunk(
 async def ingest_discovery(
     req: dict,
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Receive tool discovery data from a collector."""
@@ -247,6 +264,7 @@ async def ingest_status() -> dict:
 @router.post("/heartbeat")
 async def heartbeat(
     _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),

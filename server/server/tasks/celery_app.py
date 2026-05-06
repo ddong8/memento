@@ -20,6 +20,7 @@ celery_app = Celery(
         "server.tasks.summary_tasks",
         "server.tasks.embedding_retry",
         "server.tasks.tsvector_backfill",
+        "server.tasks.db_backup",
     ],
 )
 
@@ -50,5 +51,12 @@ celery_app.conf.beat_schedule = {
     "embedding-retry": {
         "task": "server.tasks.embedding_retry.retry_failed_embeddings",
         "schedule": crontab(minute="*/15"),
+    },
+    # Daily 03:30 — pg_dump | gzip → s3://memento-backups/daily/<date>.sql.gz,
+    # rolling 14-day retention. Defends against the kind of incident that
+    # wiped pgdata (volume nuke, install --purge, etc.).
+    "daily-db-backup": {
+        "task": "server.tasks.db_backup.run_daily_backup",
+        "schedule": crontab(hour=3, minute=30),
     },
 }

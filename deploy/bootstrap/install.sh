@@ -67,7 +67,7 @@ check_prereqs() {
 }
 
 download_repo() {
-    say "Downloading repository to $TARGET_DIR…"
+    say "Downloading repository to $TARGET_DIR …"
     mkdir -p "$TARGET_DIR"
     local tmp
     tmp="$(mktemp -t memento-XXXXXX.tar.gz)"

@@ -1,6 +1,6 @@
 [project]
 name = "memento-brain-memory"
-version = "0.0.8"
+version = "0.0.9"
 description = "MCP Memory Server — personal AI memory powered by Memento data"
 readme = "README.md"
 license = {text = "AGPL-3.0-only"}

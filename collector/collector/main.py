@@ -211,6 +211,18 @@ def _check_and_update(logger: logging.Logger) -> None:
 
         # Restart collector if it was upgraded
         if needs_restart:
+            if SYSTEM == "Windows":
+                # `os.execv` on Windows is *not* a true exec — Python spawns a
+                # new process and exits the original. Task Scheduler then sees
+                # the original PID terminate and marks the task "completed",
+                # detaching the new process from the schedule. The new process
+                # keeps running for now, but the moment it dies (any reason)
+                # nothing brings it back until the user logs off and on.
+                # Instead: exit non-zero so Task Scheduler's RestartOnFailure
+                # (configured in the XML task definition) brings us back fresh
+                # within ~1 minute, with the schedule association intact.
+                logger.info("Collector upgraded — exiting; Task Scheduler will restart in ~1m")
+                sys.exit(1)
             logger.info("Restarting collector...")
             os.execv(sys.executable, [sys.executable, "-m", "collector.main"])
 
@@ -282,6 +294,40 @@ def _ensure_stdio() -> None:
         setattr(sys, stream_name, _devnull_file)
 
 
+def _check_windows_task_health(logger: logging.Logger) -> None:
+    """Warn if the scheduled task is missing the hardening settings.
+
+    Old installs (before XML-based registration) were created with the
+    shorthand `schtasks /Create /SC ONLOGON ...` form, which inherits
+    Windows defaults that kill long-running daemons (3-day time limit,
+    stop-on-battery, no auto-restart). New installs ship a proper XML
+    definition; this helper detects the old form and tells the user to
+    re-run setup once.
+    """
+    if SYSTEM != "Windows":
+        return
+    try:
+        import subprocess as _sp
+        r = _sp.run(
+            ["schtasks", "/Query", "/TN", "MementoCollector", "/XML"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0:
+            return
+        xml = r.stdout
+        # Heuristic: hardened tasks declare RestartOnFailure + PT0S limit.
+        if "<RestartOnFailure>" not in xml or "PT0S" not in xml:
+            logger.warning(
+                "Scheduled task is using legacy settings (no auto-restart, "
+                "3-day execution limit, stops on battery). Re-run "
+                "`memento-collector setup` once to apply the hardened XML "
+                "definition — this is the most common cause of the collector "
+                "appearing to stop on its own."
+            )
+    except Exception:
+        pass  # best-effort, don't block startup
+
+
 def main() -> None:
     _ensure_stdio()
 
@@ -294,6 +340,7 @@ def main() -> None:
         "Starting Memento Collector [%s] on %s (%s)",
         config.device_id[:8], config.device_name, config.platform,
     )
+    _check_windows_task_health(logger)
 
     # Initialize tools
     tools = [

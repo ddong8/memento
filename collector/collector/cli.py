@@ -557,44 +557,117 @@ def _uninstall_systemd() -> None:
 
 # --- Windows (Task Scheduler) ---
 
+# XML task definition. The shorthand `schtasks /Create ... /SC ONLOGON` we
+# used before inherits Task Scheduler's defaults, several of which kill
+# long-running daemons:
+#   - ExecutionTimeLimit = PT72H  → Windows force-stops the task after 3 days
+#   - StopIfGoingOnBatteries = true / DisallowStartIfOnBatteries = true
+#                                  → laptops on battery silently never run it
+#   - No RestartOnFailure          → a single crash leaves it dead until reboot
+# The XML form below mirrors the embedding-server task in scripts/templates/
+# and explicitly disables those, plus sets RestartOnFailure so an unhandled
+# exception (or the post-upgrade exit-1, see main.py) brings the daemon back
+# within 1 minute. Encoded UTF-16 LE w/ BOM as Task Scheduler requires.
+_WIN_TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Memento Collector — watches AI tool data dirs and syncs to server</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{pythonw}</Command>
+      <Arguments>-m collector.main</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"""
+
+
 def _install_windows_task() -> None:
+    import tempfile
+
     task_name = WIN_TASK_NAME
     # Migrate: delete legacy DailyReportCollector task if present.
     subprocess.run(
         ["schtasks", "/Delete", "/TN", _LEGACY_WIN_TASK_NAME, "/F"],
         capture_output=True,
     )
+    # Also delete any pre-XML version of MementoCollector so the new XML
+    # definition cleanly takes over (otherwise /Create /XML can fail with
+    # "task already exists" on some Windows builds even with /F).
+    subprocess.run(
+        ["schtasks", "/Delete", "/TN", task_name, "/F"],
+        capture_output=True,
+    )
 
     # Use pythonw.exe (no console window) to run the collector module directly.
-    # This is the most reliable way to run background on Windows — no black window.
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     if not pythonw.exists():
-        # Fallback: anaconda/venv might have it in Scripts/
         pythonw = Path(sys.executable).parent / "Scripts" / "pythonw.exe"
     if not pythonw.exists():
-        pythonw = Path(sys.executable)  # Fall back to python.exe (will show window)
+        pythonw = Path(sys.executable)
         print(f"Warning: pythonw.exe not found, using {pythonw} (may show console window)")
 
-    tr_cmd = f'"{pythonw}" -m collector.main'
-    cmd = [
-        "schtasks", "/Create", "/F",
-        "/TN", task_name,
-        "/TR", tr_cmd,
-        "/SC", "ONLOGON",
-        "/RL", "LIMITED",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    xml_body = _WIN_TASK_XML.format(pythonw=str(pythonw))
+    # schtasks /XML requires UTF-16 LE with BOM. Tempfile write + delete after.
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xml", delete=False,
+    ) as f:
+        f.write(b"\xff\xfe")  # UTF-16 LE BOM
+        f.write(xml_body.encode("utf-16-le"))
+        xml_path = f.name
+
+    try:
+        cmd = ["schtasks", "/Create", "/F", "/TN", task_name, "/XML", xml_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    finally:
+        try:
+            os.unlink(xml_path)
+        except OSError:
+            pass
+
     if result.returncode == 0:
         print(f"Installed Windows scheduled task: {task_name}")
-        print(f"  Command: {tr_cmd}")
-        print(f"  (no console window)")
+        print(f"  Command: {pythonw} -m collector.main")
+        print(f"  Settings: no time limit, restart-on-failure (1m × 999),")
+        print(f"            ignore battery state.")
     else:
         stderr = (result.stderr or "").strip()
         print(f"Failed to install: {stderr}")
-        # Common case on corporate / UAC-restricted Windows: /Create requires
-        # admin when a same-named task already exists under a different
-        # owner. Guide the user toward the two workarounds without making
-        # them chase the error message.
         print()
         print("This usually means schtasks needs admin privileges (UAC).")
         print("Two ways forward:")

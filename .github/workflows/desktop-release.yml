@@ -93,6 +93,12 @@ jobs:
 
       - name: Build sidecar (PyInstaller frozen collector)
         working-directory: tauri-collector/sidecar
+        # Force utf-8 on Windows stdout — the helper script prints `→` /
+        # `✓` etc. which trip the default cp1252 codec on the Windows
+        # runner. PYTHONIOENCODING is honored by every print() call.
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
           set -e
           python -m pip install --upgrade pip

@@ -22,6 +22,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Windows defaults stdout/stderr to cp1252 (a.k.a. "charmap"). The `→` and
+# `✓` we print below blow up with UnicodeEncodeError on Windows runners
+# (cp1252 has no codepoint for U+2192). Force utf-8 if we can — local
+# Windows users hit this the same way the GitHub Actions runner does.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 BIN_DIR = HERE.parent / "src-tauri" / "binaries"
 

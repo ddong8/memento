@@ -1,0 +1,146 @@
+name: Desktop Release
+
+# Triggered two ways:
+#   1. push a tag matching desktop-v*  →  builds for every matrix platform
+#      and uploads the artifacts to a GitHub Release of the same name.
+#      Keeps this completely separate from the PyPI release flow in
+#      release.yml (which is triggered by v* tags).
+#   2. workflow_dispatch (manual button on the Actions tab) → builds and
+#      uploads the artifacts to the workflow run only; useful for testing
+#      pipeline changes without publishing.
+#
+# What the job actually does:
+#   - Checkout the repo
+#   - Install Python 3.11, Rust stable, Node (for cargo tauri icon's deps)
+#   - Cache cargo to keep iteration fast on retries
+#   - Install the Tauri CLI 2.x
+#   - Generate platform icons from web/public/favicon.png (so we don't
+#     have to commit ~6 binary blobs)
+#   - Run sidecar/build_sidecar.py — pip-installs the collector +
+#     pyinstaller, freezes the collector to a single per-triple binary
+#   - Run `cargo tauri build` — picks up the frozen binary from
+#     src-tauri/binaries/ via the externalBin declaration and bundles
+#     everything into the .msi / .dmg / .AppImage
+#   - Upload artifacts
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: "Create a draft release with the artifacts (true/false)"
+        required: false
+        default: "false"
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows first per project priority. macOS / Linux runners can
+          # be enabled here once the Windows pipeline is green:
+          #   - { os: macos-latest,   target: aarch64-apple-darwin,         bundle: dmg }
+          #   - { os: macos-13,       target: x86_64-apple-darwin,          bundle: dmg }
+          #   - { os: ubuntu-22.04,   target: x86_64-unknown-linux-gnu,     bundle: appimage }
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: "msi nsis"
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: write  # so we can attach assets to a release on tag push
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Setup Rust (stable + target ${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust + Cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri-collector/src-tauri
+          # bump if cargo cache gets weirdly stuck
+          prefix-key: "v1-${{ matrix.target }}"
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Generate platform icons from web favicon
+        working-directory: tauri-collector/src-tauri
+        run: cargo tauri icon ../../web/public/favicon.png
+
+      - name: Build sidecar (PyInstaller frozen collector)
+        working-directory: tauri-collector/sidecar
+        run: |
+          set -e
+          python -m pip install --upgrade pip
+          # The collector pulls in memento-brain-memory as a hard dep at
+          # install time but the entry.py + collector.spec exclude it
+          # from the frozen binary so we keep the .msi tight.
+          python -m pip install -e ../../collector pyinstaller
+          python build_sidecar.py
+
+      - name: Tauri build
+        working-directory: tauri-collector
+        run: cargo tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Locate built artifacts
+        id: bundle
+        working-directory: tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle
+        run: |
+          shopt -s nullglob
+          echo "msi=$(ls msi/*.msi 2>/dev/null | head -n1)" >> "$GITHUB_OUTPUT"
+          echo "nsis=$(ls nsis/*.exe 2>/dev/null | head -n1)" >> "$GITHUB_OUTPUT"
+          echo "dmg=$(ls dmg/*.dmg 2>/dev/null | head -n1)" >> "$GITHUB_OUTPUT"
+          echo "appimage=$(ls appimage/*.AppImage 2>/dev/null | head -n1)" >> "$GITHUB_OUTPUT"
+          ls -R .
+
+      - name: Upload artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: memento-desktop-${{ matrix.target }}
+          path: |
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Create / update Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false

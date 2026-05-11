@@ -89,20 +89,46 @@ On macOS this produces `.dmg` + `.app`. On Windows it produces `.msi`.
 
 ### Building the Windows installer
 
-PyInstaller can't cross-compile, so the Windows sidecar must be built on a
-Windows machine (or via GitHub Actions Windows runner).
+PyInstaller can't cross-compile, so the Windows sidecar must be built on
+a Windows host. The pipeline is automated in
+[`.github/workflows/desktop-release.yml`](../.github/workflows/desktop-release.yml)
+— **don't bother building Windows locally on Mac/Linux**, just push a
+tag (or trigger manually) and grab the `.msi`/`.exe` from the workflow.
 
-On the Windows target machine:
+#### Trigger a release build (recommended)
+
+```sh
+# From your dev machine
+git tag desktop-v0.1.0
+git push origin desktop-v0.1.0
+```
+
+The workflow builds the PyInstaller sidecar, runs `cargo tauri build`,
+and uploads `Memento_*.msi` + `Memento_*-setup.exe` as a new GitHub
+Release tagged `desktop-v0.1.0`.
+
+The `desktop-v*` tag namespace is **separate** from the `v*` PyPI
+release tags (`release.yml`), so you can ship desktop installers
+independently of collector/MCP server PyPI releases.
+
+#### Trigger a build without releasing
+
+Use **Actions → Desktop Release → Run workflow** in the GitHub UI. The
+artifacts are attached to the workflow run (14-day retention) instead of
+a tagged release. Useful for testing pipeline changes or building from
+a feature branch.
+
+#### Local Windows build (only if you want to debug the toolchain)
 
 ```powershell
-# 1. Build the frozen Python collector (one-shot)
 cd tauri-collector\sidecar
+pip install -e ..\..\collector pyinstaller
 python build_sidecar.py
 
-# 2. Build the Tauri installer
 cd ..
+cargo tauri icon ..\web\public\favicon.png
 cargo tauri build
-# → src-tauri/target/release/bundle/msi/Memento_*.msi
+# → src-tauri\target\release\bundle\msi\Memento_*.msi
 ```
 
 ## Coexistence with the existing pip-installed collector

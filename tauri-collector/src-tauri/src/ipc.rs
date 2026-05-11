@@ -45,6 +45,11 @@ pub fn sidecar_status(state: State<'_, AppState>) -> Status {
 }
 
 #[tauri::command]
+pub fn sidecar_available(app: AppHandle) -> bool {
+    crate::sidecar::sidecar_available(&app)
+}
+
+#[tauri::command]
 pub fn sidecar_log_snapshot(state: State<'_, AppState>) -> Vec<String> {
     state.sidecar.log_snapshot()
 }

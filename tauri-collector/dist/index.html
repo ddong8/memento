@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memento</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <h1>Memento</h1>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">idle</span>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="server" role="tab">Server</button>
+    <button class="tab" data-tab="tools" role="tab">Tools</button>
+    <button class="tab" data-tab="logs" role="tab">Logs</button>
+    <button class="tab" data-tab="about" role="tab">About</button>
+  </nav>
+
+  <main>
+    <!-- Server tab -->
+    <section class="panel active" data-panel="server">
+      <div id="legacyWarning" class="warning hidden">
+        <strong>Legacy install detected.</strong>
+        A pip-installed collector is registered as a system service. Run
+        <code>memento-collector uninstall</code> before using this app to
+        avoid double-syncing.
+      </div>
+
+      <div id="sidecarMissing" class="warning hidden">
+        <strong>Sidecar binary not bundled.</strong>
+        The frozen collector hasn't been built for this platform yet.
+        From a terminal, run
+        <code>cd tauri-collector/sidecar &amp;&amp; python build_sidecar.py</code>
+        and restart this app.
+      </div>
+
+      <div class="field">
+        <label for="serverUrl">Server URL</label>
+        <input type="text" id="serverUrl" placeholder="https://mem.example.com" />
+        <p class="hint">The base URL of your Memento instance. No trailing slash.</p>
+      </div>
+
+      <div class="field">
+        <label for="serverToken">Collector Token</label>
+        <input type="password" id="serverToken" placeholder="paste the token from the admin console" autocomplete="off" />
+        <p class="hint">Get this from Settings → Users → Reset collector token on the web UI.</p>
+      </div>
+
+      <div class="field">
+        <label for="obsidianPath">Obsidian Vault Path <span class="optional">(optional)</span></label>
+        <div class="inline">
+          <input type="text" id="obsidianPath" placeholder="leave empty to disable Obsidian sync" />
+          <button class="btn ghost" id="pickObsidian">Browse…</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="toggle">
+          <input type="checkbox" id="autoStartDaemon" />
+          <span>Auto-start collector when the app launches</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="autostart" />
+          <span>Launch Memento at system startup</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="saveBtn">Save</button>
+        <button class="btn" id="startBtn">Start collector</button>
+        <button class="btn ghost" id="stopBtn">Stop</button>
+      </div>
+      <p class="notice" id="serverNotice"></p>
+    </section>
+
+    <!-- Tools tab -->
+    <section class="panel" data-panel="tools">
+      <p class="hint">
+        Disable any tool you don't want the collector to watch. Changes
+        take effect after the daemon is restarted.
+      </p>
+      <ul class="tool-list" id="toolList">
+        <!-- populated by app.js -->
+      </ul>
+      <div class="actions">
+        <button class="btn primary" id="saveToolsBtn">Save</button>
+      </div>
+    </section>
+
+    <!-- Logs tab -->
+    <section class="panel" data-panel="logs">
+      <div class="log-toolbar">
+        <button class="btn ghost" id="clearLogBtn">Clear</button>
+        <label class="toggle inline">
+          <input type="checkbox" id="autoscroll" checked />
+          <span>Auto-scroll</span>
+        </label>
+      </div>
+      <pre class="log-view" id="logView"></pre>
+    </section>
+
+    <!-- About tab -->
+    <section class="panel" data-panel="about">
+      <h2>Memento</h2>
+      <p>
+        Cross-device memory for your AI coding tools — collects, indexes
+        and surfaces conversations + memory files from Claude Code,
+        Codex, Cursor, Obsidian, Antigravity, Hermes and OpenClaw.
+      </p>
+      <dl class="kv">
+        <dt>Desktop version</dt><dd id="appVersion">0.1.0</dd>
+        <dt>Collector daemon</dt><dd id="daemonInfo">checking…</dd>
+        <dt>Project</dt><dd><a href="https://github.com/ddong8/memento" target="_blank">github.com/ddong8/memento</a></dd>
+        <dt>License</dt><dd>AGPL-3.0</dd>
+      </dl>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,14 +1,20 @@
-# Rust build artifacts
-src-tauri/target/
+# The root .gitignore has a generic `dist/` rule (meant for Python sdist
+# / wheel artifacts) that ate this Tauri app's frontend. Re-include both
+# the directory and its contents.
+!dist/
+!dist/**
+
+# Rust build artifacts (leading slash → only matches at this .gitignore's dir)
+/src-tauri/target/
 
 # PyInstaller workspace + bundled sidecar binaries
-sidecar/build/
-sidecar/dist/
-sidecar/__pycache__/
-src-tauri/binaries/
+/sidecar/build/
+/sidecar/dist/
+/sidecar/__pycache__/
+/src-tauri/binaries/
 
 # Tauri 2.x sometimes writes a capabilities cache here
-src-tauri/gen/
+/src-tauri/gen/
 
 # IDE noise
 .DS_Store

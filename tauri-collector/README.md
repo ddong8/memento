@@ -5,10 +5,11 @@ users install a single `.msi` / `.dmg` / `.AppImage`, configure their
 server URL + token in the Settings window, and the collector runs in the
 background — no Python, no terminal commands, no pyenv.
 
-> Status: **Phase 1a skeleton** — window + tray + sidecar IPC works
-> against a pip-installed `memento-collector` on the dev machine. The
-> PyInstaller sidecar (no-Python-needed) is wired but not yet built. See
-> `sidecar/README.md` for the freezing pipeline.
+> Status: **Phase 1b ready** — window + tray + sidecar IPC + capabilities
+> wired to Tauri's `externalBin` resolver. End users will never see a
+> `pip install`; the frozen Python collector lives inside the bundle and
+> is launched via the shell plugin's sidecar API. Build the PyInstaller
+> binary first (see `sidecar/README.md`), then `cargo tauri build`.
 
 ## Architecture at a glance
 
@@ -113,11 +114,13 @@ uninstall`). Running both produces double sync + duplicate documents.
 
 ## Roadmap
 
-- **Phase 1a** (current): Skeleton — window opens, tray appears, can
-  spawn pip-installed `memento-collector` and stream its log
-- **Phase 1b**: PyInstaller sidecar — fully self-contained binary
-- **Phase 2**: Settings UI complete (per-tool toggles, Obsidian vault
-  picker, log viewer, autostart toggle)
+- ~~**Phase 1a**: Skeleton — window opens, tray appears, can spawn
+  pip-installed `memento-collector` and stream its log~~ ✅
+- ~~**Phase 1b**: PyInstaller sidecar — fully self-contained binary
+  (Rust side wired; needs Windows machine to actually run
+  `python build_sidecar.py` for the .msi)~~ ✅ (Rust)
+- **Phase 2**: Settings UI polish (start/stop visual feedback, log
+  viewer level filters, autostart wiring)
 - **Phase 3**: Auto-update via Tauri's updater
 - **Phase 4**: macOS + Linux packaging
 - **Phase 5**: Code-signing + notarization for distribution

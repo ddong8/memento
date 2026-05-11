@@ -116,6 +116,7 @@ pub fn run() {
             ipc::load_config,
             ipc::save_config,
             ipc::sidecar_status,
+            ipc::sidecar_available,
             ipc::sidecar_log_snapshot,
             ipc::sidecar_start,
             ipc::sidecar_stop,

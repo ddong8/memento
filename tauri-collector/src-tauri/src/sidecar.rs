@@ -1,24 +1,22 @@
-//! Lifecycle for the collector child process.
+//! Lifecycle for the collector sidecar.
 //!
-//! Phase 1a (now): spawns the pip-installed `memento-collector` from PATH.
-//! Phase 1b (next): switch the binary path to Tauri's `externalBin`
-//! resolved path (PyInstaller frozen collector ships inside the .msi).
-//!
-//! Stdout/stderr from the child are line-buffered and forwarded to the
-//! Tauri frontend via an event channel so the Logs tab can scroll them
-//! live.
+//! The sidecar is a PyInstaller-frozen `memento-collector` binary shipped
+//! inside the Tauri bundle as an `externalBin` (see `tauri.conf.json`).
+//! Tauri's shell plugin resolves the right per-triple binary at runtime,
+//! so we never have to figure out paths ourselves — we just ask for it
+//! by name and get an async event stream back.
 
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::thread;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
+const SIDECAR_BIN: &str = "memento-collector-sidecar";
 const MAX_LOG_LINES: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
@@ -43,7 +41,7 @@ impl Default for Status {
 }
 
 pub struct Sidecar {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<CommandChild>>,
     status: Mutex<Status>,
     /// Ring buffer of the most recent stdout/stderr lines.
     log_tail: Mutex<VecDeque<String>>,
@@ -68,27 +66,31 @@ impl Sidecar {
 
     /// Start the collector. No-op if already running.
     pub fn start(self: &Arc<Self>, app: AppHandle) -> Result<()> {
-        let mut child_guard = self.child.lock();
-        if child_guard.is_some() {
-            return Ok(()); // already running
+        {
+            let g = self.child.lock();
+            if g.is_some() {
+                return Ok(());
+            }
         }
 
-        // Phase 1a: rely on PATH-installed `memento-collector`. Phase 1b
-        // will switch this to the externalBin path resolved via
-        // `app.path().resolve(...)`.
-        let bin = which_collector()?;
-        let mut child = Command::new(&bin)
-            .arg("run")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+        // Tauri's shell plugin picks the bundled per-triple binary that
+        // matches the running host. We pass `run` because our PyInstaller
+        // entry point gates on that subcommand (see sidecar/entry.py).
+        let sidecar_cmd = app
+            .shell()
+            .sidecar(SIDECAR_BIN)
+            .map_err(|e| anyhow!("sidecar({}) failed to resolve: {e}", SIDECAR_BIN))?
+            .args(["run"]);
+
+        let (mut rx, child) = sidecar_cmd
             .spawn()
-            .with_context(|| format!("spawn {}", bin.display()))?;
+            .map_err(|e| anyhow!("spawn {SIDECAR_BIN}: {e}"))?;
 
-        let pid = child.id();
-        let stdout = child.stdout.take().expect("stdout was piped");
-        let stderr = child.stderr.take().expect("stderr was piped");
-        *child_guard = Some(child);
-
+        let pid = child.pid();
+        {
+            let mut g = self.child.lock();
+            *g = Some(child);
+        }
         *self.status.lock() = Status {
             running: true,
             pid: Some(pid),
@@ -96,61 +98,62 @@ impl Sidecar {
             exit_code: None,
             last_error: None,
         };
-        drop(child_guard);
-
-        // Forward stdout/stderr lines to the UI.
-        let app_out = app.clone();
-        let me_out = Arc::clone(self);
-        thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().map_while(|r| r.ok()) {
-                me_out.push_log(&line, &app_out);
-            }
-        });
-        let app_err = app.clone();
-        let me_err = Arc::clone(self);
-        thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(|r| r.ok()) {
-                me_err.push_log(&line, &app_err);
-            }
-        });
-
-        // Wait-for-exit watcher so status reflects unexpected death.
-        let me_wait = Arc::clone(self);
-        let app_wait = app.clone();
-        thread::spawn(move || {
-            // Drop guard before waiting to avoid holding the mutex across
-            // a blocking syscall.
-            let mut child = me_wait.child.lock().take();
-            if let Some(c) = child.as_mut() {
-                let exit = c.wait().ok();
-                let code = exit.and_then(|s| s.code());
-                let mut st = me_wait.status.lock();
-                st.running = false;
-                st.pid = None;
-                st.exit_code = code;
-                let snapshot = st.clone();
-                drop(st);
-                let _ = app_wait.emit("sidecar:status", snapshot);
-            }
-        });
-
         let _ = app.emit("sidecar:status", self.status());
+
+        // Drain the event stream until the child terminates. tokio task
+        // because rx.recv() is async — same runtime Tauri itself uses.
+        let me = Arc::clone(self);
+        let app_for_task = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
+                        let line = String::from_utf8_lossy(&bytes).trim_end().to_owned();
+                        if !line.is_empty() {
+                            me.push_log(&line, &app_for_task);
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        let code = payload.code;
+                        let mut st = me.status.lock();
+                        st.running = false;
+                        st.pid = None;
+                        st.exit_code = code;
+                        if code.unwrap_or(0) != 0 {
+                            st.last_error =
+                                Some(format!("sidecar exited with code {:?}", code));
+                        }
+                        let snapshot = st.clone();
+                        drop(st);
+                        *me.child.lock() = None;
+                        let _ = app_for_task.emit("sidecar:status", snapshot);
+                    }
+                    CommandEvent::Error(msg) => {
+                        let mut st = me.status.lock();
+                        st.last_error = Some(msg.clone());
+                        let snapshot = st.clone();
+                        drop(st);
+                        let _ = app_for_task.emit("sidecar:status", snapshot);
+                    }
+                    _ => {}
+                }
+            }
+        });
+
         Ok(())
     }
 
     pub fn stop(&self) -> Result<()> {
-        let mut guard = self.child.lock();
-        if let Some(mut child) = guard.take() {
-            // Best-effort: ask politely first (SIGTERM on POSIX,
-            // CTRL_BREAK on Windows would be cleaner — Rust's stdlib
-            // only exposes `kill` which sends SIGKILL/TerminateProcess).
-            // The collector's signal handler covers SIGINT/SIGTERM on
-            // POSIX; on Windows it doesn't, but TerminateProcess
-            // disconnects file watchers immediately so this is OK.
+        let child = {
+            let mut g = self.child.lock();
+            g.take()
+        };
+        if let Some(child) = child {
+            // Plugin-shell's CommandChild::kill is synchronous and uses
+            // TerminateProcess on Windows / SIGKILL on POSIX. Our SQLite
+            // queue is WAL-journalled so an abrupt kill won't corrupt
+            // pending writes — they replay on next start.
             child.kill().ok();
-            child.wait().ok();
         }
         let mut st = self.status.lock();
         st.running = false;
@@ -168,35 +171,17 @@ impl Sidecar {
     }
 }
 
-/// Phase 1a: locate the pip-installed `memento-collector` on PATH.
-/// Phase 1b will replace this with the bundled externalBin path.
-fn which_collector() -> Result<std::path::PathBuf> {
-    let exe_name = if cfg!(windows) {
-        "memento-collector.exe"
-    } else {
-        "memento-collector"
-    };
-    // PATH lookup
-    if let Ok(path) = std::env::var("PATH") {
-        let sep = if cfg!(windows) { ';' } else { ':' };
-        for dir in path.split(sep) {
-            let candidate = std::path::Path::new(dir).join(exe_name);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    }
-    Err(anyhow!(
-        "memento-collector not found on PATH. Install it first \
-         (pip install memento-brain-collector) or wait for the \
-         Phase 1b sidecar build."
-    ))
-}
-
 fn now_unix() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Surfaces whether the bundled sidecar binary is reachable. Used by the
+/// UI to fail fast with a clear message if someone runs `cargo tauri
+/// dev` before building the PyInstaller binary.
+pub fn sidecar_available(app: &AppHandle) -> bool {
+    app.shell().sidecar(SIDECAR_BIN).is_ok()
 }

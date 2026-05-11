@@ -72,30 +72,73 @@ def install_torch_and_transformers() -> None:
         warn("No GPU detected — embedding will run on CPU and will be slow.")
         subprocess.run([str(py), "-m", "pip", "install", "torch"], check=True)
 
-    info("Installing sentence-transformers + fastapi/uvicorn…")
+    info("Installing sentence-transformers + fastapi/uvicorn + modelscope…")
     subprocess.run(
         [str(py), "-m", "pip", "install",
-         "sentence-transformers>=3.0", "fastapi", "uvicorn"],
+         "sentence-transformers>=3.0", "fastapi", "uvicorn", "modelscope"],
         check=True,
     )
     ok("Python dependencies installed.")
 
 
-def predownload_model(model: str = "BAAI/bge-m3") -> None:
+def predownload_model(model: str = "BAAI/bge-m3") -> str:
+    """Pre-fetch the embedding model. Returns the identifier the embedding
+    server should load (either an absolute local path when ModelScope cached
+    it, or the original HF id when the HF code path succeeded).
+
+    Download source priority — picks the first one that works:
+      1. ModelScope (best from inside China, no network shenanigans)
+      2. HuggingFace direct
+      3. hf-mirror.com (HK-based HF mirror)
+    """
     py = _venv_python()
     info(f"Pre-downloading {model} (~1.3GB, may take minutes)…")
-    code = (
+
+    # 1) ModelScope — returns absolute path on success.
+    ms_code = (
+        "from modelscope import snapshot_download;"
+        f"p = snapshot_download({model!r});"
+        "print(p, end='')"
+    )
+    try:
+        r = subprocess.run(
+            [str(py), "-c", ms_code],
+            check=True, capture_output=True, text=True, timeout=1800,
+        )
+        local_path = r.stdout.strip()
+        if local_path and Path(local_path).exists():
+            # Smoke test: sentence-transformers must be able to load it.
+            verify = (
+                "from sentence_transformers import SentenceTransformer;"
+                f"SentenceTransformer({local_path!r})"
+            )
+            subprocess.run([str(py), "-c", verify], check=True)
+            ok(f"Model downloaded via ModelScope → {local_path}")
+            return local_path
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or "")[:300]
+        warn(f"ModelScope download failed ({stderr.strip()}) — falling back to HuggingFace…")
+    except subprocess.TimeoutExpired:
+        warn("ModelScope download timed out — falling back to HuggingFace…")
+
+    # 2) HuggingFace direct.
+    hf_code = (
         "from sentence_transformers import SentenceTransformer;"
         f"SentenceTransformer({model!r})"
     )
     try:
-        subprocess.run([str(py), "-c", code], check=True)
+        subprocess.run([str(py), "-c", hf_code], check=True)
+        ok(f"Model downloaded via HuggingFace.")
+        return model
     except subprocess.CalledProcessError:
-        warn("HuggingFace download failed — retrying via hf-mirror.com…")
-        env = os.environ.copy()
-        env["HF_ENDPOINT"] = "https://hf-mirror.com"
-        subprocess.run([str(py), "-c", code], env=env, check=True)
-    ok("Model downloaded.")
+        warn("HuggingFace direct download failed — retrying via hf-mirror.com…")
+
+    # 3) hf-mirror.com.
+    env = os.environ.copy()
+    env["HF_ENDPOINT"] = "https://hf-mirror.com"
+    subprocess.run([str(py), "-c", hf_code], env=env, check=True)
+    ok("Model downloaded via hf-mirror.com.")
+    return model
 
 
 # ── platform-specific service install ─────────────────────────
@@ -104,7 +147,7 @@ def _render(template: str, **vars: str) -> str:
     return template.format(**vars)
 
 
-def install_macos() -> None:
+def install_macos(model: str = "BAAI/bge-m3") -> None:
     agents = Path.home() / "Library" / "LaunchAgents"
     agents.mkdir(parents=True, exist_ok=True)
     # Migrate: unload + remove legacy com.dailyreport.embedding plist.
@@ -127,6 +170,7 @@ def install_macos() -> None:
         repo=str(REPO_ROOT),
         logdir=str(logdir),
         path=os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        model=model,
     )
     plist_path.write_text(body)
 
@@ -146,7 +190,7 @@ def install_macos() -> None:
     ok(f"launchd service installed: {plist_path.name}")
 
 
-def install_linux() -> None:
+def install_linux(model: str = "BAAI/bge-m3") -> None:
     unit_dir = Path.home() / ".config" / "systemd" / "user"
     unit_dir.mkdir(parents=True, exist_ok=True)
     # Migrate: disable + remove legacy dr-embedding.service.
@@ -167,6 +211,7 @@ def install_linux() -> None:
         repo=str(REPO_ROOT),
         logdir=str(logdir),
         path=os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        model=model,
     )
     unit_path.write_text(body)
 
@@ -187,7 +232,7 @@ def install_linux() -> None:
         )
 
 
-def install_windows() -> None:
+def install_windows(model: str = "BAAI/bge-m3") -> None:
     import tempfile
     # Migrate: delete legacy DailyReportEmbedding task.
     subprocess.run(
@@ -201,6 +246,7 @@ def install_windows() -> None:
         (TEMPLATE_DIR / "memento-embedding-task.xml.tmpl").read_text(),
         pythonw=str(_venv_pythonw()),
         repo=str(REPO_ROOT),
+        model=model,
     )
     # schtasks requires UTF-16 encoding on disk.
     tmp = Path(tempfile.gettempdir()) / "memento-embedding-task.xml"
@@ -227,13 +273,13 @@ def install() -> None:
     """Full install flow: venv → deps → model → platform service."""
     create_venv()
     install_torch_and_transformers()
-    predownload_model()
+    model_id = predownload_model()
     if IS_MAC:
-        install_macos()
+        install_macos(model=model_id)
     elif IS_LINUX:
-        install_linux()
+        install_linux(model=model_id)
     elif IS_WINDOWS:
-        install_windows()
+        install_windows(model=model_id)
     else:
         raise RuntimeError(f"Unsupported platform: {sys.platform}")
     print()
@@ -282,8 +328,10 @@ def uninstall(remove_model_cache: bool = False, remove_venv: bool = False) -> No
         ok(f"Removed embedding venv {VENV_DIR.name}/")
 
     if remove_model_cache:
-        # BGE-M3 lives under ~/.cache/huggingface/hub/models--BAAI--bge-m3/
+        # BGE-M3 may live in either cache depending on which source the
+        # installer fell through to.
         import shutil
+        # HuggingFace cache layout
         for cache_root in (
             Path.home() / ".cache" / "huggingface" / "hub",
             Path(os.environ.get("HF_HOME", "")) / "hub" if os.environ.get("HF_HOME") else None,
@@ -294,3 +342,8 @@ def uninstall(remove_model_cache: bool = False, remove_venv: bool = False) -> No
             if model_dir.exists():
                 shutil.rmtree(model_dir, ignore_errors=True)
                 ok(f"Removed model cache {model_dir}")
+        # ModelScope cache layout
+        ms_dir = Path.home() / ".cache" / "modelscope" / "hub" / "BAAI" / "bge-m3"
+        if ms_dir.exists():
+            shutil.rmtree(ms_dir, ignore_errors=True)
+            ok(f"Removed model cache {ms_dir}")

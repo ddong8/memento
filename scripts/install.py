@@ -75,6 +75,13 @@ def _cmd_doctor(_args: argparse.Namespace) -> int:
 def _cmd_update(args: argparse.Namespace) -> int:
     import subprocess
     heading("Update")
+    # Self-heal: if .env is missing or incomplete (e.g. the previous install
+    # crashed mid-docker-build before env_gen ran, leaving a half-installed
+    # dir), generate it before docker compose. Without this the API container
+    # boots with the dev-default MEMENTO_SECRET_KEY / COLLECTOR_TOKEN /
+    # MINIO creds and validate_production() refuses to start.
+    info("Ensuring .env is present…")
+    env_gen.ensure_env(interactive=False)
     info("Pulling latest code…")
     subprocess.run(["git", "pull"], check=False, cwd=str(REPO_ROOT))
     info("Rebuilding containers…")

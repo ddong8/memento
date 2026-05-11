@@ -105,8 +105,14 @@ main() {
     echo
     check_prereqs
 
-    # Idempotent re-run: if the target already looks like an install, run update.
-    if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/install.sh" ] && [ -f "$TARGET_DIR/docker-compose.yml" ]; then
+    # Idempotent re-run: if the target already looks like a real, configured
+    # install, run update. We also require .env to exist so we don't
+    # accidentally route a half-installed dir (tarball extracted, but
+    # docker-build crashed before env_gen ran) into the update path — that
+    # path skipped env generation, so containers would come up with the
+    # dev-default secrets and refuse to start.
+    if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/install.sh" ] \
+       && [ -f "$TARGET_DIR/docker-compose.yml" ] && [ -f "$TARGET_DIR/.env" ]; then
         say "Existing installation detected at $TARGET_DIR — running update."
         cd "$TARGET_DIR"
         exec ./install.sh update

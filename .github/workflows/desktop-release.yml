@@ -182,7 +182,7 @@ jobs:
             x86_64-pc-windows-msvc)   key="windows-x86_64";  artifact=$(ls nsis/*-setup.exe | head -n1) ;;
             aarch64-apple-darwin)     key="darwin-aarch64";  artifact=$(ls macos/*.app.tar.gz | head -n1) ;;
             x86_64-apple-darwin)      key="darwin-x86_64";   artifact=$(ls macos/*.app.tar.gz | head -n1) ;;
-            x86_64-unknown-linux-gnu) key="linux-x86_64";    artifact=$(ls appimage/*.AppImage.tar.gz | head -n1) ;;
+            x86_64-unknown-linux-gnu) key="linux-x86_64";    artifact=$(ls appimage/*.AppImage | head -n1) ;;
             *) echo "::error::Unknown target $MATRIX_TARGET"; exit 1 ;;
           esac
           [ -n "$artifact" ] || { echo "::error::No updater artifact for $MATRIX_TARGET"; ls -R .; exit 1; }
@@ -249,8 +249,7 @@ jobs:
             tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
             tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
             tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz
-            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz.sig
+            tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.sig
             tauri-collector/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}

@@ -7,6 +7,16 @@
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <!-- Update banner — only shown when the GitHub Releases check (in
+       app.js) finds a newer desktop-v* tag than this build's version. -->
+  <div id="updateBanner" class="update-banner hidden">
+    <span class="update-text">
+      New version <strong id="updateBannerVersion"></strong> available.
+    </span>
+    <a href="#" id="updateBannerDownload" class="btn primary update-btn">Download</a>
+    <button class="update-close" id="updateBannerDismiss" aria-label="Dismiss">×</button>
+  </div>
+
   <header class="topbar">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true"></div>
@@ -92,6 +102,7 @@
       </div>
       <div id="dashboardFrame" class="dashboard-frame hidden">
         <div class="dashboard-toolbar">
+          <button class="btn ghost dashboard-back" id="dashboardBackToSettings" title="Back to Settings">⚙ Settings</button>
           <span class="dashboard-url" id="dashboardUrl"></span>
           <button class="btn ghost" id="dashboardReload" title="Reload">↻</button>
           <button class="btn ghost" id="dashboardOpenExternal" title="Open in browser">↗</button>

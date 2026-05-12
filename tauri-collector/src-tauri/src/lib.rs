@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
 use crate::ipc::AppState;
@@ -124,6 +124,19 @@ pub fn run() {
             ipc::sidecar_stop,
             ipc::detect_legacy_install,
         ])
+        .on_window_event(|window, event| {
+            // Intercept "close window" (X button / Cmd-W / Alt-F4) — hide
+            // the window instead of exiting the app. The collector keeps
+            // running in the background so syncs don't pause every time
+            // the user clicks X. The tray menu's "Quit" item is the only
+            // real exit path; everything else just hides the window.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

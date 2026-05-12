@@ -18,6 +18,12 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const { open: openDialog } = window.__TAURI__.dialog;
 const tauriShell = window.__TAURI__.shell;  // tauri-plugin-shell .open(url)
+const tauriApp = window.__TAURI__.app;      // .getVersion()
+
+// Where update-check looks. GitHub Releases API returns "latest" by
+// semver across ALL tags including PyPI v0.0.x ones, so we list and
+// filter for desktop-v* ourselves.
+const RELEASES_URL = "https://api.github.com/repos/ddong8/memento/releases?per_page=30";
 
 // Same set the Python collector knows about. Keep names in sync with
 // collector/collector/tools/*.py — these are the values used to index
@@ -40,15 +46,25 @@ let state = {
 };
 
 // ─── Tabs ──────────────────────────────────────────────────────────
+function activateTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+  const tab = document.querySelector(`.tab[data-tab="${name}"]`);
+  const panel = document.querySelector(`.panel[data-panel="${name}"]`);
+  if (tab) tab.classList.add("active");
+  if (panel) panel.classList.add("active");
+  // Dashboard runs in fullscreen mode — hides topbar + tabs, gives the
+  // iframe the whole window minus its toolbar.
+  document.body.classList.toggle("dashboard-fullscreen", name === "dashboard");
+  if (name === "dashboard") openDashboard();
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-    tab.classList.add("active");
-    const target = document.querySelector(`.panel[data-panel="${tab.dataset.tab}"]`);
-    if (target) target.classList.add("active");
-    if (tab.dataset.tab === "dashboard") openDashboard();
-  });
+  tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+});
+
+document.getElementById("dashboardBackToSettings")?.addEventListener("click", () => {
+  activateTab("server");
 });
 
 // ─── Dashboard tab (embedded webview) ─────────────────────────────
@@ -159,6 +175,63 @@ async function boot() {
   await listen("sidecar:log", (e) => {
     appendLog(e.payload);
   });
+
+  // If already configured, drop the user straight on the dashboard.
+  // First-time setup keeps them on Server tab so they fill in fields.
+  if (state.config?.server_url && state.config?.server_token) {
+    activateTab("dashboard");
+  }
+
+  // Fire-and-forget update check. Failures (no network, rate-limited
+  // GitHub API) are silent — banner just won't appear.
+  checkForUpdate().catch(() => {});
+}
+
+// ─── Update check ─────────────────────────────────────────────────
+async function checkForUpdate() {
+  if (sessionStorage.getItem("update_dismissed")) return;
+  const currentVersion = await tauriApp.getVersion();
+  const r = await fetch(RELEASES_URL, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!r.ok) return;
+  const releases = await r.json();
+  const desktop = releases
+    .filter((rel) => rel.tag_name?.startsWith("desktop-v") && !rel.draft && !rel.prerelease)
+    .map((rel) => ({ ...rel, version: rel.tag_name.slice("desktop-v".length) }))
+    .sort((a, b) => compareVersions(b.version, a.version));
+  if (desktop.length === 0) return;
+  const latest = desktop[0];
+  if (compareVersions(latest.version, currentVersion) <= 0) return;
+  showUpdateBanner(latest.version, latest.html_url);
+}
+
+function compareVersions(a, b) {
+  const pa = a.split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = b.split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] || 0;
+    const db = pb[i] || 0;
+    if (da !== db) return da - db;
+  }
+  return 0;
+}
+
+function showUpdateBanner(version, releaseUrl) {
+  const banner = document.getElementById("updateBanner");
+  document.getElementById("updateBannerVersion").textContent = `v${version}`;
+  const link = document.getElementById("updateBannerDownload");
+  link.href = releaseUrl;
+  link.addEventListener("click", async (e) => {
+    e.preventDefault();
+    try { await tauriShell.open(releaseUrl); }
+    catch { window.open(releaseUrl, "_blank"); }
+  });
+  document.getElementById("updateBannerDismiss").addEventListener("click", () => {
+    banner.classList.add("hidden");
+    sessionStorage.setItem("update_dismissed", "1");
+  });
+  banner.classList.remove("hidden");
 }
 
 function fillForm(cfg) {
@@ -203,6 +276,11 @@ $("#saveBtn").addEventListener("click", async () => {
     await invoke("save_config", { cfg });
     state.config = cfg;
     flash("ok", "Saved.");
+    // Once they have a server URL configured, jump them straight to the
+    // dashboard — they're done configuring, they want to see their data.
+    if (cfg.server_url && cfg.server_token) {
+      setTimeout(() => activateTab("dashboard"), 400);
+    }
   } catch (e) {
     flash("err", e.message);
   }

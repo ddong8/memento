@@ -225,6 +225,37 @@ async def ingest_file(
     user_id: str | None = None,
 ) -> Document:
     """Process and store an ingested file."""
+    # Fast-path dedup: if this exact (tool_id, relative_path, content_hash,
+    # offset) was already ingested, skip everything. Common in multi-collector
+    # setups where pip + Tauri sidecar both watch the same .jsonl and resend
+    # the same chunk within milliseconds. Without this, the second request:
+    #   - holds a get_db() connection for several seconds
+    #   - races UPDATE on the same Document row
+    #   - fires a redundant post-ingest task that re-embeds 50 chunks
+    # all to write the same bytes back to the same row.
+    sync_row = (await db.execute(
+        select(SyncState).where(
+            SyncState.tool_id == tool_id,
+            SyncState.relative_path == relative_path,
+        )
+    )).scalar_one_or_none()
+    if (
+        sync_row is not None
+        and sync_row.last_hash == content_hash
+        and (mode != "delta" or sync_row.last_offset == offset)
+    ):
+        # Touch last_synced_at so dashboards know we still see this file,
+        # but skip all the actual ingestion work + the post-ingest task.
+        sync_row.last_synced_at = datetime.now(timezone.utc)
+        existing_doc = (await db.execute(
+            select(Document).where(
+                Document.tool_id == tool_id,
+                Document.relative_path == relative_path,
+            )
+        )).scalar_one_or_none()
+        if existing_doc is not None:
+            return existing_doc
+
     # Re-sanitize
     content = content.replace("\x00", "")  # PostgreSQL TEXT rejects null bytes
     content, had_sensitive = _resanitize(content)

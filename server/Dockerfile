@@ -6,6 +6,14 @@ WORKDIR /app
 # Schema rebuild via _run_migrations on fresh deploy; backup only carries
 # data. Avoids the bookworm libldap / pgdg client version mess.
 
+# Optional pip mirror — set PIP_INDEX_URL via docker-compose build args
+# when on flaky / slow networks (e.g. .env with
+# PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple in China).
+# Empty default keeps the standard pypi.org behavior for everyone else.
+ARG PIP_INDEX_URL=""
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_DEFAULT_TIMEOUT=300
+
 # Install server
 COPY server/pyproject.toml .
 COPY server/server/ server/

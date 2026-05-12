@@ -169,9 +169,25 @@ function fillForm(cfg) {
   $("#autostart").checked = !!cfg.autostart;
 }
 
+// User-friendly: they probably paste the Memento URL they use in the
+// browser (port 3001), but the Python collector needs the API base
+// (port 8001). Normalize on save so the daemon always gets the API URL.
+// Reverses deriveWebUrl()'s direction.
+function normalizeApiUrl(input) {
+  const base = (input || "").trim().replace(/\/$/, "");
+  if (/:3001(\/|$)/.test(base)) return base.replace(/:3001/, ":8001");
+  return base;
+}
+
 function readForm() {
+  const normalized = normalizeApiUrl($("#serverUrl").value);
+  // Reflect the normalized URL back into the input so users see what's
+  // actually stored. Avoids confusion next time they open Settings.
+  if (normalized && normalized !== $("#serverUrl").value.trim()) {
+    $("#serverUrl").value = normalized;
+  }
   return {
-    server_url: $("#serverUrl").value.trim().replace(/\/$/, ""),
+    server_url: normalized,
     server_token: $("#serverToken").value.trim(),
     obsidian_vault_path: $("#obsidianPath").value.trim(),
     auto_start_daemon: $("#autoStartDaemon").checked,

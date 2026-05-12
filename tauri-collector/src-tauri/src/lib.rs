@@ -98,8 +98,12 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Second launch → focus existing window instead of opening a
             // duplicate. Without this on Windows the user double-clicking
-            // the tray icon spawns a second collector process.
+            // the tray icon spawns a second collector process. Auto-update
+            // also relies on this: when the new version starts, the old
+            // process (if still alive) hits this callback and brings the
+            // already-shown window forward.
             if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
             }

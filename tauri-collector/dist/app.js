@@ -215,6 +215,12 @@ async function checkForUpdate() {
     status.textContent = `Downloading v${update.version}…`;
     document.body.insertBefore(status, document.body.firstChild);
     try {
+      // Stop the sidecar BEFORE the installer runs — otherwise the old
+      // Python sidecar process keeps the install dir open on Windows,
+      // the new installer can't fully replace files, and you end up with
+      // two memento-app.exe processes (one zombie, one new) leaving two
+      // tray icons in the systray.
+      try { await invoke("sidecar_stop"); } catch { /* sidecar wasn't running */ }
       await update.downloadAndInstall((event) => {
         // Tauri 2.x emits {event: 'Started'|'Progress'|'Finished', ...}
         if (event.event === "Progress") {

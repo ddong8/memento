@@ -14,6 +14,9 @@ if (!window.__TAURI__) {
   throw new Error("window.__TAURI__ undefined — was the page opened outside Tauri?");
 }
 
+import { t, apply as applyI18n } from "./i18n.js";
+applyI18n();  // walk DOM, replace data-i18n attrs with the active locale's strings
+
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const { open: openDialog } = window.__TAURI__.dialog;
@@ -294,13 +297,13 @@ $("#saveBtn").addEventListener("click", async () => {
           serverToken: cfg.server_token,
         });
         if (report.configured?.length) {
-          mcpMsg = ` · MCP configured for: ${report.configured.join(", ")}`;
+          mcpMsg = `· ${t("save.mcpConfigured")} ${report.configured.join(", ")}`;
         }
       } catch (e) {
         console.warn("configure_mcp failed:", e);
       }
     }
-    flash("ok", `Saved.${mcpMsg}`);
+    flash("ok", `${t("save.ok")}${mcpMsg ? " " + mcpMsg : ""}`);
     // Once they have a server URL configured, jump them straight to the
     // dashboard — they're done configuring, they want to see their data.
     if (cfg.server_url && cfg.server_token) {
@@ -322,7 +325,7 @@ $("#startBtn").addEventListener("click", async () => {
   }
   try {
     await invoke("sidecar_start");
-    flash("ok", "Collector starting…");
+    flash("ok", t("msg.startSent"));
   } catch (e) {
     flash("err", e.message);
   }
@@ -331,7 +334,7 @@ $("#startBtn").addEventListener("click", async () => {
 $("#stopBtn").addEventListener("click", async () => {
   try {
     await invoke("sidecar_stop");
-    flash("ok", "Stopped.");
+    flash("ok", t("msg.stopped"));
   } catch (e) {
     flash("err", e.message);
   }
@@ -387,17 +390,17 @@ function renderStatus() {
   pill.classList.remove("running", "error", "idle");
   if (state.status?.running) {
     pill.classList.add("running");
-    text.textContent = "running";
+    text.textContent = t("status.running");
   } else if (state.status?.last_error) {
     pill.classList.add("error");
-    text.textContent = "error";
+    text.textContent = t("status.error");
   } else {
     pill.classList.add("idle");
-    text.textContent = "idle";
+    text.textContent = t("status.idle");
   }
   $("#daemonInfo").textContent = state.status?.running
-    ? `running · PID ${state.status.pid}`
-    : "stopped";
+    ? `${t("status.running")} · PID ${state.status.pid}`
+    : t("status.idle");
 }
 
 // ─── Logs tab ─────────────────────────────────────────────────────

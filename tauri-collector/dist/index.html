@@ -11,9 +11,11 @@
        app.js) finds a newer desktop-v* tag than this build's version. -->
   <div id="updateBanner" class="update-banner hidden">
     <span class="update-text">
-      New version <strong id="updateBannerVersion"></strong> available.
+      <span data-i18n="update.text">New version</span>
+      <strong id="updateBannerVersion"></strong>
+      <span data-i18n="update.available">available.</span>
     </span>
-    <a href="#" id="updateBannerDownload" class="btn primary update-btn">Download</a>
+    <a href="#" id="updateBannerDownload" class="btn primary update-btn" data-i18n="update.btn">Install</a>
     <button class="update-close" id="updateBannerDismiss" aria-label="Dismiss">×</button>
   </div>
 
@@ -24,73 +26,81 @@
     </div>
     <div class="status-pill" id="statusPill">
       <span class="dot" id="statusDot"></span>
-      <span id="statusText">idle</span>
+      <span id="statusText" data-i18n="status.idle">idle</span>
     </div>
   </header>
 
   <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="server" role="tab">Server</button>
-    <button class="tab" data-tab="dashboard" role="tab">Dashboard</button>
-    <button class="tab" data-tab="tools" role="tab">Tools</button>
-    <button class="tab" data-tab="logs" role="tab">Logs</button>
-    <button class="tab" data-tab="about" role="tab">About</button>
+    <button class="tab active" data-tab="server" role="tab" data-i18n="tab.server">Server</button>
+    <button class="tab" data-tab="dashboard" role="tab" data-i18n="tab.dashboard">Dashboard</button>
+    <button class="tab" data-tab="tools" role="tab" data-i18n="tab.tools">Tools</button>
+    <button class="tab" data-tab="logs" role="tab" data-i18n="tab.logs">Logs</button>
+    <button class="tab" data-tab="about" role="tab" data-i18n="tab.about">About</button>
   </nav>
 
   <main>
     <!-- Server tab -->
     <section class="panel active" data-panel="server">
       <div id="legacyWarning" class="warning hidden">
-        <strong>Legacy install detected.</strong>
-        A pip-installed collector is registered as a system service. Run
-        <code>memento-collector uninstall</code> before using this app to
-        avoid double-syncing.
+        <strong data-i18n="warn.legacy.title">Legacy install detected.</strong>
+        <span data-i18n="warn.legacy.body">A pip-installed collector is registered as a system service. Run</span>
+        <code>memento-collector uninstall</code>
+        <span data-i18n="warn.legacy.after">before using this app to avoid double-syncing.</span>
       </div>
 
       <div id="sidecarMissing" class="warning hidden">
-        <strong>Sidecar binary not bundled.</strong>
-        The frozen collector hasn't been built for this platform yet.
-        From a terminal, run
+        <strong data-i18n="warn.sidecar.title">Sidecar binary not bundled.</strong>
+        <span data-i18n="warn.sidecar.body">The frozen collector hasn't been built for this platform yet. From a terminal, run</span>
         <code>cd tauri-collector/sidecar &amp;&amp; python build_sidecar.py</code>
-        and restart this app.
+        <span data-i18n="warn.sidecar.after">and restart this app.</span>
       </div>
 
       <div class="field">
-        <label for="serverUrl">Server URL</label>
-        <input type="text" id="serverUrl" placeholder="https://mem.example.com" />
-        <p class="hint">Paste the Memento URL you use in the browser. If your install
+        <label for="serverUrl" data-i18n="field.serverUrl">Server URL</label>
+        <input type="text" id="serverUrl"
+               data-i18n-attr="placeholder:field.serverUrl.placeholder"
+               placeholder="https://mem.example.com" />
+        <p class="hint" data-i18n="field.serverUrl.hint">Paste the Memento URL you use in the browser. If your install
           uses separate ports (e.g. http://host:3001 for the web UI), the app will
           auto-route the collector to the API port (8001).</p>
       </div>
 
       <div class="field">
-        <label for="serverToken">Collector Token</label>
-        <input type="password" id="serverToken" placeholder="paste the token from the admin console" autocomplete="off" />
-        <p class="hint">Get this from Settings → Users → Reset collector token on the web UI.</p>
+        <label for="serverToken" data-i18n="field.token">Collector Token</label>
+        <input type="password" id="serverToken"
+               data-i18n-attr="placeholder:field.token.placeholder"
+               placeholder="paste the token from the admin console" autocomplete="off" />
+        <p class="hint" data-i18n="field.token.hint">Get this from Settings → Users → Reset collector token on the web UI.</p>
       </div>
 
       <div class="field">
-        <label for="obsidianPath">Obsidian Vault Path <span class="optional">(optional)</span></label>
+        <label for="obsidianPath">
+          <span data-i18n="field.obsidian">Obsidian Vault Path</span>
+          <span class="optional" data-i18n="field.obsidian.optional">(optional)</span>
+        </label>
         <div class="inline">
-          <input type="text" id="obsidianPath" placeholder="leave empty to disable Obsidian sync" />
-          <button class="btn ghost" id="pickObsidian">Browse…</button>
+          <input type="text" id="obsidianPath"
+                 data-i18n-attr="placeholder:field.obsidian.placeholder"
+                 placeholder="leave empty to disable Obsidian sync" />
+          <button class="btn ghost" id="pickObsidian" data-i18n="btn.browse">Browse…</button>
         </div>
       </div>
 
       <div class="field">
         <label class="toggle">
           <input type="checkbox" id="autoStartDaemon" />
-          <span>Auto-start collector when the app launches</span>
+          <span data-i18n="toggle.autoStart">Auto-start collector when the app launches</span>
         </label>
         <label class="toggle">
           <input type="checkbox" id="autostart" />
-          <span>Launch Memento at system startup</span>
+          <span data-i18n="toggle.autoLaunch">Launch Memento at system startup</span>
         </label>
       </div>
 
       <div class="actions">
-        <button class="btn primary" id="saveBtn">Save</button>
-        <button class="btn" id="startBtn">Start collector</button>
-        <button class="btn ghost" id="stopBtn">Stop</button>
+        <button class="btn primary" id="saveBtn" data-i18n="btn.save">Save</button>
+        <button class="btn" id="startBtn" data-i18n="btn.start">Start collector</button>
+        <button class="btn ghost" id="stopBtn" data-i18n="btn.stop">Stop</button>
       </div>
       <p class="notice" id="serverNotice"></p>
     </section>
@@ -98,11 +108,12 @@
     <!-- Dashboard tab -->
     <section class="panel" data-panel="dashboard">
       <div id="dashboardEmpty" class="dashboard-empty">
-        <p>Configure the server URL on the Server tab, then come back here to see the dashboard.</p>
+        <p data-i18n="dashboard.empty">Configure the server URL on the Server tab, then come back here to see the dashboard.</p>
       </div>
       <div id="dashboardFrame" class="dashboard-frame hidden">
         <div class="dashboard-toolbar">
-          <button class="btn ghost dashboard-back" id="dashboardBackToSettings" title="Back to Settings">⚙ Settings</button>
+          <button class="btn ghost dashboard-back" id="dashboardBackToSettings"
+                  title="Back to Settings" data-i18n="dashboard.back">⚙ Settings</button>
           <span class="dashboard-url" id="dashboardUrl"></span>
           <button class="btn ghost" id="dashboardReload" title="Reload">↻</button>
           <button class="btn ghost" id="dashboardOpenExternal" title="Open in browser">↗</button>
@@ -114,7 +125,7 @@
 
     <!-- Tools tab -->
     <section class="panel" data-panel="tools">
-      <p class="hint">
+      <p class="hint" data-i18n="tools.hint">
         Disable any tool you don't want the collector to watch. Changes
         take effect after the daemon is restarted.
       </p>
@@ -122,17 +133,17 @@
         <!-- populated by app.js -->
       </ul>
       <div class="actions">
-        <button class="btn primary" id="saveToolsBtn">Save</button>
+        <button class="btn primary" id="saveToolsBtn" data-i18n="btn.saveTools">Save</button>
       </div>
     </section>
 
     <!-- Logs tab -->
     <section class="panel" data-panel="logs">
       <div class="log-toolbar">
-        <button class="btn ghost" id="clearLogBtn">Clear</button>
+        <button class="btn ghost" id="clearLogBtn" data-i18n="btn.clear">Clear</button>
         <label class="toggle inline">
           <input type="checkbox" id="autoscroll" checked />
-          <span>Auto-scroll</span>
+          <span data-i18n="toggle.autoscroll">Auto-scroll</span>
         </label>
       </div>
       <pre class="log-view" id="logView"></pre>
@@ -140,17 +151,17 @@
 
     <!-- About tab -->
     <section class="panel" data-panel="about">
-      <h2>Memento</h2>
-      <p>
+      <h2 data-i18n="about.title">Memento</h2>
+      <p data-i18n="about.desc">
         Cross-device memory for your AI coding tools — collects, indexes
         and surfaces conversations + memory files from Claude Code,
         Codex, Cursor, Obsidian, Antigravity, Hermes and OpenClaw.
       </p>
       <dl class="kv">
-        <dt>Desktop version</dt><dd id="appVersion">0.1.0</dd>
-        <dt>Collector daemon</dt><dd id="daemonInfo">checking…</dd>
-        <dt>Project</dt><dd><a href="https://github.com/ddong8/memento" target="_blank">github.com/ddong8/memento</a></dd>
-        <dt>License</dt><dd>AGPL-3.0</dd>
+        <dt data-i18n="about.version">Desktop version</dt><dd id="appVersion">0.1.0</dd>
+        <dt data-i18n="about.daemon">Collector daemon</dt><dd id="daemonInfo" data-i18n="about.daemonChecking">checking…</dd>
+        <dt data-i18n="about.project">Project</dt><dd><a href="https://github.com/ddong8/memento" target="_blank">github.com/ddong8/memento</a></dd>
+        <dt data-i18n="about.license">License</dt><dd>AGPL-3.0</dd>
       </dl>
     </section>
   </main>

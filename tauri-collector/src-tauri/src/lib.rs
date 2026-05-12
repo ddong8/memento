@@ -12,7 +12,7 @@ mod sidecar;
 use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -29,6 +29,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let _tray = TrayIconBuilder::with_id("main")
         .menu(&menu)
         .tooltip("Memento")
+        // Default Tauri behavior shows the menu on left-click too, which
+        // conflicts with the Windows / Linux convention (left = open app,
+        // right = menu). Turn it off so right-click is the *only* path to
+        // the menu — our on_tray_icon_event below handles left-click.
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => {
                 if let Some(w) = app.get_webview_window("main") {
@@ -55,13 +60,21 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            // Left-click on tray brings the window forward — standard
-            // pattern on Windows / Linux. macOS tray clicks open menu
-            // by convention, so leave that alone.
-            if let TrayIconEvent::Click { .. } = event {
+            // Only respond to LEFT-click release. The menu shows on
+            // right-click via Tauri's default handler (since we set
+            // show_menu_on_left_click(false), left-click no longer
+            // conflicts). Matching on Up so a click-and-drag doesn't
+            // trigger window-show repeatedly.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 if let Some(w) = tray.app_handle().get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.set_focus();
+                    let _ = w.unminimize();
                 }
             }
         })

@@ -81,6 +81,12 @@ services:
       MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
       MEMENTO_EMBEDDING_SERVER_URL: http://host.docker.internal:8002
       MEMENTO_GEOIP_DB: /data/geoip/GeoLite2-City.mmdb
+    # Linux Docker (non-Docker-Desktop) doesn't auto-resolve
+    # host.docker.internal — embedding server runs on the host at :8002,
+    # so the container needs an explicit mapping to the bridge gateway.
+    # Docker Desktop adds this automatically; this entry is a no-op there.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # GeoIP database for share-link visitor location. Host dir is created
       # on-demand by scripts/download_geoip.sh; mount is optional — service

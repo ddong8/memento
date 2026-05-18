@@ -233,7 +233,7 @@ const zhCN = {
     goToLogin: "前往登录",
     invalidCredentials: "登录失败",
     ownerWelcome: "你是第一个注册的用户，已自动设为 owner。",
-    memberWelcome: "注册完成，账号已激活。下面是你的专属 Collector Token —— 不需要等管理员审批，直接拿它去采集。",
+    memberWelcome: "注册完成,账号已激活。下面是你的专属 Collector Token,用它即可在任意设备上开始采集。",
     collectorTokenLabel: "你的 Collector Token",
     tokenSaveHint: "请现在复制保存。用这个 token 在任何设备上 memento-collector setup 即可。丢了也没关系，随时可以在个人资料页重新生成。",
     registrationClosed: "注册已关闭。请联系管理员获取邀请码。",

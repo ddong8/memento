@@ -223,7 +223,7 @@ const enUS: Translations = {
     goToLogin: "Go to Login",
     invalidCredentials: "Login failed",
     ownerWelcome: "You are the first user — auto-promoted to owner.",
-    memberWelcome: "Registration complete — your account is active. Here is your personal Collector Token; no admin approval needed, use it to start syncing right away.",
+    memberWelcome: "Registration complete — your account is active. Here is your personal Collector Token; use it to start syncing on any device.",
     collectorTokenLabel: "Your Collector Token",
     tokenSaveHint: "Copy and save this now. Use it to run `memento-collector setup` on any device. You can always regenerate it from your profile page if lost.",
     registrationClosed: "Registration is closed. Contact the admin for an invite code.",

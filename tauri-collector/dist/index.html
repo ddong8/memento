@@ -66,32 +66,33 @@
       </div>
 
       <div class="field">
-        <label for="serverToken" data-i18n="field.token">Collector Token</label>
-        <input type="password" id="serverToken"
-               data-i18n-attr="placeholder:field.token.placeholder"
-               placeholder="paste the token from the admin console" autocomplete="off" />
-        <p class="hint" data-i18n="field.token.hint">Get this from Settings → Users → Reset collector token on the web UI.</p>
+        <label data-i18n="auth.account">Account</label>
+        <input type="text" id="authEmail" inputmode="email" autocomplete="username"
+               data-i18n-attr="placeholder:auth.email" placeholder="Email" />
       </div>
+      <div class="field">
+        <input type="password" id="authPassword" autocomplete="current-password"
+               data-i18n-attr="placeholder:auth.password" placeholder="Password" />
+      </div>
+      <div class="field">
+        <input type="text" id="authInvite" autocomplete="off"
+               data-i18n-attr="placeholder:auth.invite" placeholder="Invite code (optional)" />
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="authRegisterBtn" data-i18n="auth.register">Register</button>
+        <button class="btn" id="authLoginBtn" data-i18n="auth.login">Sign in</button>
+      </div>
+      <p class="hint" data-i18n="auth.hint">Sign in or register and syncing starts automatically — nothing else to set up.</p>
 
       <details class="auth-box" id="authBox">
-        <summary data-i18n="auth.or">No token? Register or sign in here — no browser needed</summary>
+        <summary data-i18n="auth.advanced">Advanced</summary>
         <div class="field">
-          <input type="text" id="authEmail" inputmode="email" autocomplete="username"
-                 data-i18n-attr="placeholder:auth.email" placeholder="Email" />
+          <label for="serverToken" data-i18n="field.token">Collector Token</label>
+          <input type="password" id="serverToken"
+                 data-i18n-attr="placeholder:field.token.placeholder"
+                 placeholder="paste an existing token" autocomplete="off" />
+          <p class="hint" data-i18n="field.token.hint">Already have a token (e.g. someone shared one)? Paste it here instead of signing in.</p>
         </div>
-        <div class="field">
-          <input type="password" id="authPassword" autocomplete="current-password"
-                 data-i18n-attr="placeholder:auth.password" placeholder="Password" />
-        </div>
-        <div class="field">
-          <input type="text" id="authInvite" autocomplete="off"
-                 data-i18n-attr="placeholder:auth.invite" placeholder="Invite code (optional)" />
-        </div>
-        <div class="actions">
-          <button class="btn primary" id="authRegisterBtn" data-i18n="auth.register">Register &amp; get token</button>
-          <button class="btn" id="authLoginBtn" data-i18n="auth.login">Sign in &amp; get token</button>
-        </div>
-        <p class="hint" data-i18n="auth.hint">We fill the token in for you and start syncing — fill the Server URL above first.</p>
       </details>
 
       <div class="field">

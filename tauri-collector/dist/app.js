@@ -452,7 +452,6 @@ async function runAuth(mode) {
     } catch (e) {
       console.warn("configure_mcp failed:", e);
     }
-    document.getElementById("authBox")?.removeAttribute("open");
     $("#authEmail").value = "";
     flash("ok", mode === "register" ? t("auth.okRegistered") : t("auth.okLoggedIn"));
     // Start collecting immediately — the whole point of register/login is

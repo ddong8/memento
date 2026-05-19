@@ -64,7 +64,7 @@ impl Sidecar {
         self.log_tail.lock().iter().cloned().collect()
     }
 
-    /// Start the collector. No-op if already running.
+    /// Start the collector. No-op if we're already tracking a running one.
     pub fn start(self: &Arc<Self>, app: AppHandle) -> Result<()> {
         {
             let g = self.child.lock();
@@ -72,6 +72,14 @@ impl Sidecar {
                 return Ok(());
             }
         }
+
+        // Single-instance guarantee: before spawning, sweep any sidecar
+        // processes we are NOT tracking — orphans from a previous app run
+        // that crashed, a stop that only killed the PyInstaller bootloader
+        // (see stop()), or a second app instance. Without this you get two
+        // collectors syncing the same machine → duplicate ingest + DB
+        // contention. Safe to call when nothing is running (no-op).
+        kill_stray_sidecars(None);
 
         // Tauri's shell plugin picks the bundled per-triple binary that
         // matches the running host. We pass `run` because our PyInstaller
@@ -148,13 +156,20 @@ impl Sidecar {
             let mut g = self.child.lock();
             g.take()
         };
+        let tracked_pid = child.as_ref().map(|c| c.pid());
         if let Some(child) = child {
-            // Plugin-shell's CommandChild::kill is synchronous and uses
-            // TerminateProcess on Windows / SIGKILL on POSIX. Our SQLite
-            // queue is WAL-journalled so an abrupt kill won't corrupt
-            // pending writes — they replay on next start.
+            // CommandChild::kill only signals the DIRECT child. The sidecar
+            // is a PyInstaller one-file binary: a bootloader process that
+            // re-execs the actual Python collector as a *grandchild*. On
+            // POSIX, killing the bootloader leaves that grandchild orphaned
+            // and still watching/syncing — which is exactly why "Stop"
+            // looked like a no-op on macOS. Kill the whole tree below.
             child.kill().ok();
         }
+        // Tree/strays sweep — kills the PyInstaller worker + any orphans.
+        // SQLite queue is WAL-journalled so an abrupt kill can't corrupt
+        // pending writes (they replay on next start).
+        kill_stray_sidecars(tracked_pid);
         let mut st = self.status.lock();
         st.running = false;
         st.pid = None;
@@ -168,6 +183,51 @@ impl Sidecar {
         }
         buf.push_back(line.to_owned());
         let _ = app.emit("sidecar:log", line.to_owned());
+    }
+}
+
+/// Forcibly terminate every collector sidecar process on this machine,
+/// including the PyInstaller-spawned Python grandchild and any orphans
+/// from a crashed app / half-finished stop. This is what makes "Stop"
+/// actually stop on macOS and what enforces a single running instance
+/// on every OS.
+///
+/// `tracked_pid` (Windows only) lets us tree-kill the exact process we
+/// spawned; POSIX matches by command line so it doesn't need it.
+fn kill_stray_sidecars(tracked_pid: Option<u32>) {
+    #[cfg(unix)]
+    {
+        let _ = tracked_pid; // POSIX matches by name, pid not needed.
+        // SIGTERM first so the collector can flush its SQLite queue, then
+        // SIGKILL to guarantee it's gone. `pkill -f` matches the full
+        // command line; "memento-collector-sidecar" is specific enough
+        // not to hit the pip `memento-collector` CLI or the app itself.
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", SIDECAR_BIN])
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let _ = std::process::Command::new("pkill")
+            .args(["-9", "-f", SIDECAR_BIN])
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        // /T kills the whole tree (bootloader → PyInstaller worker).
+        if let Some(pid) = tracked_pid {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .status();
+        }
+        // Mop up orphans by image name (best-effort: a no-op if the
+        // bundled name carries a target-triple suffix instead).
+        for img in [
+            "memento-collector-sidecar.exe",
+            "memento-collector-sidecar-x86_64-pc-windows-msvc.exe",
+        ] {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/IM", img])
+                .status();
+        }
     }
 }
 

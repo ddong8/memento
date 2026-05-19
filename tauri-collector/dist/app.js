@@ -452,14 +452,15 @@ async function runAuth(mode) {
     } catch (e) {
       console.warn("configure_mcp failed:", e);
     }
-    // Stay on the Server tab on purpose: the token is saved, but the
-    // user still needs to review the auto-start / autostart toggles and
-    // tool selection, then start the collector themselves. Auto-jumping
-    // to the dashboard (a separate web session that re-prompts login)
-    // and auto-starting the daemon skipped past all of that.
     document.getElementById("authBox")?.removeAttribute("open");
     $("#authEmail").value = "";
     flash("ok", mode === "register" ? t("auth.okRegistered") : t("auth.okLoggedIn"));
+    // Start collecting immediately — the whole point of register/login is
+    // "I'm done, just run it". The earlier objection (dumped into a web
+    // login screen) is gone now that the dashboard does SSO via the saved
+    // token, so jumping there is seamless.
+    try { await invoke("sidecar_start"); } catch (e) { console.warn("sidecar_start:", e); }
+    setTimeout(() => activateTab("dashboard"), 600);
   } catch (e) {
     flash("err", e?.message || String(e));
   } finally {

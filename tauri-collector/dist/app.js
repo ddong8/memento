@@ -317,7 +317,7 @@ function fillForm(cfg) {
   $("#serverUrl").value = cfg.server_url || DEFAULT_SERVER_URL;
   $("#serverToken").value = cfg.server_token || "";
   $("#autoStartDaemon").checked = cfg.auto_start_daemon ?? true;
-  $("#autostart").checked = !!cfg.autostart;
+  $("#autostart").checked = cfg.autostart ?? true;
 }
 
 // User-friendly: they probably paste the Memento URL they use in the
@@ -458,7 +458,10 @@ async function runAuth(mode) {
     // Start collecting immediately — the whole point of register/login is
     // "I'm done, just run it". The earlier objection (dumped into a web
     // login screen) is gone now that the dashboard does SSO via the saved
-    // token, so jumping there is seamless.
+    // token, so jumping there is seamless. Stop first so a collector that
+    // was already running (old token / different account) is killed and
+    // replaced — never two instances, always the just-saved config.
+    try { await invoke("sidecar_stop"); } catch (e) { console.warn("sidecar_stop:", e); }
     try { await invoke("sidecar_start"); } catch (e) { console.warn("sidecar_start:", e); }
     setTimeout(() => activateTab("dashboard"), 600);
   } catch (e) {

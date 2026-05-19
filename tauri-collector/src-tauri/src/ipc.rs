@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::config::Config;
 use crate::sidecar::{Sidecar, Status};
@@ -34,9 +35,28 @@ pub fn load_config() -> CmdResult<Config> {
 }
 
 #[tauri::command]
-pub fn save_config(cfg: Config) -> CmdResult<()> {
+pub fn save_config(app: AppHandle, cfg: Config) -> CmdResult<()> {
     cfg.save()?;
+    apply_autostart(&app, cfg.autostart);
     Ok(())
+}
+
+/// Reconcile the OS "launch at login" registration with the config
+/// checkbox. The autostart *plugin* is registered in lib.rs but nothing
+/// ever toggled it — so the checkbox was cosmetic. Best-effort: a failure
+/// here (e.g. sandboxed env) shouldn't block saving the rest of config.
+pub fn apply_autostart(app: &AppHandle, want: bool) {
+    let mgr = app.autolaunch();
+    let is_on = mgr.is_enabled().unwrap_or(false);
+    if want && !is_on {
+        if let Err(e) = mgr.enable() {
+            tracing::warn!("autostart enable failed: {e}");
+        }
+    } else if !want && is_on {
+        if let Err(e) = mgr.disable() {
+            tracing::warn!("autostart disable failed: {e}");
+        }
+    }
 }
 
 /// Write MCP server entries into AI tool config files (Claude Code,

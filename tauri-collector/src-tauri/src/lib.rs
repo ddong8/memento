@@ -173,6 +173,9 @@ pub fn run() {
 
             // Auto-start the daemon if the user enabled it in settings.
             let cfg = crate::config::Config::load().unwrap_or_default();
+            // Reconcile OS launch-at-login with the saved/default setting
+            // (defaults ON for fresh installs).
+            crate::ipc::apply_autostart(app.handle(), cfg.autostart);
             if cfg.auto_start_daemon
                 && !cfg.server_url.is_empty()
                 && !cfg.server_token.is_empty()

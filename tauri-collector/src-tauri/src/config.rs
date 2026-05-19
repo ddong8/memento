@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = "com.memento.app";
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Memento server base URL, e.g. "https://mem.example.com" or
     /// "http://localhost:8001". No trailing slash.
@@ -39,17 +39,35 @@ pub struct Config {
     #[serde(default)]
     pub disabled_tools: Vec<String>,
 
-    /// Launch the app on system login.
-    #[serde(default)]
+    /// Launch the app on system login. Default on.
+    #[serde(default = "default_true")]
     pub autostart: bool,
 
     /// Start the collector daemon automatically when the app launches.
+    /// Default on.
     #[serde(default = "default_true")]
     pub auto_start_daemon: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+// Hand-written so a brand-new install (no config file → Config::default())
+// gets both toggles ON — `#[derive(Default)]` would force the bools false
+// and the serde `default_true` only applies when *deserializing* an
+// existing file with the key missing, not to Default::default().
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            server_url: String::new(),
+            server_token: String::new(),
+            obsidian_vault_path: String::new(),
+            disabled_tools: Vec::new(),
+            autostart: true,
+            auto_start_daemon: true,
+        }
+    }
 }
 
 impl Config {

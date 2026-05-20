@@ -125,47 +125,40 @@ async function openDashboard() {
     return;
   }
 
-  // Two paths into the dashboard:
-  //   1. We already have a token — mint a fresh web JWT and SSO through
-  //      /auth/handoff so the iframe lands on /app logged-in.
-  //   2. First-time / no token — load /app?embed=memento so the web's
-  //      login flow knows it's embedded by us and will postMessage the
-  //      collector token back after the user authenticates (see the
-  //      message listener below). The /app route will redirect to
-  //      /auth/login, which preserves the embed marker via sessionStorage.
-  let target = `${webBase}/app?embed=memento`;
-  if (token) {
-    try {
-      const jwt = await invoke("mint_web_token", {
-        serverUrl: apiUrl,
-        collectorToken: token,
-      });
-      if (jwt) target = `${webBase}/auth/handoff#token=${encodeURIComponent(jwt)}`;
-    } catch (e) {
-      console.warn("mint_web_token failed — dashboard will ask for login:", e);
-    }
-  }
+  // The iframe is same-origin with the server, so its localStorage
+  // (where the web app keeps the JWT after login) persists across
+  // src reassignments. We don't need a separate SSO handoff round-trip
+  // for "open the dashboard" — relying on iframe-local storage avoids
+  // the redirect cycle that can flicker through /auth/login on older
+  // web builds without a /auth/handoff route.
+  //
+  // Picking the landing URL:
+  //   - have a saved token → user already authenticated on this device
+  //     at least once via the in-iframe login, so /app will use the
+  //     iframe's JWT (or, if it was cleared, redirect to /auth/login).
+  //   - no token yet → go straight to /auth/login to avoid the brief
+  //     "Failed to load dashboard" flash that /app renders while it's
+  //     getting redirected by AuthProvider.
+  // ?embed=memento makes the (new) web post the collector token back
+  // to us on the *next* login event; older web builds just ignore it.
+  const target = token
+    ? `${webBase}/app?embed=memento`
+    : `${webBase}/auth/login?embed=memento&next=/app`;
   iframe.src = target;
   state.dashboardLoadedFor = apiUrl;
 }
 
 document.getElementById("dashboardReload")?.addEventListener("click", () => {
+  // The earlier attempt (contentWindow.location.reload()) always threw
+  // a SecurityError: the iframe is cross-origin with the Tauri parent
+  // (allow-same-origin makes the iframe same-origin with the *server*,
+  // not with us). Reassigning iframe.src to /app on the same origin
+  // keeps localStorage (the JWT) intact and avoids the SSO handoff
+  // round-trip that was flickering through /auth/login.
   const iframe = document.getElementById("dashboardIframe");
-  // Just refresh the current iframe page — same origin (allow-same-origin
-  // is set), so we keep the user on whatever sub-page they were on, their
-  // JWT stays in localStorage, and we avoid a re-mint + SSO handoff round
-  // trip. The old behavior would forcibly navigate the iframe through
-  // /auth/handoff, which on a prod server with an out-of-date web build
-  // (no /auth/handoff route + AuthProvider that doesn't whitelist it)
-  // ends up bouncing the user to /auth/login — looking like a logout.
-  try {
-    iframe.contentWindow?.location.reload();
-  } catch {
-    // Cross-origin / window disposed — fall back to the full re-open
-    // flow (this will mint a fresh web JWT and SSO back in).
-    state.dashboardLoadedFor = null;
-    openDashboard();
-  }
+  const apiUrl = (state.config?.server_url || "").trim();
+  if (!apiUrl) return;
+  iframe.src = `${deriveWebUrl(apiUrl)}/app?embed=memento`;
 });
 
 document.getElementById("dashboardOpenExternal")?.addEventListener("click", async () => {

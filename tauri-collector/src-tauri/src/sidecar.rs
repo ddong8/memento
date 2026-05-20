@@ -212,10 +212,16 @@ fn kill_stray_sidecars(tracked_pid: Option<u32>) {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: suppress the console window that taskkill
+        // would otherwise pop up when invoked from a GUI Tauri app —
+        // those black flashes are what users were seeing on Windows.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         // /T kills the whole tree (bootloader → PyInstaller worker).
         if let Some(pid) = tracked_pid {
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/T", "/PID", &pid.to_string()])
+                .creation_flags(CREATE_NO_WINDOW)
                 .status();
         }
         // Mop up orphans by image name (best-effort: a no-op if the
@@ -226,6 +232,7 @@ fn kill_stray_sidecars(tracked_pid: Option<u32>) {
         ] {
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/T", "/IM", img])
+                .creation_flags(CREATE_NO_WINDOW)
                 .status();
         }
     }

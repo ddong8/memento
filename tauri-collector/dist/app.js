@@ -410,11 +410,13 @@ window.addEventListener("message", async (evt) => {
     // Replace any running collector with one that uses the new token.
     try { await invoke("sidecar_stop"); } catch (e) { console.warn("sidecar_stop:", e); }
     try { await invoke("sidecar_start"); } catch (e) { console.warn("sidecar_start:", e); }
-    // Reload the iframe via the SSO handoff so it's fully logged in
-    // (the in-iframe login already authenticated it, but reloading via
-    // the handoff URL guarantees a consistent /app state).
-    state.dashboardLoadedFor = null;
-    openDashboard();
+    // Do NOT touch the iframe here — the user already authenticated
+    // inside it and is mid-navigation to /app. Force-reloading via the
+    // SSO handoff would race that navigation and look like a logout
+    // flash. The handoff path is reserved for the next time the user
+    // opens the Dashboard tab fresh (state.dashboardLoadedFor !== url).
+    // Remember the current load so the tab-flip skip still works.
+    state.dashboardLoadedFor = (state.config?.server_url || "").trim();
   } catch (e) {
     console.warn("memento:token handler:", e);
   }

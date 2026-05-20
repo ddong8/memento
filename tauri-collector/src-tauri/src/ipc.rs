@@ -119,9 +119,14 @@ pub fn detect_legacy_install() -> bool {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW so the legacy-install probe doesn't flash
+        // a console window every time the desktop app boots.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         // schtasks /Query exits 0 if the task exists.
         let out = std::process::Command::new("schtasks")
             .args(["/Query", "/TN", "MementoCollector"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         return matches!(out, Ok(o) if o.status.success());
     }

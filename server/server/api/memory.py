@@ -383,6 +383,7 @@ async def semantic_search(
     q: str = Query(..., min_length=1, max_length=1000),
     limit: int = Query(5, ge=1, le=20),
     tool_filter: str | None = None,
+    days: int | None = Query(None, ge=1, le=3650),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
@@ -420,6 +421,10 @@ async def semantic_search(
     )
     if tool_filter:
         stmt = stmt.where(Document.tool_id == tool_filter)
+    if days:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        stmt = stmt.where(Document.synced_at >= cutoff)
     if mids is not None:
         stmt = stmt.where(Document.machine_id.in_(mids))
 

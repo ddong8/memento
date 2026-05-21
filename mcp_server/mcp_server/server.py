@@ -41,6 +41,12 @@ def init_server(server_url: str | None = None, token: str | None = None, db_url:
 
 # ---------------------------------------------------------------------------
 # Tools
+#
+# Mental grouping:
+#   - find: memory_search / memory_recall / memory_context
+#   - write: memory_store
+#   - overview: daily_summary
+#   - drill-in: memory_open / memory_conversation / memory_graph
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -63,7 +69,9 @@ async def memory_search(
     """
     if _remote:
         try:
-            results = await _remote.search(query, limit=limit, tool_filter=tool_filter)
+            results = await _remote.search(
+                query, limit=limit, tool_filter=tool_filter, days=days,
+            )
         except Exception as e:
             return f"Search failed: {e}"
         if not results:
@@ -353,6 +361,213 @@ async def daily_summary(date_str: str | None = None) -> str:
         for tool, count in sorted(stats.items(), key=lambda x: -x[1]):
             lines.append(f"- **{tool}**: {count} messages")
         return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Drill-in tools: open / read / explore the graph
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def memory_open(doc_id: str) -> str:
+    """Fetch the full content of a document by its ID.
+
+    Pair this with `memory_search` / `memory_recall` — those return short
+    snippets, this returns the whole file so you can actually *read* the
+    match instead of guessing from a fragment.
+
+    Args:
+        doc_id: Document UUID (from a search result's "id" field)
+    """
+    if _remote:
+        try:
+            doc = await _remote.get_document(doc_id)
+        except Exception as e:
+            return f"Failed to fetch document: {e}"
+        header = (
+            f"# {doc.get('title') or doc.get('relative_path', 'Untitled')}\n"
+            f"**Tool**: {doc.get('tool_id', '')}  ·  "
+            f"**Category**: {doc.get('category', '')}  ·  "
+            f"**Synced**: {(doc.get('synced_at') or '')[:10]}\n"
+            f"**Path**: `{doc.get('relative_path', '')}`\n"
+        )
+        content = doc.get("content") or "(empty)"
+        if doc.get("ai_summary"):
+            header += f"\n**AI summary**: {doc['ai_summary']}\n"
+        return f"{header}\n---\n{content}"
+
+    from sqlalchemy import select
+    from .db import Document
+    import uuid as _uuid
+    try:
+        did = _uuid.UUID(doc_id)
+    except ValueError:
+        return f"Invalid doc_id: {doc_id}"
+    async with _session_factory() as db:
+        doc = (await db.execute(select(Document).where(Document.id == did))).scalar_one_or_none()
+        if not doc:
+            return f"Document {doc_id} not found."
+        header = (
+            f"# {doc.title or doc.relative_path}\n"
+            f"**Tool**: {doc.tool_id}  ·  "
+            f"**Category**: {doc.category}  ·  "
+            f"**Synced**: {doc.synced_at.strftime('%Y-%m-%d')}\n"
+            f"**Path**: `{doc.relative_path}`\n"
+        )
+        if doc.ai_summary:
+            header += f"\n**AI summary**: {doc.ai_summary}\n"
+        return f"{header}\n---\n{doc.content or '(empty)'}"
+
+
+@mcp.tool()
+async def memory_conversation(
+    doc_id: str, limit: int = 50, offset: int = 0,
+) -> str:
+    """Read the actual message-by-message contents of a conversation document.
+
+    Search results point you at a conversation; this tool unfolds the
+    role/content turns so you can quote, summarize, or pick up where
+    the past discussion left off.
+
+    Args:
+        doc_id: Conversation document UUID
+        limit: Max messages to return (default 50, server caps at 200)
+        offset: Pagination offset (default 0; use total + offset to page)
+    """
+    if _remote:
+        try:
+            data = await _remote.get_conversation_messages(doc_id, limit=limit, offset=offset)
+        except Exception as e:
+            return f"Failed to fetch conversation: {e}"
+        msgs = data.get("messages", [])
+        total = data.get("total", len(msgs))
+        if not msgs:
+            return f"No messages in document {doc_id}."
+        parts = [f"# Conversation {doc_id}\n*Messages {offset + 1}-{offset + len(msgs)} of {total}*\n"]
+        for m in msgs:
+            role = m.get("role") or "?"
+            ts = (m.get("timestamp") or "")[:19].replace("T", " ")
+            tool_name = m.get("tool_name")
+            head = f"## {role}" + (f" ({ts})" if ts else "")
+            if tool_name:
+                head += f" — tool: `{tool_name}`"
+            parts.append(head)
+            if m.get("thinking"):
+                parts.append(f"> _thinking_: {m['thinking']}")
+            parts.append(m.get("content") or "(no text)")
+        return "\n\n".join(parts)
+
+    from sqlalchemy import select, func
+    from .db import ConversationMessage
+    import uuid as _uuid
+    try:
+        did = _uuid.UUID(doc_id)
+    except ValueError:
+        return f"Invalid doc_id: {doc_id}"
+    async with _session_factory() as db:
+        total = (await db.execute(
+            select(func.count())
+            .select_from(ConversationMessage)
+            .where(ConversationMessage.document_id == did)
+        )).scalar_one()
+        rows = (await db.execute(
+            select(ConversationMessage)
+            .where(ConversationMessage.document_id == did)
+            .order_by(ConversationMessage.line_number.asc())
+            .offset(offset)
+            .limit(limit)
+        )).scalars().all()
+        if not rows:
+            return f"No messages in document {doc_id}."
+        parts = [f"# Conversation {doc_id}\n*Messages {offset + 1}-{offset + len(rows)} of {total}*\n"]
+        for m in rows:
+            ts = m.timestamp.strftime("%Y-%m-%d %H:%M") if m.timestamp else ""
+            head = f"## {m.role or '?'}" + (f" ({ts})" if ts else "")
+            parts.append(head)
+            parts.append(m.content or "(no text)")
+        return "\n\n".join(parts)
+
+
+@mcp.tool()
+async def memory_graph(entity_name: str, limit: int = 5) -> str:
+    """Explore the knowledge graph around an entity by name.
+
+    Returns the matched entity (or top candidates if ambiguous), its
+    summary, recent observations, and incoming/outgoing relations to
+    other entities. Use this after `memory_search` when the AI needs
+    structured "what do I know about X" instead of free-text snippets.
+
+    Args:
+        entity_name: Entity name to look up (fuzzy ilike match)
+        limit: Max candidate entities to consider when the name is ambiguous
+    """
+    if _remote:
+        try:
+            hits = await _remote.graph_search(entity_name, limit=limit)
+        except Exception as e:
+            return f"Graph search failed: {e}"
+        # API returns mixed entities + observations; entities first.
+        entities = [h for h in hits if h.get("type") == "entity"]
+        if not entities:
+            # No direct entity hit — show any matched observations as a
+            # weak fallback so the AI still gets something to chew on.
+            obs = [h for h in hits if h.get("type") == "observation"]
+            if not obs:
+                return f"No entity matching '{entity_name}'."
+            lines = [f"# Observations mentioning '{entity_name}'\n"]
+            for o in obs[:limit]:
+                lines.append(f"- **{o.get('name', '')}**: {o.get('content', '')}")
+            return "\n".join(lines)
+
+        # Fetch full detail for the best (first) match.
+        primary = entities[0]
+        try:
+            detail = await _remote.get_entity(primary["id"])
+        except Exception as e:
+            return f"Found entity '{primary.get('name')}' but detail fetch failed: {e}"
+
+        parts = [
+            f"# {detail.get('name', primary['name'])} "
+            f"({detail.get('type') or detail.get('entity_type', '')})"
+        ]
+        if detail.get("summary"):
+            parts.append(f"\n{detail['summary']}")
+
+        outgoing = detail.get("outgoing_relations") or detail.get("outgoing") or []
+        incoming = detail.get("incoming_relations") or detail.get("incoming") or []
+        if outgoing:
+            parts.append("\n## Relations (outgoing)")
+            for r in outgoing[:20]:
+                parts.append(
+                    f"- {r.get('relation', '')} → **{r.get('target_name', '')}** "
+                    f"({r.get('target_type', '')})"
+                )
+        if incoming:
+            parts.append("\n## Relations (incoming)")
+            for r in incoming[:20]:
+                parts.append(
+                    f"- **{r.get('source_name', '')}** "
+                    f"({r.get('source_type', '')}) → {r.get('relation', '')} → here"
+                )
+
+        observations = detail.get("observations") or []
+        if observations:
+            parts.append("\n## Observations")
+            for o in observations[:20]:
+                date_str = (o.get("observed_at") or "")[:10]
+                prefix = f"[{date_str}] " if date_str else ""
+                parts.append(f"- {prefix}{o.get('content', '')}")
+
+        if len(entities) > 1:
+            parts.append("\n## Other candidates")
+            for e in entities[1:limit]:
+                parts.append(f"- {e.get('name', '')} ({e.get('entity_type', '')})")
+        return "\n".join(parts)
+
+    # Direct DB mode — reuse the existing free-form context builder which
+    # already does fuzzy entity + observation lookup against the local DB.
+    from .graph import get_entity_context
+    async with _session_factory() as db:
+        return await get_entity_context(db, entity_name)
 
 
 # ---------------------------------------------------------------------------

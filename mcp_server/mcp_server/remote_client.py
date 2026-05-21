@@ -97,22 +97,41 @@ class RemoteClient:
             return resp.json()
 
     # --- Memory search ---
-    async def search(self, query: str, limit: int = 5, tool_filter: str | None = None) -> list[dict]:
+    async def search(
+        self,
+        query: str,
+        limit: int = 5,
+        tool_filter: str | None = None,
+        days: int | None = None,
+    ) -> list[dict]:
         """Semantic (vector) search first; if the embedding server is down or
         returns nothing, fall back to trigram title/path match so callers still
         get *some* result for direct keyword lookups."""
         sem_params: dict = {"q": query, "limit": limit}
         if tool_filter:
             sem_params["tool_filter"] = tool_filter
+        if days:
+            sem_params["days"] = days
         sem = await self._get("/api/memory/semantic", sem_params)
         if isinstance(sem, dict) and sem.get("results"):
             return sem["results"]
 
-        params = {"q": query, "limit": limit}
+        params: dict = {"q": query, "limit": limit}
         if tool_filter:
             params["tool"] = tool_filter
+        if days:
+            params["days"] = days
         result = await self._get("/api/search", params)
         return result.get("results", []) if isinstance(result, dict) else []
+
+    # --- Knowledge graph ---
+    async def graph_search(self, query: str, limit: int = 10) -> list[dict]:
+        """Find entities + observations whose name/summary/content matches `query`."""
+        return await self._get("/api/memory/search", {"q": query, "limit": limit})
+
+    async def get_entity(self, entity_id: str) -> dict:
+        """Full entity detail: observations + incoming/outgoing relations."""
+        return await self._get(f"/api/memory/entities/{entity_id}")
 
     # --- Memory store ---
     async def store_observation(
@@ -136,8 +155,13 @@ class RemoteClient:
         return await self._get(f"/api/documents/{doc_id}")
 
     # --- Conversations ---
-    async def get_conversation_messages(self, doc_id: str, limit: int = 50) -> dict:
-        return await self._get(f"/api/conversations/{doc_id}/messages", {"limit": limit})
+    async def get_conversation_messages(
+        self, doc_id: str, limit: int = 50, offset: int = 0,
+    ) -> dict:
+        return await self._get(
+            f"/api/conversations/{doc_id}/messages",
+            {"limit": limit, "offset": offset},
+        )
 
     # --- Daily ---
     async def get_daily(self, date_str: str) -> dict:

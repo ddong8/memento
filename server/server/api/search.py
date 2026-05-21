@@ -20,6 +20,7 @@ async def search(
     tool: str | None = None,
     category: str | None = None,
     device_id: str | None = None,
+    days: int | None = Query(None, ge=1, le=3650),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -62,6 +63,10 @@ async def search(
         query = query.where(Document.machine_id.in_(
             select(Machine.id).where(Machine.collector_token_hash == device_id)
         ))
+    if days:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query = query.where(Document.synced_at >= cutoff)
     query = apply_user_filter(query, mids, Document.machine_id)
 
     # Fetch page + total in one query. COUNT(*) OVER () reuses the same bitmap

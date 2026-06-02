@@ -168,6 +168,22 @@ async def token_exchange(
     return TokenResponse(access_token=token, user_id=str(user.id), role=user.role)
 
 
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(user: User = Depends(get_current_user)) -> TokenResponse:
+    """Mint a fresh access token for the currently-authenticated user.
+
+    Web clients call this on mount + every 12 h while open so the JWT
+    slides forward; in practice, any user who opens the app at least
+    once before the (30-day default) expiry stays logged in forever.
+    `get_current_user` already rejects a stale/inactive account, so this
+    endpoint can't be used to "resurrect" a revoked session.
+    """
+    if user.status != "active":
+        raise HTTPException(status_code=403, detail="Account not active")
+    token = create_access_token(str(user.id), user.role)
+    return TokenResponse(access_token=token, user_id=str(user.id), role=user.role)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(
     req: LoginRequest,

@@ -24,7 +24,12 @@ class Settings(BaseSettings):
     # Auth
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440  # 24 hours
+    # 30 days. The web client also calls /api/auth/refresh on mount and
+    # every 12 hours while open, so as long as the user opens the app at
+    # least once a month they stay logged in indefinitely. Override via
+    # MEMENTO_ACCESS_TOKEN_EXPIRE_MINUTES for shared / kiosk deploys
+    # where you want shorter sessions.
+    access_token_expire_minutes: int = 60 * 24 * 30
 
     # Collector auth
     collector_token: str = "collector-dev-token"

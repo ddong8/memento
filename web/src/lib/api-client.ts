@@ -367,6 +367,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   getMe: (token: string) => apiFetch<UserInfo>("/api/auth/me", { token }),
+  refreshToken: (token: string) =>
+    apiFetch<TokenResponse>("/api/auth/refresh", { method: "POST", token }),
   rotateCollectorToken: (token: string) =>
     apiFetch<UserInfo>("/api/auth/me/rotate-collector-token", { method: "POST", token }),
   getProjectTimeline: (projectId: string, offset = 0, limit = 50, category?: string, order = "desc") => {

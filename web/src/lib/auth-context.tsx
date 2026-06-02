@@ -83,7 +83,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     api.getMe(token)
-      .then(setUser)
+      .then((me) => {
+        setUser(me);
+        // Sliding window: ask the server for a fresh JWT on every app
+        // mount. With the default 30-day expiry, any user who opens the
+        // app at least once a month stays logged in forever. Best-effort
+        // — a stale token still gets caught by the /me 401 path above.
+        api.refreshToken(token)
+          .then((res) => {
+            if (res.access_token && res.access_token !== token) {
+              localStorage.setItem("dr_token", res.access_token);
+              setToken(res.access_token);
+            }
+          })
+          .catch(() => { /* keep the original token; /me already validated it */ });
+      })
       .catch(() => {
         localStorage.removeItem("dr_token");
         setToken(null);
@@ -92,6 +106,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Intentionally run only on mount — token is a lazy-init snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Periodic refresh while the tab stays open. Keeps long-running web
+  // sessions (Memento dashboard left open across days) from hitting the
+  // 30-day wall. 12 h cadence — well under the expiry window but rare
+  // enough that it costs essentially nothing.
+  useEffect(() => {
+    if (!token) return;
+    const id = setInterval(() => {
+      api.refreshToken(token)
+        .then((res) => {
+          if (res.access_token && res.access_token !== token) {
+            localStorage.setItem("dr_token", res.access_token);
+            setToken(res.access_token);
+          }
+        })
+        .catch(() => { /* network blip — try again next tick */ });
+    }, 12 * 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [token]);
 
   // Redirect to login if not authenticated and not on a public page.
   // /s/<token> is a share URL — recipient has no account, must stay public.

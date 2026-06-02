@@ -26,7 +26,7 @@
 - 🧠 **跨设备同步对话** — Mac / Linux / Windows 上的 Claude Code / Codex / Cursor / Antigravity 等工具,聊过的内容统一汇总
 - 🔍 **混合检索** — BGE-M3 向量 + jieba 分词的全文索引,中英文都能搜
 - 🕸️ **知识图谱** — LLM 自动从对话抽实体(项目 / 工具 / 技术 / 人物 / 概念)、关系、观察;超过 7 天的老观察自动压缩成 summary
-- 🔗 **MCP 接入** — 在任何 AI IDE 里通过 MCP 直接调 `memory_search` / `memory_recall` / `daily_summary`,Claude 自己就能查你过去做的事
+- 🔗 **MCP 接入** — 8 个 tool(找:`memory_search` / `memory_recall` / `memory_context`;钻:`memory_open` / `memory_conversation` / `memory_graph`;写:`memory_store`;总览:`daily_summary`)外加 4 个 resources;任何 AI IDE 都能直接查、读、改你的记忆
 - 📅 **AI 日报** — Celery 每天 23:30 跑两阶段:先为每篇文档生成摘要,再聚合成跨工具每日 digest
 - 🔒 **入队前脱敏** — Collector 本地就过 14 类密钥正则(OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer / 私钥 / URL 内嵌凭证 …),磁盘上 SQLite 队列也安全
 - 🌐 **公开分享** — 项目时间线 / 日报一键生成 share 链接,带 GeoIP 访客统计、有效期、随时撤销
@@ -210,7 +210,7 @@ git clone https://github.com/ddong8/memento.git && cd memento
 |---|---|
 | **8001** | API (Swagger: `/docs`) |
 | **3001** | Web UI |
-| 8002 | Embedding(宿主) |
+| 8002 | Embedding(`--native` 模式宿主;Docker 模式不暴露到宿主,走 `embedding:8002` docker DNS) |
 | 5433 | PostgreSQL |
 | 6380 | Redis |
 | 9000 / 9001 | MinIO / 控制台 |
@@ -233,7 +233,18 @@ git clone https://github.com/ddong8/memento.git && cd memento
 | **Windows** | `.exe` — NSIS 安装版 |
 | **Linux** | `.AppImage`(直接跑)或 `.deb`(`sudo dpkg -i`) |
 
-首次打开:**Server** 标签填服务器地址 + collector token → **Save** → **Start collector**。没有账号可以直接在 app 内注册,全程不用开浏览器。客户端会在升级时自动检查并提示安装。
+首次打开极简:**Server** 标签里只有 3 样东西:
+
+1. **服务器地址**(粘 `https://mem.ihasy.com` 或你自部署的 URL)
+2. **启动 APP 时自动跑 collector**(默认勾上)
+3. **开机自启动 Memento**(默认勾上)
+
+点 **保存** → 自动跳到 **仪表板**,在内嵌网页里登录或注册。登录成功后:
+- 网页通过 `postMessage` 把 collector token 偷偷回传给桌面端
+- 桌面端落地 token + 配 MCP + 启动 collector(整树清扫旧实例,保证单实例)
+- 仪表板 SSO 自动登录,你直接看到自己的数据
+
+整个流程**用户感知不到 token**,全程一个浏览器都不用开。客户端会在新版本发布时自动检查并提示安装(minisign 签名校验)。
 
 > macOS 首次打开若提示"无法验证开发者",右键图标 → 打开,或 `xattr -dr com.apple.quarantine /Applications/Memento.app`。
 
@@ -249,11 +260,11 @@ memento-collector setup                # 交互式填 URL + token
 
 > PyPI 包名 `memento-brain-collector` / `memento-brain-memory`(短名 `memento-memory` 被占了),CLI 保留短别名 `memento-collector` / `memento-memory`。
 
-**怎么拿 token?**
+**怎么拿 token?**(仅 pip / 命令行场景需要;桌面客户端**完全自动**)
 
 - **跑过 `./install.sh`** → 末尾会打印,同时存到 `.env.local`
-- **Web 注册** → `/auth/register` 第一个用户自动 owner + 显示 token;之后任意时刻头像 → 个人资料
-- **桌面客户端** → Server 标签直接"注册新账号",成功后自动填好 token
+- **Web 自助注册** → `/auth/register` 即刻发 token(open 模式默认行为)
+- **同账号其他设备** → 在已登录的 Web 上调 `POST /api/auth/me/rotate-collector-token`
 
 ### 守护进程
 
@@ -276,7 +287,7 @@ LLM 自动从同步进来的对话和文档里抽:
 
 **自动压缩**:同一实体超过 7 天的累积观察会被 LLM 合并成一段更短的 summary,保语义、省空间。压缩窗口可通过 `MEMENTO_COMPACTION_AGE_DAYS` 调整。
 
-通过 MCP 工具 `memory_recall` / `memory_context` / `memory_store` 可读写;Web `/memory` 页可视化查看。
+通过 MCP 工具读写:写用 `memory_store`,读用 `memory_graph(entity_name)` 拿邻居 + 观察、`memory_context(project)` 拿项目级上下文、`memory_recall(category, days)` 拿时间序列。Web `/memory` 页可视化查看。
 
 ## 🧠 MCP 记忆服务
 
@@ -291,15 +302,22 @@ LLM 自动从同步进来的对话和文档里抽:
 | **Codex** | `~/.codex/config.toml` | TOML `[mcp_servers.memento-memory]` |
 | OpenClaw | `~/.openclaw/openclaw.json` | `openclaw mcp set` CLI |
 
-接入后在任何 AI IDE 里可以调:
+接入后在任何 AI IDE 里可以调(8 个 tool,分四组):
 
 | 工具 | 用途 |
 |---|---|
-| `memory_search(q)` | 跨工具语义检索过去对话 |
-| `memory_recall(category, days)` | 按类别召回最近 N 天的记录 |
-| `memory_context(project_name)` | 切换项目时拉相关上下文 |
-| `daily_summary(date)` | 看某天的活动汇总 |
-| `memory_store(content, entity_name)` | 主动保存观察 |
+| **查找** | |
+| `memory_search(q, limit, tool_filter, days)` | 跨工具混合检索(BGE-M3 语义 + jieba 全文),`days` 限定时间窗,`tool_filter` 限定工具 |
+| `memory_recall(category, days, project, date)` | 按类别召回最近 N 天(或指定日期)的记录 |
+| `memory_context(project_name)` | 切换项目时拉相关上下文(文档清单 + 项目元信息) |
+| **钻取** | |
+| `memory_open(doc_id)` | 拿一篇文档的全文(配合 search 用,先找到再"打开") |
+| `memory_conversation(doc_id, limit, offset)` | 把对话展开成 role/content/timestamp 消息序列,支持分页 |
+| `memory_graph(entity_name)` | 知识图谱钻取:实体 summary + 出/入向关系 + 近期观察 |
+| **写入** | |
+| `memory_store(content, entity_name, entity_type)` | 主动保存观察到知识图谱 |
+| **总览** | |
+| `daily_summary(date)` | 某天的跨工具活动汇总 + AI 摘要 |
 
 外加 4 个 MCP **resources**(以 URI 形式暴露,IDE 可订阅):
 
@@ -315,17 +333,25 @@ LLM 自动从同步进来的对话和文档里抽:
 | 角色 | 说明 |
 |---|---|
 | `owner` | 首个注册用户。可改任意用户 role/status,看全量数据 |
-| `admin` | 可审批 pending 用户、管理设备、看 audit log |
+| `admin` | 可管理设备、看 audit log;`invite_only` 模式下还能审批 pending 用户 |
 | `viewer` | 只读(默认)。只能看分给自己的 project/tool |
-| `pending` | 新注册未激活,需 admin 批准 |
+| `pending` | 仅出现在 `invite_only` 模式下还没拿到邀请码就自助注册的边角场景 |
+
+**注册模式**(`MEMENTO_REGISTRATION_MODE`,默认 `open`):
+
+| 模式 | 行为 |
+|---|---|
+| `open` | 任何人自助注册即激活,服务端直接发 collector token,无需 admin 介入 |
+| `invite_only` | 必须带 `invite_code` 才能注册,否则拒绝;邀请码由 owner/admin 在 `/admin/invites` 创建 |
+| `closed` | 注册接口完全关闭(给只有 owner 一个人用的部署) |
 
 关键流程:
 
-- **注册**:`/auth/register` — 首个用户自动 owner + active,之后注册需要 admin 批准
-- **token 自助管理**:右上角头像 → 个人资料,查看/复制/重新生成 collector token
-- **批准用户**:owner/admin 进 `/admin`,pending 用户旁有按钮,批准后 token 立即出现可复制
+- **注册**:`/auth/register` — 首个用户自动 owner + active;之后按 `MEMENTO_REGISTRATION_MODE` 决定
+- **桌面客户端**:Server 标签填地址 → Save → 在内嵌仪表板 iframe 里登录或注册即可,token 由网页通过 `postMessage` 偷偷送给桌面端,用户**全程感知不到 token**
 - **细粒度授权**:`/admin/permissions` 按 project / tool 给 viewer 发 read/write 权限
 - **审计日志**:`access_logs` 表落库每次敏感操作(user_id / action / IP / metadata),便于事后追溯
+- **token 轮换**:命令行用户可 `POST /api/auth/me/rotate-collector-token`(需 JWT);桌面端会随每次登录自动拿最新 token,无需手动管理
 
 ## 🌐 公开分享
 

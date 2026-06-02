@@ -26,7 +26,7 @@ Auto-collect AI coding conversations and memory across devices and tools, aggreg
 - 🧠 **Cross-device conversation sync** — Claude Code / Codex / Cursor / Antigravity etc. on Mac / Linux / Windows, all aggregated in one place
 - 🔍 **Hybrid retrieval** — BGE-M3 vectors + jieba-tokenized full-text index; works for both English and Chinese
 - 🕸️ **Knowledge graph** — LLM extracts entities (projects / tools / technologies / people / concepts), relations and observations from conversations; observations older than 7 days are auto-compacted into summaries
-- 🔗 **MCP integration** — Call `memory_search` / `memory_recall` / `daily_summary` directly inside any AI IDE; Claude can look up what you've done
+- 🔗 **MCP integration** — 8 tools (find: `memory_search` / `memory_recall` / `memory_context`; drill: `memory_open` / `memory_conversation` / `memory_graph`; write: `memory_store`; overview: `daily_summary`) plus 4 resources; any AI IDE can query, read, and update your memory directly
 - 📅 **AI daily digest** — Celery runs a two-stage job at 23:30 every day: per-document summaries first, then aggregated into a cross-tool digest
 - 🔒 **Sanitize-before-enqueue** — The collector strips 14 classes of secrets locally (OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer tokens / private keys / URL-embedded credentials …) so even the on-disk SQLite queue is safe
 - 🌐 **Public sharing** — One-click share links for project timelines / daily digests, with GeoIP visitor stats, expiry, revoke any time
@@ -210,7 +210,7 @@ Optional commands:
 |---|---|
 | **8001** | API (Swagger: `/docs`) |
 | **3001** | Web UI |
-| 8002 | Embedding (host) |
+| 8002 | Embedding (host port only in `--native` mode; Docker mode keeps it on the docker network at `embedding:8002` without host publish) |
 | 5433 | PostgreSQL |
 | 6380 | Redis |
 | 9000 / 9001 | MinIO / console |
@@ -233,7 +233,18 @@ No command line, no Python on the machine — just grab the app. It **bundles th
 | **Windows** | `.exe` — NSIS installer |
 | **Linux** | `.AppImage` (run directly) or `.deb` (`sudo dpkg -i`) |
 
-First launch: on the **Server** tab enter your server URL + collector token → **Save** → **Start collector**. No account? Register right inside the app — no browser needed. The client checks for updates and prompts you to install them automatically.
+First launch is intentionally minimal — the **Server** tab has only three things:
+
+1. **Server URL** (paste `https://mem.ihasy.com` or your self-hosted URL)
+2. **Auto-start collector when the app launches** (on by default)
+3. **Launch Memento at system startup** (on by default)
+
+Click **Save** → you land on the **Dashboard**, log in or register inside the embedded web. On success:
+- The web posts the collector token back to the desktop via `postMessage`
+- The desktop saves the token + wires MCP + starts the collector (sweeps any stray instances first, so it's always single-instance)
+- The dashboard auto-SSOs you in — your data shows up immediately
+
+The user **never sees a token** — no browser tab, no manual paste. The client checks for new releases (minisign-signed) and prompts to install them automatically.
 
 > If macOS says it "can't verify the developer", right-click the icon → Open, or run `xattr -dr com.apple.quarantine /Applications/Memento.app`.
 
@@ -249,11 +260,11 @@ memento-collector setup                # interactive: server URL + token
 
 > PyPI packages are `memento-brain-collector` / `memento-brain-memory` (the short names were taken). CLIs keep the short aliases `memento-collector` / `memento-memory`.
 
-**How to get a token?**
+**How to get a token?** (only the pip / CLI path needs it — the desktop client is fully automatic)
 
 - **Ran `./install.sh`** → printed at the end and stored in `.env.local`
-- **Web register** → `/auth/register`; the first user is auto-owner and the token is shown immediately. Later you can grab it from the avatar menu → Profile.
-- **Desktop app** → use "Register new account" on the Server tab; the token is filled in for you on success.
+- **Web self-register** → `/auth/register` (open mode) hands back a token immediately
+- **Other devices of the same account** → call `POST /api/auth/me/rotate-collector-token` while logged into the web
 
 ### Daemon control
 
@@ -276,7 +287,7 @@ The system extracts the following from every synced conversation / document via 
 
 **Auto-compaction**: observations on the same entity older than 7 days get merged by an LLM into a shorter summary — preserves semantics, saves space. The window is tunable via `MEMENTO_COMPACTION_AGE_DAYS`.
 
-Read / write through MCP tools `memory_recall` / `memory_context` / `memory_store`; visualize at the Web `/memory` page.
+Read / write through MCP tools: write with `memory_store`; read with `memory_graph(entity_name)` for an entity's neighbors and observations, `memory_context(project)` for project-level context, or `memory_recall(category, days)` for a time-series view. Visualize at the Web `/memory` page.
 
 ## 🧠 MCP memory service
 
@@ -291,15 +302,22 @@ After installing `memento-brain`, `memento-collector setup` automatically wires 
 | **Codex** | `~/.codex/config.toml` | TOML `[mcp_servers.memento-memory]` |
 | OpenClaw | `~/.openclaw/openclaw.json` | `openclaw mcp set` CLI |
 
-Tools available inside any AI IDE:
+After installation, AI IDEs can call 8 tools, grouped in 4 buckets:
 
 | Tool | Purpose |
 |---|---|
-| `memory_search(q)` | semantic search across past conversations from all tools |
-| `memory_recall(category, days)` | recall recent entries by category |
-| `memory_context(project_name)` | pull relevant context when switching projects |
-| `daily_summary(date)` | get the activity digest for a given day |
-| `memory_store(content, entity_name)` | save an observation explicitly |
+| **Find** | |
+| `memory_search(q, limit, tool_filter, days)` | Hybrid BGE-M3 semantic + jieba full-text search; `days` bounds the time window, `tool_filter` restricts to one tool |
+| `memory_recall(category, days, project, date)` | List recent files of a category (optionally for a specific date or project) |
+| `memory_context(project_name)` | Pull project context (document list + project metadata) when switching projects |
+| **Drill in** | |
+| `memory_open(doc_id)` | Fetch the full content of a document (use after `memory_search` returns a snippet) |
+| `memory_conversation(doc_id, limit, offset)` | Unfold a conversation document into role/content/timestamp messages, with pagination |
+| `memory_graph(entity_name)` | Knowledge-graph drill-in: entity summary + incoming/outgoing relations + recent observations |
+| **Write** | |
+| `memory_store(content, entity_name, entity_type)` | Save an observation into the knowledge graph |
+| **Overview** | |
+| `daily_summary(date)` | Cross-tool activity digest + AI summary for a given day |
 
 Plus 4 MCP **resources** exposed as URIs (subscribable from any IDE):
 
@@ -315,17 +333,25 @@ Plus 4 MCP **resources** exposed as URIs (subscribable from any IDE):
 | Role | Description |
 |---|---|
 | `owner` | First registered user. Can change any user's role/status; sees all data |
-| `admin` | Approves pending users, manages devices, reads audit log |
+| `admin` | Manages devices, reads audit log; approves pending users in `invite_only` mode |
 | `viewer` | Read-only (default). Sees only projects/tools granted to them |
-| `pending` | Newly registered, not yet activated; awaits admin approval |
+| `pending` | Edge case — only appears in `invite_only` mode for users who self-register without a valid code |
+
+**Registration mode** (`MEMENTO_REGISTRATION_MODE`, defaults to `open`):
+
+| Mode | Behavior |
+|---|---|
+| `open` | Anyone can self-register and is activated immediately with a collector token — no admin in the loop |
+| `invite_only` | Must present an `invite_code` to register; otherwise rejected. Codes are created by owner/admin at `/admin/invites` |
+| `closed` | The register endpoint refuses everyone (deployments meant for the owner alone) |
 
 Key flows:
 
-- **Register** — `/auth/register`. The first user becomes owner + active automatically; subsequent users need admin approval.
-- **Self-service token** — Avatar menu → Profile to view / copy / regenerate the collector token.
-- **Approve users** — owner/admin go to `/admin`; pending users have an Approve button. The token is revealed immediately after approval.
+- **Register** — `/auth/register`. First user becomes owner + active automatically; later registrations follow `MEMENTO_REGISTRATION_MODE`.
+- **Desktop client** — fill the Server URL on the Server tab → Save → log in or register inside the embedded dashboard iframe. The web posts the collector token back via `postMessage` and the desktop wires up everything; **users never see the token**.
 - **Fine-grained grants** — `/admin/permissions` issues per-project / per-tool read/write grants to viewers.
 - **Audit log** — every sensitive action is recorded in `access_logs` (user_id / action / IP / metadata) for after-the-fact review.
+- **Token rotation** — CLI users can `POST /api/auth/me/rotate-collector-token` (JWT required); the desktop app pulls a fresh token automatically on every login, so manual rotation isn't needed there.
 
 ## 🌐 Public sharing
 

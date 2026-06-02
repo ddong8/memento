@@ -248,6 +248,31 @@ async function boot() {
       flash("err", String(e?.message || e));
     }
   });
+
+  // Tray menu "Reconfigure MCP" → user-driven rewrite of every AI tool's
+  // memento-memory entry. Same code path as the auto-refresh on app
+  // upgrade, but flashes a visible result in the Server tab.
+  await listen("menu:reconfig-mcp", async () => {
+    activateTab("server");
+    const apiUrl = (state.config?.server_url || "").trim();
+    const token = (state.config?.server_token || "").trim();
+    if (!apiUrl || !token) {
+      flash("err", t("mcp.needConfig"));
+      return;
+    }
+    try {
+      const report = await invoke("configure_mcp", {
+        serverUrl: apiUrl,
+        serverToken: token,
+      });
+      const which = report.configured?.length
+        ? ` · ${t("save.mcpConfigured")} ${report.configured.join(", ")}`
+        : "";
+      flash("ok", `${t("mcp.reconfigured")}${which}`);
+    } catch (e) {
+      flash("err", e?.message || String(e));
+    }
+  });
 }
 
 // ─── Update check (Tauri auto-updater) ────────────────────────────

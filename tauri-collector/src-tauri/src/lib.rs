@@ -23,7 +23,7 @@ use crate::sidecar::Sidecar;
 /// Pick zh / en for the tray menu by reading the OS user locale.
 /// sys_locale::get_locale returns BCP-47 like "zh-CN" or "en-US".
 /// Anything starting with "zh" → Chinese; everything else falls back to English.
-fn tray_strings(version: &str) -> [String; 4] {
+fn tray_strings(version: &str) -> [String; 5] {
     let is_zh = sys_locale::get_locale()
         .map(|l| l.to_lowercase().starts_with("zh"))
         .unwrap_or(false);
@@ -31,6 +31,7 @@ fn tray_strings(version: &str) -> [String; 4] {
         [
             "打开 Memento".into(),
             "检查更新".into(),
+            "重新配置 MCP".into(),
             format!("关于 (v{version})"),
             "退出".into(),
         ]
@@ -38,6 +39,7 @@ fn tray_strings(version: &str) -> [String; 4] {
         [
             "Open Memento".into(),
             "Check for updates".into(),
+            "Reconfigure MCP".into(),
             format!("About (v{version})"),
             "Quit".into(),
         ]
@@ -50,9 +52,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     // from Cargo.toml at compile time via `env!`, same source as the
     // app's window title and the auto-updater's "current version" check.
     let version = env!("CARGO_PKG_VERSION");
-    let [s_open, s_check, s_about, s_quit] = tray_strings(version);
+    let [s_open, s_check, s_reconfig, s_about, s_quit] = tray_strings(version);
     let open_item = MenuItem::with_id(app, "open", &s_open, true, None::<&str>)?;
     let check_item = MenuItem::with_id(app, "check_update", &s_check, true, None::<&str>)?;
+    // Manual escape hatch: same code path as the auto-refresh in setup(),
+    // but user-triggered for "I just installed a new IDE / something
+    // edited my MCP config / I want to be sure". The handler emits a JS
+    // event so we can flash an OK/err notice in the Server tab.
+    let reconfig_item = MenuItem::with_id(app, "reconfig_mcp", &s_reconfig, true, None::<&str>)?;
     // "About" is informational only — version is in the label. Disabled
     // so clicks don't do anything (no menu item handler for it). Tauri
     // renders disabled items as grayed-out, signalling they're labels.
@@ -60,7 +67,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let quit_item = MenuItem::with_id(app, "quit", &s_quit, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&open_item, &check_item, &about_item, &quit_item],
+        &[&open_item, &check_item, &reconfig_item, &about_item, &quit_item],
     )?;
 
     // Reuse the bundled app icon (declared in tauri.conf.json bundle.icon[])
@@ -105,6 +112,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = w.set_focus();
                 }
                 let _ = app.emit("menu:check-update", ());
+            }
+            "reconfig_mcp" => {
+                // Show the window so the success/error flash on the Server
+                // tab is actually visible, then let JS drive the IPC call
+                // (it already wraps configure_mcp + flash + report).
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                let _ = app.emit("menu:reconfig-mcp", ());
             }
             "quit" => {
                 if let Some(state) = app.try_state::<AppState>() {

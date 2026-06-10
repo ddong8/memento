@@ -57,3 +57,26 @@ async def cache_set(key: str, value: Any, ttl_seconds: int) -> None:
         await c.set(key, json.dumps(value, ensure_ascii=False, default=str), ex=ttl_seconds)
     except Exception as e:
         logger.debug("cache_set(%s) failed: %s", key, e)
+
+
+async def cache_delete_prefix(prefix: str) -> int:
+    """Drop every key matching ``<prefix>*`` via SCAN MATCH + DEL.
+
+    Used by ingest_service to bust read caches for the user whose
+    project / daily we just updated, so shared timelines and daily
+    pages don't sit on a 30-60 s stale window after a sync. Best-
+    effort: returns the number of keys deleted (0 if Redis is down).
+    SCAN is preferred over KEYS to avoid blocking the Redis server on
+    a large keyspace.
+    """
+    c = _get_client()
+    if c is None:
+        return 0
+    deleted = 0
+    try:
+        async for key in c.scan_iter(match=f"{prefix}*", count=200):
+            await c.delete(key)
+            deleted += 1
+    except Exception as e:
+        logger.debug("cache_delete_prefix(%s) failed: %s", prefix, e)
+    return deleted

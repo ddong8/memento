@@ -103,11 +103,21 @@ async def _call_anthropic(prompt: str, api_key: str) -> dict | None:
 async def extract_knowledge_from_document(
     db: AsyncSession, doc: Document, user_id: uuid.UUID | None = None,
 ) -> int:
-    """Extract entities, relations, and observations from a document. Returns count of items created."""
+    """Extract entities, relations, and observations from a document. Returns count of items created.
+
+    Side-effects on ``doc.knowledge_status`` / ``doc.knowledge_attempts``:
+      * 'skipped' — content too short or wrong category; never tried.
+      * 'failed'  — LLM call failed (network / 401 / parse). attempts++ so
+        the knowledge_retry beat picks it up next tick.
+      * 'ok'      — extraction completed (zero entities is still 'ok' —
+        the LLM saw the doc and decided there's nothing graph-worthy).
+    """
     if not doc.content or len(doc.content) < 200:
+        doc.knowledge_status = "skipped"
         return 0
 
     if doc.category not in ("conversation", "memory", "learning", "plan"):
+        doc.knowledge_status = "skipped"
         return 0
 
     # Skip if already extracted for this content version (hash-based dedup)
@@ -120,6 +130,7 @@ async def extract_knowledge_from_document(
     )).scalar_one_or_none()
 
     if existing_obs and doc.metadata_.get("_graph_hash") == content_hash:
+        doc.knowledge_status = "ok"
         return 0  # Already extracted for this content version
 
     # Clear old observations from this document
@@ -132,8 +143,12 @@ async def extract_knowledge_from_document(
     content = doc.content[:4000]
     prompt = _EXTRACTION_TEMPLATE + content
 
+    # Charge an attempt up front so a hung LLM still counts toward the
+    # cap (otherwise a stuck call would never block subsequent retries).
+    doc.knowledge_attempts = (doc.knowledge_attempts or 0) + 1
     result = await _call_llm(prompt)
     if not result:
+        doc.knowledge_status = "failed"
         return 0
 
     count = 0
@@ -223,6 +238,7 @@ async def extract_knowledge_from_document(
     meta = dict(doc.metadata_ or {})
     meta["_graph_hash"] = content_hash
     doc.metadata_ = meta
+    doc.knowledge_status = "ok"
 
     await db.flush()
     logger.info("Extracted %d knowledge items from %s/%s", count, doc.tool_id, doc.relative_path)

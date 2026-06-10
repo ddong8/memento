@@ -51,6 +51,7 @@ celery_app = Celery(
         "server.tasks.daily_digest",
         "server.tasks.summary_tasks",
         "server.tasks.embedding_retry",
+        "server.tasks.knowledge_retry",
         "server.tasks.tsvector_backfill",
         "server.tasks.db_backup",
     ],
@@ -78,11 +79,30 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.daily_digest.generate_daily_digest",
         "schedule": crontab(hour=23, minute=30),  # Run at 23:30 every day
     },
+    # Same task at 03:30 the NEXT day — passes no date_str so it
+    # regenerates "today" which is yesterday at this time, picking up
+    # any messages that synced across midnight. The digest task now
+    # UPSERTs, so this safely overwrites the 23:30 bake.
+    "daily-digest-late": {
+        "task": "server.tasks.daily_digest.generate_daily_digest",
+        "schedule": crontab(hour=3, minute=30),
+        # offset_days=-1 → "yesterday" relative to wallclock at 03:30,
+        # i.e. re-bake the day that just ended.
+        "kwargs": {"offset_days": -1},
+    },
     # Every 15 min: reattempt documents whose embedding pipeline errored
     # (e.g. the host-side BGE-M3 server was briefly unreachable).
     "embedding-retry": {
         "task": "server.tasks.embedding_retry.retry_failed_embeddings",
         "schedule": crontab(minute="*/15"),
+    },
+    # Same cadence (offset by 2 min so the two retry beats don't hammer
+    # the DB / LLM provider at the same instant). Picks up docs whose
+    # knowledge-graph extract failed at ingest time — typically because
+    # the LLM provider was rate-limited or the API key expired.
+    "knowledge-retry": {
+        "task": "server.tasks.knowledge_retry.retry_failed_knowledge",
+        "schedule": crontab(minute="2,17,32,47"),
     },
     # Daily 03:30 — pg_dump | gzip → s3://memento-backups/daily/<date>.sql.gz,
     # rolling 14-day retention. Defends against the kind of incident that

@@ -122,6 +122,14 @@ class Document(Base):
     # (call errored — retry candidate), skipped (too short / binary — intentional).
     embedding_status: Mapped[str] = mapped_column(String(20), default="pending")
     embedding_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # Knowledge-graph extraction pipeline status. Same shape as the
+    # embedding pair above. Values: pending (just ingested), ok
+    # (extracted), failed (LLM errored — retry candidate via
+    # tasks/knowledge_retry.py), skipped (content too short / wrong
+    # category — never run). Without this, an LLM hiccup at ingest
+    # time silently dropped a doc out of the knowledge graph forever.
+    knowledge_status: Mapped[str] = mapped_column(String(20), default="pending")
+    knowledge_attempts: Mapped[int] = mapped_column(Integer, default=0)
 
     # Timestamps
     source_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

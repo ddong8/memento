@@ -399,6 +399,32 @@ async def ingest_file(
 
     await db.flush()
 
+    # Bump the parent project's updated_at so the projects list (sorted
+    # by Project.updated_at desc) actually reorders when a new doc
+    # lands. SQLAlchemy's `onupdate` only fires when the Project row
+    # itself is touched — a child Document INSERT doesn't cascade.
+    if doc.project_id:
+        await db.execute(
+            _update(Project)
+            .where(Project.id == doc.project_id)
+            .values(updated_at=_func.now())
+        )
+
+    # Bust read caches for this user's surface area: daily detail
+    # (60 s TTL), daily list-of-dates, per-project conversations
+    # (30 s). Without these, shared daily / shared timeline / dashboard
+    # "recent activity" lag actual sync by up to a minute. Redis down
+    # → no-op, TTL handles it.
+    if user_id:
+        try:
+            from .cache import cache_delete_prefix
+            await cache_delete_prefix(f"daily:detail:{user_id}:")
+            await cache_delete_prefix(f"daily:dates:{user_id}:")
+            if doc.project_id:
+                await cache_delete_prefix(f"project:conv:{user_id}:{doc.project_id}:")
+        except Exception:
+            pass
+
     # Update tool stats
     tool.last_sync_at = now
     count_result = await db.execute(

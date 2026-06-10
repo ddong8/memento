@@ -73,6 +73,37 @@ def _run_migrations(conn) -> None:
             "NOT NULL DEFAULT 0"
         ))
 
+    # knowledge_status / knowledge_attempts: same pattern as the embedding
+    # pair, added later to give a way to retry LLM extraction. Existing rows
+    # get classified the same way: 'ok' when there's already at least one
+    # observation pointing to them, 'skipped' for short/binary content,
+    # everything else 'failed' so the knowledge_retry beat picks them up.
+    if "knowledge_status" not in doc_cols:
+        conn.execute(text(
+            "ALTER TABLE documents ADD COLUMN knowledge_status VARCHAR(20) "
+            "NOT NULL DEFAULT 'pending'"
+        ))
+        conn.execute(text(
+            "UPDATE documents SET knowledge_status = 'ok' "
+            "WHERE id IN (SELECT DISTINCT source_document_id FROM "
+            "knowledge_observations WHERE source_document_id IS NOT NULL)"
+        ))
+        conn.execute(text(
+            "UPDATE documents SET knowledge_status = 'skipped' "
+            "WHERE knowledge_status = 'pending' "
+            "AND (content IS NULL OR LENGTH(content) < 200 "
+            "     OR category NOT IN ('conversation', 'memory', 'learning', 'plan'))"
+        ))
+        conn.execute(text(
+            "UPDATE documents SET knowledge_status = 'failed' "
+            "WHERE knowledge_status = 'pending'"
+        ))
+    if "knowledge_attempts" not in doc_cols:
+        conn.execute(text(
+            "ALTER TABLE documents ADD COLUMN knowledge_attempts INTEGER "
+            "NOT NULL DEFAULT 0"
+        ))
+
     # Document.content_tsv: tsvector of jieba-tokenized content+title for
     # full-text search fallback when the embedding server is slow/down. We
     # populate it from Python (jieba) on ingest; Postgres just stores +

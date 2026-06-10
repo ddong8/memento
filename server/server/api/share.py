@@ -406,6 +406,14 @@ async def get_public_share_data(
     if not owner:
         raise HTTPException(status_code=404)
 
+    # Share-link snapshot semantics: cap every downstream read to
+    # ``link.created_at`` so a viewer of a 3-week-old share sees what
+    # the owner saw 3 weeks ago, not what they're editing today. This
+    # is also why we DON'T want the embedded helpers' caches keyed
+    # only by user_id — the as_of parameter participates in their
+    # cache_key for exactly this isolation.
+    as_of = link.created_at
+
     if link.kind == "timeline":
         from .projects import get_project_conversations
         data = await get_project_conversations(
@@ -416,6 +424,7 @@ async def get_public_share_data(
             order="asc",
             db=db,
             _user=owner,
+            as_of=as_of,
         )
         return {"kind": "timeline", "data": data}
 
@@ -426,14 +435,20 @@ async def get_public_share_data(
             tz_offset=0,
             db=db,
             _user=owner,
+            as_of=as_of,
         )
         return {"kind": "daily", "data": data}
 
-    # memory — return owner's full knowledge graph + summary.
+    # memory — owner's knowledge graph as of the share creation time.
+    # Entities updated AFTER the link was created are excluded; same
+    # for relations among them.
     if link.kind == "memory":
         ents = (await db.execute(
             select(KnowledgeEntity)
-            .where(KnowledgeEntity.user_id == owner.id)
+            .where(
+                KnowledgeEntity.user_id == owner.id,
+                KnowledgeEntity.updated_at <= as_of,
+            )
             .order_by(KnowledgeEntity.updated_at.desc())
             .limit(200)
         )).scalars().all()
@@ -453,6 +468,7 @@ async def get_public_share_data(
                 select(KnowledgeRelation).where(
                     KnowledgeRelation.source_id.in_(ent_ids),
                     KnowledgeRelation.target_id.in_(ent_ids),
+                    KnowledgeRelation.created_at <= as_of,
                 )
             )).scalars().all()
             edges = [

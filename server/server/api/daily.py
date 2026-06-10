@@ -91,10 +91,20 @@ async def get_daily(
     tz_offset: int = Query(0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
+    as_of: datetime | None = None,  # internal — set by share.py to cap visibility
 ) -> dict:
-    """Get all activity for a specific date — built from conversation_messages table."""
+    """Get all activity for a specific date — built from conversation_messages table.
+
+    ``as_of`` (not a public query param — passed by share.py) caps the
+    returned messages to those whose ``timestamp <= as_of``. This is
+    how a share link's "snapshot" semantics work: viewers see what the
+    owner saw at link-creation time, not what the owner is editing now.
+    """
     from ..services.cache import cache_get, cache_set
-    cache_key = f"daily:detail:{_user.id}:{date_str}:{tz_offset}"
+    # as_of in the cache key so share traffic doesn't poison the
+    # owner-UI's cache (and vice versa).
+    as_of_key = as_of.isoformat() if as_of else "live"
+    cache_key = f"daily:detail:{_user.id}:{date_str}:{tz_offset}:{as_of_key}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -130,6 +140,8 @@ async def get_daily(
     )
     if mids is not None:
         msg_q = msg_q.where(Document.machine_id.in_(mids))
+    if as_of is not None:
+        msg_q = msg_q.where(ConversationMessage.timestamp <= as_of)
     msg_q = msg_q.group_by(ConversationMessage.document_id, ConversationMessage.role)
     msg_result = await db.execute(msg_q)
 
@@ -169,6 +181,11 @@ async def get_daily(
     summary_q = select(DailySummary).where(DailySummary.summary_date == target_date)
     if _user.role not in ("admin", "owner"):
         summary_q = summary_q.where(DailySummary.user_id == _user.id)
+    # as_of snapshot: don't reveal summaries baked AFTER the share was
+    # created (otherwise late-night AI re-bakes show through to old
+    # share links).
+    if as_of is not None:
+        summary_q = summary_q.where(DailySummary.created_at <= as_of)
     summary_result = await db.execute(summary_q)
     summaries = summary_result.scalars().all()
 
@@ -285,12 +302,37 @@ async def get_daily_summary(
     if not summary:
         raise HTTPException(status_code=404, detail="No summary for this date")
 
+    # Stale detection: if any conversation_message landed for this date
+    # *after* the summary was generated, the saved AI text is out of
+    # date. Surface a flag so the UI can show a "regenerate" CTA
+    # instead of pretending nothing changed. Tested against the day's
+    # message window (CST 24h, mirroring the digest's day-bucket).
+    mids = await user_machine_ids(db, _user)
+    tz = timezone(timedelta(hours=8))  # daily digest is CST-anchored
+    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+    newest_q = (
+        select(func.max(ConversationMessage.timestamp))
+        .join(Document, ConversationMessage.document_id == Document.id)
+        .where(
+            ConversationMessage.timestamp >= day_start,
+            ConversationMessage.timestamp < day_end,
+            ConversationMessage.role.in_(["user", "assistant"]),
+        )
+    )
+    if mids is not None:
+        newest_q = newest_q.where(Document.machine_id.in_(mids))
+    newest_ts = (await db.execute(newest_q)).scalar()
+    stale = bool(newest_ts and summary.created_at and newest_ts > summary.created_at)
+
     return {
         "date": date_str,
         "title": summary.title,
         "summary": summary.summary,
         "highlights": summary.highlights,
         "created_at": summary.created_at.isoformat(),
+        "stale": stale,
+        "newest_message_at": newest_ts.isoformat() if newest_ts else None,
     }
 
 

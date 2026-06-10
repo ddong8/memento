@@ -352,6 +352,7 @@ async def get_project_conversations(
     order: str = Query("asc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
+    as_of: datetime | None = None,  # internal — passed by share.py to cap visibility
 ) -> dict:
     """Return all conversations for a project merged into a continuous flow.
 
@@ -359,14 +360,21 @@ async def get_project_conversations(
     - conversation messages (parsed from JSONL)
     - brain artifacts (task.md, implementation_plan.md, walkthrough.md)
     Paginated by session (not by message).
+
+    ``as_of`` (not a public query param — passed by share.py) caps
+    docs to those synced and messages to those timestamped on or
+    before that instant. Share-link snapshot semantics.
     """
     from ..services.cache import cache_get, cache_set
-    # Cache by full query shape — different pages / orderings / preview caps
-    # all need separate entries. 30s TTL: short enough that fresh ingest
-    # shows up quickly, long enough to hide back/forward navigation hits.
+    # Cache by full query shape — different pages / orderings / preview
+    # caps all need separate entries. 30s TTL: short enough that fresh
+    # ingest shows up quickly, long enough to hide back/forward
+    # navigation hits. ``as_of`` participates in the key so share
+    # traffic doesn't poison the owner-UI cache.
+    as_of_key = as_of.isoformat() if as_of else "live"
     cache_key = (
         f"project:conv:{_user.id}:{project_id}:"
-        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}"
+        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
     )
     cached = await cache_get(cache_key)
     if cached is not None:
@@ -400,6 +408,8 @@ async def get_project_conversations(
         )
     )
     conv_q = apply_user_filter(conv_q, mids, Document.machine_id)
+    if as_of is not None:
+        conv_q = conv_q.where(Document.synced_at <= as_of)
     all_convs = (await db.execute(conv_q)).scalars().all()
 
     # Group subagents under their parent conversation.
@@ -472,7 +482,7 @@ async def get_project_conversations(
             needed_ids.append(child.id)
     msgs_by_doc: dict = {}
     if needed_ids:
-        rows = await db.execute(
+        msg_q = (
             select(
                 ConversationMessage.document_id,
                 ConversationMessage.role,
@@ -484,6 +494,16 @@ async def get_project_conversations(
             .where(ConversationMessage.document_id.in_(needed_ids))
             .order_by(ConversationMessage.document_id, ConversationMessage.line_number)
         )
+        if as_of is not None:
+            # Either no timestamp recorded (legacy / parser miss — keep
+            # those; the doc itself already passed the synced_at cap) or
+            # timestamp before/at the snapshot moment.
+            from sqlalchemy import or_ as _or
+            msg_q = msg_q.where(_or(
+                ConversationMessage.timestamp.is_(None),
+                ConversationMessage.timestamp <= as_of,
+            ))
+        rows = await db.execute(msg_q)
         for did, role, content, mtype, ts, _ln in rows.all():
             if role not in ("user", "assistant"):
                 continue

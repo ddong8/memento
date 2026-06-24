@@ -50,11 +50,23 @@ def _load_saved_config() -> CollectorConfig:
 def _setup_logging(config: CollectorConfig) -> None:
     config.log_dir.mkdir(parents=True, exist_ok=True)
     log_file = config.log_dir / "collector.log"
-    handlers: list[logging.Handler] = [logging.FileHandler(log_file)]
-    # Only add console handler if stdout is a real writable stream
+    # Force UTF-8 on the log file — default is locale.getpreferredencoding(),
+    # which on Chinese Windows is cp936/GBK. The desktop log viewer reads the
+    # file as UTF-8, so any non-ASCII char (Chinese titles, the `→` arrow in
+    # update messages) shows up as replacement chars.
+    handlers: list[logging.Handler] = [
+        logging.FileHandler(log_file, encoding="utf-8")
+    ]
+    # Console: same problem on Windows — sys.stdout is mbcs unless we
+    # explicitly reconfigure it. Best-effort; ignore if the stream doesn't
+    # support reconfigure (e.g. it was replaced with a non-text wrapper).
     try:
         sys.stdout.write("")
         sys.stdout.flush()
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
         handlers.append(logging.StreamHandler(sys.stdout))
     except Exception:
         pass
@@ -184,6 +196,20 @@ def _check_and_update(logger: logging.Logger) -> None:
 
     Upgrades both memento-collector and memento-memory (MCP server).
     """
+    # Frozen desktop sidecar — `sys.executable` is the PyInstaller-built
+    # sidecar binary, not a real Python interpreter, so `[sys.executable,
+    # "-m", "pip", "install", ...]` ends up calling
+    # `memento-sidecar -m pip install ...` which the entry.py wrapper
+    # rejects ("only 'run' is supported"). Even if pip could run, the
+    # collector code is bundled inside the .exe — pip can't replace it.
+    # The user has to install a new desktop release to upgrade.
+    if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
+        logger.info(
+            "Running as bundled desktop sidecar — auto-upgrade not applicable. "
+            "Install a new desktop release to upgrade collector + MCP."
+        )
+        return
+
     try:
         from importlib.metadata import version as get_version, PackageNotFoundError
 

@@ -70,6 +70,12 @@ async def list_projects(
 @router.get("/{project_id}")
 async def get_project(
     project_id: uuid.UUID,
+    include_content: bool = Query(
+        False,
+        description="If true, inline full content for curated categories "
+                    "(identity/memory/plan/learning/note). Conversation docs "
+                    "stay metadata-only to keep payloads sane.",
+    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
@@ -90,6 +96,27 @@ async def get_project(
     docs_result = await db.execute(docs_q)
     docs = docs_result.scalars().all()
 
+    # Categories whose content is small + curated + worth inlining so a
+    # single fetch is enough for an AI to "know the project". Conversation
+    # docs are deliberately excluded — they can be MBs and the caller can
+    # always paginate via memory_conversation(doc_id).
+    INLINE_CATEGORIES = {"identity", "memory", "plan", "learning", "note"}
+
+    def _doc_row(d: Document) -> dict:
+        row = {
+            "id": str(d.id),
+            "relative_path": d.relative_path,
+            "category": d.category,
+            "title": d.title,
+            "file_size_bytes": d.file_size_bytes,
+            "synced_at": d.synced_at.isoformat(),
+        }
+        if include_content and d.category in INLINE_CATEGORIES:
+            row["content"] = d.content
+            if d.ai_summary:
+                row["ai_summary"] = d.ai_summary
+        return row
+
     return {
         "id": str(project.id),
         "slug": project.slug,
@@ -97,17 +124,7 @@ async def get_project(
         "tool_id": project.tool_id,
         "source_path": project.source_path,
         "visibility": project.visibility,
-        "documents": [
-            {
-                "id": str(d.id),
-                "relative_path": d.relative_path,
-                "category": d.category,
-                "title": d.title,
-                "file_size_bytes": d.file_size_bytes,
-                "synced_at": d.synced_at.isoformat(),
-            }
-            for d in docs
-        ],
+        "documents": [_doc_row(d) for d in docs],
     }
 
 
@@ -807,3 +824,165 @@ async def export_project_markdown(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/{project_id}/blueprint")
+async def get_project_blueprint(
+    project_id: uuid.UUID,
+    recent_convs: int = Query(10, ge=0, le=50,
+        description="How many recent conversations to include (AI summary only, not full body)"),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """One-shot "give me the project blueprint" for an AI agent.
+
+    Combines into a single response everything you'd otherwise need
+    ``memory_context`` + N×``memory_open`` + ``memory_graph`` + a
+    handful of ``memory_recall`` calls to assemble:
+
+      * project meta (title / tool / source_path)
+      * full content of all identity / memory / plan / learning files
+        (these are the curated "what is this project" docs)
+      * recent conversation AI summaries (titles + ai_summary; no full body)
+      * knowledge-graph entities + observations + relations whose name
+        fuzzy-matches the project title or slug
+
+    Powers the MCP ``memory_blueprint`` tool — replaces 5-10 sequential
+    RPCs with one.
+    """
+    mids = await user_machine_ids(db, _user)
+
+    project = (await db.execute(
+        select(Project).where(Project.id == project_id)
+    )).scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404)
+
+    # 1. Curated docs full content (identity / memory / plan / learning)
+    CURATED = ("identity", "memory", "plan", "learning")
+    curated_q = (
+        select(Document)
+        .where(
+            Document.project_id == project_id,
+            Document.category.in_(CURATED),
+        )
+        .order_by(Document.synced_at.desc())
+        .limit(100)
+    )
+    curated_q = apply_user_filter(curated_q, mids, Document.machine_id)
+    curated_docs = [
+        d for d in (await db.execute(curated_q)).scalars().all()
+        if not _is_export_noise(d.relative_path)
+    ]
+
+    # 2. Recent conversations — title + ai_summary only (full body via memory_conversation)
+    if recent_convs > 0:
+        conv_q = (
+            select(Document)
+            .where(
+                Document.project_id == project_id,
+                Document.category == "conversation",
+            )
+            .order_by(Document.synced_at.desc())
+            .limit(recent_convs)
+        )
+        conv_q = apply_user_filter(conv_q, mids, Document.machine_id)
+        convs = [
+            d for d in (await db.execute(conv_q)).scalars().all()
+            if not _is_export_noise(d.relative_path)
+        ]
+    else:
+        convs = []
+
+    # 3. Knowledge graph: entities fuzzy-matching project name/slug
+    ent_q = (
+        select(KnowledgeEntity)
+        .where(or_(
+            KnowledgeEntity.name.ilike(f"%{project.title}%"),
+            KnowledgeEntity.name.ilike(f"%{project.slug}%"),
+        ))
+        .limit(20)
+    )
+    if mids is not None:
+        ent_q = ent_q.where(KnowledgeEntity.user_id == _user.id)
+    entities = (await db.execute(ent_q)).scalars().all()
+    ent_ids = [e.id for e in entities]
+
+    # Batch-fetch observations + outgoing relations for those entities
+    observations_by_entity: dict[str, list[dict]] = {}
+    relations_by_entity: dict[str, list[dict]] = {}
+    if ent_ids:
+        obs = (await db.execute(
+            select(KnowledgeObservation)
+            .where(KnowledgeObservation.entity_id.in_(ent_ids))
+            .order_by(KnowledgeObservation.observed_at.desc())
+        )).scalars().all()
+        for o in obs:
+            observations_by_entity.setdefault(str(o.entity_id), []).append({
+                "content": o.content,
+                "observed_at": o.observed_at.isoformat() if o.observed_at else None,
+            })
+
+        rels = (await db.execute(
+            select(KnowledgeRelation, KnowledgeEntity)
+            .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
+            .where(KnowledgeRelation.source_id.in_(ent_ids))
+        )).all()
+        for rel, target in rels:
+            relations_by_entity.setdefault(str(rel.source_id), []).append({
+                "relation": rel.relation_type,
+                "target_name": target.name,
+                "target_type": target.entity_type,
+            })
+
+    return {
+        "project": {
+            "id": str(project.id),
+            "title": project.title,
+            "slug": project.slug,
+            "tool_id": project.tool_id,
+            "source_path": project.source_path,
+        },
+        "curated_docs": [
+            {
+                "id": str(d.id),
+                "category": d.category,
+                "title": d.title,
+                "relative_path": d.relative_path,
+                "synced_at": d.synced_at.isoformat(),
+                "content": d.content,
+                "ai_summary": d.ai_summary,
+            }
+            for d in curated_docs
+        ],
+        "recent_conversations": [
+            {
+                "id": str(d.id),
+                "title": d.title or d.relative_path.rsplit("/", 1)[-1],
+                "tool_id": d.tool_id,
+                "synced_at": d.synced_at.isoformat(),
+                "ai_summary": d.ai_summary,
+            }
+            for d in convs
+        ],
+        "knowledge_graph": {
+            "entities": [
+                {
+                    "id": str(e.id),
+                    "name": e.name,
+                    "entity_type": e.entity_type,
+                    "summary": e.summary,
+                    "observations": observations_by_entity.get(str(e.id), [])[:15],
+                    "relations": relations_by_entity.get(str(e.id), [])[:15],
+                }
+                for e in entities
+            ],
+        },
+        "counts": {
+            "curated_docs": len(curated_docs),
+            "recent_conversations": len(convs),
+            "entities": len(entities),
+            "total_observations": sum(len(v) for v in observations_by_entity.values()),
+            "total_relations": sum(len(v) for v in relations_by_entity.values()),
+        },
+    }

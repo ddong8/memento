@@ -217,34 +217,160 @@ async def memory_recall(
 
 @mcp.tool()
 async def memory_context(project_name: str) -> str:
-    """Get comprehensive project context — recent conversations, plans, and memory files.
-
-    Use this when starting work on a project to load all relevant context.
+    """Get project context — meta + the FULL CONTENT of curated docs
+    (identity / memory / plan / learning / note), plus a list of recent
+    conversations. Conversation bodies are not inlined (they can be MB
+    each) — use `memory_conversation(doc_id)` to drill into one, or
+    `memory_blueprint(project_name)` for the kitchen sink including
+    knowledge-graph context.
 
     Args:
-        project_name: Project name to look up
+        project_name: Project name to look up (fuzzy ilike match)
     """
     if _remote:
         projects = await _remote.list_projects()
         matched = [p for p in projects if project_name.lower() in (p.get("title", "") or "").lower()]
         if not matched:
             return f"No project found matching '{project_name}'."
-        project = await _remote.get_project(matched[0]["id"])
+        # include_content=True so the docs that ARE worth inlining come
+        # back inline; saves the AI an N+1 memory_open round-trip.
+        project = await _remote.get_project(matched[0]["id"], include_content=True)
         parts = [f"# Project: {project.get('title', project_name)}"]
         parts.append(f"**Tool**: {project.get('tool_id', '')}")
         if project.get("source_path"):
             parts.append(f"**Path**: `{project['source_path']}`")
+
         def _noise(d: dict) -> bool:
             p = d.get("relative_path", "") or ""
             return p.endswith(".meta.json") or ".resolved" in p
         docs = [d for d in project.get("documents", []) if not _noise(d)]
-        if docs:
-            parts.append(f"\n## Documents ({len(docs)})")
-            for d in docs[:10]:
-                parts.append(f"- [{d.get('category', '')}] {d.get('title', d.get('relative_path', ''))}")
+
+        # Split into "inline-able" (have a 'content' key from include_content)
+        # vs conversation-style (metadata only).
+        inlined = [d for d in docs if d.get("content")]
+        listed = [d for d in docs if not d.get("content")]
+
+        if inlined:
+            parts.append(f"\n## Curated documents ({len(inlined)})")
+            for d in inlined:
+                title = d.get("title") or d.get("relative_path", "")
+                parts.append(f"\n### [{d.get('category', '')}] {title}")
+                parts.append(f"*{d.get('relative_path', '')}*")
+                if d.get("ai_summary"):
+                    parts.append(f"\n**AI summary**: {d['ai_summary']}")
+                parts.append("")
+                parts.append(d["content"])
+        if listed:
+            parts.append(f"\n## Other documents ({len(listed)})")
+            for d in listed[:20]:
+                title = d.get("title") or d.get("relative_path", "")
+                parts.append(f"- [{d.get('category', '')}] {title} — `{d.get('id', '')}`")
         return "\n".join(parts)
 
     # Direct DB mode
+    from .graph import get_entity_context
+    async with _session_factory() as db:
+        return await get_entity_context(db, project_name)
+
+
+@mcp.tool()
+async def memory_blueprint(project_name: str, recent_conversations: int = 10) -> str:
+    """One-shot project blueprint — everything you need to bring a fresh
+    AI session up to speed on a project in a single tool call.
+
+    Returns: project meta + FULL content of identity / memory / plan /
+    learning files + recent conversations' AI summaries + every related
+    knowledge-graph entity with its observations and outgoing relations.
+
+    Use this at the START of a new session when you want maximum
+    context with minimum tool calls. For follow-up drills, use
+    `memory_open(doc_id)`, `memory_conversation(doc_id)`,
+    `memory_graph(entity_name)`, or `memory_search(query)`.
+
+    Args:
+        project_name: Project name (fuzzy match)
+        recent_conversations: How many recent conversation titles + AI
+            summaries to include (default 10; set 0 to omit)
+    """
+    if _remote:
+        try:
+            projects = await _remote.list_projects()
+        except Exception as e:
+            return f"Failed to list projects: {e}"
+        matched = [p for p in projects if project_name.lower() in (p.get("title", "") or "").lower()]
+        if not matched:
+            return f"No project found matching '{project_name}'."
+        try:
+            bp = await _remote.get_project_blueprint(matched[0]["id"], recent_convs=recent_conversations)
+        except Exception as e:
+            return f"Blueprint fetch failed: {e}"
+
+        proj = bp.get("project", {})
+        counts = bp.get("counts", {})
+        out: list[str] = []
+        out.append(f"# Blueprint — {proj.get('title', project_name)}")
+        out.append(f"**Tool**: `{proj.get('tool_id', '')}`  ·  "
+                   f"**Path**: `{proj.get('source_path', '') or '?'}`")
+        out.append(f"_curated={counts.get('curated_docs', 0)} · "
+                   f"recent_convs={counts.get('recent_conversations', 0)} · "
+                   f"entities={counts.get('entities', 0)} · "
+                   f"observations={counts.get('total_observations', 0)}_")
+        out.append("")
+
+        # ── Curated docs ───────────────────────────────────────────
+        curated = bp.get("curated_docs", [])
+        if curated:
+            out.append("## Curated documents")
+            for d in curated:
+                title = d.get("title") or d.get("relative_path", "")
+                out.append(f"\n### [{d.get('category', '')}] {title}")
+                out.append(f"*{d.get('relative_path', '')}*  ·  *{(d.get('synced_at') or '')[:10]}*")
+                if d.get("ai_summary"):
+                    out.append(f"\n**AI summary**: {d['ai_summary']}")
+                out.append("")
+                out.append(d.get("content") or "*(empty)*")
+            out.append("")
+
+        # ── Knowledge graph ────────────────────────────────────────
+        kg = bp.get("knowledge_graph", {})
+        entities = kg.get("entities", [])
+        if entities:
+            out.append("## Knowledge graph")
+            for e in entities:
+                out.append(f"\n### {e.get('name')} ({e.get('entity_type', '')})")
+                if e.get("summary"):
+                    out.append(e["summary"])
+                rels = e.get("relations", [])
+                if rels:
+                    out.append("\n**Relations:**")
+                    for r in rels:
+                        out.append(f"- {r.get('relation', '')} → **{r.get('target_name', '')}** "
+                                   f"({r.get('target_type', '')})")
+                obs = e.get("observations", [])
+                if obs:
+                    out.append("\n**Observations:**")
+                    for o in obs:
+                        date_str = (o.get("observed_at") or "")[:10]
+                        prefix = f"[{date_str}] " if date_str else ""
+                        out.append(f"- {prefix}{o.get('content', '')}")
+            out.append("")
+
+        # ── Recent conversations ───────────────────────────────────
+        convs = bp.get("recent_conversations", [])
+        if convs:
+            out.append("## Recent conversations")
+            for c in convs:
+                date_str = (c.get("synced_at") or "")[:10]
+                title = c.get("title", "Untitled")
+                out.append(f"\n### {title} ({date_str}, {c.get('tool_id', '')})")
+                out.append(f"_doc id: `{c.get('id', '')}`  ·  call `memory_conversation(doc_id)` for full text_")
+                if c.get("ai_summary"):
+                    out.append("")
+                    out.append(c["ai_summary"])
+
+        return "\n".join(out)
+
+    # Direct DB mode falls back to the lighter context dump.
     from .graph import get_entity_context
     async with _session_factory() as db:
         return await get_entity_context(db, project_name)

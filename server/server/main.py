@@ -236,6 +236,27 @@ async def _schedule_daily_compaction():
         await asyncio.sleep(86400)  # Every 24 hours
 
 
+async def _warm_embedding_server() -> None:
+    """Send a single tiny encode request shortly after boot so the first
+    real /api/memory/semantic call doesn't pay the BGE-M3 model's
+    first-encode cost (model is loaded at embedding-server startup but
+    the actual encode pipeline has JIT/cache warmup that can push 5-10 s
+    on a cold CPU). 5 s delay lets the api itself finish lifespan first.
+    """
+    import asyncio, logging
+    log = logging.getLogger("memento.warmup")
+    await asyncio.sleep(5)
+    try:
+        from .services.embedding_service import _call_embedding_server
+        v = await _call_embedding_server(["warmup"], timeout=30.0)
+        if v and v[0]:
+            log.info("embedding server warmed (dim=%d)", len(v[0]))
+        else:
+            log.info("embedding server warmup returned empty — service likely down")
+    except Exception as e:
+        log.info("embedding warmup skipped: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     import asyncio
@@ -245,8 +266,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await conn.run_sync(Base.metadata.create_all)
     # Start daily compaction in background
     compaction_task = asyncio.create_task(_schedule_daily_compaction())
+    # Fire-and-forget warmup of the embedding server (5s after boot)
+    warmup_task = asyncio.create_task(_warm_embedding_server())
     yield
     compaction_task.cancel()
+    warmup_task.cancel()
     await engine.dispose()
 
 

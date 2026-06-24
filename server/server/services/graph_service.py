@@ -139,8 +139,58 @@ async def extract_knowledge_from_document(
         delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id == doc.id)
     )
 
-    # Truncate to ~4000 chars for LLM (cost control)
-    content = doc.content[:4000]
+    # Content prep — the LLM only sees ~4000 chars, so what those 4000
+    # chars ARE matters a lot. For conversation docs the raw .jsonl
+    # head is mostly tool_use / tool_result JSON metadata — opaque to
+    # the LLM, no entities to be found. That's why the initial sweep
+    # of large conversations all got marked 'failed' even on glm-5.2:
+    # the model literally never saw the user / assistant text.
+    #
+    # For conversations, pull role='user'/'assistant' rows from the
+    # already-parsed conversation_messages table and concat into a
+    # role-tagged transcript. For other categories (memory / plan /
+    # learning / identity) the raw content IS the text — keep the
+    # original head-of-content path.
+    content = ""
+    if doc.category == "conversation":
+        msg_rows = (await db.execute(
+            select(KnowledgeObservation.__table__)  # type: ignore[arg-type]
+        )) if False else None  # placeholder so import order doesn't drift
+        from ..db.models import ConversationMessage
+        rows = (await db.execute(
+            select(ConversationMessage.role, ConversationMessage.content)
+            .where(
+                ConversationMessage.document_id == doc.id,
+                ConversationMessage.role.in_(("user", "assistant")),
+            )
+            .order_by(ConversationMessage.line_number)
+            .limit(200)
+        )).all()
+        chunks: list[str] = []
+        used = 0
+        for role, c in rows:
+            text = (c or "").strip()
+            if not text:
+                continue
+            # Drop tool-result noise that often pads user-role messages
+            if text.startswith("[Result]") or text.startswith("[Tool:") \
+                    or text.startswith('{"tool_use_id"'):
+                continue
+            chunk = f"[{role}] {text}\n"
+            if used + len(chunk) > 4000:
+                # Truncate the last chunk to fit, then stop.
+                chunks.append(chunk[: 4000 - used])
+                break
+            chunks.append(chunk)
+            used += len(chunk)
+        content = "".join(chunks)
+        # Conversation has no parsed messages yet (very fresh ingest /
+        # parse miss) — fall back to raw head so we still try.
+        if not content:
+            content = (doc.content or "")[:4000]
+    else:
+        content = (doc.content or "")[:4000]
+
     prompt = _EXTRACTION_TEMPLATE + content
 
     # Charge an attempt up front so a hung LLM still counts toward the

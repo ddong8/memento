@@ -147,8 +147,18 @@ class RemoteClient:
     async def list_projects(self) -> list[dict]:
         return await self._get("/api/projects")
 
-    async def get_project(self, project_id: str) -> dict:
-        return await self._get(f"/api/projects/{project_id}")
+    async def get_project(self, project_id: str, include_content: bool = False) -> dict:
+        params = {"include_content": "true"} if include_content else None
+        return await self._get(f"/api/projects/{project_id}", params)
+
+    async def get_project_blueprint(self, project_id: str, recent_convs: int = 10) -> dict:
+        """One-shot project context: curated docs full content + recent
+        conversations' AI summaries + matching knowledge-graph entities,
+        observations, and relations. Powers `memory_blueprint` MCP tool."""
+        return await self._get(
+            f"/api/projects/{project_id}/blueprint",
+            {"recent_convs": recent_convs},
+        )
 
     # --- Documents ---
     async def get_document(self, doc_id: str) -> dict:

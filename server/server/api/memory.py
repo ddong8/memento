@@ -395,13 +395,18 @@ async def semantic_search(
     list if the embedding server is unavailable — caller should fall back to
     substring search.
     """
-    from ..services.embedding_service import _call_embedding_server
+    from ..services.embedding_service import _call_embedding_server  # noqa: F401
 
     mids = await user_machine_ids(db, _user)
 
-    # Short timeout so a stuck BGE-M3 server doesn't stall the MCP client past
-    # its 30s limit (which would surface as "Search failed: " with no message).
-    embeds = await _call_embedding_server([q], timeout=8.0)
+    # 30s timeout: the embedding server is CPU-only on Apple Silicon
+    # (MPS deliberately avoided — see embedding_server.py:33-43 for the
+    # macOS kernel deadlock). A cold-cached query + 4kB Chinese tokenize
+    # can easily push 5-12s on M-series CPU. 8s was tripping false
+    # "embedding-server-unavailable" returns on a perfectly healthy
+    # server, silently degrading semantic search to a trigram fallback.
+    # The MCP client's own timeout is well above this.
+    embeds = await _call_embedding_server([q], timeout=30.0)
     if not embeds or not embeds[0]:
         return {"results": [], "note": "embedding-server-unavailable"}
 

@@ -40,6 +40,20 @@ def _run_migrations(conn) -> None:
     if "collector_token" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN collector_token VARCHAR(64) UNIQUE"))
 
+    # User.github_id — GitHub OAuth login. Partial unique index: one account
+    # per GitHub identity, while the many github_id IS NULL rows stay allowed.
+    if "github_id" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN github_id VARCHAR(50)"))
+    sp_gh = conn.begin_nested()
+    try:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_github_id "
+            "ON users (github_id) WHERE github_id IS NOT NULL"
+        ))
+        sp_gh.commit()
+    except Exception:
+        sp_gh.rollback()
+
     # Document.embedding_status + embedding_attempts: tracks whether the
     # embedding pipeline produced vectors so failures can be retried instead
     # of silently dropped. Existing rows get 'ok' if they already have any

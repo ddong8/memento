@@ -22,6 +22,7 @@ configMapGenerator:
   - MEMENTO_AI_BASE_URL=https://ark.cn-beijing.volces.com/api/coding/v3
   - MEMENTO_AI_MODEL=glm-5.2
   - MEMENTO_PORT=8000
+  - MEMENTO_PUBLIC_URL=https://mem.ihasy.com
   name: memento-config
 
 # 镜像 tag 由 .github/workflows/deploy.yml 在每次构建后用

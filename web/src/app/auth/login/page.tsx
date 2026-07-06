@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
+import { GithubLoginSection, useGithubEnabled, useOauthErrorMessage } from "../github-login";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,8 @@ export default function LoginPage() {
   const { login } = useAuth();
   const { t } = useI18n();
   const router = useRouter();
+  const githubEnabled = useGithubEnabled();
+  const oauthError = useOauthErrorMessage();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,9 +33,13 @@ export default function LoginPage() {
         const params = new URLSearchParams(window.location.search);
         next = params.get("next");
       }
-      router.push(next && next.startsWith("/") ? next : "/app");
+      // Same-origin relative paths only — reject "//host" and "/\host"
+      // (backslash normalizes to slash → protocol-relative open redirect).
+      router.push(next && next.startsWith("/") && !/^\/[/\\]/.test(next) ? next : "/app");
     } catch { setError(t.auth.invalidCredentials); }
   };
+
+  const banner = error || oauthError;
 
   return (
     <div
@@ -80,7 +87,7 @@ export default function LoginPage() {
           {t.app.title}
         </p>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {error && (
+          {banner && (
             <div
               style={{
                 padding: 10,
@@ -91,7 +98,7 @@ export default function LoginPage() {
                 letterSpacing: "-0.005em",
               }}
             >
-              {error}
+              {banner}
             </div>
           )}
           <GhostInput
@@ -114,6 +121,7 @@ export default function LoginPage() {
             {t.login}
           </Btn>
         </form>
+        {githubEnabled && <GithubLoginSection />}
         <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
           {t.auth.noAccount}{" "}
           <Link href="/auth/register" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>

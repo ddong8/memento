@@ -18,7 +18,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 /** Routes that don't require authentication — landing and auth pages. */
-const PUBLIC_PATHS = ["/", "/auth/login", "/auth/register", "/auth/handoff"];
+const PUBLIC_PATHS = ["/", "/auth/login", "/auth/register", "/auth/handoff", "/auth/callback"];
 
 /// Post the user's collector token to the parent window (the Memento
 /// desktop app) so it can configure + start the collector daemon. Only

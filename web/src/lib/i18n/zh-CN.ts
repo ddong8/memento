@@ -243,6 +243,11 @@ const zhCN = {
     registrationClosed: "注册已关闭。请联系管理员获取邀请码。",
     inviteCodeRequired: "邀请码(必填)",
     inviteCodeOptional: "邀请码(选填,免审批直接激活)",
+    continueWithGithub: "使用 GitHub 登录",
+    orContinueWith: "或",
+    signingIn: "正在登录…",
+    githubOauthFailed: "GitHub 登录失败,请重试",
+    accountDisabled: "账号未激活或已停用",
   },
 
   // Token display + profile

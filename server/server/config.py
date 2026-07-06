@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     #   closed      — registration endpoint refuses everyone
     registration_mode: str = "open"
 
+    # GitHub OAuth login — set both to enable "Continue with GitHub".
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    # Public base URL of this deployment (e.g. https://mem.ihasy.com),
+    # used to build the OAuth redirect_uri {public_url}/api/auth/github/callback.
+    # When unset, the redirect_uri is derived from the incoming request.
+    public_url: str = ""
+
     def validate_production(self) -> None:
         """Refuse to start with dev defaults when debug is off."""
         bad = []

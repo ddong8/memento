@@ -8,6 +8,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
 import { api, type UserInfo } from "@/lib/api-client";
+import { GithubLoginSection } from "../github-login";
 
 // Defined at module scope — NOT inside RegisterPage. Otherwise every keystroke
 // re-creates the component type and React remounts the subtree, stealing focus.
@@ -28,7 +29,7 @@ export default function RegisterPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [registered, setRegistered] = useState<UserInfo | null>(null);
-  const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean } | null>(null);
+  const [mode, setMode] = useState<{ mode: "open" | "invite_only" | "closed"; has_any_user: boolean; github_enabled?: boolean } | null>(null);
   const { register } = useAuth();
   const { t } = useI18n();
 
@@ -190,6 +191,7 @@ export default function RegisterPage() {
           {t.register}
         </Btn>
       </form>
+      {mode?.github_enabled && <GithubLoginSection />}
       <p style={{ textAlign: "center", fontSize: 12, color: "var(--aurora-fg4)", marginTop: 18 }}>
         {t.auth.hasAccount}{" "}
         <Link href="/auth/login" style={{ color: "var(--aurora-accent)", fontWeight: 500 }}>

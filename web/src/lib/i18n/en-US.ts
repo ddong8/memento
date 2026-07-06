@@ -233,6 +233,11 @@ const enUS: Translations = {
     registrationClosed: "Registration is closed. Contact the admin for an invite code.",
     inviteCodeRequired: "Invite code (required)",
     inviteCodeOptional: "Invite code (optional, skips approval)",
+    continueWithGithub: "Continue with GitHub",
+    orContinueWith: "or",
+    signingIn: "Signing you in…",
+    githubOauthFailed: "GitHub sign-in failed, please try again",
+    accountDisabled: "Account is not active",
   },
 
   // Token display + profile

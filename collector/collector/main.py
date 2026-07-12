@@ -82,6 +82,7 @@ def _send_discovery(config: CollectorConfig, logger: logging.Logger) -> None:
     try:
         from .discovery import discover_all_tools
         import httpx
+        from .tls import SSL_CONTEXT
         discovery = discover_all_tools()
         if discovery:
             logger.info("Discovered tools: %s", ", ".join(discovery.keys()))
@@ -91,6 +92,7 @@ def _send_discovery(config: CollectorConfig, logger: logging.Logger) -> None:
                       "platform": config.platform, "tools": discovery},
                 headers={"X-Collector-Token": config.server.token},
                 timeout=DISCOVERY_TIMEOUT,
+                verify=SSL_CONTEXT,
             )
     except Exception:
         pass
@@ -110,6 +112,7 @@ def _poll_commands(config: CollectorConfig, queue: SyncQueue, watcher: FileWatch
     """Poll server for pending commands (resync, etc.)."""
     try:
         import httpx
+        from .tls import SSL_CONTEXT
         try:
             from importlib.metadata import version
             _ver = version(PACKAGE_NAME)
@@ -123,6 +126,7 @@ def _poll_commands(config: CollectorConfig, queue: SyncQueue, watcher: FileWatch
                 "X-Collector-Version": _ver,
             },
             timeout=10,
+            verify=SSL_CONTEXT,
         )
         if resp.status_code != 200:
             return
@@ -141,6 +145,7 @@ def _poll_commands(config: CollectorConfig, queue: SyncQueue, watcher: FileWatch
                             "X-Device-Id": config.device_id,
                         },
                         timeout=5,
+                        verify=SSL_CONTEXT,
                     )
                 except Exception:
                     pass

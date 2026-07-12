@@ -11,6 +11,8 @@ from datetime import date
 
 import httpx
 
+from .tls import SSL_CONTEXT
+
 logger = logging.getLogger("mcp_memory.remote")
 
 
@@ -30,7 +32,7 @@ class RemoteClient:
         if self._jwt and (time.time() - self._jwt_time) < 72000:
             return self._jwt
         self._jwt = None  # Force re-exchange
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=SSL_CONTEXT) as client:
             # Try as JWT directly
             resp = await client.get(
                 f"{self.base_url}/api/auth/me",
@@ -59,7 +61,7 @@ class RemoteClient:
 
     async def _get(self, path: str, params: dict | None = None) -> dict | list:
         jwt = await self._ensure_jwt()
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=SSL_CONTEXT) as client:
             resp = await client.get(
                 f"{self.base_url}{path}",
                 params=params,
@@ -79,7 +81,7 @@ class RemoteClient:
 
     async def _post(self, path: str, json_data: dict | None = None) -> dict:
         jwt = await self._ensure_jwt()
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, verify=SSL_CONTEXT) as client:
             resp = await client.post(
                 f"{self.base_url}{path}",
                 json=json_data,

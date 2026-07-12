@@ -36,9 +36,11 @@ class SyncClient:
         # count roughly halves drain time on big resyncs. Server-side 24-slot
         # ingest semaphore + 32 DB pool keep headroom for 2-3 devices each at 10.
         self._pool = ThreadPoolExecutor(max_workers=10)
+        from .tls import SSL_CONTEXT
         self._client = httpx.Client(
             base_url=config.server.url,
             timeout=httpx.Timeout(60.0, connect=10.0),
+            verify=SSL_CONTEXT,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
             headers={
                 "X-Collector-Token": config.server.token,

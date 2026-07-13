@@ -25,6 +25,11 @@ const tauriApp = window.__TAURI__.app;      // .getVersion()
 const tauriUpdater = window.__TAURI__.updater; // .check() — Tauri auto-update
 const tauriProcess = window.__TAURI__.process; // .relaunch()
 
+// How often a running instance re-checks for a new release. The app sits in
+// the tray for weeks, so this — not the check at startup — is what actually
+// delivers updates to anyone who doesn't reboot often.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;  // 6 hours
+
 // Same set the Python collector knows about. Keep names in sync with
 // collector/collector/tools/*.py — these are the values used to index
 // the disabled_tools list in config.
@@ -231,6 +236,13 @@ async function boot() {
   // GitHub API) are silent — banner just won't appear.
   checkForUpdate().catch(() => {});
 
+  // ...and keep checking. Memento lives in the tray for weeks at a time, and
+  // the webview is never reloaded while it does, so a one-shot check at
+  // startup means a long-running instance never learns about anything
+  // published after it launched. (Observed: an instance up for 7 days sat
+  // through four releases without a peep.)
+  setInterval(() => { checkForUpdate().catch(() => {}); }, UPDATE_CHECK_INTERVAL_MS);
+
   // Tray menu "Check for updates" → Rust emits this. Clear the session
   // dismissal and force a fresh check; if no update, show a brief notice
   // so the user gets feedback instead of silence.
@@ -283,7 +295,6 @@ async function boot() {
 //   4. Runs the installer; on Windows it self-terminates the running app,
 //      replaces files, then we call relaunch()
 async function checkForUpdate() {
-  if (sessionStorage.getItem("update_dismissed")) return;
   let update;
   try {
     update = await tauriUpdater.check();
@@ -292,6 +303,12 @@ async function checkForUpdate() {
     return;  // network down / signature invalid / endpoint 404 — silent
   }
   if (!update?.available) return;
+
+  // Dismissal is remembered per *version*, and deliberately checked after the
+  // fetch rather than before it: brushing off v1 must not also silence v2.
+  // (It used to store a bare "1", so one "Later" click muted every future
+  // release for the life of the process — which, for a tray app, is forever.)
+  if (sessionStorage.getItem("update_dismissed") === update.version) return;
 
   // Mount the banner first so the user can dismiss without confirming.
   showUpdateBanner(update.version, async () => {
@@ -334,7 +351,7 @@ function showUpdateBanner(version, onInstall) {
   link.onclick = (e) => { e.preventDefault(); onInstall(); };
   document.getElementById("updateBannerDismiss").onclick = () => {
     banner.classList.add("hidden");
-    sessionStorage.setItem("update_dismissed", "1");
+    sessionStorage.setItem("update_dismissed", version);
   };
   banner.classList.remove("hidden");
 }

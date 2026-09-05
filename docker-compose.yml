@@ -100,11 +100,19 @@ services:
     ports:
       - "${MEMENTO_EMBEDDING_HOST_PORT:-18002}:8002"
     healthcheck:
+      # timeout is deliberately generous: /health is served by the same
+      # single-threaded handler that holds _model_lock during inference
+      # (embedding_server.py serializes encode() — PyTorch MPS/CPU batch
+      # work is not thread-safe). Under a backfill wave the host pegs
+      # ~390% CPU and a healthcheck can queue for many seconds behind a
+      # batch. At 5s the container flapped to `unhealthy` while every
+      # real POST /embed still returned 200 — a false alarm that would
+      # trigger pointless restarts under an orchestrator.
       test: ["CMD", "curl", "-fsS", "http://localhost:8002/health"]
-      interval: 15s
-      timeout: 5s
-      start_period: 60s
-      retries: 4
+      interval: 30s
+      timeout: 30s
+      start_period: 120s
+      retries: 5
 
   # FastAPI server
   api:

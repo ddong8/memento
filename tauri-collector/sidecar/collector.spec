@@ -30,7 +30,7 @@ hidden = (
 extra_datas = []
 extra_binaries = []
 for pkg in ("tomli", "pydantic", "pydantic_core", "watchdog", "cryptography",
-            "httpx", "httpcore"):
+            "httpx", "httpcore", "websockets"):
     try:
         d, b, h = collect_all(pkg)
         extra_datas.extend(d)

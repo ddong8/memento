@@ -166,4 +166,5 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           generate_release_notes: true
+          make_latest: false
           files: release-assets/*

@@ -87,12 +87,18 @@ services:
     restart: unless-stopped
     expose:
       - "8002"
-    # No host port mapping by default — the api/celery containers
-    # reach it via docker DNS (`embedding:8002`). Uncomment the ports
-    # block below if you want to hit it from the host too, but mind
-    # the conflict with a native install.
-    # ports:
-    #   - "8002:8002"
+    # Host port mapping. In-stack containers reach this via docker DNS
+    # (`embedding:8002`) and don't need it — but a *remote* API does:
+    # the k3s deployment on the NAS points MEMENTO_EMBEDDING_SERVER_URL
+    # at this host's LAN address (see deploy/k8s/kustomization.yaml), so
+    # the port has to be published to be reachable off-box.
+    #
+    # Defaults to 18002 to match that k8s value and to stay clear of a
+    # native `--native` install on 8002. Override with
+    # MEMENTO_EMBEDDING_HOST_PORT, or set it empty-safe if you don't
+    # need host access.
+    ports:
+      - "${MEMENTO_EMBEDDING_HOST_PORT:-18002}:8002"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8002/health"]
       interval: 15s

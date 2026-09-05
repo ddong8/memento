@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
+from ..db.session import async_session_factory
 from .ws_manager import ws_manager
 
 logger = logging.getLogger("server.orchestrator")
@@ -104,23 +105,29 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的记忆助手，同时能调度用户�
 
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
-    q = select(Machine)
-    if user.role not in ("admin", "owner"):
-        q = q.where(Machine.user_id == user.id)
-    machines = (await db.execute(q)).scalars().all()
-    now = datetime.now(timezone.utc)
-    out = []
-    for m in machines:
-        hb = m.last_heartbeat
-        age = (now - hb).total_seconds() if hb else None
-        out.append({
-            "device_id": m.collector_token_hash,
-            "name": m.name,
-            "collector_version": m.collector_version,
-            "last_heartbeat": hb.isoformat() if hb else None,
-            "online": age is not None and age < OFFLINE_AFTER_SECONDS,
-        })
-    return {"devices": out}
+    try:
+        q = select(Machine)
+        if user.role not in ("admin", "owner"):
+            q = q.where(Machine.user_id == user.id)
+        machines = (await db.execute(q)).scalars().all()
+        now = datetime.now(timezone.utc)
+        out = []
+        for m in machines:
+            hb = m.last_heartbeat
+            if hb and hb.tzinfo is None:
+                hb = hb.replace(tzinfo=timezone.utc)
+            age = (now - hb).total_seconds() if hb else None
+            out.append({
+                "device_id": m.collector_token_hash,
+                "name": m.name,
+                "collector_version": m.collector_version,
+                "last_heartbeat": hb.isoformat() if hb else None,
+                "online": age is not None and age < OFFLINE_AFTER_SECONDS,
+            })
+        return {"devices": out}
+    except Exception as e:
+        logger.exception("list_devices failed: %s", e)
+        return {"devices": [], "error": str(e)}
 
 
 async def _await_task_stream(
@@ -131,17 +138,20 @@ async def _await_task_stream(
     task_q: asyncio.Queue | None = None,
 ):
     """Poll the task row or receive chunks from WebSocket queue until terminal or deadline."""
+    task_id = task.id
+    target_device_id = task.device_id
+    task_action = task.action
     last_status = task.status
+
     yield {
         "type": "task_progress",
-        "task_id": str(task.id),
-        "device_id": task.device_id,
+        "task_id": str(task_id),
+        "device_id": target_device_id,
         "device_name": machine_name,
-        "action": task.action,
+        "action": task_action,
         "status": last_status,
     }
 
-    current = task
     while asyncio.get_event_loop().time() < deadline:
         # Check WebSocket queue for real-time chunks or completion
         if task_q is not None:
@@ -162,34 +172,36 @@ async def _await_task_stream(
         else:
             await asyncio.sleep(TASK_POLL_INTERVAL)
 
-        # Database poll check (as fallback or keepalive)
-        db.expire_all()
-        current = (await db.execute(
-            select(DeviceTask).where(DeviceTask.id == task.id)
-        )).scalar_one_or_none()
+        # Database poll check (using isolated session to avoid cache / MissingGreenlet)
+        current = None
+        try:
+            async with async_session_factory() as read_session:
+                current = (await read_session.execute(
+                    select(DeviceTask).where(DeviceTask.id == task_id)
+                )).scalars().first()
+        except Exception as e:
+            logger.warning("Error polling task %s from db: %s", task_id, e)
 
-        if not current:
-            break
+        if current:
+            if current.status != last_status:
+                last_status = current.status
+                yield {
+                    "type": "task_progress",
+                    "task_id": str(task_id),
+                    "device_id": current.device_id,
+                    "device_name": machine_name,
+                    "action": current.action,
+                    "status": current.status,
+                }
 
-        if current.status != last_status:
-            last_status = current.status
-            yield {
-                "type": "task_progress",
-                "task_id": str(current.id),
-                "device_id": current.device_id,
-                "device_name": machine_name,
-                "action": current.action,
-                "status": current.status,
-            }
-
-        if current.status in ("succeeded", "failed", "timeout", "cancelled"):
-            yield {"type": "_task_finished", "task": current}
-            return
+            if current.status in ("succeeded", "failed", "timeout", "cancelled"):
+                yield {"type": "_task_finished", "task": current}
+                return
 
         # Keepalive ping so Nginx / ingress / proxies never close the SSE stream
         yield {"type": "ping"}
 
-    yield {"type": "_task_timeout", "task": current if current else task}
+    yield {"type": "_task_timeout", "task_id": str(task_id)}
 
 
 async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
@@ -213,151 +225,160 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         }
         return
 
-    # Look up machine by collector_token_hash OR by name
-    machine = (await db.execute(
-        select(Machine).where(
-            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-        )
-    )).scalar_one_or_none()
-
-    if user.role not in ("admin", "owner"):
-        if not machine or machine.user_id != user.id:
-            yield {
-                "type": "tool_result",
-                "name": "run_on_device",
-                "result": {"error": "设备不存在或无权限"},
-            }
-            return
-
-    # Normalize device_id to the machine's actual collector_token_hash
-    if machine:
-        device_id = machine.collector_token_hash
-
-    mach_name = machine.name if machine else device_id
-    payload: dict = {}
-    if action == "shell":
-        if not (args.get("command") or "").strip():
-            yield {
-                "type": "tool_result",
-                "name": "run_on_device",
-                "result": {"error": "shell 需要 command"},
-            }
-            return
-        payload["command"] = args["command"]
-    else:
-        if not (args.get("prompt") or "").strip():
-            yield {
-                "type": "tool_result",
-                "name": "run_on_device",
-                "result": {"error": "agent 需要 prompt"},
-            }
-            return
-        payload["prompt"] = args["prompt"]
-    if args.get("cwd"):
-        payload["cwd"] = args["cwd"]
-
-    task = DeviceTask(
-        device_id=device_id,
-        machine_id=machine.id if machine else None,
-        user_id=user.id,
-        action=action,
-        payload=payload,
-        timeout_seconds=TASK_WAIT_SECONDS,
-        status="queued",
-    )
-    db.add(task)
-    await db.commit()
-    await db.refresh(task)
-    logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
-
-    task_q = None
-    if ws_manager.has_device(device_id):
-        task_q = ws_manager.subscribe_task(str(task.id))
-        dispatched_ws = await ws_manager.send_task(device_id, {
-            "id": str(task.id),
-            "action": action,
-            "payload": payload,
-            "timeout_seconds": TASK_WAIT_SECONDS,
-        })
-        if dispatched_ws:
-            task.status = "running"
-            task.dispatched_at = datetime.now(timezone.utc)
-            await db.commit()
-        else:
-            ws_manager.unsubscribe_task(str(task.id))
-            task_q = None
-
-    deadline = asyncio.get_event_loop().time() + TASK_WAIT_SECONDS
-    done_task = None
-    done_ws = None
-
     try:
-        async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q):
-            if evt["type"] == "_task_finished":
-                done_task = evt["task"]
-            elif evt["type"] == "_task_finished_ws":
-                done_ws = evt["result"]
-            elif evt["type"] == "_task_timeout":
-                done_task = None
-                done_ws = None
+        # Look up machine by collector_token_hash OR by name (use first to avoid MultipleResultsFound)
+        machine = (await db.execute(
+            select(Machine).where(
+                (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+            )
+        )).scalars().first()
+
+        if user.role not in ("admin", "owner"):
+            if not machine or machine.user_id != user.id:
+                yield {
+                    "type": "tool_result",
+                    "name": "run_on_device",
+                    "result": {"error": "设备不存在或无权限"},
+                }
+                return
+
+        # Normalize device_id to the machine's actual collector_token_hash
+        if machine:
+            device_id = machine.collector_token_hash
+
+        mach_name = machine.name if machine else device_id
+        payload: dict = {}
+        if action == "shell":
+            if not (args.get("command") or "").strip():
+                yield {
+                    "type": "tool_result",
+                    "name": "run_on_device",
+                    "result": {"error": "shell 需要 command"},
+                }
+                return
+            payload["command"] = args["command"]
+        else:
+            if not (args.get("prompt") or "").strip():
+                yield {
+                    "type": "tool_result",
+                    "name": "run_on_device",
+                    "result": {"error": "agent 需要 prompt"},
+                }
+                return
+            payload["prompt"] = args["prompt"]
+        if args.get("cwd"):
+            payload["cwd"] = args["cwd"]
+
+        task = DeviceTask(
+            device_id=device_id,
+            machine_id=machine.id if machine else None,
+            user_id=user.id,
+            action=action,
+            payload=payload,
+            timeout_seconds=TASK_WAIT_SECONDS,
+            status="queued",
+        )
+        db.add(task)
+        await db.commit()
+        await db.refresh(task)
+        task_id_str = str(task.id)
+        logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
+
+        task_q = None
+        if ws_manager.has_device(device_id):
+            task_q = ws_manager.subscribe_task(task_id_str)
+            dispatched_ws = await ws_manager.send_task(device_id, {
+                "id": task_id_str,
+                "action": action,
+                "payload": payload,
+                "timeout_seconds": TASK_WAIT_SECONDS,
+            })
+            if dispatched_ws:
+                task.status = "running"
+                task.dispatched_at = datetime.now(timezone.utc)
+                await db.commit()
             else:
-                yield evt
-    except (asyncio.CancelledError, GeneratorExit):
-        logger.info("Task %s cancelled by client, sending cancel to device %s", task.id, device_id)
-        await ws_manager.send_cancel(device_id, str(task.id))
-        raise
-    finally:
-        if task_q is not None:
-            ws_manager.unsubscribe_task(str(task.id))
+                ws_manager.unsubscribe_task(task_id_str)
+                task_q = None
 
-    if done_ws:
+        deadline = asyncio.get_event_loop().time() + TASK_WAIT_SECONDS
+        done_task = None
+        done_ws = None
+
+        try:
+            async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q):
+                if evt["type"] == "_task_finished":
+                    done_task = evt["task"]
+                elif evt["type"] == "_task_finished_ws":
+                    done_ws = evt["result"]
+                elif evt["type"] == "_task_timeout":
+                    done_task = None
+                    done_ws = None
+                else:
+                    yield evt
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.info("Task %s cancelled by client, sending cancel to device %s", task_id_str, device_id)
+            await ws_manager.send_cancel(device_id, task_id_str)
+            raise
+        finally:
+            if task_q is not None:
+                ws_manager.unsubscribe_task(task_id_str)
+
+        if done_ws:
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {
+                    "task_id": task_id_str,
+                    "device_id": device_id,
+                    "device_name": mach_name,
+                    "action": action,
+                    "status": done_ws.get("status", "succeeded"),
+                    "exit_code": done_ws.get("exit_code"),
+                    "stdout": (done_ws.get("stdout") or "")[:MAX_TOOL_OUTPUT],
+                    "stderr": (done_ws.get("stderr") or "")[:MAX_TOOL_OUTPUT],
+                    "error": done_ws.get("error"),
+                },
+            }
+            return
+
+        if not done_task:
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {
+                    "task_id": task_id_str,
+                    "device_id": device_id,
+                    "device_name": mach_name,
+                    "action": action,
+                    "status": "still_running",
+                    "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
+                },
+            }
+            return
+
         yield {
             "type": "tool_result",
             "name": "run_on_device",
             "result": {
-                "task_id": str(task.id),
+                "task_id": str(done_task.id),
                 "device_id": device_id,
                 "device_name": mach_name,
                 "action": action,
-                "status": done_ws.get("status", "succeeded"),
-                "exit_code": done_ws.get("exit_code"),
-                "stdout": (done_ws.get("stdout") or "")[:MAX_TOOL_OUTPUT],
-                "stderr": (done_ws.get("stderr") or "")[:MAX_TOOL_OUTPUT],
-                "error": done_ws.get("error"),
+                "status": done_task.status,
+                "exit_code": done_task.exit_code,
+                "stdout": (done_task.stdout or "")[:MAX_TOOL_OUTPUT],
+                "stderr": (done_task.stderr or "")[:MAX_TOOL_OUTPUT],
+                "error": done_task.error,
             },
         }
-        return
-
-    if not done_task:
+    except Exception as e:
+        logger.exception("run_on_device failed: %s", e)
         yield {
             "type": "tool_result",
             "name": "run_on_device",
-            "result": {
-                "task_id": str(task.id),
-                "device_id": device_id,
-                "device_name": mach_name,
-                "action": action,
-                "status": "still_running",
-                "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
-            },
+            "result": {"error": f"执行遇到异常: {e}"},
         }
-        return
-
-    yield {
-        "type": "tool_result",
-        "name": "run_on_device",
-        "result": {
-            "task_id": str(done_task.id),
-            "device_id": device_id,
-            "device_name": mach_name,
-            "action": action,
-            "status": done_task.status,
-            "exit_code": done_task.exit_code,
-            "stdout": (done_task.stdout or "")[:MAX_TOOL_OUTPUT],
-            "stderr": (done_task.stderr or "")[:MAX_TOOL_OUTPUT],
-            "error": done_task.error,
-        },
-    }
 
 
 async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict):
@@ -431,9 +452,12 @@ async def run_agent_loop(
         for call in calls:
             fn = (call.get("function") or {})
             name = fn.get("name") or ""
+            args_raw = fn.get("arguments") or "{}"
             try:
-                args = json.loads(fn.get("arguments") or "{}")
-            except json.JSONDecodeError:
+                args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+            except Exception:
+                args = {}
+            if not isinstance(args, dict):
                 args = {}
 
             call_evt = {"type": "tool_call", "name": name, "args": args}
@@ -444,7 +468,7 @@ async def run_agent_loop(
                         select(Machine.name).where(
                             (Machine.collector_token_hash == dev_id) | (Machine.name == dev_id)
                         )
-                    )).scalar_one_or_none()
+                    )).scalars().first()
                     if mach_name:
                         call_evt["device_name"] = mach_name
 

@@ -65,7 +65,7 @@ async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | 
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
         )
-    )).scalar_one_or_none()
+    )).scalars().first()
     if not machine or not machine.remote_exec_key:
         raise HTTPException(status_code=403, detail="device not enrolled for remote execution")
     if not secrets.compare_digest(machine.remote_exec_key, presented):
@@ -112,7 +112,7 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
         )
-    )).scalar_one_or_none()
+    )).scalars().first()
     if user.role not in ("admin", "owner"):
         if not machine or machine.user_id != user.id:
             raise HTTPException(status_code=404, detail="Device not found")
@@ -324,7 +324,7 @@ async def _authenticate_ws(
         return None
     # 1. Verify collector token
     res = await db.execute(select(User).where(User.collector_token == collector_token))
-    user = res.scalar_one_or_none()
+    user = res.scalars().first()
     if not user:
         from ..config import settings
         if not (settings.collector_token and secrets.compare_digest(collector_token, settings.collector_token)):
@@ -334,7 +334,7 @@ async def _authenticate_ws(
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
         )
-    )).scalar_one_or_none()
+    )).scalars().first()
     if not machine or not machine.remote_exec_key:
         return None
     if not secrets.compare_digest(machine.remote_exec_key, remote_exec_key):

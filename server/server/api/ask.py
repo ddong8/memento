@@ -198,8 +198,10 @@ async def ask(
         system_content = ORCHESTRATOR_SYSTEM
         if device_id and device_id not in ("auto", "ask_only"):
             mach = (await db.execute(
-                select(Machine).where(Machine.collector_token_hash == device_id)
-            )).scalar_one_or_none()
+                select(Machine).where(
+                    (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+                )
+            )).scalars().first()
             mach_name = mach.name if mach else device_id
             cwd_text = f"，默认工作目录 cwd 为 \"{body.cwd}\"" if body.cwd else ""
             system_content += (
@@ -229,7 +231,7 @@ async def ask(
                 return
             except Exception as e:
                 logger.exception("agent loop failed: %s", e)
-                yield f"data: {json.dumps({'type': 'error', 'message': '调度失败,请重试'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': f'调度失败: {e}'}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return StreamingResponse(

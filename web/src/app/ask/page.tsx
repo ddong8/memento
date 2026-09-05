@@ -128,7 +128,11 @@ export default function AskPage() {
             message?: string;
             name?: string;
             args?: Record<string, unknown>;
+            task_id?: string;
+            device_id?: string;
             device_name?: string;
+            action?: string;
+            status?: string;
             result?: ToolCallItem["result"];
           };
           try {
@@ -149,13 +153,58 @@ export default function AskPage() {
               });
               return { ...x, toolCalls: calls };
             });
+          } else if (evt.type === "task_progress") {
+            patchLast((x) => {
+              const calls = [...(x.toolCalls || [])];
+              let idx = -1;
+              if (evt.task_id) {
+                idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+              }
+              if (idx === -1) {
+                idx = calls
+                  .map((c, i) =>
+                    c.name === "run_on_device" &&
+                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+                      ? i
+                      : -1
+                  )
+                  .filter((i) => i >= 0)
+                  .pop() ?? -1;
+              }
+              if (idx >= 0) {
+                calls[idx] = {
+                  ...calls[idx],
+                  device_name: evt.device_name || calls[idx].device_name,
+                  result: {
+                    ...(calls[idx].result || {}),
+                    task_id: evt.task_id,
+                    device_id: evt.device_id,
+                    device_name: evt.device_name || calls[idx].device_name,
+                    action: evt.action || (calls[idx].args?.action as string),
+                    status: evt.status,
+                  },
+                };
+              }
+              return { ...x, toolCalls: calls };
+            });
           } else if (evt.type === "tool_result") {
             patchLast((x) => {
               const calls = [...(x.toolCalls || [])];
-              const idx = calls
-                .map((c, i) => (!c.result ? i : -1))
-                .filter((i) => i >= 0)
-                .pop();
+              let idx = -1;
+              const resTaskId = evt.result?.task_id;
+              if (resTaskId) {
+                idx = calls.findIndex((c) => c.result?.task_id === resTaskId);
+              }
+              if (idx === -1) {
+                idx = calls
+                  .map((c, i) =>
+                    !c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout")
+                      ? i
+                      : -1
+                  )
+                  .filter((i) => i >= 0)
+                  .pop() ?? -1;
+              }
               if (idx !== undefined && idx >= 0) {
                 calls[idx] = { ...calls[idx], result: evt.result };
               } else if (calls.length > 0) {

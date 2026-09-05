@@ -85,15 +85,26 @@ def store_key(key: str) -> None:
         logger.warning("could not persist remote exec key: %s", e)
 
 
-def enroll(config: CollectorConfig) -> None:
+def clear_key() -> None:
+    """Clear local remote-exec key so device can re-enroll."""
+    try:
+        p = _key_path()
+        if p.exists():
+            p.unlink()
+            logger.info("cleared stale remote exec key")
+    except Exception as e:
+        logger.warning("could not delete remote exec key file: %s", e)
+
+
+def enroll(config: CollectorConfig, force: bool = False) -> bool:
     """Pick up a server-issued key over the authenticated heartbeat.
 
     The server only returns one when the operator has switched remote
     execution on, so a collector that was never enabled simply never learns
     a key — and therefore never polls for work.
     """
-    if remote_exec_key():
-        return  # Already enrolled.
+    if not force and remote_exec_key():
+        return True  # Already enrolled.
     try:
         resp = httpx.post(
             f"{config.server.url}/api/ingest/heartbeat",
@@ -107,13 +118,15 @@ def enroll(config: CollectorConfig) -> None:
             verify=SSL_CONTEXT,
         )
         if resp.status_code != 200:
-            return
+            return bool(remote_exec_key())
         key = (resp.json() or {}).get("remote_exec_key")
         if key:
             store_key(key)
             logger.info("enrolled for remote task execution")
+            return True
     except Exception:
-        return  # Server unreachable — retry on the next tick.
+        return False  # Server unreachable — retry on the next tick.
+    return bool(remote_exec_key())
 
 
 def is_enabled() -> bool:
@@ -214,23 +227,61 @@ def _run_agent(payload: dict, timeout: int) -> dict:
 
 HANDLERS = {"shell": _run_shell, "agent": _run_agent}
 
+_PENDING_RESULTS: dict[str, dict] = {}
+
+
+def _flush_pending_results(config: CollectorConfig) -> None:
+    """Retry uploading any results that failed to post in earlier runs."""
+    if not _PENDING_RESULTS:
+        return
+    logger.info("retrying %d pending task results...", len(_PENDING_RESULTS))
+    for tid in list(_PENDING_RESULTS.keys()):
+        res = _PENDING_RESULTS[tid]
+        if _post_result_direct(config, tid, res, max_retries=2):
+            _PENDING_RESULTS.pop(tid, None)
+
+
+def _post_result_direct(config: CollectorConfig, task_id: str, result: dict, max_retries: int = 4) -> bool:
+    import time
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = httpx.post(
+                f"{config.server.url}/api/tasks/{task_id}/result",
+                headers={
+                    "X-Collector-Token": config.server.token,
+                    "X-Remote-Exec-Key": remote_exec_key(),
+                },
+                json=result,
+                timeout=30,
+                verify=SSL_CONTEXT,
+            )
+            if resp.status_code == 200:
+                logger.info("task %s result posted successfully", task_id)
+                return True
+            if resp.status_code == 403:
+                logger.warning("post_result 403 (key mismatch), clearing key and re-enrolling...")
+                clear_key()
+                if enroll(config, force=True):
+                    continue
+                return False
+            logger.warning(
+                "post_result attempt %d/%d got HTTP %d: %s",
+                attempt, max_retries, resp.status_code, resp.text[:200]
+            )
+        except Exception as e:
+            logger.warning("post_result attempt %d/%d failed: %s", attempt, max_retries, e)
+
+        if attempt < max_retries:
+            time.sleep(min(2 ** attempt, 8))
+
+    return False
+
 
 def _post_result(config: CollectorConfig, task_id: str, result: dict) -> None:
-    try:
-        httpx.post(
-            f"{config.server.url}/api/tasks/{task_id}/result",
-            headers={
-                "X-Collector-Token": config.server.token,
-                "X-Remote-Exec-Key": remote_exec_key(),
-            },
-            json=result,
-            timeout=30,
-            verify=SSL_CONTEXT,
-        )
-    except Exception as e:
-        # The task already ran; losing the result is bad but not fatal — the
-        # server will show it stuck in `running` rather than claim success.
-        logger.warning("failed to post result for task %s: %s", task_id, e)
+    ok = _post_result_direct(config, task_id, result, max_retries=4)
+    if not ok:
+        logger.warning("task %s result failed to upload after retries; queued for next poll", task_id)
+        _PENDING_RESULTS[task_id] = result
 
 
 def poll_and_run(config: CollectorConfig) -> None:
@@ -245,6 +296,10 @@ def poll_and_run(config: CollectorConfig) -> None:
         enroll(config)
         if not is_enabled():
             return
+
+    # Flush any previous failed uploads first
+    _flush_pending_results(config)
+
     try:
         resp = httpx.get(
             f"{config.server.url}/api/tasks/poll/{config.device_id}",
@@ -256,13 +311,28 @@ def poll_and_run(config: CollectorConfig) -> None:
             verify=SSL_CONTEXT,
         )
         if resp.status_code == 403:
-            logger.warning("remote exec rejected by server (key mismatch or disabled)")
-            return
+            logger.warning("remote exec rejected by server (403), re-enrolling...")
+            clear_key()
+            if enroll(config, force=True):
+                # Retry poll with fresh key
+                resp = httpx.get(
+                    f"{config.server.url}/api/tasks/poll/{config.device_id}",
+                    headers={
+                        "X-Collector-Token": config.server.token,
+                        "X-Remote-Exec-Key": remote_exec_key(),
+                    },
+                    timeout=15,
+                    verify=SSL_CONTEXT,
+                )
+            else:
+                return
+
         if resp.status_code != 200:
             return
         tasks = resp.json() or []
-    except Exception:
-        return  # Server unreachable — try again next tick.
+    except Exception as e:
+        logger.debug("poll tasks failed: %s", e)
+        return
 
     for task in tasks:
         task_id = task.get("id")

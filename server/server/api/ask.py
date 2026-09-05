@@ -12,6 +12,7 @@ token stream belonging to one caller.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -217,7 +218,15 @@ async def ask(
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
             try:
                 async for evt in run_agent_loop(db, _user, agent_messages):
-                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    if evt.get("type") == "ping":
+                        # Both SSE comment and JSON data ping to prevent proxy/browser idle timeouts
+                        yield ": ping\n\n"
+                        yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                    else:
+                        yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+            except (asyncio.CancelledError, GeneratorExit):
+                logger.info("agent stream cancelled by client")
+                return
             except Exception as e:
                 logger.exception("agent loop failed: %s", e)
                 yield f"data: {json.dumps({'type': 'error', 'message': '调度失败,请重试'}, ensure_ascii=False)}\n\n"

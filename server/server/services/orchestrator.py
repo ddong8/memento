@@ -43,8 +43,8 @@ AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 # one LLM call plus however long the dispatched tasks take.
 MAX_ROUNDS = 4
 # How long to wait inline for a dispatched task.
-TASK_WAIT_SECONDS = 180
-TASK_POLL_INTERVAL = 3
+TASK_WAIT_SECONDS = int(os.environ.get("MEMENTO_TASK_WAIT_SECONDS", "180"))
+TASK_POLL_INTERVAL = 1.5
 # Trim tool output before it goes back into the prompt — a 100k-char build log
 # would blow the context and bury the signal.
 MAX_TOOL_OUTPUT = 4000
@@ -75,7 +75,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "device_id": {"type": "string", "description": "目标设备的 device_id，来自 list_devices"},
+                    "device_id": {"type": "string", "description": "目标设备的 device_id（UUID）或设备名称，来自 list_devices"},
                     "action": {"type": "string", "enum": ["shell", "agent"]},
                     "command": {"type": "string", "description": "action=shell 时的命令行"},
                     "prompt": {"type": "string", "description": "action=agent 时给 agent 的任务描述"},
@@ -89,7 +89,7 @@ TOOLS = [
 
 ORCHESTRATOR_SYSTEM = """你是 Memento 的记忆助手，同时能调度用户的多台设备干活。
 
-你有两种信息来源：
+你两种信息来源：
 1. 「资料」——已同步到服务端的对话、笔记、计划。优先用它回答。
 2. 设备工具——当资料不足、或用户明确要求在机器上做事时，用 list_devices 看有哪些机器，用 run_on_device 去执行。
 
@@ -122,49 +122,117 @@ async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
     return {"devices": out}
 
 
-async def _await_task(db: AsyncSession, task_id, deadline: float) -> DeviceTask | None:
-    """Poll the task row until terminal or the deadline passes."""
+async def _await_task_stream(
+    db: AsyncSession,
+    task: DeviceTask,
+    machine_name: str,
+    deadline: float,
+):
+    """Poll the task row until terminal or deadline, yielding progress events and keep-alive pings."""
+    last_status = task.status
+    yield {
+        "type": "task_progress",
+        "task_id": str(task.id),
+        "device_id": task.device_id,
+        "device_name": machine_name,
+        "action": task.action,
+        "status": last_status,
+    }
+
+    current = task
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(TASK_POLL_INTERVAL)
         # expire_all: this session may hold a stale copy from a prior read,
         # and the collector writes the result through a different session.
         db.expire_all()
-        task = (await db.execute(
-            select(DeviceTask).where(DeviceTask.id == task_id)
+        current = (await db.execute(
+            select(DeviceTask).where(DeviceTask.id == task.id)
         )).scalar_one_or_none()
-        if task and task.status in ("succeeded", "failed", "timeout", "cancelled"):
-            return task
-    return None
+
+        if not current:
+            break
+
+        if current.status != last_status:
+            last_status = current.status
+            yield {
+                "type": "task_progress",
+                "task_id": str(current.id),
+                "device_id": current.device_id,
+                "device_name": machine_name,
+                "action": current.action,
+                "status": current.status,
+            }
+
+        if current.status in ("succeeded", "failed", "timeout", "cancelled"):
+            yield {"type": "_task_finished", "task": current}
+            return
+
+        # Keepalive ping so Nginx / ingress / proxies never close the SSE stream
+        yield {"type": "ping"}
+
+    yield {"type": "_task_timeout", "task": current if current else task}
 
 
-async def _tool_run_on_device(db: AsyncSession, user: User, args: dict) -> dict:
+async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
     from ..api.tasks import EXEC_ACTIONS, REMOTE_EXEC_ENABLED
 
     if not REMOTE_EXEC_ENABLED:
-        return {"error": "远程执行未启用（服务端设 MEMENTO_REMOTE_EXEC=1 即可，设备端无需配置）"}
+        yield {
+            "type": "tool_result",
+            "name": "run_on_device",
+            "result": {"error": "远程执行未启用（服务端设 MEMENTO_REMOTE_EXEC=1 即可，设备端无需配置）"},
+        }
+        return
 
     device_id = args.get("device_id") or ""
     action = args.get("action") or ""
     if action not in EXEC_ACTIONS:
-        return {"error": f"不支持的 action: {action}"}
+        yield {
+            "type": "tool_result",
+            "name": "run_on_device",
+            "result": {"error": f"不支持的 action: {action}"},
+        }
+        return
 
-    # Same ownership check as the hand-dispatch endpoint — the model must not
-    # be a way around device authorization.
+    # Look up machine by collector_token_hash OR by name
     machine = (await db.execute(
-        select(Machine).where(Machine.collector_token_hash == device_id)
+        select(Machine).where(
+            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+        )
     )).scalar_one_or_none()
+
     if user.role not in ("admin", "owner"):
         if not machine or machine.user_id != user.id:
-            return {"error": "设备不存在或无权限"}
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"error": "设备不存在或无权限"},
+            }
+            return
 
+    # Normalize device_id to the machine's actual collector_token_hash
+    if machine:
+        device_id = machine.collector_token_hash
+
+    mach_name = machine.name if machine else device_id
     payload: dict = {}
     if action == "shell":
         if not (args.get("command") or "").strip():
-            return {"error": "shell 需要 command"}
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"error": "shell 需要 command"},
+            }
+            return
         payload["command"] = args["command"]
     else:
         if not (args.get("prompt") or "").strip():
-            return {"error": "agent 需要 prompt"}
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"error": "agent 需要 prompt"},
+            }
+            return
         payload["prompt"] = args["prompt"]
     if args.get("cwd"):
         payload["cwd"] = args["cwd"]
@@ -184,35 +252,58 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict) -> dict:
     logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
 
     deadline = asyncio.get_event_loop().time() + TASK_WAIT_SECONDS
-    done = await _await_task(db, task.id, deadline)
-    if not done:
-        return {
-            "task_id": str(task.id),
-            "device_id": device_id,
-            "device_name": machine.name if machine else device_id,
-            "action": action,
-            "status": "still_running",
-            "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
+    done_task = None
+
+    async for evt in _await_task_stream(db, task, mach_name, deadline):
+        if evt["type"] == "_task_finished":
+            done_task = evt["task"]
+        elif evt["type"] == "_task_timeout":
+            done_task = None
+        else:
+            yield evt
+
+    if not done_task:
+        yield {
+            "type": "tool_result",
+            "name": "run_on_device",
+            "result": {
+                "task_id": str(task.id),
+                "device_id": device_id,
+                "device_name": mach_name,
+                "action": action,
+                "status": "still_running",
+                "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
+            },
         }
-    return {
-        "task_id": str(done.id),
-        "device_id": device_id,
-        "device_name": machine.name if machine else device_id,
-        "action": action,
-        "status": done.status,
-        "exit_code": done.exit_code,
-        "stdout": (done.stdout or "")[:MAX_TOOL_OUTPUT],
-        "stderr": (done.stderr or "")[:MAX_TOOL_OUTPUT],
-        "error": done.error,
+        return
+
+    yield {
+        "type": "tool_result",
+        "name": "run_on_device",
+        "result": {
+            "task_id": str(done_task.id),
+            "device_id": device_id,
+            "device_name": mach_name,
+            "action": action,
+            "status": done_task.status,
+            "exit_code": done_task.exit_code,
+            "stdout": (done_task.stdout or "")[:MAX_TOOL_OUTPUT],
+            "stderr": (done_task.stderr or "")[:MAX_TOOL_OUTPUT],
+            "error": done_task.error,
+        },
     }
 
 
-async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict) -> dict:
+async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict):
     if name == "list_devices":
-        return await _tool_list_devices(db, user)
+        res = await _tool_list_devices(db, user)
+        yield {"type": "tool_result", "name": name, "result": res}
+        return
     if name == "run_on_device":
-        return await _tool_run_on_device(db, user, args)
-    return {"error": f"unknown tool: {name}"}
+        async for evt in _tool_run_on_device(db, user, args):
+            yield evt
+        return
+    yield {"type": "tool_result", "name": name, "result": {"error": f"unknown tool: {name}"}}
 
 
 async def run_agent_loop(
@@ -220,7 +311,7 @@ async def run_agent_loop(
 ):
     """Run the tool-calling loop, yielding SSE-shaped events.
 
-    Yields dicts: {"type": "tool_call"|"tool_result"|"delta"|"error"}.
+    Yields dicts: {"type": "tool_call"|"task_progress"|"ping"|"tool_result"|"delta"|"error"}.
     The caller serializes them; keeping this transport-agnostic makes the loop
     testable without spinning up a request.
     """
@@ -284,19 +375,25 @@ async def run_agent_loop(
                 dev_id = args.get("device_id")
                 if dev_id:
                     mach_name = (await db.execute(
-                        select(Machine.name).where(Machine.collector_token_hash == dev_id)
+                        select(Machine.name).where(
+                            (Machine.collector_token_hash == dev_id) | (Machine.name == dev_id)
+                        )
                     )).scalar_one_or_none()
                     if mach_name:
                         call_evt["device_name"] = mach_name
 
             yield call_evt
-            result = await _dispatch_tool(db, user, name, args)
-            yield {"type": "tool_result", "name": name, "result": result}
+
+            tool_result_obj = None
+            async for evt in _dispatch_tool(db, user, name, args):
+                if evt.get("type") == "tool_result":
+                    tool_result_obj = evt.get("result")
+                yield evt
 
             convo.append({
                 "role": "tool",
                 "tool_call_id": call.get("id"),
-                "content": json.dumps(result, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
+                "content": json.dumps(tool_result_obj or {}, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
             })
 
     # Ran out of rounds with tools still pending.

@@ -61,7 +61,9 @@ async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | 
     if not presented:
         raise HTTPException(status_code=403, detail="missing remote exec key")
     machine = (await db.execute(
-        select(Machine).where(Machine.collector_token_hash == device_id)
+        select(Machine).where(
+            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+        )
     )).scalar_one_or_none()
     if not machine or not machine.remote_exec_key:
         raise HTTPException(status_code=403, detail="device not enrolled for remote execution")
@@ -106,7 +108,9 @@ def _require_exec_enabled(action: str) -> None:
 async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Machine | None:
     """Non-admins may only target their own devices."""
     machine = (await db.execute(
-        select(Machine).where(Machine.collector_token_hash == device_id)
+        select(Machine).where(
+            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+        )
     )).scalar_one_or_none()
     if user.role not in ("admin", "owner"):
         if not machine or machine.user_id != user.id:
@@ -147,9 +151,10 @@ async def create_task(
         raise HTTPException(status_code=400, detail=f"unknown action: {body.action}")
     _require_exec_enabled(body.action)
     machine = await _authorize_device(db, device_id, _user)
+    target_device_id = machine.collector_token_hash if machine else device_id
 
     task = DeviceTask(
-        device_id=device_id,
+        device_id=target_device_id,
         machine_id=machine.id if machine else None,
         user_id=_user.id,
         action=body.action,

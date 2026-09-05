@@ -156,8 +156,14 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
                 fontSize: 11,
                 padding: "3px 9px",
                 borderRadius: 9999,
-                background: "rgba(56,189,248,0.15)",
-                color: "var(--aurora-accent, #38bdf8)",
+                background:
+                  result?.status === "queued"
+                    ? "rgba(245, 158, 11, 0.15)"
+                    : "rgba(56,189,248,0.15)",
+                color:
+                  result?.status === "queued"
+                    ? "#F59E0B"
+                    : "var(--aurora-accent, #38bdf8)",
                 fontWeight: 500,
               }}
             >
@@ -166,11 +172,20 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
                   width: 6,
                   height: 6,
                   borderRadius: "50%",
-                  background: "var(--aurora-accent, #38bdf8)",
+                  background:
+                    result?.status === "queued"
+                      ? "#F59E0B"
+                      : "var(--aurora-accent, #38bdf8)",
                   animation: "pulse 1.5s infinite",
                 }}
               />
-              {t.ask.executing || "执行中..."}
+              {result?.status === "queued"
+                ? (t.ask.statusWaitingPoll || "等待设备拉取...")
+                : result?.status === "running"
+                ? (t.ask.statusDeviceRunning || "设备运行中...")
+                : result?.status === "still_running"
+                ? (t.ask.statusStillRunning || "后台仍在执行...")
+                : (t.ask.executing || "执行中...")}
             </span>
           )}
 
@@ -264,6 +279,14 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
             {command && (
               <div style={{ color: "#38bdf8", marginBottom: 6, fontWeight: 600 }}>
                 $ {command}
+              </div>
+            )}
+
+            {isRunning && !result?.stdout && !result?.stderr && !result?.error && (
+              <div style={{ color: "var(--aurora-fg4, #64748b)", fontStyle: "italic", margin: "4px 0" }}>
+                {result?.status === "queued"
+                  ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
+                  : (t.ask.statusDeviceRunning || "设备已接收，命令正在运行...")}
               </div>
             )}
 

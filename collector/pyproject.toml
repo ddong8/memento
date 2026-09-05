@@ -1,6 +1,6 @@
 [project]
 name = "memento-brain-collector"
-version = "0.0.14"
+version = "0.0.15"
 description = "Cross-platform agent that collects AI coding tool memory files and syncs to a central server"
 readme = "README.md"
 license = {text = "AGPL-3.0-only"}

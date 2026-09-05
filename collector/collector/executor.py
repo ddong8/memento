@@ -131,6 +131,8 @@ def _run_shell(payload: dict, timeout: int) -> dict:
     if not command.strip():
         return {"status": "failed", "error": "empty command"}
     cwd = (payload or {}).get("cwd") or None
+    if cwd:
+        cwd = os.path.expanduser(str(cwd).strip())
     if cwd and not os.path.isdir(cwd):
         return {"status": "failed", "error": f"cwd not found: {cwd}"}
 
@@ -175,6 +177,8 @@ def _run_agent(payload: dict, timeout: int) -> dict:
         return {"status": "failed", "error": f"agent binary not found on PATH: {binary}"}
 
     cwd = (payload or {}).get("cwd") or None
+    if cwd:
+        cwd = os.path.expanduser(str(cwd).strip())
     if cwd and not os.path.isdir(cwd):
         return {"status": "failed", "error": f"cwd not found: {cwd}"}
 

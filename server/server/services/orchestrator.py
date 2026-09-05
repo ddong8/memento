@@ -188,11 +188,17 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict) -> dict:
     if not done:
         return {
             "task_id": str(task.id),
+            "device_id": device_id,
+            "device_name": machine.name if machine else device_id,
+            "action": action,
             "status": "still_running",
             "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
         }
     return {
         "task_id": str(done.id),
+        "device_id": device_id,
+        "device_name": machine.name if machine else device_id,
+        "action": action,
         "status": done.status,
         "exit_code": done.exit_code,
         "stdout": (done.stdout or "")[:MAX_TOOL_OUTPUT],
@@ -273,7 +279,17 @@ async def run_agent_loop(
             except json.JSONDecodeError:
                 args = {}
 
-            yield {"type": "tool_call", "name": name, "args": args}
+            call_evt = {"type": "tool_call", "name": name, "args": args}
+            if name == "run_on_device":
+                dev_id = args.get("device_id")
+                if dev_id:
+                    mach_name = (await db.execute(
+                        select(Machine.name).where(Machine.collector_token_hash == dev_id)
+                    )).scalar_one_or_none()
+                    if mach_name:
+                        call_evt["device_name"] = mach_name
+
+            yield call_evt
             result = await _dispatch_tool(db, user, name, args)
             yield {"type": "tool_result", "name": name, "result": result}
 

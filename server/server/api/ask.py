@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, User
+from ..db.models import Document, Machine, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.user_filter import user_machine_ids, apply_user_filter
@@ -68,6 +68,10 @@ class AskRequest(BaseModel):
     # When true the model may also dispatch work to the user's devices.
     # Off by default: a plain ask must never be able to run anything.
     agent_mode: bool = False
+    # Target device ID, or 'auto' for dynamic routing, or 'ask_only' for pure RAG.
+    device_id: str | None = None
+    # Optional default working directory for commands.
+    cwd: str | None = None
 
 
 async def _retrieve(
@@ -181,13 +185,33 @@ async def ask(
     sources = await _retrieve(db, _user, question, body.tool, body.days)
     messages = _build_messages(question, sources, body.history)
 
+    device_id = (body.device_id or "").strip()
+    is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
+
     # Agent mode: the model may also dispatch work to the user's devices when
-    # synced memory isn't enough. Opt-in per request — plain asks stay a
-    # single-shot RAG call with no ability to touch any machine.
-    if body.agent_mode:
+    # synced memory isn't enough, or when a device was explicitly selected.
+    # Opt-in per request — plain asks stay a single-shot RAG call with no ability to touch any machine.
+    if is_agent:
         from ..services.orchestrator import ORCHESTRATOR_SYSTEM, run_agent_loop
 
-        agent_messages = [{"role": "system", "content": ORCHESTRATOR_SYSTEM}] + messages[1:]
+        system_content = ORCHESTRATOR_SYSTEM
+        if device_id and device_id not in ("auto", "ask_only"):
+            mach = (await db.execute(
+                select(Machine).where(Machine.collector_token_hash == device_id)
+            )).scalar_one_or_none()
+            mach_name = mach.name if mach else device_id
+            cwd_text = f"，默认工作目录 cwd 为 \"{body.cwd}\"" if body.cwd else ""
+            system_content += (
+                f"\n\n【用户已指定操作设备】\n"
+                f"目标设备名称：\"{mach_name}\"（device_id: \"{device_id}\"{cwd_text}）。\n"
+                f"规则：如果用户的指令需要在机器上查看状态、运行命令或处理代码，必须直接针对该设备调用 run_on_device 执行，无需再调用 list_devices。\n"
+            )
+            if body.cwd:
+                system_content += f"除非用户在对话中另外指定路径，请优先将执行命令的 cwd 设为 \"{body.cwd}\"。"
+        elif body.cwd:
+            system_content += f"\n\n【默认工作目录】用户指定默认工作目录为 \"{body.cwd}\"，执行命令时若无特殊说明请使用此 cwd。"
+
+        agent_messages = [{"role": "system", "content": system_content}] + messages[1:]
 
         async def agent_stream():
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"

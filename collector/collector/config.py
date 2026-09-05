@@ -159,7 +159,7 @@ class CollectorConfig(BaseSettings):
 
     # Watcher
     debounce_seconds: float = 0.3
-    sqlite_poll_interval: int = 60  # seconds
+    sqlite_poll_interval: int = 15  # seconds (reduced from 60 for responsive SQLite sync)
 
     # Sync
     large_file_threshold: int = 1_048_576  # 1 MB

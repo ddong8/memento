@@ -73,7 +73,7 @@ class AntigravityTool(BaseTool):
                     description="Gemini user rules file",
                 ),
             )
-            # Encrypted conversation .pb files — real-time updates via watchdog
+            # Encrypted conversation .pb files (legacy format) — real-time updates via watchdog
             paths.append(
                 WatchPath(
                     path=gemini / "conversations",
@@ -81,6 +81,18 @@ class AntigravityTool(BaseTool):
                     category=Category.CONVERSATION,
                     content_type=ContentType.JSONL,
                     description="Encrypted Antigravity conversation trajectories",
+                ),
+            )
+            # Modern Antigravity brain transcripts — real-time incremental updates via watchdog
+            paths.append(
+                WatchPath(
+                    path=gemini / "brain",
+                    pattern="**/.system_generated/logs/transcript.jsonl",
+                    category=Category.CONVERSATION,
+                    content_type=ContentType.JSONL,
+                    sync_strategy=SyncStrategy.DELTA,
+                    recursive=True,
+                    description="Antigravity conversation transcripts (incremental JSONL)",
                 ),
             )
 
@@ -143,6 +155,23 @@ class AntigravityTool(BaseTool):
                 metadata={"__antigravity_pb__": True, "session_id": cascade_id},
             )
 
+        # Modern Antigravity brain transcripts: ~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript.jsonl
+        if (
+            len(parts) >= 5
+            and parts[0] == "antigravity"
+            and parts[1] == "brain"
+            and abs_path.name == "transcript.jsonl"
+        ):
+            cascade_id = parts[2]
+            return FileClassification(
+                tool_name=self.name,
+                category=Category.CONVERSATION,
+                content_type=ContentType.JSONL,
+                sync_strategy=SyncStrategy.DELTA,
+                relative_path=f"antigravity/brain/{cascade_id}/transcript.jsonl",
+                metadata={"session_id": cascade_id, "source": "antigravity"},
+            )
+
         return None
 
     @property
@@ -153,10 +182,11 @@ class AntigravityTool(BaseTool):
             f"{root}/extensions/*/dist/**",
             f"{root}/extensions/*/bundled/**",
             f"{root}/extensions/*/node_modules/**",
-            # Skip everything under antigravity/ EXCEPT conversations/*.pb (handled above)
+            # Skip non-essential subdirs under antigravity, allow brain transcripts
             f"{gemini}/antigravity/implicit/**",
             f"{gemini}/antigravity/code_tracker/**",
-            f"{gemini}/antigravity/brain/**",
             f"{gemini}/antigravity/browser_recordings/**",
+            f"{gemini}/antigravity/brain/*/scratch/**",
+            f"{gemini}/antigravity/brain/*/.system_generated/logs/transcript_full.jsonl",
             f"{gemini}/antigravity-browser-profile/**",
         ]

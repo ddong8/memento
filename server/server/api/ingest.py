@@ -272,8 +272,27 @@ async def heartbeat(
 ) -> dict:
     """Collector heartbeat — also registers/updates the device."""
     machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-    return {
+
+    resp = {
         "status": "ok",
         "device_id": str(machine.id),
         "received_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Remote execution: mint this device's key on first heartbeat after the
+    # operator turns the feature on, and hand it back over this already
+    # authenticated channel. The point is that enabling remote execution is a
+    # single server-side switch — no per-device configuration to copy around.
+    #
+    # When the switch is off we send nothing, so a collector that has never
+    # been enabled simply never learns a key and never polls for work.
+    from ..api.tasks import REMOTE_EXEC_ENABLED
+
+    if REMOTE_EXEC_ENABLED:
+        if not machine.remote_exec_key:
+            import secrets
+            machine.remote_exec_key = secrets.token_urlsafe(32)
+            await db.commit()
+        resp["remote_exec_key"] = machine.remote_exec_key
+
+    return resp

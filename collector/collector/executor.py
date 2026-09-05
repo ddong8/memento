@@ -28,7 +28,7 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
+from pathlib import Path
 
 import httpx
 
@@ -46,8 +46,74 @@ MAX_OUTPUT_CHARS = 100_000
 MAX_TIMEOUT_SECONDS = 24 * 3600
 
 
+def _key_path() -> Path:
+    from .config import _default_data_dir
+    return _default_data_dir() / "remote_exec_key"
+
+
 def remote_exec_key() -> str:
-    return os.environ.get("MEMENTO_REMOTE_EXEC_KEY", "").strip()
+    """This device's remote-exec key, if it has been enrolled.
+
+    Normally the server mints the key and hands it over the authenticated
+    heartbeat (see enroll below), so there is nothing to configure by hand.
+    The env var stays supported as an override for air-gapped or scripted
+    setups.
+    """
+    env = os.environ.get("MEMENTO_REMOTE_EXEC_KEY", "").strip()
+    if env:
+        return env
+    try:
+        p = _key_path()
+        return p.read_text(encoding="utf-8").strip() if p.exists() else ""
+    except Exception:
+        return ""
+
+
+def store_key(key: str) -> None:
+    """Persist a server-issued key, readable only by this user."""
+    try:
+        p = _key_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(key, encoding="utf-8")
+        # 0600 — the key grants execution on this machine; no reason for any
+        # other local account to be able to read it.
+        try:
+            os.chmod(p, 0o600)
+        except Exception:
+            pass  # Windows / exotic filesystems — best effort.
+    except Exception as e:
+        logger.warning("could not persist remote exec key: %s", e)
+
+
+def enroll(config: CollectorConfig) -> None:
+    """Pick up a server-issued key over the authenticated heartbeat.
+
+    The server only returns one when the operator has switched remote
+    execution on, so a collector that was never enabled simply never learns
+    a key — and therefore never polls for work.
+    """
+    if remote_exec_key():
+        return  # Already enrolled.
+    try:
+        resp = httpx.post(
+            f"{config.server.url}/api/ingest/heartbeat",
+            headers={
+                "X-Collector-Token": config.server.token,
+                "X-Device-Id": config.device_id,
+                "X-Device-Name": config.device_name,
+                "X-Device-Platform": config.platform,
+            },
+            timeout=15,
+            verify=SSL_CONTEXT,
+        )
+        if resp.status_code != 200:
+            return
+        key = (resp.json() or {}).get("remote_exec_key")
+        if key:
+            store_key(key)
+            logger.info("enrolled for remote task execution")
+    except Exception:
+        return  # Server unreachable — retry on the next tick.
 
 
 def is_enabled() -> bool:
@@ -170,7 +236,11 @@ def poll_and_run(config: CollectorConfig) -> None:
     Never raises — a failure here must not take down file syncing.
     """
     if not is_enabled():
-        return
+        # Not enrolled yet — ask the server whether remote execution is on.
+        # No-op (and no key stored) while the operator leaves it off.
+        enroll(config)
+        if not is_enabled():
+            return
     try:
         resp = httpx.get(
             f"{config.server.url}/api/tasks/poll/{config.device_id}",

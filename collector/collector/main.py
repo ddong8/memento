@@ -114,10 +114,16 @@ _remote_task_lock = threading.Lock()
 
 
 def _remote_exec_available() -> bool:
-    """True when this device is configured for remote execution."""
+    """True when the remote-task worker should run at all.
+
+    Always true when the module imports: the worker also handles enrollment,
+    and an un-enrolled device has to reach the server to discover that the
+    operator turned remote execution on. The worker itself is a cheap no-op
+    while the feature stays off.
+    """
     try:
-        from .executor import is_enabled
-        return is_enabled()
+        from . import executor  # noqa: F401
+        return True
     except Exception:
         return False
 

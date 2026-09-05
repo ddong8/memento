@@ -13,10 +13,12 @@ Security model
 Remote execution runs arbitrary code on the operator's machines, so it is:
 
   * OFF unless MEMENTO_REMOTE_EXEC=1 is set on the server, and
-  * gated on a separate shared secret (MEMENTO_REMOTE_EXEC_KEY) that the
-    collector must also hold — deliberately NOT the collector sync token,
-    so a leaked sync token cannot escalate from "reads my synced files" to
-    "shell on every device", and
+  * gated on a per-device key that the server mints and hands to the
+    collector over its authenticated heartbeat — deliberately NOT the
+    collector sync token, so a leaked sync token cannot escalate from
+    "reads my synced files" to "shell on every device". There is nothing
+    for the operator to distribute: turning this on is one server-side
+    switch, and
   * fully audited — every task, its payload, who dispatched it, and its
     output are persisted in device_tasks.
 
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 
@@ -45,7 +48,26 @@ logger = logging.getLogger("server.tasks_api")
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 REMOTE_EXEC_ENABLED = os.environ.get("MEMENTO_REMOTE_EXEC", "").strip() == "1"
-REMOTE_EXEC_KEY = os.environ.get("MEMENTO_REMOTE_EXEC_KEY", "").strip()
+
+
+async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | None) -> Machine:
+    """Authenticate a collector for remote execution.
+
+    Each device has its own key, minted server-side and delivered over the
+    authenticated heartbeat — there is no shared secret for the operator to
+    distribute. Compared in constant time so a wrong key can't be recovered
+    by timing the response.
+    """
+    if not presented:
+        raise HTTPException(status_code=403, detail="missing remote exec key")
+    machine = (await db.execute(
+        select(Machine).where(Machine.collector_token_hash == device_id)
+    )).scalar_one_or_none()
+    if not machine or not machine.remote_exec_key:
+        raise HTTPException(status_code=403, detail="device not enrolled for remote execution")
+    if not secrets.compare_digest(machine.remote_exec_key, presented):
+        raise HTTPException(status_code=403, detail="invalid remote exec key")
+    return machine
 
 # Actions that run arbitrary code and therefore require the exec switch.
 EXEC_ACTIONS = {"shell", "agent"}
@@ -78,11 +100,6 @@ def _require_exec_enabled(action: str) -> None:
         raise HTTPException(
             status_code=403,
             detail="remote execution disabled (set MEMENTO_REMOTE_EXEC=1 to enable)",
-        )
-    if not REMOTE_EXEC_KEY:
-        raise HTTPException(
-            status_code=403,
-            detail="remote execution enabled but MEMENTO_REMOTE_EXEC_KEY is unset",
         )
 
 
@@ -228,10 +245,9 @@ async def poll_tasks(
     """
     if not REMOTE_EXEC_ENABLED:
         return []
-    if not REMOTE_EXEC_KEY or x_remote_exec_key != REMOTE_EXEC_KEY:
-        raise HTTPException(status_code=403, detail="invalid remote exec key")
     if not x_collector_token:
         raise HTTPException(status_code=401, detail="missing collector token")
+    await _verify_device_key(db, device_id, x_remote_exec_key)
 
     rows = (await db.execute(
         select(DeviceTask)
@@ -265,14 +281,14 @@ async def submit_result(
     """Collector posts back the outcome of a task."""
     if not REMOTE_EXEC_ENABLED:
         raise HTTPException(status_code=403, detail="remote execution disabled")
-    if not REMOTE_EXEC_KEY or x_remote_exec_key != REMOTE_EXEC_KEY:
-        raise HTTPException(status_code=403, detail="invalid remote exec key")
-
     task = (await db.execute(
         select(DeviceTask).where(DeviceTask.id == task_id)
     )).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404)
+    # Key is checked against the device this task was dispatched to, so one
+    # device cannot post results for another device's task.
+    await _verify_device_key(db, task.device_id, x_remote_exec_key)
     # A cancelled task's result is discarded — the operator already gave up
     # on it, and overwriting the terminal state would resurrect it in the UI.
     if task.status == "cancelled":

@@ -39,6 +39,12 @@ def _run_migrations(conn) -> None:
     if "user_id" not in machine_cols:
         conn.execute(text("ALTER TABLE machines ADD COLUMN user_id UUID REFERENCES users(id)"))
 
+    # Machine.remote_exec_key — per-device secret for remote task execution.
+    # Minted lazily on heartbeat when MEMENTO_REMOTE_EXEC is on, so existing
+    # rows just stay NULL until then.
+    if "remote_exec_key" not in machine_cols:
+        conn.execute(text("ALTER TABLE machines ADD COLUMN remote_exec_key VARCHAR(64)"))
+
     # User.collector_token
     user_cols = {c["name"] for c in insp.get_columns("users")}
     if "collector_token" not in user_cols:

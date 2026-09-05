@@ -138,10 +138,10 @@ async def _await_task(db: AsyncSession, task_id, deadline: float) -> DeviceTask 
 
 
 async def _tool_run_on_device(db: AsyncSession, user: User, args: dict) -> dict:
-    from ..api.tasks import EXEC_ACTIONS, REMOTE_EXEC_ENABLED, REMOTE_EXEC_KEY
+    from ..api.tasks import EXEC_ACTIONS, REMOTE_EXEC_ENABLED
 
-    if not REMOTE_EXEC_ENABLED or not REMOTE_EXEC_KEY:
-        return {"error": "远程执行未启用（服务端需 MEMENTO_REMOTE_EXEC=1 且配置 MEMENTO_REMOTE_EXEC_KEY）"}
+    if not REMOTE_EXEC_ENABLED:
+        return {"error": "远程执行未启用（服务端设 MEMENTO_REMOTE_EXEC=1 即可，设备端无需配置）"}
 
     device_id = args.get("device_id") or ""
     action = args.get("action") or ""

@@ -35,6 +35,13 @@ class Machine(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Per-device secret for remote execution, minted server-side and handed to
+    # the collector over its authenticated heartbeat. Separate from the sync
+    # token on purpose: that one lives in a config file and rides along on
+    # every upload, so a leak of it must not also hand over a shell. Nothing
+    # for the operator to configure — it only exists once MEMENTO_REMOTE_EXEC
+    # is on, and stays NULL otherwise.
+    remote_exec_key: Mapped[str | None] = mapped_column(String(64))
 
     user: Mapped["User | None"] = relationship()
     documents: Mapped[list[Document]] = relationship(back_populates="machine")

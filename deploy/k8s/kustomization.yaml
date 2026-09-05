@@ -23,6 +23,11 @@ configMapGenerator:
   - MEMENTO_AI_MODEL=glm-5.2
   - MEMENTO_PORT=8000
   - MEMENTO_PUBLIC_URL=https://mem.ihasy.com
+  # 远程任务执行:允许从 Web / ask 的 agent 模式把 shell 或 agent 任务派到
+  # 自己的设备上执行。设备端无需任何配置 —— 打开后,collector 下次心跳会
+  # 领到服务端为它签发的专属密钥(每设备一把,存本地 0600 文件)。
+  # 关掉这个开关即可全局停用:心跳不再下发密钥,已有设备的密钥也不再被接受。
+  - MEMENTO_REMOTE_EXEC=1
   name: memento-config
 
 # 镜像 tag 由 .github/workflows/deploy.yml 在每次构建后用

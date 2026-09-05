@@ -9,6 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, hierarchy, ingest, install_bootstrap, memory, projects, public, search, share, tools
+# Aliased: `server.api.tasks` (remote device task queue) is a different module
+# from the `server.tasks` package (Celery jobs). Importing it bare here would
+# read as the latter.
+from .api import tasks as device_tasks_api
 from .config import settings
 from .db.models import Base
 from .db.session import engine
@@ -316,6 +320,7 @@ app.include_router(conversations.router)
 app.include_router(projects.router)
 app.include_router(daily.router)
 app.include_router(search.router)
+app.include_router(device_tasks_api.router)
 app.include_router(ask.router)
 app.include_router(auth.router)
 app.include_router(admin.router)

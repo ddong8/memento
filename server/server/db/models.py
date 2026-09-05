@@ -458,3 +458,60 @@ class ShareView(Base):
     __table_args__ = (
         Index("idx_share_view_share", "share_id", "viewed_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Remote task execution — server dispatches work to collectors on devices
+# ---------------------------------------------------------------------------
+class DeviceTask(Base):
+    """A unit of work dispatched to a device's collector.
+
+    Replaces the in-memory ``_command_queue`` in api/devices.py, which lost
+    every in-flight command whenever the API process restarted — fatal for
+    agent runs that take minutes, and the API runs in k3s where rolling
+    updates are routine. Persisting also gives an audit trail: with remote
+    execution enabled, every task that ran on a device is recorded here with
+    who dispatched it and what came back.
+
+    Status flow:
+      queued -> running -> succeeded | failed | timeout
+                        \\-> cancelled (aborted before or during the run)
+    """
+
+    __tablename__ = "device_tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Target device, addressed by collector_token_hash — the identifier the
+    # collector already sends on every poll, and it survives a machine purge.
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    machine_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("machines.id", ondelete="SET NULL"))
+    # Who dispatched it — retained for audit even if the user is deleted.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    # "resync"/"update" (legacy control actions), or "shell"/"agent".
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Action parameters, e.g. {"command": ..., "cwd": ...} or
+    # {"prompt": ..., "cwd": ...}. The old queue carried only an action
+    # string, so nothing could be parameterized.
+    payload: Mapped[dict | None] = mapped_column(JSONB)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    # Captured output, truncated collector-side before upload so a runaway
+    # process cannot push an unbounded body at the server.
+    stdout: Mapped[str | None] = mapped_column(Text)
+    stderr: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+
+    # Seconds the collector may spend before killing the process.
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        # The collector's poll: "my queued tasks, oldest first".
+        Index("idx_device_task_poll", "device_id", "status", "created_at"),
+        Index("idx_device_task_user", "user_id", "created_at"),
+    )

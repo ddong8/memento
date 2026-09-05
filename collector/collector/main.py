@@ -490,6 +490,13 @@ def main() -> None:
             target=_run_antigravity_export, args=(queue, logger), daemon=True,
         ).start()
 
+    # 6. WebSocket streaming client (non-blocking daemon for real-time tasks)
+    try:
+        from .ws_client import start_ws_client_thread
+        start_ws_client_thread(config, logger)
+    except Exception as e:
+        logger.debug("Failed to start WebSocket client thread: %s", e)
+
     # --- Main loop: heartbeat + periodic tasks ---
     last_heartbeat = time.time()
     last_command_poll = time.time()

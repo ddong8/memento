@@ -133,6 +133,7 @@ export default function AskPage() {
             device_name?: string;
             action?: string;
             status?: string;
+            stream?: "stdout" | "stderr";
             result?: ToolCallItem["result"];
           };
           try {
@@ -184,6 +185,52 @@ export default function AskPage() {
                     status: evt.status,
                   },
                 };
+              }
+              return { ...x, toolCalls: calls };
+            });
+          } else if (evt.type === "task_chunk") {
+            patchLast((x) => {
+              const calls = [...(x.toolCalls || [])];
+              let idx = -1;
+              if (evt.task_id) {
+                idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+              }
+              if (idx === -1) {
+                idx = calls
+                  .map((c, i) =>
+                    c.name === "run_on_device" &&
+                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+                      ? i
+                      : -1
+                  )
+                  .filter((i) => i >= 0)
+                  .pop() ?? -1;
+              }
+              if (idx >= 0) {
+                const target = calls[idx];
+                const prevRes = target.result || {};
+                const chunkText = evt.text || "";
+                if (evt.stream === "stderr") {
+                  calls[idx] = {
+                    ...target,
+                    result: {
+                      ...prevRes,
+                      task_id: evt.task_id || prevRes.task_id,
+                      status: "running",
+                      stderr: (prevRes.stderr || "") + chunkText,
+                    },
+                  };
+                } else {
+                  calls[idx] = {
+                    ...target,
+                    result: {
+                      ...prevRes,
+                      task_id: evt.task_id || prevRes.task_id,
+                      status: "running",
+                      stdout: (prevRes.stdout || "") + chunkText,
+                    },
+                  };
+                }
               }
               return { ...x, toolCalls: calls };
             });

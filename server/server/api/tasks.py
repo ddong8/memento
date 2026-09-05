@@ -34,14 +34,15 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
-from ..db.session import get_db
+from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
+from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger("server.tasks_api")
 
@@ -311,3 +312,113 @@ async def submit_result(
     await db.commit()
     logger.info("task %s finished: %s (exit=%s)", task.id, task.status, task.exit_code)
     return {"status": "recorded"}
+
+
+async def _authenticate_ws(
+    db: AsyncSession,
+    device_id: str,
+    collector_token: str | None,
+    remote_exec_key: str | None,
+) -> Machine | None:
+    if not collector_token or not remote_exec_key:
+        return None
+    # 1. Verify collector token
+    res = await db.execute(select(User).where(User.collector_token == collector_token))
+    user = res.scalar_one_or_none()
+    if not user:
+        from ..config import settings
+        if not (settings.collector_token and secrets.compare_digest(collector_token, settings.collector_token)):
+            return None
+    # 2. Verify machine and remote_exec_key
+    machine = (await db.execute(
+        select(Machine).where(
+            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+        )
+    )).scalar_one_or_none()
+    if not machine or not machine.remote_exec_key:
+        return None
+    if not secrets.compare_digest(machine.remote_exec_key, remote_exec_key):
+        return None
+    return machine
+
+
+@router.websocket("/ws/{device_id}")
+async def device_websocket_endpoint(
+    websocket: WebSocket,
+    device_id: str,
+    token: str | None = None,
+    key: str | None = None,
+):
+    """Full-duplex WebSocket channel for real-time task dispatch and chunk streaming."""
+    collector_token = token or websocket.headers.get("x-collector-token")
+    exec_key = key or websocket.headers.get("x-remote-exec-key")
+
+    async with async_session_factory() as db:
+        machine = await _authenticate_ws(db, device_id, collector_token, exec_key)
+
+    if not machine:
+        await websocket.close(code=4003, reason="unauthorized")
+        return
+
+    await websocket.accept()
+    real_device_id = machine.collector_token_hash
+    ws_manager.register(real_device_id, websocket)
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "device_id": real_device_id,
+            "device_name": machine.name,
+        })
+
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type")
+            if msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                # Touch heartbeat in db
+                async with async_session_factory() as db:
+                    await db.execute(
+                        update(Machine)
+                        .where(Machine.id == machine.id)
+                        .values(last_heartbeat=datetime.now(timezone.utc))
+                    )
+                    await db.commit()
+            elif msg_type == "task_progress":
+                tid = data.get("task_id")
+                if tid:
+                    ws_manager.push_progress(tid, data.get("status", "running"))
+            elif msg_type == "task_chunk":
+                tid = data.get("task_id")
+                if tid:
+                    ws_manager.push_chunk(
+                        tid,
+                        data.get("stream", "stdout"),
+                        data.get("text", ""),
+                    )
+            elif msg_type == "task_finished":
+                tid_str = data.get("task_id")
+                if tid_str:
+                    ws_manager.push_finished(tid_str, data)
+                    try:
+                        tid_uuid = uuid.UUID(tid_str)
+                        async with async_session_factory() as db:
+                            t = (await db.execute(
+                                select(DeviceTask).where(DeviceTask.id == tid_uuid)
+                            )).scalar_one_or_none()
+                            if t and t.status != "cancelled":
+                                t.status = data.get("status", "succeeded")
+                                t.exit_code = data.get("exit_code")
+                                t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
+                                t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
+                                t.error = data.get("error")
+                                t.finished_at = datetime.now(timezone.utc)
+                                await db.commit()
+                    except Exception as e:
+                        logger.exception("Error saving WS finished task %s: %s", tid_str, e)
+    except WebSocketDisconnect:
+        logger.info("Device WebSocket disconnected: %s", real_device_id)
+    except Exception as e:
+        logger.warning("Device WebSocket error on %s: %s", real_device_id, e)
+    finally:
+        ws_manager.unregister(real_device_id, websocket)

@@ -233,6 +233,7 @@ const enUS: Translations = {
     statusRunning: "Running",
     statusWaitingPoll: "Waiting for device to poll...",
     statusDeviceRunning: "Executing on device...",
+    statusStreaming: "⚡ Live streaming...",
     statusStillRunning: "Still running in background...",
     statusSucceeded: "Succeeded",
     statusFailed: "Failed",

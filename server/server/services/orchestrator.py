@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
+from .ws_manager import ws_manager
 
 logger = logging.getLogger("server.orchestrator")
 
@@ -127,8 +128,9 @@ async def _await_task_stream(
     task: DeviceTask,
     machine_name: str,
     deadline: float,
+    task_q: asyncio.Queue | None = None,
 ):
-    """Poll the task row until terminal or deadline, yielding progress events and keep-alive pings."""
+    """Poll the task row or receive chunks from WebSocket queue until terminal or deadline."""
     last_status = task.status
     yield {
         "type": "task_progress",
@@ -141,9 +143,26 @@ async def _await_task_stream(
 
     current = task
     while asyncio.get_event_loop().time() < deadline:
-        await asyncio.sleep(TASK_POLL_INTERVAL)
-        # expire_all: this session may hold a stale copy from a prior read,
-        # and the collector writes the result through a different session.
+        # Check WebSocket queue for real-time chunks or completion
+        if task_q is not None:
+            try:
+                item = await asyncio.wait_for(task_q.get(), timeout=1.0)
+                itype = item.get("type")
+                if itype == "task_chunk":
+                    yield item
+                    continue
+                elif itype == "task_progress":
+                    yield item
+                    continue
+                elif itype == "task_finished":
+                    yield {"type": "_task_finished_ws", "result": item.get("result") or {}}
+                    return
+            except asyncio.TimeoutError:
+                pass
+        else:
+            await asyncio.sleep(TASK_POLL_INTERVAL)
+
+        # Database poll check (as fallback or keepalive)
         db.expire_all()
         current = (await db.execute(
             select(DeviceTask).where(DeviceTask.id == task.id)
@@ -251,16 +270,63 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
     await db.refresh(task)
     logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
 
+    task_q = None
+    if ws_manager.has_device(device_id):
+        task_q = ws_manager.subscribe_task(str(task.id))
+        dispatched_ws = await ws_manager.send_task(device_id, {
+            "id": str(task.id),
+            "action": action,
+            "payload": payload,
+            "timeout_seconds": TASK_WAIT_SECONDS,
+        })
+        if dispatched_ws:
+            task.status = "running"
+            task.dispatched_at = datetime.now(timezone.utc)
+            await db.commit()
+        else:
+            ws_manager.unsubscribe_task(str(task.id))
+            task_q = None
+
     deadline = asyncio.get_event_loop().time() + TASK_WAIT_SECONDS
     done_task = None
+    done_ws = None
 
-    async for evt in _await_task_stream(db, task, mach_name, deadline):
-        if evt["type"] == "_task_finished":
-            done_task = evt["task"]
-        elif evt["type"] == "_task_timeout":
-            done_task = None
-        else:
-            yield evt
+    try:
+        async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q):
+            if evt["type"] == "_task_finished":
+                done_task = evt["task"]
+            elif evt["type"] == "_task_finished_ws":
+                done_ws = evt["result"]
+            elif evt["type"] == "_task_timeout":
+                done_task = None
+                done_ws = None
+            else:
+                yield evt
+    except (asyncio.CancelledError, GeneratorExit):
+        logger.info("Task %s cancelled by client, sending cancel to device %s", task.id, device_id)
+        await ws_manager.send_cancel(device_id, str(task.id))
+        raise
+    finally:
+        if task_q is not None:
+            ws_manager.unsubscribe_task(str(task.id))
+
+    if done_ws:
+        yield {
+            "type": "tool_result",
+            "name": "run_on_device",
+            "result": {
+                "task_id": str(task.id),
+                "device_id": device_id,
+                "device_name": mach_name,
+                "action": action,
+                "status": done_ws.get("status", "succeeded"),
+                "exit_code": done_ws.get("exit_code"),
+                "stdout": (done_ws.get("stdout") or "")[:MAX_TOOL_OUTPUT],
+                "stderr": (done_ws.get("stderr") or "")[:MAX_TOOL_OUTPUT],
+                "error": done_ws.get("error"),
+            },
+        }
+        return
 
     if not done_task:
         yield {

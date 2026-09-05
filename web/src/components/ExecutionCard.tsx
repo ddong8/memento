@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Icon } from "./aurora/Icon";
 import { Chip } from "./aurora/primitives";
 import { useI18n } from "@/lib/i18n";
@@ -33,6 +33,7 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
+  const terminalRef = useRef<HTMLPreElement>(null);
 
   const { name, args, device_name, result } = call;
   const action = (result?.action || (args?.action as string) || (name === "run_on_device" ? "shell" : name));
@@ -45,6 +46,12 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
     result?.status === "failed" ||
     result?.status === "timeout";
   const isRunning = !result || result.status === "running" || result.status === "queued" || result.status === "still_running";
+
+  useEffect(() => {
+    if (isRunning && terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [result?.stdout, result?.stderr, isRunning]);
   const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
   const isFailed = result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0);
 
@@ -181,6 +188,8 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
               />
               {result?.status === "queued"
                 ? (t.ask.statusWaitingPoll || "等待设备拉取...")
+                : (result?.stdout || result?.stderr) && isRunning
+                ? (t.ask.statusStreaming || "⚡ 实时输出中...")
                 : result?.status === "running"
                 ? (t.ask.statusDeviceRunning || "设备运行中...")
                 : result?.status === "still_running"
@@ -260,6 +269,7 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
 
           {/* Terminal Console */}
           <pre
+            ref={terminalRef}
             style={{
               margin: 0,
               padding: "10px 14px",

@@ -241,6 +241,7 @@ const zhCN = {
     statusRunning: "执行中",
     statusWaitingPoll: "等待设备拉取...",
     statusDeviceRunning: "设备运行中...",
+    statusStreaming: "⚡ 实时输出中...",
     statusStillRunning: "后台仍在执行...",
     statusSucceeded: "执行成功",
     statusFailed: "执行失败",

@@ -206,6 +206,31 @@ const zhCN = {
     allTools: "所有工具",
     results: "找到 {total} 条结果，关键词 \"{query}\"",
     noResults: "未找到结果",
+    semanticOn: "语义检索",
+    semanticOff: "仅关键词",
+    semanticHint: "向量检索不可用，已回退到关键词匹配",
+    matchedSemantically: "语义匹配",
+  },
+
+  // Command palette (Cmd/Ctrl+K)
+  palette: {
+    placeholder: "搜索记忆、项目、对话...",
+    hint: "输入以搜索,↑↓ 选择,↵ 打开,Esc 关闭",
+    searching: "搜索中...",
+    noResults: "未找到结果",
+    viewAll: "查看全部结果",
+    recent: "最近搜索",
+    open: "打开",
+  },
+
+  // Backlinks panel
+  backlinks: {
+    title: "关联记忆",
+    entities: "涉及实体",
+    related: "相关文档",
+    empty: "暂无关联,该文档尚未被知识图谱抽取。",
+    sharedOne: "1 个共同实体",
+    sharedMany: "{n} 个共同实体",
   },
 
   // Devices

@@ -9,6 +9,7 @@ import { I18nContext, locales, type Locale } from "@/lib/i18n";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { AuroraBackdrop } from "@/components/aurora/AuroraBackdrop";
+import CommandPalette from "@/components/CommandPalette";
 
 /** Detect the best initial locale: user's saved choice → browser preference → zh-CN default. */
 function detectInitialLocale(): Locale {
@@ -80,6 +81,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <DeviceProvider>
+      {/* Global Cmd/Ctrl+K search. Inside DeviceProvider (it reads the device
+          filter) and inside the authed branch, so it never mounts on the
+          landing or public share pages. */}
+      <CommandPalette />
       <div className="min-h-screen">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="lg:ml-60 relative z-0">

@@ -198,6 +198,31 @@ const enUS: Translations = {
     allTools: "All Tools",
     results: '{total} results for "{query}"',
     noResults: "No results found",
+    semanticOn: "Semantic",
+    semanticOff: "Keyword only",
+    semanticHint: "Vector search unavailable — fell back to keyword matching",
+    matchedSemantically: "semantic match",
+  },
+
+  // Command palette (Cmd/Ctrl+K)
+  palette: {
+    placeholder: "Search memory, projects, conversations...",
+    hint: "Type to search, ↑↓ to select, ↵ to open, Esc to close",
+    searching: "Searching...",
+    noResults: "No results found",
+    viewAll: "View all results",
+    recent: "Recent searches",
+    open: "Open",
+  },
+
+  // Backlinks panel
+  backlinks: {
+    title: "Related memory",
+    entities: "Entities",
+    related: "Related documents",
+    empty: "No links yet — this document hasn't been extracted into the graph.",
+    sharedOne: "1 shared entity",
+    sharedMany: "{n} shared entities",
   },
 
   devices: {

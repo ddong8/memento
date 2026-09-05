@@ -231,15 +231,36 @@ export interface SearchResult {
   total: number;
   offset: number;
   limit: number;
-  results: {
+  /** True when BGE-M3 vector results were fused in. False = keyword-only
+   *  (embedding server down, deep page, or semantic explicitly disabled). */
+  semantic_used?: boolean;
+  results: SearchHit[];
+}
+
+export interface SearchHit {
+  id: string;
+  tool_id: string;
+  relative_path: string;
+  category: string;
+  title: string | null;
+  snippet: string;
+  file_size_bytes: number;
+  synced_at: string;
+  /** Matched by meaning rather than literal text. */
+  matched_semantically?: boolean;
+}
+
+// Backlinks — knowledge-graph derived "what else discussed this?"
+export interface BacklinksResult {
+  entities: { id: string; name: string; type: string }[];
+  related_documents: {
     id: string;
-    tool_id: string;
+    title: string;
     relative_path: string;
+    tool_id: string;
     category: string;
-    title: string | null;
-    snippet: string;
-    file_size_bytes: number;
-    synced_at: string;
+    synced_at: string | null;
+    shared_entities: number;
   }[];
 }
 
@@ -349,11 +370,14 @@ export const api = {
     const tz = new Date().getTimezoneOffset();
     return apiFetch<DailyDetail>(`/api/daily/${date}?tz_offset=${tz}`);
   },
-  search: (q: string, tool?: string, offset = 0, limit = 20) => {
+  search: (q: string, tool?: string, offset = 0, limit = 20, deviceId?: string) => {
     const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
     if (tool) params.set("tool", tool);
+    if (deviceId) params.set("device_id", deviceId);
     return apiFetch<SearchResult>(`/api/search?${params}`);
   },
+  getBacklinks: (docId: string) =>
+    apiFetch<BacklinksResult>(`/api/documents/${docId}/backlinks`),
   register: (email: string, password: string, name?: string, inviteCode?: string) =>
     apiFetch<UserInfo>("/api/auth/register", {
       method: "POST",

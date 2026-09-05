@@ -1,36 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { SearchResult, getApiBase, authFetch } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
 import { useDevice } from "@/lib/device-context";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
 
-export default function SearchPage() {
-  const [query, setQuery] = useState("");
+/** Escape regex metacharacters before building a highlight pattern.
+ *  Without this, searching "c++" or "foo(" throws inside the RegExp
+ *  constructor and takes the whole result list down with it. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function SearchPageInner() {
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
+
+  const [query, setQuery] = useState(initialQ);
   const [toolFilter, setToolFilter] = useState("");
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const { t } = useI18n();
   const { selectedDeviceId } = useDevice();
 
-  const handleSearch = async (e: React.FormEvent) => {
+  const runSearch = useCallback(
+    async (q: string, tool: string) => {
+      if (!q.trim()) return;
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ q, offset: "0", limit: "20" });
+        if (tool) params.set("tool", tool);
+        if (selectedDeviceId) params.set("device_id", selectedDeviceId);
+        const res = await authFetch(`${getApiBase()}/api/search?${params}`);
+        setResult(await res.json());
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedDeviceId]
+  );
+
+  // Deep link: /search?q=... — the command palette's "view all results" lands
+  // here, so run the query on arrival instead of showing an empty form.
+  useEffect(() => {
+    if (initialQ.trim()) runSearch(initialQ, "");
+    // Only on mount / when the URL query itself changes.
+  }, [initialQ, runSearch]);
+
+  const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ q: query, offset: "0", limit: "20" });
-      if (toolFilter) params.set("tool", toolFilter);
-      if (selectedDeviceId) params.set("device_id", selectedDeviceId);
-      const res = await authFetch(`${getApiBase()}/api/search?${params}`);
-      setResult(await res.json());
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    runSearch(query, toolFilter);
   };
 
   return (
@@ -68,12 +93,33 @@ export default function SearchPage() {
 
       {result && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Say which engine actually answered — a silent keyword fallback
+              when the embedding server is down otherwise looks like bad
+              semantic recall. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+            {result.semantic_used ? (
+              <>
+                <Icon name="sparkles" size={12} style={{ color: "var(--aurora-accent)" }} />
+                <span style={{ color: "var(--aurora-accent)" }}>{t.searchPage.semanticOn}</span>
+              </>
+            ) : (
+              <span style={{ color: "var(--aurora-fg4)" }} title={t.searchPage.semanticHint}>
+                {t.searchPage.semanticOff}
+              </span>
+            )}
+          </div>
+
           {result.results.map((r) => (
             <Link key={r.id} href={`/documents/${r.id}`} style={{ textDecoration: "none" }}>
               <Glass hover padding={18} radius={18}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                   <ToolGlyph id={r.tool_id} size={26} />
                   <Chip>{r.category}</Chip>
+                  {r.matched_semantically && (
+                    <Chip tone="accent" icon="sparkles">
+                      {t.searchPage.matchedSemantically}
+                    </Chip>
+                  )}
                   <span
                     style={{
                       fontSize: 11,
@@ -113,7 +159,7 @@ export default function SearchPage() {
                     }}
                   >
                     {result.query
-                      ? r.snippet.split(new RegExp(`(${result.query})`, "i")).map((p, j) =>
+                      ? r.snippet.split(new RegExp(`(${escapeRegExp(result.query)})`, "i")).map((p, j) =>
                           p.toLowerCase() === result.query.toLowerCase() ? (
                             <mark
                               key={j}
@@ -139,11 +185,23 @@ export default function SearchPage() {
           ))}
           {result.results.length === 0 && (
             <Glass padding={36} radius={20} style={{ textAlign: "center" }}>
-              <p style={{ color: "var(--aurora-fg4)", fontSize: 13 }}>No results</p>
+              <p style={{ color: "var(--aurora-fg4)", fontSize: 13 }}>{t.searchPage.noResults}</p>
             </Glass>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// useSearchParams forces client-side rendering up to the nearest Suspense
+// boundary; without one, a production build of this static route fails with
+// "Missing Suspense boundary with useSearchParams" (it works fine in dev,
+// so the error only shows up at build time).
+export default function SearchPage() {
+  return (
+    <Suspense fallback={null}>
+      <SearchPageInner />
+    </Suspense>
   );
 }

@@ -8,6 +8,7 @@ import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import ConfigViewer from "@/components/viewers/ConfigViewer";
 import { ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
 import { Chip, Glass } from "@/components/aurora/primitives";
+import BacklinksPanel from "@/components/BacklinksPanel";
 
 export default function DocumentPage() {
   const params = useParams();
@@ -55,6 +56,8 @@ export default function DocumentPage() {
           <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: 32 }}>{t.document.contentInS3}</div>
         )}
       </Glass>
+
+      <BacklinksPanel docId={docId} />
 
       {doc.metadata && Object.keys(doc.metadata).length > 0 && (
         <div style={{ marginTop: 18 }}>

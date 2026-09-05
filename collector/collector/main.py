@@ -107,6 +107,34 @@ def _run_initial_scan(watcher: FileWatcher, logger: logging.Logger) -> None:
         logger.exception("Initial scan failed")
 
 
+# Guards the remote-task worker. The command poll fires every 10s but a task
+# can run for minutes; without this a slow task would be re-fetched on every
+# tick and run many times over.
+_remote_task_lock = threading.Lock()
+
+
+def _remote_exec_available() -> bool:
+    """True when this device is configured for remote execution."""
+    try:
+        from .executor import is_enabled
+        return is_enabled()
+    except Exception:
+        return False
+
+
+def _run_remote_tasks(config: CollectorConfig, logger: logging.Logger) -> None:
+    """Fetch and run remote tasks. Skips if a previous batch is still running."""
+    if not _remote_task_lock.acquire(blocking=False):
+        return  # Previous batch still in flight.
+    try:
+        from .executor import poll_and_run
+        poll_and_run(config)
+    except Exception as e:
+        logger.warning("remote task poll failed: %s", e)
+    finally:
+        _remote_task_lock.release()
+
+
 def _poll_commands(config: CollectorConfig, queue: SyncQueue, watcher: FileWatcher,
                    logger: logging.Logger) -> None:
     """Poll server for pending commands (resync, etc.)."""
@@ -480,6 +508,14 @@ def main() -> None:
             if now - last_command_poll > COMMAND_POLL_INTERVAL:
                 last_command_poll = now
                 _poll_commands(config, queue, watcher, logger)
+                # Remote tasks run on a daemon thread: an agent task can take
+                # minutes, and doing it inline would stall file syncing for
+                # that whole time. No-op unless MEMENTO_REMOTE_EXEC_KEY is set
+                # on this device.
+                if _remote_exec_available():
+                    threading.Thread(
+                        target=_run_remote_tasks, args=(config, logger), daemon=True
+                    ).start()
 
             # Auto-update check every hour
             if now - last_update_check > AUTO_UPDATE_INTERVAL:

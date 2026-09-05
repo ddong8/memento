@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import threading
 import urllib.parse
 from typing import Any
@@ -25,6 +26,24 @@ logger = logging.getLogger(__name__)
 
 # Active subprocesses keyed by task_id for cancellation
 _running_tasks: dict[str, asyncio.subprocess.Process] = {}
+
+
+def _kill_subprocess(proc: asyncio.subprocess.Process, sig: int = signal.SIGTERM) -> None:
+    """Kill process and its entire process group if on POSIX."""
+    try:
+        if os.name != "nt":
+            os.killpg(os.getpgid(proc.pid), sig)
+        else:
+            proc.send_signal(sig)
+    except (ProcessLookupError, OSError):
+        try:
+            if sig == signal.SIGKILL:
+                proc.kill()
+            else:
+                proc.terminate()
+        except Exception:
+            pass
+
 
 
 def _to_ws_url(http_url: str, device_id: str, token: str, key: str) -> str:
@@ -78,6 +97,10 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
     stderr_chunks: list[str] = []
 
     try:
+        extra_kwargs: dict[str, Any] = {}
+        if os.name != "nt":
+            extra_kwargs["start_new_session"] = True
+
         if action == "shell":
             command = payload.get("command") or ""
             if not command.strip():
@@ -89,6 +112,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=os.environ.copy(),
+                **extra_kwargs,
             )
         elif action == "agent":
             prompt = payload.get("prompt") or ""
@@ -113,25 +137,33 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=os.environ.copy(),
+                **extra_kwargs,
             )
         else:
             raise ValueError(f"unsupported action: {action}")
 
         _running_tasks[task_id] = proc
 
-        # Stream stdout and stderr concurrently
-        await asyncio.gather(
-            _stream_pipe(proc.stdout, "stdout", task_id, ws, stdout_chunks),
-            _stream_pipe(proc.stderr, "stderr", task_id, ws, stderr_chunks),
+        # Stream stdout and stderr concurrently in background tasks
+        stream_out_task = asyncio.create_task(
+            _stream_pipe(proc.stdout, "stdout", task_id, ws, stdout_chunks)
+        )
+        stream_err_task = asyncio.create_task(
+            _stream_pipe(proc.stderr, "stderr", task_id, ws, stderr_chunks)
         )
 
         try:
             await asyncio.wait_for(proc.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.terminate()
-            await asyncio.sleep(1)
-            if proc.returncode is None:
-                proc.kill()
+            logger.warning("Task %s timed out after %ds, terminating process group", task_id, timeout)
+            _kill_subprocess(proc, signal.SIGTERM)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                _kill_subprocess(proc, signal.SIGKILL)
+            stream_out_task.cancel()
+            stream_err_task.cancel()
+            await asyncio.gather(stream_out_task, stream_err_task, return_exceptions=True)
             await ws.send(json.dumps({
                 "type": "task_finished",
                 "task_id": task_id,
@@ -142,6 +174,9 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 "error": f"timed out after {timeout}s",
             }))
             return
+
+        # Wait for streams to finish reading remaining output
+        await asyncio.gather(stream_out_task, stream_err_task, return_exceptions=True)
 
         full_stdout = "".join(stdout_chunks)[:100_000]
         full_stderr = "".join(stderr_chunks)[:100_000]
@@ -243,11 +278,8 @@ async def _run_ws_loop(config: CollectorConfig) -> None:
                         task_id = msg.get("task_id")
                         proc = _running_tasks.get(task_id)
                         if proc:
-                            logger.info("Received task_cancel for %s, terminating process", task_id)
-                            try:
-                                proc.terminate()
-                            except Exception:
-                                pass
+                            logger.info("Received task_cancel for %s, terminating process group", task_id)
+                            _kill_subprocess(proc, signal.SIGTERM)
         except Exception as e:
             logger.debug("WebSocket connection closed or failed: %s (reconnecting in %ds)", e, backoff)
             await asyncio.sleep(backoff)

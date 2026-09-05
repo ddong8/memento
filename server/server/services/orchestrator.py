@@ -82,6 +82,7 @@ TOOLS = [
                     "command": {"type": "string", "description": "action=shell 时的命令行"},
                     "prompt": {"type": "string", "description": "action=agent 时给 agent 的任务描述"},
                     "cwd": {"type": "string", "description": "工作目录，可选"},
+                    "timeout_seconds": {"type": "integer", "description": "执行超时时间（秒），shell 默认 45，agent 默认 180，最大 300"},
                 },
                 "required": ["device_id", "action"],
             },
@@ -89,19 +90,27 @@ TOOLS = [
     },
 ]
 
-ORCHESTRATOR_SYSTEM = """你是 Memento 的记忆助手，同时能调度用户的多台设备干活。
+ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能够调用用户的多台物理设备（Mac、Linux、Windows 等）完成任务。
 
-你两种信息来源：
-1. 「资料」——已同步到服务端的对话、笔记、计划。优先用它回答。
-2. 设备工具——当资料不足、或用户明确要求在机器上做事时，用 list_devices 看有哪些机器，用 run_on_device 去执行。
+你有两种信息来源：
+1. 「资料」——已同步到服务端的对话、笔记、记忆。如果资料库中已有答案，优先使用资料回答，不要盲目去设备上查。
+2. 「设备工具」——当资料库不足、或用户明确要求在特定机器上查实时状态/执行操作时：
+   - 先使用 list_devices 查看设备列表、系统版本、在线状态；
+   - 确认设备 online 后，再使用 run_on_device 发送任务。
 
-规则：
-- 能用资料回答的，不要派活。派活有延迟，且会真的在用户机器上执行命令。
-- 派活前先 list_devices 确认设备在线；离线设备不要派。
-- shell 用于查看类操作；agent 用于需要理解代码、多步骤的任务。
-- 引用资料时用 [1] [2] 标注来源编号。
-- 如实汇报：命令失败就说失败，把 stderr 里的关键信息带上，不要粉饰。
-- 用户用什么语言就用什么语言回答。"""
+设备命令执行安全与性能军规（务必遵守，防止进程挂死或机器卡顿）：
+- 严禁全盘递归扫描：绝对禁止在根目录 `/` 或整个用户家目录 `$HOME` 下执行无限制深度的 `find`、`grep -r` 等全盘扫描！在 macOS 上扫描 `$HOME` 会遍历 `~/Library` 下的庞大沙盒容器和 iCloud 云盘，会触发系统 I/O 挂起或权限死锁，极易超时。
+- 文件查找首选极速索引：
+  * macOS 下定位文件：优先使用 Spotlight 索引 `mdfind -name "文件名"`（毫秒级瞬时返回）；
+  * 若使用 `find`，必须限定具体的浅层目录（如 `~/Documents`、`~/Desktop`、`~/dev`）并加上 `-maxdepth 3`；
+- 常见应用配置快速直达：
+  * Obsidian 笔记库：直接读取配置文件 `cat "$HOME/Library/Application Support/obsidian/obsidian.json"`，里面记录了所有本地 Vault 路径，无需遍历磁盘！
+  * VSCode/Cursor 配置：位于 `~/Library/Application Support/Code` 或 `Cursor`。
+- 严禁交互式命令：不要执行需要用户输入密码的 `sudo`、未加 `-y` 的包管理器安装等等待交互输入的命令。
+- 失败与超时处理：
+  * 如果命令返回 timeout 或 still_running，绝对禁止在下一轮重复发送完全相同的命令！
+  * 必须分析失败原因，缩小搜索范围、改用轻量命令或直接向用户说明。
+- 如实汇报：把 stderr 和关键输出带上，直面问题，不要粉饰。用户用什么语言就用什么语言回答。"""
 
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
@@ -273,20 +282,32 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         if args.get("cwd"):
             payload["cwd"] = args["cwd"]
 
+        # Determine timeout: shell defaults to 45s, agent defaults to TASK_WAIT_SECONDS (180s)
+        default_timeout = 45 if action == "shell" else TASK_WAIT_SECONDS
+        req_timeout = args.get("timeout_seconds")
+        if req_timeout and isinstance(req_timeout, int) and req_timeout > 0:
+            device_timeout = min(req_timeout, 300)
+        else:
+            device_timeout = default_timeout
+
+        # Server deadline adds safety margin so device-side timeout status arrives cleanly before server deadline
+        server_margin = 7 if action == "shell" else 10
+        server_wait = device_timeout + server_margin
+
         task = DeviceTask(
             device_id=device_id,
             machine_id=machine.id if machine else None,
             user_id=user.id,
             action=action,
             payload=payload,
-            timeout_seconds=TASK_WAIT_SECONDS,
+            timeout_seconds=device_timeout,
             status="queued",
         )
         db.add(task)
         await db.commit()
         await db.refresh(task)
         task_id_str = str(task.id)
-        logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
+        logger.info("orchestrator dispatched task %s (%s, timeout=%ds) to %s", task.id, action, device_timeout, device_id)
 
         task_q = None
         # Try WebSocket dispatch by device_id, machine.name, or machine.id
@@ -304,7 +325,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                 "id": task_id_str,
                 "action": action,
                 "payload": payload,
-                "timeout_seconds": TASK_WAIT_SECONDS,
+                "timeout_seconds": device_timeout,
             })
             if dispatched_ws:
                 task.status = "running"
@@ -314,7 +335,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                 ws_manager.unsubscribe_task(task_id_str)
                 task_q = None
 
-        deadline = asyncio.get_event_loop().time() + TASK_WAIT_SECONDS
+        deadline = asyncio.get_event_loop().time() + server_wait
         done_task = None
         done_ws = None
 
@@ -365,7 +386,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                     "device_name": mach_name,
                     "action": action,
                     "status": "still_running",
-                    "note": f"任务仍在执行（已等待 {TASK_WAIT_SECONDS}s），可稍后在派活页查看结果",
+                    "note": f"任务执行已超过 {device_timeout}s，设备端已尝试终止或仍在后台，请勿重复执行相同命令，建议换用更精准快速的查询方式。",
                 },
             }
             return
@@ -416,6 +437,9 @@ async def run_agent_loop(
     testable without spinning up a request.
     """
     convo = list(messages)
+    # Track executed command signatures and their outcomes to prevent repeat death spirals:
+    # "device_id:action:cmd" -> status ("succeeded", "failed", "timeout", "still_running")
+    executed_commands: dict[str, str] = {}
 
     for round_no in range(MAX_ROUNDS):
         try:
@@ -487,11 +511,43 @@ async def run_agent_loop(
 
             yield call_evt
 
+            # Circuit breaker: check if the exact same command on the same device already failed/timed out
+            sig = None
+            if name == "run_on_device":
+                action = args.get("action") or ""
+                cmd_or_prompt = (args.get("command") if action == "shell" else args.get("prompt")) or ""
+                dev_key = str(args.get("device_id") or "")
+                sig = f"{dev_key}:{action}:{cmd_or_prompt.strip()}"
+                prev_status = executed_commands.get(sig)
+                if prev_status in ("timeout", "still_running", "failed"):
+                    logger.warning("Circuit breaker triggered for repeated command: %s (status: %s)", sig, prev_status)
+                    breaker_msg = {
+                        "status": "circuit_break",
+                        "error": (
+                            f"【防死循环熔断】该命令在上一轮执行已出现 {prev_status}，系统已拦截重复下发！"
+                            "请换用更高效的方式（例如使用 Spotlight 索引 `mdfind`、读取具体配置文件、限定具体浅层子目录），或直接向用户说明情况。"
+                        ),
+                    }
+                    yield {
+                        "type": "tool_result",
+                        "name": name,
+                        "result": breaker_msg,
+                    }
+                    convo.append({
+                        "role": "tool",
+                        "tool_call_id": call.get("id"),
+                        "content": json.dumps(breaker_msg, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
+                    })
+                    continue
+
             tool_result_obj = None
             async for evt in _dispatch_tool(db, user, name, args):
                 if evt.get("type") == "tool_result":
                     tool_result_obj = evt.get("result")
                 yield evt
+
+            if sig and isinstance(tool_result_obj, dict):
+                executed_commands[sig] = tool_result_obj.get("status") or ""
 
             convo.append({
                 "role": "tool",

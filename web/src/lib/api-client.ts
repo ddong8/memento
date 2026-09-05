@@ -250,6 +250,32 @@ export interface SearchHit {
   matched_semantically?: boolean;
 }
 
+// Remote device task — work dispatched to a collector on one of your machines
+export interface DeviceTask {
+  id: string;
+  device_id: string;
+  action: string;
+  payload: Record<string, unknown> | null;
+  status: "queued" | "running" | "succeeded" | "failed" | "timeout" | "cancelled";
+  exit_code: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  error: string | null;
+  timeout_seconds: number;
+  created_at: string | null;
+  dispatched_at: string | null;
+  finished_at: string | null;
+}
+
+export interface DeviceSummary {
+  id: string;
+  name: string;
+  device_id: string;
+  collector_version: string | null;
+  last_heartbeat: string | null;
+  document_count: number;
+}
+
 // Backlinks — knowledge-graph derived "what else discussed this?"
 export interface BacklinksResult {
   entities: { id: string; name: string; type: string }[];
@@ -376,6 +402,26 @@ export const api = {
     if (deviceId) params.set("device_id", deviceId);
     return apiFetch<SearchResult>(`/api/search?${params}`);
   },
+  // === Remote device tasks ===
+  listDeviceTasks: (deviceId?: string, status?: string, limit = 50) => {
+    const p = new URLSearchParams({ limit: String(limit) });
+    if (deviceId) p.set("device_id", deviceId);
+    if (status) p.set("status", status);
+    return apiFetch<DeviceTask[]>(`/api/tasks?${p}`);
+  },
+  getDeviceTask: (taskId: string) => apiFetch<DeviceTask>(`/api/tasks/${taskId}`),
+  dispatchDeviceTask: (
+    deviceId: string,
+    action: "shell" | "agent",
+    payload: Record<string, unknown>,
+    timeoutSeconds = 300
+  ) =>
+    apiFetch<DeviceTask>(`/api/tasks/dispatch/${deviceId}`, {
+      method: "POST",
+      body: JSON.stringify({ action, payload, timeout_seconds: timeoutSeconds }),
+    }),
+  cancelDeviceTask: (taskId: string) =>
+    apiFetch<DeviceTask>(`/api/tasks/${taskId}/cancel`, { method: "POST" }),
   getBacklinks: (docId: string) =>
     apiFetch<BacklinksResult>(`/api/documents/${docId}/backlinks`),
   register: (email: string, password: string, name?: string, inviteCode?: string) =>

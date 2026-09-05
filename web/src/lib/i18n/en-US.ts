@@ -63,6 +63,7 @@ const enUS: Translations = {
   projects: "Projects",
 
   nav: {
+    tasks: "Dispatch",
     ask: "Ask",
     dashboard: "Dashboard",
     tools: "Tools",
@@ -218,6 +219,35 @@ const enUS: Translations = {
     error: "Generation failed, please retry",
     noSources: "No relevant material found",
     stop: "Stop",
+  },
+
+  // Remote device tasks
+  tasks: {
+    title: "Dispatch",
+    subtitle: "Send a command or agent task to any of your machines",
+    device: "Target device",
+    action: "Action",
+    shell: "Shell command",
+    agent: "Agent task",
+    command: "Command",
+    prompt: "Task",
+    cwd: "Working directory (optional)",
+    timeout: "Timeout (s)",
+    dispatch: "Dispatch",
+    history: "Task history",
+    empty: "No tasks dispatched yet",
+    noDevices: "No devices available",
+    output: "Output",
+    cancel: "Cancel",
+    disabled: "Remote execution is off — server needs MEMENTO_REMOTE_EXEC=1, device needs MEMENTO_REMOTE_EXEC_KEY",
+    commandPlaceholder: "e.g. git -C ~/dev/memento status",
+    promptPlaceholder: "e.g. list any unhandled TODOs under server/",
+    statusQueued: "Queued",
+    statusRunning: "Running",
+    statusSucceeded: "Succeeded",
+    statusFailed: "Failed",
+    statusTimeout: "Timed out",
+    statusCancelled: "Cancelled",
   },
 
   // Command palette (Cmd/Ctrl+K)

@@ -65,6 +65,9 @@ class AskRequest(BaseModel):
     history: list[dict] | None = None
     tool: str | None = None
     days: int | None = None
+    # When true the model may also dispatch work to the user's devices.
+    # Off by default: a plain ask must never be able to run anything.
+    agent_mode: bool = False
 
 
 async def _retrieve(
@@ -177,6 +180,34 @@ async def ask(
 
     sources = await _retrieve(db, _user, question, body.tool, body.days)
     messages = _build_messages(question, sources, body.history)
+
+    # Agent mode: the model may also dispatch work to the user's devices when
+    # synced memory isn't enough. Opt-in per request — plain asks stay a
+    # single-shot RAG call with no ability to touch any machine.
+    if body.agent_mode:
+        from ..services.orchestrator import ORCHESTRATOR_SYSTEM, run_agent_loop
+
+        agent_messages = [{"role": "system", "content": ORCHESTRATOR_SYSTEM}] + messages[1:]
+
+        async def agent_stream():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+            try:
+                async for evt in run_agent_loop(db, _user, agent_messages):
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.exception("agent loop failed: %s", e)
+                yield f"data: {json.dumps({'type': 'error', 'message': '调度失败,请重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        return StreamingResponse(
+            agent_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     async def stream():
         # Sources go out first so the UI can render citations while the model

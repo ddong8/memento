@@ -64,6 +64,7 @@ const zhCN = {
 
   // Nav
   nav: {
+    tasks: "派活",
     ask: "问记忆",
     dashboard: "仪表板",
     tools: "工具",
@@ -226,6 +227,35 @@ const zhCN = {
     error: "生成失败，请重试",
     noSources: "没有检索到相关资料",
     stop: "停止",
+  },
+
+  // Remote device tasks
+  tasks: {
+    title: "派活",
+    subtitle: "把命令或 agent 任务派给你的任意一台设备执行",
+    device: "目标设备",
+    action: "动作",
+    shell: "Shell 命令",
+    agent: "Agent 任务",
+    command: "命令",
+    prompt: "任务描述",
+    cwd: "工作目录（可选）",
+    timeout: "超时（秒）",
+    dispatch: "派发",
+    history: "任务记录",
+    empty: "还没有派过任务",
+    noDevices: "没有可用设备",
+    output: "输出",
+    cancel: "取消",
+    disabled: "远程执行未启用 —— 服务端需设 MEMENTO_REMOTE_EXEC=1,设备需设 MEMENTO_REMOTE_EXEC_KEY",
+    commandPlaceholder: "例如: git -C ~/dev/memento status",
+    promptPlaceholder: "例如: 看一下 server/ 里有没有没处理的 TODO,列出来",
+    statusQueued: "排队中",
+    statusRunning: "执行中",
+    statusSucceeded: "成功",
+    statusFailed: "失败",
+    statusTimeout: "超时",
+    statusCancelled: "已取消",
   },
 
   // Command palette (Cmd/Ctrl+K)

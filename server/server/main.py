@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import admin, auth, conversations, daily, dashboard, data_io, devices, documents, events, hierarchy, ingest, install_bootstrap, memory, projects, public, search, share, tools
+from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, hierarchy, ingest, install_bootstrap, memory, projects, public, search, share, tools
 from .config import settings
 from .db.models import Base
 from .db.session import engine
@@ -316,6 +316,7 @@ app.include_router(conversations.router)
 app.include_router(projects.router)
 app.include_router(daily.router)
 app.include_router(search.router)
+app.include_router(ask.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(events.router)

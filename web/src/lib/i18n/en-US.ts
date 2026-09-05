@@ -63,6 +63,7 @@ const enUS: Translations = {
   projects: "Projects",
 
   nav: {
+    ask: "Ask",
     dashboard: "Dashboard",
     tools: "Tools",
     daily: "Daily",
@@ -202,6 +203,21 @@ const enUS: Translations = {
     semanticOff: "Keyword only",
     semanticHint: "Vector search unavailable — fell back to keyword matching",
     matchedSemantically: "semantic match",
+  },
+
+  // Ask — RAG chat over memory
+  ask: {
+    title: "Ask memory",
+    subtitle: "Ask in plain language — answered from your synced conversations and notes",
+    placeholder: "Ask anything… e.g. \"how do I get the k3s credentials on the NAS\"",
+    send: "Send",
+    thinking: "Thinking…",
+    sources: "Sources",
+    empty: "Ask a question and I'll search your memory to answer it.",
+    clear: "Clear",
+    error: "Generation failed, please retry",
+    noSources: "No relevant material found",
+    stop: "Stop",
   },
 
   // Command palette (Cmd/Ctrl+K)

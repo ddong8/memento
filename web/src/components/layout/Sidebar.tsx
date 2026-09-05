@@ -56,6 +56,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     { href: "/projects", label: t.nav.projects, icon: "folder" },
     { href: "/memory", label: t.nav.memory || "Memory", icon: "brain" },
     { href: "/daily", label: t.nav.daily, icon: "calendar" },
+    { href: "/ask", label: t.nav.ask, icon: "sparkles" },
     { href: "/search", label: t.nav.search, icon: "search" },
     { href: "/devices", label: t.nav.devices, icon: "devices" },
     { href: "/inbox", label: t.nav.inbox, icon: "inbox" },

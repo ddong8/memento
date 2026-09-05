@@ -64,6 +64,7 @@ const zhCN = {
 
   // Nav
   nav: {
+    ask: "问记忆",
     dashboard: "仪表板",
     tools: "工具",
     daily: "日报",
@@ -210,6 +211,21 @@ const zhCN = {
     semanticOff: "仅关键词",
     semanticHint: "向量检索不可用，已回退到关键词匹配",
     matchedSemantically: "语义匹配",
+  },
+
+  // Ask — RAG chat over memory
+  ask: {
+    title: "问记忆",
+    subtitle: "用自然语言问，AI 基于你同步的对话与笔记回答",
+    placeholder: "问点什么…比如「NAS 上的 k3s 登录凭证怎么拿」",
+    send: "发送",
+    thinking: "思考中…",
+    sources: "参考资料",
+    empty: "问一个问题，我会翻你的记忆来回答。",
+    clear: "清空对话",
+    error: "生成失败，请重试",
+    noSources: "没有检索到相关资料",
+    stop: "停止",
   },
 
   // Command palette (Cmd/Ctrl+K)

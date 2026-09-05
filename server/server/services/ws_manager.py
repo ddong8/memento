@@ -28,10 +28,14 @@ class DeviceConnectionManager:
         logger.info("Device connected via WebSocket: %s", device_id)
 
     def unregister(self, device_id: str, ws: WebSocket | None = None) -> None:
-        current = self._connections.get(device_id)
-        if ws is None or current is ws:
+        target_ws = ws or self._connections.get(device_id)
+        if target_ws:
+            keys_to_remove = [k for k, v in self._connections.items() if v is target_ws]
+            for k in keys_to_remove:
+                self._connections.pop(k, None)
+        else:
             self._connections.pop(device_id, None)
-            logger.info("Device disconnected from WebSocket: %s", device_id)
+        logger.info("Device disconnected from WebSocket: %s", device_id)
 
     def has_device(self, device_id: str) -> bool:
         return device_id in self._connections

@@ -49,7 +49,7 @@ async def list_devices(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List all registered collector devices with their stats."""
-    machines_q = select(Machine).order_by(Machine.name)
+    machines_q = select(Machine).order_by(Machine.last_heartbeat.desc().nulls_last())
     if _user.role not in ("admin", "owner"):
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines = list((await db.execute(machines_q)).scalars().all())
@@ -64,14 +64,22 @@ async def list_devices(
         .where(Document.machine_id.in_(machine_ids), Document.tool_id != "system")
         .group_by(Document.machine_id, Document.tool_id)
     )
-    totals_by_machine: dict = {}
-    tools_by_machine: dict = {}
+    totals_by_name: dict = {}
+    tools_by_name: dict = {}
+    name_by_mid = {m.id: m.name for m in machines}
     for mid, tid, n in (await db.execute(stats_q)).all():
-        totals_by_machine[mid] = totals_by_machine.get(mid, 0) + n
-        tools_by_machine.setdefault(mid, []).append(tid)
+        mname = name_by_mid.get(mid, "")
+        totals_by_name[mname] = totals_by_name.get(mname, 0) + n
+        tlist = tools_by_name.setdefault(mname, [])
+        if tid not in tlist:
+            tlist.append(tid)
 
     items = []
+    seen_names = set()
     for m in machines:
+        if m.name in seen_names:
+            continue
+        seen_names.add(m.name)
         items.append({
             "id": str(m.id),
             "name": m.name,
@@ -79,8 +87,8 @@ async def list_devices(
             "collector_version": m.collector_version,
             "last_heartbeat": m.last_heartbeat.isoformat() if m.last_heartbeat else None,
             "created_at": m.created_at.isoformat(),
-            "document_count": totals_by_machine.get(m.id, 0),
-            "tools": tools_by_machine.get(m.id, []),
+            "document_count": totals_by_name.get(m.name, 0),
+            "tools": tools_by_name.get(m.name, []),
         })
 
     return items

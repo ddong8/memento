@@ -200,13 +200,14 @@ async def ask(
             mach = (await db.execute(
                 select(Machine).where(
                     (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-                )
+                ).order_by(Machine.last_heartbeat.desc().nulls_last())
             )).scalars().first()
+            target_device_id = mach.collector_token_hash if mach else device_id
             mach_name = mach.name if mach else device_id
             cwd_text = f"，默认工作目录 cwd 为 \"{body.cwd}\"" if body.cwd else ""
             system_content += (
                 f"\n\n【用户已指定操作设备】\n"
-                f"目标设备名称：\"{mach_name}\"（device_id: \"{device_id}\"{cwd_text}）。\n"
+                f"目标设备名称：\"{mach_name}\"（device_id: \"{target_device_id}\"{cwd_text}）。\n"
                 f"规则：如果用户的指令需要在机器上查看状态、运行命令或处理代码，必须直接针对该设备调用 run_on_device 执行，无需再调用 list_devices。\n"
             )
             if body.cwd:

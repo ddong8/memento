@@ -106,13 +106,17 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的记忆助手，同时能调度用户�
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
     try:
-        q = select(Machine)
+        q = select(Machine).order_by(Machine.last_heartbeat.desc().nulls_last())
         if user.role not in ("admin", "owner"):
             q = q.where(Machine.user_id == user.id)
         machines = (await db.execute(q)).scalars().all()
         now = datetime.now(timezone.utc)
         out = []
+        seen_names = set()
         for m in machines:
+            if m.name in seen_names:
+                continue
+            seen_names.add(m.name)
             hb = m.last_heartbeat
             if hb and hb.tzinfo is None:
                 hb = hb.replace(tzinfo=timezone.utc)
@@ -226,11 +230,11 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         return
 
     try:
-        # Look up machine by collector_token_hash OR by name (use first to avoid MultipleResultsFound)
+        # Look up machine by collector_token_hash OR by name (order by latest heartbeat)
         machine = (await db.execute(
             select(Machine).where(
                 (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-            )
+            ).order_by(Machine.last_heartbeat.desc().nulls_last())
         )).scalars().first()
 
         if user.role not in ("admin", "owner"):
@@ -285,9 +289,18 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         logger.info("orchestrator dispatched task %s (%s) to %s", task.id, action, device_id)
 
         task_q = None
+        # Try WebSocket dispatch by device_id, machine.name, or machine.id
+        target_ws_id = None
         if ws_manager.has_device(device_id):
+            target_ws_id = device_id
+        elif machine and ws_manager.has_device(machine.name):
+            target_ws_id = machine.name
+        elif machine and ws_manager.has_device(str(machine.id)):
+            target_ws_id = str(machine.id)
+
+        if target_ws_id:
             task_q = ws_manager.subscribe_task(task_id_str)
-            dispatched_ws = await ws_manager.send_task(device_id, {
+            dispatched_ws = await ws_manager.send_task(target_ws_id, {
                 "id": task_id_str,
                 "action": action,
                 "payload": payload,

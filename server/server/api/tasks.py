@@ -61,16 +61,21 @@ async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | 
     """
     if not presented:
         raise HTTPException(status_code=403, detail="missing remote exec key")
-    machine = (await db.execute(
+    machines = (await db.execute(
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-        )
-    )).scalars().first()
-    if not machine or not machine.remote_exec_key:
+        ).order_by(Machine.last_heartbeat.desc().nulls_last())
+    )).scalars().all()
+    if not machines:
         raise HTTPException(status_code=403, detail="device not enrolled for remote execution")
-    if not secrets.compare_digest(machine.remote_exec_key, presented):
+    matched = None
+    for m in machines:
+        if m.remote_exec_key and secrets.compare_digest(m.remote_exec_key, presented):
+            matched = m
+            break
+    if not matched:
         raise HTTPException(status_code=403, detail="invalid remote exec key")
-    return machine
+    return matched
 
 # Actions that run arbitrary code and therefore require the exec switch.
 EXEC_ACTIONS = {"shell", "agent"}
@@ -111,7 +116,7 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
     machine = (await db.execute(
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-        )
+        ).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().first()
     if user.role not in ("admin", "owner"):
         if not machine or machine.user_id != user.id:
@@ -253,11 +258,23 @@ async def poll_tasks(
         return []
     if not x_collector_token:
         raise HTTPException(status_code=401, detail="missing collector token")
-    await _verify_device_key(db, device_id, x_remote_exec_key)
+    machine = await _verify_device_key(db, device_id, x_remote_exec_key)
+
+    # Collect all identifiers for this machine (token hash, name, machine_id, and any alias rows)
+    same_name_machines = (await db.execute(
+        select(Machine).where(Machine.name == machine.name)
+    )).scalars().all()
+    target_ids = {machine.id} | {m.id for m in same_name_machines if m.id}
+    target_tokens = {device_id, machine.collector_token_hash, machine.name} | {
+        m.collector_token_hash for m in same_name_machines if m.collector_token_hash
+    }
 
     rows = (await db.execute(
         select(DeviceTask)
-        .where(DeviceTask.device_id == device_id, DeviceTask.status == "queued")
+        .where(
+            (DeviceTask.device_id.in_(target_tokens)) | (DeviceTask.machine_id.in_(target_ids)),
+            DeviceTask.status == "queued",
+        )
         .order_by(DeviceTask.created_at.asc())
         .limit(5)
     )).scalars().all()
@@ -269,11 +286,17 @@ async def poll_tasks(
     await db.execute(
         update(DeviceTask)
         .where(DeviceTask.id.in_(ids))
-        .values(status="running", dispatched_at=now)
+        .values(
+            status="running",
+            dispatched_at=now,
+            device_id=machine.collector_token_hash,
+            machine_id=machine.id,
+        )
     )
     await db.commit()
     for t in rows:
         t.status, t.dispatched_at = "running", now
+        t.device_id, t.machine_id = machine.collector_token_hash, machine.id
     return [_serialize(t) for t in rows]
 
 
@@ -330,16 +353,17 @@ async def _authenticate_ws(
         if not (settings.collector_token and secrets.compare_digest(collector_token, settings.collector_token)):
             return None
     # 2. Verify machine and remote_exec_key
-    machine = (await db.execute(
+    machines = (await db.execute(
         select(Machine).where(
             (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
-        )
-    )).scalars().first()
-    if not machine or not machine.remote_exec_key:
+        ).order_by(Machine.last_heartbeat.desc().nulls_last())
+    )).scalars().all()
+    if not machines:
         return None
-    if not secrets.compare_digest(machine.remote_exec_key, remote_exec_key):
-        return None
-    return machine
+    for m in machines:
+        if m.remote_exec_key and secrets.compare_digest(m.remote_exec_key, remote_exec_key):
+            return m
+    return None
 
 
 @router.websocket("/ws/{device_id}")
@@ -363,6 +387,10 @@ async def device_websocket_endpoint(
     await websocket.accept()
     real_device_id = machine.collector_token_hash
     ws_manager.register(real_device_id, websocket)
+    if machine.name:
+        ws_manager.register(machine.name, websocket)
+    if machine.id:
+        ws_manager.register(str(machine.id), websocket)
 
     try:
         await websocket.send_json({

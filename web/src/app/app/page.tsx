@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { useSSE } from "@/lib/use-sse";
@@ -9,6 +10,13 @@ import { useNow } from "@/lib/use-now";
 import { timeAgo } from "@/lib/constants";
 import { Icon, ToolGlyph, PlatformGlyph, TOOL_HUE } from "@/components/aurora/Icon";
 import { Glass, Chip, TopBar, SectionLabel, StatCard } from "@/components/aurora/primitives";
+
+const QUICK_PROMPTS = [
+  { icon: "📅", label: "总结昨天开发进展", prompt: "总结一下我昨天在各个设备和工具上的开发工作与对话" },
+  { icon: "💻", label: "检查在线设备状态", prompt: "列出当前所有在线的设备，并检查它们的运行状态与端口" },
+  { icon: "🔍", label: "检索近期架构讨论", prompt: "回顾一下我最近关于项目架构设计与关键方案的讨论" },
+  { icon: "⚡", label: "排查服务与报错", prompt: "帮我排查一下开发机上的服务运行日志与最新报错" },
+];
 
 interface DashboardData {
   tools: {
@@ -49,11 +57,23 @@ interface DashboardData {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastEvent, setLastEvent] = useState("");
+  const [askPrompt, setAskPrompt] = useState("");
+  const [askDevice, setAskDevice] = useState("auto");
   const { t } = useI18n();
   const now = useNow();
+
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = askPrompt.trim();
+    if (!q) return;
+    const params = new URLSearchParams({ q });
+    if (askDevice && askDevice !== "auto") params.set("device", askDevice);
+    router.push(`/ask?${params.toString()}`);
+  };
 
   const fetchData = useCallback(() => {
     const tz = new Date().getTimezoneOffset();
@@ -87,6 +107,147 @@ export default function Dashboard() {
           </Chip>
         )}
       />
+
+      {/* Ask AI Hero Card */}
+      <div style={{ position: "relative", marginBottom: 20 }}>
+        <Glass padding={24} radius={24} style={{ overflow: "hidden", position: "relative" }}>
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: -80,
+              right: -40,
+              width: 340,
+              height: 340,
+              borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(124,58,237,0.32), transparent 70%)",
+              filter: "blur(40px)",
+              pointerEvents: "none",
+            }}
+          />
+          <div style={{ position: "relative" }}>
+            <div className="flex items-center justify-between gap-4 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 10,
+                    background: "var(--aurora-brand-grad)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 4px 12px -2px rgba(124,58,237,0.4)",
+                  }}
+                >
+                  <Icon name="sparkles" size={16} style={{ color: "#fff" }} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }}>
+                    {t.nav.ask || "问记忆"} · 跨设备调度
+                  </h2>
+                  <p style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                    基于全设备沉淀的编程知识问答，或直接向在线物理机调度排查任务
+                  </p>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-2 text-xs" style={{ color: "var(--aurora-fg3)" }}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{devices.length} 台设备就绪</span>
+              </div>
+            </div>
+
+            {/* Prompt Input Box */}
+            <form onSubmit={handleAskSubmit} className="relative mt-4">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--aurora-input)",
+                  border: "1px solid var(--aurora-border)",
+                  borderRadius: 16,
+                  padding: "6px 8px 6px 16px",
+                  boxShadow: "0 4px 20px -4px rgba(0,0,0,0.06)",
+                  transition: "all .2s",
+                }}
+                className="focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20"
+              >
+                <Icon name="sparkles" size={18} style={{ color: "var(--aurora-brand-from)", flexShrink: 0 }} />
+                <input
+                  type="text"
+                  value={askPrompt}
+                  onChange={(e) => setAskPrompt(e.target.value)}
+                  placeholder="向 AI 提问编程记忆，或下发设备指令（如：检查开发机端口、总结昨天工作）..."
+                  className="flex-1 bg-transparent border-0 outline-none text-sm px-3 py-2 text-aurora-fg1 placeholder:text-aurora-fg4 min-w-0"
+                />
+
+                {/* Target device selector */}
+                {devices.length > 0 && (
+                  <div
+                    className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg mr-2 text-xs"
+                    style={{
+                      background: "var(--aurora-surface)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                    }}
+                  >
+                    <Icon name="devices" size={12} style={{ color: "var(--aurora-fg4)" }} />
+                    <select
+                      value={askDevice}
+                      onChange={(e) => setAskDevice(e.target.value)}
+                      className="bg-transparent border-0 outline-none text-xs cursor-pointer"
+                      style={{ color: "var(--aurora-fg2)" }}
+                    >
+                      <option value="auto">自动调度</option>
+                      {devices.map((d) => (
+                        <option key={d.device_id} value={d.device_id}>
+                          {d.name.replace(/ \(\w+\)$/, "")}
+                        </option>
+                      ))}
+                      <option value="ask_only">仅查资料</option>
+                    </select>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={!askPrompt.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  style={{
+                    background: "var(--aurora-brand-grad)",
+                    boxShadow: "0 2px 8px -1px rgba(124,58,237,0.4)",
+                  }}
+                >
+                  <span>发送</span>
+                  <Icon name="rocket" size={13} />
+                </button>
+              </div>
+            </form>
+
+            {/* Quick Prompt Chips */}
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", marginRight: 2 }}>快捷探索:</span>
+              {QUICK_PROMPTS.map((qp) => (
+                <button
+                  key={qp.label}
+                  type="button"
+                  onClick={() => router.push(`/ask?q=${encodeURIComponent(qp.prompt)}`)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all hover:border-purple-400"
+                  style={{
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    color: "var(--aurora-fg2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>{qp.icon}</span>
+                  <span>{qp.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </Glass>
+      </div>
 
       {/* Hero stat card */}
       <div style={{ position: "relative", marginBottom: 18 }}>

@@ -225,6 +225,60 @@ export default function CommandPalette() {
 
         {/* results */}
         <div ref={listRef} style={{ overflowY: "auto", flex: 1 }}>
+          {query.trim() && (
+            <div
+              onClick={() => go(`/ask?q=${encodeURIComponent(query.trim())}`)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "11px 16px",
+                cursor: "pointer",
+                background: "rgba(124, 58, 237, 0.08)",
+                borderBottom: "1px solid var(--aurora-border)",
+                transition: "background .12s",
+              }}
+              className="hover:bg-purple-500/15"
+            >
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  background: "var(--aurora-brand-grad)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  boxShadow: "0 2px 8px -1px rgba(124,58,237,0.4)",
+                }}
+              >
+                <Icon name="sparkles" size={14} style={{ color: "#fff" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: "var(--aurora-fg1)", fontWeight: 500 }} className="truncate">
+                  向 AI 提问或调度设备：<span style={{ color: "var(--aurora-brand-from)" }}>"{query.trim()}"</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+                  结合记忆库与物理机实时终端执行回答
+                </div>
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: "var(--aurora-surface)",
+                  border: "1px solid var(--aurora-border)",
+                  color: "var(--aurora-fg3)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                问记忆 ↵
+              </span>
+            </div>
+          )}
+
           {showRecent && (
             <div style={{ padding: "10px 16px" }}>
               <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginBottom: 8 }}>

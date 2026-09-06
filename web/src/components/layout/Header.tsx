@@ -82,6 +82,41 @@ export default function Header({ onMenuToggle }: { onMenuToggle: () => void }) {
           </div>
         )}
 
+        {/* Quick Ask / Search trigger */}
+        <button
+          onClick={() => {
+            const event = new KeyboardEvent("keydown", { key: "k", metaKey: true });
+            window.dispatchEvent(event);
+          }}
+          className="hidden md:flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl transition-all"
+          style={{
+            background: "var(--aurora-input)",
+            border: "1px solid var(--aurora-border)",
+            color: "var(--aurora-fg3)",
+            cursor: "pointer",
+            minWidth: 160,
+            maxWidth: 220,
+            justifyContent: "space-between",
+          }}
+        >
+          <span className="flex items-center gap-1.5 truncate">
+            <Icon name="sparkles" size={13} style={{ color: "var(--aurora-brand-from)" }} />
+            <span>{t.nav.ask || "问记忆"} · 搜索...</span>
+          </span>
+          <kbd
+            style={{
+              fontSize: 10,
+              padding: "1px 4px",
+              borderRadius: 4,
+              background: "var(--aurora-chip)",
+              border: "1px solid var(--aurora-border)",
+              color: "var(--aurora-fg4)",
+            }}
+          >
+            ⌘K
+          </kbd>
+        </button>
+
         {/* Language switcher */}
         <div className="hidden sm:flex gap-1">
           {(Object.keys(locales) as Locale[]).map((l) => {

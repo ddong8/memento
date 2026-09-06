@@ -52,11 +52,17 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   };
 
   const isAdmin = user?.role === "admin" || user?.role === "owner";
-  const STATIC_NAV: { href: string; label: string; icon: IconName }[] = [
-    { href: "/projects", label: t.nav.projects, icon: "folder" },
+  const STATIC_NAV: {
+    href: string;
+    label: string;
+    icon: IconName;
+    highlight?: boolean;
+    badge?: string;
+  }[] = [
+    { href: "/ask", label: t.nav.ask, icon: "sparkles", highlight: true, badge: "AI" },
     { href: "/memory", label: t.nav.memory || "Memory", icon: "brain" },
+    { href: "/projects", label: t.nav.projects, icon: "folder" },
     { href: "/daily", label: t.nav.daily, icon: "calendar" },
-    { href: "/ask", label: t.nav.ask, icon: "sparkles" },
     { href: "/search", label: t.nav.search, icon: "search" },
     { href: "/tasks", label: t.nav.tasks, icon: "rocket" },
     { href: "/devices", label: t.nav.devices, icon: "devices" },
@@ -256,13 +262,44 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 }
 
 function NavRow({
-  href, label, icon, active, onClick,
+  href,
+  label,
+  icon,
+  active,
+  highlight,
+  badge,
+  onClick,
 }: {
-  href: string; label: string; icon: IconName; active: boolean; onClick?: () => void;
+  href: string;
+  label: string;
+  icon: IconName;
+  active: boolean;
+  highlight?: boolean;
+  badge?: string;
+  onClick?: () => void;
 }) {
   const [hover, setHover] = useState(false);
-  const color = active ? "var(--aurora-accent)" : hover ? "var(--aurora-fg1)" : "var(--aurora-fg2)";
-  const bg = active ? "var(--aurora-accent-soft)" : hover ? "var(--aurora-chip)" : "transparent";
+  const color = active
+    ? "var(--aurora-accent)"
+    : highlight
+    ? "var(--aurora-fg1)"
+    : hover
+    ? "var(--aurora-fg1)"
+    : "var(--aurora-fg2)";
+
+  const bg = active
+    ? "var(--aurora-accent-soft)"
+    : highlight
+    ? "rgba(124, 58, 237, 0.08)"
+    : hover
+    ? "var(--aurora-chip)"
+    : "transparent";
+
+  const border =
+    highlight && !active
+      ? "1px solid rgba(124, 58, 237, 0.2)"
+      : "1px solid transparent";
+
   return (
     <Link
       href={href}
@@ -274,19 +311,40 @@ function NavRow({
         alignItems: "center",
         gap: 12,
         padding: "8px 14px",
-        margin: "1px 10px",
+        margin: "2px 10px",
         borderRadius: 12,
         color,
         background: bg,
+        border,
         fontSize: 13.5,
-        fontWeight: active ? 500 : 400,
+        fontWeight: active || highlight ? 500 : 400,
         letterSpacing: "-0.01em",
         transition: "all .15s",
       }}
     >
-      <Icon name={icon} size={16} />
+      <Icon
+        name={icon}
+        size={16}
+        style={highlight && !active ? { color: "var(--aurora-brand-from)" } : undefined}
+      />
       <span style={{ flex: 1 }}>{label}</span>
-      {active && <span style={{ width: 5, height: 5, borderRadius: 9999, background: "var(--aurora-accent)" }} />}
+      {badge && (
+        <span
+          style={{
+            fontSize: 9.5,
+            fontWeight: 700,
+            padding: "1.5px 6px",
+            borderRadius: 6,
+            background: "var(--aurora-brand-grad)",
+            color: "#fff",
+            letterSpacing: "0.05em",
+            boxShadow: "0 2px 6px -1px rgba(124,58,237,0.45)",
+          }}
+        >
+          {badge}
+        </span>
+      )}
+      {active && !badge && <span style={{ width: 5, height: 5, borderRadius: 9999, background: "var(--aurora-accent)" }} />}
     </Link>
   );
 }

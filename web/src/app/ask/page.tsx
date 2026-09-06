@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, DeviceSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
@@ -27,7 +28,8 @@ interface Turn {
   error?: boolean;
 }
 
-export default function AskPage() {
+function AskPageContent() {
+  const searchParams = useSearchParams();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -57,6 +59,17 @@ export default function AskPage() {
 
   // Abort any in-flight stream if the user navigates away mid-answer.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Handle URL query params (?q=...&device=...)
+  const qParam = searchParams.get("q");
+  const deviceParam = searchParams.get("device");
+  const initialSentRef = useRef(false);
+
+  useEffect(() => {
+    if (deviceParam) {
+      setSelectedDevice(deviceParam);
+    }
+  }, [deviceParam]);
 
   const sendWithText = useCallback(async (textToSend: string) => {
     const question = textToSend.trim();
@@ -326,6 +339,13 @@ export default function AskPage() {
   const send = useCallback(() => {
     sendWithText(input);
   }, [input, sendWithText]);
+
+  useEffect(() => {
+    if (qParam && !initialSentRef.current && !streaming) {
+      initialSentRef.current = true;
+      sendWithText(qParam);
+    }
+  }, [qParam, streaming, sendWithText]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -688,5 +708,13 @@ export default function AskPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AskPage() {
+  return (
+    <Suspense fallback={<div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>加载中...</div>}>
+      <AskPageContent />
+    </Suspense>
   );
 }

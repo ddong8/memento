@@ -16,6 +16,8 @@ import asyncio
 import json
 import logging
 import os
+import uuid
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,8 +26,8 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, Machine, User
-from ..db.session import get_db
+from ..db.models import Document, Machine, User, AskConversation
+from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.user_filter import user_machine_ids, apply_user_filter
 from ..services.ai_provider import get_ai_providers, stream_chat_completion
@@ -57,6 +59,7 @@ SYSTEM_PROMPT = """你是 Memento 的记忆助手。用户把自己在各种 AI 
 
 class AskRequest(BaseModel):
     question: str
+    conversation_id: str | None = None
     # [{"role": "user"|"assistant", "content": "..."}] — prior turns.
     history: list[dict] | None = None
     tool: str | None = None
@@ -236,6 +239,180 @@ def _build_messages(
     return messages
 
 
+async def _get_or_create_conversation(
+    conv_id_str: str | None,
+    user: User,
+    question: str,
+    device_id: str | None,
+    cwd: str | None,
+) -> tuple[uuid.UUID, str]:
+    """Retrieve existing conversation or create a new one."""
+    async with async_session_factory() as session:
+        if conv_id_str:
+            try:
+                cid = uuid.UUID(conv_id_str)
+                conv = (await session.execute(
+                    select(AskConversation).where(
+                        (AskConversation.id == cid) &
+                        ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
+                    )
+                )).scalars().first()
+                if conv:
+                    return conv.id, conv.title
+            except Exception:
+                pass
+
+        # Create new conversation with title extracted from question
+        title = question.strip().replace("\n", " ")[:50] or "新对话"
+        conv = AskConversation(
+            user_id=user.id,
+            title=title,
+            turns=[],
+            device_id=device_id,
+            cwd=cwd,
+        )
+        session.add(conv)
+        await session.commit()
+        await session.refresh(conv)
+        return conv.id, conv.title
+
+
+async def _append_conversation_turns(
+    conv_id: uuid.UUID,
+    user_content: str,
+    assistant_content: str,
+    sources: list[dict] | None = None,
+    tool_calls: list[dict] | None = None,
+    device_id: str | None = None,
+    cwd: str | None = None,
+):
+    """Persist user and assistant turns into the conversation row."""
+    try:
+        async with async_session_factory() as session:
+            conv = (await session.execute(
+                select(AskConversation).where(AskConversation.id == conv_id)
+            )).scalars().first()
+            if not conv:
+                return
+
+            turns = list(conv.turns or [])
+            now_iso = datetime.now(timezone.utc).isoformat()
+            turns.append({
+                "role": "user",
+                "content": user_content,
+                "created_at": now_iso,
+            })
+            asst_turn: dict = {
+                "role": "assistant",
+                "content": assistant_content,
+                "created_at": now_iso,
+            }
+            if sources:
+                asst_turn["sources"] = sources
+            if tool_calls:
+                asst_turn["toolCalls"] = tool_calls
+            turns.append(asst_turn)
+
+            conv.turns = turns
+            conv.updated_at = datetime.now(timezone.utc)
+            if device_id:
+                conv.device_id = device_id
+            if cwd:
+                conv.cwd = cwd
+            await session.commit()
+    except Exception as e:
+        logger.exception("Failed to persist conversation %s turns: %s", conv_id, e)
+
+
+@router.get("/conversations")
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """List recent Ask conversations for the current user."""
+    cond = (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    query = (
+        select(
+            AskConversation.id,
+            AskConversation.title,
+            AskConversation.created_at,
+            AskConversation.updated_at,
+            AskConversation.device_id,
+            func.jsonb_array_length(AskConversation.turns).label("message_count"),
+        )
+        .where(cond)
+        .order_by(AskConversation.updated_at.desc().nulls_last())
+        .limit(100)
+    )
+    res = await db.execute(query)
+    rows = res.all()
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            "device_id": r.device_id,
+            "message_count": r.message_count or 0,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/conversations/{conv_id}")
+async def get_conversation(
+    conv_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Get full conversation history with all turns."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    cond = (AskConversation.id == cid) & (
+        (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    )
+    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    return {
+        "id": str(conv.id),
+        "title": conv.title,
+        "turns": conv.turns or [],
+        "device_id": conv.device_id,
+        "cwd": conv.cwd,
+        "created_at": conv.created_at.isoformat() if conv.created_at else None,
+        "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+    }
+
+
+@router.delete("/conversations/{conv_id}")
+async def delete_conversation(
+    conv_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Delete an Ask conversation."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    cond = (AskConversation.id == cid) & (
+        (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    )
+    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    await db.delete(conv)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.post("")
 async def ask(
     body: AskRequest,
@@ -245,6 +422,7 @@ async def ask(
     """Answer a question over the user's memory, streaming the response as SSE.
 
     Event protocol (each line ``data: <json>``):
+      {"type": "conversation_id", "id": "...", "title": "..."} — emitted first
       {"type": "sources", "sources": [...]}   — emitted once, before generation
       {"type": "delta",   "text": "..."}      — incremental answer tokens
       {"type": "done"}                        — end of stream
@@ -255,6 +433,16 @@ async def ask(
         raise HTTPException(status_code=400, detail="question is required")
     if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
+
+    device_id = (body.device_id or "").strip()
+
+    conv_id, conv_title = await _get_or_create_conversation(
+        body.conversation_id,
+        _user,
+        question,
+        device_id or None,
+        body.cwd,
+    )
 
     is_cont = _is_continuation(question)
     retrieval_query = question
@@ -269,7 +457,6 @@ async def ask(
     sources = await _retrieve(db, _user, retrieval_query, body.tool, body.days)
     messages = _build_messages(question, sources, body.history, is_continuation=is_cont)
 
-    device_id = (body.device_id or "").strip()
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
 
     # Agent mode: the model may also dispatch work to the user's devices when
@@ -301,21 +488,59 @@ async def ask(
         agent_messages = [{"role": "system", "content": system_content}] + messages[1:]
 
         async def agent_stream():
+            yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+            accumulated_text: list[str] = []
+            tool_calls_map: dict[str, dict] = {}
+            saved = False
+
+            async def _persist():
+                nonlocal saved
+                if saved:
+                    return
+                saved = True
+                await _append_conversation_turns(
+                    conv_id,
+                    question,
+                    "".join(accumulated_text),
+                    sources=sources,
+                    tool_calls=list(tool_calls_map.values()),
+                    device_id=device_id or None,
+                    cwd=body.cwd,
+                )
+
             try:
                 async for evt in run_agent_loop(db, _user, agent_messages):
                     if evt.get("type") == "ping":
-                        # Both SSE comment and JSON data ping to prevent proxy/browser idle timeouts
                         yield ": ping\n\n"
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
                     else:
+                        etype = evt.get("type")
+                        if etype == "tool_call":
+                            cid = evt.get("id") or evt.get("tool_call_id") or ""
+                            tool_calls_map[cid] = {
+                                "name": evt.get("name"),
+                                "args": evt.get("args"),
+                                "device_name": evt.get("device_name"),
+                            }
+                        elif etype == "tool_result":
+                            cid = evt.get("tool_call_id") or ""
+                            if cid in tool_calls_map:
+                                tool_calls_map[cid]["result"] = evt.get("result")
+                        elif etype == "delta":
+                            accumulated_text.append(evt.get("text") or "")
+
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
             except (asyncio.CancelledError, GeneratorExit):
                 logger.info("agent stream cancelled by client")
+                await _persist()
                 return
             except Exception as e:
                 logger.exception("agent loop failed: %s", e)
                 yield f"data: {json.dumps({'type': 'error', 'message': f'调度失败: {e}'}, ensure_ascii=False)}\n\n"
+            finally:
+                await _persist()
+
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return StreamingResponse(
@@ -329,12 +554,31 @@ async def ask(
         )
 
     async def stream():
-        # Sources go out first so the UI can render citations while the model
-        # is still thinking.
+        yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
+        accumulated_text: list[str] = []
+        saved = False
+
+        async def _persist():
+            nonlocal saved
+            if saved:
+                return
+            saved = True
+            await _append_conversation_turns(
+                conv_id,
+                question,
+                "".join(accumulated_text),
+                sources=sources,
+                tool_calls=None,
+                device_id=device_id or None,
+                cwd=body.cwd,
+            )
 
         if not sources:
-            yield f"data: {json.dumps({'type': 'delta', 'text': '没有检索到相关资料。'}, ensure_ascii=False)}\n\n"
+            empty_msg = "没有检索到相关资料。"
+            accumulated_text.append(empty_msg)
+            yield f"data: {json.dumps({'type': 'delta', 'text': empty_msg}, ensure_ascii=False)}\n\n"
+            await _persist()
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
@@ -345,11 +589,14 @@ async def ask(
                 max_tokens=1500,
                 timeout=120.0,
             ):
+                accumulated_text.append(delta)
                 yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("ask stream failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"
             return
+        finally:
+            await _persist()
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
@@ -359,8 +606,6 @@ async def ask(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # nginx/ingress buffers SSE by default, which makes the whole
-            # answer land at once instead of streaming.
             "X-Accel-Buffering": "no",
         },
     )

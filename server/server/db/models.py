@@ -522,3 +522,25 @@ class DeviceTask(Base):
         Index("idx_device_task_poll", "device_id", "status", "created_at"),
         Index("idx_device_task_user", "user_id", "created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Ask Conversations (user Q&A and agent dispatch history in /ask)
+# ---------------------------------------------------------------------------
+class AskConversation(Base):
+    __tablename__ = "ask_conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(500), nullable=False, default="新对话")
+    turns: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    device_id: Mapped[str | None] = mapped_column(String(255))
+    cwd: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User | None"] = relationship()
+
+    __table_args__ = (
+        Index("idx_ask_conv_user_updated", "user_id", "updated_at"),
+    )

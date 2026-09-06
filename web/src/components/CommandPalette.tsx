@@ -134,7 +134,7 @@ export default function CommandPalette() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (active < max && hits[active]) go(`/documents/${hits[active].id}`);
-      else if (query.trim()) go(`/search?q=${encodeURIComponent(query.trim())}`);
+      else if (query.trim()) go(`/ask?q=${encodeURIComponent(query.trim())}`);
     }
   };
 
@@ -368,7 +368,7 @@ export default function CommandPalette() {
           {query.trim() && (
             <div
               data-idx={hits.length}
-              onClick={() => go(`/search?q=${encodeURIComponent(query.trim())}`)}
+              onClick={() => go(`/ask?q=${encodeURIComponent(query.trim())}`)}
               onMouseEnter={() => setActive(hits.length)}
               style={{
                 display: "flex",

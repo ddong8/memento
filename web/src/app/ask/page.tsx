@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, DeviceSummary } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
@@ -28,6 +28,20 @@ interface Turn {
   error?: boolean;
 }
 
+function formatRelativeTime(dateStr: string | null, isZh: boolean): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return isZh ? "刚刚" : "just now";
+  if (mins < 60) return isZh ? `${mins} 分钟前` : `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return isZh ? `${hrs} 小时前` : `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return isZh ? `${days} 天前` : `${days}d ago`;
+  return d.toLocaleDateString();
+}
+
 function AskPageContent() {
   const searchParams = useSearchParams();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -38,9 +52,72 @@ function AskPageContent() {
   const [cwd, setCwd] = useState<string>("");
   const [showCwd, setShowCwd] = useState<boolean>(false);
 
-  const { t } = useI18n();
+  // Conversation history state
+  const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+
+  const { t, locale } = useI18n();
+  const isZh = locale.startsWith("zh");
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load conversation list
+  const loadConversations = useCallback(async () => {
+    try {
+      setLoadingHistory(true);
+      const list = await api.listAskConversations();
+      setConversations(list || []);
+    } catch (e) {
+      console.error("Failed to load ask conversations:", e);
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, []);
+
+  // Load single conversation
+  const loadConversation = useCallback(async (id: string) => {
+    try {
+      const data = await api.getAskConversation(id);
+      setActiveConversationId(data.id);
+      window.history.replaceState(null, "", `/ask?id=${data.id}`);
+      if (data.device_id) setSelectedDevice(data.device_id);
+      if (data.cwd) setCwd(data.cwd);
+      setTurns(data.turns || []);
+      setHistoryOpen(false);
+    } catch (e) {
+      console.error("Failed to load conversation:", e);
+    }
+  }, []);
+
+  // Start fresh chat
+  const startNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    setActiveConversationId(null);
+    setTurns([]);
+    setInput("");
+    window.history.replaceState(null, "", "/ask");
+    setHistoryOpen(false);
+  }, []);
+
+  // Delete conversation
+  const deleteConversation = useCallback(
+    async (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (!window.confirm(t.ask.deleteConfirm)) return;
+      try {
+        await api.deleteAskConversation(id);
+        setConversations((prev) => prev.filter((c) => c.id !== id));
+        if (activeConversationId === id) {
+          startNewChat();
+        }
+      } catch (e) {
+        console.error("Failed to delete conversation:", e);
+      }
+    },
+    [activeConversationId, startNewChat, t.ask.deleteConfirm]
+  );
 
   // Fetch online/registered devices
   useEffect(() => {
@@ -52,6 +129,19 @@ function AskPageContent() {
       .catch(() => setDevices([]));
   }, []);
 
+  // Check URL params (?id=... or ?q=...)
+  const qParam = searchParams.get("q");
+  const idParam = searchParams.get("id");
+  const deviceParam = searchParams.get("device");
+  const initialSentRef = useRef(false);
+
+  useEffect(() => {
+    loadConversations();
+    if (idParam) {
+      loadConversation(idParam);
+    }
+  }, [idParam, loadConversation, loadConversations]);
+
   // Follow the stream as tokens land.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -59,11 +149,6 @@ function AskPageContent() {
 
   // Abort any in-flight stream if the user navigates away mid-answer.
   useEffect(() => () => abortRef.current?.abort(), []);
-
-  // Handle URL query params (?q=...&device=...)
-  const qParam = searchParams.get("q");
-  const deviceParam = searchParams.get("device");
-  const initialSentRef = useRef(false);
 
   useEffect(() => {
     if (deviceParam) {
@@ -119,6 +204,7 @@ function AskPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
+          conversation_id: activeConversationId || undefined,
           history,
           device_id: selectedDevice,
           cwd: cwd.trim() || undefined,
@@ -170,7 +256,11 @@ function AskPageContent() {
             continue;
           }
 
-          if (evt.type === "sources") {
+          if (evt.type === "conversation_id" && evt.id) {
+            setActiveConversationId(evt.id);
+            window.history.replaceState(null, "", `/ask?id=${evt.id}`);
+            loadConversations();
+          } else if (evt.type === "sources") {
             patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
           } else if (evt.type === "tool_call") {
             patchLast((x) => {
@@ -333,8 +423,9 @@ function AskPageContent() {
     } finally {
       setStreaming(false);
       abortRef.current = null;
+      loadConversations();
     }
-  }, [cwd, selectedDevice, streaming, turns, t]);
+  }, [activeConversationId, cwd, loadConversations, selectedDevice, streaming, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
@@ -368,16 +459,50 @@ function AskPageContent() {
         title={t.ask.title}
         subtitle={t.ask.subtitle}
         right={
-          turns.length > 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Btn
-              onClick={() => {
-                abortRef.current?.abort();
-                setTurns([]);
-              }}
+              variant="glass"
+              size="sm"
+              icon="clock"
+              onClick={() => setHistoryOpen(true)}
             >
-              {t.ask.clear}
+              <span>{t.ask.historyTitle}</span>
+              {conversations.length > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: "var(--aurora-chip)",
+                    color: "var(--aurora-fg3)",
+                    marginLeft: 4,
+                  }}
+                >
+                  {conversations.length}
+                </span>
+              )}
             </Btn>
-          ) : undefined
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="plus"
+              onClick={startNewChat}
+            >
+              <span>{t.ask.newChat}</span>
+            </Btn>
+            {turns.length > 0 && (
+              <Btn
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  abortRef.current?.abort();
+                  setTurns([]);
+                }}
+              >
+                {t.ask.clear}
+              </Btn>
+            )}
+          </div>
         }
       />
 
@@ -707,6 +832,245 @@ function AskPageContent() {
           </div>
         </div>
       </div>
+
+      {/* History Drawer Overlay & Sidebar */}
+      {historyOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            onClick={() => setHistoryOpen(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0, 0, 0, 0.45)",
+              backdropFilter: "blur(4px)",
+            }}
+          />
+
+          {/* Drawer content */}
+          <div
+            style={{
+              position: "relative",
+              width: "min(380px, 90vw)",
+              height: "100%",
+              background: "var(--aurora-bg2)",
+              borderLeft: "1px solid var(--aurora-border)",
+              boxShadow: "-8px 0 28px rgba(0, 0, 0, 0.2)",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: 1,
+            }}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "16px 20px",
+                borderBottom: "1px solid var(--aurora-border)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="clock" size={18} style={{ color: "var(--aurora-accent)" }} />
+                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                  {t.ask.historyTitle}
+                </span>
+                {conversations.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      background: "var(--aurora-chip)",
+                      color: "var(--aurora-fg3)",
+                    }}
+                  >
+                    {conversations.length}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={startNewChat}
+                  title={t.ask.newChat}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    color: "var(--aurora-fg2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name="plus" size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--aurora-fg3)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name="close" size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Drawer List */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "12px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              {loadingHistory ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: "var(--aurora-fg4)", fontSize: 13 }}>
+                  加载中...
+                </div>
+              ) : conversations.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "48px 20px",
+                    color: "var(--aurora-fg4)",
+                    fontSize: 13,
+                  }}
+                >
+                  {t.ask.noHistory}
+                </div>
+              ) : (
+                conversations.map((c) => {
+                  const isActive = c.id === activeConversationId;
+                  const dateStr = c.updated_at
+                    ? new Date(c.updated_at).toLocaleString(undefined, {
+                        month: "numeric",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "";
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => loadConversation(c.id)}
+                      style={{
+                        padding: "11px 13px",
+                        borderRadius: 10,
+                        background: isActive ? "var(--aurora-chip)" : "transparent",
+                        border: "1px solid",
+                        borderColor: isActive ? "var(--aurora-accent)" : "transparent",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = "var(--aurora-chip)";
+                          e.currentTarget.style.borderColor = "var(--aurora-border)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.borderColor = "transparent";
+                        }
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13.5,
+                            fontWeight: isActive ? 600 : 500,
+                            color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {c.title || t.ask.title}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            fontSize: 11.5,
+                            color: "var(--aurora-fg4)",
+                            marginTop: 4,
+                          }}
+                        >
+                          <span>{dateStr}</span>
+                          <span>·</span>
+                          <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => deleteConversation(e, c.id)}
+                        title={t.ask.deleteConfirm}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--aurora-fg4)",
+                          cursor: "pointer",
+                          padding: 6,
+                          borderRadius: 6,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: 0.6,
+                          transition: "all 0.15s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = "#ef4444";
+                          e.currentTarget.style.opacity = "1";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = "var(--aurora-fg4)";
+                          e.currentTarget.style.opacity = "0.6";
+                        }}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, DeviceTask, DeviceSummary, getApiBase, authFetch } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
@@ -20,6 +21,11 @@ function statusTone(s: string): "neutral" | "accent" | "success" | "warn" | "dan
 }
 
 export default function TasksPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/ask");
+  }, [router]);
+
   const { t } = useI18n();
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [deviceId, setDeviceId] = useState("");

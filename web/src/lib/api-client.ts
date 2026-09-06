@@ -486,4 +486,35 @@ export const api = {
     if (category) params.set("category", category);
     return apiFetch<TimelineResponse>(`/api/projects/${projectId}/timeline?${params}`);
   },
+  listAskConversations: () =>
+    apiFetch<AskConversationSummary[]>("/api/ask/conversations"),
+  getAskConversation: (id: string) =>
+    apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
+  deleteAskConversation: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
 };
+
+export interface AskConversationSummary {
+  id: string;
+  title: string;
+  created_at: string | null;
+  updated_at: string | null;
+  device_id: string | null;
+  message_count: number;
+}
+
+export interface AskConversationDetail {
+  id: string;
+  title: string;
+  turns: Array<{
+    role: "user" | "assistant";
+    content: string;
+    sources?: any[];
+    toolCalls?: any[];
+    created_at?: string;
+  }>;
+  device_id: string | null;
+  cwd: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}

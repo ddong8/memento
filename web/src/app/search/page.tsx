@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SearchResult, getApiBase, authFetch } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
 import { useDevice } from "@/lib/device-context";
@@ -17,8 +17,18 @@ function escapeRegExp(s: string): string {
 }
 
 function SearchPageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
+
+  // /search is folded into /ask — redirect seamlessly
+  useEffect(() => {
+    if (initialQ.trim()) {
+      router.replace(`/ask?q=${encodeURIComponent(initialQ.trim())}`);
+    } else {
+      router.replace("/ask");
+    }
+  }, [initialQ, router]);
 
   const [query, setQuery] = useState(initialQ);
   const [toolFilter, setToolFilter] = useState("");

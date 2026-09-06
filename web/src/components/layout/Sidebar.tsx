@@ -63,8 +63,6 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     { href: "/memory", label: t.nav.memory || "Memory", icon: "brain" },
     { href: "/projects", label: t.nav.projects, icon: "folder" },
     { href: "/daily", label: t.nav.daily, icon: "calendar" },
-    { href: "/search", label: t.nav.search, icon: "search" },
-    { href: "/tasks", label: t.nav.tasks, icon: "rocket" },
     { href: "/devices", label: t.nav.devices, icon: "devices" },
     { href: "/inbox", label: t.nav.inbox, icon: "inbox" },
     ...(isAdmin ? [{ href: "/admin", label: t.nav.admin, icon: "lock" as IconName }] : []),

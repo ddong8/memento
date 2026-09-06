@@ -418,14 +418,71 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
    Markdown
    ========================================================================= */
 .prose pre {
-  background: #1e293b;
-  border-radius: 0.5rem;
+  background: #1e1e1e;
+  color: #f4f4f8;
+  border-radius: 0.75rem;
   padding: 1rem;
   overflow-x: auto;
   max-width: 100%;
   -webkit-overflow-scrolling: touch;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
 }
-.prose code { font-size: 0.875rem; word-break: break-all; }
+.prose pre code {
+  background: transparent !important;
+  color: inherit !important;
+  padding: 0 !important;
+  border: 0 !important;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.prose code {
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Fallback & universal styles for markdown tables */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.875rem 0;
+  font-size: 0.875rem;
+  border: 1px solid var(--aurora-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.prose thead {
+  background: var(--aurora-chip);
+  border-bottom: 1px solid var(--aurora-border-strong);
+}
+.prose th {
+  padding: 0.625rem 1rem;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  border-right: 1px solid var(--aurora-border);
+  text-align: left;
+}
+.prose th:last-child {
+  border-right: none;
+}
+.prose tbody tr {
+  border-bottom: 1px solid var(--aurora-border);
+  transition: background-color 0.15s ease;
+}
+.prose tbody tr:last-child {
+  border-bottom: none;
+}
+.prose tbody tr:hover {
+  background: var(--aurora-chip);
+}
+.prose td {
+  padding: 0.5rem 1rem;
+  color: var(--aurora-fg2);
+  border-right: 1px solid var(--aurora-border);
+  vertical-align: top;
+}
+.prose td:last-child {
+  border-right: none;
+}
 
 /* =========================================================================
    iPhone safe area

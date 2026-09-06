@@ -136,11 +136,18 @@ async def _resolve_machine_name(dev_id: str) -> str:
 ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能够调用用户的多台物理设备（Mac、Linux、Windows 等）完成任务。
 
 你有两种信息来源：
-1. 「资料」——已同步到服务端的对话、笔记、记忆。如果资料库中已有答案，优先使用资料回答，不要盲目去设备上查。
-2. 「设备工具」——当资料库不足、或用户明确要求在特定机器上查实时状态/执行操作时：
-   - 先使用 list_devices 查看设备列表、系统版本、在线状态；
+1. 「资料」——服务端资料库，用于查阅已同步的历史笔记、过往对话或知识。
+2. 「设备工具」——当涉及具体机器上的服务启动、端口排查、进程管理、代码修复、故障诊断，或用户要求「继续修复/排查/运行」时，必须主动使用 run_on_device 在目标设备上执行操作与验证！
+   - 先使用 list_devices 查看设备列表、系统版本、在线状态；若用户已指定设备或上下文已明确设备，可直接调用 run_on_device；
    - 确认设备 online 后，再使用 run_on_device 发送任务。
    - 【支持多设备并发】：若涉及多台机器（如排查集群或对比多机端口），你可以在一轮中同时发出针对不同机器的多个 run_on_device 调用，系统已支持全并发下发与实时流式回传！
+
+【跟进与继续修复规则】（核心必遵）：
+- 当用户发出「继续修复」、「继续」、「重试」、「还没修好」、「还是报错」等延续性指令时：
+  * 代表前序任务执行遇到了报错（非零退出码、stderr 异常输出）或尚未达成目标，绝不能未执行任何操作就回复「任务已完成」或草草结束！
+  * 必须仔细检查对话历史中上一轮或多轮的设备执行记录、命令退出码和 stderr 报错输出，定位失败根因。
+  * 必须在第一轮主动通过 run_on_device 在目标设备上执行下一步修复或排查动作（例如杀死占用端口的进程、安装缺失依赖、修复配置并重启服务）。
+  * 若不确定当前状态，先调用 run_on_device 检查对应服务/进程当前状态或查看最新日志，确认实际情况后再向用户汇报。
 
 设备命令执行安全与性能军规（务必遵守，防止进程挂死或机器卡顿）：
 - 严禁全盘递归扫描：绝对禁止在根目录 `/` 或整个用户家目录 `$HOME` 下执行无限制深度的 `find`、`grep -r` 等全盘扫描！在 macOS 上扫描 `$HOME` 会遍历 `~/Library` 下的庞大沙盒容器和 iCloud 云盘，会触发系统 I/O 挂起或权限死锁，极易超时。
@@ -533,13 +540,50 @@ async def run_agent_loop(
         calls = msg.get("tool_calls") or []
 
         if not calls:
-            # No more tools wanted — this is the final answer.
-            content = msg.get("content") or ""
-            if content:
+            content = (msg.get("content") or "").strip()
+
+            if round_no == 0:
+                if content:
+                    yield {"type": "delta", "text": content}
+                    return
+                # Round 0 with no calls and empty content: fallback to plain chat without tools
+                logger.info("Orchestrator round 0 returned no calls and empty content; falling back to plain chat")
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        plain_resp = await client.post(
+                            f"{AI_BASE_URL}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {AI_API_KEY}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": AI_MODEL,
+                                "messages": convo,
+                                "temperature": 0.3,
+                                "max_tokens": 1500,
+                            },
+                        )
+                        if plain_resp.status_code == 200:
+                            p_choice = (plain_resp.json().get("choices") or [{}])[0]
+                            p_content = ((p_choice.get("message") or {}).get("content") or "").strip()
+                            if p_content:
+                                yield {"type": "delta", "text": p_content}
+                                return
+                except Exception as e:
+                    logger.warning("Round 0 fallback completion failed: %s", e)
+
+                yield {"type": "delta", "text": "未获取到需要执行的具体设备操作。如需在设备上排查或修复，请告知目标设备与具体要求。"}
+                return
+
+            # round_no > 0: Tools WERE executed in previous rounds!
+            # If the model produced a substantive summary, return it.
+            if content and len(content) > 15 and "任务已执行完成" not in content:
                 yield {"type": "delta", "text": content}
-            else:
-                yield {"type": "delta", "text": "任务已执行完成。"}
-            return
+                return
+
+            # If tools ran but LLM provided empty or trivial summary, trigger the full synthesis step!
+            logger.info("Tools executed in previous rounds; invoking full synthesis")
+            break
 
         # Echo the assistant's tool-call turn back into the conversation
         # verbatim; providers reject a tool result whose call is missing.

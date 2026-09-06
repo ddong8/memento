@@ -144,7 +144,57 @@ async def _retrieve(
     return sources
 
 
-def _build_messages(question: str, sources: list[dict], history: list[dict] | None) -> list[dict]:
+CONTINUATION_KEYWORDS = (
+    "继续", "修复", "重试", "接着", "还没好", "没好", "再试", "重新",
+    "还是报错", "依然报错", "解决一下", "搞定它", "接着修", "排查", "查一下", "启动一下", "怎么回事", "为什么",
+)
+
+
+def _is_continuation(question: str) -> bool:
+    q = question.strip()
+    if len(q) <= 30 and any(kw in q for kw in CONTINUATION_KEYWORDS):
+        return True
+    return False
+
+
+def _format_tool_calls_summary(tool_calls: list[dict]) -> str:
+    if not tool_calls:
+        return ""
+    lines = ["【在设备上调用的工具与执行结果记录】:"]
+    for tc in tool_calls:
+        name = tc.get("name") or "run_on_device"
+        args = tc.get("args") or {}
+        dev = tc.get("device_name") or args.get("device_id") or ""
+        cmd = args.get("command") or args.get("prompt") or ""
+        action = args.get("action") or ("shell" if "command" in args else "agent")
+        status = tc.get("status") or "executed"
+        exit_code = tc.get("exit_code")
+        err = tc.get("stderr") or tc.get("error") or ""
+        out = tc.get("stdout") or ""
+
+        info = f"- 工具: {name} (类型: {action}"
+        if dev:
+            info += f", 目标设备: {dev}"
+        info += ")"
+        if cmd:
+            info += f"\n  执行内容: {cmd}"
+        info += f"\n  执行状态: {status}"
+        if exit_code is not None:
+            info += f" (退出码: {exit_code})"
+        if err:
+            info += f"\n  错误输出/stderr:\n```\n{err.strip()[:1500]}\n```"
+        elif out:
+            info += f"\n  终端输出/stdout:\n```\n{out.strip()[:600]}\n```"
+        lines.append(info)
+    return "\n".join(lines)
+
+
+def _build_messages(
+    question: str,
+    sources: list[dict],
+    history: list[dict] | None,
+    is_continuation: bool = False,
+) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
         for i, s in enumerate(sources)
@@ -153,12 +203,40 @@ def _build_messages(question: str, sources: list[dict], history: list[dict] | No
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for turn in (history or [])[-MAX_HISTORY_TURNS:]:
         role = turn.get("role")
-        content = turn.get("content")
-        if role in ("user", "assistant") and isinstance(content, str) and content:
+        content = (turn.get("content") or "").strip()
+        tool_calls = turn.get("tool_calls") or turn.get("toolCalls") or []
+
+        if role == "assistant":
+            parts = []
+            t_summary = _format_tool_calls_summary(tool_calls)
+            if t_summary:
+                parts.append(t_summary)
+            # Filter out misleading empty or bogus fallback messages from previous turns
+            if content and content != "任务已执行完成。":
+                parts.append(content)
+            combined = "\n\n".join(parts)
+            if combined:
+                messages.append({"role": role, "content": combined})
+        elif role == "user" and content:
             messages.append({"role": role, "content": content})
+
+    if is_continuation:
+        user_prompt = (
+            f"【跟进与继续修复指令】\n"
+            f"用户指令: 「{question}」\n"
+            f"请仔细结合上方历史记录中上一轮在设备上执行的命令、退出码以及报错日志（stderr），"
+            f"分析失败根因，并在目标设备上主动调用 run_on_device 执行下一步排查或修复操作"
+            f"（例如杀死占用端口的进程、修复代码/配置、安装依赖、重启并检查状态）。\n"
+            f"绝对不可在未执行修复操作时直接结束或回答「任务已完成」！"
+        )
+        if sources:
+            user_prompt = f"参考资料:\n{context}\n\n{user_prompt}"
+    else:
+        user_prompt = f"资料:\n{context}\n\n问题: {question}"
+
     messages.append({
         "role": "user",
-        "content": f"资料:\n{context}\n\n问题: {question}",
+        "content": user_prompt,
     })
     return messages
 
@@ -183,8 +261,18 @@ async def ask(
     if not AI_API_KEY:
         raise HTTPException(status_code=503, detail="AI provider not configured")
 
-    sources = await _retrieve(db, _user, question, body.tool, body.days)
-    messages = _build_messages(question, sources, body.history)
+    is_cont = _is_continuation(question)
+    retrieval_query = question
+    if is_cont and body.history:
+        for prev in reversed(body.history):
+            if prev.get("role") == "user" and prev.get("content"):
+                prev_text = prev["content"].strip()
+                if not _is_continuation(prev_text):
+                    retrieval_query = f"{prev_text} {question}"
+                    break
+
+    sources = await _retrieve(db, _user, retrieval_query, body.tool, body.days)
+    messages = _build_messages(question, sources, body.history, is_continuation=is_cont)
 
     device_id = (body.device_id or "").strip()
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"

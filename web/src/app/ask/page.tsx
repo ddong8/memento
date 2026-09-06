@@ -62,10 +62,23 @@ export default function AskPage() {
     const question = textToSend.trim();
     if (!question || streaming) return;
 
-    // Snapshot history BEFORE appending
+    // Snapshot history BEFORE appending, preserving tool execution results for follow-up turns
     const history = turns
       .filter((x) => !x.error)
-      .map((x) => ({ role: x.role, content: x.content }));
+      .map((x) => ({
+        role: x.role,
+        content: x.content,
+        tool_calls: x.toolCalls?.map((tc) => ({
+          name: tc.name,
+          args: tc.args,
+          device_name: tc.device_name || tc.result?.device_name,
+          status: tc.result?.status,
+          exit_code: tc.result?.exit_code,
+          stdout: tc.result?.stdout ? tc.result.stdout.slice(-2000) : undefined,
+          stderr: tc.result?.stderr ? tc.result.stderr.slice(-2000) : undefined,
+          error: tc.result?.error,
+        })),
+      }));
 
     setInput("");
     setTurns((prev) => [

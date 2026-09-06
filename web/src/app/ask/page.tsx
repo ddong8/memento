@@ -60,6 +60,10 @@ function AskPageContent() {
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
+  // Sources drawer state
+  const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
+  const [selectedSources, setSelectedSources] = useState<Source[]>([]);
+
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
   const abortRef = useRef<AbortController | null>(null);
@@ -90,6 +94,7 @@ function AskPageContent() {
       if (data.cwd) setCwd(data.cwd);
       setTurns(data.turns || []);
       setHistoryOpen(false);
+      setSourcesOpen(false);
     } catch (e) {
       console.error("Failed to load conversation:", e);
     }
@@ -105,6 +110,7 @@ function AskPageContent() {
     setInput("");
     window.history.replaceState(null, "", "/ask");
     setHistoryOpen(false);
+    setSourcesOpen(false);
   }, []);
 
   // Delete conversation
@@ -610,6 +616,64 @@ function AskPageContent() {
             </div>
           ) : (
             <Glass key={i} padding={20} radius={18}>
+              {/* Optional top toolbar / sources pill */}
+              {turn.sources && turn.sources.length > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    marginBottom: 10,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSources(turn.sources || []);
+                      setSourcesOpen(true);
+                      setHistoryOpen(false);
+                    }}
+                    title={t.ask.sources}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--aurora-accent)";
+                      e.currentTarget.style.color = "var(--aurora-accent)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--aurora-border)";
+                      e.currentTarget.style.color = "var(--aurora-fg2)";
+                    }}
+                  >
+                    <Icon name="book" size={13} style={{ color: "var(--aurora-accent)" }} />
+                    <span>{t.ask.sources}</span>
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        padding: "1px 6px",
+                        borderRadius: 999,
+                        background: "rgba(56, 189, 248, 0.15)",
+                        color: "var(--aurora-accent)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {turn.sources.length}
+                    </span>
+                  </button>
+                </div>
+              )}
+
               {/* Render tool executions with multi-device tabs */}
               {turn.toolCalls && turn.toolCalls.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
@@ -637,48 +701,6 @@ function AskPageContent() {
                     {t.ask.thinking}
                   </div>
                 )
-              )}
-
-              {/* Sources citations */}
-              {turn.sources && turn.sources.length > 0 && (
-                <div style={{ marginTop: 14, borderTop: "1px solid var(--aurora-border)", paddingTop: 12 }}>
-                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginBottom: 8, fontWeight: 500 }}>
-                    {t.ask.sources}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {turn.sources.map((s, si) => (
-                      <Link key={s.id} href={`/documents/${s.id}`} style={{ textDecoration: "none" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "7px 10px",
-                            border: "1px solid var(--aurora-border)",
-                            borderRadius: 12,
-                            background: "rgba(255,255,255,0.02)",
-                          }}
-                        >
-                          <span style={{ fontSize: 11, color: "var(--aurora-accent)", fontWeight: 600, flexShrink: 0 }}>
-                            [{si + 1}]
-                          </span>
-                          <ToolGlyph id={s.tool_id} size={18} />
-                          <span
-                            style={{
-                              fontSize: 12.5,
-                              color: "var(--aurora-fg2)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {s.title || s.relative_path}
-                          </span>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
               )}
             </Glass>
           )
@@ -1078,6 +1100,195 @@ function AskPageContent() {
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sources Drawer Overlay & Sidebar */}
+      {sourcesOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            onClick={() => setSourcesOpen(false)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0, 0, 0, 0.45)",
+              backdropFilter: "blur(4px)",
+            }}
+          />
+
+          {/* Drawer content */}
+          <div
+            style={{
+              position: "relative",
+              width: "min(420px, 92vw)",
+              height: "100%",
+              background: "var(--aurora-bg2)",
+              borderLeft: "1px solid var(--aurora-border)",
+              boxShadow: "-8px 0 28px rgba(0, 0, 0, 0.2)",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: 1,
+            }}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "16px 20px",
+                borderBottom: "1px solid var(--aurora-border)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon name="book" size={18} style={{ color: "var(--aurora-accent)" }} />
+                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                  {t.ask.sources}
+                </span>
+                {selectedSources.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "var(--aurora-accent)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {selectedSources.length}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSourcesOpen(false)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--aurora-fg3)",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+
+            {/* Drawer List */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              {selectedSources.map((s, si) => (
+                <div
+                  key={s.id || si}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "var(--aurora-accent)",
+                        }}
+                      >
+                        [{si + 1}]
+                      </span>
+                      <ToolGlyph id={s.tool_id} size={16} />
+                      {s.category && (
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            padding: "1px 6px",
+                            borderRadius: 6,
+                            background: "rgba(255,255,255,0.06)",
+                            color: "var(--aurora-fg3)",
+                          }}
+                        >
+                          {s.category}
+                        </span>
+                      )}
+                    </div>
+                    {s.synced_at && (
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+                        {formatRelativeTime(s.synced_at, isZh)}
+                      </span>
+                    )}
+                  </div>
+
+                  <Link
+                    href={`/documents/${s.id}`}
+                    target="_blank"
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--aurora-fg1)",
+                      textDecoration: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s.title || s.relative_path}
+                    </span>
+                    <Icon name="external_link" size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
+                  </Link>
+
+                  {s.excerpt && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        lineHeight: 1.5,
+                        color: "var(--aurora-fg3)",
+                        background: "rgba(0, 0, 0, 0.12)",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                        borderLeft: "2px solid var(--aurora-accent)",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        maxHeight: 140,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {s.excerpt}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>

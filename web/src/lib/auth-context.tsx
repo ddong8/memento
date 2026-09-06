@@ -86,6 +86,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Skip token validation on auth handoff pages — they receive a new token
+    // via URL fragment and immediately navigate to their destination.
+    if (pathname === "/auth/handoff" || pathname === "/auth/desktop") {
+      setLoading(false);
+      return;
+    }
+
     // Only fetch /me if we have a token carried over from a previous session.
     if (!token) {
       setLoading(false);
@@ -107,9 +114,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
           .catch(() => { /* keep the original token; /me already validated it */ });
       })
-      .catch(() => {
-        localStorage.removeItem("dr_token");
-        setToken(null);
+      .catch((err) => {
+        // Only clear credentials if the server explicitly returned 401 Unauthorized.
+        // Aborted requests (e.g. user clicked reload or page navigated away),
+        // network timeouts, or transient 5xx errors must NEVER log the user out!
+        const errMsg = err instanceof Error ? err.message : String(err || "");
+        if (errMsg === "Unauthorized" || errMsg.includes("401")) {
+          localStorage.removeItem("dr_token");
+          setToken(null);
+        }
       })
       .finally(() => setLoading(false));
     // Intentionally run only on mount — token is a lazy-init snapshot.

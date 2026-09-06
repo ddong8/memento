@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Token hand-off target for the Memento desktop app. The desktop client
 // already authenticated the user (in-app register/login), mints a fresh
@@ -14,8 +14,12 @@ import { useEffect, useState } from "react";
 // Hash (not query string) keeps the JWT out of server logs / Referer.
 export default function HandoffPage() {
   const [failed, setFailed] = useState(false);
+  const handledRef = useRef(false);
 
   useEffect(() => {
+    if (handledRef.current) return;
+    handledRef.current = true;
+
     const hash = window.location.hash.replace(/^#/, "");
     const params = new URLSearchParams(hash);
     const token = params.get("token");
@@ -35,8 +39,6 @@ export default function HandoffPage() {
       setFailed(true);
       return;
     }
-    // Drop the token from the address bar before navigating away.
-    history.replaceState(null, "", window.location.pathname);
     window.location.replace(dest);
   }, []);
 

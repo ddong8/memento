@@ -106,7 +106,7 @@ export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
   claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#D97757)" },
   openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
   codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
-  antigravity: { h: 215, bg: "linear-gradient(135deg,#3B82F6,#1D4ED8)" },
+  antigravity: { h: 220, bg: "linear-gradient(135deg,#1E293B,#0F172A)" },
   obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
   cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
   windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
@@ -138,7 +138,7 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
 
   // Aurora: colored gradient tile + white brand mark + highlight
   if (skin === "aurora") {
-    const isDarkTile = id === "cursor";
+    const isDarkTile = id === "cursor" || id === "antigravity";
     const markSize = Math.max(12, Math.round(size * 0.58));
     return (
       <div
@@ -175,7 +175,12 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
             pointerEvents: "none",
           }}
         />
-        <BrandMark id={id} size={markSize} inverted />
+        <BrandMark
+          id={id}
+          size={markSize}
+          inverted={id !== "antigravity"}
+          colored={id === "antigravity"}
+        />
       </div>
     );
   }

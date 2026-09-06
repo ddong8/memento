@@ -5,7 +5,7 @@
  *   - inverted=true → white (for dark gradient tiles)
  *   - default       → currentColor monochrome
  */
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 
 export const BRAND_COLORS: Record<string, string> = {
   claude_code: "#D97757", // Anthropic official terracotta
@@ -14,7 +14,7 @@ export const BRAND_COLORS: Record<string, string> = {
   cursor:      "currentColor", // Cursor adaptive black/white
   windsurf:    "#0FB68A", // Windsurf official teal
   vscode:      "#007ACC", // Visual Studio Code official blue
-  antigravity: "#2563EB", // Google Antigravity official blue
+  antigravity: "#3186FF", // Google Antigravity official blue
   openclaw:    "#FF4D4D", // OpenClaw official lobster red
   hermes:      "#0EA5E9",
   notes:       "#F59E0B",
@@ -22,7 +22,9 @@ export const BRAND_COLORS: Record<string, string> = {
 
 type BrandId = keyof typeof BRAND_COLORS;
 
-const BRAND_PATHS: Record<BrandId, (fill: string) => React.ReactElement> = {
+type DrawFn = (fill: string, uid: string, colored?: boolean) => React.ReactElement;
+
+const BRAND_PATHS: Record<BrandId, DrawFn> = {
   claude_code: (fill) => (
     /* Official Anthropic Claude multi-arm asterisk */
     <path
@@ -68,14 +70,45 @@ const BRAND_PATHS: Record<BrandId, (fill: string) => React.ReactElement> = {
       d="M17.5 3.1c.4-.2.9-.2 1.2.1l2.7 2.5c.4.4.4 1 0 1.4L14.4 14l7 6.9c.4.4.4 1 0 1.4l-2.7 2.5c-.4.3-.9.3-1.2.1L4.1 16l-1.7 1.3c-.4.3-1 .2-1.3-.2L.5 16c-.3-.4-.2-.9.1-1.2L4.7 12 .6 9.2C.3 9 .2 8.5.5 8.1l.6-1.1c.3-.4.9-.5 1.3-.2l1.7 1.3L17.5 3.1zM6.4 12l7.7 5.9v-11.8L6.4 12z"
     />
   ),
-  antigravity: (fill) => (
-    /* Official Google DeepMind Antigravity arch curve */
-    <path
-      fill={fill}
-      fillRule="evenodd"
-      d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"
-    />
-  ),
+  antigravity: (fill, uid, colored) => {
+    /* Official Google DeepMind Antigravity multi-color rainbow arch */
+    if (colored || (fill !== "#fff" && fill !== "currentColor")) {
+      const maskId = `ag-mask-${uid}`;
+      const blurId = `ag-blur-${uid}`;
+      return (
+        <g>
+          <mask id={maskId} maskUnits="userSpaceOnUse" width="24" height="24" x="0" y="0">
+            <path
+              d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"
+              fill="#fff"
+            />
+          </mask>
+          <g mask={`url(#${maskId})`}>
+            {/* Base Google Blue */}
+            <rect width="24" height="24" fill="#3186FF" />
+            {/* Google Green on Left Flank */}
+            <circle cx="1" cy="9" r="7" fill="#00B95C" filter={`url(#${blurId})`} />
+            {/* Google Yellow at Apex */}
+            <circle cx="9" cy="0" r="6" fill="#FBBC04" filter={`url(#${blurId})`} />
+            {/* Google Red on Right Flank */}
+            <circle cx="21" cy="7" r="7" fill="#FC413D" filter={`url(#${blurId})`} />
+          </g>
+          <defs>
+            <filter id={blurId} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.2" />
+            </filter>
+          </defs>
+        </g>
+      );
+    }
+    return (
+      <path
+        fill={fill}
+        fillRule="evenodd"
+        d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"
+      />
+    );
+  },
   openclaw: (fill) => (
     /* Official OpenClaw lobster mascot with claws and antennae */
     <g fill={fill} fillRule="evenodd">
@@ -119,6 +152,7 @@ export function BrandMark({
   tint?: string;
   style?: CSSProperties;
 }) {
+  const uid = useId();
   const brandId = (id in BRAND_PATHS ? id : "notes") as BrandId;
   const draw = BRAND_PATHS[brandId];
   const fill = inverted
@@ -128,7 +162,7 @@ export function BrandMark({
       : tint || "currentColor";
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0, ...style }}>
-      {draw(fill)}
+      {draw(fill, uid, colored)}
     </svg>
   );
 }

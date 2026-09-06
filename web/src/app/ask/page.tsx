@@ -55,6 +55,8 @@ function AskPageContent() {
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const streamingRef = useRef<boolean>(false);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
@@ -78,8 +80,10 @@ function AskPageContent() {
 
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
+    if (!id || streamingRef.current) return;
     try {
       const data = await api.getAskConversation(id);
+      activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       window.history.replaceState(null, "", `/ask?id=${data.id}`);
       if (data.device_id) setSelectedDevice(data.device_id);
@@ -94,6 +98,8 @@ function AskPageContent() {
   // Start fresh chat
   const startNewChat = useCallback(() => {
     abortRef.current?.abort();
+    streamingRef.current = false;
+    activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setTurns([]);
     setInput("");
@@ -109,14 +115,14 @@ function AskPageContent() {
       try {
         await api.deleteAskConversation(id);
         setConversations((prev) => prev.filter((c) => c.id !== id));
-        if (activeConversationId === id) {
+        if (activeConversationIdRef.current === id) {
           startNewChat();
         }
       } catch (e) {
         console.error("Failed to delete conversation:", e);
       }
     },
-    [activeConversationId, startNewChat, t.ask.deleteConfirm]
+    [startNewChat, t.ask.deleteConfirm]
   );
 
   // Fetch online/registered devices
@@ -137,7 +143,7 @@ function AskPageContent() {
 
   useEffect(() => {
     loadConversations();
-    if (idParam) {
+    if (idParam && idParam !== activeConversationIdRef.current && !streamingRef.current) {
       loadConversation(idParam);
     }
   }, [idParam, loadConversation, loadConversations]);
@@ -158,7 +164,7 @@ function AskPageContent() {
 
   const sendWithText = useCallback(async (textToSend: string) => {
     const question = textToSend.trim();
-    if (!question || streaming) return;
+    if (!question || streamingRef.current) return;
 
     // Snapshot history BEFORE appending, preserving tool execution results for follow-up turns
     const history = turns
@@ -184,6 +190,7 @@ function AskPageContent() {
       { role: "user", content: question },
       { role: "assistant", content: "", toolCalls: [] },
     ]);
+    streamingRef.current = true;
     setStreaming(true);
 
     const ctrl = new AbortController();
@@ -194,7 +201,11 @@ function AskPageContent() {
       setTurns((prev) => {
         const next = [...prev];
         const i = next.length - 1;
-        if (i >= 0 && next[i].role === "assistant") next[i] = fn(next[i]);
+        if (i >= 0 && next[i].role === "assistant") {
+          next[i] = fn(next[i]);
+        } else {
+          next.push(fn({ role: "assistant", content: "", toolCalls: [] }));
+        }
         return next;
       });
 
@@ -257,9 +268,9 @@ function AskPageContent() {
           }
 
           if (evt.type === "conversation_id" && evt.id) {
+            activeConversationIdRef.current = evt.id;
             setActiveConversationId(evt.id);
             window.history.replaceState(null, "", `/ask?id=${evt.id}`);
-            loadConversations();
           } else if (evt.type === "sources") {
             patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
           } else if (evt.type === "tool_call") {
@@ -421,6 +432,7 @@ function AskPageContent() {
         patchLast((x) => ({ ...x, content: x.content || t.ask.error, error: true }));
       }
     } finally {
+      streamingRef.current = false;
       setStreaming(false);
       abortRef.current = null;
       loadConversations();
@@ -542,7 +554,6 @@ function AskPageContent() {
                 key={idx}
                 type="button"
                 onClick={() => {
-                  setInput(s.label);
                   sendWithText(s.label);
                 }}
                 style={{

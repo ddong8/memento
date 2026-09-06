@@ -123,6 +123,8 @@ export default function AskPage() {
           if (!line) continue;
           let evt: {
             type: string;
+            id?: string;
+            tool_call_id?: string;
             text?: string;
             sources?: Source[];
             message?: string;
@@ -168,7 +170,7 @@ export default function AskPage() {
               if (idx === -1 && evt.device_name) {
                 idx = calls.findIndex(
                   (c) =>
-                    (c.device_name === evt.device_name || c.args?.device_id === evt.device_id) &&
+                    (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
                     (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
                 );
               }
@@ -212,7 +214,7 @@ export default function AskPage() {
               if (idx === -1 && evt.device_name) {
                 idx = calls.findIndex(
                   (c) =>
-                    (c.device_name === evt.device_name || c.args?.device_id === evt.device_id) &&
+                    (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
                     (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
                 );
               }
@@ -266,10 +268,11 @@ export default function AskPage() {
               if (idx === -1 && evt.tool_call_id) {
                 idx = calls.findIndex((c) => c.id === evt.tool_call_id);
               }
-              if (idx === -1 && evt.result?.device_name) {
+              const res = evt.result;
+              if (idx === -1 && res?.device_name) {
                 idx = calls.findIndex(
                   (c) =>
-                    (c.device_name === evt.result.device_name || c.args?.device_id === evt.result.device_id) &&
+                    (c.device_name === res.device_name || (c.args as Record<string, any>)?.device_id === res.device_id) &&
                     (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
                 );
               }

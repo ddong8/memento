@@ -140,12 +140,12 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: 4,
           padding: "4px",
-          background: "rgba(15, 23, 42, 0.55)",
+          background: "var(--aurora-chip, rgba(15, 15, 30, 0.05))",
           backdropFilter: "blur(12px)",
           borderRadius: 12,
-          border: "1px solid var(--aurora-border, rgba(255, 255, 255, 0.08))",
+          border: "1px solid var(--aurora-border)",
           marginBottom: 10,
           overflowX: "auto",
           scrollbarWidth: "none",
@@ -167,9 +167,10 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
                 fontWeight: isActive ? 600 : 500,
                 borderRadius: 8,
                 border: "1px solid",
-                borderColor: isActive ? "rgba(56, 189, 248, 0.4)" : "transparent",
-                background: isActive ? "rgba(56, 189, 248, 0.16)" : "transparent",
-                color: isActive ? "var(--aurora-accent, #38bdf8)" : "var(--aurora-fg3, #94a3b8)",
+                borderColor: isActive ? "var(--aurora-border-strong)" : "transparent",
+                background: isActive ? "var(--aurora-surface-solid)" : "transparent",
+                color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                boxShadow: isActive ? "0 1px 4px rgba(0, 0, 0, 0.08)" : "none",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
                 whiteSpace: "nowrap",
@@ -180,7 +181,7 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
                 name={tb.icon}
                 size={13}
                 style={{
-                  color: isActive ? "var(--aurora-accent, #38bdf8)" : "inherit",
+                  color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                 }}
               />
               <span>{tb.name}</span>
@@ -190,11 +191,11 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
                   padding: "1px 6px",
                   borderRadius: 9999,
                   background: isActive
-                    ? "rgba(56, 189, 248, 0.25)"
-                    : "rgba(255, 255, 255, 0.08)",
+                    ? "var(--aurora-accent-soft)"
+                    : "rgba(120, 120, 140, 0.12)",
                   color: isActive
-                    ? "var(--aurora-accent, #38bdf8)"
-                    : "var(--aurora-fg4, #64748b)",
+                    ? "var(--aurora-accent)"
+                    : "var(--aurora-fg3)",
                   fontWeight: 600,
                 }}
               >
@@ -218,8 +219,8 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
                       width: 6,
                       height: 6,
                       borderRadius: "50%",
-                      background: "#38bdf8",
-                      boxShadow: "0 0 8px #38bdf8",
+                      background: "var(--aurora-accent)",
+                      boxShadow: "0 0 8px var(--aurora-accent)",
                       animation: "pulse 1.2s infinite",
                     }}
                   />

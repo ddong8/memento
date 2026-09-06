@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Icon } from "./aurora/Icon";
-import { Chip } from "./aurora/primitives";
 import { useI18n } from "@/lib/i18n";
 
 export interface ToolCallItem {
@@ -80,11 +79,10 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
       style={{
         margin: "10px 0",
         borderRadius: 14,
-        border: "1px solid var(--aurora-border, rgba(255,255,255,0.12))",
-        background: "rgba(13, 17, 23, 0.75)",
-        backdropFilter: "blur(12px)",
+        border: "1px solid var(--aurora-border-strong)",
+        background: "var(--aurora-surface-solid)",
         overflow: "hidden",
-        boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+        boxShadow: "0 2px 10px -2px rgba(0,0,0,0.06)",
       }}
     >
       {/* Header bar */}
@@ -95,8 +93,8 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
           alignItems: "center",
           justifyContent: "space-between",
           padding: "9px 14px",
-          background: "rgba(255,255,255,0.03)",
-          borderBottom: expanded ? "1px solid rgba(255,255,255,0.06)" : "none",
+          background: "var(--aurora-chip)",
+          borderBottom: expanded ? "1px solid var(--aurora-border)" : "none",
           cursor: "pointer",
           userSelect: "none",
           gap: 10,
@@ -113,11 +111,11 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               height: 26,
               borderRadius: 7,
               background: isSuccess
-                ? "rgba(16,185,129,0.15)"
+                ? "rgba(16,185,129,0.12)"
                 : isFailed
-                ? "rgba(239,68,68,0.15)"
-                : "rgba(59,130,246,0.15)",
-              color: isSuccess ? "#10B981" : isFailed ? "#EF4444" : "var(--aurora-accent, #38bdf8)",
+                ? "rgba(239,68,68,0.12)"
+                : "var(--aurora-accent-soft)",
+              color: isSuccess ? "#10B981" : isFailed ? "#EF4444" : "var(--aurora-accent)",
             }}
           >
             <Icon name={action === "agent" ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={14} />
@@ -126,28 +124,39 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
           {machineName && (
             <span
               style={{
-                fontSize: 12,
+                fontSize: 12.5,
                 fontWeight: 600,
-                color: "var(--aurora-fg1, #fff)",
+                color: "var(--aurora-fg1)",
                 display: "flex",
                 alignItems: "center",
-                gap: 4,
+                gap: 5,
               }}
             >
               🖥️ {machineName}
             </span>
           )}
 
-          <Chip tone="neutral" style={{ fontSize: 10, padding: "2px 7px" }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "2px 8px",
+              borderRadius: 6,
+              background: "var(--aurora-surface-solid)",
+              border: "1px solid var(--aurora-border-strong)",
+              color: "var(--aurora-fg2)",
+              letterSpacing: "0.02em",
+            }}
+          >
             {action === "shell" ? "Shell" : action === "agent" ? "Agent" : name}
-          </Chip>
+          </span>
 
           {command && (
             <span
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontSize: 12,
-                color: "var(--aurora-fg3, #94a3b8)",
+                color: "var(--aurora-fg2)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -172,13 +181,14 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                 borderRadius: 9999,
                 background:
                   result?.status === "queued"
-                    ? "rgba(245, 158, 11, 0.15)"
-                    : "rgba(56,189,248,0.15)",
+                    ? "rgba(245, 158, 11, 0.12)"
+                    : "var(--aurora-accent-soft)",
                 color:
                   result?.status === "queued"
-                    ? "#F59E0B"
-                    : "var(--aurora-accent, #38bdf8)",
-                fontWeight: 500,
+                    ? "#d97706"
+                    : "var(--aurora-accent)",
+                fontWeight: 600,
+                border: `1px solid ${result?.status === "queued" ? "rgba(245, 158, 11, 0.25)" : "var(--aurora-border)"}`,
               }}
             >
               <span
@@ -188,8 +198,8 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                   borderRadius: "50%",
                   background:
                     result?.status === "queued"
-                      ? "#F59E0B"
-                      : "var(--aurora-accent, #38bdf8)",
+                      ? "#d97706"
+                      : "var(--aurora-accent)",
                   animation: "pulse 1.5s infinite",
                 }}
               />
@@ -206,31 +216,84 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
           )}
 
           {isExit1NoMatch && (
-            <Chip tone="neutral">
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 9999,
+                background: "var(--aurora-surface-solid)",
+                border: "1px solid var(--aurora-border-strong)",
+                color: "var(--aurora-fg3)",
+              }}
+            >
               ○ 无匹配 (exit 1)
-            </Chip>
+            </span>
           )}
 
           {isSuccess && (
-            <Chip tone="success">
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 9999,
+                background: "rgba(16, 185, 129, 0.12)",
+                border: "1px solid rgba(16, 185, 129, 0.25)",
+                color: "#059669",
+              }}
+            >
               ✓ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusSucceeded || "完成")}
-            </Chip>
+            </span>
           )}
 
           {isFailed && (
-            <Chip tone="danger">
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 9999,
+                background: "rgba(239, 68, 68, 0.12)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                color: "#dc2626",
+              }}
+            >
               ✕ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusFailed || "失败")}
-            </Chip>
+            </span>
           )}
 
           {result?.status === "timeout" && (
-            <Chip tone="warn">⏱️ {t.ask.statusTimeout || "超时"}</Chip>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 9999,
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.25)",
+                color: "#d97706",
+              }}
+            >
+              ⏱️ {t.ask.statusTimeout || "超时"}
+            </span>
           )}
 
           <Icon
             name={expanded ? "chevron_up" : "chevron_down"}
             size={14}
-            style={{ color: "var(--aurora-fg4, #64748b)" }}
+            style={{ color: "var(--aurora-fg3)" }}
           />
         </div>
       </div>
@@ -246,12 +309,12 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               justifyContent: "space-between",
               marginBottom: 8,
               fontSize: 11,
-              color: "var(--aurora-fg4, #64748b)",
+              color: "var(--aurora-fg3)",
             }}
           >
             <div>
               {cwd && (
-                <span style={{ fontFamily: "monospace" }}>
+                <span style={{ fontFamily: "monospace", color: "var(--aurora-fg2)" }}>
                   📁 {cwd}
                 </span>
               )}
@@ -265,18 +328,28 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 4,
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.08)",
+                gap: 5,
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border-strong)",
                 borderRadius: 6,
-                padding: "2px 8px",
-                color: "var(--aurora-fg3, #94a3b8)",
+                padding: "3px 9px",
+                color: "var(--aurora-fg2)",
                 fontSize: 11,
+                fontWeight: 500,
                 cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--aurora-accent)";
+                e.currentTarget.style.color = "var(--aurora-accent)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--aurora-border-strong)";
+                e.currentTarget.style.color = "var(--aurora-fg2)";
               }}
             >
-              <Icon name={copied ? "check" : "copy"} size={11} />
-              {copied ? (t.ask.copied || "已复制") : (t.ask.copyOutput || "复制")}
+              <Icon name={copied ? "check" : "copy"} size={12} />
+              {copied ? (t.ask.copied || "已复制") : (t.ask.copyOutput || "复制输出")}
             </button>
           </div>
 
@@ -285,11 +358,11 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
             ref={terminalRef}
             style={{
               margin: 0,
-              padding: "10px 14px",
-              borderRadius: 8,
+              padding: "12px 14px",
+              borderRadius: 10,
               background: "#080c14",
-              border: "1px solid rgba(255,255,255,0.05)",
-              color: "#e2e8f0",
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: "#f1f5f9",
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
               fontSize: 12,
               lineHeight: 1.55,
@@ -306,7 +379,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
             )}
 
             {isRunning && !result?.stdout && !result?.stderr && !result?.error && (
-              <div style={{ color: "var(--aurora-fg4, #64748b)", fontStyle: "italic", margin: "4px 0" }}>
+              <div style={{ color: "#94a3b8", fontStyle: "italic", margin: "4px 0" }}>
                 {result?.status === "queued"
                   ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
                   : (t.ask.statusDeviceRunning || "设备已接收，命令正在运行...")}
@@ -365,7 +438,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                   display: "inline-block",
                   width: 8,
                   height: 14,
-                  background: "var(--aurora-accent, #38bdf8)",
+                  background: "#38bdf8",
                   verticalAlign: "text-bottom",
                   marginLeft: 4,
                   animation: "pulse 1s infinite",

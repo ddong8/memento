@@ -330,7 +330,7 @@ export default function AskPage() {
       : t.ask.placeholderAgent;
 
   return (
-    <div className="max-w-4xl mx-auto pb-6">
+    <div className="max-w-4xl mx-auto pb-44">
       <TopBar
         title={t.ask.title}
         subtitle={t.ask.subtitle}
@@ -393,7 +393,7 @@ export default function AskPage() {
                   gap: 6,
                   padding: "7px 14px",
                   borderRadius: 9999,
-                  background: "rgba(255,255,255,0.05)",
+                  background: "var(--aurora-chip)",
                   border: "1px solid var(--aurora-border)",
                   color: "var(--aurora-fg2)",
                   fontSize: 12.5,
@@ -517,145 +517,161 @@ export default function AskPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Sticky Bottom Interactive Console Bar */}
+      {/* Fixed Viewport Bottom Interactive Console Bar */}
       <div
+        className="fixed bottom-0 left-0 lg:left-60 right-0 z-20 pointer-events-none"
         style={{
-          position: "sticky",
-          bottom: 16,
-          background: "var(--aurora-card, rgba(17, 24, 39, 0.85))",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--aurora-border)",
-          borderRadius: 18,
-          padding: 10,
-          boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+          paddingBottom: "clamp(12px, 2.5vh, 20px)",
+          paddingTop: 28,
+          background: "linear-gradient(to top, var(--aurora-bg) 75%, transparent)",
         }}
       >
-        {/* Device & environment toolbelt */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-          {/* Target device selector */}
+        <div className="max-w-4xl mx-auto px-4 md:px-6 pointer-events-auto">
           <div
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid var(--aurora-border)",
-              borderRadius: 10,
-              padding: "3px 8px",
-              fontSize: 12,
+              background: "var(--aurora-surface-solid)",
+              border: "1px solid var(--aurora-border-strong)",
+              borderRadius: 18,
+              padding: "10px 14px",
+              boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
+              backdropFilter: "blur(20px)",
             }}
           >
-            <Icon name="devices" size={13} style={{ color: "var(--aurora-accent)" }} />
-            <select
-              value={selectedDevice}
-              onChange={(e) => setSelectedDevice(e.target.value)}
-              style={{
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                color: "var(--aurora-fg1)",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              <option value="auto" style={{ background: "#1e293b", color: "#fff" }}>
-                {t.ask.autoDispatch}
-              </option>
-              {devices.map((d) => (
-                <option key={d.device_id} value={d.device_id} style={{ background: "#1e293b", color: "#fff" }}>
-                  🖥️ {d.name} ({d.device_id.slice(0, 8)})
-                </option>
-              ))}
-              <option value="ask_only" style={{ background: "#1e293b", color: "#fff" }}>
-                {t.ask.askOnly}
-              </option>
-            </select>
-          </div>
-
-          {/* Optional working directory selector */}
-          {selectedDevice !== "ask_only" && (
-            showCwd ? (
+            {/* Device & environment toolbelt */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              {/* Target device selector */}
               <div
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 6,
-                  background: "rgba(255,255,255,0.05)",
+                  background: "var(--aurora-chip)",
                   border: "1px solid var(--aurora-border)",
                   borderRadius: 10,
-                  padding: "3px 8px",
-                  flex: 1,
-                  minWidth: 160,
+                  padding: "4px 10px",
+                  fontSize: 12,
                 }}
               >
-                <Icon name="folder" size={13} style={{ color: "var(--aurora-fg3)" }} />
-                <input
-                  type="text"
-                  value={cwd}
-                  onChange={(e) => setCwd(e.target.value)}
-                  placeholder={t.ask.cwdPlaceholder}
+                <Icon name="devices" size={13} style={{ color: "var(--aurora-accent)" }} />
+                <select
+                  value={selectedDevice}
+                  onChange={(e) => setSelectedDevice(e.target.value)}
                   style={{
                     background: "transparent",
                     border: "none",
                     outline: "none",
                     color: "var(--aurora-fg1)",
                     fontSize: 12,
-                    fontFamily: "monospace",
-                    width: "100%",
+                    fontWeight: 500,
+                    cursor: "pointer",
                   }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCwd(false)}
-                  style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0 }}
                 >
-                  <Icon name="close" size={11} />
-                </button>
+                  <option value="auto" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                    {t.ask.autoDispatch}
+                  </option>
+                  {devices.map((d) => (
+                    <option key={d.device_id} value={d.device_id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      🖥️ {d.name} ({d.device_id.slice(0, 8)})
+                    </option>
+                  ))}
+                  <option value="ask_only" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                    {t.ask.askOnly}
+                  </option>
+                </select>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowCwd(true)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  background: cwd ? "rgba(56, 189, 248, 0.12)" : "rgba(255,255,255,0.04)",
-                  border: "1px solid",
-                  borderColor: cwd ? "var(--aurora-accent)" : "var(--aurora-border)",
-                  borderRadius: 10,
-                  padding: "3px 9px",
-                  fontSize: 11.5,
-                  color: cwd ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                  cursor: "pointer",
-                }}
-              >
-                <Icon name="folder" size={12} />
-                <span>{cwd ? cwd : t.ask.cwdLabel}</span>
-              </button>
-            )
-          )}
-        </div>
 
-        {/* Input box and action button */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <GhostInput
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={placeholderText}
-            icon={selectedDevice === "ask_only" ? "sparkles" : "terminal"}
-            wrapStyle={{ flex: 1 }}
-            disabled={streaming}
-          />
-          {streaming ? (
-            <Btn onClick={() => abortRef.current?.abort()}>{t.ask.stop}</Btn>
-          ) : (
-            <Btn onClick={send} disabled={!input.trim()} icon={selectedDevice === "ask_only" ? "search" : "rocket"}>
-              {t.ask.send}
-            </Btn>
-          )}
+              {/* Optional working directory selector */}
+              {selectedDevice !== "ask_only" && (
+                showCwd ? (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-accent)",
+                      borderRadius: 10,
+                      padding: "4px 10px",
+                      flex: 1,
+                      minWidth: 160,
+                    }}
+                  >
+                    <Icon name="folder" size={13} style={{ color: "var(--aurora-accent)" }} />
+                    <input
+                      type="text"
+                      value={cwd}
+                      onChange={(e) => setCwd(e.target.value)}
+                      placeholder={t.ask.cwdPlaceholder}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: "var(--aurora-fg1)",
+                        fontSize: 12,
+                        fontFamily: "monospace",
+                        width: "100%",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCwd(false)}
+                      style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0 }}
+                    >
+                      <Icon name="close" size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCwd(true)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      background: cwd ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      border: "1px solid",
+                      borderColor: cwd ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      borderRadius: 10,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: cwd ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <Icon name="folder" size={12} />
+                    <span>{cwd ? cwd : t.ask.cwdLabel}</span>
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Input box and action button */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <GhostInput
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder={placeholderText}
+                icon={selectedDevice === "ask_only" ? "sparkles" : "terminal"}
+                wrapStyle={{
+                  flex: 1,
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
+                }}
+                disabled={streaming}
+              />
+              {streaming ? (
+                <Btn onClick={() => abortRef.current?.abort()}>{t.ask.stop}</Btn>
+              ) : (
+                <Btn onClick={send} disabled={!input.trim()} icon={selectedDevice === "ask_only" ? "search" : "rocket"}>
+                  {t.ask.send}
+                </Btn>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

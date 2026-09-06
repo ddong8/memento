@@ -51,6 +51,8 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
     if (isRunning && terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
+  }, [result?.stdout, result?.stderr, isRunning]);
+
   const isMatchFilter = Boolean(
     command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
   );

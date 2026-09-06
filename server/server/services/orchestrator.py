@@ -100,6 +100,39 @@ def normalize_device_name(name: str | None) -> str:
     return name
 
 
+_device_name_cache: dict[str, tuple[str, float]] = {}
+
+
+async def _resolve_machine_name(dev_id: str) -> str:
+    """Resolve device_id or alias to the friendly Machine.name safely with caching and isolated session."""
+    if not dev_id:
+        return ""
+    now = asyncio.get_event_loop().time()
+    cached = _device_name_cache.get(dev_id)
+    if cached and (now - cached[1]) < 60.0:
+        return cached[0]
+
+    base_dev_id = normalize_device_name(dev_id)
+    resolved_name = dev_id
+    try:
+        async with async_session_factory() as session:
+            mach_name = (await session.execute(
+                select(Machine.name).where(
+                    (Machine.collector_token_hash == dev_id)
+                    | (Machine.name == dev_id)
+                    | (Machine.name == base_dev_id)
+                    | (Machine.name.like(f"{base_dev_id}%"))
+                ).order_by(Machine.last_heartbeat.desc().nulls_last())
+            )).scalars().first()
+            if mach_name:
+                resolved_name = mach_name
+    except Exception as e:
+        logger.warning("Error resolving machine name for %s: %s", dev_id, e)
+
+    _device_name_cache[dev_id] = (resolved_name, now)
+    return resolved_name
+
+
 ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能够调用用户的多台物理设备（Mac、Linux、Windows 等）完成任务。
 
 你有两种信息来源：
@@ -534,15 +567,7 @@ async def run_agent_loop(
             if name == "run_on_device":
                 dev_id = args.get("device_id")
                 if dev_id:
-                    base_dev_id = normalize_device_name(dev_id)
-                    mach_name = (await db.execute(
-                        select(Machine.name).where(
-                            (Machine.collector_token_hash == dev_id)
-                            | (Machine.name == dev_id)
-                            | (Machine.name == base_dev_id)
-                            | (Machine.name.like(f"{base_dev_id}%"))
-                        ).order_by(Machine.last_heartbeat.desc().nulls_last())
-                    )).scalars().first()
+                    mach_name = await _resolve_machine_name(str(dev_id))
                     if mach_name:
                         call_evt["device_name"] = mach_name
 

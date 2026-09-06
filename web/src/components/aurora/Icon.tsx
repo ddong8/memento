@@ -103,14 +103,14 @@ export function Icon({ name, size = 16, strokeWidth = 1.6, style, ...rest }: Ico
 
 /** Tool id → gradient accent + icon */
 export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
-  claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#F43F5E)" },
-  openclaw:    { h: 280, bg: "linear-gradient(135deg,#C084FC,#7C3AED)" },
-  codex:       { h: 142, bg: "linear-gradient(135deg,#34D399,#10B981)" },
-  antigravity: { h: 220, bg: "linear-gradient(135deg,#60A5FA,#2563EB)" },
+  claude_code: { h: 22,  bg: "linear-gradient(135deg,#FB923C,#D97757)" },
+  openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
+  codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
+  antigravity: { h: 215, bg: "linear-gradient(135deg,#3B82F6,#1D4ED8)" },
   obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
-  cursor:      { h: 190, bg: "linear-gradient(135deg,#22D3EE,#0891B2)" },
-  windsurf:    { h: 170, bg: "linear-gradient(135deg,#5EEAD4,#0D9488)" },
-  vscode:      { h: 240, bg: "linear-gradient(135deg,#818CF8,#4F46E5)" },
+  cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
+  windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
+  vscode:      { h: 210, bg: "linear-gradient(135deg,#38BDF8,#0284C7)" },
   hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
 };
 
@@ -138,6 +138,8 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
 
   // Aurora: colored gradient tile + white brand mark + highlight
   if (skin === "aurora") {
+    const isDarkTile = id === "cursor";
+    const markSize = Math.max(12, Math.round(size * 0.58));
     return (
       <div
         style={{
@@ -150,10 +152,14 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
           justifyContent: "center",
           position: "relative",
           overflow: "hidden",
-          boxShadow: `0 8px 24px -8px hsla(${tool.h},80%,55%,0.55),
-                      0 1px 0 0 rgba(255,255,255,0.35) inset,
-                      0 0 0 1px rgba(255,255,255,0.12) inset,
-                      0 -8px 16px -8px rgba(0,0,0,0.25) inset`,
+          boxShadow: isDarkTile
+            ? `0 6px 18px -4px rgba(0,0,0,0.5),
+               0 1px 0 0 rgba(255,255,255,0.2) inset,
+               0 0 0 1px rgba(255,255,255,0.16) inset`
+            : `0 8px 24px -8px hsla(${tool.h},80%,55%,0.55),
+               0 1px 0 0 rgba(255,255,255,0.35) inset,
+               0 0 0 1px rgba(255,255,255,0.12) inset,
+               0 -8px 16px -8px rgba(0,0,0,0.25) inset`,
           flexShrink: 0,
           color: "#fff",
         }}
@@ -163,11 +169,13 @@ export function ToolGlyph({ id, size = 36 }: { id: string; size?: number }) {
           style={{
             position: "absolute",
             inset: 0,
-            background: "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.3), transparent 60%)",
+            background: isDarkTile
+              ? "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.15), transparent 60%)"
+              : "radial-gradient(120% 80% at 30% 0%, rgba(255,255,255,0.3), transparent 60%)",
             pointerEvents: "none",
           }}
         />
-        <BrandMark id={id} size={size * 0.58} inverted />
+        <BrandMark id={id} size={markSize} inverted />
       </div>
     );
   }

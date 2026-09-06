@@ -144,7 +144,12 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
    - 确认设备 online 后，再使用 run_on_device 发送任务。
    - 【支持多设备并发】：若涉及多台机器（如排查集群或对比多机端口），你可以在一轮中同时发出针对不同机器的多个 run_on_device 调用，系统已支持全并发下发与实时流式回传！
 
-【跟进与继续修复规则】（核心必遵）：
+【跟进与设备操作执行规则】（核心必遵）：
+- 当用户发出「关闭」、「关掉」、「杀死」、「杀掉」、「停止」、「停掉」、「清理」、「重启」、「继续修复」、「重试」或确认词（如「好的」、「可以」、「清理吧」）等跟进指令时：
+  * 必须结合历史记录中上一轮的目标设备（如 Mac mini）、目标进程 PID（如 PID 3839）、端口或服务名；
+  * 必须在第一轮主动调用 run_on_device 在目标物理机上执行真实操作（例如 kill <PID>、kill -9 <PID>、pkill、systemctl stop 等）并检查状态；
+  * 【绝对严禁伪造执行记录】：绝对禁止在你的回答文本中编写或伪造类似「[系统记录]」或「【在设备上调用的工具与执行结果记录】」等虚构执行文本！任何在设备上的操作必须且只能通过 tool_calls 调用 run_on_device 真实下发到物理机！
+  * 严禁在未调用工具真实执行操作前直接回复「未获取到具体设备操作」或草草结束！
 - 当用户发出「继续修复」、「继续」、「重试」、「还没修好」、「还是报错」等延续性指令时：
   * 代表前序任务执行遇到了报错（非零退出码、stderr 异常输出）或尚未达成目标，绝不能未执行任何操作就回复「任务已完成」或草草结束！
   * 必须仔细检查对话历史中上一轮或多轮的设备执行记录、命令退出码和 stderr 报错输出，定位失败根因。
@@ -298,16 +303,22 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         return
 
     try:
-        # Look up machine by collector_token_hash OR by name / normalized alias (order by latest heartbeat)
-        base_dev_id = normalize_device_name(device_id)
-        machine = (await db.execute(
-            select(Machine).where(
-                (Machine.collector_token_hash == device_id)
-                | (Machine.name == device_id)
-                | (Machine.name == base_dev_id)
-                | (Machine.name.like(f"{base_dev_id}%"))
-            ).order_by(Machine.last_heartbeat.desc().nulls_last())
-        )).scalars().first()
+        # If device_id is omitted by the model, fall back to the user's most recently active machine
+        if not device_id:
+            mq = select(Machine).order_by(Machine.last_heartbeat.desc().nulls_last())
+            if user.role not in ("admin", "owner"):
+                mq = mq.where(Machine.user_id == user.id)
+            machine = (await db.execute(mq)).scalars().first()
+        else:
+            base_dev_id = normalize_device_name(device_id)
+            machine = (await db.execute(
+                select(Machine).where(
+                    (Machine.collector_token_hash == device_id)
+                    | (Machine.name == device_id)
+                    | (Machine.name == base_dev_id)
+                    | (Machine.name.like(f"{base_dev_id}%"))
+                ).order_by(Machine.last_heartbeat.desc().nulls_last())
+            )).scalars().first()
 
         if user.role not in ("admin", "owner"):
             if not machine or machine.user_id != user.id:
@@ -530,9 +541,19 @@ async def run_agent_loop(
         calls = msg.get("tool_calls") or []
 
         if not calls:
-            content = (msg.get("content") or "").strip()
+            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
 
             if round_no == 0:
+                # Catch case where model hallucinates tool execution in plain text instead of making a tool_call
+                if any(kw in content for kw in ("run_on_device", "【在设备上调用的工具", "[系统记录", "已终止 PID", "已杀死进程")):
+                    logger.warning("Model produced hallucinated tool execution text in round 0; nudging to call run_on_device")
+                    convo.append({"role": "assistant", "content": content})
+                    convo.append({
+                        "role": "user",
+                        "content": "【系统纠偏】：你刚刚在回复文本中写出了设备操作记录，但并未真正调用 run_on_device 工具！请不要在文本中假装执行，现在必须立即通过 tool_calls 调用 run_on_device 工具向目标设备下发真实命令！",
+                    })
+                    continue
+
                 if content:
                     yield {"type": "delta", "text": content}
                     return
@@ -543,7 +564,7 @@ async def run_agent_loop(
                     yield {"type": "delta", "text": plain_content.strip()}
                     return
 
-                yield {"type": "delta", "text": "未获取到需要执行的具体设备操作。如需在设备上排查或修复，请告知目标设备与具体要求。"}
+                yield {"type": "delta", "text": "未能向设备发送操作指令。如需在设备上排查、关闭进程或修复，请告知目标设备与具体要求。"}
                 return
 
             # round_no > 0: Tools WERE executed in previous rounds!

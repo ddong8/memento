@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -142,23 +143,136 @@ async def _retrieve(
     return sources
 
 
-CONTINUATION_KEYWORDS = (
+ACTION_VERBS = (
+    "关闭", "关掉", "关了", "关一下", "关了它", "关掉它", "把它关了", "把它关掉", "帮我关",
+    "杀死", "杀掉", "杀了", "杀一下", "干掉", "结束", "终止", "掐死",
+    "停止", "停掉", "停了", "停一下", "停了它", "停掉它", "把它停了",
+    "清理", "清掉", "清除", "清理掉", "把它清理了", "帮我清理",
+    "重启", "重新启动", "重启一下",
+    "启动", "运行", "跑一下", "执行",
+    "修复", "解决", "搞定", "搞一下", "处理", "接着修",
+    "排查", "检查", "查一下", "查看", "看下", "看看",
+    "删除", "删掉", "移除",
+)
+
+REFERENCE_TERMS = (
+    "它", "它们", "这个", "那个", "这些", "那些", "上面", "刚才", "之前", "上个", "上一个",
+    "遗留", "残留", "进程", "任务", "守护进程", "端口", "服务", "容器", "机器", "设备",
+)
+
+CONFIRMATION_TERMS = (
+    "好", "好的", "行", "行吧", "可以", "可以的", "没问题", "确认", "同意", "同意执行",
+    "搞起", "执行吧", "弄吧", "处理吧", "清理吧", "关吧", "杀吧", "停吧", "干吧",
+    "ok", "OK", "yes", "YES", "y", "Y",
+)
+
+CONTINUATION_PHRASES = (
     "继续", "修复", "重试", "接着", "还没好", "没好", "再试", "重新",
-    "还是报错", "依然报错", "解决一下", "搞定它", "接着修", "排查", "查一下", "启动一下", "怎么回事", "为什么",
+    "还是报错", "依然报错", "解决一下", "搞定它", "接着修", "排查", "查一下", "启动一下",
+    "怎么回事", "为什么", "关掉", "关闭", "杀掉", "杀死", "停掉", "停止", "清理掉",
 )
 
 
-def _is_continuation(question: str) -> bool:
+def _classify_continuation(
+    question: str,
+    history: list[dict] | None,
+) -> tuple[bool, bool, dict]:
+    """Classify if the question is a continuation and whether it requires device action.
+
+    Returns: (is_continuation, is_action, extracted_context)
+    """
     q = question.strip()
-    if len(q) <= 30 and any(kw in q for kw in CONTINUATION_KEYWORDS):
-        return True
-    return False
+    extracted = {
+        "device_name": None,
+        "device_id": None,
+        "entities": [],
+        "last_assistant_text": "",
+    }
+    if not history:
+        return False, False, extracted
+
+    last_asst = None
+    for turn in reversed(history):
+        if turn.get("role") == "assistant":
+            last_asst = turn
+            break
+
+    last_asst_content = (last_asst.get("content") or "").strip() if last_asst else ""
+    last_tool_calls = (last_asst.get("tool_calls") or last_asst.get("toolCalls") or []) if last_asst else []
+    extracted["last_assistant_text"] = last_asst_content[:300]
+
+    # Extract target device from previous tool calls
+    for tc in reversed(last_tool_calls):
+        args = tc.get("args") or {}
+        dev = tc.get("device_name") or args.get("device_id")
+        if dev and dev not in ("auto", "ask_only"):
+            extracted["device_name"] = dev
+            extracted["device_id"] = args.get("device_id") or dev
+            break
+
+    # If device not in tool_calls, search in assistant text
+    if not extracted["device_name"] and last_asst_content:
+        m_dev = re.search(r"(?:在|于|目标设备|设备)\s*[:：]?\s*([A-Za-z0-9_\-\s]{2,20}?)(?:上|的|设备|机器|\n|,|，)", last_asst_content)
+        if m_dev:
+            dev_candidate = m_dev.group(1).strip()
+            if len(dev_candidate) >= 2 and not dev_candidate.isdigit():
+                extracted["device_name"] = dev_candidate
+
+    # Extract PID(s) and processes from assistant text
+    if last_asst_content:
+        pids = re.findall(r"(?:PID|pid)\s*[:：=]?\s*(\d{2,7})", last_asst_content)
+        if not pids:
+            pids = re.findall(r"\(PID\s*(\d{2,7})\)", last_asst_content)
+        for pid in pids:
+            ent = f"PID {pid}"
+            if ent not in extracted["entities"]:
+                extracted["entities"].append(ent)
+
+        tasks = re.findall(r"(\d+\.\s*[^:\n]+(?:\(PID\s*\d+\))?\s*:\s*[^\n]+)", last_asst_content)
+        for t in tasks[:2]:
+            clean_t = t.strip()
+            if clean_t not in extracted["entities"]:
+                extracted["entities"].append(clean_t)
+
+    q_lower = q.lower()
+    has_continuation_phrase = any(kw in q for kw in CONTINUATION_PHRASES)
+    has_action_verb = any(v in q for v in ACTION_VERBS)
+    has_reference = any(r in q for r in REFERENCE_TERMS)
+    is_confirmation = any(c == q_lower or q_lower.startswith(c) for c in CONFIRMATION_TERMS)
+
+    asst_offered_action = any(
+        phrase in last_asst_content
+        for phrase in ("可以告诉我帮你清理", "帮你清理", "是否需要关闭", "帮您关闭", "要不要关掉", "是否关闭", "是否终止", "是否重启", "可以告诉我帮你", "需要我帮你")
+    )
+
+    is_cont = False
+    is_action = False
+
+    if len(q) <= 60:
+        if has_continuation_phrase or is_confirmation:
+            is_cont = True
+        elif has_action_verb and (has_reference or "帮" in q or len(q) <= 15):
+            is_cont = True
+        elif has_reference and (has_action_verb or "吗" in q or "怎么" in q or "为什么" in q or "干嘛" in q or len(q) <= 20):
+            is_cont = True
+        elif asst_offered_action and (is_confirmation or has_action_verb or has_reference):
+            is_cont = True
+
+    if is_cont:
+        if has_action_verb:
+            is_action = True
+        elif is_confirmation and asst_offered_action:
+            is_action = True
+        elif any(act in q for act in ("关", "杀", "停", "清", "重", "修", "执", "跑")):
+            is_action = True
+
+    return is_cont, is_action, extracted
 
 
 def _format_tool_calls_summary(tool_calls: list[dict]) -> str:
     if not tool_calls:
         return ""
-    lines = ["【在设备上调用的工具与执行结果记录】:"]
+    lines = ["[系统记录：上一轮在设备上的操作与执行结果 (只读事实参考)]:"]
     for tc in tool_calls:
         name = tc.get("name") or "run_on_device"
         args = tc.get("args") or {}
@@ -192,6 +306,8 @@ def _build_messages(
     sources: list[dict],
     history: list[dict] | None,
     is_continuation: bool = False,
+    is_action: bool = False,
+    extracted_context: dict | None = None,
 ) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
@@ -210,7 +326,7 @@ def _build_messages(
             if t_summary:
                 parts.append(t_summary)
             # Filter out misleading empty or bogus fallback messages from previous turns
-            if content and content != "任务已执行完成。":
+            if content and content != "任务已执行完成。" and "未获取到需要执行的具体设备操作" not in content:
                 parts.append(content)
             combined = "\n\n".join(parts)
             if combined:
@@ -218,14 +334,35 @@ def _build_messages(
         elif role == "user" and content:
             messages.append({"role": role, "content": content})
 
-    if is_continuation:
+    if is_action:
+        dev_info = ""
+        if extracted_context and extracted_context.get("device_name"):
+            dev_info += f"- 目标设备: {extracted_context['device_name']}\n"
+        if extracted_context and extracted_context.get("entities"):
+            dev_info += f"- 涉及对象: {', '.join(extracted_context['entities'])}\n"
+
         user_prompt = (
-            f"【跟进与继续修复指令】\n"
+            f"【跟进操作指令】\n"
+            f"用户指令: 「{question}」\n"
+        )
+        if dev_info:
+            user_prompt += f"上下文参考:\n{dev_info}"
+        user_prompt += (
+            f"规则与要求:\n"
+            f"1. 必须仔细结合前序交互历史，主动调用 run_on_device 工具在目标物理机上执行真实操作（如 kill 进程、停止服务、重启等）！\n"
+            f"2. 绝对严禁在文本中编写或伪造执行状态，所有操作必须通过触发真实的 run_on_device 工具下发！\n"
+            f"3. 严禁在未调用工具前回复「未获取到操作」或直接结束！"
+        )
+        if sources:
+            user_prompt = f"参考资料:\n{context}\n\n{user_prompt}"
+    elif is_continuation:
+        user_prompt = (
+            f"【跟进与继续排查/修复指令】\n"
             f"用户指令: 「{question}」\n"
             f"请仔细结合上方历史记录中上一轮在设备上执行的命令、退出码以及报错日志（stderr），"
-            f"分析失败根因，并在目标设备上主动调用 run_on_device 执行下一步排查或修复操作"
+            f"分析原因，并在目标设备上主动调用 run_on_device 执行下一步排查或修复操作"
             f"（例如杀死占用端口的进程、修复代码/配置、安装依赖、重启并检查状态）。\n"
-            f"绝对不可在未执行修复操作时直接结束或回答「任务已完成」！"
+            f"若涉及设备排查，必须调用 run_on_device 执行，绝对不可在未执行排查时直接结束！"
         )
         if sources:
             user_prompt = f"参考资料:\n{context}\n\n{user_prompt}"
@@ -444,18 +581,32 @@ async def ask(
         body.cwd,
     )
 
-    is_cont = _is_continuation(question)
-    retrieval_query = question
-    if is_cont and body.history:
-        for prev in reversed(body.history):
-            if prev.get("role") == "user" and prev.get("content"):
-                prev_text = prev["content"].strip()
-                if not _is_continuation(prev_text):
-                    retrieval_query = f"{prev_text} {question}"
-                    break
+    is_cont, is_action, extracted_context = _classify_continuation(question, body.history)
 
-    sources = await _retrieve(db, _user, retrieval_query, body.tool, body.days)
-    messages = _build_messages(question, sources, body.history, is_continuation=is_cont)
+    # In action continuation (e.g. "帮我关闭它", "关掉", "清理掉"), suppress RAG retrieval
+    # to prevent irrelevant memory notes from confusing the model and suppressing device execution.
+    if is_action:
+        sources = []
+    else:
+        retrieval_query = question
+        if is_cont and body.history:
+            for prev in reversed(body.history):
+                if prev.get("role") == "user" and prev.get("content"):
+                    prev_text = prev["content"].strip()
+                    prev_cont, _, _ = _classify_continuation(prev_text, None)
+                    if not prev_cont:
+                        retrieval_query = f"{prev_text} {question}"
+                        break
+        sources = await _retrieve(db, _user, retrieval_query, body.tool, body.days)
+
+    messages = _build_messages(
+        question,
+        sources,
+        body.history,
+        is_continuation=is_cont,
+        is_action=is_action,
+        extracted_context=extracted_context,
+    )
 
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
 
@@ -482,6 +633,15 @@ async def ask(
             )
             if body.cwd:
                 system_content += f"除非用户在对话中另外指定路径，请优先将执行命令的 cwd 设为 \"{body.cwd}\"。"
+        elif extracted_context.get("device_name"):
+            prev_dev_name = extracted_context["device_name"]
+            prev_dev_id = extracted_context.get("device_id") or prev_dev_name
+            cwd_text = f"，默认工作目录 cwd 为 \"{body.cwd}\"" if body.cwd else ""
+            system_content += (
+                f"\n\n【上下文前序操作设备】\n"
+                f"上一轮交互中已在设备 \"{prev_dev_name}\"（device_id: \"{prev_dev_id}\"{cwd_text}）上成功执行过操作。\n"
+                f"规则：用户的跟进指令（如关闭、杀死进程、重启、排查）若未另外指定其他机器，必须直接继续针对该设备 \"{prev_dev_name}\" 调用 run_on_device 执行，无需重复调用 list_devices。\n"
+            )
         elif body.cwd:
             system_content += f"\n\n【默认工作目录】用户指定默认工作目录为 \"{body.cwd}\"，执行命令时若无特殊说明请使用此 cwd。"
 

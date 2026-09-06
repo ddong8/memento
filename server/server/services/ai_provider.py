@@ -222,7 +222,7 @@ async def call_plain_chat(
         choices = data.get("choices") or []
         if choices:
             msg = choices[0].get("message") or {}
-            return msg.get("content")
+            return msg.get("content") or msg.get("reasoning_content")
         return None
     except Exception as e:
         logger.warning("call_plain_chat failed across all providers: %s", e)

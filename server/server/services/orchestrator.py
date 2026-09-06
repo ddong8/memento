@@ -90,6 +90,16 @@ TOOLS = [
     },
 ]
 
+def normalize_device_name(name: str | None) -> str:
+    """Strip platform suffixes like ' (Darwin)', ' (Windows)', ' (Linux)'."""
+    if not name:
+        return ""
+    for suffix in (" (Darwin)", " (Windows)", " (Linux)"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能够调用用户的多台物理设备（Mac、Linux、Windows 等）完成任务。
 
 你有两种信息来源：
@@ -97,12 +107,18 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
 2. 「设备工具」——当资料库不足、或用户明确要求在特定机器上查实时状态/执行操作时：
    - 先使用 list_devices 查看设备列表、系统版本、在线状态；
    - 确认设备 online 后，再使用 run_on_device 发送任务。
+   - 【支持多设备并发】：若涉及多台机器（如排查集群或对比多机端口），你可以在一轮中同时发出针对不同机器的多个 run_on_device 调用，系统已支持全并发下发与实时流式回传！
 
 设备命令执行安全与性能军规（务必遵守，防止进程挂死或机器卡顿）：
 - 严禁全盘递归扫描：绝对禁止在根目录 `/` 或整个用户家目录 `$HOME` 下执行无限制深度的 `find`、`grep -r` 等全盘扫描！在 macOS 上扫描 `$HOME` 会遍历 `~/Library` 下的庞大沙盒容器和 iCloud 云盘，会触发系统 I/O 挂起或权限死锁，极易超时。
 - 文件查找首选极速索引：
   * macOS 下定位文件：优先使用 Spotlight 索引 `mdfind -name "文件名"`（毫秒级瞬时返回）；
   * 若使用 `find`，必须限定具体的浅层目录（如 `~/Documents`、`~/Desktop`、`~/dev`）并加上 `-maxdepth 3`；
+- 端口与进程探查规范：
+  * macOS: 使用 `lsof -nP -iTCP:8000 || true`
+  * Windows: 使用 `netstat -ano | findstr ":8000" || echo "port not in use"`
+  * Linux: 使用 `ss -tulpn | grep ":8000" || true`
+  * 【重要退出码说明】：使用 grep、findstr、lsof 检查端口时，若端口未被占用（未匹配到任何内容），命令通常会返回退出码 1。这是系统的正常预期行为（1 = 无匹配），代表端口空闲/无该进程，绝对不可误报为命令执行故障，应如实告知用户端口未被占用。
 - 常见应用配置快速直达：
   * Obsidian 笔记库：直接读取配置文件 `cat "$HOME/Library/Application Support/obsidian/obsidian.json"`，里面记录了所有本地 Vault 路径，无需遍历磁盘！
   * VSCode/Cursor 配置：位于 `~/Library/Application Support/Code` 或 `Cursor`。
@@ -239,10 +255,14 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         return
 
     try:
-        # Look up machine by collector_token_hash OR by name (order by latest heartbeat)
+        # Look up machine by collector_token_hash OR by name / normalized alias (order by latest heartbeat)
+        base_dev_id = normalize_device_name(device_id)
         machine = (await db.execute(
             select(Machine).where(
-                (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+                (Machine.collector_token_hash == device_id)
+                | (Machine.name == device_id)
+                | (Machine.name == base_dev_id)
+                | (Machine.name.like(f"{base_dev_id}%"))
             ).order_by(Machine.last_heartbeat.desc().nulls_last())
         )).scalars().first()
 
@@ -310,14 +330,21 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         logger.info("orchestrator dispatched task %s (%s, timeout=%ds) to %s", task.id, action, device_timeout, device_id)
 
         task_q = None
-        # Try WebSocket dispatch by device_id, machine.name, or machine.id
+        # Try WebSocket dispatch by all candidate aliases
         target_ws_id = None
-        if ws_manager.has_device(device_id):
-            target_ws_id = device_id
-        elif machine and ws_manager.has_device(machine.name):
-            target_ws_id = machine.name
-        elif machine and ws_manager.has_device(str(machine.id)):
-            target_ws_id = str(machine.id)
+        base_mach_name = normalize_device_name(mach_name)
+        candidates = [device_id, mach_name, base_mach_name]
+        if machine:
+            candidates.extend([
+                machine.collector_token_hash,
+                machine.name,
+                normalize_device_name(machine.name),
+                str(machine.id),
+            ])
+        for cand in candidates:
+            if cand and ws_manager.has_device(cand):
+                target_ws_id = cand
+                break
 
         if target_ws_id:
             task_q = ws_manager.subscribe_task(task_id_str)
@@ -486,7 +513,10 @@ async def run_agent_loop(
             "tool_calls": calls,
         })
 
+        # 1. Parse all tool calls and yield tool_call events immediately
+        parsed_calls = []
         for call in calls:
+            call_id = call.get("id") or ""
             fn = (call.get("function") or {})
             name = fn.get("name") or ""
             args_raw = fn.get("arguments") or "{}"
@@ -497,26 +527,35 @@ async def run_agent_loop(
             if not isinstance(args, dict):
                 args = {}
 
-            call_evt = {"type": "tool_call", "name": name, "args": args}
+            call_evt = {"type": "tool_call", "id": call_id, "tool_call_id": call_id, "name": name, "args": args}
             if name == "run_on_device":
                 dev_id = args.get("device_id")
                 if dev_id:
+                    base_dev_id = normalize_device_name(dev_id)
                     mach_name = (await db.execute(
                         select(Machine.name).where(
-                            (Machine.collector_token_hash == dev_id) | (Machine.name == dev_id)
-                        )
+                            (Machine.collector_token_hash == dev_id)
+                            | (Machine.name == dev_id)
+                            | (Machine.name == base_dev_id)
+                            | (Machine.name.like(f"{base_dev_id}%"))
+                        ).order_by(Machine.last_heartbeat.desc().nulls_last())
                     )).scalars().first()
                     if mach_name:
                         call_evt["device_name"] = mach_name
 
             yield call_evt
+            parsed_calls.append((call, call_id, name, args))
 
-            # Circuit breaker: check if the exact same command on the same device already failed/timed out
+        # 2. Run all tool calls concurrently across devices
+        event_queue: asyncio.Queue = asyncio.Queue()
+        tool_results_by_id: dict[str, dict] = {}
+
+        async def _run_single_tool(c_call, c_id, c_name, c_args):
             sig = None
-            if name == "run_on_device":
-                action = args.get("action") or ""
-                cmd_or_prompt = (args.get("command") if action == "shell" else args.get("prompt")) or ""
-                dev_key = str(args.get("device_id") or "")
+            if c_name == "run_on_device":
+                action = c_args.get("action") or ""
+                cmd_or_prompt = (c_args.get("command") if action == "shell" else c_args.get("prompt")) or ""
+                dev_key = str(c_args.get("device_id") or "")
                 sig = f"{dev_key}:{action}:{cmd_or_prompt.strip()}"
                 prev_status = executed_commands.get(sig)
                 if prev_status in ("timeout", "still_running", "failed"):
@@ -528,31 +567,68 @@ async def run_agent_loop(
                             "请换用更高效的方式（例如使用 Spotlight 索引 `mdfind`、读取具体配置文件、限定具体浅层子目录），或直接向用户说明情况。"
                         ),
                     }
-                    yield {
+                    tool_results_by_id[c_id] = breaker_msg
+                    await event_queue.put({
                         "type": "tool_result",
-                        "name": name,
+                        "tool_call_id": c_id,
+                        "name": c_name,
                         "result": breaker_msg,
-                    }
-                    convo.append({
-                        "role": "tool",
-                        "tool_call_id": call.get("id"),
-                        "content": json.dumps(breaker_msg, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
                     })
-                    continue
+                    return
 
-            tool_result_obj = None
-            async for evt in _dispatch_tool(db, user, name, args):
-                if evt.get("type") == "tool_result":
-                    tool_result_obj = evt.get("result")
-                yield evt
+            async with async_session_factory() as session:
+                res_obj = None
+                try:
+                    async for evt in _dispatch_tool(session, user, c_name, c_args):
+                        evt["tool_call_id"] = c_id
+                        if evt.get("type") == "tool_result":
+                            res_obj = evt.get("result")
+                        await event_queue.put(evt)
+                except Exception as e:
+                    logger.exception("Concurrent tool %s failed: %s", c_name, e)
+                    res_obj = {"error": f"Tool execution failed: {e}"}
+                    await event_queue.put({
+                        "type": "tool_result",
+                        "tool_call_id": c_id,
+                        "name": c_name,
+                        "result": res_obj,
+                    })
 
-            if sig and isinstance(tool_result_obj, dict):
-                executed_commands[sig] = tool_result_obj.get("status") or ""
+                tool_results_by_id[c_id] = res_obj or {}
+                if sig and isinstance(res_obj, dict):
+                    executed_commands[sig] = res_obj.get("status") or ""
 
+        worker_tasks = [
+            asyncio.create_task(_run_single_tool(c_call, c_id, c_name, c_args))
+            for c_call, c_id, c_name, c_args in parsed_calls
+        ]
+
+        active_workers = set(worker_tasks)
+        try:
+            while active_workers:
+                try:
+                    evt = await asyncio.wait_for(event_queue.get(), timeout=0.2)
+                    yield evt
+                except asyncio.TimeoutError:
+                    pass
+                active_workers = {t for t in active_workers if not t.done()}
+
+            # Drain any remaining events in queue
+            while not event_queue.empty():
+                yield event_queue.get_nowait()
+        except (asyncio.CancelledError, GeneratorExit):
+            for t in worker_tasks:
+                if not t.done():
+                    t.cancel()
+            raise
+
+        # Append all tool results in original order into convo
+        for call in calls:
+            cid = call.get("id") or ""
             convo.append({
                 "role": "tool",
-                "tool_call_id": call.get("id"),
-                "content": json.dumps(tool_result_obj or {}, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
+                "tool_call_id": cid,
+                "content": json.dumps(tool_results_by_id.get(cid) or {}, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
             })
 
     # Ran out of rounds with tools still pending.

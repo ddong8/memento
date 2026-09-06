@@ -51,6 +51,16 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 REMOTE_EXEC_ENABLED = os.environ.get("MEMENTO_REMOTE_EXEC", "").strip() == "1"
 
 
+def normalize_device_name(name: str | None) -> str:
+    """Strip platform suffixes like ' (Darwin)', ' (Windows)', ' (Linux)'."""
+    if not name:
+        return ""
+    for suffix in (" (Darwin)", " (Windows)", " (Linux)"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | None) -> Machine:
     """Authenticate a collector for remote execution.
 
@@ -61,9 +71,13 @@ async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | 
     """
     if not presented:
         raise HTTPException(status_code=403, detail="missing remote exec key")
+    base_dev_id = normalize_device_name(device_id)
     machines = (await db.execute(
         select(Machine).where(
-            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+            (Machine.collector_token_hash == device_id)
+            | (Machine.name == device_id)
+            | (Machine.name == base_dev_id)
+            | (Machine.name.like(f"{base_dev_id}%"))
         ).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     if not machines:
@@ -261,12 +275,19 @@ async def poll_tasks(
     machine = await _verify_device_key(db, device_id, x_remote_exec_key)
 
     # Collect all identifiers for this machine (token hash, name, machine_id, and any alias rows)
+    base_name = normalize_device_name(machine.name)
     same_name_machines = (await db.execute(
-        select(Machine).where(Machine.name == machine.name)
+        select(Machine).where(
+            (Machine.name == machine.name)
+            | (Machine.name == base_name)
+            | (Machine.name.like(f"{base_name}%"))
+        )
     )).scalars().all()
     target_ids = {machine.id} | {m.id for m in same_name_machines if m.id}
-    target_tokens = {device_id, machine.collector_token_hash, machine.name} | {
+    target_tokens = {device_id, machine.collector_token_hash, machine.name, base_name} | {
         m.collector_token_hash for m in same_name_machines if m.collector_token_hash
+    } | {
+        m.name for m in same_name_machines if m.name
     }
 
     rows = (await db.execute(
@@ -389,6 +410,9 @@ async def device_websocket_endpoint(
     ws_manager.register(real_device_id, websocket)
     if machine.name:
         ws_manager.register(machine.name, websocket)
+        base_name = normalize_device_name(machine.name)
+        if base_name != machine.name:
+            ws_manager.register(base_name, websocket)
     if machine.id:
         ws_manager.register(str(machine.id), websocket)
 

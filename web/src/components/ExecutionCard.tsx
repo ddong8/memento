@@ -51,9 +51,13 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
     if (isRunning && terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [result?.stdout, result?.stderr, isRunning]);
+  const isMatchFilter = Boolean(
+    command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
+  );
+  const isExit1NoMatch = result?.exit_code === 1 && isMatchFilter && (!result.stderr || result.stderr.trim().length === 0);
+
   const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
-  const isFailed = result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0);
+  const isFailed = !isExit1NoMatch && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
 
   const copyText = () => {
     const parts: string[] = [];
@@ -198,6 +202,12 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
             </span>
           )}
 
+          {isExit1NoMatch && (
+            <Chip tone="neutral">
+              ○ 无匹配 (exit 1)
+            </Chip>
+          )}
+
           {isSuccess && (
             <Chip tone="success">
               ✓ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusSucceeded || "完成")}
@@ -329,9 +339,15 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
             )}
 
             {result?.error && (
-              <div style={{ color: "#ef4444", marginTop: 4 }}>
-                [error] {result.error}
-              </div>
+              isExit1NoMatch ? (
+                <div style={{ color: "#94a3b8", marginTop: 4 }}>
+                  ℹ️ 退出码 1：未匹配到目标内容（探查命令正常执行完毕，目标端口空闲或未检索到匹配项）
+                </div>
+              ) : (
+                <div style={{ color: "#ef4444", marginTop: 4 }}>
+                  [error] {result.error}
+                </div>
+              )
             )}
 
             {result?.note && (

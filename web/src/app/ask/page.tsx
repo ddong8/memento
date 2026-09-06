@@ -148,6 +148,7 @@ export default function AskPage() {
             patchLast((x) => {
               const calls = [...(x.toolCalls || [])];
               calls.push({
+                id: evt.id || evt.tool_call_id,
                 name: evt.name || "",
                 args: evt.args || {},
                 device_name: evt.device_name,
@@ -160,6 +161,16 @@ export default function AskPage() {
               let idx = -1;
               if (evt.task_id) {
                 idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+              }
+              if (idx === -1 && evt.tool_call_id) {
+                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+              }
+              if (idx === -1 && evt.device_name) {
+                idx = calls.findIndex(
+                  (c) =>
+                    (c.device_name === evt.device_name || c.args?.device_id === evt.device_id) &&
+                    (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
+                );
               }
               if (idx === -1) {
                 idx = calls
@@ -194,6 +205,16 @@ export default function AskPage() {
               let idx = -1;
               if (evt.task_id) {
                 idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+              }
+              if (idx === -1 && evt.tool_call_id) {
+                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+              }
+              if (idx === -1 && evt.device_name) {
+                idx = calls.findIndex(
+                  (c) =>
+                    (c.device_name === evt.device_name || c.args?.device_id === evt.device_id) &&
+                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+                );
               }
               if (idx === -1) {
                 idx = calls
@@ -241,6 +262,16 @@ export default function AskPage() {
               const resTaskId = evt.result?.task_id;
               if (resTaskId) {
                 idx = calls.findIndex((c) => c.result?.task_id === resTaskId);
+              }
+              if (idx === -1 && evt.tool_call_id) {
+                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+              }
+              if (idx === -1 && evt.result?.device_name) {
+                idx = calls.findIndex(
+                  (c) =>
+                    (c.device_name === evt.result.device_name || c.args?.device_id === evt.result.device_id) &&
+                    (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
+                );
               }
               if (idx === -1) {
                 idx = calls

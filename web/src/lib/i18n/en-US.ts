@@ -247,6 +247,9 @@ const enUS: Translations = {
     sugPorts: "Check port 8000 and 8001 usage",
     sugDevices: "Check online status of all devices",
     sugRecentSummary: "Summarize my activity today across all tools",
+    allDevices: "All",
+    deviceDiscovery: "Discovery",
+    unknownDevice: "Device",
   },
 
   // Remote device tasks

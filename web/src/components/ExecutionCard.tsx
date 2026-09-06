@@ -27,9 +27,10 @@ export interface ToolCallItem {
 
 interface ExecutionCardProps {
   call: ToolCallItem;
+  isVisible?: boolean;
 }
 
-export default function ExecutionCard({ call }: ExecutionCardProps) {
+export default function ExecutionCard({ call, isVisible = true }: ExecutionCardProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -48,10 +49,10 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
   const isRunning = !result || result.status === "running" || result.status === "queued" || result.status === "still_running";
 
   useEffect(() => {
-    if (isRunning && terminalRef.current) {
+    if (isVisible && isRunning && terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [result?.stdout, result?.stderr, isRunning]);
+  }, [result?.stdout, result?.stderr, isRunning, isVisible]);
 
   const isMatchFilter = Boolean(
     command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
@@ -377,3 +378,5 @@ export default function ExecutionCard({ call }: ExecutionCardProps) {
     </div>
   );
 }
+
+export { default as ExecutionTabs } from "./ExecutionTabs";

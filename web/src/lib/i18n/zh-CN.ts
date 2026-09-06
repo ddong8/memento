@@ -255,6 +255,9 @@ const zhCN = {
     sugPorts: "检查 8000 和 8001 端口占用情况",
     sugDevices: "查看当前所有设备是否在线",
     sugRecentSummary: "总结我今天在所有工具里的主要工作",
+    allDevices: "全部",
+    deviceDiscovery: "设备发现",
+    unknownDevice: "设备",
   },
 
   // Remote device tasks

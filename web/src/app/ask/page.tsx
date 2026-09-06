@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
-import ExecutionCard, { ToolCallItem } from "@/components/ExecutionCard";
+import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 
 interface Source {
   id: string;
@@ -441,12 +441,10 @@ export default function AskPage() {
             </div>
           ) : (
             <Glass key={i} padding={20} radius={18}>
-              {/* Render tool executions (ExecutionCards) */}
+              {/* Render tool executions with multi-device tabs */}
               {turn.toolCalls && turn.toolCalls.length > 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  {turn.toolCalls.map((call, ci) => (
-                    <ExecutionCard key={ci} call={call} />
-                  ))}
+                  <ExecutionTabs calls={turn.toolCalls} />
                 </div>
               )}
 

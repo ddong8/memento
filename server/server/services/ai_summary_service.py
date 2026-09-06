@@ -7,44 +7,18 @@ import logging
 import os
 from datetime import date
 
-import httpx
-
+from .ai_provider import call_plain_chat, get_ai_providers
 from .conversation_parser import parse_conversation
 
 logger = logging.getLogger("server.ai_summary")
-
-AI_BASE_URL = os.environ.get("MEMENTO_AI_BASE_URL", "https://coding.dashscope.aliyuncs.com/v1")
-AI_API_KEY = os.environ.get("MEMENTO_AI_API_KEY", "")
-AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 
 # Concurrency limit for parallel API calls
 _CONCURRENCY = 5
 
 
 async def _call_ai(messages: list[dict], temperature: float = 0.3, max_tokens: int = 1000) -> str | None:
-    """Make a single AI API call."""
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            resp = await client.post(
-                f"{AI_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {AI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
-            )
-            if resp.status_code != 200:
-                logger.warning("AI API %d: %s", resp.status_code, resp.text[:300])
-                return None
-            return resp.json().get("choices", [{}])[0].get("message", {}).get("content")
-    except Exception as e:
-        logger.exception("AI call failed: %s", e)
-        return None
+    """Make a single AI API call with multi-provider fallback."""
+    return await call_plain_chat(messages, temperature=temperature, max_tokens=max_tokens, timeout=90.0)
 
 
 async def _summarize_conversation(tool_id: str, title: str, digest: str, sem: asyncio.Semaphore) -> dict:
@@ -90,8 +64,8 @@ async def generate_daily_summary_from_digests(
     Args:
         conversations: [{tool_id, title, digest}, ...]
     """
-    if not AI_API_KEY:
-        logger.warning("MEMENTO_AI_API_KEY not set")
+    if not get_ai_providers():
+        logger.warning("No AI providers configured")
         return None
 
     # Filter out empty conversations
@@ -185,7 +159,7 @@ async def generate_daily_summary(
     conversations: list[dict],
 ) -> str | None:
     """Legacy: generate summary from raw conversation content (single-pass)."""
-    if not AI_API_KEY:
+    if not get_ai_providers():
         return None
 
     conv_data = []

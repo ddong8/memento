@@ -452,7 +452,9 @@ memento/
 | `MEMENTO_S3_ACCESS_KEY` / `MEMENTO_S3_SECRET_KEY` | minioadmin | MinIO 凭据 |
 | `MEMENTO_S3_BUCKET` | memento | 大文件 bucket |
 | `MEMENTO_ANTHROPIC_API_KEY` | — | Claude API(AI 摘要) |
-| `MEMENTO_AI_API_KEY` / `_BASE_URL` / `_MODEL` | — / dashscope / kimi-k2.5 | OpenAI 兼容备用 |
+| `MEMENTO_AI_API_KEY` / `_BASE_URL` / `_MODEL` | — / dashscope / kimi-k2.5 | 主 OpenAI 兼容 AI 端点 |
+| `MEMENTO_AI_FALLBACK_API_KEY` / `_BASE_URL` / `_MODEL` | OneAPI / qwen3.8-27b | AI 自动故障转移端点 (Fallback) |
+| `MEMENTO_AI_PROVIDERS` | — | JSON 数组形式的多级 AI 提供方列表 |
 | `MEMENTO_EMBEDDING_SERVER_URL` | http://embedding:8002 | Docker 模式默认;`--native` 装的宿主服务请改为 `http://host.docker.internal:8002` |
 | `MEMENTO_GEOIP_DB` | /data/geoip/GeoLite2-City.mmdb | GeoIP 数据库路径 |
 | `MEMENTO_DEBUG` | `0` | 设 `1` 允许 dev 默认值启动 |

@@ -47,6 +47,10 @@ def _write_env_atomic(path: Path, values: dict[str, str]) -> None:
         "MEMENTO_AI_API_KEY",
         "MEMENTO_AI_BASE_URL",
         "MEMENTO_AI_MODEL",
+        "MEMENTO_AI_FALLBACK_API_KEY",
+        "MEMENTO_AI_FALLBACK_BASE_URL",
+        "MEMENTO_AI_FALLBACK_MODEL",
+        "MEMENTO_AI_PROVIDERS",
     ]:
         if key in values and values[key]:
             lines.append(f"{key}={values[key]}")

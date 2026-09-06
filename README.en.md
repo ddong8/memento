@@ -452,7 +452,9 @@ All variables share the `MEMENTO_` prefix.
 | `MEMENTO_S3_ACCESS_KEY` / `MEMENTO_S3_SECRET_KEY` | minioadmin | MinIO credentials |
 | `MEMENTO_S3_BUCKET` | memento | bucket for large files |
 | `MEMENTO_ANTHROPIC_API_KEY` | — | Claude API (AI summaries) |
-| `MEMENTO_AI_API_KEY` / `_BASE_URL` / `_MODEL` | — / dashscope / kimi-k2.5 | OpenAI-compatible fallback |
+| `MEMENTO_AI_API_KEY` / `_BASE_URL` / `_MODEL` | — / dashscope / kimi-k2.5 | Primary OpenAI-compatible endpoint |
+| `MEMENTO_AI_FALLBACK_API_KEY` / `_BASE_URL` / `_MODEL` | OneAPI / qwen3.8-27b | Automated failover AI endpoint (Fallback) |
+| `MEMENTO_AI_PROVIDERS` | — | JSON list of multiple AI providers for tiered fallback |
 | `MEMENTO_EMBEDDING_SERVER_URL` | http://host.docker.internal:8002 | Host BGE-M3 service |
 | `MEMENTO_GEOIP_DB` | /data/geoip/GeoLite2-City.mmdb | GeoIP database path |
 | `MEMENTO_DEBUG` | `0` | set `1` to allow startup with dev defaults |

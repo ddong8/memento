@@ -33,13 +33,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory
+from .ai_provider import (
+    call_chat_completion,
+    call_plain_chat,
+    stream_chat_completion,
+    get_ai_providers,
+)
 from .ws_manager import ws_manager
 
 logger = logging.getLogger("server.orchestrator")
-
-AI_BASE_URL = os.environ.get("MEMENTO_AI_BASE_URL", "https://coding.dashscope.aliyuncs.com/v1")
-AI_API_KEY = os.environ.get("MEMENTO_AI_API_KEY", "")
-AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 
 # Tool-call rounds before we stop and let the model summarize. Each round is
 # one LLM call plus however long the dispatched tasks take.
@@ -511,31 +513,19 @@ async def run_agent_loop(
 
     for round_no in range(MAX_ROUNDS):
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{AI_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {AI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": AI_MODEL,
-                        "messages": convo,
-                        "tools": TOOLS,
-                        "temperature": 0.3,
-                        "max_tokens": 1500,
-                    },
-                )
+            resp_data, used_provider = await call_chat_completion(
+                messages=convo,
+                tools=TOOLS,
+                temperature=0.3,
+                max_tokens=1500,
+                timeout=120.0,
+            )
         except Exception as e:
-            logger.exception("orchestrator LLM call failed")
-            yield {"type": "error", "message": f"AI 调用失败: {type(e).__name__}"}
+            logger.exception("orchestrator LLM call failed across all providers: %s", e)
+            yield {"type": "error", "message": f"AI 调用失败: {e}"}
             return
 
-        if resp.status_code != 200:
-            yield {"type": "error", "message": f"AI 服务返回 {resp.status_code}"}
-            return
-
-        choice = (resp.json().get("choices") or [{}])[0]
+        choice = (resp_data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
         calls = msg.get("tool_calls") or []
 
@@ -548,29 +538,10 @@ async def run_agent_loop(
                     return
                 # Round 0 with no calls and empty content: fallback to plain chat without tools
                 logger.info("Orchestrator round 0 returned no calls and empty content; falling back to plain chat")
-                try:
-                    async with httpx.AsyncClient(timeout=60.0) as client:
-                        plain_resp = await client.post(
-                            f"{AI_BASE_URL}/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {AI_API_KEY}",
-                                "Content-Type": "application/json",
-                            },
-                            json={
-                                "model": AI_MODEL,
-                                "messages": convo,
-                                "temperature": 0.3,
-                                "max_tokens": 1500,
-                            },
-                        )
-                        if plain_resp.status_code == 200:
-                            p_choice = (plain_resp.json().get("choices") or [{}])[0]
-                            p_content = ((p_choice.get("message") or {}).get("content") or "").strip()
-                            if p_content:
-                                yield {"type": "delta", "text": p_content}
-                                return
-                except Exception as e:
-                    logger.warning("Round 0 fallback completion failed: %s", e)
+                plain_content = await call_plain_chat(convo, temperature=0.3, max_tokens=1500)
+                if plain_content and plain_content.strip():
+                    yield {"type": "delta", "text": plain_content.strip()}
+                    return
 
                 yield {"type": "delta", "text": "未获取到需要执行的具体设备操作。如需在设备上排查或修复，请告知目标设备与具体要求。"}
                 return
@@ -714,41 +685,13 @@ async def run_agent_loop(
     })
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{AI_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {AI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": convo,
-                    "temperature": 0.3,
-                    "max_tokens": 2500,
-                    "stream": True,
-                },
-            ) as resp:
-                if resp.status_code == 200:
-                    async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
-                            if delta:
-                                yield {"type": "delta", "text": delta}
-                        except Exception:
-                            continue
-                else:
-                    yield {
-                        "type": "delta",
-                        "text": f"\n\n(已完成所有工具调用，但在生成总结时 AI 返回状态码 {resp.status_code})",
-                    }
+        async for delta in stream_chat_completion(
+            messages=convo,
+            temperature=0.3,
+            max_tokens=2500,
+            timeout=120.0,
+        ):
+            yield {"type": "delta", "text": delta}
     except Exception as e:
         logger.exception("Final synthesis LLM call failed: %s", e)
         yield {

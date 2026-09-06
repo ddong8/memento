@@ -144,6 +144,10 @@ services:
       MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
       MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
       MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
+      MEMENTO_AI_FALLBACK_BASE_URL: ${MEMENTO_AI_FALLBACK_BASE_URL:-https://oneapi.aiphacas.com/v1}
+      MEMENTO_AI_FALLBACK_API_KEY: ${MEMENTO_AI_FALLBACK_API_KEY:-sk-8RpD0Jo7Uk4ImKaGCF1Wb2dZ6cYerROdEUlzGoJt0qfMQL6a}
+      MEMENTO_AI_FALLBACK_MODEL: ${MEMENTO_AI_FALLBACK_MODEL:-qwen3.8-27b}
+      MEMENTO_AI_PROVIDERS: ${MEMENTO_AI_PROVIDERS:-}
       # Default points at the in-compose embedding container (`embedding`
       # service, activated via `--profile embedding`). Users running the
       # native host install override this in .env to
@@ -189,6 +193,10 @@ services:
       MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
       MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
       MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
+      MEMENTO_AI_FALLBACK_BASE_URL: ${MEMENTO_AI_FALLBACK_BASE_URL:-https://oneapi.aiphacas.com/v1}
+      MEMENTO_AI_FALLBACK_API_KEY: ${MEMENTO_AI_FALLBACK_API_KEY:-sk-8RpD0Jo7Uk4ImKaGCF1Wb2dZ6cYerROdEUlzGoJt0qfMQL6a}
+      MEMENTO_AI_FALLBACK_MODEL: ${MEMENTO_AI_FALLBACK_MODEL:-qwen3.8-27b}
+      MEMENTO_AI_PROVIDERS: ${MEMENTO_AI_PROVIDERS:-}
     depends_on:
       postgres:
         condition: service_healthy

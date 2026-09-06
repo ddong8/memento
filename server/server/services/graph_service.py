@@ -15,6 +15,8 @@ from ..db.models import (
     Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine,
 )
 
+from .ai_provider import call_plain_chat, get_ai_providers
+
 logger = logging.getLogger("graph_service")
 
 _EXTRACTION_TEMPLATE = (
@@ -34,33 +36,28 @@ _EXTRACTION_TEMPLATE = (
 
 
 async def _call_llm(prompt: str) -> dict | None:
-    """Call LLM for entity extraction via OpenAI-compatible API. Returns parsed JSON or None."""
-    # Use existing MEMENTO_AI_* config
-    api_key = os.environ.get("MEMENTO_AI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    base_url = os.environ.get("MEMENTO_AI_BASE_URL", "https://coding.dashscope.aliyuncs.com/v1")
-    model = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
-    if not api_key:
+    """Call LLM for entity extraction with multi-provider fallback. Returns parsed JSON or None."""
+    providers = get_ai_providers()
+    raw_text = None
+    if providers:
+        raw_text = await call_plain_chat(
+            messages=[{"role": "user", "content": prompt + "\n\nRespond with JSON only."}],
+            max_tokens=2000,
+        )
+
+    if not raw_text:
         # Try Anthropic as fallback
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("MEMENTO_ANTHROPIC_API_KEY")
         if anthropic_key:
             return await _call_anthropic(prompt, anthropic_key)
-        logger.debug("No AI API key set, skipping graph extraction")
+        if not providers:
+            logger.debug("No AI providers configured, skipping graph extraction")
         return None
 
     try:
-        import openai
-        client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt + "\n\nRespond with JSON only."}],
-            max_tokens=2000,
-        )
-        text = response.choices[0].message.content or "{}"
-        # Extract JSON from response (model may wrap in markdown code block)
-        # Strip markdown code fences if present
-        text = text.strip()
+        text = raw_text.strip()
         if text.startswith("```"):
-            text = text.split("\n", 1)[-1]  # Remove first line
+            text = text.split("\n", 1)[-1]
             if text.endswith("```"):
                 text = text[:-3]
         text = text.strip()
@@ -75,7 +72,7 @@ async def _call_llm(prompt: str) -> dict | None:
         logger.info("LLM returned invalid JSON: %s", str(e)[:100])
         return None
     except Exception as e:
-        logger.warning("LLM extraction failed: %s", e)
+        logger.warning("LLM extraction parsing failed: %s", e)
         return None
 
 

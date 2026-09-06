@@ -18,16 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation
 
+from .ai_provider import call_plain_chat, get_ai_providers
+
 logger = logging.getLogger("memory_compaction")
 
 # Observations older than this get compacted
 COMPACTION_AGE_DAYS = int(os.environ.get("MEMENTO_COMPACTION_AGE_DAYS", "7"))
 # Minimum observations per entity before compaction triggers
 MIN_OBSERVATIONS_TO_COMPACT = 5
-
-AI_BASE_URL = os.environ.get("MEMENTO_AI_BASE_URL", "https://coding.dashscope.aliyuncs.com/v1")
-AI_API_KEY = os.environ.get("MEMENTO_AI_API_KEY", "")
-AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 
 _COMPACT_PROMPT = (
     "你是一个知识库管理员。以下是关于实体「{entity_name}」({entity_type}) 的多条历史观察记录。\n"
@@ -41,22 +39,22 @@ _COMPACT_PROMPT = (
 
 
 async def _call_llm(prompt: str) -> dict | None:
-    """Call LLM for compaction."""
-    if not AI_API_KEY:
+    """Call LLM for compaction with multi-provider fallback."""
+    if not get_ai_providers():
         return None
     try:
-        import openai
-        client = openai.AsyncOpenAI(api_key=AI_API_KEY, base_url=AI_BASE_URL)
-        response = await client.chat.completions.create(
-            model=AI_MODEL,
+        raw_text = await call_plain_chat(
             messages=[{"role": "user", "content": prompt + "\n\nRespond with JSON only."}],
             max_tokens=1000,
         )
-        text = (response.choices[0].message.content or "").strip()
+        if not raw_text:
+            return None
+        text = raw_text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[-1]
             if text.endswith("```"):
                 text = text[:-3]
+        text = text.strip()
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:

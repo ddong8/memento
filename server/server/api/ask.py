@@ -28,17 +28,12 @@ from ..db.models import Document, Machine, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.user_filter import user_machine_ids, apply_user_filter
+from ..services.ai_provider import get_ai_providers, stream_chat_completion
 from .search import _semantic_doc_ranks, RRF_K
 
 logger = logging.getLogger("server.ask")
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
-
-# Reuse the same provider config the summary/knowledge passes already use, so
-# deployments need no new credentials.
-AI_BASE_URL = os.environ.get("MEMENTO_AI_BASE_URL", "https://coding.dashscope.aliyuncs.com/v1")
-AI_API_KEY = os.environ.get("MEMENTO_AI_API_KEY", "")
-AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 
 # How many documents to ground the answer in. Above ~8 the prompt gets long
 # enough that recall degrades (lost-in-the-middle) for no accuracy gain.
@@ -258,7 +253,7 @@ async def ask(
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
-    if not AI_API_KEY:
+    if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
 
     is_cont = _is_continuation(question)
@@ -344,46 +339,16 @@ async def ask(
             return
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{AI_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {AI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": AI_MODEL,
-                        "messages": messages,
-                        "temperature": 0.3,
-                        "max_tokens": 1500,
-                        "stream": True,
-                    },
-                ) as resp:
-                    if resp.status_code != 200:
-                        detail = (await resp.aread()).decode("utf-8", "replace")[:300]
-                        logger.warning("AI API %d: %s", resp.status_code, detail)
-                        yield f"data: {json.dumps({'type': 'error', 'message': f'AI 服务返回 {resp.status_code}'}, ensure_ascii=False)}\n\n"
-                        return
-
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:].strip()
-                        if payload == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(payload)
-                        except json.JSONDecodeError:
-                            continue
-                        delta = (
-                            chunk.get("choices", [{}])[0].get("delta", {}).get("content")
-                        )
-                        if delta:
-                            yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
+            async for delta in stream_chat_completion(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1500,
+                timeout=120.0,
+            ):
+                yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("ask stream failed: %s", e)
-            yield f"data: {json.dumps({'type': 'error', 'message': '生成失败,请重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"
             return
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"

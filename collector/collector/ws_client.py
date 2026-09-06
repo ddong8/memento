@@ -19,7 +19,7 @@ import urllib.parse
 from typing import Any
 
 from .config import CollectorConfig
-from .executor import enroll, is_enabled, remote_exec_key
+from .executor import build_subprocess_env, enroll, is_enabled, remote_exec_key
 from .tls import SSL_CONTEXT
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                env=os.environ.copy(),
+                env=build_subprocess_env(),
                 **extra_kwargs,
             )
         elif action == "agent":
@@ -136,7 +136,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                env=os.environ.copy(),
+                env=build_subprocess_env(),
                 **extra_kwargs,
             )
         else:

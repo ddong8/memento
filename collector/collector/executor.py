@@ -46,6 +46,28 @@ MAX_OUTPUT_CHARS = 100_000
 MAX_TIMEOUT_SECONDS = 24 * 3600
 
 
+def build_subprocess_env() -> dict[str, str]:
+    """Build environment for executed commands, ensuring standard user binary paths are in PATH."""
+    sub_env = os.environ.copy()
+    curr_path = sub_env.get("PATH", "")
+    dirs_to_add = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        os.path.expanduser("~/.docker/bin"),
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/.cargo/bin"),
+        "/Applications/Docker.app/Contents/Resources/bin",
+    ]
+    path_parts = [p for p in curr_path.split(os.pathsep) if p]
+    for d in dirs_to_add:
+        if os.path.isdir(d) and d not in path_parts:
+            path_parts.insert(0, d)
+    sub_env["PATH"] = os.pathsep.join(path_parts)
+    return sub_env
+
+
 def _key_path() -> Path:
     from .config import _default_data_dir
     return _default_data_dir() / "remote_exec_key"
@@ -159,7 +181,7 @@ def _run_shell(payload: dict, timeout: int) -> dict:
             timeout=timeout,
             # Inherit the user's environment: the point of remote execution is
             # to run things exactly as the operator would in their own shell.
-            env=os.environ.copy(),
+            env=build_subprocess_env(),
         )
         return {
             "status": "succeeded" if proc.returncode == 0 else "failed",
@@ -211,7 +233,7 @@ def _run_agent(payload: dict, timeout: int) -> dict:
     try:
         proc = subprocess.run(
             cmd, cwd=cwd, capture_output=True, text=True,
-            timeout=timeout, env=os.environ.copy(),
+            timeout=timeout, env=build_subprocess_env(),
         )
         return {
             "status": "succeeded" if proc.returncode == 0 else "failed",

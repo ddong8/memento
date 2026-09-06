@@ -43,13 +43,13 @@ AI_MODEL = os.environ.get("MEMENTO_AI_MODEL", "kimi-k2.5")
 
 # Tool-call rounds before we stop and let the model summarize. Each round is
 # one LLM call plus however long the dispatched tasks take.
-MAX_ROUNDS = 4
+MAX_ROUNDS = int(os.environ.get("MEMENTO_MAX_ROUNDS", "8"))
 # How long to wait inline for a dispatched task.
 TASK_WAIT_SECONDS = int(os.environ.get("MEMENTO_TASK_WAIT_SECONDS", "180"))
 TASK_POLL_INTERVAL = 1.5
 # Trim tool output before it goes back into the prompt — a 100k-char build log
 # would blow the context and bury the signal.
-MAX_TOOL_OUTPUT = 4000
+MAX_TOOL_OUTPUT = 6000
 # A device that hasn't checked in for this long is reported as likely offline,
 # so the model can pick a different machine instead of waiting on a dead one.
 OFFLINE_AFTER_SECONDS = 180
@@ -126,7 +126,8 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
 - 失败与超时处理：
   * 如果命令返回 timeout 或 still_running，绝对禁止在下一轮重复发送完全相同的命令！
   * 必须分析失败原因，缩小搜索范围、改用轻量命令或直接向用户说明。
-- 如实汇报：把 stderr 和关键输出带上，直面问题，不要粉饰。用户用什么语言就用什么语言回答。"""
+- 如实汇报：把 stderr 和关键输出带上，直面问题，不要粉饰。用户用什么语言就用什么语言回答。
+- 【必须提供完整总结】：当通过工具获取到所需的终端输出、状态或文件内容后，你必须在下一轮提供详细、有条理的总结与分析（例如格式化表格、逐条说明服务与端口、解释关键信息等），严禁只跑命令而不给用户总结！"""
 
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
@@ -503,6 +504,8 @@ async def run_agent_loop(
             content = msg.get("content") or ""
             if content:
                 yield {"type": "delta", "text": content}
+            else:
+                yield {"type": "delta", "text": "任务已执行完成。"}
             return
 
         # Echo the assistant's tool-call turn back into the conversation
@@ -631,8 +634,55 @@ async def run_agent_loop(
                 "content": json.dumps(tool_results_by_id.get(cid) or {}, ensure_ascii=False)[:MAX_TOOL_OUTPUT],
             })
 
-    # Ran out of rounds with tools still pending.
-    yield {
-        "type": "delta",
-        "text": f"\n\n(已达到 {MAX_ROUNDS} 轮工具调用上限，以上是目前得到的信息。)",
-    }
+    # Ran out of tool rounds. Always invoke the LLM one final time to synthesize all gathered results into a complete answer!
+    convo.append({
+        "role": "user",
+        "content": (
+            "【执行完毕总结】请根据上述所有已执行的命令输出与终端日志，"
+            "为用户提供一份完整、详尽、结构清晰的最终总结与分析（例如梳理服务/容器名称、端口映射、运行状态等，并直接解答初始提问）。"
+            "无需再请求任何工具。"
+        ),
+    })
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{AI_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {AI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": AI_MODEL,
+                    "messages": convo,
+                    "temperature": 0.3,
+                    "max_tokens": 2500,
+                    "stream": True,
+                },
+            ) as resp:
+                if resp.status_code == 200:
+                    async for line in resp.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+                            if delta:
+                                yield {"type": "delta", "text": delta}
+                        except Exception:
+                            continue
+                else:
+                    yield {
+                        "type": "delta",
+                        "text": f"\n\n(已完成所有工具调用，但在生成总结时 AI 返回状态码 {resp.status_code})",
+                    }
+    except Exception as e:
+        logger.exception("Final synthesis LLM call failed: %s", e)
+        yield {
+            "type": "delta",
+            "text": f"\n\n(已完成所有工具调用，总结生成异常: {e})",
+        }

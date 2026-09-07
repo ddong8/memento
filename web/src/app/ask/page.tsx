@@ -23,9 +23,97 @@ interface Source {
 interface Turn {
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
   sources?: Source[];
   toolCalls?: ToolCallItem[];
   error?: boolean;
+}
+
+function parseTurnContent(turn: Turn): { thinking: string; content: string } {
+  let thinking = (turn.thinking || "").trim();
+  let content = turn.content || "";
+
+  if (content.includes("<think>")) {
+    const match = content.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+    if (match) {
+      if (!thinking) {
+        thinking = match[1].trim();
+      }
+      content = content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
+    }
+  }
+  return { thinking, content };
+}
+
+function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState<boolean>(false);
+
+  if (!thinking && !isLive) return null;
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        borderRadius: 12,
+        border: "1px solid var(--aurora-border)",
+        background: "rgba(255, 255, 255, 0.02)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 12px",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 12.5,
+          color: "var(--aurora-fg3)",
+          textAlign: "left",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon
+            name="brain"
+            size={14}
+            style={{
+              color: isLive ? "var(--aurora-accent)" : "#D97706",
+              animation: isLive ? "pulse 1.5s infinite" : "none",
+            }}
+          />
+          <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)" }}>
+            {isLive ? t.ask.thinking : t.ask.thinkingDone}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--aurora-fg4)" }}>
+          <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
+          <Icon name={expanded ? "chevron_up" : "chevron_down"} size={13} />
+        </div>
+      </button>
+      {expanded && (
+        <div
+          style={{
+            borderTop: "1px solid var(--aurora-border)",
+            padding: "10px 14px",
+            background: "rgba(0, 0, 0, 0.12)",
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "var(--aurora-fg2)",
+          }}
+        >
+          <div className="prose prose-sm max-w-none text-xs" style={{ opacity: 0.9 }}>
+            <MarkdownViewer content={thinking || "..."} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatRelativeTime(dateStr: string | null, isZh: boolean): string {
@@ -426,6 +514,8 @@ function AskPageContent() {
               }
               return { ...x, toolCalls: calls };
             });
+          } else if (evt.type === "thinking" && evt.text) {
+            patchLast((x) => ({ ...x, thinking: (x.thinking || "") + evt.text }));
           } else if (evt.type === "delta" && evt.text) {
             patchLast((x) => ({ ...x, content: x.content + evt.text }));
           } else if (evt.type === "error") {
@@ -674,34 +764,50 @@ function AskPageContent() {
                 </div>
               )}
 
-              {/* Render tool executions with multi-device tabs */}
-              {turn.toolCalls && turn.toolCalls.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <ExecutionTabs calls={turn.toolCalls} />
-                </div>
-              )}
+              {(() => {
+                const { thinking, content } = parseTurnContent(turn);
+                const isLastTurn = i === turns.length - 1;
+                const isThinkingActive = Boolean(streaming && isLastTurn && !content);
+                const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
 
-              {/* Render assistant text output */}
-              {turn.content ? (
-                <div className="prose prose-sm max-w-none" style={{ fontSize: 14, lineHeight: 1.6 }}>
-                  <MarkdownViewer content={turn.content} />
-                </div>
-              ) : (
-                (!turn.toolCalls || turn.toolCalls.length === 0) && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 13 }}>
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: "var(--aurora-accent)",
-                        animation: "pulse 1s infinite",
-                      }}
-                    />
-                    {t.ask.thinking}
-                  </div>
-                )
-              )}
+                return (
+                  <>
+                    {/* Collapsible Thinking Process Block */}
+                    {(thinking || isThinkingActive) && (
+                      <ThinkingBlock thinking={thinking} isLive={isThinkingActive} />
+                    )}
+
+                    {/* Render tool executions with multi-device tabs */}
+                    {hasTools && (
+                      <div style={{ marginBottom: 12 }}>
+                        <ExecutionTabs calls={turn.toolCalls!} />
+                      </div>
+                    )}
+
+                    {/* Render assistant text output */}
+                    {content ? (
+                      <div className="prose prose-sm max-w-none" style={{ fontSize: 14, lineHeight: 1.6 }}>
+                        <MarkdownViewer content={content} />
+                      </div>
+                    ) : (
+                      !hasTools && !thinking && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 13 }}>
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              background: "var(--aurora-accent)",
+                              animation: "pulse 1s infinite",
+                            }}
+                          />
+                          {t.ask.thinking}
+                        </div>
+                      )
+                    )}
+                  </>
+                );
+              })()}
             </Glass>
           )
         )}

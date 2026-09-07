@@ -374,9 +374,13 @@ async def _authenticate_ws(
         if not (settings.collector_token and secrets.compare_digest(collector_token, settings.collector_token)):
             return None
     # 2. Verify machine and remote_exec_key
+    base_dev_id = normalize_device_name(device_id)
     machines = (await db.execute(
         select(Machine).where(
-            (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+            (Machine.collector_token_hash == device_id)
+            | (Machine.name == device_id)
+            | (Machine.name == base_dev_id)
+            | (Machine.name.like(f"{base_dev_id}%"))
         ).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     if not machines:
@@ -402,6 +406,7 @@ async def device_websocket_endpoint(
         machine = await _authenticate_ws(db, device_id, collector_token, exec_key)
 
     if not machine:
+        await websocket.accept()
         await websocket.close(code=4003, reason="unauthorized")
         return
 

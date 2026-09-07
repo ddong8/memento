@@ -10,10 +10,27 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
-from server.services.ai_provider import get_ai_providers, AIProviderConfig  # noqa: E402
+from server.services.ai_provider import get_ai_providers, AIProviderConfig, split_thinking  # noqa: E402
 
 
 class AIProviderTests(unittest.TestCase):
+    def test_split_thinking_with_think_tags(self) -> None:
+        raw = "<think>Here is some internal thinking\nAnalyzing query...</think>Here is the final answer."
+        thinking, content = split_thinking(raw)
+        self.assertEqual(thinking, "Here is some internal thinking\nAnalyzing query...")
+        self.assertEqual(content, "Here is the final answer.")
+
+    def test_split_thinking_with_reasoning_param(self) -> None:
+        thinking, content = split_thinking("Actual response", reasoning_content="Internal chain of thought")
+        self.assertEqual(thinking, "Internal chain of thought")
+        self.assertEqual(content, "Actual response")
+
+    def test_split_thinking_unclosed_tag(self) -> None:
+        raw = "<think>Still thinking and no closing tag"
+        thinking, content = split_thinking(raw)
+        self.assertEqual(thinking, "Still thinking and no closing tag")
+        self.assertEqual(content, "")
+
     def test_default_fallback_provider_included(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             providers = get_ai_providers()

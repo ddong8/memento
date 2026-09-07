@@ -330,36 +330,42 @@ class FileWatcher:
             san = sanitize_text(parsed_content)
         parsed_content = san.content
 
-        self._queue.enqueue(
-            tool_name=classification.tool_name,
-            category=classification.category.value,
-            content_type=classification.content_type.value,
-            relative_path=classification.relative_path,
-            content=parsed_content,
-            content_hash=current_hash,
-            file_size=len(parsed_content.encode("utf-8")),
-            sync_strategy=classification.sync_strategy.value,
-            is_partial=is_partial,
-            offset=new_offset,
-            metadata=classification.metadata,
-        )
+        try:
+            self._queue.enqueue(
+                tool_name=classification.tool_name,
+                category=classification.category.value,
+                content_type=classification.content_type.value,
+                relative_path=classification.relative_path,
+                content=parsed_content,
+                content_hash=current_hash,
+                file_size=len(parsed_content.encode("utf-8")),
+                sync_strategy=classification.sync_strategy.value,
+                is_partial=is_partial,
+                offset=new_offset,
+                metadata=classification.metadata,
+            )
+            logger.info(
+                "Queued %s/%s (%s, %s%s)",
+                classification.tool_name,
+                classification.relative_path,
+                classification.category.value,
+                classification.content_type.value,
+                " delta" if is_partial else "",
+            )
+        except Exception as e:
+            logger.error("Failed to enqueue %s/%s: %s", classification.tool_name, classification.relative_path, e)
+        finally:
+            # Always update file state so watcher does not get trapped in an infinite error loop
+            self._queue.update_file_state(
+                classification.tool_name,
+                classification.relative_path,
+                current_hash,
+                new_offset,
+            )
 
-        # Update file state
-        self._queue.update_file_state(
-            classification.tool_name,
-            classification.relative_path,
-            current_hash,
-            new_offset,
-        )
-
-        logger.info(
-            "Queued %s/%s (%s, %s%s)",
-            classification.tool_name,
-            classification.relative_path,
-            classification.category.value,
-            classification.content_type.value,
-            " delta" if is_partial else "",
-        )
+        # If there is more unread content in a large file, re-schedule to drain remaining chunks
+        if classification.sync_strategy == SyncStrategy.DELTA and new_offset < file_size:
+            self._schedule(path)
 
     def initial_scan(self) -> int:
         """Do an initial full scan of all watched files. Returns count queued."""

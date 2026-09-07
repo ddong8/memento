@@ -140,13 +140,39 @@ async def call_chat_completion(
     raise RuntimeError(f"All {len(providers)} AI providers failed: " + "; ".join(errors))
 
 
+import re
+
+
+def split_thinking(raw_content: str | None, reasoning_content: str | None = None) -> tuple[str, str]:
+    """Separates thinking/reasoning process from user-facing answer content.
+
+    Handles both explicit `reasoning_content` (DeepSeek, Qwen) and inline `<think>...</think>` tags.
+    Returns (thinking_text, clean_content).
+    """
+    thinking_parts: list[str] = []
+    clean_content = (raw_content or "").strip()
+
+    if reasoning_content and reasoning_content.strip():
+        thinking_parts.append(reasoning_content.strip())
+
+    if "<think>" in clean_content:
+        pattern = re.compile(r"<think>(.*?)(?:</think>|$)", re.DOTALL)
+        for m in pattern.findall(clean_content):
+            if m.strip():
+                thinking_parts.append(m.strip())
+        clean_content = pattern.sub("", clean_content).strip()
+
+    thinking = "\n\n".join(thinking_parts).strip()
+    return thinking, clean_content
+
+
 async def stream_chat_completion(
     messages: list[dict],
     temperature: float = 0.3,
     max_tokens: int = 2500,
     timeout: float = 120.0,
-) -> AsyncGenerator[str, None]:
-    """Stream text deltas from chat/completions with automatic fallback if connection fails."""
+) -> AsyncGenerator[dict[str, str], None]:
+    """Stream text chunks (type: 'thinking' | 'content') from chat/completions with automatic fallback."""
     providers = get_ai_providers()
     if not providers:
         raise RuntimeError("No AI API providers configured (missing API keys)")
@@ -179,6 +205,7 @@ async def stream_chat_completion(
                         continue
 
                     started = True
+                    in_think_tag = False
                     async for line in resp.aiter_lines():
                         if not line or not line.startswith("data: "):
                             continue
@@ -188,9 +215,39 @@ async def stream_chat_completion(
                         try:
                             chunk = json.loads(data_str)
                             delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                            reasoning = delta.get("reasoning_content") or ""
+                            if reasoning:
+                                yield {"type": "thinking", "text": reasoning}
+
                             content = delta.get("content") or ""
                             if content:
-                                yield content
+                                if in_think_tag:
+                                    if "</think>" in content:
+                                        t_part, c_part = content.split("</think>", 1)
+                                        if t_part:
+                                            yield {"type": "thinking", "text": t_part}
+                                        in_think_tag = False
+                                        if c_part:
+                                            yield {"type": "content", "text": c_part}
+                                    else:
+                                        yield {"type": "thinking", "text": content}
+                                elif "<think>" in content:
+                                    c_part, rest = content.split("<think>", 1)
+                                    if c_part:
+                                        yield {"type": "content", "text": c_part}
+                                    in_think_tag = True
+                                    if "</think>" in rest:
+                                        t_part, after = rest.split("</think>", 1)
+                                        if t_part:
+                                            yield {"type": "thinking", "text": t_part}
+                                        in_think_tag = False
+                                        if after:
+                                            yield {"type": "content", "text": after}
+                                    else:
+                                        if rest:
+                                            yield {"type": "thinking", "text": rest}
+                                else:
+                                    yield {"type": "content", "text": content}
                         except Exception:
                             continue
                     return
@@ -210,7 +267,7 @@ async def call_plain_chat(
     max_tokens: int = 1500,
     timeout: float = 120.0,
 ) -> str | None:
-    """Convenience wrapper for non-tool plain completion returning the response string or None."""
+    """Convenience wrapper for non-tool plain completion returning the clean response string or None."""
     try:
         data, _ = await call_chat_completion(
             messages=messages,
@@ -222,7 +279,8 @@ async def call_plain_chat(
         choices = data.get("choices") or []
         if choices:
             msg = choices[0].get("message") or {}
-            return msg.get("content") or msg.get("reasoning_content")
+            _, clean_content = split_thinking(msg.get("content"), msg.get("reasoning_content"))
+            return clean_content or None
         return None
     except Exception as e:
         logger.warning("call_plain_chat failed across all providers: %s", e)

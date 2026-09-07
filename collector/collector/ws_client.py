@@ -209,9 +209,35 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
         _running_tasks.pop(task_id, None)
 
 
+def _patch_websockets_connection_lost() -> None:
+    """Patch websockets Connection.connection_lost to prevent AttributeError on dropped handshake."""
+    try:
+        from websockets.asyncio.connection import Connection
+        orig = getattr(Connection, "connection_lost", None)
+        if orig is None:
+            return
+
+        def safe_connection_lost(self: Any, exc: Exception | None) -> None:
+            if not hasattr(self, "recv_messages"):
+                try:
+                    if hasattr(self, "protocol"):
+                        self.protocol.receive_eof()
+                except Exception:
+                    pass
+                if hasattr(self, "connection_lost_waiter") and not self.connection_lost_waiter.done():
+                    self.connection_lost_waiter.set_result(None)
+                return
+            return orig(self, exc)
+
+        Connection.connection_lost = safe_connection_lost
+    except Exception:
+        pass
+
+
 async def _run_ws_loop(config: CollectorConfig) -> None:
     try:
         import websockets
+        _patch_websockets_connection_lost()
     except ImportError:
         logger.info("websockets library not installed; remote tasks will use HTTP polling")
         return

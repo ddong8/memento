@@ -38,6 +38,7 @@ from .ai_provider import (
     call_plain_chat,
     stream_chat_completion,
     get_ai_providers,
+    split_thinking,
 )
 from .ws_manager import ws_manager
 
@@ -540,9 +541,14 @@ async def run_agent_loop(
         msg = choice.get("message") or {}
         calls = msg.get("tool_calls") or []
 
-        if not calls:
-            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+        raw_content = msg.get("content") or ""
+        raw_reasoning = msg.get("reasoning_content") or ""
+        thinking, content = split_thinking(raw_content, raw_reasoning)
 
+        if thinking:
+            yield {"type": "thinking", "text": thinking}
+
+        if not calls:
             if round_no == 0:
                 # Catch case where model hallucinates tool execution in plain text instead of making a tool_call
                 if any(kw in content for kw in ("run_on_device", "【在设备上调用的工具", "[系统记录", "已终止 PID", "已杀死进程")):
@@ -557,6 +563,17 @@ async def run_agent_loop(
                 if content:
                     yield {"type": "delta", "text": content}
                     return
+
+                # If the model produced ONLY thinking without tool calls or answer:
+                if thinking and not content:
+                    logger.info("Model produced thinking without tool calls or answer in round 0; nudging model to complete")
+                    convo.append({"role": "assistant", "content": f"<think>\n{thinking}\n</think>"})
+                    convo.append({
+                        "role": "user",
+                        "content": "【系统提示】：你刚刚只输出了思考分析过程，尚未调用任何工具（如 run_on_device）在设备上下发指令，也尚未向用户提供最终答复！请根据你的思考，立即调用工具执行命令，或者直接给出最终回答！",
+                    })
+                    continue
+
                 # Round 0 with no calls and empty content: fallback to plain chat without tools
                 logger.info("Orchestrator round 0 returned no calls and empty content; falling back to plain chat")
                 plain_content = await call_plain_chat(convo, temperature=0.3, max_tokens=1500)
@@ -706,13 +723,16 @@ async def run_agent_loop(
     })
 
     try:
-        async for delta in stream_chat_completion(
+        async for item in stream_chat_completion(
             messages=convo,
             temperature=0.3,
             max_tokens=2500,
             timeout=120.0,
         ):
-            yield {"type": "delta", "text": delta}
+            if item["type"] == "thinking":
+                yield {"type": "thinking", "text": item["text"]}
+            else:
+                yield {"type": "delta", "text": item["text"]}
     except Exception as e:
         logger.exception("Final synthesis LLM call failed: %s", e)
         yield {

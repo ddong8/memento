@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("collector.queue")
+
+# Safe limit for SQLite parameter binding to prevent sqlite3.DataError on large blobs
+MAX_QUEUE_CONTENT_SIZE = 10 * 1024 * 1024  # 10 MB
+
 
 
 @dataclass
@@ -76,16 +83,41 @@ class SyncQueue:
                 relative_path: str, content: str, content_hash: str,
                 file_size: int, sync_strategy: str, is_partial: bool = False,
                 offset: int = 0, metadata: dict | None = None) -> int:
+        if len(content) > MAX_QUEUE_CONTENT_SIZE:
+            logger.warning(
+                "Content for %s/%s exceeds %d bytes (%d bytes); truncating before enqueue",
+                tool_name, relative_path, MAX_QUEUE_CONTENT_SIZE, len(content)
+            )
+            keep_head = content[:MAX_QUEUE_CONTENT_SIZE // 2]
+            keep_tail = content[-(MAX_QUEUE_CONTENT_SIZE // 4):]
+            content = f"{keep_head}\n\n... [CONTENT TRUNCATED: exceeded 10MB SQLite limit] ...\n\n{keep_tail}"
+
         with self._lock:
-            cursor = self._conn.execute(
-                """INSERT INTO queue (tool_name, category, content_type, relative_path,
-                    content, content_hash, file_size, sync_strategy, is_partial, offset,
-                    metadata, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (tool_name, category, content_type, relative_path, content,
-                 content_hash, file_size, sync_strategy, int(is_partial), offset,
-                 json.dumps(metadata or {}, default=str), time.time()))
-            self._conn.commit()
-            return cursor.lastrowid  # type: ignore[return-value]
+            try:
+                cursor = self._conn.execute(
+                    """INSERT INTO queue (tool_name, category, content_type, relative_path,
+                        content, content_hash, file_size, sync_strategy, is_partial, offset,
+                        metadata, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (tool_name, category, content_type, relative_path, content,
+                     content_hash, file_size, sync_strategy, int(is_partial), offset,
+                     json.dumps(metadata or {}, default=str), time.time()))
+                self._conn.commit()
+                return cursor.lastrowid  # type: ignore[return-value]
+            except sqlite3.DataError as e:
+                logger.warning(
+                    "SQLite DataError inserting %s/%s (%d bytes): %s; retrying with aggressive truncation",
+                    tool_name, relative_path, len(content), e
+                )
+                truncated = content[:1024 * 1024] + "\n\n... [CONTENT TRUNCATED: SQLite DataError recovery] ..."
+                cursor = self._conn.execute(
+                    """INSERT INTO queue (tool_name, category, content_type, relative_path,
+                        content, content_hash, file_size, sync_strategy, is_partial, offset,
+                        metadata, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (tool_name, category, content_type, relative_path, truncated,
+                     content_hash, file_size, sync_strategy, int(is_partial), offset,
+                     json.dumps(metadata or {}, default=str), time.time()))
+                self._conn.commit()
+                return cursor.lastrowid  # type: ignore[return-value]
 
     def peek_batch(self, batch_size: int = 20) -> list[QueueItem]:
         with self._lock:

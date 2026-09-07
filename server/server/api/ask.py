@@ -420,6 +420,7 @@ async def _append_conversation_turns(
     assistant_content: str,
     sources: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
+    thinking: str | None = None,
     device_id: str | None = None,
     cwd: str | None = None,
 ):
@@ -444,6 +445,8 @@ async def _append_conversation_turns(
                 "content": assistant_content,
                 "created_at": now_iso,
             }
+            if thinking:
+                asst_turn["thinking"] = thinking
             if sources:
                 asst_turn["sources"] = sources
             if tool_calls:
@@ -651,6 +654,7 @@ async def ask(
             yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
             accumulated_text: list[str] = []
+            accumulated_thinking: list[str] = []
             tool_calls_map: dict[str, dict] = {}
             saved = False
 
@@ -665,6 +669,7 @@ async def ask(
                     "".join(accumulated_text),
                     sources=sources,
                     tool_calls=list(tool_calls_map.values()),
+                    thinking="".join(accumulated_thinking).strip() or None,
                     device_id=device_id or None,
                     cwd=body.cwd,
                 )
@@ -687,6 +692,8 @@ async def ask(
                             cid = evt.get("tool_call_id") or ""
                             if cid in tool_calls_map:
                                 tool_calls_map[cid]["result"] = evt.get("result")
+                        elif etype == "thinking":
+                            accumulated_thinking.append(evt.get("text") or "")
                         elif etype == "delta":
                             accumulated_text.append(evt.get("text") or "")
 
@@ -717,6 +724,7 @@ async def ask(
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
         accumulated_text: list[str] = []
+        accumulated_thinking: list[str] = []
         saved = False
 
         async def _persist():
@@ -730,6 +738,7 @@ async def ask(
                 "".join(accumulated_text),
                 sources=sources,
                 tool_calls=None,
+                thinking="".join(accumulated_thinking).strip() or None,
                 device_id=device_id or None,
                 cwd=body.cwd,
             )
@@ -743,14 +752,18 @@ async def ask(
             return
 
         try:
-            async for delta in stream_chat_completion(
+            async for chunk in stream_chat_completion(
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1500,
                 timeout=120.0,
             ):
-                accumulated_text.append(delta)
-                yield f"data: {json.dumps({'type': 'delta', 'text': delta}, ensure_ascii=False)}\n\n"
+                if chunk.get("type") == "thinking":
+                    accumulated_thinking.append(chunk.get("text") or "")
+                    yield f"data: {json.dumps({'type': 'thinking', 'text': chunk.get('text') or ''}, ensure_ascii=False)}\n\n"
+                else:
+                    accumulated_text.append(chunk.get("text") or "")
+                    yield f"data: {json.dumps({'type': 'delta', 'text': chunk.get('text') or ''}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("ask stream failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"

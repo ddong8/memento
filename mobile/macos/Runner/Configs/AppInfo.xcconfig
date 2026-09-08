@@ -1,0 +1,3 @@
+PRODUCT_NAME = memento
+PRODUCT_BUNDLE_IDENTIFIER = com.ihasy.memento
+PRODUCT_COPYRIGHT = Copyright © 2026 Memento. All rights reserved.

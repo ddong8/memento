@@ -78,3 +78,37 @@ flutter build apk --release
 
 > **免越狱长久使用建议**：
 > 免费个人证书签名的 App 有 7 天有效期。若不想每 7 天连一次电脑，可搭配免费开源工具 **SideStore** 或 **AltStore**，利用局域网 WiFi 在后台自动为你刷新这 7 天签名，实现永久使用。
+
+---
+
+## 💻 桌面端客户端构建 (macOS & Windows)
+
+本项目采用**响应式全平台架构**：
+- 在手机（宽度 < 720px）上自动呈现移动端底部导航栏；
+- 在电脑桌面（宽度 ≥ 720px）上自动呈现宽屏左侧导航栏与工作台大屏视图。
+
+### 1. macOS 桌面端运行与打包
+```bash
+cd mobile
+# 直接在 Mac 桌面运行
+flutter run -d macos
+
+# 打包为 macOS 独立应用产物
+flutter build macos --release
+```
+- **输出应用路径**：
+  `mobile/build/macos/Build/Products/Release/memento.app`
+- 可直接双击运行，或拖入 `/Applications` 文件夹使用。
+
+### 2. Windows 桌面端运行与打包
+```bash
+cd mobile
+# 在 Windows 电脑上直接运行调试
+flutter run -d windows
+
+# 打包为 Windows Release 独立应用
+flutter build windows --release
+```
+- **输出应用路径**：
+  `mobile/build/windows/runner/Release/memento.exe`
+- 包含了所有 DLL 依赖与可执行程序，支持打包为安装包（Inno Setup / NSIS）分发给 Windows 用户。

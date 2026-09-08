@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/aurora_theme.dart';
+import '../../state/auth_state.dart';
 import 'ask_screen.dart';
 import 'daily_screen.dart';
 import 'devices_screen.dart';
 import 'memory_screen.dart';
 
-class ShellScreen extends StatefulWidget {
+class ShellScreen extends ConsumerStatefulWidget {
   const ShellScreen({super.key});
 
   @override
-  State<ShellScreen> createState() => _ShellScreenState();
+  ConsumerState<ShellScreen> createState() => _ShellScreenState();
 }
 
-class _ShellScreenState extends State<ShellScreen> {
+class _ShellScreenState extends ConsumerState<ShellScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _pages = const [
@@ -23,8 +24,198 @@ class _ShellScreenState extends State<ShellScreen> {
     DailyScreen(),
   ];
 
+  final List<Map<String, dynamic>> _navItems = const [
+    {
+      'label': '问 AI',
+      'icon': Icons.chat_bubble_outline,
+      'activeIcon': Icons.chat_bubble,
+    },
+    {
+      'label': '记忆检索',
+      'icon': Icons.search,
+      'activeIcon': Icons.saved_search,
+    },
+    {
+      'label': '在线设备',
+      'icon': Icons.devices,
+      'activeIcon': Icons.important_devices,
+    },
+    {
+      'label': '工作总结',
+      'icon': Icons.calendar_today_outlined,
+      'activeIcon': Icons.calendar_today,
+    },
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 720;
+    final authState = ref.watch(authProvider);
+
+    if (isDesktop) {
+      // Desktop Layout: Left Sidebar + Right Main Content
+      return Scaffold(
+        body: Row(
+          children: [
+            // Left Sidebar
+            Container(
+              width: 220,
+              decoration: const BoxDecoration(
+                color: AuroraColors.surface,
+                border: Border(
+                  right: BorderSide(color: AuroraColors.border, width: 1),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // App Brand Header
+                  Padding(
+                    padding: const EdgeInsets.only(left: 20, right: 20, top: 28, bottom: 20),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            gradient: AuroraColors.brandGradient,
+                            borderRadius: BorderRadius.circular(9),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AuroraColors.accent.withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(Icons.psychology, size: 20, color: Colors.white),
+                        ),
+                        const SizedBox(width: 10),
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Memento',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AuroraColors.fg1,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            Text(
+                              'Desktop / Mobile',
+                              style: TextStyle(fontSize: 10, color: AuroraColors.fg3),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(color: AuroraColors.border, height: 1),
+                  const SizedBox(height: 12),
+
+                  // Nav items
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: _navItems.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 4),
+                      itemBuilder: (context, index) {
+                        final item = _navItems[index];
+                        final isSelected = _currentIndex == index;
+
+                        return InkWell(
+                          onTap: () => setState(() => _currentIndex = index),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? AuroraColors.surfaceElevated : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isSelected ? AuroraColors.borderStrong : Colors.transparent,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isSelected ? item['activeIcon'] as IconData : item['icon'] as IconData,
+                                  size: 18,
+                                  color: isSelected ? AuroraColors.accent : AuroraColors.fg3,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  item['label'] as String,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                    color: isSelected ? AuroraColors.fg1 : AuroraColors.fg2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Bottom User Info & Logout
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AuroraColors.chip,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AuroraColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const CircleAvatar(
+                            radius: 13,
+                            backgroundColor: AuroraColors.accentSoft,
+                            child: Icon(Icons.person, size: 14, color: AuroraColors.accent),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              authState.username ?? '用户',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, color: AuroraColors.fg1, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.logout, size: 16, color: AuroraColors.fg3),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: '退出登录',
+                            onPressed: () => ref.read(authProvider.notifier).logout(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Right Main Content
+            Expanded(
+              child: IndexedStack(
+                index: _currentIndex,
+                children: _pages,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Mobile Layout: Bottom Navigation Bar
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
@@ -47,28 +238,15 @@ class _ShellScreenState extends State<ShellScreen> {
           unselectedItemColor: AuroraColors.fg3,
           selectedFontSize: 11,
           unselectedFontSize: 11,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline),
-              activeIcon: Icon(Icons.chat_bubble),
-              label: '问 AI',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.search),
-              activeIcon: Icon(Icons.saved_search),
-              label: '记忆检索',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.devices),
-              activeIcon: Icon(Icons.important_devices),
-              label: '在线设备',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today_outlined),
-              activeIcon: Icon(Icons.calendar_today),
-              label: '工作总结',
-            ),
-          ],
+          items: _navItems
+              .map(
+                (item) => BottomNavigationBarItem(
+                  icon: Icon(item['icon'] as IconData),
+                  activeIcon: Icon(item['activeIcon'] as IconData),
+                  label: item['label'] as String,
+                ),
+              )
+              .toList(),
         ),
       ),
     );

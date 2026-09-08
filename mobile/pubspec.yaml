@@ -1,0 +1,27 @@
+name: memento_mobile
+description: "Memento Mobile - AI Coding Memory & Cross-Device Remote Dispatch Assistant"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  dio: ^5.4.3+1
+  shared_preferences: ^2.2.3
+  flutter_markdown: ^0.7.3
+  flutter_highlight: ^0.7.0
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

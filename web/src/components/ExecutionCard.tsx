@@ -82,6 +82,8 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
         border: "1px solid var(--aurora-border-strong)",
         background: "var(--aurora-surface-solid)",
         overflow: "hidden",
+        maxWidth: "100%",
+        minWidth: 0,
         boxShadow: "0 2px 10px -2px rgba(0,0,0,0.06)",
       }}
     >
@@ -101,7 +103,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
           flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
           <div
             style={{
               display: "flex",
@@ -160,7 +162,8 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                maxWidth: 280,
+                maxWidth: "min(280px, 45vw)",
+                minWidth: 0,
               }}
             >
               $ {command}
@@ -368,7 +371,9 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               lineHeight: 1.55,
               whiteSpace: "pre-wrap",
               wordBreak: "break-all",
+              maxWidth: "100%",
               maxHeight: 320,
+              overflowX: "auto",
               overflowY: "auto",
             }}
           >

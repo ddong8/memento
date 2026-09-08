@@ -284,6 +284,8 @@ body {
   border: 1px solid var(--aurora-border);
   border-radius: var(--aurora-radius-card);
   box-shadow: var(--aurora-card-shadow);
+  max-width: 100%;
+  min-width: 0;
   transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s cubic-bezier(.2,.8,.2,1);
 }
 .aurora-card-hover:hover {
@@ -386,6 +388,8 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
   border-radius: var(--aurora-radius-btn);
   transition: all .2s;
   color: var(--aurora-fg1);
+  min-width: 0;
+  max-width: 100%;
 }
 .aurora-input:focus-within {
   border-color: var(--aurora-accent);
@@ -394,6 +398,8 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 .aurora-input input,
 .aurora-input select {
   flex: 1;
+  min-width: 0;
+  width: 100%;
   border: 0;
   outline: 0;
   background: transparent;

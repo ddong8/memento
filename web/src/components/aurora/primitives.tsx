@@ -125,9 +125,9 @@ interface GhostInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "s
 
 export function GhostInput({ icon, wrapStyle, wrapClassName, className, style, ...rest }: GhostInputProps) {
   return (
-    <label className={["aurora-input", wrapClassName ?? ""].join(" ")} style={wrapStyle}>
-      {icon && <Icon name={icon} size={15} style={{ color: "var(--aurora-fg3)" }} />}
-      <input {...rest} className={className} style={style} />
+    <label className={["aurora-input", wrapClassName ?? ""].join(" ")} style={{ minWidth: 0, ...wrapStyle }}>
+      {icon && <Icon name={icon} size={15} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />}
+      <input {...rest} className={className} style={{ minWidth: 0, ...style }} />
     </label>
   );
 }
@@ -172,7 +172,7 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
         flexWrap: "wrap",
       }}
     >
-      <div>
+      <div style={{ minWidth: 0, flex: "1 1 200px" }}>
         <h1
           style={{
             margin: 0,
@@ -198,7 +198,7 @@ export function TopBar({ title, subtitle, right }: TopBarProps) {
           </p>
         )}
       </div>
-      {right && <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>{right}</div>}
+      {right && <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>{right}</div>}
     </div>
   );
 }

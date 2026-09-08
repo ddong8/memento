@@ -12,7 +12,7 @@ interface MarkdownViewerProps {
 
 export default function MarkdownViewer({ content, className = "" }: MarkdownViewerProps) {
   return (
-    <div className={`prose prose-sm max-w-none break-words overflow-wrap-anywhere ${className}`}>
+    <div className={`prose prose-sm max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
@@ -87,7 +87,7 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
             }
             return (
               <code
-                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)]"
+                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-all"
                 {...props}
               >
                 {children}

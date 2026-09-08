@@ -59,6 +59,8 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
         border: "1px solid var(--aurora-border)",
         background: "rgba(255, 255, 255, 0.02)",
         overflow: "hidden",
+        maxWidth: "100%",
+        minWidth: 0,
       }}
     >
       <button
@@ -105,9 +107,12 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             fontSize: 13,
             lineHeight: 1.6,
             color: "var(--aurora-fg2)",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+            maxWidth: "100%",
           }}
         >
-          <div className="prose prose-sm max-w-none text-xs" style={{ opacity: 0.9 }}>
+          <div className="prose prose-sm max-w-full text-xs" style={{ opacity: 0.9 }}>
             <MarkdownViewer content={thinking || "..."} />
           </div>
         </div>
@@ -562,19 +567,19 @@ function AskPageContent() {
       : t.ask.placeholderAgent;
 
   return (
-    <div className="max-w-4xl mx-auto pb-44">
+    <div className="w-full max-w-4xl mx-auto pb-44 min-w-0 overflow-x-hidden">
       <TopBar
         title={t.ask.title}
         subtitle={t.ask.subtitle}
         right={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
             <Btn
               variant="glass"
               size="sm"
               icon="clock"
               onClick={() => setHistoryOpen(true)}
             >
-              <span>{t.ask.historyTitle}</span>
+              <span className="hidden sm:inline">{t.ask.historyTitle}</span>
               {conversations.length > 0 && (
                 <span
                   style={{
@@ -596,7 +601,7 @@ function AskPageContent() {
               icon="plus"
               onClick={startNewChat}
             >
-              <span>{t.ask.newChat}</span>
+              <span className="hidden sm:inline">{t.ask.newChat}</span>
             </Btn>
             {turns.length > 0 && (
               <Btn
@@ -615,7 +620,7 @@ function AskPageContent() {
       />
 
       {turns.length === 0 && (
-        <Glass padding={32} radius={20} style={{ textAlign: "center", marginBottom: 20 }}>
+        <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
           <div
             style={{
               display: "inline-flex",
@@ -683,7 +688,7 @@ function AskPageContent() {
       )}
 
       {/* Conversation turns list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
         {turns.map((turn, i) =>
           turn.role === "user" ? (
             <div key={i} style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -693,7 +698,7 @@ function AskPageContent() {
                   color: "var(--aurora-fg1)",
                   padding: "11px 16px",
                   borderRadius: 16,
-                  maxWidth: "80%",
+                  maxWidth: "min(88%, 680px)",
                   fontSize: 14,
                   lineHeight: 1.5,
                   whiteSpace: "pre-wrap",
@@ -705,7 +710,7 @@ function AskPageContent() {
               </div>
             </div>
           ) : (
-            <Glass key={i} padding={20} radius={18}>
+            <Glass key={i} padding="clamp(12px, 3vw, 20px)" radius={18} style={{ maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
               {/* Optional top toolbar / sources pill */}
               {turn.sources && turn.sources.length > 0 && (
                 <div
@@ -823,7 +828,7 @@ function AskPageContent() {
           background: "linear-gradient(to top, var(--aurora-bg) 75%, transparent)",
         }}
       >
-        <div className="max-w-4xl mx-auto px-4 md:px-6 pointer-events-auto">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 pointer-events-auto">
           <div
             style={{
               background: "var(--aurora-surface-solid)",
@@ -832,10 +837,12 @@ function AskPageContent() {
               padding: "10px 14px",
               boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
               backdropFilter: "blur(20px)",
+              maxWidth: "100%",
+              minWidth: 0,
             }}
           >
             {/* Device & environment toolbelt */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap", maxWidth: "100%", minWidth: 0 }}>
               {/* Target device selector */}
               <div
                 style={{
@@ -847,9 +854,11 @@ function AskPageContent() {
                   borderRadius: 10,
                   padding: "4px 10px",
                   fontSize: 12,
+                  maxWidth: "100%",
+                  minWidth: 0,
                 }}
               >
-                <Icon name="devices" size={13} style={{ color: "var(--aurora-accent)" }} />
+                <Icon name="devices" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
                 <select
                   value={selectedDevice}
                   onChange={(e) => setSelectedDevice(e.target.value)}
@@ -861,6 +870,10 @@ function AskPageContent() {
                     fontSize: 12,
                     fontWeight: 500,
                     cursor: "pointer",
+                    maxWidth: "min(220px, 60vw)",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    minWidth: 0,
                   }}
                 >
                   <option value="auto" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
@@ -890,10 +903,11 @@ function AskPageContent() {
                       borderRadius: 10,
                       padding: "4px 10px",
                       flex: 1,
-                      minWidth: 160,
+                      minWidth: "min(140px, 100%)",
+                      maxWidth: "100%",
                     }}
                   >
-                    <Icon name="folder" size={13} style={{ color: "var(--aurora-accent)" }} />
+                    <Icon name="folder" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
                     <input
                       type="text"
                       value={cwd}
@@ -907,12 +921,13 @@ function AskPageContent() {
                         fontSize: 12,
                         fontFamily: "monospace",
                         width: "100%",
+                        minWidth: 0,
                       }}
                     />
                     <button
                       type="button"
                       onClick={() => setShowCwd(false)}
-                      style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0 }}
+                      style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0, flexShrink: 0 }}
                     >
                       <Icon name="close" size={11} />
                     </button>
@@ -935,17 +950,21 @@ function AskPageContent() {
                       color: cwd ? "var(--aurora-accent)" : "var(--aurora-fg2)",
                       cursor: "pointer",
                       transition: "all 0.15s ease",
+                      maxWidth: "min(200px, 45vw)",
+                      minWidth: 0,
                     }}
                   >
-                    <Icon name="folder" size={12} />
-                    <span>{cwd ? cwd : t.ask.cwdLabel}</span>
+                    <Icon name="folder" size={12} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {cwd ? cwd : t.ask.cwdLabel}
+                    </span>
                   </button>
                 )
               )}
             </div>
 
             {/* Input box and action button */}
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0 }}>
               <GhostInput
                 type="text"
                 value={input}
@@ -955,15 +974,21 @@ function AskPageContent() {
                 icon={selectedDevice === "ask_only" ? "sparkles" : "terminal"}
                 wrapStyle={{
                   flex: 1,
+                  minWidth: 0,
                   background: "var(--aurora-chip)",
                   border: "1px solid var(--aurora-border)",
                 }}
                 disabled={streaming}
               />
               {streaming ? (
-                <Btn onClick={() => abortRef.current?.abort()}>{t.ask.stop}</Btn>
+                <Btn onClick={() => abortRef.current?.abort()} style={{ flexShrink: 0 }}>{t.ask.stop}</Btn>
               ) : (
-                <Btn onClick={send} disabled={!input.trim()} icon={selectedDevice === "ask_only" ? "search" : "rocket"}>
+                <Btn
+                  onClick={send}
+                  disabled={!input.trim()}
+                  icon={selectedDevice === "ask_only" ? "search" : "rocket"}
+                  style={{ flexShrink: 0 }}
+                >
                   {t.ask.send}
                 </Btn>
               )}

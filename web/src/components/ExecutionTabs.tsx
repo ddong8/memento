@@ -134,7 +134,7 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
   const selectedTab = tabs.some((tb) => tb.key === activeTab) ? activeTab : "all";
 
   return (
-    <div style={{ margin: "10px 0" }}>
+    <div style={{ margin: "10px 0", maxWidth: "100%", minWidth: 0 }}>
       {/* Tab bar */}
       <div
         style={{
@@ -148,7 +148,9 @@ export default function ExecutionTabs({ calls }: ExecutionTabsProps) {
           border: "1px solid var(--aurora-border)",
           marginBottom: 10,
           overflowX: "auto",
+          maxWidth: "100%",
           scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
         }}
       >
         {tabs.map((tb) => {

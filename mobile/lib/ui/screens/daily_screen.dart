@@ -89,14 +89,18 @@ class _DailyScreenState extends State<DailyScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '📅 $date 工作总结',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AuroraColors.fg1,
+                        Expanded(
+                          child: Text(
+                            '📅 $date 工作总结',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AuroraColors.fg1,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Text(
                           '共 ${detail.totalDocuments} 篇记录',
                           style: const TextStyle(fontSize: 12, color: AuroraColors.fg3),

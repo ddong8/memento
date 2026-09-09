@@ -114,12 +114,15 @@ class DevicesScreen extends ConsumerWidget {
                             children: [
                               const Icon(Icons.fingerprint, size: 14, color: AuroraColors.fg3),
                               const SizedBox(width: 4),
-                              Text(
-                                'ID: ${dev.deviceId}',
-                                style: const TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 12,
-                                  color: AuroraColors.fg3,
+                              Expanded(
+                                child: Text(
+                                  'ID: ${dev.deviceId}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    fontSize: 12,
+                                    color: AuroraColors.fg3,
+                                  ),
                                 ),
                               ),
                             ],
@@ -130,12 +133,15 @@ class DevicesScreen extends ConsumerWidget {
                               children: [
                                 const Icon(Icons.lan_outlined, size: 14, color: AuroraColors.fg3),
                                 const SizedBox(width: 4),
-                                Text(
-                                  'IP: ${dev.ip}',
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                    color: AuroraColors.fg3,
+                                Expanded(
+                                  child: Text(
+                                    'IP: ${dev.ip}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 12,
+                                      color: AuroraColors.fg3,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -147,11 +153,14 @@ class DevicesScreen extends ConsumerWidget {
                               children: [
                                 const Icon(Icons.access_time, size: 14, color: AuroraColors.fg3),
                                 const SizedBox(width: 4),
-                                Text(
-                                  '心跳: ${dev.lastSeen}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AuroraColors.fg3,
+                                Expanded(
+                                  child: Text(
+                                    '心跳: ${dev.lastSeen}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AuroraColors.fg3,
+                                    ),
                                   ),
                                 ),
                               ],

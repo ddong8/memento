@@ -338,116 +338,134 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           Row(
             children: [
               // Target Device Dropdown
-              Container(
-                height: 32,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                decoration: BoxDecoration(
-                  color: AuroraColors.chip,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AuroraColors.border),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: deviceState.selectedDeviceId,
-                    dropdownColor: AuroraColors.surfaceElevated,
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: AuroraColors.fg3),
-                    style: const TextStyle(fontSize: 12, color: AuroraColors.fg1),
-                    onChanged: (val) {
-                      if (val != null) {
-                        ref.read(deviceProvider.notifier).setSelectedDevice(val);
-                      }
-                    },
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'auto',
-                        child: Text('🤖 自动调度'),
-                      ),
-                      ...deviceState.devices.map(
-                        (d) => DropdownMenuItem(
-                          value: d.deviceId,
-                          child: Text(
-                            '🖥️ ${d.name} (${d.deviceId.length > 6 ? d.deviceId.substring(0, 6) : d.deviceId})',
-                            overflow: TextOverflow.ellipsis,
+              Expanded(
+                child: Container(
+                  height: 32,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: AuroraColors.chip,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AuroraColors.border),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      isExpanded: true,
+                      value: deviceState.selectedDeviceId,
+                      dropdownColor: AuroraColors.surfaceElevated,
+                      icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: AuroraColors.fg3),
+                      style: const TextStyle(fontSize: 12, color: AuroraColors.fg1),
+                      onChanged: (val) {
+                        if (val != null) {
+                          ref.read(deviceProvider.notifier).setSelectedDevice(val);
+                        }
+                      },
+                      items: [
+                        const DropdownMenuItem(
+                          value: 'auto',
+                          child: Text('🤖 自动调度', overflow: TextOverflow.ellipsis),
+                        ),
+                        ...deviceState.devices.map(
+                          (d) => DropdownMenuItem(
+                            value: d.deviceId,
+                            child: Text(
+                              '🖥️ ${d.name} (${d.deviceId.length > 6 ? d.deviceId.substring(0, 6) : d.deviceId})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
-                      ),
-                      const DropdownMenuItem(
-                        value: 'ask_only',
-                        child: Text('✨ 仅提问不执行'),
-                      ),
-                    ],
+                        const DropdownMenuItem(
+                          value: 'ask_only',
+                          child: Text('✨ 仅提问不执行', overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
 
               // CWD Toggle Button
               if (deviceState.selectedDeviceId != 'ask_only') ...[
-                if (_showCwd)
-                  Expanded(
-                    child: Container(
-                      height: 32,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: AuroraColors.chip,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AuroraColors.accent),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.folder_open, size: 14, color: AuroraColors.accent),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: TextField(
-                              controller: _cwdController,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                                color: AuroraColors.fg1,
-                              ),
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                contentPadding: EdgeInsets.zero,
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                hintText: '工作目录路径',
-                              ),
-                            ),
-                          ),
-                          InkWell(
-                            onTap: () => setState(() => _showCwd = false),
-                            child: const Icon(Icons.close, size: 13, color: AuroraColors.fg3),
-                          ),
-                        ],
+                const SizedBox(width: 8),
+                InkWell(
+                  onTap: () => setState(() => _showCwd = !_showCwd),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: _showCwd ? AuroraColors.accentSoft : AuroraColors.chip,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _showCwd ? AuroraColors.accent : AuroraColors.border,
                       ),
                     ),
-                  )
-                else
-                  InkWell(
-                    onTap: () => setState(() => _showCwd = true),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      height: 32,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: AuroraColors.chip,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AuroraColors.border),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(Icons.folder_outlined, size: 13, color: AuroraColors.fg3),
-                          SizedBox(width: 4),
-                          Text('路径', style: TextStyle(fontSize: 12, color: AuroraColors.fg3)),
-                        ],
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _showCwd ? Icons.folder_open : Icons.folder_outlined,
+                          size: 13,
+                          color: _showCwd ? AuroraColors.accent : AuroraColors.fg3,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '路径',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _showCwd ? AuroraColors.accent : AuroraColors.fg3,
+                            fontWeight: _showCwd ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                ),
               ],
             ],
           ),
+
+          // CWD Path Input (when expanded)
+          if (_showCwd && deviceState.selectedDeviceId != 'ask_only') ...[
+            const SizedBox(height: 6),
+            Container(
+              height: 32,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: BoxDecoration(
+                color: AuroraColors.chip,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AuroraColors.accent.withOpacity(0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.folder_open, size: 14, color: AuroraColors.accent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: TextField(
+                      controller: _cwdController,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontFamily: 'monospace',
+                        color: AuroraColors.fg1,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        hintText: '工作目录路径，如 ~/project',
+                        hintStyle: TextStyle(fontSize: 11, color: AuroraColors.fg4),
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => setState(() => _showCwd = false),
+                    child: const Icon(Icons.close, size: 13, color: AuroraColors.fg3),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
 
           // Prompt input row

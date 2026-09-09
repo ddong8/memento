@@ -107,12 +107,15 @@ class _ExecutionCardState extends State<ExecutionCard> {
                   ),
                   const SizedBox(width: 8),
                   if (call.deviceName != null && call.deviceName!.isNotEmpty) ...[
-                    Text(
-                      '🖥️ ${call.deviceName}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AuroraColors.fg1,
+                    Flexible(
+                      child: Text(
+                        '🖥️ ${call.deviceName}',
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AuroraColors.fg1,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -188,15 +191,19 @@ class _ExecutionCardState extends State<ExecutionCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        call.command.isNotEmpty ? '\$ ${call.command}' : '',
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF38BDF8),
+                      Expanded(
+                        child: Text(
+                          call.command.isNotEmpty ? '\$ ${call.command}' : '',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF38BDF8),
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 8),
                       InkWell(
                         onTap: _copyOutput,
                         borderRadius: BorderRadius.circular(6),

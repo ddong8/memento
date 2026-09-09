@@ -48,27 +48,28 @@ class ApiClient {
 
   // --- Auth Endpoints ---
 
-  Future<Map<String, dynamic>> login(String username, String password) async {
+  Future<Map<String, dynamic>> login(String usernameOrEmail, String password) async {
     final response = await _dio.post(
       '/api/auth/login',
       data: {
-        'username': username,
+        'email': usernameOrEmail,
         'password': password,
       },
     );
     final data = response.data as Map<String, dynamic>;
-    if (data['token'] != null) {
-      await AppStorage.setToken(data['token'].toString());
-      await AppStorage.setUsername(username);
+    final token = data['access_token'] ?? data['token'];
+    if (token != null) {
+      await AppStorage.setToken(token.toString());
+      await AppStorage.setUsername(usernameOrEmail);
     }
     return data;
   }
 
-  Future<Map<String, dynamic>> register(String username, String password) async {
+  Future<Map<String, dynamic>> register(String email, String password) async {
     final response = await _dio.post(
       '/api/auth/register',
       data: {
-        'username': username,
+        'email': email,
         'password': password,
       },
     );

@@ -23,6 +23,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     final auth = ref.read(authProvider);
     _serverController.text = auth.serverUrl;
+    if (auth.username != null && auth.username!.isNotEmpty) {
+      _usernameController.text = auth.username!;
+    } else {
+      _usernameController.text = '1413470138@qq.com';
+    }
   }
 
   @override
@@ -152,7 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                       // Username field
                       const Text(
-                        '用户名',
+                        '账号 / 邮箱',
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
@@ -162,10 +167,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 6),
                       TextField(
                         controller: _usernameController,
+                        keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: AuroraColors.fg1, fontSize: 14),
                         decoration: const InputDecoration(
-                          hintText: '请输入用户名',
-                          prefixIcon: Icon(Icons.person_outline, size: 18, color: AuroraColors.fg3),
+                          hintText: '如 1413470138@qq.com',
+                          prefixIcon: Icon(Icons.email_outlined, size: 18, color: AuroraColors.fg3),
                         ),
                       ),
                       const SizedBox(height: 14),

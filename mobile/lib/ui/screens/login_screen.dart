@@ -25,8 +25,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _serverController.text = auth.serverUrl;
     if (auth.username != null && auth.username!.isNotEmpty) {
       _usernameController.text = auth.username!;
-    } else {
-      _usernameController.text = '1413470138@qq.com';
     }
   }
 
@@ -170,7 +168,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: AuroraColors.fg1, fontSize: 14),
                         decoration: const InputDecoration(
-                          hintText: '如 1413470138@qq.com',
+                          hintText: '请输入登录邮箱或账号',
                           prefixIcon: Icon(Icons.email_outlined, size: 18, color: AuroraColors.fg3),
                         ),
                       ),

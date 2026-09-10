@@ -709,6 +709,7 @@ async def ask(
                 await _persist()
 
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            await asyncio.sleep(0.05)
 
         return StreamingResponse(
             agent_stream(),
@@ -749,6 +750,7 @@ async def ask(
             yield f"data: {json.dumps({'type': 'delta', 'text': empty_msg}, ensure_ascii=False)}\n\n"
             await _persist()
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            await asyncio.sleep(0.05)
             return
 
         try:
@@ -772,6 +774,7 @@ async def ask(
             await _persist()
 
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        await asyncio.sleep(0.05)
 
     return StreamingResponse(
         stream(),

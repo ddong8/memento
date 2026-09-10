@@ -22,6 +22,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   final _cwdController = TextEditingController();
+  final _inputFocusNode = FocusNode();
   bool _showCwd = false;
 
   @override
@@ -29,6 +30,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAutoRestoreLastConversation();
+      // Auto-raise keyboard when entering first screen
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _inputFocusNode.requestFocus();
+        }
+      });
     });
   }
 
@@ -63,6 +70,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     _inputController.dispose();
     _scrollController.dispose();
     _cwdController.dispose();
+    _inputFocusNode.dispose();
     super.dispose();
   }
 
@@ -812,6 +820,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   ),
                   child: TextField(
                     controller: _inputController,
+                    focusNode: _inputFocusNode,
+                    autofocus: true,
                     minLines: 1,
                     maxLines: 4,
                     style: const TextStyle(color: AuroraColors.fg1, fontSize: 14),

@@ -51,6 +51,8 @@ class AskSseClient {
     final token = await AppStorage.getToken();
 
     final dio = ApiClient().dio;
+    bool isDone = false;
+    bool hasReceivedContent = false;
 
     try {
       final response = await dio.post<ResponseBody>(
@@ -136,9 +138,13 @@ class AskSseClient {
                 ToolCallResult.fromJson(resJson),
               );
             } else if (type == 'thinking' && evt['text'] != null) {
+              hasReceivedContent = true;
               onThinking(evt['text'].toString());
             } else if (type == 'delta' && evt['text'] != null) {
+              hasReceivedContent = true;
               onDelta(evt['text'].toString());
+            } else if (type == 'done') {
+              isDone = true;
             } else if (type == 'error') {
               onError(evt['message']?.toString() ?? '发生未知错误');
             }
@@ -152,13 +158,36 @@ class AskSseClient {
           .cast<List<int>>()
           .transform(const Utf8Decoder(allowMalformed: true));
 
-      await for (final text in stringStream) {
-        buffer += text;
-        final frames = buffer.split('\n\n');
-        buffer = frames.removeLast();
+      try {
+        await for (final text in stringStream) {
+          buffer += text;
+          final frames = buffer.split('\n\n');
+          buffer = frames.removeLast();
 
-        for (final frame in frames) {
-          processFrame(frame);
+          for (final frame in frames) {
+            processFrame(frame);
+          }
+        }
+      } catch (streamErr) {
+        // Drain any remaining buffer text
+        if (buffer.trim().isNotEmpty) {
+          processFrame(buffer);
+          buffer = '';
+        }
+
+        final errStr = streamErr.toString();
+        final isSocketClosed = errStr.contains('Connection closed while receiving data') ||
+            errStr.contains('Connection reset by peer') ||
+            errStr.contains('Software caused connection abort') ||
+            errStr.contains('HttpException: Connection closed');
+
+        if (isDone) {
+          // Normal termination: server terminated connection after sending 'done'
+        } else if (isSocketClosed && hasReceivedContent) {
+          // Output was already received and streamed to user; treat connection close as completion
+          isDone = true;
+        } else {
+          rethrow;
         }
       }
 
@@ -168,6 +197,12 @@ class AskSseClient {
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
         // user aborted
+      } else if (isDone) {
+        // Already successfully completed
+      } else if (hasReceivedContent &&
+          (e.error?.toString().contains('Connection closed') == true ||
+              e.message?.contains('Connection closed') == true)) {
+        // Ignored: full or partial response already rendered
       } else if (e.type == DioExceptionType.receiveTimeout ||
           e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.connectionError) {
@@ -176,7 +211,16 @@ class AskSseClient {
         onError('网络请求失败: ${e.message ?? e.toString()}');
       }
     } catch (e) {
-      onError('请求异常: $e');
+      final errStr = e.toString();
+      if (isDone) {
+        // Clean completion
+      } else if (hasReceivedContent &&
+          (errStr.contains('Connection closed while receiving data') ||
+              errStr.contains('HttpException: Connection closed'))) {
+        // Content was already received, clean termination
+      } else {
+        onError('请求异常: $e');
+      }
     } finally {
       _cancelToken = null;
       onDone();

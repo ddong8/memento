@@ -159,6 +159,7 @@ class AskNotifier extends StateNotifier<AskState> {
     required String question,
     required String selectedDevice,
     String? cwd,
+    String executionMode = 'ai',
   }) async {
     if (question.trim().isEmpty || state.isStreaming) return;
 
@@ -186,6 +187,7 @@ class AskNotifier extends StateNotifier<AskState> {
       history: history,
       selectedDevice: selectedDevice,
       cwd: cwd,
+      executionMode: executionMode,
       onConversationId: (id, title) {
         state = state.copyWith(
           activeConversationId: id,

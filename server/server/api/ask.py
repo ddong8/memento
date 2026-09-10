@@ -72,6 +72,8 @@ class AskRequest(BaseModel):
     device_id: str | None = None
     # Optional default working directory for commands.
     cwd: str | None = None
+    # Execution mode: 'ai' (default RAG/orchestrator), 'claude', 'codex', 'antigravity', 'shell'
+    execution_mode: str | None = None
 
 
 async def _retrieve(
@@ -553,6 +555,117 @@ async def delete_conversation(
     return {"ok": True}
 
 
+async def _direct_agent_stream(
+    db: AsyncSession,
+    user: User,
+    question: str,
+    conv_id: uuid.UUID,
+    conv_title: str,
+    execution_mode: str,
+    device_id: str | None,
+    cwd: str | None,
+):
+    """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
+    from ..services.orchestrator import _tool_run_on_device
+
+    yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps({'type': 'sources', 'sources': []}, ensure_ascii=False)}\n\n"
+
+    action = "shell" if execution_mode == "shell" else "agent"
+    args = {
+        "action": action,
+        "device_id": device_id or "",
+        "cwd": cwd or "",
+        "timeout_seconds": 300,
+    }
+    if action == "shell":
+        args["command"] = question
+        cmd_display = question
+    else:
+        binary_map = {
+            "claude": "claude",
+            "codex": "codex",
+            "antigravity": "agy",
+        }
+        binary = binary_map.get(execution_mode, execution_mode)
+        args["prompt"] = question
+        args["binary"] = binary
+        cmd_display = f"[{execution_mode.upper()}] {question}"
+
+    call_id = f"direct_{uuid.uuid4().hex[:8]}"
+    tool_call_item = {
+        "id": call_id,
+        "name": "run_on_device",
+        "device_name": device_id or "auto",
+        "command": cmd_display,
+        "action": action,
+        "binary": args.get("binary"),
+        "status": "running",
+    }
+    yield f"data: {json.dumps({'type': 'tool_call', 'call': tool_call_item}, ensure_ascii=False)}\n\n"
+
+    result_dict = None
+    try:
+        async for evt in _tool_run_on_device(db, user, args):
+            etype = evt.get("type")
+            if etype == "task_chunk":
+                stream_name = evt.get("stream", "stdout")
+                text = evt.get("text", "")
+                yield f"data: {json.dumps({'type': 'tool_stream', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'stream': stream_name, 'text': text}, ensure_ascii=False)}\n\n"
+            elif etype == "task_progress":
+                yield f"data: {json.dumps({'type': 'task_progress', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'status': evt.get('status')}, ensure_ascii=False)}\n\n"
+            elif etype == "tool_result":
+                result_dict = evt.get("result") or {}
+                if result_dict.get("device_name"):
+                    tool_call_item["device_name"] = result_dict["device_name"]
+                yield f"data: {json.dumps({'type': 'tool_result', 'task_id': result_dict.get('task_id'), 'tool_call_id': call_id, 'result': result_dict}, ensure_ascii=False)}\n\n"
+            elif etype == "ping":
+                yield "data: {\"type\": \"ping\"}\n\n"
+    except Exception as e:
+        logger.exception("Error in direct agent stream: %s", e)
+        yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    # Summary delta message
+    summary_text = ""
+    if result_dict:
+        status = result_dict.get("status", "completed")
+        exit_code = result_dict.get("exit_code")
+        if status == "succeeded" or exit_code == 0:
+            summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
+        elif status == "still_running":
+            summary_text = "⏳ 任务仍在后台运行中。"
+        else:
+            err_msg = result_dict.get("error") or result_dict.get("stderr") or f"退出码 {exit_code}"
+            summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
+    else:
+        summary_text = "任务执行结束。"
+
+    yield f"data: {json.dumps({'type': 'delta', 'text': summary_text}, ensure_ascii=False)}\n\n"
+
+    # Persist turns in AskConversation
+    tool_calls_to_save = []
+    if tool_call_item:
+        saved_call = dict(tool_call_item)
+        if result_dict:
+            saved_call["result"] = result_dict
+            saved_call["status"] = result_dict.get("status", "executed")
+        tool_calls_to_save.append(saved_call)
+
+    await _append_conversation_turns(
+        conv_id=conv_id,
+        user_content=question,
+        assistant_content=summary_text,
+        sources=None,
+        tool_calls=tool_calls_to_save,
+        thinking=None,
+        device_id=device_id or (result_dict.get("device_id") if result_dict else None),
+        cwd=cwd,
+    )
+
+    yield "data: {\"type\": \"done\"}\n\n"
+    await asyncio.sleep(0.05)
+
+
 @router.post("")
 async def ask(
     body: AskRequest,
@@ -571,8 +684,6 @@ async def ask(
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
-    if not get_ai_providers():
-        raise HTTPException(status_code=503, detail="AI provider not configured")
 
     device_id = (body.device_id or "").strip()
 
@@ -583,6 +694,30 @@ async def ask(
         device_id or None,
         body.cwd,
     )
+
+    exec_mode = (body.execution_mode or "ai").lower().strip()
+    if exec_mode in ("claude", "codex", "antigravity", "shell"):
+        return StreamingResponse(
+            _direct_agent_stream(
+                db=db,
+                user=_user,
+                question=question,
+                conv_id=conv_id,
+                conv_title=conv_title,
+                execution_mode=exec_mode,
+                device_id=device_id or None,
+                cwd=body.cwd,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
+    if not get_ai_providers():
+        raise HTTPException(status_code=503, detail="AI provider not configured")
 
     is_cont, is_action, extracted_context = _classify_continuation(question, body.history)
 

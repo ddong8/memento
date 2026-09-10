@@ -47,6 +47,36 @@ class _ExecutionCardState extends State<ExecutionCard> {
     final isSuccess = call.isSuccess;
     final isFailed = call.isFailed;
 
+    final binary = call.binary;
+    final cmd = call.command;
+    final isClaude = binary.contains('claude') || cmd.contains('[CLAUDE]');
+    final isCodex = binary.contains('codex') || cmd.contains('[CODEX]');
+    final isAgy = binary.contains('agy') || binary.contains('antigravity') || cmd.contains('[ANTIGRAVITY]');
+
+    final IconData agentIcon = isClaude
+        ? Icons.auto_awesome
+        : isCodex
+            ? Icons.code_rounded
+            : isAgy
+                ? Icons.rocket_launch_rounded
+                : Icons.terminal_rounded;
+
+    final Color agentColor = isClaude
+        ? const Color(0xFFE5855E)
+        : isCodex
+            ? const Color(0xFF10A37F)
+            : isAgy
+                ? const Color(0xFF9D67EF)
+                : AuroraColors.accent;
+
+    final String agentLabel = isClaude
+        ? 'Claude'
+        : isCodex
+            ? 'Codex'
+            : isAgy
+                ? 'Antigravity'
+                : (call.action == 'agent' ? 'Agent' : 'Shell');
+
     final statusColor = isRunning
         ? AuroraColors.accent
         : isSuccess
@@ -96,25 +126,43 @@ class _ExecutionCardState extends State<ExecutionCard> {
                     width: 24,
                     height: 24,
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.12),
+                      color: agentColor.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Icon(
-                      Icons.terminal,
+                      agentIcon,
                       size: 14,
-                      color: statusColor,
+                      color: agentColor,
                     ),
                   ),
                   const SizedBox(width: 8),
+                  // Agent Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: agentColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: agentColor.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      agentLabel,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: agentColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   if (call.deviceName != null && call.deviceName!.isNotEmpty) ...[
                     Flexible(
                       child: Text(
-                        '🖥️ ${call.deviceName}',
+                        '${call.deviceName}',
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AuroraColors.fg1,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: AuroraColors.fg3,
                         ),
                       ),
                     ),
@@ -122,7 +170,9 @@ class _ExecutionCardState extends State<ExecutionCard> {
                   ],
                   Expanded(
                     child: Text(
-                      call.command.isNotEmpty ? '\$ ${call.command}' : call.name,
+                      call.command.isNotEmpty
+                          ? (cmd.startsWith('[') && cmd.contains('] ') ? cmd.substring(cmd.indexOf('] ') + 2) : call.command)
+                          : (call.prompt.isNotEmpty ? call.prompt : call.name),
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontFamily: 'monospace',

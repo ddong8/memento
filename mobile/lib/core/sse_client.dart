@@ -19,6 +19,7 @@ class AskSseClient {
     List<Map<String, dynamic>> history = const [],
     String selectedDevice = 'auto',
     String? cwd,
+    String executionMode = 'ai',
     required void Function(String id, String? title) onConversationId,
     required void Function(List<AskSource> sources) onSources,
     required void Function(ToolCallItem item) onToolCall,
@@ -65,6 +66,7 @@ class AskSseClient {
           'device_id': selectedDevice,
           if (cwd != null && cwd.trim().isNotEmpty) 'cwd': cwd.trim(),
           'agent_mode': selectedDevice != 'ask_only',
+          'execution_mode': executionMode,
         },
         options: Options(
           responseType: ResponseType.stream,

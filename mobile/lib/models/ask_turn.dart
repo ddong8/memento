@@ -95,6 +95,8 @@ class ToolCallItem {
 
   String get command => args['command']?.toString() ?? '';
   String get action => args['action']?.toString() ?? 'shell';
+  String get binary => (args['binary'] ?? '').toString().toLowerCase();
+  String get prompt => (args['prompt'] ?? '').toString();
 
   bool get isRunning =>
       result?.status == 'queued' ||

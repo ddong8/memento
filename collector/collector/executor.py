@@ -48,6 +48,7 @@ MAX_TIMEOUT_SECONDS = 24 * 3600
 
 def build_subprocess_env() -> dict[str, str]:
     """Build environment for executed commands, ensuring standard user binary paths are in PATH."""
+    import glob
     sub_env = os.environ.copy()
     curr_path = sub_env.get("PATH", "")
     dirs_to_add = [
@@ -58,8 +59,22 @@ def build_subprocess_env() -> dict[str, str]:
         os.path.expanduser("~/.docker/bin"),
         os.path.expanduser("~/.local/bin"),
         os.path.expanduser("~/.cargo/bin"),
+        os.path.expanduser("~/go/bin"),
         "/Applications/Docker.app/Contents/Resources/bin",
+        "/Applications/ChatGPT.app/Contents/Resources",
+        "/Applications/Antigravity.app/Contents/MacOS",
+        os.path.expanduser("~/.antigravity/antigravity/bin"),
+        os.path.expanduser("~/.fnm/current/bin"),
+        os.path.expanduser("~/.asdf/shims"),
     ]
+    # Scan dynamic nvm / asdf / vscode codex directories
+    for pattern in (
+        os.path.expanduser("~/.nvm/versions/node/*/bin"),
+        os.path.expanduser("~/.asdf/installs/nodejs/*/bin"),
+        os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-*"),
+    ):
+        dirs_to_add.extend(glob.glob(pattern))
+
     path_parts = [p for p in curr_path.split(os.pathsep) if p]
     for d in dirs_to_add:
         if os.path.isdir(d) and d not in path_parts:

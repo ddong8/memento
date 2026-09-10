@@ -24,6 +24,94 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   final _cwdController = TextEditingController();
   final _inputFocusNode = FocusNode();
   bool _showCwd = false;
+  String _executionMode = 'ai';
+
+  String _getHintText() {
+    switch (_executionMode) {
+      case 'claude':
+        return '向 Claude Code 派发编码任务...';
+      case 'codex':
+        return '向 OpenAI Codex 派发任务...';
+      case 'antigravity':
+        return '向 Antigravity 派发任务...';
+      case 'shell':
+        return '在电脑上执行 Shell 命令...';
+      case 'ai':
+      default:
+        return '向电脑下发命令或提问...';
+    }
+  }
+
+  Widget _buildAgentSelector() {
+    final modes = [
+      {'id': 'ai', 'label': 'AI 编排', 'icon': Icons.psychology_rounded, 'color': AuroraColors.accent},
+      {'id': 'claude', 'label': 'Claude Code', 'icon': Icons.auto_awesome, 'color': const Color(0xFFE5855E)},
+      {'id': 'codex', 'label': 'Codex', 'icon': Icons.code_rounded, 'color': const Color(0xFF10A37F)},
+      {'id': 'antigravity', 'label': 'Antigravity', 'icon': Icons.rocket_launch_rounded, 'color': const Color(0xFF9D67EF)},
+      {'id': 'shell', 'label': 'Shell', 'icon': Icons.terminal_rounded, 'color': const Color(0xFF38BDF8)},
+    ];
+
+    return SizedBox(
+      height: 28,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: modes.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (context, index) {
+          final m = modes[index];
+          final id = m['id'] as String;
+          final isSelected = _executionMode == id;
+          final color = m['color'] as Color;
+
+          return InkWell(
+            onTap: () {
+              setState(() {
+                _executionMode = id;
+                if (id != 'ai') {
+                  final dev = ref.read(deviceProvider);
+                  if (dev.selectedDeviceId == 'ask_only') {
+                    ref.read(deviceProvider.notifier).setSelectedDevice('auto');
+                  }
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(14),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? color.withOpacity(0.18) : AuroraColors.chip,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isSelected ? color.withOpacity(0.8) : AuroraColors.border,
+                  width: isSelected ? 1.2 : 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    m['icon'] as IconData,
+                    size: 13,
+                    color: isSelected ? color : AuroraColors.fg3,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    m['label'] as String,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+                      color: isSelected ? color : AuroraColors.fg2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -368,6 +456,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           question: text,
           selectedDevice: selectedDevice,
           cwd: cwd,
+          executionMode: _executionMode,
         );
 
     _inputController.clear();
@@ -673,7 +762,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Agent Mode Selector Toolbelt (AI / Claude Code / Codex / Antigravity / Shell)
+          _buildAgentSelector(),
+          const SizedBox(height: 8),
+
           // Device & CWD toolbelt
           Row(
             children: [
@@ -825,12 +919,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                     minLines: 1,
                     maxLines: 4,
                     style: const TextStyle(color: AuroraColors.fg1, fontSize: 14),
-                    decoration: const InputDecoration(
-                      hintText: '向电脑下发命令或提问...',
+                    decoration: InputDecoration(
+                      hintText: _getHintText(),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     ),
                     onSubmitted: (_) => _handleSend(),
                   ),

@@ -84,6 +84,11 @@ TOOLS = [
                     "action": {"type": "string", "enum": ["shell", "agent"]},
                     "command": {"type": "string", "description": "action=shell 时的命令行"},
                     "prompt": {"type": "string", "description": "action=agent 时给 agent 的任务描述"},
+                    "binary": {
+                        "type": "string",
+                        "description": "action=agent 时指定的 Agent CLI：'claude' (Claude Code), 'codex' (OpenAI Codex), 'agy' (Antigravity)，默认 'claude'",
+                        "enum": ["claude", "codex", "agy"],
+                    },
                     "cwd": {"type": "string", "description": "工作目录，可选"},
                     "timeout_seconds": {"type": "integer", "description": "执行超时时间（秒），shell 默认 45，agent 默认 180，最大 300"},
                 },
@@ -354,6 +359,8 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                 }
                 return
             payload["prompt"] = args["prompt"]
+            if args.get("binary"):
+                payload["binary"] = args["binary"]
         if args.get("cwd"):
             payload["cwd"] = args["cwd"]
 

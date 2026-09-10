@@ -60,10 +60,10 @@ async def _stream_pipe(stream: asyncio.StreamReader | None, name: str, task_id: 
     if stream is None:
         return
     while True:
-        line = await stream.readline()
-        if not line:
+        chunk = await stream.read(1024)
+        if not chunk:
             break
-        text = line.decode("utf-8", errors="replace")
+        text = chunk.decode("utf-8", errors="replace")
         accumulator.append(text)
         try:
             await ws.send(json.dumps({
@@ -108,6 +108,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
             proc = await asyncio.create_subprocess_shell(
                 command,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -118,14 +119,77 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             prompt = payload.get("prompt") or ""
             if not prompt.strip():
                 raise ValueError("empty prompt")
-            binary = payload.get("binary") or "claude"
-            resolved = shutil.which(binary)
-            if not resolved:
-                raise FileNotFoundError(f"agent binary not found: {binary}")
+            binary = str(payload.get("binary") or "claude").strip().lower()
+            sub_env = build_subprocess_env()
 
-            cmd = [resolved, "-p", prompt]
-            if payload.get("model"):
-                cmd += ["--model", payload["model"]]
+            # Smart agent resolution
+            resolved = None
+            if binary in ("claude", "claude-code"):
+                resolved = shutil.which("claude", path=sub_env.get("PATH"))
+                if not resolved:
+                    import glob
+                    candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude")) + [
+                        os.path.expanduser("~/.fnm/current/bin/claude"),
+                        os.path.expanduser("~/.local/bin/claude"),
+                    ]
+                    for c in candidates:
+                        if os.path.isfile(c) and os.access(c, os.X_OK):
+                            resolved = c
+                            break
+                if not resolved:
+                    raise FileNotFoundError("Claude Code CLI ('claude') not found on this device.")
+
+                cmd = [resolved, "-p", prompt, "--output-format", "text", "--dangerously-skip-permissions"]
+                if payload.get("model"):
+                    cmd += ["--model", payload["model"]]
+
+            elif binary in ("codex", "codex-cli"):
+                resolved = shutil.which("codex", path=sub_env.get("PATH"))
+                if not resolved:
+                    import glob
+                    candidates = [
+                        "/Applications/ChatGPT.app/Contents/Resources/codex",
+                        os.path.expanduser("~/.local/bin/codex"),
+                    ] + glob.glob(os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-*/codex")) \
+                      + glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/codex"))
+                    for c in candidates:
+                        if os.path.isfile(c) and os.access(c, os.X_OK):
+                            resolved = c
+                            break
+                if not resolved:
+                    raise FileNotFoundError("Codex CLI ('codex') not found on this device.")
+
+                cmd = [resolved, "exec", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
+                if payload.get("model"):
+                    cmd += ["-m", payload["model"]]
+                cmd += [prompt]
+
+            elif binary in ("agy", "antigravity"):
+                resolved = shutil.which("agy", path=sub_env.get("PATH")) or shutil.which("antigravity", path=sub_env.get("PATH"))
+                if not resolved:
+                    candidates = [
+                        os.path.expanduser("~/.antigravity/antigravity/bin/agy"),
+                        "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
+                    ]
+                    for c in candidates:
+                        if os.path.isfile(c) and os.access(c, os.X_OK):
+                            resolved = c
+                            break
+                if not resolved:
+                    raise FileNotFoundError("Antigravity CLI ('agy') not found on this device.")
+
+                cmd = [resolved, "-p", prompt]
+                if payload.get("model"):
+                    cmd += ["--model", payload["model"]]
+
+            else:
+                resolved = shutil.which(binary, path=sub_env.get("PATH"))
+                if not resolved:
+                    raise FileNotFoundError(f"agent binary not found: {binary}")
+                cmd = [resolved, "-p", prompt]
+                if payload.get("model"):
+                    cmd += ["--model", payload["model"]]
+
             if payload.get("max_budget_usd"):
                 cmd += ["--max-budget-usd", str(payload["max_budget_usd"])]
             if isinstance(payload.get("args"), list):
@@ -133,10 +197,11 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
-                env=build_subprocess_env(),
+                env=sub_env,
                 **extra_kwargs,
             )
         else:

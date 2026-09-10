@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/api_client.dart';
 import '../core/sse_client.dart';
 import '../models/ask_turn.dart';
 
@@ -7,26 +8,40 @@ class AskState {
   final List<AskTurn> turns;
   final bool isStreaming;
   final String? activeConversationId;
+  final String? activeConversationTitle;
   final String? error;
+  final bool isLoadingHistory;
 
   AskState({
     this.turns = const [],
     this.isStreaming = false,
     this.activeConversationId,
+    this.activeConversationTitle,
     this.error,
+    this.isLoadingHistory = false,
   });
 
   AskState copyWith({
     List<AskTurn>? turns,
     bool? isStreaming,
     String? activeConversationId,
+    bool clearActiveConversationId = false,
+    String? activeConversationTitle,
+    bool clearActiveConversationTitle = false,
     String? error,
+    bool? isLoadingHistory,
   }) {
     return AskState(
       turns: turns ?? this.turns,
       isStreaming: isStreaming ?? this.isStreaming,
-      activeConversationId: activeConversationId ?? this.activeConversationId,
+      activeConversationId: clearActiveConversationId
+          ? null
+          : (activeConversationId ?? this.activeConversationId),
+      activeConversationTitle: clearActiveConversationTitle
+          ? null
+          : (activeConversationTitle ?? this.activeConversationTitle),
       error: error,
+      isLoadingHistory: isLoadingHistory ?? this.isLoadingHistory,
     );
   }
 }
@@ -72,6 +87,56 @@ class AskNotifier extends StateNotifier<AskState> {
     _sseClient.abort();
     _flushPending();
     state = state.copyWith(turns: []);
+  }
+
+  Future<void> loadConversation(
+    String id, {
+    void Function(String? deviceId, String? cwd)? onMetaLoaded,
+  }) async {
+    if (state.isStreaming) {
+      _sseClient.abort();
+      _flushPending();
+    }
+    state = state.copyWith(isLoadingHistory: true, error: null);
+
+    try {
+      final res = await ApiClient().getAskConversation(id);
+      final rawTurns = res['turns'] as List<dynamic>? ?? [];
+      final turns = rawTurns
+          .whereType<Map<String, dynamic>>()
+          .map((t) => AskTurn.fromJson(t))
+          .toList();
+
+      state = state.copyWith(
+        activeConversationId: id,
+        activeConversationTitle: res['title']?.toString(),
+        turns: turns,
+        isLoadingHistory: false,
+        isStreaming: false,
+        error: null,
+      );
+
+      onMetaLoaded?.call(
+        res['device_id']?.toString(),
+        res['cwd']?.toString(),
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoadingHistory: false,
+        error: '加载对话失败: $e',
+      );
+    }
+  }
+
+  Future<void> deleteConversation(String id) async {
+    try {
+      await ApiClient().deleteAskConversation(id);
+      if (state.activeConversationId == id) {
+        newChat();
+      }
+    } catch (e) {
+      state = state.copyWith(error: '删除对话失败: $e');
+    }
   }
 
   void abort() {
@@ -121,8 +186,11 @@ class AskNotifier extends StateNotifier<AskState> {
       history: history,
       selectedDevice: selectedDevice,
       cwd: cwd,
-      onConversationId: (id) {
-        state = state.copyWith(activeConversationId: id);
+      onConversationId: (id, title) {
+        state = state.copyWith(
+          activeConversationId: id,
+          activeConversationTitle: title ?? state.activeConversationTitle,
+        );
       },
       onSources: (sources) {
         _flushPending();

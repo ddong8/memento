@@ -80,6 +80,19 @@ class ToolCallItem {
     this.result,
   });
 
+  factory ToolCallItem.fromJson(Map<String, dynamic> json) {
+    final rawResult = json['result'];
+    return ToolCallItem(
+      id: (json['id'] ?? json['tool_call_id'])?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      args: (json['args'] as Map<String, dynamic>?) ?? {},
+      deviceName: (json['device_name'] ?? json['deviceName'])?.toString(),
+      result: rawResult is Map<String, dynamic>
+          ? ToolCallResult.fromJson(rawResult)
+          : null,
+    );
+  }
+
   String get command => args['command']?.toString() ?? '';
   String get action => args['action']?.toString() ?? 'shell';
 
@@ -139,11 +152,11 @@ class AskSource {
   factory AskSource.fromJson(Map<String, dynamic> json) {
     return AskSource(
       id: json['id']?.toString() ?? '',
-      toolId: json['tool_id']?.toString() ?? '',
-      relativePath: json['relative_path']?.toString(),
+      toolId: (json['tool_id'] ?? json['toolId'])?.toString() ?? '',
+      relativePath: (json['relative_path'] ?? json['relativePath'])?.toString(),
       category: json['category']?.toString(),
       title: json['title']?.toString(),
-      snippet: json['snippet']?.toString(),
+      snippet: (json['snippet'] ?? json['excerpt'])?.toString(),
     );
   }
 }
@@ -164,6 +177,29 @@ class AskTurn {
     this.sources = const [],
     this.toolCalls = const [],
   });
+
+  factory AskTurn.fromJson(Map<String, dynamic> json) {
+    final rawSources = json['sources'] as List<dynamic>? ?? [];
+    final sources = rawSources
+        .whereType<Map<String, dynamic>>()
+        .map((s) => AskSource.fromJson(s))
+        .toList();
+
+    final rawCalls = (json['toolCalls'] ?? json['tool_calls']) as List<dynamic>? ?? [];
+    final toolCalls = rawCalls
+        .whereType<Map<String, dynamic>>()
+        .map((c) => ToolCallItem.fromJson(c))
+        .toList();
+
+    return AskTurn(
+      role: json['role']?.toString() ?? 'user',
+      content: json['content']?.toString() ?? '',
+      thinking: json['thinking']?.toString(),
+      error: json['error'] == true,
+      sources: sources,
+      toolCalls: toolCalls,
+    );
+  }
 
   AskTurn copyWith({
     String? role,

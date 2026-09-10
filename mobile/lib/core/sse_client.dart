@@ -19,7 +19,7 @@ class AskSseClient {
     List<Map<String, dynamic>> history = const [],
     String selectedDevice = 'auto',
     String? cwd,
-    required void Function(String id) onConversationId,
+    required void Function(String id, String? title) onConversationId,
     required void Function(List<AskSource> sources) onSources,
     required void Function(ToolCallItem item) onToolCall,
     required void Function(
@@ -98,7 +98,7 @@ class AskSseClient {
             final type = evt['type']?.toString();
 
             if (type == 'conversation_id' && evt['id'] != null) {
-              onConversationId(evt['id'].toString());
+              onConversationId(evt['id'].toString(), evt['title']?.toString());
             } else if (type == 'sources' && evt['sources'] is List) {
               final list = (evt['sources'] as List)
                   .map((s) => AskSource.fromJson(s as Map<String, dynamic>))

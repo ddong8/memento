@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/api_client.dart';
 import '../../core/theme/aurora_theme.dart';
+import '../../models/ask_conversation.dart';
 import '../../models/ask_turn.dart';
 import '../../state/ask_state.dart';
 import '../../state/device_state.dart';
@@ -21,6 +23,40 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   final _scrollController = ScrollController();
   final _cwdController = TextEditingController();
   bool _showCwd = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAutoRestoreLastConversation();
+    });
+  }
+
+  void _checkAutoRestoreLastConversation() async {
+    final askState = ref.read(askProvider);
+    if (askState.turns.isNotEmpty || askState.activeConversationId != null) return;
+    try {
+      final list = await ApiClient().getAskConversations();
+      if (list.isNotEmpty && mounted) {
+        final last = list.first;
+        ref.read(askProvider.notifier).loadConversation(
+          last.id,
+          onMetaLoaded: (deviceId, cwd) {
+            if (deviceId != null && deviceId.isNotEmpty) {
+              ref.read(deviceProvider.notifier).setSelectedDevice(deviceId);
+            }
+            if (cwd != null && cwd.isNotEmpty) {
+              setState(() {
+                _cwdController.text = cwd;
+                _showCwd = true;
+              });
+            }
+            _scrollToBottom(force: true);
+          },
+        );
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -55,6 +91,263 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     });
   }
 
+  void _showHistoryModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AuroraColors.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.75,
+              minChildSize: 0.4,
+              maxChildSize: 0.92,
+              expand: false,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    // Handle bar
+                    const SizedBox(height: 10),
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AuroraColors.fg4.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Header Row
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.history_rounded, size: 20, color: AuroraColors.accent),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '历史对话',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AuroraColors.fg1,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.pop(sheetContext);
+                              ref.read(askProvider.notifier).newChat();
+                            },
+                            style: TextButton.styleFrom(
+                              foregroundColor: AuroraColors.accent,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              backgroundColor: AuroraColors.accentSoft,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('新建对话', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(color: AuroraColors.border, height: 1),
+
+                    // List
+                    Expanded(
+                      child: FutureBuilder<List<AskConversationSummary>>(
+                        future: ApiClient().getAskConversations(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AuroraColors.accent),
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return Center(
+                              child: Text(
+                                '加载历史记录失败: ${snapshot.error}',
+                                style: const TextStyle(color: AuroraColors.danger, fontSize: 13),
+                              ),
+                            );
+                          }
+                          final list = snapshot.data ?? [];
+                          if (list.isEmpty) {
+                            return const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.chat_bubble_outline, size: 40, color: AuroraColors.fg4),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    '暂无历史对话',
+                                    style: TextStyle(fontSize: 14, color: AuroraColors.fg2, fontWeight: FontWeight.bold),
+                                  ),
+                                  SizedBox(height: 6),
+                                  Text(
+                                    '向 AI 发送提问后，对话将自动在此归档',
+                                    style: TextStyle(fontSize: 12, color: AuroraColors.fg3),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final currentId = ref.read(askProvider).activeConversationId;
+
+                          return ListView.separated(
+                            controller: scrollController,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            itemCount: list.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            itemBuilder: (context, idx) {
+                              final item = list[idx];
+                              final isCurrent = item.id == currentId;
+
+                              return InkWell(
+                                onTap: () {
+                                  Navigator.pop(sheetContext);
+                                  ref.read(askProvider.notifier).loadConversation(
+                                    item.id,
+                                    onMetaLoaded: (devId, cwd) {
+                                      if (devId != null && devId.isNotEmpty) {
+                                        ref.read(deviceProvider.notifier).setSelectedDevice(devId);
+                                      }
+                                      if (cwd != null && cwd.isNotEmpty) {
+                                        setState(() {
+                                          _cwdController.text = cwd;
+                                          _showCwd = true;
+                                        });
+                                      }
+                                      _scrollToBottom(force: true);
+                                    },
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isCurrent ? AuroraColors.accentSoft.withOpacity(0.2) : AuroraColors.chip,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isCurrent ? AuroraColors.accent.withOpacity(0.5) : AuroraColors.border,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        isCurrent ? Icons.chat_bubble : Icons.chat_bubble_outline,
+                                        size: 18,
+                                        color: isCurrent ? AuroraColors.accent : AuroraColors.fg3,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    item.title,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontSize: 13.5,
+                                                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+                                                      color: isCurrent ? AuroraColors.accent : AuroraColors.fg1,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (isCurrent) ...[
+                                                  const SizedBox(width: 6),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: AuroraColors.accent,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                    ),
+                                                    child: const Text(
+                                                      '当前',
+                                                      style: TextStyle(fontSize: 9.5, color: Colors.black, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  item.timeFormatted,
+                                                  style: const TextStyle(fontSize: 11, color: AuroraColors.fg3),
+                                                ),
+                                                if (item.messageCount > 0) ...[
+                                                  const SizedBox(width: 8),
+                                                  Text(
+                                                    '${item.messageCount} 条消息',
+                                                    style: const TextStyle(fontSize: 11, color: AuroraColors.fg4),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline, size: 18, color: AuroraColors.fg4),
+                                        tooltip: '删除对话',
+                                        onPressed: () async {
+                                          final confirmed = await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogCtx) => AlertDialog(
+                                              backgroundColor: AuroraColors.surfaceSolid,
+                                              title: const Text('删除对话', style: TextStyle(color: AuroraColors.fg1, fontSize: 16)),
+                                              content: Text('确定删除对话「${item.title}」吗？', style: const TextStyle(color: AuroraColors.fg2, fontSize: 13)),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(dialogCtx, false),
+                                                  child: const Text('取消', style: TextStyle(color: AuroraColors.fg3)),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(dialogCtx, true),
+                                                  child: const Text('删除', style: TextStyle(color: AuroraColors.danger)),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed == true) {
+                                            await ref.read(askProvider.notifier).deleteConversation(item.id);
+                                            setModalState(() {});
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _handleSend() {
     final text = _inputController.text.trim();
     if (text.isEmpty) return;
@@ -86,8 +379,24 @@ class _AskScreenState extends ConsumerState<AskScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('问 AI'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('问 AI'),
+            if (askState.activeConversationTitle != null)
+              Text(
+                askState.activeConversationTitle!,
+                style: const TextStyle(fontSize: 11, color: AuroraColors.fg3, fontWeight: FontWeight.normal),
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history_rounded, size: 22),
+            tooltip: '历史记录',
+            onPressed: () => _showHistoryModal(context),
+          ),
           IconButton(
             icon: const Icon(Icons.add, size: 22),
             tooltip: '新建对话',
@@ -98,7 +407,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           if (askState.turns.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
-              tooltip: '清空对话',
+              tooltip: '清空当前对话',
               onPressed: () {
                 ref.read(askProvider.notifier).clearChat();
               },
@@ -107,6 +416,12 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       ),
       body: Column(
         children: [
+          if (askState.isLoadingHistory)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              backgroundColor: Colors.transparent,
+              color: AuroraColors.accent,
+            ),
           // Chat list
           Expanded(
             child: askState.turns.isEmpty
@@ -310,8 +625,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                 ),
               )
             else if (turn.toolCalls.isEmpty && (turn.thinking == null || turn.thinking!.isEmpty))
-              Row(
-                children: const [
+              const Row(
+                children: [
                   SizedBox(
                     width: 14,
                     height: 14,

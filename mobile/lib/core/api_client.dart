@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../models/ask_conversation.dart';
 import 'storage.dart';
 
 class ApiClient {
@@ -135,6 +136,29 @@ class ApiClient {
   Future<Map<String, dynamic>> getDailyDetail(String date) async {
     final response = await _dio.get('/api/daily/$date');
     return response.data as Map<String, dynamic>;
+  }
+
+  // --- Ask Conversations ---
+
+  Future<List<AskConversationSummary>> getAskConversations() async {
+    final response = await _dio.get('/api/ask/conversations');
+    final data = response.data;
+    if (data is List) {
+      return data
+          .whereType<Map<String, dynamic>>()
+          .map((j) => AskConversationSummary.fromJson(j))
+          .toList();
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>> getAskConversation(String id) async {
+    final response = await _dio.get('/api/ask/conversations/$id');
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<void> deleteAskConversation(String id) async {
+    await _dio.delete('/api/ask/conversations/$id');
   }
 
   // --- Direct Command Dispatch ---

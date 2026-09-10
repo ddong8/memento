@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/aurora_theme.dart';
 import '../../state/auth_state.dart';
+import '../../state/device_state.dart';
 import 'ask_screen.dart';
 import 'daily_screen.dart';
 import 'devices_screen.dart';
@@ -14,9 +15,29 @@ class ShellScreen extends ConsumerStatefulWidget {
   ConsumerState<ShellScreen> createState() => _ShellScreenState();
 }
 
-class _ShellScreenState extends ConsumerState<ShellScreen> {
+class _ShellScreenState extends ConsumerState<ShellScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   final Set<int> _loadedTabs = {0};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Auto-refresh devices when user returns to foreground
+      ref.read(deviceProvider.notifier).loadDevices();
+    }
+  }
 
   List<Widget> _buildPages() {
     return [

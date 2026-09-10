@@ -207,9 +207,16 @@ class AskNotifier extends StateNotifier<AskState> {
       },
       onError: (err) {
         _flushPending();
-        _updateLastAssistantSync((prev) =>
-            prev.copyWith(content: prev.content.isEmpty ? err : prev.content, error: true));
-        state = state.copyWith(error: err);
+        _updateLastAssistantSync((prev) {
+          if (prev.content.trim().isNotEmpty) {
+            return prev.copyWith(
+              content: '${prev.content}\n\n> ⚠️ *($err)*',
+              error: false,
+            );
+          }
+          return prev.copyWith(content: err, error: true);
+        });
+        state = state.copyWith(error: err, isStreaming: false);
       },
       onDone: () {
         _flushPending();

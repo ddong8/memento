@@ -385,7 +385,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                           (d) => DropdownMenuItem(
                             value: d.deviceId,
                             child: Text(
-                              '🖥️ ${d.name} (${d.deviceId.length > 6 ? d.deviceId.substring(0, 6) : d.deviceId})',
+                              '${d.isOnline ? "🟢" : "⚪"} ${d.name} (${d.deviceId.length > 6 ? d.deviceId.substring(0, 6) : d.deviceId})',
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),

@@ -66,6 +66,7 @@ class AskSseClient {
         },
         options: Options(
           responseType: ResponseType.stream,
+          receiveTimeout: const Duration(minutes: 10),
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
@@ -155,8 +156,12 @@ class AskSseClient {
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
         // user aborted
+      } else if (e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.connectionError) {
+        onError('网络连接中断（如切到后台或网络波动导致挂起），请回到前台后重试');
       } else {
-        onError('网络请求失败: ${e.message}');
+        onError('网络请求失败: ${e.message ?? e.toString()}');
       }
     } catch (e) {
       onError('请求异常: $e');

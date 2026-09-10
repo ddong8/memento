@@ -127,43 +127,77 @@ class DevicesScreen extends ConsumerWidget {
                               ),
                             ],
                           ),
-                          if (dev.ip != null && dev.ip!.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(Icons.lan_outlined, size: 14, color: AuroraColors.fg3),
-                                const SizedBox(width: 4),
-                                Expanded(
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                size: 14,
+                                color: isOnline ? AuroraColors.success : AuroraColors.fg3,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '最近心跳: ${dev.heartbeatText}',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isOnline ? AuroraColors.success : AuroraColors.fg3,
+                                  ),
+                                ),
+                              ),
+                              if (dev.collectorVersion != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: AuroraColors.chip,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: AuroraColors.border),
+                                  ),
                                   child: Text(
-                                    'IP: ${dev.ip}',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 12,
-                                      color: AuroraColors.fg3,
-                                    ),
+                                    'v${dev.collectorVersion}',
+                                    style: const TextStyle(fontSize: 10.5, color: AuroraColors.fg3),
+                                  ),
+                                ),
+                              if (dev.documentCount > 0) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: AuroraColors.accentSoft,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    '${dev.documentCount} 条记忆',
+                                    style: const TextStyle(fontSize: 10.5, color: AuroraColors.accent),
                                   ),
                                 ),
                               ],
-                            ),
-                          ],
-                          if (dev.lastSeen != null) ...[
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(Icons.access_time, size: 14, color: AuroraColors.fg3),
-                                const SizedBox(width: 4),
-                                Expanded(
+                            ],
+                          ),
+                          if (dev.tools.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: dev.tools.map(
+                                (tool) => Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: AuroraColors.chip,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: AuroraColors.border),
+                                  ),
                                   child: Text(
-                                    '心跳: ${dev.lastSeen}',
-                                    overflow: TextOverflow.ellipsis,
+                                    tool,
                                     style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AuroraColors.fg3,
+                                      fontSize: 10.5,
+                                      color: AuroraColors.accent,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
-                              ],
+                              ).toList(),
                             ),
                           ],
                         ],

@@ -168,8 +168,9 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 resolved = shutil.which("agy", path=sub_env.get("PATH")) or shutil.which("antigravity", path=sub_env.get("PATH"))
                 if not resolved:
                     candidates = [
+                        os.path.expanduser("~/.gemini/antigravity/bin/agy_cli.py"),
                         os.path.expanduser("~/.antigravity/antigravity/bin/agy"),
-                        "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
+                        "/opt/homebrew/bin/agy",
                     ]
                     for c in candidates:
                         if os.path.isfile(c) and os.access(c, os.X_OK):

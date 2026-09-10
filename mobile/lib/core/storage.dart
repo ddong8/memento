@@ -9,27 +9,43 @@ class AppStorage {
 
   static const String defaultServerUrl = 'https://mem.ihasy.com';
 
+  static SharedPreferences? _prefs;
+  static String? _cachedServerUrl;
+  static String? _cachedToken;
+  static String? _cachedUsername;
+  static String? _cachedLastDeviceId;
+
+  static Future<SharedPreferences> _getPrefs() async {
+    return _prefs ??= await SharedPreferences.getInstance();
+  }
+
   static Future<String> getServerUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyServerUrl) ?? defaultServerUrl;
+    if (_cachedServerUrl != null) return _cachedServerUrl!;
+    final prefs = await _getPrefs();
+    _cachedServerUrl = prefs.getString(_keyServerUrl) ?? defaultServerUrl;
+    return _cachedServerUrl!;
   }
 
   static Future<void> setServerUrl(String url) async {
-    final prefs = await SharedPreferences.getInstance();
     var cleanUrl = url.trim();
     if (cleanUrl.endsWith('/')) {
       cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
     }
+    _cachedServerUrl = cleanUrl;
+    final prefs = await _getPrefs();
     await prefs.setString(_keyServerUrl, cleanUrl);
   }
 
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyToken);
+    if (_cachedToken != null) return _cachedToken;
+    final prefs = await _getPrefs();
+    _cachedToken = prefs.getString(_keyToken);
+    return _cachedToken;
   }
 
   static Future<void> setToken(String? token) async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = token;
+    final prefs = await _getPrefs();
     if (token == null || token.isEmpty) {
       await prefs.remove(_keyToken);
     } else {
@@ -38,12 +54,15 @@ class AppStorage {
   }
 
   static Future<String?> getUsername() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyUsername);
+    if (_cachedUsername != null) return _cachedUsername;
+    final prefs = await _getPrefs();
+    _cachedUsername = prefs.getString(_keyUsername);
+    return _cachedUsername;
   }
 
   static Future<void> setUsername(String? username) async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedUsername = username;
+    final prefs = await _getPrefs();
     if (username == null) {
       await prefs.remove(_keyUsername);
     } else {
@@ -52,12 +71,15 @@ class AppStorage {
   }
 
   static Future<String?> getLastDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyLastDeviceId);
+    if (_cachedLastDeviceId != null) return _cachedLastDeviceId;
+    final prefs = await _getPrefs();
+    _cachedLastDeviceId = prefs.getString(_keyLastDeviceId);
+    return _cachedLastDeviceId;
   }
 
   static Future<void> setLastDeviceId(String? deviceId) async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedLastDeviceId = deviceId;
+    final prefs = await _getPrefs();
     if (deviceId == null) {
       await prefs.remove(_keyLastDeviceId);
     } else {
@@ -66,7 +88,9 @@ class AppStorage {
   }
 
   static Future<void> clearSession() async {
-    final prefs = await SharedPreferences.getInstance();
+    _cachedToken = null;
+    _cachedUsername = null;
+    final prefs = await _getPrefs();
     await prefs.remove(_keyToken);
     await prefs.remove(_keyUsername);
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/sse_client.dart';
 import '../models/ask_turn.dart';
@@ -32,22 +33,61 @@ class AskState {
 
 class AskNotifier extends StateNotifier<AskState> {
   final AskSseClient _sseClient = AskSseClient();
+  Timer? _batchTimer;
+  String _pendingDelta = '';
+  String _pendingThinking = '';
 
   AskNotifier() : super(AskState());
 
+  void _flushPending() {
+    _batchTimer?.cancel();
+    _batchTimer = null;
+    if (_pendingDelta.isEmpty && _pendingThinking.isEmpty) return;
+
+    final delta = _pendingDelta;
+    final thinking = _pendingThinking;
+    _pendingDelta = '';
+    _pendingThinking = '';
+
+    _updateLastAssistantSync((prev) => prev.copyWith(
+      content: prev.content + delta,
+      thinking: (prev.thinking ?? '') + thinking,
+    ));
+  }
+
+  void _scheduleBatchFlush() {
+    if (_batchTimer != null && _batchTimer!.isActive) return;
+    _batchTimer = Timer(const Duration(milliseconds: 50), () {
+      _flushPending();
+    });
+  }
+
   void newChat() {
     _sseClient.abort();
+    _flushPending();
     state = AskState();
   }
 
   void clearChat() {
     _sseClient.abort();
+    _flushPending();
     state = state.copyWith(turns: []);
   }
 
   void abort() {
     _sseClient.abort();
+    _flushPending();
     state = state.copyWith(isStreaming: false);
+  }
+
+  void _updateLastAssistantSync(AskTurn Function(AskTurn prev) fn) {
+    if (state.turns.isEmpty) return;
+    final list = [...state.turns];
+    final lastIdx = list.length - 1;
+    if (list[lastIdx].role == 'assistant') {
+      list[lastIdx] = fn(list[lastIdx]);
+      state = state.copyWith(turns: list);
+    }
   }
 
   Future<void> sendQuestion({
@@ -56,6 +96,8 @@ class AskNotifier extends StateNotifier<AskState> {
     String? cwd,
   }) async {
     if (question.trim().isEmpty || state.isStreaming) return;
+
+    _flushPending();
 
     // 1. Add user turn
     final userTurn = AskTurn(role: 'user', content: question.trim());
@@ -73,16 +115,6 @@ class AskNotifier extends StateNotifier<AskState> {
         .map((t) => {'role': t.role, 'content': t.content})
         .toList();
 
-    void updateLastAssistant(AskTurn Function(AskTurn prev) fn) {
-      if (state.turns.isEmpty) return;
-      final list = [...state.turns];
-      final lastIdx = list.length - 1;
-      if (list[lastIdx].role == 'assistant') {
-        list[lastIdx] = fn(list[lastIdx]);
-        state = state.copyWith(turns: list);
-      }
-    }
-
     await _sseClient.ask(
       question: question.trim(),
       conversationId: state.activeConversationId,
@@ -93,16 +125,19 @@ class AskNotifier extends StateNotifier<AskState> {
         state = state.copyWith(activeConversationId: id);
       },
       onSources: (sources) {
-        updateLastAssistant((prev) => prev.copyWith(sources: sources));
+        _flushPending();
+        _updateLastAssistantSync((prev) => prev.copyWith(sources: sources));
       },
       onToolCall: (item) {
-        updateLastAssistant((prev) {
+        _flushPending();
+        _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls, item];
           return prev.copyWith(toolCalls: calls);
         });
       },
       onTaskProgress: (taskId, toolCallId, deviceName, status) {
-        updateLastAssistant((prev) {
+        _flushPending();
+        _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
           final idx = _findCallIndex(calls, taskId, toolCallId, deviceName);
           if (idx >= 0) {
@@ -120,7 +155,8 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onTaskChunk: (taskId, toolCallId, deviceName, stream, text) {
-        updateLastAssistant((prev) {
+        _flushPending();
+        _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
           final idx = _findCallIndex(calls, taskId, toolCallId, deviceName);
           if (idx >= 0) {
@@ -148,7 +184,8 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onToolResult: (taskId, toolCallId, result) {
-        updateLastAssistant((prev) {
+        _flushPending();
+        _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
           final idx = _findCallIndex(calls, taskId, toolCallId, result.deviceName);
           if (idx >= 0) {
@@ -161,19 +198,21 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onThinking: (chunk) {
-        updateLastAssistant((prev) =>
-            prev.copyWith(thinking: (prev.thinking ?? '') + chunk));
+        _pendingThinking += chunk;
+        _scheduleBatchFlush();
       },
       onDelta: (chunk) {
-        updateLastAssistant((prev) =>
-            prev.copyWith(content: prev.content + chunk));
+        _pendingDelta += chunk;
+        _scheduleBatchFlush();
       },
       onError: (err) {
-        updateLastAssistant((prev) =>
+        _flushPending();
+        _updateLastAssistantSync((prev) =>
             prev.copyWith(content: prev.content.isEmpty ? err : prev.content, error: true));
         state = state.copyWith(error: err);
       },
       onDone: () {
+        _flushPending();
         state = state.copyWith(isStreaming: false);
       },
     );

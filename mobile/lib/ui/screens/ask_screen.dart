@@ -30,13 +30,26 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     super.dispose();
   }
 
-  void _scrollToBottom() {
+  DateTime _lastScrollTime = DateTime.now();
+
+  void _scrollToBottom({bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
+      if (!_scrollController.hasClients) return;
+      final max = _scrollController.position.maxScrollExtent;
+      final current = _scrollController.position.pixels;
+
+      // Do not hijack scroll if user scrolled up to read earlier history
+      if (!force && (max - current) > 140) {
+        return;
+      }
+
+      final now = DateTime.now();
+      if (force || now.difference(_lastScrollTime).inMilliseconds > 120) {
+        _lastScrollTime = now;
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
+          max,
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutQuad,
         );
       }
     });
@@ -57,18 +70,19 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         );
 
     _inputController.clear();
-    _scrollToBottom();
+    _scrollToBottom(force: true);
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AskState>(askProvider, (previous, next) {
+      if (next.isStreaming) {
+        _scrollToBottom();
+      }
+    });
+
     final askState = ref.watch(askProvider);
     final deviceState = ref.watch(deviceProvider);
-
-    // Auto scroll when streaming updates
-    if (askState.isStreaming) {
-      _scrollToBottom();
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -201,22 +215,24 @@ class _AskScreenState extends ConsumerState<AskScreen> {
 
   Widget _buildTurnItem(AskTurn turn, int index, bool isGlobalStreaming) {
     if (turn.role == 'user') {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12, left: 40),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: AuroraColors.accentSoft,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AuroraColors.accent.withOpacity(0.3)),
-          ),
-          child: Text(
-            turn.content,
-            style: const TextStyle(
-              fontSize: 14,
-              color: AuroraColors.fg1,
-              height: 1.45,
+      return RepaintBoundary(
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12, left: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: AuroraColors.accentSoft,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AuroraColors.accent.withOpacity(0.3)),
+            ),
+            child: Text(
+              turn.content,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AuroraColors.fg1,
+                height: 1.45,
+              ),
             ),
           ),
         ),
@@ -227,8 +243,9 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     final isLastTurn = index == ref.read(askProvider).turns.length - 1;
     final isThinkingLive = isGlobalStreaming && isLastTurn && turn.content.isEmpty;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
       child: GlassCard(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -307,7 +324,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildBottomConsole(DeviceState deviceState, AskState askState) {

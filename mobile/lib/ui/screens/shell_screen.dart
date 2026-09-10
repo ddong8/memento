@@ -16,13 +16,24 @@ class ShellScreen extends ConsumerStatefulWidget {
 
 class _ShellScreenState extends ConsumerState<ShellScreen> {
   int _currentIndex = 0;
+  final Set<int> _loadedTabs = {0};
 
-  final List<Widget> _pages = const [
-    AskScreen(),
-    MemoryScreen(),
-    DevicesScreen(),
-    DailyScreen(),
-  ];
+  List<Widget> _buildPages() {
+    return [
+      const AskScreen(),
+      _loadedTabs.contains(1) ? const MemoryScreen() : const SizedBox.shrink(),
+      _loadedTabs.contains(2) ? const DevicesScreen() : const SizedBox.shrink(),
+      _loadedTabs.contains(3) ? const DailyScreen() : const SizedBox.shrink(),
+    ];
+  }
+
+  void _switchTab(int index) {
+    if (_currentIndex == index && _loadedTabs.contains(index)) return;
+    setState(() {
+      _currentIndex = index;
+      _loadedTabs.add(index);
+    });
+  }
 
   final List<Map<String, dynamic>> _navItems = const [
     {
@@ -128,7 +139,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
                         final isSelected = _currentIndex == index;
 
                         return InkWell(
-                          onTap: () => setState(() => _currentIndex = index),
+                          onTap: () => _switchTab(index),
                           borderRadius: BorderRadius.circular(10),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -207,7 +218,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
             Expanded(
               child: IndexedStack(
                 index: _currentIndex,
-                children: _pages,
+                children: _buildPages(),
               ),
             ),
           ],
@@ -219,7 +230,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _pages,
+        children: _buildPages(),
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
@@ -230,7 +241,7 @@ class _ShellScreenState extends ConsumerState<ShellScreen> {
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (idx) => setState(() => _currentIndex = idx),
+          onTap: (idx) => _switchTab(idx),
           backgroundColor: Colors.transparent,
           elevation: 0,
           type: BottomNavigationBarType.fixed,

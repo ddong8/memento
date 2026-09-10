@@ -86,72 +86,84 @@ class AskSseClient {
 
       String buffer = '';
 
-      await for (final chunk in stream) {
-        buffer += utf8.decode(chunk);
+      void processFrame(String frame) {
+        final lines = frame.split('\n');
+        for (final line in lines) {
+          if (!line.startsWith('data: ')) continue;
+          final jsonStr = line.substring(6).trim();
+          if (jsonStr.isEmpty) continue;
+
+          try {
+            final Map<String, dynamic> evt = jsonDecode(jsonStr);
+            final type = evt['type']?.toString();
+
+            if (type == 'conversation_id' && evt['id'] != null) {
+              onConversationId(evt['id'].toString());
+            } else if (type == 'sources' && evt['sources'] is List) {
+              final list = (evt['sources'] as List)
+                  .map((s) => AskSource.fromJson(s as Map<String, dynamic>))
+                  .toList();
+              onSources(list);
+            } else if (type == 'tool_call') {
+              final item = ToolCallItem(
+                id: (evt['id'] ?? evt['tool_call_id'])?.toString() ??
+                    DateTime.now().millisecondsSinceEpoch.toString(),
+                name: evt['name']?.toString() ?? '',
+                args: (evt['args'] as Map<String, dynamic>?) ?? {},
+                deviceName: evt['device_name']?.toString(),
+              );
+              onToolCall(item);
+            } else if (type == 'task_progress') {
+              onTaskProgress(
+                evt['task_id']?.toString(),
+                evt['tool_call_id']?.toString(),
+                evt['device_name']?.toString(),
+                evt['status']?.toString(),
+              );
+            } else if (type == 'task_chunk') {
+              onTaskChunk(
+                evt['task_id']?.toString(),
+                evt['tool_call_id']?.toString(),
+                evt['device_name']?.toString(),
+                evt['stream']?.toString() ?? 'stdout',
+                evt['text']?.toString() ?? '',
+              );
+            } else if (type == 'tool_result') {
+              final resJson = evt['result'] as Map<String, dynamic>? ?? {};
+              onToolResult(
+                evt['task_id']?.toString(),
+                evt['tool_call_id']?.toString(),
+                ToolCallResult.fromJson(resJson),
+              );
+            } else if (type == 'thinking' && evt['text'] != null) {
+              onThinking(evt['text'].toString());
+            } else if (type == 'delta' && evt['text'] != null) {
+              onDelta(evt['text'].toString());
+            } else if (type == 'error') {
+              onError(evt['message']?.toString() ?? '发生未知错误');
+            }
+          } catch (_) {
+            // Ignore single malformed frame
+          }
+        }
+      }
+
+      final stringStream = stream
+          .cast<List<int>>()
+          .transform(const Utf8Decoder(allowMalformed: true));
+
+      await for (final text in stringStream) {
+        buffer += text;
         final frames = buffer.split('\n\n');
         buffer = frames.removeLast();
 
         for (final frame in frames) {
-          final lines = frame.split('\n');
-          for (final line in lines) {
-            if (!line.startsWith('data: ')) continue;
-            final jsonStr = line.substring(6).trim();
-            if (jsonStr.isEmpty) continue;
-
-            try {
-              final Map<String, dynamic> evt = jsonDecode(jsonStr);
-              final type = evt['type']?.toString();
-
-              if (type == 'conversation_id' && evt['id'] != null) {
-                onConversationId(evt['id'].toString());
-              } else if (type == 'sources' && evt['sources'] is List) {
-                final list = (evt['sources'] as List)
-                    .map((s) => AskSource.fromJson(s as Map<String, dynamic>))
-                    .toList();
-                onSources(list);
-              } else if (type == 'tool_call') {
-                final item = ToolCallItem(
-                  id: (evt['id'] ?? evt['tool_call_id'])?.toString() ??
-                      DateTime.now().millisecondsSinceEpoch.toString(),
-                  name: evt['name']?.toString() ?? '',
-                  args: (evt['args'] as Map<String, dynamic>?) ?? {},
-                  deviceName: evt['device_name']?.toString(),
-                );
-                onToolCall(item);
-              } else if (type == 'task_progress') {
-                onTaskProgress(
-                  evt['task_id']?.toString(),
-                  evt['tool_call_id']?.toString(),
-                  evt['device_name']?.toString(),
-                  evt['status']?.toString(),
-                );
-              } else if (type == 'task_chunk') {
-                onTaskChunk(
-                  evt['task_id']?.toString(),
-                  evt['tool_call_id']?.toString(),
-                  evt['device_name']?.toString(),
-                  evt['stream']?.toString() ?? 'stdout',
-                  evt['text']?.toString() ?? '',
-                );
-              } else if (type == 'tool_result') {
-                final resJson = evt['result'] as Map<String, dynamic>? ?? {};
-                onToolResult(
-                  evt['task_id']?.toString(),
-                  evt['tool_call_id']?.toString(),
-                  ToolCallResult.fromJson(resJson),
-                );
-              } else if (type == 'thinking' && evt['text'] != null) {
-                onThinking(evt['text'].toString());
-              } else if (type == 'delta' && evt['text'] != null) {
-                onDelta(evt['text'].toString());
-              } else if (type == 'error') {
-                onError(evt['message']?.toString() ?? '发生未知错误');
-              }
-            } catch (_) {
-              // Ignore single malformed frame
-            }
-          }
+          processFrame(frame);
         }
+      }
+
+      if (buffer.trim().isNotEmpty) {
+        processFrame(buffer);
       }
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {

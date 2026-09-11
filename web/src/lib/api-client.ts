@@ -510,7 +510,37 @@ export const api = {
       total_sessions: number;
     }>(`/api/projects/${projectId}/conversations?${params}`);
   },
+
+  getAgentCapabilities: (tool: string, deviceId?: string) => {
+    const params = new URLSearchParams({ tool });
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only") {
+      params.set("device_id", deviceId);
+    }
+    return apiFetch<AgentCapabilities>(`/api/agent/capabilities?${params}`);
+  },
 };
+
+export interface AgentModelOption {
+  id: string;
+  name: string;
+  desc?: string;
+  is_default?: boolean;
+}
+
+export interface AgentEffortOption {
+  id: string;
+  name: string;
+  desc?: string;
+}
+
+export interface AgentCapabilities {
+  tool: string;
+  models: AgentModelOption[];
+  default_model: string;
+  supports_effort: boolean;
+  default_effort: string;
+  effort_options: AgentEffortOption[];
+}
 
 export interface ProjectSummary {
   id: string;

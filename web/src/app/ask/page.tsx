@@ -13,12 +13,14 @@ import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 
 export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
 
-export const AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
+import type { AgentCapabilities, AgentModelOption, AgentEffortOption } from "@/lib/api-client";
+
+export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
   codex: [
     { id: "", name: "⚡ 默认模型 (跟随客户端/CLI配置)", desc: "使用本地 Codex 客户端配置的默认模型" },
-    { id: "gpt-5.5", name: "GPT-5.5 (官方推荐)", desc: "当前 Codex 推荐主力模型" },
     { id: "gpt-6-astra", name: "GPT-6-Astra (最新)", desc: "最新前沿多步推理模型" },
-    { id: "gpt-5.1-codex-max", name: "GPT-5.1-Codex-Max", desc: "经典全能模型" },
+    { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", desc: "主力 Agent 编码模型" },
+    { id: "gpt-5.5", name: "GPT-5.5 (当前推荐)", desc: "经典全能模型" },
     { id: "o3", name: "o3 (深度思维)", desc: "OpenAI 深度推理" },
     { id: "o4-mini", name: "o4-mini", desc: "极速响应" },
   ],
@@ -27,12 +29,13 @@ export const AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc
     { id: "sonnet", name: "sonnet (最新 Sonnet 别名)", desc: "自动映射当前官方最新 Sonnet" },
     { id: "opus", name: "opus (最新 Opus 别名 / 4.6)", desc: "高阶架构与超大上下文" },
     { id: "haiku", name: "haiku (最新 Haiku 别名 / 4.5)", desc: "极速轻量" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", desc: "最新一代主力模型" },
     { id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet", desc: "混合推理与编码" },
   ],
   antigravity: [
     { id: "", name: "⚡ 默认模型 (系统配置)", desc: "使用当前 Antigravity 默认模型" },
-    { id: "flash", name: "Gemini Flash (快速)", desc: "快速平衡" },
-    { id: "pro", name: "Gemini Pro (强力)", desc: "深度推理" },
+    { id: "flash", name: "Gemini Flash (快速平衡)", desc: "快速平衡" },
+    { id: "pro", name: "Gemini Pro (强力推理)", desc: "深度推理" },
     { id: "flash_lite", name: "Gemini Flash-Lite", desc: "极轻量" },
   ],
 };
@@ -175,6 +178,8 @@ function AskPageContent() {
 
   // Agent Context: Model, Project & Session selection
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedEffort, setSelectedEffort] = useState<string>("");
+  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -305,6 +310,33 @@ function AskPageContent() {
     }
   }, [modeParam]);
 
+  // Load dynamic agent capabilities (models, default configs, reasoning effort)
+  useEffect(() => {
+    if (executionMode === "ai" || executionMode === "shell") {
+      setCapabilities(null);
+      return;
+    }
+    let cancelled = false;
+    api.getAgentCapabilities(executionMode, selectedDevice)
+      .then((data) => {
+        if (!cancelled && data) {
+          setCapabilities(data);
+          if (!isCustomModel) {
+            const hasModel = (data.models || []).some((m) => m.id === selectedModel);
+            if (!hasModel && selectedModel !== "") {
+              setSelectedModel("");
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load agent capabilities:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
+
   const sendWithText = useCallback(async (textToSend: string) => {
     const question = textToSend.trim();
     if (!question || streamingRef.current) return;
@@ -365,6 +397,7 @@ function AskPageContent() {
           agent_mode: selectedDevice !== "ask_only",
           execution_mode: executionMode,
           model: selectedModel || undefined,
+          effort: selectedEffort || undefined,
           session_id: selectedSessionId || undefined,
           project_id: selectedProjectId || undefined,
         }),
@@ -591,7 +624,7 @@ function AskPageContent() {
       abortRef.current = null;
       loadConversations();
     }
-  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
+  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
@@ -1233,8 +1266,11 @@ function AskPageContent() {
                         minWidth: 0,
                       }}
                     >
-                      {(AGENT_MODELS[executionMode] || []).map((m) => (
-                        <option key={m.id} value={m.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      {((capabilities?.models && capabilities.models.length > 0)
+                        ? capabilities.models
+                        : (FALLBACK_AGENT_MODELS[executionMode] || [])
+                      ).map((m) => (
+                        <option key={m.id} value={m.id} title={m.desc} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                           {m.name}
                         </option>
                       ))}
@@ -1244,6 +1280,59 @@ function AskPageContent() {
                     </select>
                   </div>
                 )
+              )}
+
+              {/* Agent Reasoning Effort selector (Low / Medium / High) */}
+              {["codex", "claude", "antigravity"].includes(executionMode) && (capabilities?.supports_effort || executionMode === "codex") && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: selectedEffort ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                    border: "1px solid",
+                    borderColor: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-border)",
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                  title={isZh ? "调节推理思考深度 (Reasoning Effort)" : "Adjust reasoning effort"}
+                >
+                  <Icon name="brain" size={13} style={{ color: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
+                  <select
+                    value={selectedEffort}
+                    onChange={(e) => setSelectedEffort(e.target.value)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: selectedEffort ? 600 : 500,
+                      cursor: "pointer",
+                      maxWidth: "min(170px, 40vw)",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    {(capabilities?.effort_options && capabilities.effort_options.length > 0
+                      ? capabilities.effort_options
+                      : [
+                          { id: "", name: isZh ? "⚡ 默认 Effort (跟随配置)" : "⚡ Default Effort" },
+                          { id: "low", name: "Low (快速/轻量思考)" },
+                          { id: "medium", name: "Medium (标准思考量)" },
+                          { id: "high", name: "High (深度推理/高思考量)" },
+                        ]
+                    ).map((opt) => (
+                      <option key={opt.id} value={opt.id} title={opt.desc} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
 
               {/* Agent Project selector */}

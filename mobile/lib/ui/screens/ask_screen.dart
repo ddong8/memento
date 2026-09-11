@@ -18,12 +18,12 @@ class AskScreen extends ConsumerStatefulWidget {
   ConsumerState<AskScreen> createState() => _AskScreenState();
 }
 
-const Map<String, List<Map<String, String>>> kAgentModels = {
+const Map<String, List<Map<String, String>>> kFallbackAgentModels = {
   'codex': [
     {'id': '', 'name': '⚡ 默认模型 (跟随客户端配置)'},
-    {'id': 'gpt-5.5', 'name': 'GPT-5.5 (官方推荐)'},
     {'id': 'gpt-6-astra', 'name': 'GPT-6-Astra (最新)'},
-    {'id': 'gpt-5.1-codex-max', 'name': 'GPT-5.1-Codex-Max'},
+    {'id': 'gpt-5.6-sol', 'name': 'GPT-5.6-Sol (主力编码)'},
+    {'id': 'gpt-5.5', 'name': 'GPT-5.5 (官方推荐)'},
     {'id': 'o3', 'name': 'o3 (深度思维)'},
     {'id': 'o4-mini', 'name': 'o4-mini (极速推理)'},
   ],
@@ -32,12 +32,13 @@ const Map<String, List<Map<String, String>>> kAgentModels = {
     {'id': 'sonnet', 'name': 'sonnet (最新 Sonnet 别名)'},
     {'id': 'opus', 'name': 'opus (最新 Opus 别名 / 4.6)'},
     {'id': 'haiku', 'name': 'haiku (最新 Haiku 别名 / 4.5)'},
+    {'id': 'claude-sonnet-4-6', 'name': 'Claude Sonnet 4.6'},
     {'id': 'claude-3-7-sonnet', 'name': 'Claude 3.7 Sonnet'},
   ],
   'antigravity': [
     {'id': '', 'name': '⚡ 默认模型 (系统配置)'},
-    {'id': 'flash', 'name': 'Gemini Flash (快速)'},
-    {'id': 'pro', 'name': 'Gemini Pro (强力)'},
+    {'id': 'flash', 'name': 'Gemini Flash (快速平衡)'},
+    {'id': 'pro', 'name': 'Gemini Pro (强力推理)'},
     {'id': 'flash_lite', 'name': 'Gemini Flash-Lite'},
   ],
 };
@@ -52,6 +53,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   String _executionMode = 'ai';
 
   String? _selectedModel;
+  String? _selectedEffort;
+  Map<String, dynamic>? _agentCapabilities;
   bool _isCustomModel = false;
   List<Map<String, dynamic>> _projects = [];
   String? _selectedProjectId;
@@ -69,6 +72,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         }
       }
       _selectedModel = null;
+      _selectedEffort = null;
+      _agentCapabilities = null;
       _isCustomModel = false;
       _customModelController.clear();
       _selectedProjectId = null;
@@ -78,7 +83,20 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     });
     if (['codex', 'claude', 'antigravity'].contains(id)) {
       _loadProjectsForMode(id);
+      _loadCapabilitiesForMode(id);
     }
+  }
+
+  Future<void> _loadCapabilitiesForMode(String mode) async {
+    try {
+      final dev = ref.read(deviceProvider);
+      final caps = await ApiClient().getAgentCapabilities(mode, deviceId: dev.selectedDeviceId);
+      if (mounted && _executionMode == mode) {
+        setState(() {
+          _agentCapabilities = caps;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadProjectsForMode(String mode) async {
@@ -557,6 +575,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           cwd: cwd,
           executionMode: _executionMode,
           model: _selectedModel,
+          effort: _selectedEffort,
           projectId: _selectedProjectId,
           sessionId: _selectedSessionId,
         );
@@ -1078,25 +1097,34 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                                   }
                                 },
                                 items: [
-                                  ...(kAgentModels[_executionMode] ?? []).map((m) {
-                                    return DropdownMenuItem<String>(
-                                      value: m['id'],
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.auto_awesome,
-                                            size: 12,
-                                            color: _selectedModel == m['id']
-                                                ? AuroraColors.accent
-                                                : AuroraColors.fg3,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Flexible(child: Text(m['name']!, overflow: TextOverflow.ellipsis)),
-                                        ],
-                                      ),
-                                    );
-                                  }),
+                                  ...(){
+                                    final dynamic rawModels = _agentCapabilities?['models'];
+                                    final List<Map<String, String>> currentModels = (rawModels is List && rawModels.isNotEmpty)
+                                        ? rawModels.map<Map<String, String>>((m) => {
+                                            'id': (m['id'] ?? '').toString(),
+                                            'name': (m['name'] ?? m['id'] ?? '').toString(),
+                                          }).toList()
+                                        : (kFallbackAgentModels[_executionMode] ?? []);
+                                    return currentModels.map((m) {
+                                      return DropdownMenuItem<String>(
+                                        value: m['id'],
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.auto_awesome,
+                                              size: 12,
+                                              color: _selectedModel == m['id']
+                                                  ? AuroraColors.accent
+                                                  : AuroraColors.fg3,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Flexible(child: Text(m['name']!, overflow: TextOverflow.ellipsis)),
+                                          ],
+                                        ),
+                                      );
+                                    });
+                                  }(),
                                   DropdownMenuItem<String>(
                                     value: '__custom__',
                                     child: Row(
@@ -1154,6 +1182,62 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                 ),
               ],
             ),
+            // Agent Reasoning Effort (Low / Medium / High)
+            if (['codex', 'claude', 'antigravity'].contains(_executionMode) &&
+                (_executionMode == 'codex' || _agentCapabilities?['supports_effort'] == true)) ...[
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    const Icon(Icons.psychology_outlined, size: 14, color: AuroraColors.fg3),
+                    const SizedBox(width: 4),
+                    const Text('Effort:', style: TextStyle(fontSize: 11, color: AuroraColors.fg3, fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 6),
+                    ...[
+                      {'id': '', 'name': '⚡ 默认'},
+                      {'id': 'low', 'name': 'Low (快速/低思考)'},
+                      {'id': 'medium', 'name': 'Medium (标准)'},
+                      {'id': 'high', 'name': 'High (深度推理)'},
+                    ].map((opt) {
+                      final isSelected = (_selectedEffort == null || _selectedEffort!.isEmpty)
+                          ? opt['id'] == ''
+                          : _selectedEffort == opt['id'];
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () {
+                            setState(() {
+                              _selectedEffort = opt['id']!.isEmpty ? null : opt['id'];
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isSelected ? AuroraColors.accentSoft : AuroraColors.chip,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isSelected ? AuroraColors.accent : AuroraColors.border,
+                                width: 1,
+                              ),
+                            ),
+                            child: Text(
+                              opt['name']!,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isSelected ? AuroraColors.accent : AuroraColors.fg2,
+                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
             // Session selector under the selected project
             if (_selectedProjectId != null && _selectedProjectId!.isNotEmpty) ...[
               const SizedBox(height: 6),

@@ -100,6 +100,33 @@ CONTROL_ACTIONS = {"resync", "update"}
 # server-side backstop so one runaway task cannot bloat the table.
 MAX_OUTPUT_CHARS = 200_000
 
+# Cache of live agent capabilities reported by connected devices
+_device_capabilities: dict[str, dict] = {}
+
+
+def get_cached_device_capabilities(device_id: str | None = None, tool: str | None = None) -> dict | None:
+    if not device_id or device_id in ("auto", "ask_only"):
+        for caps in _device_capabilities.values():
+            if tool:
+                if tool in caps:
+                    return caps[tool]
+            else:
+                return caps
+        return None
+
+    caps = _device_capabilities.get(device_id)
+    if not caps:
+        for k, v in _device_capabilities.items():
+            if k == device_id or device_id.startswith(k) or k.startswith(device_id):
+                caps = v
+                break
+
+    if not caps:
+        return None
+    if tool:
+        return caps.get(tool)
+    return caps
+
 
 class CreateTask(BaseModel):
     action: str
@@ -441,6 +468,14 @@ async def device_websocket_endpoint(
                         .values(last_heartbeat=datetime.now(timezone.utc))
                     )
                     await db.commit()
+            elif msg_type == "agent_capabilities":
+                caps = data.get("capabilities") or {}
+                _device_capabilities[real_device_id] = caps
+                if machine.name:
+                    _device_capabilities[machine.name] = caps
+                if machine.id:
+                    _device_capabilities[str(machine.id)] = caps
+                logger.info("Received dynamic agent capabilities from device %s (%s)", real_device_id, machine.name)
             elif msg_type == "task_progress":
                 tid = data.get("task_id")
                 if tid:

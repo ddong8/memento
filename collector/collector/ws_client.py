@@ -165,14 +165,19 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
                 session_id = str(payload.get("session_id") or "").strip()
                 model = str(payload.get("model") or "").strip()
+                effort = str(payload.get("effort") or "").strip()
 
                 if session_id:
                     cmd = [resolved, "exec", "resume", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+                    if effort:
+                        cmd += ["-c", f'model_reasoning_effort="{effort}"']
                     if model:
                         cmd += ["-m", model]
                     cmd += [session_id, prompt]
                 else:
                     cmd = [resolved, "exec", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+                    if effort:
+                        cmd += ["-c", f'model_reasoning_effort="{effort}"']
                     if model:
                         cmd += ["-m", model]
                     cmd += [prompt]
@@ -370,6 +375,15 @@ async def _run_ws_loop(config: CollectorConfig) -> None:
                 backoff = 2
                 logger.info("Connected to Memento server via WebSocket for real-time task streaming")
 
+                # Send discovered local agent capabilities to server
+                try:
+                    from .agent_capabilities import get_all_agent_capabilities
+                    caps = get_all_agent_capabilities()
+                    await ws.send(json.dumps({"type": "agent_capabilities", "capabilities": caps}))
+                    logger.info("Reported dynamic agent capabilities to server (Codex models: %d)", len(caps.get("codex", {}).get("models", [])))
+                except Exception as e:
+                    logger.debug("Failed to report agent capabilities: %s", e)
+
                 async for raw_msg in ws:
                     try:
                         msg = json.loads(raw_msg)
@@ -379,6 +393,13 @@ async def _run_ws_loop(config: CollectorConfig) -> None:
                     mtype = msg.get("type")
                     if mtype == "connected":
                         logger.info("WebSocket handshake verified by server")
+                    elif mtype == "get_agent_capabilities":
+                        try:
+                            from .agent_capabilities import get_all_agent_capabilities
+                            caps = get_all_agent_capabilities()
+                            await ws.send(json.dumps({"type": "agent_capabilities", "capabilities": caps}))
+                        except Exception as e:
+                            logger.debug("Failed to answer get_agent_capabilities: %s", e)
                     elif mtype == "task_dispatch":
                         task = msg.get("task") or {}
                         task_id = task.get("id")

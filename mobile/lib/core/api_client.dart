@@ -208,4 +208,24 @@ class ApiClient {
     );
     return response.data as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> getAgentCapabilities(
+    String tool, {
+    String? deviceId,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/api/agent/capabilities',
+        queryParameters: {
+          'tool': tool,
+          if (deviceId != null && deviceId.isNotEmpty && deviceId != 'auto' && deviceId != 'ask_only')
+            'device_id': deviceId,
+        },
+      );
+      if (response.data is Map<String, dynamic>) {
+        return response.data as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return {};
+  }
 }

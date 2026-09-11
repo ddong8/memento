@@ -161,6 +161,7 @@ class AskNotifier extends StateNotifier<AskState> {
     String? cwd,
     String executionMode = 'ai',
     String? model,
+    String? effort,
     String? projectId,
     String? sessionId,
   }) async {
@@ -192,6 +193,7 @@ class AskNotifier extends StateNotifier<AskState> {
       cwd: cwd,
       executionMode: executionMode,
       model: model,
+      effort: effort,
       projectId: projectId,
       sessionId: sessionId,
       onConversationId: (id, title) {

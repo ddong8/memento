@@ -21,14 +21,24 @@ interface ProjectItem {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [filterTool, setFilterTool] = useState("");
+  const [filterDevice, setFilterDevice] = useState("");
+  const [devices, setDevices] = useState<Array<{ id: string; name: string; device_id: string }>>([]);
   const { t } = useI18n();
 
   useEffect(() => {
-    const url = filterTool
-      ? `${getApiBase()}/api/projects?tool_id=${filterTool}`
-      : `${getApiBase()}/api/projects`;
+    authFetch(`${getApiBase()}/api/devices`)
+      .then((r) => r.json())
+      .then((d) => setDevices(d || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (filterTool) params.set("tool_id", filterTool);
+    if (filterDevice) params.set("device_id", filterDevice);
+    const url = params.toString() ? `${getApiBase()}/api/projects?${params}` : `${getApiBase()}/api/projects`;
     authFetch(url).then((r) => r.json()).then(setProjects).catch(console.error);
-  }, [filterTool]);
+  }, [filterTool, filterDevice]);
 
   const byTool: Record<string, ProjectItem[]> = {};
   for (const p of projects) (byTool[p.tool_id] ??= []).push(p);
@@ -39,17 +49,30 @@ export default function ProjectsPage() {
         title={t.projectPage.title}
         subtitle={`${projects.length} ${t.projects}`}
         right={
-          <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 180 }}>
-            <Icon name="grid" size={14} style={{ color: "var(--aurora-fg3)" }} />
-            <select value={filterTool} onChange={(e) => setFilterTool(e.target.value)}>
-              <option value="">{t.all}</option>
-              <option value="claude_code">Claude Code</option>
-              <option value="openclaw">OpenClaw</option>
-              <option value="codex">Codex</option>
-              <option value="obsidian">Obsidian</option>
-              <option value="cursor">Cursor</option>
-            </select>
-          </label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 160 }}>
+              <Icon name="devices" size={14} style={{ color: "var(--aurora-fg3)" }} />
+              <select value={filterDevice} onChange={(e) => setFilterDevice(e.target.value)}>
+                <option value="">全部设备</option>
+                {devices.map((d) => (
+                  <option key={d.device_id} value={d.device_id}>
+                    {d.name} ({d.device_id.slice(0, 6)})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="aurora-input" style={{ padding: "8px 14px", minWidth: 160 }}>
+              <Icon name="grid" size={14} style={{ color: "var(--aurora-fg3)" }} />
+              <select value={filterTool} onChange={(e) => setFilterTool(e.target.value)}>
+                <option value="">{t.all}</option>
+                <option value="claude_code">Claude Code</option>
+                <option value="openclaw">OpenClaw</option>
+                <option value="codex">Codex</option>
+                <option value="obsidian">Obsidian</option>
+                <option value="cursor">Cursor</option>
+              </select>
+            </label>
+          </div>
         }
       />
 

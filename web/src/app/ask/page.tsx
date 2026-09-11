@@ -220,18 +220,24 @@ function AskPageContent() {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(true);
+
   // Load conversation list
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (filterDev?: boolean) => {
     try {
       setLoadingHistory(true);
-      const list = await api.listAskConversations();
+      const shouldFilter = filterDev !== undefined ? filterDev : historyFilterDevice;
+      const devId = (shouldFilter && selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only")
+        ? selectedDevice
+        : undefined;
+      const list = await api.listAskConversations(devId);
       setConversations(list || []);
     } catch (e) {
       console.error("Failed to load ask conversations:", e);
     } finally {
       setLoadingHistory(false);
     }
-  }, []);
+  }, [historyFilterDevice, selectedDevice]);
 
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
@@ -660,7 +666,7 @@ function AskPageContent() {
     }
   };
 
-  const loadProjectsForMode = useCallback(async (mode: ExecutionMode) => {
+  const loadProjectsForMode = useCallback(async (mode: ExecutionMode, targetDev?: string) => {
     const toolMap: Record<string, string> = {
       codex: "codex",
       claude: "claude_code",
@@ -675,23 +681,39 @@ function AskPageContent() {
       return;
     }
     try {
-      const list = await api.listProjects(toolId);
+      const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
+      const list = await api.listProjects(toolId, devToUse);
       setProjects(list || []);
     } catch (e) {
       console.error("Failed to load projects:", e);
       setProjects([]);
     }
-  }, []);
+  }, [selectedDevice]);
+
+  const handleDeviceChange = (newDev: string) => {
+    setSelectedDevice(newDev);
+    setSelectedProjectId("");
+    setSelectedSessionId("");
+    setSessions([]);
+    if (["codex", "claude", "antigravity"].includes(executionMode)) {
+      loadProjectsForMode(executionMode, newDev);
+    }
+  };
 
   const handleSelectMode = (mode: ExecutionMode) => {
     setExecutionMode(mode);
+    let dev = selectedDevice;
     if (mode !== "ai" && selectedDevice === "ask_only") {
+      dev = "auto";
       setSelectedDevice("auto");
     }
     // Default to empty (follow client/CLI config), never force hardcoded model!
     setSelectedModel("");
     setIsCustomModel(false);
-    loadProjectsForMode(mode);
+    setSelectedProjectId("");
+    setSelectedSessionId("");
+    setSessions([]);
+    loadProjectsForMode(mode, dev);
   };
 
   const handleSelectProject = useCallback(async (projId: string) => {
@@ -715,7 +737,7 @@ function AskPageContent() {
     }
     setLoadingSessions(true);
     try {
-      const res = await api.getProjectConversations(projId, 0, 30, "desc");
+      const res = await api.getProjectConversations(projId, 0, 30, "desc", selectedDevice);
       setSessions(res.sessions || []);
     } catch (e) {
       console.error("Failed to load project sessions:", e);
@@ -723,7 +745,7 @@ function AskPageContent() {
     } finally {
       setLoadingSessions(false);
     }
-  }, [projects]);
+  }, [projects, selectedDevice]);
 
   const handleSelectSession = useCallback(
     async (sid: string) => {
@@ -1145,7 +1167,7 @@ function AskPageContent() {
                 <Icon name="devices" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
                 <select
                   value={selectedDevice}
-                  onChange={(e) => setSelectedDevice(e.target.value)}
+                  onChange={(e) => handleDeviceChange(e.target.value)}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -1791,70 +1813,123 @@ function AskPageContent() {
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
+                flexDirection: "column",
+                gap: 10,
                 padding: "16px 20px",
                 borderBottom: "1px solid var(--aurora-border)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icon name="clock" size={18} style={{ color: "var(--aurora-accent)" }} />
-                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
-                  {t.ask.historyTitle}
-                </span>
-                {conversations.length > 0 && (
-                  <span
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon name="clock" size={18} style={{ color: "var(--aurora-accent)" }} />
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                    {t.ask.historyTitle}
+                  </span>
+                  {conversations.length > 0 && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        background: "var(--aurora-chip)",
+                        color: "var(--aurora-fg3)",
+                      }}
+                    >
+                      {conversations.length}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={startNewChat}
+                    title={t.ask.newChat}
                     style={{
-                      fontSize: 11,
-                      padding: "2px 7px",
-                      borderRadius: 999,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 30,
+                      height: 30,
+                      borderRadius: 8,
                       background: "var(--aurora-chip)",
-                      color: "var(--aurora-fg3)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                      cursor: "pointer",
                     }}
                   >
-                    {conversations.length}
-                  </span>
-                )}
+                    <Icon name="plus" size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOpen(false)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 30,
+                      height: 30,
+                      borderRadius: 8,
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--aurora-fg3)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Icon name="close" size={16} />
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={startNewChat}
-                  title={t.ask.newChat}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    background: "var(--aurora-chip)",
-                    border: "1px solid var(--aurora-border)",
-                    color: "var(--aurora-fg2)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Icon name="plus" size={15} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryOpen(false)}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--aurora-fg3)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Icon name="close" size={16} />
-                </button>
-              </div>
+
+              {selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryFilterDevice(true);
+                      loadConversations(true);
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 14,
+                      fontSize: 11.5,
+                      fontWeight: historyFilterDevice ? 600 : 400,
+                      cursor: "pointer",
+                      border: "1px solid",
+                      borderColor: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      background: historyFilterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      color: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                    }}
+                  >
+                    🖥️ 当前设备 ({devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8)})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryFilterDevice(false);
+                      loadConversations(false);
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 14,
+                      fontSize: 11.5,
+                      fontWeight: !historyFilterDevice ? 600 : 400,
+                      cursor: "pointer",
+                      border: "1px solid",
+                      borderColor: !historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      background: !historyFilterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      color: !historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                    }}
+                  >
+                    🌐 全部设备
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Drawer List */}
@@ -1949,6 +2024,22 @@ function AskPageContent() {
                           }}
                         >
                           <span>{dateStr}</span>
+                          {c.device_id && (
+                            <>
+                              <span>·</span>
+                              <span
+                                style={{
+                                  padding: "1px 5px",
+                                  borderRadius: 4,
+                                  background: "var(--aurora-chip)",
+                                  fontSize: 10,
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {c.device_id.slice(0, 8)}
+                              </span>
+                            </>
+                          )}
                           <span>·</span>
                           <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
                         </div>

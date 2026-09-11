@@ -486,18 +486,30 @@ export const api = {
     if (category) params.set("category", category);
     return apiFetch<TimelineResponse>(`/api/projects/${projectId}/timeline?${params}`);
   },
-  listAskConversations: () =>
-    apiFetch<AskConversationSummary[]>("/api/ask/conversations"),
+  listAskConversations: (deviceId?: string) => {
+    const q = deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all"
+      ? `?device_id=${encodeURIComponent(deviceId)}`
+      : "";
+    return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
+  },
   getAskConversation: (id: string) =>
     apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
   deleteAskConversation: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
-  listProjects: (toolId?: string) => {
-    const q = toolId ? `?tool_id=${encodeURIComponent(toolId)}` : "";
+  listProjects: (toolId?: string, deviceId?: string) => {
+    const params = new URLSearchParams();
+    if (toolId) params.set("tool_id", toolId);
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
+      params.set("device_id", deviceId);
+    }
+    const q = params.toString() ? `?${params.toString()}` : "";
     return apiFetch<ProjectSummary[]>(`/api/projects${q}`);
   },
-  getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc") => {
+  getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc", deviceId?: string) => {
     const params = new URLSearchParams({ session_offset: String(offset), session_limit: String(limit), order });
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
+      params.set("device_id", deviceId);
+    }
     return apiFetch<{
       project: { id: string; slug: string; title: string; source_path: string };
       sessions: Array<{

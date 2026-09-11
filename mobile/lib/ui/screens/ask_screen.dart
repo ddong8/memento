@@ -61,6 +61,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   List<Map<String, dynamic>> _sessions = [];
   String? _selectedSessionId;
   bool _loadingSessions = false;
+  bool _showSessionContext = true;
 
   void _handleModeChange(String id) {
     setState(() {
@@ -1297,41 +1298,156 @@ class _AskScreenState extends ConsumerState<AskScreen> {
             ],
           ],
 
-          // Active Resume Session Banner
+          // Active Resume Session Banner & Historical Context Preview
           if (_selectedSessionId != null && _selectedSessionId!.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AuroraColors.accentSoft,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AuroraColors.accent.withOpacity(0.6)),
-              ),
-              child: Row(
+            (() {
+              final activeSession = _sessions.firstWhere(
+                (s) => (s['session_id'] ?? s['conversation_id'])?.toString() == _selectedSessionId,
+                orElse: () => {'title': _selectedSessionId},
+              );
+              final rawMsgs = (activeSession['messages'] as List<dynamic>?) ?? [];
+              final msgs = rawMsgs.cast<Map<String, dynamic>>();
+              final previewMsgs = msgs.length > 4 ? msgs.sublist(msgs.length - 4) : msgs;
+              final totalCount = activeSession['message_count'] ?? msgs.length;
+              final title = activeSession['title']?.toString() ?? _selectedSessionId!;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.history_rounded, size: 14, color: AuroraColors.accent),
-                  const SizedBox(width: 6),
-                  const Text('续接会话: ', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AuroraColors.accent)),
-                  Expanded(
-                    child: Text(
-                      _sessions.firstWhere(
-                        (s) => (s['session_id'] ?? s['conversation_id'])?.toString() == _selectedSessionId,
-                        orElse: () => {'title': _selectedSessionId},
-                      )['title']?.toString() ?? _selectedSessionId!,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AuroraColors.accentSoft,
+                      borderRadius: BorderRadius.vertical(
+                        top: const Radius.circular(8),
+                        bottom: Radius.circular(_showSessionContext ? 0 : 8),
+                      ),
+                      border: Border.all(color: AuroraColors.accent.withOpacity(0.6)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.history_rounded, size: 14, color: AuroraColors.accent),
+                        const SizedBox(width: 6),
+                        const Text('续接会话: ', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AuroraColors.accent)),
+                        Expanded(
+                          child: Text(
+                            '$title ($totalCount 条)',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => setState(() => _showSessionContext = !_showSessionContext),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _showSessionContext ? '收起' : '预览',
+                                  style: const TextStyle(fontSize: 11, color: AuroraColors.accent, fontWeight: FontWeight.bold),
+                                ),
+                                Icon(
+                                  _showSessionContext ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                                  size: 14,
+                                  color: AuroraColors.accent,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        InkWell(
+                          onTap: () => setState(() => _selectedSessionId = null),
+                          borderRadius: BorderRadius.circular(4),
+                          child: const Padding(
+                            padding: EdgeInsets.all(2.0),
+                            child: Icon(Icons.close, size: 14, color: AuroraColors.fg3),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  InkWell(
-                    onTap: () => setState(() => _selectedSessionId = null),
-                    child: const Padding(
-                      padding: EdgeInsets.all(2.0),
-                      child: Icon(Icons.close, size: 14, color: AuroraColors.fg3),
+                  if (_showSessionContext)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AuroraColors.surface,
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(8)),
+                        border: Border(
+                          left: BorderSide(color: AuroraColors.accent.withOpacity(0.6)),
+                          right: BorderSide(color: AuroraColors.accent.withOpacity(0.6)),
+                          bottom: BorderSide(color: AuroraColors.accent.withOpacity(0.6)),
+                        ),
+                      ),
+                      constraints: const BoxConstraints(maxHeight: 180),
+                      child: previewMsgs.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Text('暂无历史文本消息记录', style: TextStyle(fontSize: 11, color: AuroraColors.fg3)),
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: previewMsgs.map((m) {
+                                  final isUser = m['role'] == 'user';
+                                  final content = (m['content'] ?? '').toString().trim();
+                                  final subName = m['subagent_name']?.toString();
+                                  final roleLabel = isUser
+                                      ? '👤 用户'
+                                      : (subName != null && subName.isNotEmpty
+                                          ? '🔀 $subName'
+                                          : (_executionMode == 'claude'
+                                              ? '🤖 Claude'
+                                              : _executionMode == 'codex'
+                                                  ? '🤖 Codex'
+                                                  : _executionMode == 'antigravity'
+                                                      ? '🤖 Antigravity'
+                                                      : '🤖 AI'));
+
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: isUser ? AuroraColors.chip : AuroraColors.surface,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isUser ? Colors.transparent : AuroraColors.border,
+                                        width: 0.8,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          roleLabel,
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: isUser ? AuroraColors.accent : AuroraColors.fg2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          content,
+                                          maxLines: 3,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 11, color: AuroraColors.fg1, height: 1.3),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
                     ),
-                  ),
                 ],
-              ),
-            ),
+              );
+            })(),
           ],
           const SizedBox(height: 8),
 

@@ -47,8 +47,19 @@ def _extract_brain_metadata(cascade_id: str, transcript_path: Path) -> dict[str,
         except Exception:
             pass
 
-    # 2. Extract title from first user prompt in transcript
-    if transcript_path.exists():
+    # 2. Extract title from annotations pbtxt FIRST (this is what Antigravity IDE sidebar displays!)
+    ann_path = GEMINI_ROOT / "antigravity" / "annotations" / f"{cascade_id}.pbtxt"
+    if ann_path.exists():
+        try:
+            content = ann_path.read_text("utf-8", errors="ignore")
+            m = re.search(r'title:\s*"([^"]+)"', content)
+            if m and m.group(1).strip():
+                meta["title"] = m.group(1).strip()
+        except Exception:
+            pass
+
+    # 3. Fallback: Extract title from first user prompt in transcript
+    if not meta.get("title") and transcript_path.exists():
         try:
             with open(transcript_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -146,6 +157,17 @@ class AntigravityTool(BaseTool):
                     description="Antigravity conversation transcripts (incremental JSONL)",
                 ),
             )
+            # Antigravity session annotations (title summaries and view timestamps)
+            paths.append(
+                WatchPath(
+                    path=gemini / "annotations",
+                    pattern="*.pbtxt",
+                    category=Category.STATE,
+                    content_type=ContentType.TEXT,
+                    sync_strategy=SyncStrategy.FULL,
+                    description="Antigravity conversation title annotations",
+                ),
+            )
 
         return paths
 
@@ -222,6 +244,31 @@ class AntigravityTool(BaseTool):
                 sync_strategy=SyncStrategy.DELTA,
                 relative_path=f"antigravity/brain/{cascade_id}/transcript.jsonl",
                 metadata=meta,
+            )
+
+        # Antigravity session annotations: ~/.gemini/antigravity/annotations/<session_id>.pbtxt
+        if (
+            len(parts) >= 3
+            and parts[0] == "antigravity"
+            and parts[1] == "annotations"
+            and abs_path.suffix == ".pbtxt"
+        ):
+            cascade_id = abs_path.stem
+            title = ""
+            try:
+                content = abs_path.read_text("utf-8", errors="ignore")
+                m = re.search(r'title:\s*"([^"]+)"', content)
+                if m:
+                    title = m.group(1).strip()
+            except Exception:
+                pass
+            return FileClassification(
+                tool_name=self.name,
+                category=Category.STATE,
+                content_type=ContentType.TEXT,
+                sync_strategy=SyncStrategy.FULL,
+                relative_path=f"antigravity/annotations/{cascade_id}.pbtxt",
+                metadata={"session_id": cascade_id, "title": title},
             )
 
         return None

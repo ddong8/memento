@@ -506,6 +506,13 @@ export const api = {
         conversation_id: string;
         timestamp: string;
         message_count: number;
+        messages?: Array<{
+          role: string;
+          content: string;
+          timestamp?: string;
+          raw_type?: string;
+          subagent_name?: string;
+        }>;
       }>;
       total_sessions: number;
     }>(`/api/projects/${projectId}/conversations?${params}`);

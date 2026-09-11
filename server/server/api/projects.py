@@ -227,9 +227,12 @@ async def get_project_timeline(
             session["timestamp"] = ts
 
         if d_category == "conversation":
+            c_title = d_title
+            if not c_title or c_title.lower() in ("transcript", "transcript.jsonl"):
+                c_title = session_id[:8] if session_id else "会话"
             session["conversation"] = {
                 "id": str(d_id),
-                "title": d_title or d_path.split("/")[-1],
+                "title": c_title,
                 "message_count": 0,
                 "preview_messages": [],
                 "file_size_bytes": d_size,
@@ -262,7 +265,10 @@ async def get_project_timeline(
     for ev in page:
         if ev.get("type") == "session":
             if ev.get("conversation"):
-                ev["title"] = ev["conversation"]["title"]
+                t = ev["conversation"]["title"]
+                if t in ("transcript", "transcript.jsonl", None, ""):
+                    t = ev["session_id"][:8]
+                ev["title"] = t
             elif ev.get("artifacts"):
                 ev["title"] = ev["artifacts"][0]["title"]
             else:
@@ -596,9 +602,19 @@ async def get_project_conversations(
                 "file_size_bytes": p.file_size_bytes,
             })
 
+        conv_title = d.title
+        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
+            first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
+            if first_user_msg and first_user_msg.get("content"):
+                c = first_user_msg["content"].strip().split("\n")[0][:60]
+                if c:
+                    conv_title = c
+        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
+            conv_title = session_id[:8] if session_id else "会话"
+
         sessions.append({
             "session_id": session_id,
-            "title": d.title or session_id[:8],
+            "title": conv_title,
             "conversation_id": str(d.id),
             "timestamp": ts,
             "message_count": total_msgs,  # true total, not the clipped count

@@ -283,9 +283,24 @@ async def ingest_file(
         )).scalar_one_or_none()
         if existing_doc is not None:
             new_title = metadata.get("title")
-            if new_title and existing_doc.title in ("transcript", "transcript.jsonl") and existing_doc.title != new_title:
+            if new_title and existing_doc.title in ("transcript", "transcript.jsonl", None, "") and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
+            # If this is an annotation file, also update the conversation document
+            if tool_id == "antigravity" and "annotations" in relative_path:
+                ann_sid = metadata.get("session_id") or relative_path.split("/")[-1].replace(".pbtxt", "")
+                if ann_sid and new_title:
+                    from sqlalchemy import update
+                    await db.execute(
+                        update(Document)
+                        .where(
+                            Document.tool_id == "antigravity",
+                            Document.category == "conversation",
+                            Document.metadata_["session_id"].astext == ann_sid,
+                        )
+                        .values(title=new_title)
+                    )
+                    await db.flush()
             return existing_doc
 
     # Re-sanitize
@@ -370,6 +385,27 @@ async def ingest_file(
         if req_m:
             title = req_m.group(1).strip().split("\n")[0][:60]
 
+    # Antigravity annotations: update conversation doc title if annotation arrives
+    if tool_id == "antigravity" and "annotations" in relative_path:
+        ann_sid = (metadata.get("session_id") or relative_path.split("/")[-1].replace(".pbtxt", "")).strip()
+        ann_title = title if (title and title not in ("transcript", "transcript.jsonl") and not title.endswith(".pbtxt")) else None
+        if not ann_title and content:
+            m = re.search(r'title:\s*"([^"]+)"', content)
+            if m:
+                ann_title = m.group(1).strip()
+        if ann_sid and ann_title:
+            from sqlalchemy import update
+            await db.execute(
+                update(Document)
+                .where(
+                    Document.tool_id == "antigravity",
+                    Document.category == "conversation",
+                    Document.metadata_["session_id"].astext == ann_sid,
+                )
+                .values(title=ann_title)
+            )
+            title = ann_title
+
     if doc is None:
         # Create new document — always store content in DB (TEXT has no size limit)
         doc = Document(
@@ -406,7 +442,10 @@ async def ingest_file(
         doc.synced_at = now
         if machine_id and not doc.machine_id:
             doc.machine_id = machine_id
-        doc.title = title
+        if title and title not in ("transcript", "transcript.jsonl"):
+            doc.title = title
+        elif doc.title in ("transcript", "transcript.jsonl", None, "") and title:
+            doc.title = title
         # Backfill project_id when newly resolved (was NULL, or changed).
         # Don't overwrite an existing link with NULL — keep last good value.
         if project_id and doc.project_id != project_id:

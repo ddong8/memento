@@ -183,9 +183,25 @@ function AskPageContent() {
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [sessions, setSessions] = useState<Array<{ session_id: string; title: string; conversation_id: string; message_count: number; timestamp: string }>>([]);
+  const [sessions, setSessions] = useState<
+    Array<{
+      session_id: string;
+      title: string;
+      conversation_id: string;
+      message_count: number;
+      timestamp: string;
+      messages?: Array<{
+        role: string;
+        content: string;
+        timestamp?: string;
+        raw_type?: string;
+        subagent_name?: string;
+      }>;
+    }>
+  >([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
+  const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
 
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
@@ -1442,55 +1458,209 @@ function AskPageContent() {
               )}
             </div>
 
-            {/* Active Resume Session Banner */}
-            {selectedSessionId && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  marginBottom: 8,
-                  padding: "6px 12px",
-                  background: "var(--aurora-accent-soft)",
-                  border: "1px solid var(--aurora-accent)",
-                  borderRadius: 10,
-                  fontSize: 12,
-                  color: "var(--aurora-fg1)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
-                  <Icon name="clock" size={14} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, color: "var(--aurora-accent)", flexShrink: 0 }}>
-                    {isZh ? "续接历史会话:" : "Resuming session:"}
-                  </span>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>
-                    {sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId)?.title || selectedSessionId}
-                  </span>
+            {/* Active Resume Session Banner & Historical Context Preview */}
+            {selectedSessionId && (() => {
+              const activeSession = sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId);
+              const msgs = activeSession?.messages || [];
+              const previewMsgs = msgs.slice(-5);
+              const totalCount = activeSession?.message_count || msgs.length;
+
+              return (
+                <div style={{ marginBottom: 10 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "6px 12px",
+                      background: "var(--aurora-accent-soft)",
+                      border: "1px solid var(--aurora-accent)",
+                      borderRadius: showSessionContext ? "10px 10px 0 0" : 10,
+                      fontSize: 12,
+                      color: "var(--aurora-fg1)",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+                      <Icon name="clock" size={14} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)", flexShrink: 0 }}>
+                        {isZh ? "续接历史会话:" : "Resuming session:"}
+                      </span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
+                        {activeSession?.title || selectedSessionId}
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
+                        ({isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowSessionContext(!showSessionContext)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--aurora-accent)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          fontSize: 11.5,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          fontWeight: 600,
+                        }}
+                        title={showSessionContext ? (isZh ? "收起历史上下文" : "Collapse context") : (isZh ? "展开历史上下文" : "Expand context")}
+                      >
+                        <Icon name={showSessionContext ? "chevron_up" : "chevron_down"} size={12} />
+                        <span>{showSessionContext ? (isZh ? "收起上下文" : "Hide Context") : (isZh ? "预览上下文" : "Preview Context")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSessionId("")}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--aurora-fg3)",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          fontSize: 11,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          flexShrink: 0,
+                        }}
+                        title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
+                      >
+                        <Icon name="close" size={12} />
+                        <span>{isZh ? "退出" : "Exit"}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Context Preview Drawer */}
+                  {showSessionContext && (
+                    <div
+                      style={{
+                        padding: "10px 14px",
+                        background: "var(--aurora-surface-solid)",
+                        border: "1px solid var(--aurora-accent)",
+                        borderTop: "none",
+                        borderRadius: "0 0 10px 10px",
+                        fontSize: 12,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: 8,
+                          paddingBottom: 6,
+                          borderBottom: "1px solid var(--aurora-border)",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                            {isZh ? "历史会话上下文 (最近交互)" : "Historical Context (Recent Turns)"}
+                          </span>
+                          {previewMsgs.length > 0 && (
+                            <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                              ({isZh ? `显示最近 ${previewMsgs.length} 条` : `Showing last ${previewMsgs.length}`})
+                            </span>
+                          )}
+                        </div>
+                        {activeSession?.conversation_id && (
+                          <a
+                            href={`/conversations/${activeSession.conversation_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              color: "var(--aurora-accent)",
+                              textDecoration: "none",
+                              fontSize: 11.5,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              fontWeight: 500,
+                            }}
+                          >
+                            <span>{isZh ? "在新标签页查看完整会话" : "View Full Conversation"}</span>
+                            <Icon name="external_link" size={11} />
+                          </a>
+                        )}
+                      </div>
+
+                      {/* Messages list */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                          maxHeight: 240,
+                          overflowY: "auto",
+                          paddingRight: 4,
+                        }}
+                      >
+                        {previewMsgs.length === 0 ? (
+                          <div style={{ color: "var(--aurora-fg3)", textAlign: "center", padding: "12px 0", fontSize: 12 }}>
+                            {isZh ? "该会话暂无历史文本消息记录" : "No textual messages recorded in this session"}
+                          </div>
+                        ) : (
+                          previewMsgs.map((m, idx) => {
+                            const isUser = m.role === "user";
+                            return (
+                              <div
+                                key={idx}
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 3,
+                                  background: isUser ? "var(--aurora-chip)" : "var(--aurora-surface)",
+                                  border: `1px solid ${isUser ? "var(--aurora-border)" : "var(--aurora-border)"}`,
+                                  borderRadius: 8,
+                                  padding: "6px 10px",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                                  <span style={{ fontWeight: 600, color: isUser ? "var(--aurora-accent)" : "var(--aurora-fg2)" }}>
+                                    {isUser
+                                      ? (isZh ? "👤 用户提问" : "👤 User")
+                                      : (m.subagent_name
+                                          ? `🔀 ${m.subagent_name}`
+                                          : `🤖 ${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : "Assistant"}`)}
+                                  </span>
+                                  {m.timestamp && (
+                                    <span style={{ color: "var(--aurora-fg3)", fontSize: 10 }}>
+                                      {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div
+                                  style={{
+                                    color: "var(--aurora-fg1)",
+                                    whiteSpace: "pre-wrap",
+                                    wordBreak: "break-word",
+                                    lineHeight: 1.45,
+                                    maxHeight: 90,
+                                    overflowY: "auto",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {m.content?.trim() || ""}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSessionId("")}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    color: "var(--aurora-fg3)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    fontSize: 11,
-                    padding: "2px 6px",
-                    borderRadius: 6,
-                    flexShrink: 0,
-                  }}
-                  title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
-                >
-                  <Icon name="close" size={12} />
-                  <span>{isZh ? "退出续接" : "Cancel"}</span>
-                </button>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Input box and action button */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0 }}>

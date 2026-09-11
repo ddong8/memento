@@ -492,7 +492,37 @@ export const api = {
     apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
   deleteAskConversation: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
+  listProjects: (toolId?: string) => {
+    const q = toolId ? `?tool_id=${encodeURIComponent(toolId)}` : "";
+    return apiFetch<ProjectSummary[]>(`/api/projects${q}`);
+  },
+  getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc") => {
+    const params = new URLSearchParams({ session_offset: String(offset), session_limit: String(limit), order });
+    return apiFetch<{
+      project: { id: string; slug: string; title: string; source_path: string };
+      sessions: Array<{
+        session_id: string;
+        title: string;
+        conversation_id: string;
+        timestamp: string;
+        message_count: number;
+      }>;
+      total_sessions: number;
+    }>(`/api/projects/${projectId}/conversations?${params}`);
+  },
 };
+
+export interface ProjectSummary {
+  id: string;
+  slug: string;
+  title: string;
+  tool_id: string;
+  source_path: string;
+  visibility: string;
+  document_count: number;
+  created_at: string;
+  updated_at: string | null;
+}
 
 export interface AskConversationSummary {
   id: string;

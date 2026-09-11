@@ -136,12 +136,16 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                         if os.path.isfile(c) and os.access(c, os.X_OK):
                             resolved = c
                             break
-                if not resolved:
-                    raise FileNotFoundError("Claude Code CLI ('claude') not found on this device.")
+                session_id = str(payload.get("session_id") or "").strip()
+                model = str(payload.get("model") or "").strip()
 
-                cmd = [resolved, "-p", prompt, "--output-format", "text", "--dangerously-skip-permissions"]
-                if payload.get("model"):
-                    cmd += ["--model", payload["model"]]
+                cmd = [resolved, "-p"]
+                if session_id:
+                    cmd += ["-r", session_id]
+                cmd += ["--output-format", "text", "--dangerously-skip-permissions"]
+                if model:
+                    cmd += ["--model", model]
+                cmd += [prompt]
 
             elif binary in ("codex", "codex-cli"):
                 resolved = shutil.which("codex", path=sub_env.get("PATH"))
@@ -159,10 +163,19 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 if not resolved:
                     raise FileNotFoundError("Codex CLI ('codex') not found on this device.")
 
-                cmd = [resolved, "exec", "--color", "never", "--dangerously-bypass-approvals-and-sandbox"]
-                if payload.get("model"):
-                    cmd += ["-m", payload["model"]]
-                cmd += [prompt]
+                session_id = str(payload.get("session_id") or "").strip()
+                model = str(payload.get("model") or "").strip()
+
+                if session_id:
+                    cmd = [resolved, "exec", "resume", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+                    if model:
+                        cmd += ["-m", model]
+                    cmd += [session_id, prompt]
+                else:
+                    cmd = [resolved, "exec", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
+                    if model:
+                        cmd += ["-m", model]
+                    cmd += [prompt]
 
             elif binary in ("agy", "antigravity"):
                 resolved = shutil.which("agy", path=sub_env.get("PATH")) or shutil.which("antigravity", path=sub_env.get("PATH"))
@@ -179,17 +192,28 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 if not resolved:
                     raise FileNotFoundError("Antigravity CLI ('agy') not found on this device.")
 
-                cmd = [resolved, "-p", prompt]
-                if payload.get("model"):
-                    cmd += ["--model", payload["model"]]
+                session_id = str(payload.get("session_id") or "").strip()
+                model = str(payload.get("model") or "").strip()
+
+                cmd = [resolved]
+                if session_id:
+                    cmd += ["--resume", session_id]
+                if model:
+                    cmd += ["--model", model]
+                cmd += ["-p", prompt]
 
             else:
                 resolved = shutil.which(binary, path=sub_env.get("PATH"))
                 if not resolved:
                     raise FileNotFoundError(f"agent binary not found: {binary}")
-                cmd = [resolved, "-p", prompt]
-                if payload.get("model"):
-                    cmd += ["--model", payload["model"]]
+                session_id = str(payload.get("session_id") or "").strip()
+                model = str(payload.get("model") or "").strip()
+                cmd = [resolved]
+                if session_id:
+                    cmd += ["--resume", session_id]
+                if model:
+                    cmd += ["--model", model]
+                cmd += ["-p", prompt]
 
             if payload.get("max_budget_usd"):
                 cmd += ["--max-budget-usd", str(payload["max_budget_usd"])]

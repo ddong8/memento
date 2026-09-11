@@ -18,6 +18,26 @@ class AskScreen extends ConsumerStatefulWidget {
   ConsumerState<AskScreen> createState() => _AskScreenState();
 }
 
+const Map<String, List<Map<String, String>>> kAgentModels = {
+  'codex': [
+    {'id': 'gpt-5.5', 'name': 'GPT-5.5 (推荐)'},
+    {'id': 'gpt-5.6-sol', 'name': 'GPT-5.6 Sol'},
+    {'id': 'o3', 'name': 'o3 Reasoning'},
+    {'id': 'o4-mini', 'name': 'o4-mini'},
+  ],
+  'claude': [
+    {'id': 'claude-3-7-sonnet', 'name': 'Claude 3.7 Sonnet (推荐)'},
+    {'id': 'claude-3-5-sonnet', 'name': 'Claude 3.5 Sonnet'},
+    {'id': 'claude-3-5-haiku', 'name': 'Claude 3.5 Haiku'},
+    {'id': 'claude-3-opus', 'name': 'Claude 3 Opus'},
+  ],
+  'antigravity': [
+    {'id': 'flash', 'name': 'Gemini 2.5 Flash (快速)'},
+    {'id': 'pro', 'name': 'Gemini 2.5 Pro (强力)'},
+    {'id': 'flash_lite', 'name': 'Gemini Flash-Lite'},
+  ],
+};
+
 class _AskScreenState extends ConsumerState<AskScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
@@ -25,6 +45,91 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   final _inputFocusNode = FocusNode();
   bool _showCwd = false;
   String _executionMode = 'ai';
+
+  String? _selectedModel;
+  List<Map<String, dynamic>> _projects = [];
+  String? _selectedProjectId;
+  List<Map<String, dynamic>> _sessions = [];
+  String? _selectedSessionId;
+  bool _loadingSessions = false;
+
+  void _handleModeChange(String id) {
+    setState(() {
+      _executionMode = id;
+      if (id != 'ai') {
+        final dev = ref.read(deviceProvider);
+        if (dev.selectedDeviceId == 'ask_only') {
+          ref.read(deviceProvider.notifier).setSelectedDevice('auto');
+        }
+      }
+      final models = kAgentModels[id];
+      if (models != null && models.isNotEmpty) {
+        _selectedModel = models.first['id'];
+      } else {
+        _selectedModel = null;
+      }
+      _selectedProjectId = null;
+      _selectedSessionId = null;
+      _sessions = [];
+      _projects = [];
+    });
+    if (['codex', 'claude', 'antigravity'].contains(id)) {
+      _loadProjectsForMode(id);
+    }
+  }
+
+  Future<void> _loadProjectsForMode(String mode) async {
+    try {
+      final toolId = mode == 'antigravity'
+          ? 'antigravity'
+          : (mode == 'claude' ? 'claude_code' : (mode == 'codex' ? 'codex' : null));
+      final projs = await ApiClient().getProjects(toolId: toolId);
+      if (mounted && _executionMode == mode) {
+        setState(() {
+          _projects = projs;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load projects: $e');
+    }
+  }
+
+  Future<void> _handleProjectChange(String? projId) async {
+    setState(() {
+      _selectedProjectId = projId;
+      _selectedSessionId = null;
+      _sessions = [];
+      _loadingSessions = projId != null && projId.isNotEmpty;
+    });
+
+    if (projId == null || projId.isEmpty) return;
+
+    final proj = _projects.firstWhere(
+      (p) => p['id']?.toString() == projId,
+      orElse: () => {},
+    );
+    final sourcePath = proj['source_path']?.toString();
+    if (sourcePath != null && sourcePath.isNotEmpty) {
+      _cwdController.text = sourcePath;
+      _showCwd = true;
+    }
+
+    try {
+      final res = await ApiClient().getProjectConversations(projId);
+      final rawList = res['sessions'] as List<dynamic>? ?? [];
+      if (mounted && _selectedProjectId == projId) {
+        setState(() {
+          _sessions = rawList.cast<Map<String, dynamic>>();
+          _loadingSessions = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load project sessions: $e');
+      if (mounted) {
+        setState(() => _loadingSessions = false);
+      }
+    }
+  }
 
   String _getHintText() {
     switch (_executionMode) {
@@ -64,17 +169,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           final color = m['color'] as Color;
 
           return InkWell(
-            onTap: () {
-              setState(() {
-                _executionMode = id;
-                if (id != 'ai') {
-                  final dev = ref.read(deviceProvider);
-                  if (dev.selectedDeviceId == 'ask_only') {
-                    ref.read(deviceProvider.notifier).setSelectedDevice('auto');
-                  }
-                }
-              });
-            },
+            onTap: () => _handleModeChange(id),
             borderRadius: BorderRadius.circular(14),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
@@ -457,6 +552,9 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           selectedDevice: selectedDevice,
           cwd: cwd,
           executionMode: _executionMode,
+          model: _selectedModel,
+          projectId: _selectedProjectId,
+          sessionId: _selectedSessionId,
         );
 
     _inputController.clear();
@@ -878,6 +976,180 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   InkWell(
                     onTap: () => setState(() => _showCwd = false),
                     child: const Icon(Icons.close, size: 13, color: AuroraColors.fg3),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Agent Specific Toolbelt (Model, Project, Historical Session)
+          if (['codex', 'claude', 'antigravity'].contains(_executionMode)) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                // Model Dropdown
+                if (kAgentModels[_executionMode] != null && kAgentModels[_executionMode]!.isNotEmpty)
+                  Flexible(
+                    flex: 4,
+                    child: Container(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: AuroraColors.chip,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AuroraColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: _selectedModel,
+                          dropdownColor: AuroraColors.surfaceElevated,
+                          icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AuroraColors.fg3),
+                          style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                          onChanged: (val) {
+                            if (val != null) setState(() => _selectedModel = val);
+                          },
+                          items: kAgentModels[_executionMode]!.map((m) {
+                            return DropdownMenuItem<String>(
+                              value: m['id'],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.auto_awesome, size: 12, color: AuroraColors.accent),
+                                  const SizedBox(width: 4),
+                                  Flexible(child: Text(m['name']!, overflow: TextOverflow.ellipsis)),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 6),
+                // Project Dropdown
+                Flexible(
+                  flex: 5,
+                  child: Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: AuroraColors.chip,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AuroraColors.border),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _selectedProjectId,
+                        hint: const Text('📁 关联项目...', style: TextStyle(fontSize: 11.5, color: AuroraColors.fg3), overflow: TextOverflow.ellipsis),
+                        dropdownColor: AuroraColors.surfaceElevated,
+                        icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AuroraColors.fg3),
+                        style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                        onChanged: (val) => _handleProjectChange(val),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('📁 不指定项目', overflow: TextOverflow.ellipsis),
+                          ),
+                          ..._projects.map((p) {
+                            final id = p['id']?.toString() ?? '';
+                            final title = (p['title'] ?? p['slug'] ?? id).toString();
+                            return DropdownMenuItem<String>(
+                              value: id,
+                              child: Text('📁 $title', overflow: TextOverflow.ellipsis),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // Session selector under the selected project
+            if (_selectedProjectId != null && _selectedProjectId!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: _selectedSessionId != null ? AuroraColors.accentSoft : AuroraColors.chip,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _selectedSessionId != null ? AuroraColors.accent : AuroraColors.border,
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: _selectedSessionId,
+                    hint: Text(
+                      _loadingSessions ? '⏳ 加载历史会话中...' : '➕ 新建独立会话',
+                      style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg2),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    dropdownColor: AuroraColors.surfaceElevated,
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AuroraColors.fg3),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: _selectedSessionId != null ? AuroraColors.accent : AuroraColors.fg1,
+                      fontWeight: _selectedSessionId != null ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    onChanged: (val) {
+                      setState(() => _selectedSessionId = val);
+                    },
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('➕ 新建独立会话', overflow: TextOverflow.ellipsis),
+                      ),
+                      ..._sessions.map((s) {
+                        final sid = (s['session_id'] ?? s['conversation_id'] ?? '').toString();
+                        final title = (s['title'] ?? (sid.length > 12 ? sid.substring(0, 12) : sid)).toString();
+                        return DropdownMenuItem<String>(
+                          value: sid,
+                          child: Text('💬 $title', overflow: TextOverflow.ellipsis),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+
+          // Active Resume Session Banner
+          if (_selectedSessionId != null && _selectedSessionId!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AuroraColors.accentSoft,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AuroraColors.accent.withOpacity(0.6)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.history_rounded, size: 14, color: AuroraColors.accent),
+                  const SizedBox(width: 6),
+                  const Text('续接会话: ', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AuroraColors.accent)),
+                  Expanded(
+                    child: Text(
+                      _sessions.firstWhere(
+                        (s) => (s['session_id'] ?? s['conversation_id'])?.toString() == _selectedSessionId,
+                        orElse: () => {'title': _selectedSessionId},
+                      )['title']?.toString() ?? _selectedSessionId!,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => setState(() => _selectedSessionId = null),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2.0),
+                      child: Icon(Icons.close, size: 14, color: AuroraColors.fg3),
+                    ),
                   ),
                 ],
               ),

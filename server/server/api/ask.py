@@ -74,6 +74,12 @@ class AskRequest(BaseModel):
     cwd: str | None = None
     # Execution mode: 'ai' (default RAG/orchestrator), 'claude', 'codex', 'antigravity', 'shell'
     execution_mode: str | None = None
+    # Model selection (e.g. 'gpt-5.5', 'claude-3-7-sonnet', 'flash', 'pro')
+    model: str | None = None
+    # Project ID (to scope context or working directory)
+    project_id: str | None = None
+    # Session ID to resume an existing conversation
+    session_id: str | None = None
 
 
 async def _retrieve(
@@ -564,6 +570,9 @@ async def _direct_agent_stream(
     execution_mode: str,
     device_id: str | None,
     cwd: str | None,
+    model: str | None = None,
+    session_id: str | None = None,
+    project_id: str | None = None,
 ):
     """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
     from ..services.orchestrator import _tool_run_on_device
@@ -578,6 +587,13 @@ async def _direct_agent_stream(
         "cwd": cwd or "",
         "timeout_seconds": 300,
     }
+    if model:
+        args["model"] = model
+    if session_id:
+        args["session_id"] = session_id
+    if project_id:
+        args["project_id"] = project_id
+
     if action == "shell":
         args["command"] = question
         cmd_display = question
@@ -590,7 +606,9 @@ async def _direct_agent_stream(
         binary = binary_map.get(execution_mode, execution_mode)
         args["prompt"] = question
         args["binary"] = binary
-        cmd_display = f"[{execution_mode.upper()}] {question}"
+        resume_tag = f" [resume:{session_id[:8]}]" if session_id else ""
+        model_tag = f" ({model})" if model else ""
+        cmd_display = f"[{execution_mode.upper()}{model_tag}]{resume_tag} {question}"
 
     call_id = f"direct_{uuid.uuid4().hex[:8]}"
     tool_call_item = {
@@ -714,6 +732,9 @@ async def ask(
                 execution_mode=exec_mode,
                 device_id=device_id or None,
                 cwd=body.cwd,
+                model=body.model,
+                session_id=body.session_id,
+                project_id=body.project_id,
             ),
             media_type="text/event-stream",
             headers={

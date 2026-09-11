@@ -177,4 +177,35 @@ class ApiClient {
     );
     return response.data as Map<String, dynamic>;
   }
+
+  // --- Projects & Historical Sessions ---
+
+  Future<List<Map<String, dynamic>>> getProjects({String? toolId}) async {
+    final response = await _dio.get(
+      '/api/projects',
+      queryParameters: {
+        if (toolId != null && toolId.isNotEmpty) 'tool_id': toolId,
+      },
+    );
+    final data = response.data;
+    if (data is List) {
+      return data.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>> getProjectConversations(
+    String projectId, {
+    int limit = 30,
+    String order = 'desc',
+  }) async {
+    final response = await _dio.get(
+      '/api/projects/$projectId/conversations',
+      queryParameters: {
+        'session_limit': limit,
+        'order': order,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
 }

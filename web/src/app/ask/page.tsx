@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -12,6 +12,29 @@ import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 
 export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
+
+export const AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
+  codex: [
+    { id: "gpt-5.5", name: "GPT-5.5", desc: "默认 · Codex 旗舰编程模型" },
+    { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", desc: "高阶架构与多步推理" },
+    { id: "gpt-5.6-terra", name: "GPT-5.6-Terra", desc: "全能平衡型" },
+    { id: "gpt-5.6-luna", name: "GPT-5.6-Luna", desc: "高速轻量型" },
+    { id: "gpt-6-astra", name: "GPT-6-Astra", desc: "前沿大模型" },
+    { id: "o3", name: "o3", desc: "OpenAI 深度思维" },
+    { id: "o4-mini", name: "o4-mini", desc: "极速推理" },
+  ],
+  claude: [
+    { id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet", desc: "默认 · 混合思考与编码" },
+    { id: "claude-3-5-sonnet", name: "Claude 3.5 Sonnet", desc: "经典全能" },
+    { id: "claude-3-5-haiku", name: "Claude 3.5 Haiku", desc: "极速响应" },
+    { id: "claude-3-opus", name: "Claude 3 Opus", desc: "超复杂逻辑架构" },
+  ],
+  antigravity: [
+    { id: "flash", name: "Gemini 2.5 Flash", desc: "默认 · 快速平衡" },
+    { id: "pro", name: "Gemini 2.5 Pro", desc: "深度推理与超大上下文" },
+    { id: "flash_lite", name: "Gemini 2.5 Flash-Lite", desc: "极轻量" },
+  ],
+};
 
 interface Source {
   id: string;
@@ -148,6 +171,14 @@ function AskPageContent() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("ai");
   const [cwd, setCwd] = useState<string>("");
   const [showCwd, setShowCwd] = useState<boolean>(false);
+
+  // Agent Context: Model, Project & Session selection
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [sessions, setSessions] = useState<Array<{ session_id: string; title: string; conversation_id: string; message_count: number; timestamp: string }>>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
 
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
@@ -331,6 +362,9 @@ function AskPageContent() {
           cwd: cwd.trim() || undefined,
           agent_mode: selectedDevice !== "ask_only",
           execution_mode: executionMode,
+          model: selectedModel || undefined,
+          session_id: selectedSessionId || undefined,
+          project_id: selectedProjectId || undefined,
         }),
         signal: ctrl.signal,
       });
@@ -555,7 +589,7 @@ function AskPageContent() {
       abortRef.current = null;
       loadConversations();
     }
-  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, streaming, turns, t]);
+  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
@@ -575,12 +609,76 @@ function AskPageContent() {
     }
   };
 
+  const loadProjectsForMode = useCallback(async (mode: ExecutionMode) => {
+    const toolMap: Record<string, string> = {
+      codex: "codex",
+      claude: "claude_code",
+      antigravity: "antigravity",
+    };
+    const toolId = toolMap[mode];
+    if (!toolId) {
+      setProjects([]);
+      setSelectedProjectId("");
+      setSessions([]);
+      setSelectedSessionId("");
+      return;
+    }
+    try {
+      const list = await api.listProjects(toolId);
+      setProjects(list || []);
+    } catch (e) {
+      console.error("Failed to load projects:", e);
+      setProjects([]);
+    }
+  }, []);
+
   const handleSelectMode = (mode: ExecutionMode) => {
     setExecutionMode(mode);
     if (mode !== "ai" && selectedDevice === "ask_only") {
       setSelectedDevice("auto");
     }
+    const models = AGENT_MODELS[mode];
+    if (models && models.length > 0) {
+      setSelectedModel(models[0].id);
+    } else {
+      setSelectedModel("");
+    }
+    loadProjectsForMode(mode);
   };
+
+  const handleSelectProject = useCallback(async (projId: string) => {
+    setSelectedProjectId(projId);
+    setSelectedSessionId("");
+    if (!projId) {
+      setSessions([]);
+      return;
+    }
+    const proj = projects.find((p) => p.id === projId);
+    if (proj?.source_path) {
+      setCwd(proj.source_path);
+      setShowCwd(true);
+    }
+    setLoadingSessions(true);
+    try {
+      const res = await api.getProjectConversations(projId, 0, 30, "desc");
+      setSessions(res.sessions || []);
+    } catch (e) {
+      console.error("Failed to load project sessions:", e);
+      setSessions([]);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [projects]);
+
+  // Sync projects and model on initial load if starting in agent mode
+  useEffect(() => {
+    if (["codex", "claude", "antigravity"].includes(executionMode)) {
+      loadProjectsForMode(executionMode);
+      if (!selectedModel && AGENT_MODELS[executionMode]?.length) {
+        setSelectedModel(AGENT_MODELS[executionMode][0].id);
+      }
+    }
+  }, [executionMode, loadProjectsForMode]);
 
   const currentDev = devices.find((d) => d.device_id === selectedDevice);
   let placeholderText = t.ask.placeholderAgent;
@@ -1048,7 +1146,200 @@ function AskPageContent() {
                   </button>
                 )
               )}
+
+              {/* Agent Model selector */}
+              {AGENT_MODELS[executionMode] && AGENT_MODELS[executionMode].length > 0 && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                  title={isZh ? "选择调用的模型" : "Select model"}
+                >
+                  <Icon name="sparkles" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      maxWidth: "min(180px, 45vw)",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    {AGENT_MODELS[executionMode].map((m) => (
+                      <option key={m.id} value={m.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Agent Project selector */}
+              {["codex", "claude", "antigravity"].includes(executionMode) && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                  title={isZh ? "关联项目代码库" : "Associate project repository"}
+                >
+                  <Icon name="code" size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+                  <select
+                    value={selectedProjectId}
+                    onChange={(e) => handleSelectProject(e.target.value)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      maxWidth: "min(200px, 50vw)",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      {isZh ? "选择项目 (可选)..." : "Select project (optional)..."}
+                    </option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                        📁 {p.title || p.slug || p.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Agent Historical Session selector */}
+              {["codex", "claude", "antigravity"].includes(executionMode) && selectedProjectId && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: selectedSessionId ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                    border: "1px solid",
+                    borderColor: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-border)",
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                  title={isZh ? "续接该项目下的历史会话" : "Resume historical session"}
+                >
+                  <Icon name="clock" size={13} style={{ color: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
+                  <select
+                    value={selectedSessionId}
+                    onChange={(e) => setSelectedSessionId(e.target.value)}
+                    disabled={loadingSessions}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: selectedSessionId ? 600 : 500,
+                      cursor: "pointer",
+                      maxWidth: "min(220px, 55vw)",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      {loadingSessions ? (isZh ? "加载会话列表中..." : "Loading sessions...") : (isZh ? "➕ 新建独立会话" : "➕ New Session")}
+                    </option>
+                    {sessions.map((s) => {
+                      const sid = s.session_id || s.conversation_id;
+                      return (
+                        <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                          💬 {s.title ? (s.title.length > 25 ? s.title.slice(0, 25) + "..." : s.title) : (sid ? sid.slice(0, 10) + "..." : "会话")}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
             </div>
+
+            {/* Active Resume Session Banner */}
+            {selectedSessionId && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: "6px 12px",
+                  background: "var(--aurora-accent-soft)",
+                  border: "1px solid var(--aurora-accent)",
+                  borderRadius: 10,
+                  fontSize: 12,
+                  color: "var(--aurora-fg1)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
+                  <Icon name="clock" size={14} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, color: "var(--aurora-accent)", flexShrink: 0 }}>
+                    {isZh ? "续接历史会话:" : "Resuming session:"}
+                  </span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>
+                    {sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId)?.title || selectedSessionId}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSessionId("")}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--aurora-fg3)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 11,
+                    padding: "2px 6px",
+                    borderRadius: 6,
+                    flexShrink: 0,
+                  }}
+                  title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
+                >
+                  <Icon name="close" size={12} />
+                  <span>{isZh ? "退出续接" : "Cancel"}</span>
+                </button>
+              </div>
+            )}
 
             {/* Input box and action button */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0 }}>

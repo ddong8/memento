@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../core/theme/aurora_theme.dart';
+import 'app_markdown.dart';
 
 class ThinkingBlock extends StatefulWidget {
   final String thinking;
@@ -80,20 +80,12 @@ class _ThinkingBlockState extends State<ThinkingBlock> {
                 border: Border(top: BorderSide(color: AuroraColors.border)),
                 color: Color(0x1F000000),
               ),
-              child: MarkdownBody(
+              child: AppMarkdown(
                 data: widget.thinking.isEmpty ? '思考中...' : widget.thinking,
-                styleSheet: MarkdownStyleSheet(
-                  p: const TextStyle(
-                    color: AuroraColors.fg3,
-                    fontSize: 12,
-                    height: 1.5,
-                  ),
-                  code: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: AuroraColors.accent,
-                    backgroundColor: Color(0x1AFFFFFF),
-                  ),
+                baseTextStyle: const TextStyle(
+                  color: AuroraColors.fg3,
+                  fontSize: 12,
+                  height: 1.5,
                 ),
               ),
             ),

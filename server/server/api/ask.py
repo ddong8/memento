@@ -630,12 +630,17 @@ async def _direct_agent_stream(
     if result_dict:
         status = result_dict.get("status", "completed")
         exit_code = result_dict.get("exit_code")
-        if status == "succeeded" or exit_code == 0:
+        stdout = (result_dict.get("stdout") or "").strip()
+        stderr = (result_dict.get("stderr") or "").strip()
+        err_msg = result_dict.get("error") or stderr or f"退出码 {exit_code}"
+
+        if action == "agent" and stdout:
+            summary_text = stdout
+        elif status == "succeeded" or exit_code == 0:
             summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
         elif status == "still_running":
             summary_text = "⏳ 任务仍在后台运行中。"
         else:
-            err_msg = result_dict.get("error") or result_dict.get("stderr") or f"退出码 {exit_code}"
             summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
     else:
         summary_text = "任务执行结束。"

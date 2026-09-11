@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme/aurora_theme.dart';
 import '../../models/ask_turn.dart';
+import 'app_markdown.dart';
 
 class ExecutionCard extends StatefulWidget {
   final ToolCallItem call;
@@ -15,6 +16,16 @@ class ExecutionCard extends StatefulWidget {
 class _ExecutionCardState extends State<ExecutionCard> {
   bool _expanded = true;
   bool _copied = false;
+  bool _showRawTerminal = false;
+
+  bool _containsMarkdown(String text) {
+    return text.contains('```') ||
+        text.contains('# ') ||
+        text.contains('## ') ||
+        text.contains('**') ||
+        text.contains('- ') ||
+        text.contains('* ');
+  }
 
   void _copyOutput() {
     final res = widget.call.result;
@@ -254,6 +265,34 @@ class _ExecutionCardState extends State<ExecutionCard> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      if (res?.stdout != null && (isClaude || isCodex || isAgy || call.action == 'agent' || _containsMarkdown(res!.stdout!))) ...[
+                        InkWell(
+                          onTap: () => setState(() => _showRawTerminal = !_showRawTerminal),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _showRawTerminal ? Icons.article_outlined : Icons.terminal_rounded,
+                                  size: 12,
+                                  color: AuroraColors.fg3,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _showRawTerminal ? '渲染' : '终端',
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    color: AuroraColors.fg3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       InkWell(
                         onTap: _copyOutput,
                         borderRadius: BorderRadius.circular(6),
@@ -294,16 +333,30 @@ class _ExecutionCardState extends State<ExecutionCard> {
                         color: AuroraColors.fg3,
                       ),
                     ),
-                  if (res?.stdout != null && res!.stdout!.isNotEmpty)
-                    SelectableText(
-                      res.stdout!,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11.5,
-                        color: Color(0xFFF1F5F9),
-                        height: 1.45,
+                  if (res?.stdout != null && res!.stdout!.isNotEmpty) ...[
+                    if ((isClaude || isCodex || isAgy || call.action == 'agent' || _containsMarkdown(res.stdout!)) && !_showRawTerminal)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: AppMarkdown(
+                          data: res.stdout!,
+                          baseTextStyle: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFFF1F5F9),
+                            height: 1.5,
+                          ),
+                        ),
+                      )
+                    else
+                      SelectableText(
+                        res.stdout!,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11.5,
+                          color: Color(0xFFF1F5F9),
+                          height: 1.45,
+                        ),
                       ),
-                    ),
+                  ],
                   if (res?.stderr != null && res!.stderr!.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     SelectableText(

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api_client.dart';
 import '../../core/theme/aurora_theme.dart';
@@ -10,6 +9,7 @@ import '../../state/device_state.dart';
 import '../widgets/execution_card.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/thinking_block.dart';
+import '../widgets/app_markdown.dart';
 
 class AskScreen extends ConsumerStatefulWidget {
   const AskScreen({super.key});
@@ -703,24 +703,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
 
             // Assistant answer text
             if (turn.content.isNotEmpty)
-              MarkdownBody(
-                data: turn.content,
-                selectable: true,
-                styleSheet: MarkdownStyleSheet(
-                  p: const TextStyle(fontSize: 14, color: AuroraColors.fg1, height: 1.55),
-                  code: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    color: AuroraColors.accent,
-                    backgroundColor: Color(0x1F38BDF8),
-                  ),
-                  codeblockDecoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AuroraColors.borderStrong),
-                  ),
-                ),
-              )
+              AppMarkdown(data: turn.content)
             else if (turn.toolCalls.isEmpty && (turn.thinking == null || turn.thinking!.isEmpty))
               const Row(
                 children: [

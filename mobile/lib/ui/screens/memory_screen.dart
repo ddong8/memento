@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../core/api_client.dart';
 import '../../core/theme/aurora_theme.dart';
 import '../../models/search_hit.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/app_markdown.dart';
 
 class MemoryScreen extends StatefulWidget {
   const MemoryScreen({super.key});
@@ -131,17 +131,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    MarkdownBody(
-                      data: content,
-                      styleSheet: MarkdownStyleSheet(
-                        p: const TextStyle(color: AuroraColors.fg1, fontSize: 13.5, height: 1.5),
-                        code: const TextStyle(
-                          fontFamily: 'monospace',
-                          color: AuroraColors.accent,
-                          backgroundColor: Color(0x1AFFFFFF),
-                        ),
-                      ),
-                    ),
+                    AppMarkdown(data: content),
                   ],
                 );
               },

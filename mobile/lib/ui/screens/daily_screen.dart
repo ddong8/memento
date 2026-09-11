@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../core/api_client.dart';
 import '../../core/theme/aurora_theme.dart';
 import '../../models/daily_summary.dart';
 import '../widgets/glass_card.dart';
+import '../widgets/app_markdown.dart';
 
 class DailyScreen extends StatefulWidget {
   const DailyScreen({super.key});
@@ -137,12 +137,7 @@ class _DailyScreenState extends State<DailyScreen> {
                                 ),
                               ),
                               const SizedBox(height: 8),
-                              MarkdownBody(
-                                data: s.summary,
-                                styleSheet: MarkdownStyleSheet(
-                                  p: const TextStyle(color: AuroraColors.fg1, fontSize: 13.5, height: 1.5),
-                                ),
-                              ),
+                              AppMarkdown(data: s.summary),
                             ],
                           ),
                         ),

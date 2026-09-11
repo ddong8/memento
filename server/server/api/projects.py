@@ -42,6 +42,7 @@ async def list_projects(
 
     # Single query: projects LEFT JOIN documents, GROUP BY, count documents
     doc_count_col = func.count(Document.id).label("doc_count")
+    local_path_col = func.max(Document.metadata_["project_path"].astext).label("local_path")
     join_cond = Document.project_id == Project.id
     if target_mid is not None:
         join_cond = join_cond & (Document.machine_id == target_mid)
@@ -49,7 +50,7 @@ async def list_projects(
         join_cond = join_cond & Document.machine_id.in_(mids)
 
     query = (
-        select(Project, doc_count_col)
+        select(Project, doc_count_col, local_path_col)
         .outerjoin(Document, join_cond)
         .group_by(Project.id)
         .order_by(Project.updated_at.desc())
@@ -68,13 +69,13 @@ async def list_projects(
             "slug": p.slug,
             "title": p.title,
             "tool_id": p.tool_id,
-            "source_path": _clean_source_path(p.source_path),
+            "source_path": _clean_source_path(local_path if (target_mid is not None and local_path) else p.source_path),
             "visibility": p.visibility,
             "document_count": count or 0,
             "created_at": p.created_at.isoformat(),
             "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         }
-        for p, count in rows
+        for p, count, local_path in rows
     ]
 
 
@@ -137,6 +138,38 @@ async def get_project(
         "visibility": project.visibility,
         "documents": [_doc_row(d) for d in docs],
     }
+
+
+@router.patch("/{project_id}")
+async def update_project(
+    project_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404)
+
+    if "source_path" in body:
+        clean = _clean_source_path(body["source_path"])
+        if clean:
+            project.source_path = clean
+    if "title" in body:
+        new_title = str(body["title"]).strip()
+        if new_title:
+            project.title = new_title
+
+    await db.commit()
+    await db.refresh(project)
+    return {
+        "id": str(project.id),
+        "slug": project.slug,
+        "title": project.title,
+        "source_path": project.source_path,
+    }
+
 
 
 @router.get("/{project_id}/timeline")
@@ -645,13 +678,20 @@ async def get_project_conversations(
             })
 
         conv_title = (d.title or "").strip()
-        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
+        is_title_junk = (
+            not conv_title
+            or conv_title.lower() in ("transcript", "transcript.jsonl")
+            or "\\" in conv_title
+            or "(.*?)" in conv_title
+            or "<" in conv_title
+        )
+        if is_title_junk:
             first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
             if first_user_msg and first_user_msg.get("content"):
                 c = first_user_msg["content"].strip().split("\n")[0].strip()[:60]
-                if c:
+                if c and "\\" not in c and "(.*?)" not in c and not c.startswith(("<", "re.search")):
                     conv_title = c
-        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
+        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl") or "\\" in conv_title or "(.*?)" in conv_title:
             conv_title = session_id[:8] if session_id else "会话"
         conv_title = conv_title.strip()
 
@@ -666,12 +706,20 @@ async def get_project_conversations(
             "artifacts": artifacts,
         })
 
+    dev_source_path = None
+    if target_mid is not None:
+        for d in all_convs:
+            sp = (d.metadata_ or {}).get("project_path")
+            if sp and len(sp) > 3 and not sp.isdigit() and sp.lower() not in ("...", "dev", "desktop", "tmp", "temp"):
+                dev_source_path = sp
+                break
+
     payload = {
         "project": {
             "id": str(project.id),
             "slug": project.slug,
             "title": project.title,
-            "source_path": _clean_source_path(project.source_path),
+            "source_path": _clean_source_path(dev_source_path or project.source_path),
         },
         "total_sessions": total_sessions,
         "session_offset": session_offset,

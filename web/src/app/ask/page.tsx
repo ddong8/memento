@@ -739,6 +739,17 @@ function AskPageContent() {
     try {
       const res = await api.getProjectConversations(projId, 0, 30, "desc", selectedDevice);
       setSessions(res.sessions || []);
+      if (res.project?.source_path) {
+        let clean = res.project.source_path.trim();
+        const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
+        if (match) {
+          clean = match[1].replace(/[\/\\]+$/, "");
+        } else {
+          clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
+        }
+        setCwd(clean);
+        setShowCwd(true);
+      }
     } catch (e) {
       console.error("Failed to load project sessions:", e);
       setSessions([]);

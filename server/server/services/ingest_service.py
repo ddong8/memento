@@ -251,6 +251,8 @@ def _clean_source_path(path: str | None) -> str | None:
     if not path:
         return path
     s = str(path).strip()
+    if s.lower() in _IGNORE_PROJECT_NAMES:
+        return None
     # Strip file:/// URI prefix
     if s.startswith("file:///"):
         s = s[8:] if len(s) > 9 and s[9:10] == ":" else s[7:]
@@ -262,9 +264,13 @@ def _clean_source_path(path: str | None) -> str | None:
     # If path contains newline, quotes, commas or JSON braces, extract the true filesystem path
     match = re.search(r"((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.\-]+(?:[/\\][a-zA-Z0-9_\.\-]+)*)", s)
     if match:
-        return match.group(1).rstrip("/\\")
+        cand = match.group(1).rstrip("/\\")
+        if cand.split("/")[-1].lower() not in _IGNORE_PROJECT_NAMES:
+            return cand
     # Fallback: strip after any quote, newline, or comma
     cleaned = re.split(r'["\',\r\n]', s)[0].strip().rstrip("/\\")
+    if cleaned.lower() in _IGNORE_PROJECT_NAMES:
+        return None
     return cleaned or None
 
 
@@ -286,9 +292,11 @@ async def ensure_project(
         )
         db.add(project)
         await db.flush()
-    elif source_path and (not project.source_path or project.source_path == project.title or len(project.source_path) < 10):
-        # Update incomplete source_path with better data
-        project.source_path = source_path
+    elif source_path:
+        old_sp = project.source_path or ""
+        old_last = old_sp.replace("\\", "/").rstrip("/").split("/")[-1].lower()
+        if not old_sp or old_sp == project.title or len(old_sp) < 10 or old_last in _IGNORE_PROJECT_NAMES:
+            project.source_path = source_path
     return project
 
 
@@ -339,22 +347,49 @@ async def ingest_file(
         )).scalar_one_or_none()
         if existing_doc is not None:
             new_title = metadata.get("title")
-            if new_title and existing_doc.title in ("transcript", "transcript.jsonl", None, "") and existing_doc.title != new_title:
+            if new_title:
+                new_title = str(new_title).strip()
+            is_title_junk = (
+                not existing_doc.title
+                or existing_doc.title.lower() in ("transcript", "transcript.jsonl")
+                or "\\" in existing_doc.title
+                or "(.*?)" in existing_doc.title
+                or "<" in existing_doc.title
+            )
+            is_valid_new_title = (
+                bool(new_title)
+                and new_title.lower() not in ("transcript", "transcript.jsonl")
+                and "\\" not in new_title
+                and "(.*?)" not in new_title
+                and not new_title.startswith(("<", "re.search"))
+            )
+            if is_valid_new_title and (is_title_junk or tool_id == "antigravity") and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
+
             # If this is an annotation file, also update the conversation document
             if tool_id == "antigravity" and "annotations" in relative_path:
-                ann_sid = metadata.get("session_id") or relative_path.split("/")[-1].replace(".pbtxt", "")
-                if ann_sid and new_title:
-                    from sqlalchemy import update
+                ann_sid = (metadata.get("session_id") or relative_path.split("/")[-1].replace(".pbtxt", "")).strip()
+                ann_title = new_title if is_valid_new_title else None
+                if not ann_title and content:
+                    m = re.search(r'title:\s*"([^"]+)"', content)
+                    if m:
+                        cand_ann = m.group(1).strip()
+                        if cand_ann and "\\" not in cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
+                            ann_title = cand_ann
+                if ann_sid and ann_title:
+                    from sqlalchemy import update, or_
                     await db.execute(
                         update(Document)
                         .where(
                             Document.tool_id == "antigravity",
                             Document.category == "conversation",
-                            Document.metadata_["session_id"].astext == ann_sid,
+                            or_(
+                                Document.metadata_["session_id"].astext == ann_sid,
+                                Document.relative_path.like(f"%{ann_sid}%"),
+                            )
                         )
-                        .values(title=new_title)
+                        .values(title=ann_title)
                     )
                     await db.flush()
             return existing_doc
@@ -438,27 +473,43 @@ async def ingest_file(
 
     now = datetime.now(timezone.utc)
     title = metadata.pop("title", None) or relative_path.split("/")[-1]
-    if (not title or title.lower() in ("transcript", "transcript.jsonl")) and content and category == "conversation":
+    if title:
+        title = str(title).strip()
+    is_title_junk = (
+        not title
+        or title.lower() in ("transcript", "transcript.jsonl")
+        or "\\" in title
+        or "(.*?)" in title
+        or "<" in title
+    )
+    if is_title_junk and content and category == "conversation":
         req_m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content[:15000], re.DOTALL)
         if req_m:
-            title = req_m.group(1).strip().split("\n")[0][:60]
+            cand = req_m.group(1).strip().split("\n")[0][:60]
+            if cand and "\\" not in cand and "(.*?)" not in cand and not cand.startswith(("<", "re.search")):
+                title = cand
 
     # Antigravity annotations: update conversation doc title if annotation arrives
     if tool_id == "antigravity" and "annotations" in relative_path:
         ann_sid = (metadata.get("session_id") or relative_path.split("/")[-1].replace(".pbtxt", "")).strip()
-        ann_title = title if (title and title not in ("transcript", "transcript.jsonl") and not title.endswith(".pbtxt")) else None
+        ann_title = title if (title and title not in ("transcript", "transcript.jsonl") and not title.endswith(".pbtxt") and "\\" not in title and "(.*?)" not in title) else None
         if not ann_title and content:
             m = re.search(r'title:\s*"([^"]+)"', content)
             if m:
-                ann_title = m.group(1).strip()
+                cand_ann = m.group(1).strip()
+                if cand_ann and "\\" not in cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
+                    ann_title = cand_ann
         if ann_sid and ann_title:
-            from sqlalchemy import update
+            from sqlalchemy import update, or_
             await db.execute(
                 update(Document)
                 .where(
                     Document.tool_id == "antigravity",
                     Document.category == "conversation",
-                    Document.metadata_["session_id"].astext == ann_sid,
+                    or_(
+                        Document.metadata_["session_id"].astext == ann_sid,
+                        Document.relative_path.like(f"%{ann_sid}%"),
+                    )
                 )
                 .values(title=ann_title)
             )

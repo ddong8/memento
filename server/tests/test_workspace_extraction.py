@@ -46,3 +46,13 @@ def test_extract_mac_dev_path():
     name, path = _extract_workspace_from_content(content)
     assert name == "my_cool_app"
     assert path == "/Users/haixingdong/dev/my_cool_app"
+
+
+def test_clean_source_path():
+    from server.services.ingest_service import _clean_source_path
+    assert _clean_source_path("...") is None
+    assert _clean_source_path("/Users/haixingdong/dev/memento") == "/Users/haixingdong/dev/memento"
+    assert _clean_source_path("file:///Users/haixingdong/dev/memento") == "/Users/haixingdong/dev/memento"
+    assert _clean_source_path("/Users/haixingdong/dev/memento\nother stuff") == "/Users/haixingdong/dev/memento"
+    assert _clean_source_path("dev") is None
+

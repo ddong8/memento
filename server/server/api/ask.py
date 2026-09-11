@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Document, Machine, User, AskConversation
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
-from ..services.user_filter import user_machine_ids, apply_user_filter
+from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
 from ..services.ai_provider import get_ai_providers, stream_chat_completion
 from .search import _semantic_doc_ranks, RRF_K
 
@@ -518,11 +518,20 @@ async def _append_conversation_turns(
 
 @router.get("/conversations")
 async def list_conversations(
+    device_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
     """List recent Ask conversations for the current user."""
     cond = (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    if device_id and device_id not in ("auto", "ask_only", "all"):
+        target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
+        match_vals = [device_id]
+        if target_machine:
+            match_vals.extend([str(target_machine.id), target_machine.collector_token_hash, target_machine.name])
+        match_vals = list(set(filter(None, match_vals)))
+        cond = cond & AskConversation.device_id.in_(match_vals)
+
     query = (
         select(
             AskConversation.id,

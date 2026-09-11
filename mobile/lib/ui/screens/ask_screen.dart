@@ -105,7 +105,11 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       final toolId = mode == 'antigravity'
           ? 'antigravity'
           : (mode == 'claude' ? 'claude_code' : (mode == 'codex' ? 'codex' : null));
-      final projs = await ApiClient().getProjects(toolId: toolId);
+      final dev = ref.read(deviceProvider);
+      final projs = await ApiClient().getProjects(
+        toolId: toolId,
+        deviceId: dev.selectedDeviceId,
+      );
       if (mounted && _executionMode == mode) {
         setState(() {
           _projects = projs;
@@ -144,7 +148,11 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     }
 
     try {
-      final res = await ApiClient().getProjectConversations(projId);
+      final dev = ref.read(deviceProvider);
+      final res = await ApiClient().getProjectConversations(
+        projId,
+        deviceId: dev.selectedDeviceId,
+      );
       final rawList = res['sessions'] as List<dynamic>? ?? [];
       if (mounted && _selectedProjectId == projId) {
         setState(() {
@@ -354,6 +362,17 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   }
 
   void _showHistoryModal(BuildContext context) {
+    final devState = ref.read(deviceProvider);
+    final hasSpecificDevice = devState.selectedDeviceId != 'auto' &&
+        devState.selectedDeviceId != 'ask_only' &&
+        devState.selectedDeviceId.isNotEmpty;
+    bool filterCurrentDevice = hasSpecificDevice;
+    final targetDevice = devState.devices.firstWhere(
+      (d) => d.deviceId == devState.selectedDeviceId,
+      orElse: () => Device(deviceId: '', name: '当前设备'),
+    );
+    final targetDeviceName = targetDevice.name;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -419,13 +438,77 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                         ],
                       ),
                     ),
+                    if (hasSpecificDevice) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Row(
+                          children: [
+                            InkWell(
+                              onTap: () => setModalState(() => filterCurrentDevice = true),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: filterCurrentDevice ? AuroraColors.accentSoft : AuroraColors.chip,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: filterCurrentDevice ? AuroraColors.accent : AuroraColors.border,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.devices, size: 12, color: AuroraColors.accent),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '当前设备: $targetDeviceName',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: filterCurrentDevice ? FontWeight.w600 : FontWeight.normal,
+                                        color: filterCurrentDevice ? AuroraColors.accent : AuroraColors.fg2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () => setModalState(() => filterCurrentDevice = false),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: !filterCurrentDevice ? AuroraColors.accentSoft : AuroraColors.chip,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: !filterCurrentDevice ? AuroraColors.accent : AuroraColors.border,
+                                  ),
+                                ),
+                                child: Text(
+                                  '全部设备',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: !filterCurrentDevice ? FontWeight.w600 : FontWeight.normal,
+                                    color: !filterCurrentDevice ? AuroraColors.accent : AuroraColors.fg2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     const Divider(color: AuroraColors.border, height: 1),
 
                     // List
                     Expanded(
                       child: FutureBuilder<List<AskConversationSummary>>(
-                        future: ApiClient().getAskConversations(),
+                        future: ApiClient().getAskConversations(
+                          deviceId: filterCurrentDevice ? devState.selectedDeviceId : null,
+                        ),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
                             return const Center(
@@ -551,6 +634,21 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                                                   item.timeFormatted,
                                                   style: const TextStyle(fontSize: 11, color: AuroraColors.fg3),
                                                 ),
+                                                if (item.deviceId != null && item.deviceId!.isNotEmpty) ...[
+                                                  const SizedBox(width: 6),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                    decoration: BoxDecoration(
+                                                      color: AuroraColors.chip,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: AuroraColors.border),
+                                                    ),
+                                                    child: Text(
+                                                      item.deviceId!.length > 8 ? item.deviceId!.substring(0, 8) : item.deviceId!,
+                                                      style: const TextStyle(fontSize: 10, color: AuroraColors.fg3),
+                                                    ),
+                                                  ),
+                                                ],
                                                 if (item.messageCount > 0) ...[
                                                   const SizedBox(width: 8),
                                                   Text(
@@ -638,6 +736,20 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     ref.listen<AskState>(askProvider, (previous, next) {
       if (next.isStreaming) {
         _scrollToBottom();
+      }
+    });
+
+    ref.listen<DeviceState>(deviceProvider, (previous, next) {
+      if (previous?.selectedDeviceId != next.selectedDeviceId) {
+        setState(() {
+          _selectedProjectId = null;
+          _selectedSessionId = null;
+          _sessions = [];
+        });
+        if (['codex', 'claude', 'antigravity'].contains(_executionMode)) {
+          _loadProjectsForMode(_executionMode);
+          _loadCapabilitiesForMode(_executionMode);
+        }
       }
     });
 

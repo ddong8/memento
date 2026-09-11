@@ -140,8 +140,18 @@ class ApiClient {
 
   // --- Ask Conversations ---
 
-  Future<List<AskConversationSummary>> getAskConversations() async {
-    final response = await _dio.get('/api/ask/conversations');
+  Future<List<AskConversationSummary>> getAskConversations({String? deviceId}) async {
+    final response = await _dio.get(
+      '/api/ask/conversations',
+      queryParameters: {
+        if (deviceId != null &&
+            deviceId.isNotEmpty &&
+            deviceId != 'auto' &&
+            deviceId != 'ask_only' &&
+            deviceId != 'all')
+          'device_id': deviceId,
+      },
+    );
     final data = response.data;
     if (data is List) {
       return data
@@ -180,11 +190,20 @@ class ApiClient {
 
   // --- Projects & Historical Sessions ---
 
-  Future<List<Map<String, dynamic>>> getProjects({String? toolId}) async {
+  Future<List<Map<String, dynamic>>> getProjects({
+    String? toolId,
+    String? deviceId,
+  }) async {
     final response = await _dio.get(
       '/api/projects',
       queryParameters: {
         if (toolId != null && toolId.isNotEmpty) 'tool_id': toolId,
+        if (deviceId != null &&
+            deviceId.isNotEmpty &&
+            deviceId != 'auto' &&
+            deviceId != 'ask_only' &&
+            deviceId != 'all')
+          'device_id': deviceId,
       },
     );
     final data = response.data;
@@ -198,12 +217,19 @@ class ApiClient {
     String projectId, {
     int limit = 30,
     String order = 'desc',
+    String? deviceId,
   }) async {
     final response = await _dio.get(
       '/api/projects/$projectId/conversations',
       queryParameters: {
         'session_limit': limit,
         'order': order,
+        if (deviceId != null &&
+            deviceId.isNotEmpty &&
+            deviceId != 'auto' &&
+            deviceId != 'ask_only' &&
+            deviceId != 'all')
+          'device_id': deviceId,
       },
     );
     return response.data as Map<String, dynamic>;

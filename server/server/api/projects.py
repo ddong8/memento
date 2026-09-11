@@ -17,7 +17,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
-from ..services.user_filter import user_machine_ids, apply_user_filter
+from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
 from ..services.ingest_service import _clean_source_path
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -26,15 +26,26 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 @router.get("")
 async def list_projects(
     tool_id: str | None = None,
+    device_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     mids = await user_machine_ids(db, _user)
 
+    target_mid: uuid.UUID | None = None
+    if device_id and device_id not in ("auto", "ask_only", "all"):
+        target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
+        if target_machine:
+            target_mid = target_machine.id
+        else:
+            return []
+
     # Single query: projects LEFT JOIN documents, GROUP BY, count documents
     doc_count_col = func.count(Document.id).label("doc_count")
     join_cond = Document.project_id == Project.id
-    if mids is not None:
+    if target_mid is not None:
+        join_cond = join_cond & (Document.machine_id == target_mid)
+    elif mids is not None:
         join_cond = join_cond & Document.machine_id.in_(mids)
 
     query = (
@@ -373,6 +384,7 @@ async def get_project_conversations(
     session_limit: int = Query(10, ge=1, le=50),
     max_messages_per_session: int = Query(0, ge=0, le=10000),
     order: str = Query("asc", regex="^(asc|desc)$"),
+    device_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
     as_of: datetime | None = None,  # internal — passed by share.py to cap visibility
@@ -395,8 +407,9 @@ async def get_project_conversations(
     # navigation hits. ``as_of`` participates in the key so share
     # traffic doesn't poison the owner-UI cache.
     as_of_key = as_of.isoformat() if as_of else "live"
+    dev_key = device_id or "all"
     cache_key = (
-        f"project:conv:{_user.id}:{project_id}:"
+        f"project:conv:{_user.id}:{project_id}:{dev_key}:"
         f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
     )
     cached = await cache_get(cache_key)
@@ -409,6 +422,26 @@ async def get_project_conversations(
     project = proj_result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404)
+
+    target_mid: uuid.UUID | None = None
+    if device_id and device_id not in ("auto", "ask_only", "all"):
+        target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
+        if target_machine:
+            target_mid = target_machine.id
+        else:
+            return {
+                "project": {
+                    "id": str(project.id),
+                    "slug": project.slug,
+                    "title": project.title,
+                    "source_path": _clean_source_path(project.source_path),
+                },
+                "total_sessions": 0,
+                "session_offset": session_offset,
+                "session_limit": session_limit,
+                "order": order,
+                "sessions": [],
+            }
 
     # Phase 1: scan only metadata columns to figure out pagination + subagent
     # grouping. Pulling Document.content (TOAST'd, can be 500 KB+ per doc)
@@ -430,7 +463,10 @@ async def get_project_conversations(
             Document.content_type.in_(("jsonl", "json")),
         )
     )
-    conv_q = apply_user_filter(conv_q, mids, Document.machine_id)
+    if target_mid is not None:
+        conv_q = conv_q.where(Document.machine_id == target_mid)
+    else:
+        conv_q = apply_user_filter(conv_q, mids, Document.machine_id)
     if as_of is not None:
         conv_q = conv_q.where(Document.synced_at <= as_of)
     all_convs = (await db.execute(conv_q)).scalars().all()
@@ -482,7 +518,10 @@ async def get_project_conversations(
 
     # Get all plan docs for this project (for artifact embedding)
     plans_q = select(Document).where(Document.project_id == project_id, Document.category == "plan")
-    plans_q = apply_user_filter(plans_q, mids, Document.machine_id)
+    if target_mid is not None:
+        plans_q = plans_q.where(Document.machine_id == target_mid)
+    else:
+        plans_q = apply_user_filter(plans_q, mids, Document.machine_id)
     plans_result = await db.execute(plans_q)
     all_plans = plans_result.scalars().all()
 

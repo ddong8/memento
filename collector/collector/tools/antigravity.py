@@ -42,8 +42,44 @@ def _extract_brain_metadata(cascade_id: str, transcript_path: Path) -> dict[str,
                     raw_ws = m.group(1).decode("utf-8", errors="ignore").rstrip("R").rstrip("/")
                     if re.match(r"^/[a-zA-Z]:/", raw_ws):
                         raw_ws = raw_ws[1:]  # /C:/foo -> C:/foo
-                    meta["project_path"] = raw_ws
-                    meta["project_hash"] = Path(raw_ws).name
+                    cand_name = Path(raw_ws).name
+                    if cand_name and not cand_name.isdigit() and cand_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch"):
+                        meta["project_path"] = raw_ws
+                        meta["project_hash"] = cand_name
+        except Exception:
+            pass
+
+    # 1.5 Fallback: Extract workspace from transcript.jsonl (<user_information> or Cwd)
+    if not meta.get("project_path") and transcript_path.exists():
+        try:
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                for idx, line in enumerate(f):
+                    if idx > 500:
+                        break
+                    if "<user_information>" in line:
+                        u_match = re.search(r"<user_information>[\s\S]*?((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:/[a-zA-Z0-9_.\-]+)\s*->", line)
+                        if u_match:
+                            ws = u_match.group(1).replace("\\", "/").rstrip("/")
+                            c_name = ws.split("/")[-1]
+                            if c_name and not c_name.isdigit() and c_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch"):
+                                meta["project_path"] = ws
+                                meta["project_hash"] = c_name
+                                break
+                    if '"Cwd"' in line or '"cwd"' in line:
+                        c_match = re.search(r'"[Cc]wd"\s*:\s*"?\\?"?((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:/[a-zA-Z0-9_.\-]+)\\?"?', line)
+                        if c_match:
+                            ws = c_match.group(1).replace("\\", "/").rstrip("/")
+                            c_name = ws.split("/")[-1]
+                            if (
+                                c_name
+                                and not c_name.isdigit()
+                                and c_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch")
+                                and "/antigravity/" not in ws
+                                and "/.gemini/" not in ws
+                            ):
+                                meta["project_path"] = ws
+                                meta["project_hash"] = c_name
+                                break
         except Exception:
             pass
 

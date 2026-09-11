@@ -85,10 +85,16 @@ _WORKSPACE_PATTERNS = [
     re.compile(r"([a-zA-Z]:/dev/\d+/[a-zA-Z0-9_\.\-]+)"),
     # C:/Users/xxx/Desktop/project_name/...
     re.compile(r"([a-zA-Z]:/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
+    # [a-zA-Z]:/(?:dev|projects|workspace)/project_name
+    re.compile(r"([a-zA-Z]:/(?:dev|projects|workspace)/[a-zA-Z0-9_\.\-]+)"),
     # /Users/xxx/Desktop/dev/category/project or /Users/xxx/Desktop/dev/project
     re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/dev/[a-zA-Z0-9_\.\-]+(?:/[a-zA-Z0-9_\.\-]+)?)"),
     # /Users/xxx/Desktop/project/...
     re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
+    # /Users/xxx/dev/project or /Users/xxx/projects/project or /Users/xxx/workspace/project
+    re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/(?:dev|projects|workspace)/[a-zA-Z0-9_\.\-]+)"),
+    # /home/xxx/dev/project or /home/xxx/projects/project or /home/xxx/workspace/project
+    re.compile(r"(/home/[a-zA-Z0-9_\.\-]+/(?:dev|projects|workspace)/[a-zA-Z0-9_\.\-]+)"),
     # F:/dev/project/...
     re.compile(r"([a-zA-Z]:/dev/[a-zA-Z0-9_\.\-]+)"),
 ]
@@ -102,10 +108,49 @@ _IGNORE_PATH_DIRS = {
     "temp", "tmp", "scratch", "tools", "mcp", "import", "off", ".system_generated",
     "subagents", "workflows", "conversations", "logs",
 }
+_IGNORE_PROJECT_NAMES = {
+    "...", "dev", "desktop", "tmp", "temp", "scratch", "projects", "workspace",
+}
 
 
 def _extract_workspace_from_content(content: str) -> tuple[str | None, str | None]:
     """Extract (project_name, full_path) from brain file content."""
+    # 1. Antigravity system prompt <user_information> block:
+    # /Users/haixingdong/dev/memento -> ddong8/memento
+    user_info_match = re.search(
+        r"<user_information>[\s\S]*?((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:/[a-zA-Z0-9_.\-]+)\s*->",
+        content,
+    )
+    if user_info_match:
+        ws_path = user_info_match.group(1).replace("\\", "/").rstrip("/")
+        ws_name = ws_path.split("/")[-1]
+        if (
+            ws_name
+            and not ws_name.isdigit()
+            and ws_name.lower() not in _IGNORE_PROJECT_NAMES
+            and "/antigravity/" not in ws_path
+            and "/.gemini/" not in ws_path
+        ):
+            return ws_name, ws_path
+
+    # 2. Tool call Cwd argument:
+    # "Cwd":"\"/Users/haixingdong/dev/memento\"" or "Cwd": "/Users/haixingdong/dev/memento"
+    cwd_matches = re.findall(
+        r'"[Cc]wd"\s*:\s*"?\\?"?((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:/[a-zA-Z0-9_.\-]+)\\?"?',
+        content,
+    )
+    for raw_cwd in cwd_matches:
+        ws_path = raw_cwd.replace("\\", "/").rstrip("/")
+        ws_name = ws_path.split("/")[-1]
+        if (
+            ws_name
+            and not ws_name.isdigit()
+            and ws_name.lower() not in _IGNORE_PROJECT_NAMES
+            and "/antigravity/" not in ws_path
+            and "/.gemini/" not in ws_path
+        ):
+            return ws_name, ws_path
+
     from collections import Counter
 
     roots: Counter[str] = Counter()
@@ -123,13 +168,24 @@ def _extract_workspace_from_content(content: str) -> tuple[str | None, str | Non
         parts = candidate.rstrip("/").split("/")
         while parts and (
             parts[-1].lower() in _IGNORE_PATH_DIRS
+            or parts[-1].isdigit()
+            or parts[-1].lower() in _IGNORE_PROJECT_NAMES
             or any(parts[-1].lower().endswith(ext) for ext in _IGNORE_PATH_EXTS)
         ):
             parts.pop()
-        if parts and len(parts) >= 3:
-            best_root = "/".join(parts)
-            project_name = parts[-1]
-            return project_name, best_root
+        non_empty = [p for p in parts if p]
+        if not non_empty:
+            continue
+        # Reject paths that are just root/home dirs: e.g. /Users/xxx, /home/xxx, C:/Users/xxx, D:/dev
+        if len(non_empty) <= 2 and any(p.lower() in ("users", "home", "dev") for p in non_empty):
+            continue
+        if len(non_empty) <= 3 and non_empty[0].endswith(":") and any(p.lower() in ("users", "home", "dev") for p in non_empty[1:]):
+            continue
+        if len(non_empty) >= 2:
+            project_name = non_empty[-1]
+            if not project_name.isdigit() and project_name.lower() not in _IGNORE_PROJECT_NAMES:
+                best_root = "/".join(parts)
+                return project_name, best_root
 
     return None, None
 
@@ -328,13 +384,15 @@ async def ingest_file(
 
     if _needs_extract and content and category == "conversation":
         # Universal: extract cwd from first occurrence in content (Claude Code, Codex, Cursor all have it)
-        cwd_match = re.search(r'"cwd"\s*:\s*"([^"]+)"', content[:10000])
+        cwd_match = re.search(r'"[Cc][Ww][Dd]"\s*:\s*"?\\?"?([^\\"\n]+)', content[:50000])
         if cwd_match:
             raw_cwd = cwd_match.group(1)
             raw_cwd = re.sub(r"^\\\\?\?\\", "", raw_cwd)
             cwd = raw_cwd.replace("\\", "/").rstrip("/")
-            project_path = project_path or raw_cwd
-            project_hash = cwd.split("/")[-1]
+            candidate_hash = cwd.split("/")[-1]
+            if candidate_hash and not candidate_hash.isdigit() and candidate_hash.lower() not in _IGNORE_PROJECT_NAMES:
+                project_path = project_path or raw_cwd
+                project_hash = candidate_hash
         elif _looks_like_hash and project_hash:
             # No cwd found but hash looks like encoded path — prettify it
             project_hash = _prettify_project_name(project_hash)
@@ -449,7 +507,17 @@ async def ingest_file(
         # Backfill project_id when newly resolved (was NULL, or changed).
         # Don't overwrite an existing link with NULL — keep last good value.
         if project_id and doc.project_id != project_id:
-            doc.project_id = project_id
+            should_replace = True
+            if doc.project_id:
+                old_p = await db.get(Project, doc.project_id)
+                new_p = await db.get(Project, project_id)
+                if old_p and new_p:
+                    old_is_dummy = old_p.title.isdigit() or old_p.title.lower() in _IGNORE_PROJECT_NAMES
+                    new_is_dummy = new_p.title.isdigit() or new_p.title.lower() in _IGNORE_PROJECT_NAMES
+                    if new_is_dummy and not old_is_dummy:
+                        should_replace = False
+            if should_replace:
+                doc.project_id = project_id
 
         # Save version history
         version = DocumentVersion(

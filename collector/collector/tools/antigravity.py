@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import json
 import os
 import platform
+import re
 
 from ..config import TOOL_PATHS, HOME
 from .base import (
@@ -18,6 +20,55 @@ if platform.system() == "Windows":
     GEMINI_ROOT = _appdata / ".gemini" if (_appdata / ".gemini").exists() else HOME / ".gemini"
 else:
     GEMINI_ROOT = HOME / ".gemini"
+
+
+def _extract_brain_metadata(cascade_id: str, transcript_path: Path) -> dict[str, Any]:
+    meta: dict[str, Any] = {"session_id": cascade_id, "source": "antigravity"}
+
+    # 1. Extract workspace from conversation db
+    db_path = GEMINI_ROOT / "antigravity" / "conversations" / f"{cascade_id}.db"
+    if db_path.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute('SELECT data FROM trajectory_metadata_blob WHERE id="main"')
+            row = cur.fetchone()
+            conn.close()
+            if row and row[0]:
+                data = row[0]
+                m = re.search(rb'file://(/[a-zA-Z]:/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*|/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)', data)
+                if m:
+                    raw_ws = m.group(1).decode("utf-8", errors="ignore").rstrip("R").rstrip("/")
+                    if re.match(r"^/[a-zA-Z]:/", raw_ws):
+                        raw_ws = raw_ws[1:]  # /C:/foo -> C:/foo
+                    meta["project_path"] = raw_ws
+                    meta["project_hash"] = Path(raw_ws).name
+        except Exception:
+            pass
+
+    # 2. Extract title from first user prompt in transcript
+    if transcript_path.exists():
+        try:
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    d = json.loads(line)
+                    if d.get("type") == "USER_INPUT":
+                        content = d.get("content") or ""
+                        req_m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content, re.DOTALL)
+                        if req_m:
+                            t = req_m.group(1).strip()
+                            meta["title"] = t.split("\n")[0][:60]
+                        elif content.strip():
+                            meta["title"] = content.strip().split("\n")[0][:60]
+                        break
+        except Exception:
+            pass
+
+    return meta
 
 
 class AntigravityTool(BaseTool):
@@ -163,13 +214,14 @@ class AntigravityTool(BaseTool):
             and abs_path.name == "transcript.jsonl"
         ):
             cascade_id = parts[2]
+            meta = _extract_brain_metadata(cascade_id, abs_path)
             return FileClassification(
                 tool_name=self.name,
                 category=Category.CONVERSATION,
                 content_type=ContentType.JSONL,
                 sync_strategy=SyncStrategy.DELTA,
                 relative_path=f"antigravity/brain/{cascade_id}/transcript.jsonl",
-                metadata={"session_id": cascade_id, "source": "antigravity"},
+                metadata=meta,
             )
 
         return None

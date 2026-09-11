@@ -85,13 +85,23 @@ _WORKSPACE_PATTERNS = [
     re.compile(r"([a-zA-Z]:/dev/\d+/[a-zA-Z0-9_\.\-]+)"),
     # C:/Users/xxx/Desktop/project_name/...
     re.compile(r"([a-zA-Z]:/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
-    # /Users/xxx/Desktop/dev/...
-    re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/dev(?:/[a-zA-Z0-9_\.\-]+)+)"),
+    # /Users/xxx/Desktop/dev/category/project or /Users/xxx/Desktop/dev/project
+    re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/dev/[a-zA-Z0-9_\.\-]+(?:/[a-zA-Z0-9_\.\-]+)?)"),
     # /Users/xxx/Desktop/project/...
     re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
     # F:/dev/project/...
     re.compile(r"([a-zA-Z]:/dev/[a-zA-Z0-9_\.\-]+)"),
 ]
+
+_IGNORE_PATH_EXTS = {
+    ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".json", ".jsonl", ".yml",
+    ".yaml", ".sh", ".txt", ".html", ".css", ".png", ".jpg", ".jpeg", ".ico",
+}
+_IGNORE_PATH_DIRS = {
+    "docs", "doc", "src", "tests", "test", "bin", "dist", "build", "node_modules",
+    "temp", "tmp", "scratch", "tools", "mcp", "import", "off", ".system_generated",
+    "subagents", "workflows", "conversations", "logs",
+}
 
 
 def _extract_workspace_from_content(content: str) -> tuple[str | None, str | None]:
@@ -109,10 +119,19 @@ def _extract_workspace_from_content(content: str) -> tuple[str | None, str | Non
     if not roots:
         return None, None
 
-    best_root = roots.most_common(1)[0][0]
-    parts = best_root.rstrip("/").split("/")
-    project_name = parts[-1] if parts else None
-    return project_name, best_root
+    for candidate, _count in roots.most_common(10):
+        parts = candidate.rstrip("/").split("/")
+        while parts and (
+            parts[-1].lower() in _IGNORE_PATH_DIRS
+            or any(parts[-1].lower().endswith(ext) for ext in _IGNORE_PATH_EXTS)
+        ):
+            parts.pop()
+        if parts and len(parts) >= 3:
+            best_root = "/".join(parts)
+            project_name = parts[-1]
+            return project_name, best_root
+
+    return None, None
 
 
 async def ensure_tool(db: AsyncSession, tool_id: str) -> Tool:
@@ -263,6 +282,10 @@ async def ingest_file(
             )
         )).scalar_one_or_none()
         if existing_doc is not None:
+            new_title = metadata.get("title")
+            if new_title and existing_doc.title in ("transcript", "transcript.jsonl") and existing_doc.title != new_title:
+                existing_doc.title = new_title
+                await db.flush()
             return existing_doc
 
     # Re-sanitize
@@ -342,6 +365,10 @@ async def ingest_file(
 
     now = datetime.now(timezone.utc)
     title = metadata.pop("title", None) or relative_path.split("/")[-1]
+    if (not title or title.lower() in ("transcript", "transcript.jsonl")) and content and category == "conversation":
+        req_m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content[:15000], re.DOTALL)
+        if req_m:
+            title = req_m.group(1).strip().split("\n")[0][:60]
 
     if doc is None:
         # Create new document — always store content in DB (TEXT has no size limit)

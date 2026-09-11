@@ -45,9 +45,8 @@ async def list_projects(
     )
     if tool_id:
         query = query.where(Project.tool_id == tool_id)
-    if mids is not None:
-        # Exclude projects with zero visible docs for non-admin users
-        query = query.having(doc_count_col > 0)
+    # Exclude empty projects with zero docs from project selector
+    query = query.having(doc_count_col > 0)
 
     result = await db.execute(query)
     rows = result.all()

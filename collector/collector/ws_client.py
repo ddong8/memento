@@ -186,9 +186,12 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 resolved = shutil.which("agy", path=sub_env.get("PATH")) or shutil.which("antigravity", path=sub_env.get("PATH"))
                 if not resolved:
                     candidates = [
+                        os.path.expanduser("~/.gemini/antigravity/bin/agy"),
                         os.path.expanduser("~/.gemini/antigravity/bin/agy_cli.py"),
                         os.path.expanduser("~/.antigravity/antigravity/bin/agy"),
                         "/opt/homebrew/bin/agy",
+                        "/usr/local/bin/agy",
+                        os.path.expanduser("~/.local/bin/agy"),
                     ]
                     for c in candidates:
                         if os.path.isfile(c) and os.access(c, os.X_OK):
@@ -429,7 +432,7 @@ def start_ws_client_thread(config: CollectorConfig, main_logger: logging.Logger)
         try:
             asyncio.run(_run_ws_loop(config))
         except Exception as e:
-            main_logger.debug("WebSocket worker terminated: %s", e)
+            main_logger.exception("WebSocket worker terminated: %s", e)
 
     t = threading.Thread(target=_target, name="memento-ws-client", daemon=True)
     t.start()

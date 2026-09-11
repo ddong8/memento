@@ -495,7 +495,7 @@ def main() -> None:
         from .ws_client import start_ws_client_thread
         start_ws_client_thread(config, logger)
     except Exception as e:
-        logger.debug("Failed to start WebSocket client thread: %s", e)
+        logger.exception("Failed to start WebSocket client thread: %s", e)
 
     # --- Main loop: heartbeat + periodic tasks ---
     last_heartbeat = time.time()

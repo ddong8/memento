@@ -64,6 +64,7 @@ def build_subprocess_env() -> dict[str, str]:
         "/Applications/ChatGPT.app/Contents/Resources",
         "/Applications/Antigravity.app/Contents/MacOS",
         os.path.expanduser("~/.antigravity/antigravity/bin"),
+        os.path.expanduser("~/.gemini/antigravity/bin"),
         os.path.expanduser("~/.fnm/current/bin"),
         os.path.expanduser("~/.asdf/shims"),
     ]

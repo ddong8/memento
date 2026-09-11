@@ -18,6 +18,7 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter
+from ..services.ingest_service import _clean_source_path
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -57,7 +58,7 @@ async def list_projects(
             "slug": p.slug,
             "title": p.title,
             "tool_id": p.tool_id,
-            "source_path": p.source_path,
+            "source_path": _clean_source_path(p.source_path),
             "visibility": p.visibility,
             "document_count": count or 0,
             "created_at": p.created_at.isoformat(),
@@ -122,7 +123,7 @@ async def get_project(
         "slug": project.slug,
         "title": project.title,
         "tool_id": project.tool_id,
-        "source_path": project.source_path,
+        "source_path": _clean_source_path(project.source_path),
         "visibility": project.visibility,
         "documents": [_doc_row(d) for d in docs],
     }
@@ -351,7 +352,7 @@ async def get_project_timeline(
             "slug": project.slug,
             "title": project.title,
             "tool_id": project.tool_id,
-            "source_path": project.source_path,
+            "source_path": _clean_source_path(project.source_path),
         },
         "total": total,
         "offset": offset,
@@ -612,7 +613,7 @@ async def get_project_conversations(
             "id": str(project.id),
             "slug": project.slug,
             "title": project.title,
-            "source_path": project.source_path,
+            "source_path": _clean_source_path(project.source_path),
         },
         "total_sessions": total_sessions,
         "session_offset": session_offset,
@@ -941,7 +942,7 @@ async def get_project_blueprint(
             "title": project.title,
             "slug": project.slug,
             "tool_id": project.tool_id,
-            "source_path": project.source_path,
+            "source_path": _clean_source_path(project.source_path),
         },
         "curated_docs": [
             {

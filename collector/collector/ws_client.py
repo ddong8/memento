@@ -78,20 +78,20 @@ async def _stream_pipe(stream: asyncio.StreamReader | None, name: str, task_id: 
 
 async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict[str, Any],
                                timeout: int) -> None:
-    cwd = payload.get("cwd")
-    if cwd:
-        cwd = os.path.expanduser(str(cwd).strip())
-        if not os.path.isdir(cwd):
-            await ws.send(json.dumps({
-                "type": "task_finished",
-                "task_id": task_id,
-                "status": "failed",
-                "exit_code": 1,
-                "stdout": "",
-                "stderr": f"cwd not found: {cwd}",
-                "error": f"cwd not found: {cwd}",
-            }))
-            return
+    raw_cwd = payload.get("cwd")
+    cwd = None
+    if raw_cwd:
+        s = str(raw_cwd).strip()
+        import re
+        match = re.search(r"((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.\-]+(?:[/\\][a-zA-Z0-9_\.\-]+)*)", s)
+        candidate = os.path.expanduser(match.group(1).rstrip("/\\")) if match else os.path.expanduser(s.split("\n")[0].split('"')[0].strip().rstrip("/\\"))
+        if os.path.isdir(candidate):
+            cwd = candidate
+        elif os.path.isdir(os.path.expanduser(s)):
+            cwd = os.path.expanduser(s)
+        else:
+            logger.warning("Cwd path '%s' not found on this machine; falling back to default working directory", raw_cwd)
+            cwd = None
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []

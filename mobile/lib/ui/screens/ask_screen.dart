@@ -131,7 +131,14 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     );
     final sourcePath = proj['source_path']?.toString();
     if (sourcePath != null && sourcePath.isNotEmpty) {
-      _cwdController.text = sourcePath;
+      String clean = sourcePath.trim();
+      final match = RegExp(r'((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.-]+(?:[/\\][a-zA-Z0-9_\.-]+)*)').firstMatch(clean);
+      if (match != null) {
+        clean = match.group(1)!.replaceAll(RegExp(r'[/\\]+$'), '');
+      } else {
+        clean = clean.split(RegExp(r'[\r\n",]'))[0].trim().replaceAll(RegExp(r'[/\\]+$'), '');
+      }
+      _cwdController.text = clean;
       _showCwd = true;
     }
 

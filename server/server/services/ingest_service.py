@@ -80,15 +80,17 @@ def _resanitize(text: str) -> tuple[str, bool]:
 
 _WORKSPACE_PATTERNS = [
     # d:/dev/2026/0123/project_name/... (with or without file:/// or e:/// prefix)
-    re.compile(r"([a-zA-Z]:/dev/\d{4}/\d+/[^/\s\)\]\"*?<>|`]+)"),
+    re.compile(r"([a-zA-Z]:/dev/\d{4}/\d+/[a-zA-Z0-9_\.\-]+)"),
     # d:/dev/MMDD/project_name/...
-    re.compile(r"([a-zA-Z]:/dev/\d+/[^/\s\)\]\"*?<>|`]+)"),
+    re.compile(r"([a-zA-Z]:/dev/\d+/[a-zA-Z0-9_\.\-]+)"),
     # C:/Users/xxx/Desktop/project_name/...
-    re.compile(r"([a-zA-Z]:/Users/[^/]+/Desktop/[^/\s\)\]\"*?<>|`]+)"),
-    # /Users/xxx/Desktop/dev/lang/project/...
-    re.compile(r"(/Users/[^/]+/Desktop/dev/[^/]+/[^/\s\)\]\"*?<>|`]+)"),
+    re.compile(r"([a-zA-Z]:/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
+    # /Users/xxx/Desktop/dev/...
+    re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/dev(?:/[a-zA-Z0-9_\.\-]+)+)"),
+    # /Users/xxx/Desktop/project/...
+    re.compile(r"(/Users/[a-zA-Z0-9_\.\-]+/Desktop/[a-zA-Z0-9_\.\-]+)"),
     # F:/dev/project/...
-    re.compile(r"([a-zA-Z]:/dev/[^/\s\)\]\"*?<>|`]+)"),
+    re.compile(r"([a-zA-Z]:/dev/[a-zA-Z0-9_\.\-]+)"),
 ]
 
 
@@ -173,15 +175,22 @@ def _hash_to_path(project_hash: str) -> str:
 def _clean_source_path(path: str | None) -> str | None:
     if not path:
         return path
+    s = str(path).strip()
     # Strip file:/// URI prefix
-    if path.startswith("file:///"):
-        path = path[8:] if len(path) > 9 and path[9:10] == ":" else path[7:]
+    if s.startswith("file:///"):
+        s = s[8:] if len(s) > 9 and s[9:10] == ":" else s[7:]
     # URL decode
     from urllib.parse import unquote
-    path = unquote(path)
+    s = unquote(s)
     # Strip \\?\
-    path = re.sub(r"^\\\\?\?\\", "", path)
-    return path
+    s = re.sub(r"^\\\\?\?\\", "", s)
+    # If path contains newline, quotes, commas or JSON braces, extract the true filesystem path
+    match = re.search(r"((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.\-]+(?:[/\\][a-zA-Z0-9_\.\-]+)*)", s)
+    if match:
+        return match.group(1).rstrip("/\\")
+    # Fallback: strip after any quote, newline, or comma
+    cleaned = re.split(r'["\',\r\n]', s)[0].strip().rstrip("/\\")
+    return cleaned or None
 
 
 async def ensure_project(

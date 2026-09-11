@@ -687,7 +687,14 @@ function AskPageContent() {
     }
     const proj = projects.find((p) => p.id === projId);
     if (proj?.source_path) {
-      setCwd(proj.source_path);
+      let clean = proj.source_path.trim();
+      const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
+      if (match) {
+        clean = match[1].replace(/[\/\\]+$/, "");
+      } else {
+        clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
+      }
+      setCwd(clean);
       setShowCwd(true);
     }
     setLoadingSessions(true);

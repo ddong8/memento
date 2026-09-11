@@ -176,15 +176,30 @@ def _truncate(text: str) -> str:
     return text[:MAX_OUTPUT_CHARS] + f"\n...(输出已截断，共 {len(text)} 字符)"
 
 
+def _clean_cwd(raw: Any) -> str | None:
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    import re
+    match = re.search(r"((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.\-]+(?:[/\\][a-zA-Z0-9_\.\-]+)*)", s)
+    candidate = os.path.expanduser(match.group(1).rstrip("/\\")) if match else os.path.expanduser(s.split("\n")[0].split('"')[0].strip().rstrip("/\\"))
+    if os.path.isdir(candidate):
+        return candidate
+    raw_expanded = os.path.expanduser(s)
+    if os.path.isdir(raw_expanded):
+        return raw_expanded
+    logger.warning("Cwd path '%s' not found on this machine; running in default working directory", raw)
+    return None
+
+
 def _run_shell(payload: dict, timeout: int) -> dict:
+    """Run an arbitrary shell command (via the user's default shell)."""
     command = (payload or {}).get("command") or ""
     if not command.strip():
         return {"status": "failed", "error": "empty command"}
-    cwd = (payload or {}).get("cwd") or None
-    if cwd:
-        cwd = os.path.expanduser(str(cwd).strip())
-    if cwd and not os.path.isdir(cwd):
-        return {"status": "failed", "error": f"cwd not found: {cwd}"}
+    cwd = _clean_cwd((payload or {}).get("cwd"))
 
     try:
         proc = subprocess.run(
@@ -226,11 +241,7 @@ def _run_agent(payload: dict, timeout: int) -> dict:
     if not resolved:
         return {"status": "failed", "error": f"agent binary not found on PATH: {binary}"}
 
-    cwd = (payload or {}).get("cwd") or None
-    if cwd:
-        cwd = os.path.expanduser(str(cwd).strip())
-    if cwd and not os.path.isdir(cwd):
-        return {"status": "failed", "error": f"cwd not found: {cwd}"}
+    cwd = _clean_cwd((payload or {}).get("cwd"))
 
     cmd = [resolved, "-p", prompt]
     model = (payload or {}).get("model")

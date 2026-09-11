@@ -361,6 +361,14 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
             payload["prompt"] = args["prompt"]
             if args.get("binary"):
                 payload["binary"] = args["binary"]
+            if args.get("session_id"):
+                payload["session_id"] = args["session_id"]
+            if args.get("model"):
+                payload["model"] = args["model"]
+            if args.get("effort"):
+                payload["effort"] = args["effort"]
+            if args.get("project_id"):
+                payload["project_id"] = args["project_id"]
         if args.get("cwd"):
             payload["cwd"] = args["cwd"]
 

@@ -160,7 +160,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     }
   }
 
-  void _handleSelectSession(String? sid) {
+  Future<void> _handleSelectSession(String? sid) async {
     setState(() => _selectedSessionId = sid);
     if (sid == null || sid.isEmpty) {
       ref.read(askProvider.notifier).newChat();
@@ -172,7 +172,20 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     );
     if (targetSession.isEmpty) return;
 
-    final rawMsgs = (targetSession['messages'] as List<dynamic>?) ?? [];
+    List<dynamic> rawMsgs = (targetSession['messages'] as List<dynamic>?) ?? [];
+    final docId = targetSession['conversation_id']?.toString();
+    if (docId != null && docId.isNotEmpty) {
+      try {
+        final full = await ApiClient().getConversationMessages(docId, limit: 100);
+        final fullMsgs = full['messages'] as List<dynamic>?;
+        if (fullMsgs != null && fullMsgs.isNotEmpty) {
+          rawMsgs = fullMsgs;
+        }
+      } catch (e) {
+        debugPrint('Failed to load full conversation messages: $e');
+      }
+    }
+
     final turns = rawMsgs
         .whereType<Map<String, dynamic>>()
         .where((m) => m['role'] == 'user' || m['role'] == 'assistant')

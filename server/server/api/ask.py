@@ -392,6 +392,8 @@ async def _get_or_create_conversation(
     question: str,
     device_id: str | None,
     cwd: str | None,
+    session_id: str | None = None,
+    history: list[dict] | None = None,
 ) -> tuple[uuid.UUID, str]:
     """Retrieve existing conversation or create a new one."""
     async with async_session_factory() as session:
@@ -409,12 +411,52 @@ async def _get_or_create_conversation(
             except Exception:
                 pass
 
-        # Create new conversation with title extracted from question
-        title = question.strip().replace("\n", " ")[:50] or "新对话"
+        # Determine title
+        title = None
+        if session_id:
+            try:
+                doc_row = (await session.execute(
+                    select(Document.title).where(
+                        (Document.metadata_.op("->>")("session_id") == session_id)
+                        | (Document.metadata_.op("->>")("cascade_id") == session_id)
+                    ).limit(1)
+                )).scalar_one_or_none()
+                if not doc_row:
+                    try:
+                        doc_uuid = uuid.UUID(session_id)
+                        doc_row = (await session.execute(
+                            select(Document.title).where(Document.id == doc_uuid)
+                        )).scalar_one_or_none()
+                    except Exception:
+                        pass
+                if doc_row and doc_row.strip() and doc_row.lower() not in ("transcript", "transcript.jsonl"):
+                    title = doc_row.strip()
+            except Exception:
+                pass
+
+        if not title:
+            title = question.strip().replace("\n", " ")[:50] or "新对话"
+
+        # Prepopulate turns with existing history if provided
+        init_turns = []
+        if history:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            init_turns = [
+                {
+                    "role": t.get("role", "user"),
+                    "content": t.get("content", ""),
+                    "toolCalls": t.get("tool_calls") or t.get("toolCalls") or [],
+                    "thinking": t.get("thinking"),
+                    "created_at": now_iso,
+                }
+                for t in history
+                if t.get("content")
+            ]
+
         conv = AskConversation(
             user_id=user.id,
             title=title,
-            turns=[],
+            turns=init_turns,
             device_id=device_id,
             cwd=cwd,
         )
@@ -724,6 +766,8 @@ async def ask(
         question,
         device_id or None,
         body.cwd,
+        session_id=body.session_id,
+        history=body.history,
     )
 
     exec_mode = (body.execution_mode or "ai").lower().strip()

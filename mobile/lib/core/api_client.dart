@@ -209,6 +209,21 @@ class ApiClient {
     return response.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> getConversationMessages(
+    String id, {
+    int offset = 0,
+    int limit = 100,
+  }) async {
+    final response = await _dio.get(
+      '/api/conversations/$id/messages',
+      queryParameters: {
+        'offset': offset,
+        'limit': limit,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> getAgentCapabilities(
     String tool, {
     String? deviceId,

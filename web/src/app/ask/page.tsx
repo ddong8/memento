@@ -15,24 +15,25 @@ export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
 
 export const AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
   codex: [
-    { id: "gpt-5.5", name: "GPT-5.5", desc: "默认 · Codex 旗舰编程模型" },
-    { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", desc: "高阶架构与多步推理" },
-    { id: "gpt-5.6-terra", name: "GPT-5.6-Terra", desc: "全能平衡型" },
-    { id: "gpt-5.6-luna", name: "GPT-5.6-Luna", desc: "高速轻量型" },
-    { id: "gpt-6-astra", name: "GPT-6-Astra", desc: "前沿大模型" },
-    { id: "o3", name: "o3", desc: "OpenAI 深度思维" },
-    { id: "o4-mini", name: "o4-mini", desc: "极速推理" },
+    { id: "", name: "⚡ 默认模型 (跟随客户端/CLI配置)", desc: "使用本地 Codex 客户端配置的默认模型" },
+    { id: "gpt-5.5", name: "GPT-5.5 (官方推荐)", desc: "当前 Codex 推荐主力模型" },
+    { id: "gpt-6-astra", name: "GPT-6-Astra (最新)", desc: "最新前沿多步推理模型" },
+    { id: "gpt-5.1-codex-max", name: "GPT-5.1-Codex-Max", desc: "经典全能模型" },
+    { id: "o3", name: "o3 (深度思维)", desc: "OpenAI 深度推理" },
+    { id: "o4-mini", name: "o4-mini", desc: "极速响应" },
   ],
   claude: [
-    { id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet", desc: "默认 · 混合思考与编码" },
-    { id: "claude-3-5-sonnet", name: "Claude 3.5 Sonnet", desc: "经典全能" },
-    { id: "claude-3-5-haiku", name: "Claude 3.5 Haiku", desc: "极速响应" },
-    { id: "claude-3-opus", name: "Claude 3 Opus", desc: "超复杂逻辑架构" },
+    { id: "", name: "⚡ 默认模型 (跟随客户端/CLI配置)", desc: "使用本地 Claude 客户端配置的默认模型" },
+    { id: "sonnet", name: "sonnet (最新 Sonnet 别名)", desc: "自动映射当前官方最新 Sonnet" },
+    { id: "opus", name: "opus (最新 Opus 别名 / 4.6)", desc: "高阶架构与超大上下文" },
+    { id: "haiku", name: "haiku (最新 Haiku 别名 / 4.5)", desc: "极速轻量" },
+    { id: "claude-3-7-sonnet", name: "Claude 3.7 Sonnet", desc: "混合推理与编码" },
   ],
   antigravity: [
-    { id: "flash", name: "Gemini 2.5 Flash", desc: "默认 · 快速平衡" },
-    { id: "pro", name: "Gemini 2.5 Pro", desc: "深度推理与超大上下文" },
-    { id: "flash_lite", name: "Gemini 2.5 Flash-Lite", desc: "极轻量" },
+    { id: "", name: "⚡ 默认模型 (系统配置)", desc: "使用当前 Antigravity 默认模型" },
+    { id: "flash", name: "Gemini Flash (快速)", desc: "快速平衡" },
+    { id: "pro", name: "Gemini Pro (强力)", desc: "深度推理" },
+    { id: "flash_lite", name: "Gemini Flash-Lite", desc: "极轻量" },
   ],
 };
 
@@ -174,6 +175,7 @@ function AskPageContent() {
 
   // Agent Context: Model, Project & Session selection
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [sessions, setSessions] = useState<Array<{ session_id: string; title: string; conversation_id: string; message_count: number; timestamp: string }>>([]);
@@ -637,12 +639,9 @@ function AskPageContent() {
     if (mode !== "ai" && selectedDevice === "ask_only") {
       setSelectedDevice("auto");
     }
-    const models = AGENT_MODELS[mode];
-    if (models && models.length > 0) {
-      setSelectedModel(models[0].id);
-    } else {
-      setSelectedModel("");
-    }
+    // Default to empty (follow client/CLI config), never force hardcoded model!
+    setSelectedModel("");
+    setIsCustomModel(false);
     loadProjectsForMode(mode);
   };
 
@@ -670,13 +669,10 @@ function AskPageContent() {
     }
   }, [projects]);
 
-  // Sync projects and model on initial load if starting in agent mode
+  // Sync projects on initial load if starting in agent mode
   useEffect(() => {
     if (["codex", "claude", "antigravity"].includes(executionMode)) {
       loadProjectsForMode(executionMode);
-      if (!selectedModel && AGENT_MODELS[executionMode]?.length) {
-        setSelectedModel(AGENT_MODELS[executionMode][0].id);
-      }
     }
   }, [executionMode, loadProjectsForMode]);
 
@@ -1148,47 +1144,106 @@ function AskPageContent() {
               )}
 
               {/* Agent Model selector */}
-              {AGENT_MODELS[executionMode] && AGENT_MODELS[executionMode].length > 0 && (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "var(--aurora-chip)",
-                    border: "1px solid var(--aurora-border)",
-                    borderRadius: 10,
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    maxWidth: "100%",
-                    minWidth: 0,
-                  }}
-                  title={isZh ? "选择调用的模型" : "Select model"}
-                >
-                  <Icon name="sparkles" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+              {["codex", "claude", "antigravity"].includes(executionMode) && (
+                isCustomModel ? (
+                  <div
                     style={{
-                      background: "transparent",
-                      border: "none",
-                      outline: "none",
-                      color: "var(--aurora-fg1)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-accent)",
+                      borderRadius: 10,
+                      padding: "4px 10px",
                       fontSize: 12,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                      maxWidth: "min(180px, 45vw)",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      maxWidth: "100%",
                       minWidth: 0,
                     }}
+                    title={isZh ? "输入任意模型名称或标识符" : "Input custom model identifier"}
                   >
-                    {AGENT_MODELS[executionMode].map((m) => (
-                      <option key={m.id} value={m.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                        {m.name}
+                    <Icon name="sparkles" size={13} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                    <input
+                      type="text"
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      placeholder={isZh ? "输入模型名称, 如 gpt-6-astra..." : "Model name, e.g. gpt-6-astra..."}
+                      autoFocus
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: "var(--aurora-fg1)",
+                        fontSize: 12,
+                        fontFamily: "monospace",
+                        width: "min(160px, 35vw)",
+                        minWidth: 0,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomModel(false);
+                        setSelectedModel("");
+                      }}
+                      style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0, flexShrink: 0 }}
+                      title={isZh ? "返回快捷预设列表" : "Return to preset list"}
+                    >
+                      <Icon name="close" size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: selectedModel ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      border: "1px solid",
+                      borderColor: selectedModel ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      borderRadius: 10,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      maxWidth: "100%",
+                      minWidth: 0,
+                    }}
+                    title={isZh ? "选择调用的模型" : "Select model"}
+                  >
+                    <Icon name="sparkles" size={13} style={{ color: selectedModel ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => {
+                        if (e.target.value === "__custom__") {
+                          setIsCustomModel(true);
+                          setSelectedModel("");
+                        } else {
+                          setSelectedModel(e.target.value);
+                        }
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: selectedModel ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                        fontSize: 12,
+                        fontWeight: selectedModel ? 600 : 500,
+                        cursor: "pointer",
+                        maxWidth: "min(200px, 50vw)",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        minWidth: 0,
+                      }}
+                    >
+                      {(AGENT_MODELS[executionMode] || []).map((m) => (
+                        <option key={m.id} value={m.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                          {m.name}
+                        </option>
+                      ))}
+                      <option value="__custom__" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-accent)" }}>
+                        {isZh ? "✏️ 自定义输入任意模型..." : "✏️ Custom model..."}
                       </option>
-                    ))}
-                  </select>
-                </div>
+                    </select>
+                  </div>
+                )
               )}
 
               {/* Agent Project selector */}

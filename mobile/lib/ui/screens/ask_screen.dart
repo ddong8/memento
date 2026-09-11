@@ -20,20 +20,24 @@ class AskScreen extends ConsumerStatefulWidget {
 
 const Map<String, List<Map<String, String>>> kAgentModels = {
   'codex': [
-    {'id': 'gpt-5.5', 'name': 'GPT-5.5 (推荐)'},
-    {'id': 'gpt-5.6-sol', 'name': 'GPT-5.6 Sol'},
-    {'id': 'o3', 'name': 'o3 Reasoning'},
-    {'id': 'o4-mini', 'name': 'o4-mini'},
+    {'id': '', 'name': '⚡ 默认模型 (跟随客户端配置)'},
+    {'id': 'gpt-5.5', 'name': 'GPT-5.5 (官方推荐)'},
+    {'id': 'gpt-6-astra', 'name': 'GPT-6-Astra (最新)'},
+    {'id': 'gpt-5.1-codex-max', 'name': 'GPT-5.1-Codex-Max'},
+    {'id': 'o3', 'name': 'o3 (深度思维)'},
+    {'id': 'o4-mini', 'name': 'o4-mini (极速推理)'},
   ],
   'claude': [
-    {'id': 'claude-3-7-sonnet', 'name': 'Claude 3.7 Sonnet (推荐)'},
-    {'id': 'claude-3-5-sonnet', 'name': 'Claude 3.5 Sonnet'},
-    {'id': 'claude-3-5-haiku', 'name': 'Claude 3.5 Haiku'},
-    {'id': 'claude-3-opus', 'name': 'Claude 3 Opus'},
+    {'id': '', 'name': '⚡ 默认模型 (跟随客户端配置)'},
+    {'id': 'sonnet', 'name': 'sonnet (最新 Sonnet 别名)'},
+    {'id': 'opus', 'name': 'opus (最新 Opus 别名 / 4.6)'},
+    {'id': 'haiku', 'name': 'haiku (最新 Haiku 别名 / 4.5)'},
+    {'id': 'claude-3-7-sonnet', 'name': 'Claude 3.7 Sonnet'},
   ],
   'antigravity': [
-    {'id': 'flash', 'name': 'Gemini 2.5 Flash (快速)'},
-    {'id': 'pro', 'name': 'Gemini 2.5 Pro (强力)'},
+    {'id': '', 'name': '⚡ 默认模型 (系统配置)'},
+    {'id': 'flash', 'name': 'Gemini Flash (快速)'},
+    {'id': 'pro', 'name': 'Gemini Pro (强力)'},
     {'id': 'flash_lite', 'name': 'Gemini Flash-Lite'},
   ],
 };
@@ -42,11 +46,13 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
   final _cwdController = TextEditingController();
+  final _customModelController = TextEditingController();
   final _inputFocusNode = FocusNode();
   bool _showCwd = false;
   String _executionMode = 'ai';
 
   String? _selectedModel;
+  bool _isCustomModel = false;
   List<Map<String, dynamic>> _projects = [];
   String? _selectedProjectId;
   List<Map<String, dynamic>> _sessions = [];
@@ -62,12 +68,9 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           ref.read(deviceProvider.notifier).setSelectedDevice('auto');
         }
       }
-      final models = kAgentModels[id];
-      if (models != null && models.isNotEmpty) {
-        _selectedModel = models.first['id'];
-      } else {
-        _selectedModel = null;
-      }
+      _selectedModel = null;
+      _isCustomModel = false;
+      _customModelController.clear();
       _selectedProjectId = null;
       _selectedSessionId = null;
       _sessions = [];
@@ -253,6 +256,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     _inputController.dispose();
     _scrollController.dispose();
     _cwdController.dispose();
+    _customModelController.dispose();
     _inputFocusNode.dispose();
     super.dispose();
   }
@@ -987,44 +991,127 @@ class _AskScreenState extends ConsumerState<AskScreen> {
             const SizedBox(height: 6),
             Row(
               children: [
-                // Model Dropdown
-                if (kAgentModels[_executionMode] != null && kAgentModels[_executionMode]!.isNotEmpty)
+                // Model Dropdown or Custom Input
+                if (['codex', 'claude', 'antigravity'].contains(_executionMode))
                   Flexible(
                     flex: 4,
-                    child: Container(
-                      height: 32,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: BoxDecoration(
-                        color: AuroraColors.chip,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AuroraColors.border),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          isExpanded: true,
-                          value: _selectedModel,
-                          dropdownColor: AuroraColors.surfaceElevated,
-                          icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AuroraColors.fg3),
-                          style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _selectedModel = val);
-                          },
-                          items: kAgentModels[_executionMode]!.map((m) {
-                            return DropdownMenuItem<String>(
-                              value: m['id'],
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.auto_awesome, size: 12, color: AuroraColors.accent),
-                                  const SizedBox(width: 4),
-                                  Flexible(child: Text(m['name']!, overflow: TextOverflow.ellipsis)),
+                    child: _isCustomModel
+                        ? Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: AuroraColors.chip,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AuroraColors.accent),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.auto_awesome, size: 12, color: AuroraColors.accent),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _customModelController,
+                                    autofocus: true,
+                                    style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg1),
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      border: InputBorder.none,
+                                      hintText: '输入模型标识符...',
+                                      hintStyle: TextStyle(fontSize: 11, color: AuroraColors.fg4),
+                                    ),
+                                    onChanged: (val) {
+                                      setState(() => _selectedModel = val.trim().isEmpty ? null : val.trim());
+                                    },
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: () => setState(() {
+                                    _isCustomModel = false;
+                                    _selectedModel = null;
+                                    _customModelController.clear();
+                                  }),
+                                  child: const Icon(Icons.close, size: 13, color: AuroraColors.fg3),
+                                ),
+                              ],
+                            ),
+                          )
+                        : Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: _selectedModel != null && _selectedModel!.isNotEmpty
+                                  ? AuroraColors.accentSoft
+                                  : AuroraColors.chip,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _selectedModel != null && _selectedModel!.isNotEmpty
+                                    ? AuroraColors.accent
+                                    : AuroraColors.border,
+                              ),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isExpanded: true,
+                                value: (_selectedModel == null || _selectedModel!.isEmpty) ? '' : _selectedModel,
+                                dropdownColor: AuroraColors.surfaceElevated,
+                                icon: const Icon(Icons.keyboard_arrow_down, size: 14, color: AuroraColors.fg3),
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: _selectedModel != null && _selectedModel!.isNotEmpty
+                                      ? AuroraColors.accent
+                                      : AuroraColors.fg1,
+                                  fontWeight: _selectedModel != null && _selectedModel!.isNotEmpty
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                                onChanged: (val) {
+                                  if (val == '__custom__') {
+                                    setState(() {
+                                      _isCustomModel = true;
+                                      _selectedModel = null;
+                                    });
+                                  } else {
+                                    setState(() {
+                                      _selectedModel = (val == null || val.isEmpty) ? null : val;
+                                    });
+                                  }
+                                },
+                                items: [
+                                  ...(kAgentModels[_executionMode] ?? []).map((m) {
+                                    return DropdownMenuItem<String>(
+                                      value: m['id'],
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.auto_awesome,
+                                            size: 12,
+                                            color: _selectedModel == m['id']
+                                                ? AuroraColors.accent
+                                                : AuroraColors.fg3,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Flexible(child: Text(m['name']!, overflow: TextOverflow.ellipsis)),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                  DropdownMenuItem<String>(
+                                    value: '__custom__',
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.edit_outlined, size: 12, color: AuroraColors.accent),
+                                        const SizedBox(width: 4),
+                                        Text('✏️ 自定义输入模型...', style: TextStyle(color: AuroraColors.accent), overflow: TextOverflow.ellipsis),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
+                            ),
+                          ),
                   ),
                 const SizedBox(width: 6),
                 // Project Dropdown

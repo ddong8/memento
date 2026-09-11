@@ -6,9 +6,12 @@ import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
+import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
+
+export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
 
 interface Source {
   id: string;
@@ -142,6 +145,7 @@ function AskPageContent() {
   const [streaming, setStreaming] = useState(false);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>("auto");
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>("ai");
   const [cwd, setCwd] = useState<string>("");
   const [showCwd, setShowCwd] = useState<boolean>(false);
 
@@ -238,6 +242,7 @@ function AskPageContent() {
   const qParam = searchParams.get("q");
   const idParam = searchParams.get("id");
   const deviceParam = searchParams.get("device");
+  const modeParam = searchParams.get("mode") as ExecutionMode | null;
   const initialSentRef = useRef(false);
 
   useEffect(() => {
@@ -260,6 +265,12 @@ function AskPageContent() {
       setSelectedDevice(deviceParam);
     }
   }, [deviceParam]);
+
+  useEffect(() => {
+    if (modeParam && ["ai", "claude", "codex", "antigravity", "shell"].includes(modeParam)) {
+      setExecutionMode(modeParam);
+    }
+  }, [modeParam]);
 
   const sendWithText = useCallback(async (textToSend: string) => {
     const question = textToSend.trim();
@@ -319,6 +330,7 @@ function AskPageContent() {
           device_id: selectedDevice,
           cwd: cwd.trim() || undefined,
           agent_mode: selectedDevice !== "ask_only",
+          execution_mode: executionMode,
         }),
         signal: ctrl.signal,
       });
@@ -359,6 +371,7 @@ function AskPageContent() {
             status?: string;
             stream?: "stdout" | "stderr";
             result?: ToolCallItem["result"];
+            call?: ToolCallItem;
           };
           try {
             evt = JSON.parse(line.slice(6));
@@ -375,12 +388,16 @@ function AskPageContent() {
           } else if (evt.type === "tool_call") {
             patchLast((x) => {
               const calls = [...(x.toolCalls || [])];
-              calls.push({
-                id: evt.id || evt.tool_call_id,
-                name: evt.name || "",
-                args: evt.args || {},
-                device_name: evt.device_name,
-              });
+              const callObj = evt.call || ({} as any);
+              const callId = evt.id || evt.tool_call_id || callObj.id || `call_${Date.now()}`;
+              if (!calls.some((c) => c.id === callId)) {
+                calls.push({
+                  id: callId,
+                  name: evt.name || callObj.name || "",
+                  args: evt.args || callObj.args || {},
+                  device_name: evt.device_name || callObj.device_name,
+                });
+              }
               return { ...x, toolCalls: calls };
             });
           } else if (evt.type === "task_progress") {
@@ -427,7 +444,7 @@ function AskPageContent() {
               }
               return { ...x, toolCalls: calls };
             });
-          } else if (evt.type === "task_chunk") {
+          } else if (evt.type === "task_chunk" || evt.type === "tool_stream") {
             patchLast((x) => {
               const calls = [...(x.toolCalls || [])];
               let idx = -1;
@@ -538,7 +555,7 @@ function AskPageContent() {
       abortRef.current = null;
       loadConversations();
     }
-  }, [activeConversationId, cwd, loadConversations, selectedDevice, streaming, turns, t]);
+  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, streaming, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
@@ -558,13 +575,28 @@ function AskPageContent() {
     }
   };
 
+  const handleSelectMode = (mode: ExecutionMode) => {
+    setExecutionMode(mode);
+    if (mode !== "ai" && selectedDevice === "ask_only") {
+      setSelectedDevice("auto");
+    }
+  };
+
   const currentDev = devices.find((d) => d.device_id === selectedDevice);
-  const placeholderText =
-    selectedDevice === "ask_only"
-      ? t.ask.placeholderAskOnly
-      : currentDev
-      ? `在 ${currentDev.name} 上执行任务或提问，例如：「检查 git 状态」...`
-      : t.ask.placeholderAgent;
+  let placeholderText = t.ask.placeholderAgent;
+  if (executionMode === "claude") {
+    placeholderText = t.ask.placeholderClaude || (isZh ? "向 Claude Code 派发编码任务..." : "Dispatch coding task to Claude Code...");
+  } else if (executionMode === "codex") {
+    placeholderText = t.ask.placeholderCodex || (isZh ? "向 OpenAI Codex 派发任务..." : "Dispatch task to OpenAI Codex...");
+  } else if (executionMode === "antigravity") {
+    placeholderText = t.ask.placeholderAntigravity || (isZh ? "向 Google Antigravity 派发任务..." : "Dispatch task to Google Antigravity...");
+  } else if (executionMode === "shell") {
+    placeholderText = t.ask.placeholderShell || (isZh ? "在目标电脑上直接执行 Shell 命令..." : "Execute Shell command on target device...");
+  } else if (selectedDevice === "ask_only") {
+    placeholderText = t.ask.placeholderAskOnly;
+  } else if (currentDev) {
+    placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问，例如：「检查 git 状态」...` : `Run task or question on ${currentDev.name}...`;
+  }
 
   return (
     <div className="w-full max-w-4xl mx-auto pb-44 min-w-0 overflow-x-hidden">
@@ -841,6 +873,61 @@ function AskPageContent() {
               minWidth: 0,
             }}
           >
+            {/* Agent Mode Selector Toolbelt */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 8,
+                overflowX: "auto",
+                maxWidth: "100%",
+                paddingBottom: 2,
+                scrollbarWidth: "none",
+              }}
+            >
+              {[
+                { id: "ai" as const, label: t.ask.modeAi || "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" },
+                { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code", color: "#D97757" },
+                { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex", color: "#10A37F" },
+                { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
+                { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
+              ].map((m) => {
+                const isSelected = executionMode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleSelectMode(m.id)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: isSelected ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      border: "1px solid",
+                      borderColor: isSelected ? m.color : "var(--aurora-border)",
+                      borderRadius: 12,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      fontWeight: isSelected ? 600 : 500,
+                      color: isSelected ? m.color : "var(--aurora-fg2)",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {m.brandId ? (
+                      <BrandMark id={m.brandId} size={14} colored={isSelected} tint={isSelected ? undefined : "var(--aurora-fg3)"} />
+                    ) : (
+                      <Icon name={m.icon || "sparkles"} size={13} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
+                    )}
+                    <span>{m.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Device & environment toolbelt */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap", maxWidth: "100%", minWidth: 0 }}>
               {/* Target device selector */}
@@ -971,7 +1058,15 @@ function AskPageContent() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder={placeholderText}
-                icon={selectedDevice === "ask_only" ? "sparkles" : "terminal"}
+                icon={
+                  executionMode === "shell"
+                    ? "terminal"
+                    : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
+                    ? "code"
+                    : selectedDevice === "ask_only"
+                    ? "sparkles"
+                    : "brain"
+                }
                 wrapStyle={{
                   flex: 1,
                   minWidth: 0,
@@ -986,7 +1081,7 @@ function AskPageContent() {
                 <Btn
                   onClick={send}
                   disabled={!input.trim()}
-                  icon={selectedDevice === "ask_only" ? "search" : "rocket"}
+                  icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
                   style={{ flexShrink: 0 }}
                 >
                   {t.ask.send}

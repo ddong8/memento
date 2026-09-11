@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Icon } from "./aurora/Icon";
+import { BrandMark } from "./aurora/BrandMark";
+import MarkdownViewer from "./viewers/MarkdownViewer";
 import { useI18n } from "@/lib/i18n";
 
 export interface ToolCallItem {
@@ -40,6 +42,44 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
   const machineName = result?.device_name || device_name || (args?.device_id as string) || "";
   const command = (args?.command as string) || (args?.prompt as string) || "";
   const cwd = (args?.cwd as string) || "";
+
+  const binary = (
+    (args?.binary as string) ||
+    ((call as any).binary as string) ||
+    (result as any)?.binary ||
+    ""
+  ).toLowerCase();
+
+  const isAgent = action === "agent" || binary.length > 0;
+  let agentLabel = action === "shell" ? "Shell" : isAgent ? "Agent" : name;
+  let agentBrandId: string | null = null;
+  let agentColor = "var(--aurora-accent)";
+
+  if (isAgent) {
+    if (binary.includes("claude")) {
+      agentLabel = "Claude Code";
+      agentBrandId = "claude_code";
+      agentColor = "#D97757";
+    } else if (binary.includes("codex")) {
+      agentLabel = "Codex";
+      agentBrandId = "codex";
+      agentColor = "#10A37F";
+    } else if (binary.includes("agy") || binary.includes("antigravity")) {
+      agentLabel = "Antigravity";
+      agentBrandId = "antigravity";
+      agentColor = "#3186FF";
+    } else {
+      agentLabel = "Agent";
+      agentColor = "#9D67EF";
+    }
+  } else if (action === "shell") {
+    agentLabel = "Shell";
+    agentColor = "#38BDF8";
+  } else if (name === "list_devices") {
+    agentLabel = t.ask.deviceDiscovery || "设备发现";
+  }
+
+  const [viewMode, setViewMode] = useState<"markdown" | "terminal">(isAgent ? "markdown" : "terminal");
 
   const isTerminal =
     result?.status === "succeeded" ||
@@ -117,10 +157,14 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                 : isFailed
                 ? "rgba(239,68,68,0.12)"
                 : "var(--aurora-accent-soft)",
-              color: isSuccess ? "#10B981" : isFailed ? "#EF4444" : "var(--aurora-accent)",
+              color: isSuccess ? "#10B981" : isFailed ? "#EF4444" : agentColor,
             }}
           >
-            <Icon name={action === "agent" ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={14} />
+            {agentBrandId ? (
+              <BrandMark id={agentBrandId} size={15} colored={!isFailed && !isSuccess} tint={isSuccess ? "#10B981" : isFailed ? "#EF4444" : undefined} />
+            ) : (
+              <Icon name={isAgent ? "sparkles" : name === "list_devices" ? "devices" : "terminal"} size={14} />
+            )}
           </div>
 
           {machineName && (
@@ -145,12 +189,12 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               padding: "2px 8px",
               borderRadius: 6,
               background: "var(--aurora-surface-solid)",
-              border: "1px solid var(--aurora-border-strong)",
-              color: "var(--aurora-fg2)",
+              border: `1px solid ${agentBrandId ? agentColor + "40" : "var(--aurora-border-strong)"}`,
+              color: agentBrandId ? agentColor : "var(--aurora-fg2)",
               letterSpacing: "0.02em",
             }}
           >
-            {action === "shell" ? "Shell" : action === "agent" ? "Agent" : name}
+            {agentLabel}
           </span>
 
           {command && (
@@ -304,7 +348,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
       {/* Terminal Content Box */}
       {expanded && (
         <div style={{ padding: 12 }}>
-          {/* Sub-bar: cwd & copy */}
+          {/* Sub-bar: cwd & format toggle & copy */}
           <div
             style={{
               display: "flex",
@@ -313,13 +357,68 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               marginBottom: 8,
               fontSize: 11,
               color: "var(--aurora-fg3)",
+              gap: 8,
+              flexWrap: "wrap",
             }}
           >
-            <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {cwd && (
                 <span style={{ fontFamily: "monospace", color: "var(--aurora-fg2)" }}>
                   📁 {cwd}
                 </span>
+              )}
+              {result?.stdout && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    borderRadius: 8,
+                    padding: 2,
+                    gap: 2,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode("markdown");
+                    }}
+                    style={{
+                      background: viewMode === "markdown" ? "var(--aurora-accent-soft)" : "transparent",
+                      border: "none",
+                      color: viewMode === "markdown" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                      borderRadius: 6,
+                      padding: "2px 8px",
+                      fontSize: 11,
+                      fontWeight: viewMode === "markdown" ? 600 : 400,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    Markdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode("terminal");
+                    }}
+                    style={{
+                      background: viewMode === "terminal" ? "var(--aurora-accent-soft)" : "transparent",
+                      border: "none",
+                      color: viewMode === "terminal" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                      borderRadius: 6,
+                      padding: "2px 8px",
+                      fontSize: 11,
+                      fontWeight: viewMode === "terminal" ? 600 : 400,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    Terminal
+                  </button>
+                </div>
               )}
             </div>
             <button
@@ -356,7 +455,39 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
             </button>
           </div>
 
-          {/* Terminal Console */}
+          {/* Conditional Content: Markdown or Terminal Console */}
+          {viewMode === "markdown" && result?.stdout ? (
+            <div
+              style={{
+                padding: "14px 16px",
+                borderRadius: 10,
+                background: "var(--aurora-surface-solid)",
+                border: "1px solid var(--aurora-border)",
+                color: "var(--aurora-fg1)",
+                maxHeight: 480,
+                overflowY: "auto",
+              }}
+            >
+              {command && (
+                <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>
+                  $ {command}
+                </div>
+              )}
+              <MarkdownViewer content={result.stdout} />
+              {result?.stderr && (
+                <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>
+                  <span style={{ opacity: 0.7 }}>[stderr]</span>
+                  <br />
+                  {result.stderr}
+                </div>
+              )}
+              {result?.error && !isExit1NoMatch && (
+                <div style={{ color: "#ef4444", marginTop: 8, fontFamily: "monospace", fontSize: 12 }}>
+                  [error] {result.error}
+                </div>
+              )}
+            </div>
+          ) : (
           <pre
             ref={terminalRef}
             style={{
@@ -451,6 +582,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               />
             )}
           </pre>
+          )}
         </div>
       )}
     </div>

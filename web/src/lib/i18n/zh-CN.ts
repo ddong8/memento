@@ -267,6 +267,17 @@ const zhCN = {
     allDevices: "全部",
     deviceDiscovery: "设备发现",
     unknownDevice: "设备",
+    modeAi: "AI 编排",
+    modeClaude: "Claude Code",
+    modeCodex: "Codex",
+    modeAntigravity: "Antigravity",
+    modeShell: "Shell 终端",
+    placeholderClaude: "向 Claude Code 派发编码任务...",
+    placeholderCodex: "向 OpenAI Codex 派发任务...",
+    placeholderAntigravity: "向 Google Antigravity 派发任务...",
+    placeholderShell: "在目标电脑上直接执行 Shell 命令...",
+    viewMarkdown: "Markdown 视图",
+    viewTerminal: "终端代码",
   },
 
   // Remote device tasks

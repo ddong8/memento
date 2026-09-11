@@ -595,14 +595,16 @@ async def _direct_agent_stream(
     call_id = f"direct_{uuid.uuid4().hex[:8]}"
     tool_call_item = {
         "id": call_id,
+        "tool_call_id": call_id,
         "name": "run_on_device",
         "device_name": device_id or "auto",
+        "args": args,
         "command": cmd_display,
         "action": action,
         "binary": args.get("binary"),
         "status": "running",
     }
-    yield f"data: {json.dumps({'type': 'tool_call', 'call': tool_call_item}, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps({'type': 'tool_call', 'id': call_id, 'tool_call_id': call_id, 'name': 'run_on_device', 'args': args, 'device_name': device_id or 'auto', 'call': tool_call_item}, ensure_ascii=False)}\n\n"
 
     result_dict = None
     try:
@@ -611,7 +613,7 @@ async def _direct_agent_stream(
             if etype == "task_chunk":
                 stream_name = evt.get("stream", "stdout")
                 text = evt.get("text", "")
-                yield f"data: {json.dumps({'type': 'tool_stream', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'stream': stream_name, 'text': text}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'task_chunk', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'stream': stream_name, 'text': text}, ensure_ascii=False)}\n\n"
             elif etype == "task_progress":
                 yield f"data: {json.dumps({'type': 'task_progress', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'status': evt.get('status')}, ensure_ascii=False)}\n\n"
             elif etype == "tool_result":

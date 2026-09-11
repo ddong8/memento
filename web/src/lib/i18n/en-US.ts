@@ -259,6 +259,17 @@ const enUS: Translations = {
     allDevices: "All",
     deviceDiscovery: "Discovery",
     unknownDevice: "Device",
+    modeAi: "AI Orchestration",
+    modeClaude: "Claude Code",
+    modeCodex: "Codex",
+    modeAntigravity: "Antigravity",
+    modeShell: "Shell Terminal",
+    placeholderClaude: "Dispatch coding task to Claude Code...",
+    placeholderCodex: "Dispatch task to OpenAI Codex...",
+    placeholderAntigravity: "Dispatch task to Google Antigravity...",
+    placeholderShell: "Execute Shell command on target device...",
+    viewMarkdown: "Markdown View",
+    viewTerminal: "Terminal Output",
   },
 
   // Remote device tasks

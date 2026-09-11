@@ -160,6 +160,34 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     }
   }
 
+  void _handleSelectSession(String? sid) {
+    setState(() => _selectedSessionId = sid);
+    if (sid == null || sid.isEmpty) {
+      ref.read(askProvider.notifier).newChat();
+      return;
+    }
+    final targetSession = _sessions.firstWhere(
+      (s) => (s['session_id'] ?? s['conversation_id'])?.toString() == sid,
+      orElse: () => <String, dynamic>{},
+    );
+    if (targetSession.isEmpty) return;
+
+    final rawMsgs = (targetSession['messages'] as List<dynamic>?) ?? [];
+    final turns = rawMsgs
+        .whereType<Map<String, dynamic>>()
+        .where((m) => m['role'] == 'user' || m['role'] == 'assistant')
+        .map((m) => AskTurn(
+              role: m['role']?.toString() ?? 'user',
+              content: m['content']?.toString() ?? '',
+              thinking: m['thinking']?.toString(),
+            ))
+        .toList();
+
+    final title = targetSession['title']?.toString();
+    ref.read(askProvider.notifier).setSessionTurns(turns, title: title);
+    _scrollToBottom(force: true);
+  }
+
   String _getHintText() {
     switch (_executionMode) {
       case 'claude':
@@ -1275,9 +1303,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                       color: _selectedSessionId != null ? AuroraColors.accent : AuroraColors.fg1,
                       fontWeight: _selectedSessionId != null ? FontWeight.w600 : FontWeight.normal,
                     ),
-                    onChanged: (val) {
-                      setState(() => _selectedSessionId = val);
-                    },
+                    onChanged: _handleSelectSession,
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
@@ -1360,7 +1386,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                         ),
                         const SizedBox(width: 4),
                         InkWell(
-                          onTap: () => setState(() => _selectedSessionId = null),
+                          onTap: () => _handleSelectSession(null),
                           borderRadius: BorderRadius.circular(4),
                           child: const Padding(
                             padding: EdgeInsets.all(2.0),

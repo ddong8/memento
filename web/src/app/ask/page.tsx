@@ -725,6 +725,53 @@ function AskPageContent() {
     }
   }, [projects]);
 
+  const handleSelectSession = useCallback(
+    async (sid: string) => {
+      setSelectedSessionId(sid);
+      if (!sid) {
+        startNewChat();
+        return;
+      }
+      const targetSession = sessions.find(
+        (s) => (s.session_id || s.conversation_id) === sid
+      );
+      if (!targetSession) return;
+
+      let rawMsgs: Array<{ role: string; content: string; thinking?: string }> =
+        (targetSession.messages || []) as any;
+
+      if (targetSession.conversation_id) {
+        try {
+          const full = await api.getMessages(targetSession.conversation_id, 0, 100);
+          if (full?.messages && full.messages.length > 0) {
+            rawMsgs = full.messages.map((m) => ({
+              role: m.role || "user",
+              content: m.content || "",
+              thinking: m.thinking || undefined,
+            }));
+          }
+        } catch (err) {
+          console.warn("Failed to load full conversation messages:", err);
+        }
+      }
+
+      const loadedTurns: Turn[] = rawMsgs
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content || "",
+          thinking: m.thinking || undefined,
+        }));
+
+      abortRef.current?.abort();
+      streamingRef.current = false;
+      activeConversationIdRef.current = null;
+      setActiveConversationId(null);
+      setTurns(loadedTurns);
+    },
+    [sessions, startNewChat]
+  );
+
   // Sync projects on initial load if starting in agent mode
   useEffect(() => {
     if (["codex", "claude", "antigravity"].includes(executionMode)) {
@@ -1426,7 +1473,7 @@ function AskPageContent() {
                   <Icon name="clock" size={13} style={{ color: selectedSessionId ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
                   <select
                     value={selectedSessionId}
-                    onChange={(e) => setSelectedSessionId(e.target.value)}
+                    onChange={(e) => handleSelectSession(e.target.value)}
                     disabled={loadingSessions}
                     style={{
                       background: "transparent",
@@ -1517,7 +1564,7 @@ function AskPageContent() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedSessionId("")}
+                        onClick={() => handleSelectSession("")}
                         style={{
                           background: "none",
                           border: "none",

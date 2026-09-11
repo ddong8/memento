@@ -89,6 +89,18 @@ class AskNotifier extends StateNotifier<AskState> {
     state = state.copyWith(turns: []);
   }
 
+  void setSessionTurns(List<AskTurn> turns, {String? title}) {
+    _sseClient.abort();
+    _flushPending();
+    state = state.copyWith(
+      turns: turns,
+      isStreaming: false,
+      clearActiveConversationId: true,
+      activeConversationTitle: title,
+      error: null,
+    );
+  }
+
   Future<void> loadConversation(
     String id, {
     void Function(String? deviceId, String? cwd)? onMetaLoaded,

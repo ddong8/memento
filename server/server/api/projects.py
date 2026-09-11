@@ -455,18 +455,21 @@ async def get_project_conversations(
             main_convs.append(d)
             parent_path_to_id[rp] = str(d.id)
 
-    # Sort main sessions by first message timestamp — single GROUP BY query
+    # Sort main sessions: when order == "desc" (e.g. dropdown / recent sessions),
+    # sort by the LATEST activity timestamp (func.max). When order == "asc" (timeline reading),
+    # sort by the FIRST message timestamp (func.min).
     conv_ts: dict[str, object] = {}
     if main_convs:
         ids = [d.id for d in main_convs]
+        agg_fn = func.max if order == "desc" else func.min
         ts_rows = await db.execute(
-            select(ConversationMessage.document_id, func.min(ConversationMessage.timestamp))
+            select(ConversationMessage.document_id, agg_fn(ConversationMessage.timestamp))
             .where(ConversationMessage.document_id.in_(ids))
             .group_by(ConversationMessage.document_id)
         )
-        first_ts_map = {row[0]: row[1] for row in ts_rows.all()}
+        agg_ts_map = {row[0]: row[1] for row in ts_rows.all()}
         for d in main_convs:
-            conv_ts[str(d.id)] = first_ts_map.get(d.id) or d.source_modified_at or d.synced_at
+            conv_ts[str(d.id)] = agg_ts_map.get(d.id) or d.source_modified_at or d.synced_at
 
     main_convs.sort(
         key=lambda d: conv_ts.get(str(d.id)) or d.synced_at,
@@ -602,15 +605,16 @@ async def get_project_conversations(
                 "file_size_bytes": p.file_size_bytes,
             })
 
-        conv_title = d.title
+        conv_title = (d.title or "").strip()
         if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
             first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
             if first_user_msg and first_user_msg.get("content"):
-                c = first_user_msg["content"].strip().split("\n")[0][:60]
+                c = first_user_msg["content"].strip().split("\n")[0].strip()[:60]
                 if c:
                     conv_title = c
         if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl"):
             conv_title = session_id[:8] if session_id else "会话"
+        conv_title = conv_title.strip()
 
         sessions.append({
             "session_id": session_id,

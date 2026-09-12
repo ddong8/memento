@@ -500,7 +500,14 @@ async def _reconcile_project_documents(
             Document.relative_path.ilike(f"%-{clean_title}/%"),
             Document.metadata_["project_hash"].astext == clean_title,
             Document.metadata_["project_path"].astext.ilike(f"%{clean_title}"),
+            Document.metadata_["project_path"].astext.ilike(f"%{clean_title}/%"),
         )
+        if tool_id == "antigravity":
+            adopt_cond = adopt_cond | or_(
+                Document.content.ilike(f"%/{clean_title}\"%"),
+                Document.content.ilike(f"%/{clean_title}/%"),
+                Document.content.ilike(f"%/{clean_title}\\n%"),
+            )
         if frag_ids:
             adopt_cond = adopt_cond | Document.project_id.in_(frag_ids)
 
@@ -521,6 +528,21 @@ async def _reconcile_project_documents(
         if docs_to_adopt:
             for doc in docs_to_adopt:
                 doc.project_id = target_project.id
+            # Also adopt any associated state/plan documents sharing session_id
+            adopted_sids = [
+                d.metadata_.get("session_id")
+                for d in docs_to_adopt
+                if isinstance(d.metadata_, dict) and d.metadata_.get("session_id")
+            ]
+            if adopted_sids:
+                related_docs_q = select(Document).where(
+                    Document.tool_id == tool_id,
+                    Document.project_id.is_(None),
+                    Document.metadata_["session_id"].astext.in_(adopted_sids),
+                )
+                related_docs = (await db.execute(related_docs_q)).scalars().all()
+                for rd in related_docs:
+                    rd.project_id = target_project.id
             await db.flush()
 
         # 2.5. Auto-materialize parent conversation documents for subagents

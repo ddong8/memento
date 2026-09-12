@@ -25,29 +25,66 @@ else:
 def _extract_brain_metadata(cascade_id: str, transcript_path: Path) -> dict[str, Any]:
     meta: dict[str, Any] = {"session_id": cascade_id, "source": "antigravity"}
 
-    # 1. Extract workspace from conversation db
-    db_path = GEMINI_ROOT / "antigravity" / "conversations" / f"{cascade_id}.db"
-    if db_path.exists():
+    # 0. Extract workspace and title from central conversation_summaries.db (highest fidelity source of truth)
+    sum_db = GEMINI_ROOT / "antigravity" / "conversation_summaries.db"
+    if sum_db.exists():
         try:
             import sqlite3
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(f"file:{sum_db}?mode=ro", uri=True)
             cur = conn.cursor()
-            cur.execute('SELECT data FROM trajectory_metadata_blob WHERE id="main"')
-            row = cur.fetchone()
+            cur.execute(
+                "SELECT title, preview, workspace_uris FROM conversation_summaries WHERE conversation_id = ?",
+                (cascade_id,),
+            )
+            s_row = cur.fetchone()
             conn.close()
-            if row and row[0]:
-                data = row[0]
-                m = re.search(rb'file://(/[a-zA-Z]:/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*|/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)', data)
-                if m:
-                    raw_ws = m.group(1).decode("utf-8", errors="ignore").rstrip("R").rstrip("/")
-                    if re.match(r"^/[a-zA-Z]:/", raw_ws):
-                        raw_ws = raw_ws[1:]  # /C:/foo -> C:/foo
-                    cand_name = Path(raw_ws).name
-                    if cand_name and not cand_name.isdigit() and cand_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch"):
-                        meta["project_path"] = raw_ws
-                        meta["project_hash"] = cand_name
+            if s_row:
+                c_title, c_preview, c_ws_uris = s_row
+                resolved_title = (c_title or c_preview or "").strip()
+                if resolved_title:
+                    meta["title"] = resolved_title
+                if c_ws_uris:
+                    try:
+                        uris = json.loads(c_ws_uris)
+                        if uris and isinstance(uris, list):
+                            raw_uri = uris[0]
+                            if raw_uri.startswith("file://"):
+                                raw_ws = raw_uri[7:].rstrip("/")
+                                if re.match(r"^/[a-zA-Z]:/", raw_ws):
+                                    raw_ws = raw_ws[1:]
+                                cand_name = Path(raw_ws).name
+                                if cand_name and not cand_name.isdigit() and cand_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch"):
+                                    meta["project_path"] = raw_ws
+                                    meta["project_hash"] = cand_name
+                    except Exception:
+                        pass
         except Exception:
             pass
+
+    # 1. Extract workspace from conversation db (if not yet found)
+    if not meta.get("project_path"):
+        db_path = GEMINI_ROOT / "antigravity" / "conversations" / f"{cascade_id}.db"
+        if db_path.exists():
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                cur.execute('SELECT data FROM trajectory_metadata_blob WHERE id="main"')
+                row = cur.fetchone()
+                conn.close()
+                if row and row[0]:
+                    data = row[0]
+                    m = re.search(rb'file://(/[a-zA-Z]:/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*|/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*)', data)
+                    if m:
+                        raw_ws = m.group(1).decode("utf-8", errors="ignore").rstrip("R").rstrip("/")
+                        if re.match(r"^/[a-zA-Z]:/", raw_ws):
+                            raw_ws = raw_ws[1:]  # /C:/foo -> C:/foo
+                        cand_name = Path(raw_ws).name
+                        if cand_name and not cand_name.isdigit() and cand_name.lower() not in ("...", "dev", "desktop", "tmp", "temp", "scratch"):
+                            meta["project_path"] = raw_ws
+                            meta["project_hash"] = cand_name
+            except Exception:
+                pass
 
     # 1.5 Fallback: Extract workspace from transcript.jsonl (<user_information> or Cwd)
     if not meta.get("project_path") and transcript_path.exists():
@@ -290,21 +327,26 @@ class AntigravityTool(BaseTool):
             and abs_path.suffix == ".pbtxt"
         ):
             cascade_id = abs_path.stem
-            title = ""
-            try:
-                content = abs_path.read_text("utf-8", errors="ignore")
-                m = re.search(r'title:\s*"([^"]+)"', content)
-                if m:
-                    title = m.group(1).strip()
-            except Exception:
-                pass
+            meta = _extract_brain_metadata(cascade_id, abs_path)
+            title = meta.get("title", "")
+            if not title:
+                try:
+                    content = abs_path.read_text("utf-8", errors="ignore")
+                    m = re.search(r'title:\s*"([^"]+)"', content)
+                    if m:
+                        title = m.group(1).strip()
+                except Exception:
+                    pass
+            meta["session_id"] = cascade_id
+            if title:
+                meta["title"] = title
             return FileClassification(
                 tool_name=self.name,
                 category=Category.STATE,
                 content_type=ContentType.TEXT,
                 sync_strategy=SyncStrategy.FULL,
                 relative_path=f"antigravity/annotations/{cascade_id}.pbtxt",
-                metadata={"session_id": cascade_id, "title": title},
+                metadata=meta,
             )
 
         return None

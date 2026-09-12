@@ -7,7 +7,7 @@ import { ToolDetail, DocumentSummary, getApiBase, authFetch } from "@/lib/api-cl
 import { useI18n, fmt } from "@/lib/i18n";
 import { useDevice } from "@/lib/device-context";
 import { ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
-import { Chip, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
+import { Chip, Glass, TopBar, SectionLabel, Btn } from "@/components/aurora/primitives";
 
 export default function ToolDetailPage() {
   const params = useParams();
@@ -16,6 +16,8 @@ export default function ToolDetailPage() {
   const [files, setFiles] = useState<DocumentSummary[]>([]);
   const [projects, setProjects] = useState<{ id: string; title: string; document_count: number }[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | undefined>();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const { t, locale } = useI18n();
   const { selectedDeviceId } = useDevice();
   const dateFmt = locale === "zh-CN" ? "zh-CN" : "en-US";
@@ -31,8 +33,30 @@ export default function ToolDetailPage() {
   useEffect(() => {
     const catParam = activeCategory ? `&category=${activeCategory}` : "";
     authFetch(`${getApiBase()}/api/tools/${toolId}/files?offset=0&limit=50${catParam}${dq}`)
-      .then((r) => r.json()).then(setFiles).catch(() => setFiles([]));
+      .then((r) => r.json())
+      .then((data: DocumentSummary[]) => {
+        setFiles(data);
+        setHasMore(data.length >= 50);
+      })
+      .catch(() => {
+        setFiles([]);
+        setHasMore(false);
+      });
   }, [toolId, activeCategory, dq]);
+
+  const loadMore = () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    const catParam = activeCategory ? `&category=${activeCategory}` : "";
+    authFetch(`${getApiBase()}/api/tools/${toolId}/files?offset=${files.length}&limit=50${catParam}${dq}`)
+      .then((r) => r.json())
+      .then((data: DocumentSummary[]) => {
+        setFiles((prev) => [...prev, ...data]);
+        setHasMore(data.length >= 50);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMore(false));
+  };
 
   if (!tool) return <div style={{ color: "var(--aurora-fg4)", marginTop: 80, textAlign: "center" }}>{t.loading}</div>;
 
@@ -146,6 +170,13 @@ export default function ToolDetailPage() {
                   </Link>
                 );
               })
+            )}
+            {hasMore && (
+              <div style={{ padding: "12px 14px", textAlign: "center", borderTop: "1px solid var(--aurora-border)" }}>
+                <Btn variant="glass" size="sm" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? t.loading : (locale === "zh-CN" ? "加载更多" : "Load more")}
+                </Btn>
+              </div>
             )}
           </Glass>
         </div>

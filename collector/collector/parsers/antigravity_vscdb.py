@@ -381,13 +381,25 @@ def _get_vscdb_path() -> Path | None:
     home = Path.home()
     system = platform.system()
     if system == "Darwin":
-        p = home / "Library" / "Application Support" / "Antigravity" / "User" / "globalStorage" / "state.vscdb"
+        candidates = [
+            home / "Library" / "Application Support" / "Antigravity IDE" / "User" / "globalStorage" / "state.vscdb",
+            home / "Library" / "Application Support" / "Antigravity" / "User" / "globalStorage" / "state.vscdb",
+        ]
     elif system == "Windows":
         import os
         appdata = Path(os.environ.get("APPDATA", str(home / "AppData" / "Roaming")))
-        p = appdata / "Antigravity" / "User" / "globalStorage" / "state.vscdb"
+        candidates = [
+            appdata / "Antigravity IDE" / "User" / "globalStorage" / "state.vscdb",
+            appdata / "Antigravity" / "User" / "globalStorage" / "state.vscdb",
+        ]
     else:
-        p = home / ".config" / "Antigravity" / "User" / "globalStorage" / "state.vscdb"
-    return p if p.exists() else None
+        candidates = [
+            home / ".config" / "Antigravity IDE" / "User" / "globalStorage" / "state.vscdb",
+            home / ".config" / "Antigravity" / "User" / "globalStorage" / "state.vscdb",
+        ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
 
 

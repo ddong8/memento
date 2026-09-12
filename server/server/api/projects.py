@@ -226,7 +226,7 @@ async def get_project_timeline(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     category: str | None = None,
-    order: str = Query("desc", regex="^(asc|desc)$"),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
@@ -638,7 +638,7 @@ async def get_project_conversations(
     session_offset: int = Query(0, ge=0),
     session_limit: int = Query(10, ge=1, le=50),
     max_messages_per_session: int = Query(0, ge=0, le=10000),
-    order: str = Query("asc", regex="^(asc|desc)$"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
     device_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -712,6 +712,7 @@ async def get_project_conversations(
             Document.id, Document.relative_path, Document.machine_id,
             Document.tool_id, Document.title, Document.metadata_,
             Document.source_modified_at, Document.synced_at,
+            Document.file_size_bytes, Document.category, Document.content_type,
         ))
         .where(
             Document.project_id == project_id,

@@ -56,3 +56,33 @@ def test_clean_source_path():
     assert _clean_source_path("/Users/haixingdong/dev/memento\nother stuff") == "/Users/haixingdong/dev/memento"
     assert _clean_source_path("dev") is None
 
+
+def test_prettify_and_hash_to_path_windows_claude_code():
+    from server.services.ingest_service import _prettify_project_name, _hash_to_path, _is_invalid_project_name
+
+    # Claude Code Windows dir hash with date folders
+    raw_hash = "d-dev-2026-0707-pubchem"
+    assert _prettify_project_name(raw_hash) == "pubchem"
+    assert _hash_to_path(raw_hash) == "d:/dev/2026/0707/pubchem"
+
+    # Single-letter drive letters should be invalid project names
+    assert _is_invalid_project_name("d:") is True
+    assert _is_invalid_project_name("d") is True
+    assert _is_invalid_project_name("pubchem") is False
+
+
+def test_extract_windows_json_cwd():
+    import json, re
+    from server.services.ingest_service import _is_invalid_project_name
+
+    content = r'{"type":"user","cwd":"d:\\dev\\2026\\0707\\pubchem","sessionId":"123"}'
+    cwd_match = re.search(r'"[Cc][Ww][Dd]"\s*:\s*"((?:\\.|[^"\\])+)"', content[:50000])
+    assert cwd_match is not None
+    raw_cwd = cwd_match.group(1)
+    decoded = json.loads(f'"{raw_cwd}"')
+    norm = decoded.replace("\\", "/").rstrip("/")
+    proj = norm.split("/")[-1]
+    assert proj == "pubchem"
+    assert not _is_invalid_project_name(proj)
+
+

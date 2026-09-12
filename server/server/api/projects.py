@@ -19,7 +19,10 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
-from ..services.ingest_service import _clean_source_path, _is_junk_or_uuid_title
+from ..services.ingest_service import (
+    _clean_source_path, _is_junk_or_uuid_title,
+    _prettify_project_name, _is_invalid_project_name,
+)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -40,6 +43,50 @@ async def list_projects(
             target_mid = target_machine.id
         else:
             return []
+
+    # Auto-consolidate fragmented projects (e.g. claude_code/d-dev-2026-0707-pubchem -> claude_code/pubchem)
+    try:
+        all_projects = (await db.execute(select(Project))).scalars().all()
+        has_changes = False
+        for p in all_projects:
+            raw_name = p.slug.split("/")[-1] if "/" in p.slug else p.slug
+            prettified = _prettify_project_name(raw_name)
+            if prettified != raw_name and not _is_invalid_project_name(prettified):
+                canonical_slug = f"{p.tool_id}/{prettified}"
+                canonical = (await db.execute(select(Project).where(Project.slug == canonical_slug))).scalar_one_or_none()
+                if canonical and canonical.id != p.id:
+                    await db.execute(
+                        update(Document).where(Document.project_id == p.id).values(project_id=canonical.id)
+                    )
+                    await db.delete(p)
+                    has_changes = True
+                elif not canonical:
+                    p.slug = canonical_slug
+                    p.title = prettified
+                    has_changes = True
+
+        # Auto-adopt orphaned documents whose relative_path has projects/<dir_hash>
+        orphaned_docs = (await db.execute(
+            select(Document).where(
+                Document.project_id.is_(None),
+                Document.category == "conversation",
+                Document.relative_path.like("projects/%"),
+            )
+        )).scalars().all()
+        for od in orphaned_docs:
+            parts = od.relative_path.split("/")
+            if len(parts) >= 3 and parts[0] == "projects":
+                prettified = _prettify_project_name(parts[1])
+                if not _is_invalid_project_name(prettified):
+                    c_slug = f"{od.tool_id}/{prettified}"
+                    canon = (await db.execute(select(Project).where(Project.slug == c_slug))).scalar_one_or_none()
+                    if canon:
+                        od.project_id = canon.id
+                        has_changes = True
+        if has_changes:
+            await db.commit()
+    except Exception:
+        pass
 
     # Single query: projects LEFT JOIN documents, GROUP BY, count documents
     doc_count_col = func.count(Document.id).label("doc_count")
@@ -413,6 +460,82 @@ async def get_project_timeline(
     }
 
 
+async def _reconcile_project_documents(
+    db: AsyncSession,
+    target_project: Project,
+    target_mid: uuid.UUID | None = None,
+) -> int:
+    """Auto-adopt and reconcile conversations belonging to this project.
+
+    Catches documents that were:
+      - left orphaned (doc.project_id IS NULL)
+      - assigned to fragmented projects (e.g. claude_code/d-dev-2026-0707-pubchem or claude_code/d:)
+      - misassigned during initial delta ingest
+    Returns the number of adopted documents.
+    """
+    try:
+        tool_id = target_project.tool_id
+        raw_slug_name = target_project.slug.split("/")[-1] if "/" in target_project.slug else target_project.slug
+        clean_title = _prettify_project_name(target_project.title or raw_slug_name)
+        if _is_invalid_project_name(clean_title):
+            return 0
+
+        # 1. Find fragmented projects for this tool whose slug/title reduces to clean_title or is a drive letter
+        frag_q = select(Project).where(
+            Project.tool_id == tool_id,
+            Project.id != target_project.id,
+            or_(
+                Project.slug.ilike(f"%-{clean_title}"),
+                Project.slug.ilike(f"%/{clean_title}"),
+                Project.title.ilike(f"%-{clean_title}"),
+                Project.slug.in_([f"{tool_id}/d:", f"{tool_id}/c:", f"{tool_id}/d", f"{tool_id}/c"]),
+            ),
+        )
+        frag_rows = (await db.execute(frag_q)).scalars().all()
+        frag_ids = [fp.id for fp in frag_rows]
+
+        # 2. Build match conditions for documents that belong to this project
+        adopt_cond = or_(
+            Document.relative_path.ilike(f"%/{clean_title}/%"),
+            Document.relative_path.ilike(f"%-{clean_title}/%"),
+            Document.metadata_["project_hash"].astext == clean_title,
+            Document.metadata_["project_path"].astext.ilike(f"%{clean_title}"),
+        )
+        if frag_ids:
+            adopt_cond = adopt_cond | Document.project_id.in_(frag_ids)
+
+        match_docs_q = select(Document).where(
+            Document.tool_id == tool_id,
+            Document.category == "conversation",
+            or_(
+                Document.project_id.is_(None),
+                Document.project_id != target_project.id,
+            ),
+            adopt_cond,
+        )
+        if target_mid is not None:
+            match_docs_q = match_docs_q.where(Document.machine_id == target_mid)
+
+        docs_to_adopt = (await db.execute(match_docs_q)).scalars().all()
+        adopted_count = len(docs_to_adopt)
+        if docs_to_adopt:
+            for doc in docs_to_adopt:
+                doc.project_id = target_project.id
+            await db.flush()
+
+        # 3. Clean up empty fragmented projects
+        for fp in frag_rows:
+            remaining_cnt = (await db.execute(
+                select(func.count(Document.id)).where(Document.project_id == fp.id)
+            )).scalar()
+            if not remaining_cnt:
+                await db.delete(fp)
+        await db.flush()
+        return adopted_count
+    except Exception:
+        return 0
+
+
 @router.get("/{project_id}/conversations")
 async def get_project_conversations(
     project_id: uuid.UUID,
@@ -436,22 +559,6 @@ async def get_project_conversations(
     docs to those synced and messages to those timestamped on or
     before that instant. Share-link snapshot semantics.
     """
-    from ..services.cache import cache_get, cache_set
-    # Cache by full query shape — different pages / orderings / preview
-    # caps all need separate entries. 30s TTL: short enough that fresh
-    # ingest shows up quickly, long enough to hide back/forward
-    # navigation hits. ``as_of`` participates in the key so share
-    # traffic doesn't poison the owner-UI cache.
-    as_of_key = as_of.isoformat() if as_of else "live"
-    dev_key = device_id or "all"
-    cache_key = (
-        f"project:conv:{_user.id}:{project_id}:{dev_key}:"
-        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
-    )
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
-
     mids = await user_machine_ids(db, _user)
 
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
@@ -478,6 +585,23 @@ async def get_project_conversations(
                 "order": order,
                 "sessions": [],
             }
+
+    # Auto-adopt any missing / orphaned conversations for this project
+    adopted_count = await _reconcile_project_documents(db, project, target_mid)
+    if adopted_count > 0:
+        await db.commit()
+
+    from ..services.cache import cache_get, cache_set
+    as_of_key = as_of.isoformat() if as_of else "live"
+    dev_key = device_id or "all"
+    cache_key = (
+        f"project:conv:{_user.id}:{project_id}:{dev_key}:"
+        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
+    )
+    if adopted_count == 0:
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
 
     # Phase 1: scan only metadata columns to figure out pagination + subagent
     # grouping. Pulling Document.content (TOAST'd, can be 500 KB+ per doc)

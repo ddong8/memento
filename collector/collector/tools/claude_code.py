@@ -11,39 +11,85 @@ from .base import (
 )
 
 
+import re
+
+
 def _extract_cwd_from_jsonl(project_dir: Path) -> str | None:
-    """Extract the real working directory from the first JSONL with a cwd field."""
+    """Extract the real working directory from any JSONL in the project dir."""
     try:
-        for jsonl in project_dir.glob("*.jsonl"):
-            with open(jsonl, "r", encoding="utf-8", errors="ignore") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or '"cwd"' not in line:
-                        continue
-                    obj = json.loads(line)
-                    cwd = obj.get("cwd")
-                    if cwd:
-                        return cwd
-            break  # only need one file
+        candidates = sorted(project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for jsonl in candidates:
+            try:
+                with open(jsonl, "r", encoding="utf-8", errors="ignore") as f:
+                    for i, line in enumerate(f):
+                        if i > 250:
+                            break
+                        line = line.strip()
+                        if not line or '"cwd"' not in line:
+                            continue
+                        obj = json.loads(line)
+                        cwd = obj.get("cwd")
+                        if cwd:
+                            return cwd
+            except Exception:
+                continue
     except Exception:
         pass
     return None
 
 
+def _decode_claude_project_hash(project_hash: str) -> tuple[str, str | None]:
+    """Decode Claude Code's project dir hash into (project_name, real_path).
+    Examples:
+      '-Users-haixingdong-dev-memento' -> ('memento', '/Users/haixingdong/dev/memento')
+      'd-dev-2026-0707-pubchem' -> ('pubchem', 'd:/dev/2026/0707/pubchem')
+      'D--dev-2026-0707-pubchem' -> ('pubchem', 'D:/dev/2026/0707/pubchem')
+    """
+    raw = project_hash.strip("-")
+    m = re.match(r"^([A-Za-z])--?(.+)$", raw)
+    if m:
+        rest = m.group(2).replace("-", "/")
+        path = f"{m.group(1)}:/{rest}"
+        proj = rest.rstrip("/").split("/")[-1]
+        return proj, path
+    if raw.startswith("Users-") or raw.startswith("home-"):
+        path = "/" + raw.replace("-", "/")
+        proj = raw.rstrip("/").split("-")[-1]
+        return proj, path
+    return project_hash, None
+
+
 class ClaudeCodeTool(BaseTool):
 
-    _project_path_cache: dict[str, str | None] = {}
+    _project_path_cache: dict[str, tuple[str, str | None]] = {}
 
-    def _resolve_project_path(self, project_hash: str) -> str | None:
-        """Resolve project_hash directory name to real filesystem path via cwd in JSONL."""
-        if project_hash not in self._project_path_cache:
-            project_dir = self.root_path / "projects" / project_hash
-            result = _extract_cwd_from_jsonl(project_dir)
-            if not result:
-                from .cursor import _resolve_hash_to_path
-                result = _resolve_hash_to_path(project_hash)
-            self._project_path_cache[project_hash] = result
-        return self._project_path_cache[project_hash]
+    def _resolve_project_path(self, project_hash: str) -> tuple[str, str | None]:
+        """Resolve project_hash directory name to (project_name, real_path)."""
+        if project_hash in self._project_path_cache:
+            return self._project_path_cache[project_hash]
+
+        project_dir = self.root_path / "projects" / project_hash
+        real_path = _extract_cwd_from_jsonl(project_dir)
+        if real_path:
+            proj_name = real_path.replace("\\", "/").rstrip("/").split("/")[-1]
+            res = (proj_name, real_path)
+            self._project_path_cache[project_hash] = res
+            return res
+
+        from .cursor import _resolve_hash_to_path
+        cursor_path = _resolve_hash_to_path(project_hash)
+        if cursor_path:
+            proj_name = cursor_path.replace("\\", "/").rstrip("/").split("/")[-1]
+            res = (proj_name, cursor_path)
+            self._project_path_cache[project_hash] = res
+            return res
+
+        decoded_name, decoded_path = _decode_claude_project_hash(project_hash)
+        res = (decoded_name, decoded_path)
+        if decoded_path:
+            self._project_path_cache[project_hash] = res
+        return res
+
 
     @property
     def name(self) -> str:
@@ -165,12 +211,26 @@ class ClaudeCodeTool(BaseTool):
         # Projects directory
         if parts[0] == "projects" and len(parts) >= 2:
             dir_hash = parts[1]
-            # Resolve to real project path/name
-            real_path = self._resolve_project_path(dir_hash)
-            if real_path:
-                project_name = real_path.replace("\\", "/").rstrip("/").split("/")[-1]
-            else:
-                project_name = dir_hash
+            project_name, real_path = self._resolve_project_path(dir_hash)
+
+            # If scanning a jsonl file directly and cwd wasn't found from others, scan this file
+            if not real_path and abs_path.suffix == ".jsonl":
+                try:
+                    with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+                        for i, line in enumerate(f):
+                            if i > 250:
+                                break
+                            if '"cwd"' in line:
+                                obj = json.loads(line.strip())
+                                cwd = obj.get("cwd")
+                                if cwd:
+                                    real_path = cwd
+                                    project_name = cwd.replace("\\", "/").rstrip("/").split("/")[-1]
+                                    self._project_path_cache[dir_hash] = (project_name, real_path)
+                                    break
+                except Exception:
+                    pass
+
             project_meta = {"project_hash": project_name}
             if real_path:
                 project_meta["project_path"] = real_path

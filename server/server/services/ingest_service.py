@@ -226,6 +226,20 @@ async def ensure_tool(db: AsyncSession, tool_id: str) -> Tool:
     return tool
 
 
+def _is_invalid_project_name(name: str | None) -> bool:
+    if not name:
+        return True
+    n = str(name).strip().lower()
+    if not n or n in _IGNORE_PROJECT_NAMES:
+        return True
+    if n.isdigit():
+        return True
+    # Reject drive letters e.g. "d:", "c:", "d", "c"
+    if re.match(r"^[a-zA-Z]:?$", n):
+        return True
+    return False
+
+
 def _prettify_project_name(raw: str) -> str:
     """Convert path-encoded project hash to a human-readable project name.
 
@@ -233,6 +247,7 @@ def _prettify_project_name(raw: str) -> str:
       '-Users-haixingdong-Desktop-dev-python-quant-future' → 'quant-future'
       'Users-haixingdong-Desktop-dev-ft-userdata' → 'ft-userdata'
       'D--dev-2026-0104-yicaigou-bulk-import' → 'bulk-import'
+      'd-dev-2026-0707-pubchem' → 'pubchem'
       'd--dev-1106-chembook' → 'chembook'
     """
     name = raw.strip("-")
@@ -240,8 +255,9 @@ def _prettify_project_name(raw: str) -> str:
     # Known path prefix patterns to strip (greedy match)
     # Pattern: optional drive + common dirs + optional date folders
     prefix_re = re.compile(
-        r"^(?:[A-Za-z]--?)?"                       # optional drive letter: D-- or C-
+        r"^(?:[A-Za-z]--?)?"                       # optional drive letter: D-- or D- or C-
         r"(?:Users-[^-]+-(?:Desktop-?|Documents-?)?)?"  # Users-xxx-Desktop- or Users-xxx-
+        r"(?:home-[^-]+-)?"
         r"(?:dev-?)?"                                # dev-
         r"(?:python-?)?"                             # python-
         r"(?:\d{4}-\d{2,4}-?)?"                      # 2026-0104- (year-monthday)
@@ -257,14 +273,16 @@ def _hash_to_path(project_hash: str) -> str:
 
     'Users-haixingdong-Desktop-dev-python-quant-future' → '/Users/haixingdong/Desktop/dev/python/quant-future'
     'D--dev-2026-0104-yicaigou' → 'D:/dev/2026/0104/yicaigou'
+    'd-dev-2026-0707-pubchem' → 'd:/dev/2026/0707/pubchem'
     """
     raw = project_hash.strip("-")
-    # Windows drive: 'D--dev-...' → 'D:/dev/...'
-    m = re.match(r"^([A-Za-z])--(.+)$", raw)
+    # Windows drive: 'D--dev-...' or 'd-dev-...' → 'D:/dev/...'
+    m = re.match(r"^([A-Za-z])--?(.+)$", raw)
     if m:
-        return f"{m.group(1)}:/{m.group(2).replace('-', '/')}"
+        rest = m.group(2).replace("-", "/")
+        return f"{m.group(1)}:/{rest}"
     # Unix: 'Users-xxx-Desktop-dev-...' → '/Users/xxx/Desktop/dev/...'
-    if raw.startswith("Users-"):
+    if raw.startswith("Users-") or raw.startswith("home-"):
         return "/" + raw.replace("-", "/")
     return project_hash
 
@@ -287,11 +305,11 @@ def _clean_source_path(path: str | None) -> str | None:
     match = re.search(r"((?:[a-zA-Z]:[/\\]|/)[a-zA-Z0-9_\.\-]+(?:[/\\][a-zA-Z0-9_\.\-]+)*)", s)
     if match:
         cand = match.group(1).rstrip("/\\")
-        if cand.split("/")[-1].lower() not in _IGNORE_PROJECT_NAMES:
+        if not _is_invalid_project_name(cand.split("/")[-1]):
             return cand
     # Fallback: strip after any quote, newline, or comma
     cleaned = re.split(r'["\',\r\n]', s)[0].strip().rstrip("/\\")
-    if cleaned.lower() in _IGNORE_PROJECT_NAMES:
+    if _is_invalid_project_name(cleaned):
         return None
     return cleaned or None
 
@@ -301,6 +319,12 @@ async def ensure_project(
     source_path: str | None = None,
 ) -> Project:
     """Ensure a project record exists for a given hash/path."""
+    cleaned_hash = _prettify_project_name(project_hash)
+    if not _is_invalid_project_name(cleaned_hash):
+        if not source_path and cleaned_hash != project_hash:
+            source_path = _hash_to_path(project_hash)
+        project_hash = cleaned_hash
+
     source_path = _clean_source_path(source_path)
     slug = f"{tool_id}/{project_hash}"
     result = await db.execute(select(Project).where(Project.slug == slug))
@@ -317,7 +341,7 @@ async def ensure_project(
     elif source_path:
         old_sp = project.source_path or ""
         old_last = old_sp.replace("\\", "/").rstrip("/").split("/")[-1].lower()
-        if not old_sp or old_sp == project.title or len(old_sp) < 10 or old_last in _IGNORE_PROJECT_NAMES:
+        if not old_sp or old_sp == project.title or len(old_sp) < 10 or _is_invalid_project_name(old_last):
             project.source_path = source_path
     return project
 
@@ -431,31 +455,52 @@ async def ingest_file(
         re.match(r"^[0-9a-f]{8}-", project_hash)
         or "--" in project_hash
         or re.match(r"^-?Users-", project_hash)
-        or re.match(r"^[A-Za-z]--", project_hash)
-        or len(project_hash) > 30
+        or re.match(r"^[A-Za-z]--?", project_hash)
+        or re.match(r"^-?home-", project_hash)
+        or len(project_hash) > 20
     ))
-    _needs_extract = not project_hash or _looks_like_hash
+    _needs_extract = not project_hash or _looks_like_hash or _is_invalid_project_name(project_hash)
     project_path: str | None = metadata.get("project_path")
 
     if _needs_extract and content and category == "conversation":
         # Universal: extract cwd from first occurrence in content (Claude Code, Codex, Cursor all have it)
-        cwd_match = re.search(r'"[Cc][Ww][Dd]"\s*:\s*"?\\?"?([^\\"\n]+)', content[:50000])
+        cwd_match = re.search(r'"[Cc][Ww][Dd]"\s*:\s*"((?:\\.|[^"\\])+)"', content[:50000])
         if cwd_match:
             raw_cwd = cwd_match.group(1)
-            raw_cwd = re.sub(r"^\\\\?\?\\", "", raw_cwd)
+            try:
+                decoded_cwd = json.loads(f'"{raw_cwd}"')
+            except Exception:
+                decoded_cwd = raw_cwd.replace("\\\\", "/")
+            raw_cwd = re.sub(r"^\\\\?\?\\", "", decoded_cwd)
             cwd = raw_cwd.replace("\\", "/").rstrip("/")
             candidate_hash = cwd.split("/")[-1]
-            if candidate_hash and not candidate_hash.isdigit() and candidate_hash.lower() not in _IGNORE_PROJECT_NAMES:
+            if not _is_invalid_project_name(candidate_hash):
                 project_path = project_path or raw_cwd
                 project_hash = candidate_hash
+                _needs_extract = False
         elif _looks_like_hash and project_hash:
             # No cwd found but hash looks like encoded path — prettify it
-            project_hash = _prettify_project_name(project_hash)
+            cand = _prettify_project_name(project_hash)
+            if not _is_invalid_project_name(cand):
+                project_hash = cand
+                _needs_extract = False
+
+    # Fallback: extract project name from relative_path for Claude Code (projects/<dir_hash>/...)
+    if (_needs_extract or not project_hash or _is_invalid_project_name(project_hash)) and relative_path:
+        parts = relative_path.split("/")
+        if len(parts) >= 3 and parts[0] == "projects":
+            dir_h = parts[1]
+            cand = _prettify_project_name(dir_h)
+            if not _is_invalid_project_name(cand):
+                project_hash = cand
+                if not project_path:
+                    project_path = _hash_to_path(dir_h)
+                _needs_extract = False
 
     if _needs_extract and content and tool_id == "antigravity" and "brain" in relative_path:
         # Antigravity: extract workspace from file:// URIs in brain content
         extracted_name, extracted_path = _extract_workspace_from_content(content)
-        if extracted_name:
+        if extracted_name and not _is_invalid_project_name(extracted_name):
             project_hash = extracted_name
             if extracted_path and not project_path:
                 project_path = extracted_path

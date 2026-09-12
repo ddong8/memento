@@ -62,6 +62,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
   String? _selectedSessionId;
   bool _loadingSessions = false;
   bool _showSessionContext = true;
+  bool _isConfigCollapsed = false;
 
   void _handleModeChange(String id) {
     setState(() {
@@ -1004,6 +1005,188 @@ class _AskScreenState extends ConsumerState<AskScreen> {
     ));
   }
 
+  Widget _buildCollapsedSummaryBar(DeviceState deviceState) {
+    final modes = [
+      {'id': 'ai', 'label': 'AI 编排', 'icon': Icons.psychology_rounded, 'color': AuroraColors.accent},
+      {'id': 'claude', 'label': 'Claude Code', 'icon': Icons.auto_awesome, 'color': const Color(0xFFE5855E)},
+      {'id': 'codex', 'label': 'Codex', 'icon': Icons.code_rounded, 'color': const Color(0xFF10A37F)},
+      {'id': 'antigravity', 'label': 'Antigravity', 'icon': Icons.rocket_launch_rounded, 'color': const Color(0xFF9D67EF)},
+      {'id': 'shell', 'label': 'Shell', 'icon': Icons.terminal_rounded, 'color': const Color(0xFF38BDF8)},
+    ];
+    final currentMode = modes.firstWhere(
+      (m) => m['id'] == _executionMode,
+      orElse: () => modes[0],
+    );
+    final modeColor = currentMode['color'] as Color;
+
+    String deviceLabel = '自动调度';
+    if (deviceState.selectedDeviceId == 'ask_only') {
+      deviceLabel = '仅提问';
+    } else if (deviceState.selectedDeviceId != 'auto') {
+      try {
+        final dev = deviceState.devices.firstWhere(
+          (d) => d.deviceId == deviceState.selectedDeviceId,
+        );
+        deviceLabel = dev.name;
+      } catch (_) {
+        deviceLabel = deviceState.selectedDeviceId.length > 8
+            ? deviceState.selectedDeviceId.substring(0, 8)
+            : deviceState.selectedDeviceId;
+      }
+    }
+
+    String? projectTitle;
+    if (_selectedProjectId != null && _selectedProjectId!.isNotEmpty) {
+      try {
+        final proj = _projects.firstWhere(
+          (p) => p['id']?.toString() == _selectedProjectId,
+        );
+        projectTitle = (proj['title'] ?? proj['slug'] ?? _selectedProjectId).toString();
+      } catch (_) {
+        projectTitle = _selectedProjectId;
+      }
+    }
+
+    return InkWell(
+      onTap: () => setState(() => _isConfigCollapsed = false),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: AuroraColors.chip,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AuroraColors.border),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Mode Chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: modeColor.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: modeColor.withOpacity(0.7), width: 0.8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(currentMode['icon'] as IconData, size: 12, color: modeColor),
+                          const SizedBox(width: 4),
+                          Text(
+                            currentMode['label'] as String,
+                            style: TextStyle(fontSize: 11, color: modeColor, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+
+                    // Device Chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AuroraColors.surface,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AuroraColors.border, width: 0.8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.devices_rounded, size: 11, color: AuroraColors.accent),
+                          const SizedBox(width: 4),
+                          Text(
+                            deviceLabel,
+                            style: const TextStyle(fontSize: 11, color: AuroraColors.fg2),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Project Chip
+                    if (projectTitle != null && projectTitle.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AuroraColors.surface,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AuroraColors.border, width: 0.8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.folder_outlined, size: 11, color: AuroraColors.fg3),
+                            const SizedBox(width: 4),
+                            Text(
+                              projectTitle,
+                              style: const TextStyle(fontSize: 11, color: AuroraColors.fg2),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // Session Chip (if resuming)
+                    if (_selectedSessionId != null && _selectedSessionId!.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AuroraColors.accentSoft,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AuroraColors.accent, width: 0.8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.access_time_rounded, size: 11, color: AuroraColors.accent),
+                            SizedBox(width: 3),
+                            Text(
+                              '续接中',
+                              style: TextStyle(fontSize: 10.5, color: AuroraColors.accent, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            // Expand button
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: AuroraColors.accentSoft,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AuroraColors.accent.withOpacity(0.6), width: 0.8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.keyboard_arrow_down, size: 13, color: AuroraColors.accent),
+                  SizedBox(width: 2),
+                  Text(
+                    '展开配置',
+                    style: TextStyle(fontSize: 10.5, color: AuroraColors.accent, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBottomConsole(DeviceState deviceState, AskState askState) {
     return Container(
       padding: EdgeInsets.only(
@@ -1029,9 +1212,40 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Agent Mode Selector Toolbelt (AI / Claude Code / Codex / Antigravity / Shell)
-          _buildAgentSelector(),
-          const SizedBox(height: 8),
+          if (_isConfigCollapsed)
+            _buildCollapsedSummaryBar(deviceState)
+          else ...[
+            // Agent Mode Selector Toolbelt with Collapse button
+            Row(
+              children: [
+                Expanded(child: _buildAgentSelector()),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => setState(() => _isConfigCollapsed = true),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AuroraColors.chip,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AuroraColors.border),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.keyboard_arrow_up, size: 14, color: AuroraColors.fg3),
+                        SizedBox(width: 2),
+                        Text(
+                          '收起',
+                          style: TextStyle(fontSize: 11, color: AuroraColors.fg3, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
 
           // Device & CWD toolbelt
           Row(
@@ -1600,7 +1814,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
               );
             })(),
           ],
-          const SizedBox(height: 8),
+        ],
+        const SizedBox(height: 8),
 
           // Prompt input row
           Row(

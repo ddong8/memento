@@ -202,6 +202,24 @@ function AskPageContent() {
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
+  const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("memento_ask_config_collapsed");
+      if (saved === "true") setIsConfigCollapsed(true);
+    } catch {}
+  }, []);
+
+  const toggleConfigCollapsed = useCallback(() => {
+    setIsConfigCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("memento_ask_config_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
@@ -1103,60 +1121,344 @@ function AskPageContent() {
               minWidth: 0,
             }}
           >
-            {/* Agent Mode Selector Toolbelt */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginBottom: 8,
-                overflowX: "auto",
-                maxWidth: "100%",
-                paddingBottom: 2,
-                scrollbarWidth: "none",
-              }}
-            >
-              {[
-                { id: "ai" as const, label: t.ask.modeAi || "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" },
-                { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code", color: "#D97757" },
-                { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex", color: "#10A37F" },
-                { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
-                { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
-              ].map((m) => {
-                const isSelected = executionMode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => handleSelectMode(m.id)}
+            {isConfigCollapsed ? (
+              /* Collapsed Summary Pill Bar */
+              <div
+                onClick={toggleConfigCollapsed}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: "5px 10px",
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
+                  borderRadius: 12,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  userSelect: "none",
+                  minWidth: 0,
+                  maxWidth: "100%",
+                }}
+                title={isZh ? "点击展开完整配置面板" : "Click to expand configuration panel"}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    overflowX: "auto",
+                    scrollbarWidth: "none",
+                    minWidth: 0,
+                  }}
+                >
+                  {/* Current Mode Badge */}
+                  {(() => {
+                    const currentMode = [
+                      { id: "ai" as const, label: t.ask.modeAi || "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" },
+                      { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code" as const, color: "#D97757" },
+                      { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex" as const, color: "#10A37F" },
+                      { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity" as const, color: "#3186FF" },
+                      { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
+                    ].find((m) => m.id === executionMode) || { id: "ai" as const, label: "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" };
+
+                    return (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 8px",
+                          borderRadius: 8,
+                          background: "var(--aurora-accent-soft)",
+                          border: `1px solid ${currentMode.color}`,
+                          color: currentMode.color,
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {currentMode.brandId ? (
+                          <BrandMark id={currentMode.brandId} size={13} colored />
+                        ) : (
+                          <Icon name={currentMode.icon || "sparkles"} size={12} style={{ color: currentMode.color }} />
+                        )}
+                        <span>{currentMode.label}</span>
+                      </span>
+                    );
+                  })()}
+
+                  {/* Target Device Badge */}
+                  <span
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 6,
-                      background: isSelected ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
-                      border: "1px solid",
-                      borderColor: isSelected ? m.color : "var(--aurora-border)",
-                      borderRadius: 12,
-                      padding: "4px 10px",
-                      fontSize: 12,
-                      fontWeight: isSelected ? 600 : 500,
-                      color: isSelected ? m.color : "var(--aurora-fg2)",
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
+                      gap: 4,
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      background: "var(--aurora-surface-solid)",
+                      border: "1px solid var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                      fontSize: 11.5,
+                      fontWeight: 500,
                       whiteSpace: "nowrap",
                       flexShrink: 0,
                     }}
                   >
-                    {m.brandId ? (
-                      <BrandMark id={m.brandId} size={14} colored={isSelected} tint={isSelected ? undefined : "var(--aurora-fg3)"} />
-                    ) : (
-                      <Icon name={m.icon || "sparkles"} size={13} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
-                    )}
-                    <span>{m.label}</span>
+                    <Icon name="devices" size={12} style={{ color: "var(--aurora-accent)" }} />
+                    <span>
+                      {selectedDevice === "auto"
+                        ? t.ask.autoDispatch
+                        : selectedDevice === "ask_only"
+                        ? t.ask.askOnly
+                        : (devices.find((d) => d.device_id === selectedDevice)?.name || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice))}
+                    </span>
+                  </span>
+
+                  {/* Associated Project Badge */}
+                  {selectedProjectId && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        background: "var(--aurora-surface-solid)",
+                        border: "1px solid var(--aurora-border)",
+                        color: "var(--aurora-fg2)",
+                        fontSize: 11.5,
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
+                      <span>{projects.find((p) => p.id === selectedProjectId)?.title || selectedProjectId}</span>
+                    </span>
+                  )}
+
+                  {/* CWD snippet if no project but cwd is set */}
+                  {!selectedProjectId && cwd && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        background: "var(--aurora-surface-solid)",
+                        border: "1px solid var(--aurora-border)",
+                        color: "var(--aurora-fg3)",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        maxWidth: 160,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                      title={cwd}
+                    >
+                      <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)" }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{cwd}</span>
+                    </span>
+                  )}
+
+                  {/* Selected Model Badge */}
+                  {selectedModel && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        background: "var(--aurora-surface-solid)",
+                        border: "1px solid var(--aurora-border)",
+                        color: "var(--aurora-fg3)",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="sparkles" size={11} style={{ color: "var(--aurora-accent)" }} />
+                      <span>{selectedModel}</span>
+                    </span>
+                  )}
+
+                  {/* Reasoning Effort Badge */}
+                  {selectedEffort && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        padding: "2px 6px",
+                        borderRadius: 8,
+                        background: "var(--aurora-surface-solid)",
+                        border: "1px solid var(--aurora-border)",
+                        color: "var(--aurora-fg3)",
+                        fontSize: 11,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="brain" size={11} style={{ color: "var(--aurora-accent)" }} />
+                      <span>{selectedEffort}</span>
+                    </span>
+                  )}
+
+                  {/* Resumed Session Badge */}
+                  {selectedSessionId && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        background: "var(--aurora-accent-soft)",
+                        border: "1px solid var(--aurora-accent)",
+                        color: "var(--aurora-accent)",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="clock" size={11} />
+                      <span>
+                        {isZh ? "续接: " : "Resuming: "}
+                        {(() => {
+                          const s = sessions.find((x) => (x.session_id || x.conversation_id) === selectedSessionId);
+                          const t = s?.title || selectedSessionId;
+                          return t.length > 18 ? t.slice(0, 18) + "..." : t;
+                        })()}
+                      </span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Expand button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleConfigCollapsed();
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    background: "var(--aurora-accent-soft)",
+                    border: "1px solid var(--aurora-accent)",
+                    borderRadius: 8,
+                    padding: "3px 8px",
+                    color: "var(--aurora-accent)",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                  title={isZh ? "展开完整配置面板" : "Expand configuration panel"}
+                >
+                  <Icon name="chevron_down" size={12} />
+                  <span>{isZh ? "展开配置" : "Expand"}</span>
+                </button>
+              </div>
+            ) : (
+              <div>
+                {/* Agent Mode Selector Toolbelt with Collapse button */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      overflowX: "auto",
+                      maxWidth: "100%",
+                      paddingBottom: 2,
+                      scrollbarWidth: "none",
+                      minWidth: 0,
+                    }}
+                  >
+                    {[
+                      { id: "ai" as const, label: t.ask.modeAi || "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" },
+                      { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code", color: "#D97757" },
+                      { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex", color: "#10A37F" },
+                      { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
+                      { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
+                    ].map((m) => {
+                      const isSelected = executionMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => handleSelectMode(m.id)}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            background: isSelected ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                            border: "1px solid",
+                            borderColor: isSelected ? m.color : "var(--aurora-border)",
+                            borderRadius: 12,
+                            padding: "4px 10px",
+                            fontSize: 12,
+                            fontWeight: isSelected ? 600 : 500,
+                            color: isSelected ? m.color : "var(--aurora-fg2)",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease",
+                            whiteSpace: "nowrap",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {m.brandId ? (
+                            <BrandMark id={m.brandId} size={14} colored={isSelected} tint={isSelected ? undefined : "var(--aurora-fg3)"} />
+                          ) : (
+                            <Icon name={m.icon || "sparkles"} size={13} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
+                          )}
+                          <span>{m.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Collapse button */}
+                  <button
+                    type="button"
+                    onClick={toggleConfigCollapsed}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
+                      borderRadius: 8,
+                      padding: "3px 8px",
+                      color: "var(--aurora-fg3)",
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isZh ? "收起配置面板，释放聊天区域" : "Collapse configuration panel"}
+                  >
+                    <Icon name="chevron_up" size={12} />
+                    <span>{isZh ? "收起" : "Collapse"}</span>
                   </button>
-                );
-              })}
-            </div>
+                </div>
 
             {/* Device & environment toolbelt */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap", maxWidth: "100%", minWidth: 0 }}>
@@ -1741,6 +2043,8 @@ function AskPageContent() {
                 </div>
               );
             })()}
+          </div>
+        )}
 
             {/* Input box and action button */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0 }}>

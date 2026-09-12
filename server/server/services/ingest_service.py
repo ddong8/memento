@@ -107,6 +107,25 @@ def _title_from_user_messages(contents: list[str | None], session_id: str | None
             return cand
     return None
 
+
+def _parent_session_id_from_content(content: str | None) -> str | None:
+    """For a Claude Code sidechain (subagent) transcript, return the parent
+    session's UUID.
+
+    The transcript filename is a synthetic ``agent-<hash>`` id, but every line
+    carries the real parent conversation's ``sessionId``. Subagent transcripts
+    have ``"isSidechain": true`` and no ``aiTitle`` of their own, so the only
+    way to give them the title Claude Code shows is to inherit it from that
+    parent. Returns None when the content isn't a sidechain.
+    """
+    if not content or '"isSidechain"' not in content:
+        return None
+    # Only treat as sidechain if a line actually sets it true.
+    if not re.search(r'"isSidechain"\s*:\s*true', content):
+        return None
+    m = re.search(r'"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"', content)
+    return m.group(1) if m else None
+
 # Re-sanitize patterns (defense-in-depth)
 _RESANITIZE_PATTERNS = [
     (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "[API_KEY_REDACTED]"),
@@ -438,6 +457,32 @@ async def ingest_file(
                         new_title = cand
                         is_valid_new_title = True
 
+            # Sidechain: inherit the parent conversation's title. This runs even
+            # on the unchanged-file fast path so a `resync` heals the existing
+            # subagent docs (whose stored title is their own task prompt, not
+            # the title Claude Code shows). Record the parent link too.
+            parent_sid = _parent_session_id_from_content(content) if content else None
+            if parent_sid:
+                # Persist the parent link independently of whether we can
+                # resolve the title right now — the hourly backfill uses it to
+                # re-resolve once the parent's title lands. Reassign (not
+                # in-place mutate) so SQLAlchemy tracks the JSONB change.
+                md = existing_doc.metadata_ if isinstance(existing_doc.metadata_, dict) else {}
+                if md.get("parent_session_id") != parent_sid:
+                    existing_doc.metadata_ = {**md, "parent_session_id": parent_sid}
+                    await db.flush()
+                parent_title = (await db.execute(
+                    select(Document.title)
+                    .where(
+                        Document.tool_id == tool_id,
+                        Document.metadata_["session_id"].astext == parent_sid,
+                    )
+                    .limit(1)
+                )).scalar_one_or_none()
+                if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
+                    new_title = parent_title
+                    is_valid_new_title = True
+
             if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code")) and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
@@ -575,13 +620,35 @@ async def ingest_file(
     is_title_junk = _is_junk_or_uuid_title(title, sid)
 
     if is_title_junk and content and category == "conversation":
-        # 1. Claude Code aiTitle
-        m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
-        if m_ai:
-            cand = m_ai.group(1).strip()
-            if not _is_junk_or_uuid_title(cand, sid):
-                title = cand
+        # 0. Claude Code subagent (sidechain): it has no aiTitle of its own —
+        # the title Claude Code shows is the parent conversation's. Inherit it
+        # by resolving the parent sessionId embedded in the transcript. Also
+        # record the link in metadata so the periodic backfill can re-resolve
+        # if the parent's title lands later.
+        parent_sid = _parent_session_id_from_content(content)
+        if parent_sid:
+            if isinstance(metadata, dict):
+                metadata["parent_session_id"] = parent_sid
+            parent_title = (await db.execute(
+                select(Document.title)
+                .where(
+                    Document.tool_id == tool_id,
+                    Document.metadata_["session_id"].astext == parent_sid,
+                )
+                .limit(1)
+            )).scalar_one_or_none()
+            if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
+                title = parent_title
                 is_title_junk = False
+
+        # 1. Claude Code aiTitle
+        if is_title_junk:
+            m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
+            if m_ai:
+                cand = m_ai.group(1).strip()
+                if not _is_junk_or_uuid_title(cand, sid):
+                    title = cand
+                    is_title_junk = False
 
         # 2. Antigravity <USER_REQUEST>
         if is_title_junk:

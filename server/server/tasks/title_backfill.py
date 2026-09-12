@@ -22,6 +22,7 @@ from ..db.models import ConversationMessage, Document
 from ..db.session import async_session_factory
 from ..services.ingest_service import (
     _is_junk_or_uuid_title,
+    _parent_session_id_from_content,
     _title_from_user_messages,
 )
 from .celery_app import celery_app
@@ -44,24 +45,55 @@ async def _run() -> dict:
 
     async with async_session_factory() as db:
         while True:
-            q = select(Document.id, Document.title, Document.metadata_).order_by(Document.id).limit(BATCH_SIZE)
+            q = select(
+                Document.id, Document.title, Document.metadata_, Document.relative_path
+            ).order_by(Document.id).limit(BATCH_SIZE)
             if last_id is not None:
                 q = q.where(Document.id > last_id)
             rows = (await db.execute(q)).all()
             if not rows:
                 break
 
-            for did, title, meta in rows:
+            for did, title, meta, rel_path in rows:
                 last_id = did
                 sid = (meta or {}).get("session_id") if isinstance(meta, dict) else None
-                if not _is_junk_or_uuid_title(title, sid):
+
+                cand = None
+
+                # Subagent (sidechain): the title Claude Code shows is the
+                # PARENT conversation's, so inherit it — even when the current
+                # title isn't junk. A subagent whose title is its own task
+                # prompt ("你是对抗式审查者…") is technically non-junk but still
+                # the wrong title, so this deliberately overrides it.
+                parent_sid = meta.get("parent_session_id") if isinstance(meta, dict) else None
+                # If the link isn't in metadata yet, recover it from the stored
+                # transcript — this heals existing subagent docs without waiting
+                # for a re-ingest. Only pull the (large) content for paths that
+                # look like a subagent transcript, to avoid loading 1MB per doc.
+                if not parent_sid and rel_path and "agent-" in rel_path:
+                    doc_content = (await db.execute(
+                        select(Document.content).where(Document.id == did)
+                    )).scalar_one_or_none()
+                    if doc_content:
+                        parent_sid = _parent_session_id_from_content(doc_content)
+                if parent_sid:
+                    parent_title = (await db.execute(
+                        select(Document.title)
+                        .where(Document.metadata_["session_id"].astext == parent_sid)
+                        .limit(1)
+                    )).scalar_one_or_none()
+                    if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
+                        cand = parent_title
+
+                # For non-sidechain docs, only touch junk titles. (A sidechain
+                # with a resolvable parent title is handled above regardless.)
+                if not cand and not _is_junk_or_uuid_title(title, sid):
                     continue
                 scanned += 1
 
-                # Metadata fallback first (Codex state_5.sqlite first prompt),
+                # Metadata fallback (Codex state_5.sqlite first prompt),
                 # then the stored user messages in order.
-                cand = None
-                if isinstance(meta, dict):
+                if not cand and isinstance(meta, dict):
                     fum = (meta.get("first_user_message") or "").strip()
                     if fum:
                         cand = _title_from_user_messages([fum], sid)

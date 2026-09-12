@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "server"))
 
 from server.services.ingest_service import (
     _is_junk_or_uuid_title,
+    _parent_session_id_from_content,
     _title_from_user_messages,
 )
 
@@ -72,6 +73,30 @@ class TitleFromUserMessagesTests(unittest.TestCase):
     def test_truncates_to_60_chars(self):
         long = "x" * 200
         self.assertEqual(len(_title_from_user_messages([long])), 60)
+
+
+class ParentSessionExtractionTests(unittest.TestCase):
+    def test_extracts_parent_sid_from_sidechain(self):
+        content = (
+            '{"type":"user","isSidechain":true,"sessionId":"914b83f9-244a-42d2-a8a7-064b2da6cdc5"}\n'
+            '{"type":"assistant","isSidechain":true,"sessionId":"914b83f9-244a-42d2-a8a7-064b2da6cdc5"}'
+        )
+        self.assertEqual(
+            _parent_session_id_from_content(content),
+            "914b83f9-244a-42d2-a8a7-064b2da6cdc5",
+        )
+
+    def test_none_for_non_sidechain(self):
+        content = '{"type":"user","sessionId":"aa549791-3f81-4e86-abcd-ef1234567890"}'
+        self.assertIsNone(_parent_session_id_from_content(content))
+
+    def test_none_when_sidechain_false(self):
+        content = '{"type":"user","isSidechain":false,"sessionId":"aa549791-3f81-4e86-abcd-ef1234567890"}'
+        self.assertIsNone(_parent_session_id_from_content(content))
+
+    def test_none_for_empty(self):
+        self.assertIsNone(_parent_session_id_from_content(None))
+        self.assertIsNone(_parent_session_id_from_content(""))
 
 
 if __name__ == "__main__":

@@ -82,6 +82,8 @@ class AskRequest(BaseModel):
     project_id: str | None = None
     # Session ID to resume an existing conversation
     session_id: str | None = None
+    # Force fork mode instead of resume when continuing conversation
+    fork: bool | None = None
 
 
 async def _retrieve(
@@ -627,6 +629,7 @@ async def _direct_agent_stream(
     effort: str | None = None,
     session_id: str | None = None,
     project_id: str | None = None,
+    fork: bool | None = None,
 ):
     """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
     from ..services.orchestrator import _tool_run_on_device
@@ -649,6 +652,8 @@ async def _direct_agent_stream(
         args["session_id"] = session_id
     if project_id:
         args["project_id"] = project_id
+    if fork is not None:
+        args["fork"] = fork
 
     if action == "shell":
         args["command"] = question
@@ -662,7 +667,11 @@ async def _direct_agent_stream(
         binary = binary_map.get(execution_mode, execution_mode)
         args["prompt"] = question
         args["binary"] = binary
-        resume_tag = f" [resume:{session_id[:8]}]" if session_id else ""
+        if session_id:
+            tag = "fork" if fork else "resume"
+            resume_tag = f" [{tag}:{session_id[:8]}]"
+        else:
+            resume_tag = ""
         model_tag = f" ({model})" if model else ""
         effort_tag = f" [{effort}]" if effort else ""
         cmd_display = f"[{execution_mode.upper()}{model_tag}{effort_tag}]{resume_tag} {question}"
@@ -795,6 +804,7 @@ async def ask(
                 effort=body.effort,
                 session_id=body.session_id,
                 project_id=body.project_id,
+                fork=body.fork,
             ),
             media_type="text/event-stream",
             headers={

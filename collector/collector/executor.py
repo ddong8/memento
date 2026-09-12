@@ -274,6 +274,28 @@ def resolve_agent_binary(binary: str, env_path: str | None = None) -> str | None
     return shutil.which(binary, path=env_path)
 
 
+def is_codex_thread_locked(session_id: str) -> bool:
+    """Check if a Codex session is currently locked by an active writer (e.g. ChatGPT.app)."""
+    if not session_id:
+        return False
+    lock_file = os.path.expanduser(f"~/.codex/thread-writer-locks/{session_id}.lock")
+    if not os.path.exists(lock_file):
+        return False
+    try:
+        import fcntl
+        fd = os.open(lock_file, os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        except BlockingIOError:
+            return True
+        finally:
+            os.close(fd)
+    except Exception:
+        return False
+
+
 def build_agent_command(
     binary: str,
     resolved: str,
@@ -283,6 +305,7 @@ def build_agent_command(
     effort: str = "",
     max_budget_usd: Any = None,
     args: list[Any] | None = None,
+    fork: bool = False,
 ) -> list[str]:
     """Build CLI argument list for the target agent runner."""
     binary_norm = binary.strip().lower()
@@ -301,11 +324,12 @@ def build_agent_command(
         return cmd
 
     if binary_norm in ("codex", "codex-cli"):
+        subcmd = "fork" if fork else "resume"
         if session_id:
             cmd = [
                 resolved,
                 "exec",
-                "resume",
+                subcmd,
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--skip-git-repo-check",
             ]
@@ -362,11 +386,12 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
       binary: "claude" (default), "codex", "agy", etc.
       cwd: directory to run in (default: device home)
       prompt: instruction string to pass (required)
-      session_id: optional session id to resume
+      session_id: optional session id to resume/fork
       model: optional model flag override
       effort: optional reasoning effort for codex
       max_budget_usd: optional spend ceiling for claude
       args: optional list of string arguments to append
+      fork: optional force fork mode for codex
     """
     prompt = (payload or {}).get("prompt") or ""
     if not prompt.strip():
@@ -384,6 +409,11 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
     effort = str((payload or {}).get("effort") or "").strip()
     budget = (payload or {}).get("max_budget_usd")
     extra = (payload or {}).get("args")
+    fork_mode = bool((payload or {}).get("fork"))
+
+    # Auto-fork if session is currently locked by active writer
+    if not fork_mode and binary in ("codex", "codex-cli") and session_id and is_codex_thread_locked(session_id):
+        fork_mode = True
 
     cmd = build_agent_command(
         binary=binary,
@@ -394,6 +424,7 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
         effort=effort,
         max_budget_usd=budget,
         args=extra if isinstance(extra, list) else None,
+        fork=fork_mode,
     )
 
     try:
@@ -401,6 +432,30 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
             cmd, cwd=cwd, capture_output=True, text=True,
             timeout=timeout, env=sub_env,
         )
+        # Automatic reactive retry with fork if resume hits active writer lock conflict
+        if (
+            proc.returncode != 0
+            and binary in ("codex", "codex-cli")
+            and session_id
+            and not fork_mode
+            and "already has an active writer" in (proc.stderr or "")
+        ):
+            retry_cmd = build_agent_command(
+                binary=binary,
+                resolved=resolved,
+                prompt=prompt,
+                session_id=session_id,
+                model=model,
+                effort=effort,
+                max_budget_usd=budget,
+                args=extra if isinstance(extra, list) else None,
+                fork=True,
+            )
+            proc = subprocess.run(
+                retry_cmd, cwd=cwd, capture_output=True, text=True,
+                timeout=timeout, env=sub_env,
+            )
+
         return {
             "status": "succeeded" if proc.returncode == 0 else "failed",
             "exit_code": proc.returncode,

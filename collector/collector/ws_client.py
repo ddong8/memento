@@ -23,6 +23,7 @@ from .executor import (
     build_agent_command,
     build_subprocess_env,
     enroll,
+    is_codex_thread_locked,
     is_enabled,
     remote_exec_key,
     resolve_agent_binary,
@@ -102,6 +103,15 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
+    binary = ""
+    session_id = ""
+    model = ""
+    effort = ""
+    budget = None
+    extra = None
+    fork_mode = False
+    resolved = None
+    sub_env = None
 
     try:
         extra_kwargs: dict[str, Any] = {}
@@ -138,6 +148,26 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             effort = str(payload.get("effort") or "").strip()
             budget = payload.get("max_budget_usd")
             extra = payload.get("args")
+            fork_mode = bool(payload.get("fork"))
+
+            # Proactive lock detection: if locked by ChatGPT.app or another process, auto-switch to fork
+            if not fork_mode and binary in ("codex", "codex-cli") and session_id:
+                if is_codex_thread_locked(session_id):
+                    fork_mode = True
+                    notice = (
+                        "⚡ [会话保护] 该 Codex 会话当前正被 ChatGPT 客户端占用锁定。\n"
+                        "已自动无缝切换为 Fork 分支模式继续对话（完整继承全部历史记忆与上下文）...\n\n"
+                    )
+                    stderr_chunks.append(notice)
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "task_output",
+                            "task_id": task_id,
+                            "stream": "stderr",
+                            "chunk": notice,
+                        }))
+                    except Exception:
+                        pass
 
             cmd = build_agent_command(
                 binary=binary,
@@ -148,6 +178,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 effort=effort,
                 max_budget_usd=budget,
                 args=extra if isinstance(extra, list) else None,
+                fork=fork_mode,
             )
 
             proc = await asyncio.create_subprocess_exec(
@@ -200,22 +231,66 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
         full_stdout = "".join(stdout_chunks)[:100_000]
         full_stderr = "".join(stderr_chunks)[:100_000]
-        if proc.returncode != 0 and "already has an active writer" in full_stderr:
-            tip = (
-                "\n\n💡 [诊断提示] 该 Codex 会话当前正被 ChatGPT 桌面端 (ChatGPT.app) 打开锁定。\n"
-                "Codex 为防止多端同时写入导致数据冲突损坏，加了排他独占写锁 (thread-writer lock)。\n"
-                "👉 解决办法：请在 ChatGPT 桌面客户端中切换到其他对话（或 Cmd+Q 退出 ChatGPT），释放该会话的锁后再点击发送。"
+
+        # Reactive retry: if resume failed due to active writer lock, automatically retry with fork
+        if (
+            proc.returncode != 0
+            and action == "agent"
+            and binary in ("codex", "codex-cli")
+            and session_id
+            and not fork_mode
+            and resolved
+            and "already has an active writer" in full_stderr
+        ):
+            retry_notice = (
+                "\n⚡ [自动重试] 该会话当前被独占锁定，正在自动切换为 Fork 分支模式重新执行（完整继承历史记忆）...\n\n"
             )
-            full_stderr += tip
+            stderr_chunks.append(retry_notice)
             try:
                 await ws.send(json.dumps({
                     "type": "task_output",
                     "task_id": task_id,
                     "stream": "stderr",
-                    "chunk": tip,
+                    "chunk": retry_notice,
                 }))
             except Exception:
                 pass
+
+            retry_cmd = build_agent_command(
+                binary=binary,
+                resolved=resolved,
+                prompt=prompt,
+                session_id=session_id,
+                model=model,
+                effort=effort,
+                max_budget_usd=budget,
+                args=extra if isinstance(extra, list) else None,
+                fork=True,
+            )
+            retry_proc = await asyncio.create_subprocess_exec(
+                *retry_cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=sub_env,
+                **extra_kwargs,
+            )
+            _running_tasks[task_id] = retry_proc
+            s_out = asyncio.create_task(_stream_pipe(retry_proc.stdout, "stdout", task_id, ws, stdout_chunks))
+            s_err = asyncio.create_task(_stream_pipe(retry_proc.stderr, "stderr", task_id, ws, stderr_chunks))
+            try:
+                await asyncio.wait_for(retry_proc.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning("Retry task %s timed out after %ds", task_id, timeout)
+                _kill_subprocess(retry_proc, signal.SIGTERM)
+                s_out.cancel()
+                s_err.cancel()
+            await asyncio.gather(s_out, s_err, return_exceptions=True)
+            proc = retry_proc
+            full_stdout = "".join(stdout_chunks)[:100_000]
+            full_stderr = "".join(stderr_chunks)[:100_000]
+
         status = "succeeded" if proc.returncode == 0 else "failed"
 
         await ws.send(json.dumps({

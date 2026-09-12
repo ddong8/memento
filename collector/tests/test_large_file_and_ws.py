@@ -127,6 +127,26 @@ class LargeFileAndWSTests(unittest.TestCase):
         self.assertEqual(cmd[-2], "01a07ef6-f778-7b01-87c2-84b8617b1dc4")
         self.assertEqual(cmd[-1], "怎么还在执行任务啊")
 
+    def test_build_agent_command_codex_fork(self):
+        from collector.executor import build_agent_command
+
+        cmd = build_agent_command(
+            binary="codex",
+            resolved="/usr/local/bin/codex",
+            prompt="fork and continue",
+            session_id="01a07ef6-f778-7b01-87c2-84b8617b1dc4",
+            fork=True,
+        )
+        self.assertEqual(cmd[0], "/usr/local/bin/codex")
+        self.assertEqual(cmd[1], "exec")
+        self.assertEqual(cmd[2], "fork")
+        self.assertNotIn("resume", cmd)
+        self.assertNotIn("--color", cmd)
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", cmd)
+        self.assertIn("--skip-git-repo-check", cmd)
+        self.assertEqual(cmd[-2], "01a07ef6-f778-7b01-87c2-84b8617b1dc4")
+        self.assertEqual(cmd[-1], "fork and continue")
+
     def test_build_agent_command_codex_new(self):
         from collector.executor import build_agent_command
 

@@ -66,9 +66,11 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     t_lower = t.lower()
     if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown"):
         return True
+    if t_lower.startswith(("agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-")):
+        return True
     if "\\" in t or "(.*?)" in t or "<" in t or t.startswith("re.search"):
         return True
-    if t_lower.endswith((".jsonl", ".json", ".pbtxt", ".sqlite")):
+    if t_lower.endswith((".jsonl", ".json", ".pbtxt", ".sqlite", ".md")):
         return True
     if _UUID_RE.match(t):
         return True

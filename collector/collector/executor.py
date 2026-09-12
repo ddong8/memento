@@ -456,11 +456,30 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
                 timeout=timeout, env=sub_env,
             )
 
+        stdout_txt = _truncate(proc.stdout or "")
+        stderr_txt = _truncate(proc.stderr or "")
+
+        if (
+            proc.returncode != 0
+            and binary in ("claude", "claude-code")
+            and session_id
+            and ("Prompt is too long" in stdout_txt or "Prompt is too long" in stderr_txt)
+        ):
+            diag = (
+                "\n\n💡 [诊断原因与建议]\n"
+                f"当前接续的 Claude Code 会话历史过长（Session ID: {session_id[:8]}...）。\n"
+                "“Prompt is too long”并非指您输入的提问过长，而是该旧会话已累计数千条消息与工具记录，"
+                "超出了 Anthropic 200,000 Token 上下文限制。\n\n"
+                "👉 解决办法：\n"
+                "请在上方下拉框切换为【➕ 新建独立会话】（或清除已选历史会话），重新提问即可立即恢复正常对话。"
+            )
+            stderr_txt += diag
+
         return {
             "status": "succeeded" if proc.returncode == 0 else "failed",
             "exit_code": proc.returncode,
-            "stdout": _truncate(proc.stdout or ""),
-            "stderr": _truncate(proc.stderr or ""),
+            "stdout": stdout_txt,
+            "stderr": stderr_txt,
         }
     except subprocess.TimeoutExpired:
         return {"status": "timeout", "error": f"agent timed out after {timeout}s"}

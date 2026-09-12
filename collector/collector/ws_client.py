@@ -291,6 +291,23 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             full_stdout = "".join(stdout_chunks)[:100_000]
             full_stderr = "".join(stderr_chunks)[:100_000]
 
+        if (
+            proc.returncode != 0
+            and action == "agent"
+            and binary in ("claude", "claude-code")
+            and session_id
+            and ("Prompt is too long" in full_stdout or "Prompt is too long" in full_stderr)
+        ):
+            diag_notice = (
+                "\n\n💡 [诊断原因与建议]\n"
+                f"当前接续的 Claude Code 会话历史过长（Session ID: {session_id[:8]}...）。\n"
+                "“Prompt is too long”并非指您输入的提问过长，而是该旧会话已累计数千条消息与工具记录，"
+                "超出了 Anthropic 200,000 Token 上下文限制。\n\n"
+                "👉 解决办法：\n"
+                "请在上方下拉框切换为【➕ 新建独立会话】（或清除已选历史会话），重新提问即可立即恢复正常对话。"
+            )
+            full_stderr += diag_notice
+
         status = "succeeded" if proc.returncode == 0 else "failed"
 
         await ws.send(json.dumps({

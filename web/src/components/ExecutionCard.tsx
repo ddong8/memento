@@ -97,6 +97,10 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
     command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
   );
   const isExit1NoMatch = result?.exit_code === 1 && isMatchFilter && (!result.stderr || result.stderr.trim().length === 0);
+  const isPromptTooLong = Boolean(
+    (result?.stdout && result.stdout.includes("Prompt is too long")) ||
+    (result?.stderr && result.stderr.includes("Prompt is too long"))
+  );
 
   const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
   const isFailed = !isExit1NoMatch && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
@@ -582,6 +586,29 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
               />
             )}
           </pre>
+          )}
+
+          {isPromptTooLong && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.35)",
+                color: "var(--aurora-fg1)",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "#f59e0b", marginBottom: 4 }}>
+                ⚠️ Claude Code 历史会话超出上下文限制 (Prompt is too long)
+              </div>
+              <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
+                “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与记录（超过了 200,000 Token 上下文限制）。
+                <br />
+                👉 <b>解决办法</b>：请在底部提问区域的会话下拉框中切换为<b>【➕ 新建独立会话】</b>，重新提问即可立即正常对话。
+              </div>
+            </div>
           )}
         </div>
       )}

@@ -103,6 +103,81 @@ class LargeFileAndWSTests(unittest.TestCase):
         finally:
             file_path.unlink(missing_ok=True)
 
+    def test_build_agent_command_codex_resume(self):
+        from collector.executor import build_agent_command
+
+        cmd = build_agent_command(
+            binary="codex",
+            resolved="/usr/local/bin/codex",
+            prompt="怎么还在执行任务啊",
+            session_id="01a07ef6-f778-7b01-87c2-84b8617b1dc4",
+            model="o3",
+            effort="high",
+        )
+        self.assertEqual(cmd[0], "/usr/local/bin/codex")
+        self.assertEqual(cmd[1], "exec")
+        self.assertEqual(cmd[2], "resume")
+        self.assertNotIn("--color", cmd)
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", cmd)
+        self.assertIn("--skip-git-repo-check", cmd)
+        self.assertIn("-c", cmd)
+        self.assertIn('model_reasoning_effort="high"', cmd)
+        self.assertIn("-m", cmd)
+        self.assertIn("o3", cmd)
+        self.assertEqual(cmd[-2], "01a07ef6-f778-7b01-87c2-84b8617b1dc4")
+        self.assertEqual(cmd[-1], "怎么还在执行任务啊")
+
+    def test_build_agent_command_codex_new(self):
+        from collector.executor import build_agent_command
+
+        cmd = build_agent_command(
+            binary="codex",
+            resolved="/usr/local/bin/codex",
+            prompt="hello new session",
+        )
+        self.assertEqual(cmd[0], "/usr/local/bin/codex")
+        self.assertEqual(cmd[1], "exec")
+        self.assertNotIn("resume", cmd)
+        self.assertNotIn("--color", cmd)
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", cmd)
+        self.assertEqual(cmd[-1], "hello new session")
+
+    def test_build_agent_command_claude(self):
+        from collector.executor import build_agent_command
+
+        cmd = build_agent_command(
+            binary="claude",
+            resolved="/usr/local/bin/claude",
+            prompt="write code",
+            session_id="session-123",
+            max_budget_usd=5.0,
+        )
+        self.assertEqual(cmd[0], "/usr/local/bin/claude")
+        self.assertIn("-p", cmd)
+        self.assertIn("-r", cmd)
+        self.assertIn("session-123", cmd)
+        self.assertIn("--max-budget-usd", cmd)
+        self.assertIn("5.0", cmd)
+        self.assertEqual(cmd[-1], "write code")
+
+    def test_build_agent_command_agy(self):
+        from collector.executor import build_agent_command
+
+        cmd = build_agent_command(
+            binary="agy",
+            resolved="/usr/local/bin/agy",
+            prompt="refactor this",
+            session_id="conv-456",
+            model="pro",
+        )
+        self.assertEqual(cmd[0], "/usr/local/bin/agy")
+        self.assertIn("--resume", cmd)
+        self.assertIn("conv-456", cmd)
+        self.assertIn("--model", cmd)
+        self.assertIn("pro", cmd)
+        self.assertIn("-p", cmd)
+        self.assertEqual(cmd[-1], "refactor this")
+
 
 if __name__ == "__main__":
     unittest.main()

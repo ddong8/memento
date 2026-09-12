@@ -19,7 +19,14 @@ import urllib.parse
 from typing import Any
 
 from .config import CollectorConfig
-from .executor import build_subprocess_env, enroll, is_enabled, remote_exec_key
+from .executor import (
+    build_agent_command,
+    build_subprocess_env,
+    enroll,
+    is_enabled,
+    remote_exec_key,
+    resolve_agent_binary,
+)
 from .tls import SSL_CONTEXT
 
 logger = logging.getLogger(__name__)
@@ -122,111 +129,26 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             binary = str(payload.get("binary") or "claude").strip().lower()
             sub_env = build_subprocess_env()
 
-            # Smart agent resolution
-            resolved = None
-            if binary in ("claude", "claude-code"):
-                resolved = shutil.which("claude", path=sub_env.get("PATH"))
-                if not resolved:
-                    import glob
-                    candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude")) + [
-                        os.path.expanduser("~/.fnm/current/bin/claude"),
-                        os.path.expanduser("~/.local/bin/claude"),
-                    ]
-                    for c in candidates:
-                        if os.path.isfile(c) and os.access(c, os.X_OK):
-                            resolved = c
-                            break
-                session_id = str(payload.get("session_id") or "").strip()
-                model = str(payload.get("model") or "").strip()
+            resolved = resolve_agent_binary(binary, sub_env.get("PATH"))
+            if not resolved:
+                raise FileNotFoundError(f"Agent CLI ('{binary}') not found on this device.")
 
-                cmd = [resolved, "-p"]
-                if session_id:
-                    cmd += ["-r", session_id]
-                cmd += ["--output-format", "text", "--dangerously-skip-permissions"]
-                if model:
-                    cmd += ["--model", model]
-                cmd += [prompt]
+            session_id = str(payload.get("session_id") or "").strip()
+            model = str(payload.get("model") or "").strip()
+            effort = str(payload.get("effort") or "").strip()
+            budget = payload.get("max_budget_usd")
+            extra = payload.get("args")
 
-            elif binary in ("codex", "codex-cli"):
-                resolved = shutil.which("codex", path=sub_env.get("PATH"))
-                if not resolved:
-                    import glob
-                    candidates = [
-                        "/Applications/ChatGPT.app/Contents/Resources/codex",
-                        os.path.expanduser("~/.local/bin/codex"),
-                    ] + glob.glob(os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-*/codex")) \
-                      + glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/codex"))
-                    for c in candidates:
-                        if os.path.isfile(c) and os.access(c, os.X_OK):
-                            resolved = c
-                            break
-                if not resolved:
-                    raise FileNotFoundError("Codex CLI ('codex') not found on this device.")
-
-                session_id = str(payload.get("session_id") or "").strip()
-                model = str(payload.get("model") or "").strip()
-                effort = str(payload.get("effort") or "").strip()
-
-                if session_id:
-                    cmd = [resolved, "exec", "resume", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
-                    if effort:
-                        cmd += ["-c", f'model_reasoning_effort="{effort}"']
-                    if model:
-                        cmd += ["-m", model]
-                    cmd += [session_id, prompt]
-                else:
-                    cmd = [resolved, "exec", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"]
-                    if effort:
-                        cmd += ["-c", f'model_reasoning_effort="{effort}"']
-                    if model:
-                        cmd += ["-m", model]
-                    cmd += [prompt]
-
-            elif binary in ("agy", "antigravity"):
-                resolved = shutil.which("agy", path=sub_env.get("PATH")) or shutil.which("antigravity", path=sub_env.get("PATH"))
-                if not resolved:
-                    candidates = [
-                        os.path.expanduser("~/.gemini/antigravity/bin/agy"),
-                        os.path.expanduser("~/.gemini/antigravity/bin/agy_cli.py"),
-                        os.path.expanduser("~/.antigravity/antigravity/bin/agy"),
-                        "/opt/homebrew/bin/agy",
-                        "/usr/local/bin/agy",
-                        os.path.expanduser("~/.local/bin/agy"),
-                    ]
-                    for c in candidates:
-                        if os.path.isfile(c) and os.access(c, os.X_OK):
-                            resolved = c
-                            break
-                if not resolved:
-                    raise FileNotFoundError("Antigravity CLI ('agy') not found on this device.")
-
-                session_id = str(payload.get("session_id") or "").strip()
-                model = str(payload.get("model") or "").strip()
-
-                cmd = [resolved]
-                if session_id:
-                    cmd += ["--resume", session_id]
-                if model:
-                    cmd += ["--model", model]
-                cmd += ["-p", prompt]
-
-            else:
-                resolved = shutil.which(binary, path=sub_env.get("PATH"))
-                if not resolved:
-                    raise FileNotFoundError(f"agent binary not found: {binary}")
-                session_id = str(payload.get("session_id") or "").strip()
-                model = str(payload.get("model") or "").strip()
-                cmd = [resolved]
-                if session_id:
-                    cmd += ["--resume", session_id]
-                if model:
-                    cmd += ["--model", model]
-                cmd += ["-p", prompt]
-
-            if payload.get("max_budget_usd"):
-                cmd += ["--max-budget-usd", str(payload["max_budget_usd"])]
-            if isinstance(payload.get("args"), list):
-                cmd += [str(a) for a in payload["args"]]
+            cmd = build_agent_command(
+                binary=binary,
+                resolved=resolved,
+                prompt=prompt,
+                session_id=session_id,
+                model=model,
+                effort=effort,
+                max_budget_usd=budget,
+                args=extra if isinstance(extra, list) else None,
+            )
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

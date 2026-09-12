@@ -226,41 +226,180 @@ def _run_shell(payload: dict, timeout: int) -> dict:
         return {"status": "failed", "error": f"{type(e).__name__}: {e}"}
 
 
-def _run_agent(payload: dict, timeout: int) -> dict:
-    """Run a headless coding agent on a prompt.
+def resolve_agent_binary(binary: str, env_path: str | None = None) -> str | None:
+    """Resolve the executable path for known coding agents (claude, codex, agy), checking standard fallback locations."""
+    import glob
+    binary_norm = (binary or "").strip().lower()
+    if binary_norm in ("claude", "claude-code"):
+        resolved = shutil.which("claude", path=env_path)
+        if not resolved:
+            candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude")) + [
+                os.path.expanduser("~/.fnm/current/bin/claude"),
+                os.path.expanduser("~/.local/bin/claude"),
+            ]
+            for c in candidates:
+                if os.path.isfile(c) and os.access(c, os.X_OK):
+                    return c
+        return resolved
 
-    Uses `claude -p` (non-interactive print mode). The binary must already be
-    installed and authenticated on this device — the collector deliberately
-    does not ship or manage agent credentials.
+    if binary_norm in ("codex", "codex-cli"):
+        resolved = shutil.which("codex", path=env_path)
+        if not resolved:
+            candidates = [
+                "/Applications/ChatGPT.app/Contents/Resources/codex",
+                os.path.expanduser("~/.local/bin/codex"),
+            ] + glob.glob(os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-*/codex")) \
+              + glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/codex"))
+            for c in candidates:
+                if os.path.isfile(c) and os.access(c, os.X_OK):
+                    return c
+        return resolved
+
+    if binary_norm in ("agy", "antigravity"):
+        resolved = shutil.which("agy", path=env_path) or shutil.which("antigravity", path=env_path)
+        if not resolved:
+            candidates = [
+                os.path.expanduser("~/.gemini/antigravity/bin/agy"),
+                os.path.expanduser("~/.gemini/antigravity/bin/agy_cli.py"),
+                os.path.expanduser("~/.antigravity/antigravity/bin/agy"),
+                "/opt/homebrew/bin/agy",
+                "/usr/local/bin/agy",
+                os.path.expanduser("~/.local/bin/agy"),
+            ]
+            for c in candidates:
+                if os.path.isfile(c) and os.access(c, os.X_OK):
+                    return c
+        return resolved
+
+    return shutil.which(binary, path=env_path)
+
+
+def build_agent_command(
+    binary: str,
+    resolved: str,
+    prompt: str,
+    session_id: str = "",
+    model: str = "",
+    effort: str = "",
+    max_budget_usd: Any = None,
+    args: list[Any] | None = None,
+) -> list[str]:
+    """Build CLI argument list for the target agent runner."""
+    binary_norm = binary.strip().lower()
+    if binary_norm in ("claude", "claude-code"):
+        cmd = [resolved, "-p"]
+        if session_id:
+            cmd += ["-r", session_id]
+        cmd += ["--output-format", "text", "--dangerously-skip-permissions"]
+        if model:
+            cmd += ["--model", model]
+        if max_budget_usd:
+            cmd += ["--max-budget-usd", str(max_budget_usd)]
+        if isinstance(args, list):
+            cmd += [str(a) for a in args]
+        cmd += [prompt]
+        return cmd
+
+    if binary_norm in ("codex", "codex-cli"):
+        if session_id:
+            cmd = [
+                resolved,
+                "exec",
+                "resume",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+            ]
+            if effort:
+                cmd += ["-c", f'model_reasoning_effort="{effort}"']
+            if model:
+                cmd += ["-m", model]
+            if isinstance(args, list):
+                cmd += [str(a) for a in args]
+            cmd += [session_id, prompt]
+        else:
+            cmd = [
+                resolved,
+                "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+            ]
+            if effort:
+                cmd += ["-c", f'model_reasoning_effort="{effort}"']
+            if model:
+                cmd += ["-m", model]
+            if isinstance(args, list):
+                cmd += [str(a) for a in args]
+            cmd += [prompt]
+        return cmd
+
+    if binary_norm in ("agy", "antigravity"):
+        cmd = [resolved]
+        if session_id:
+            cmd += ["--resume", session_id]
+        if model:
+            cmd += ["--model", model]
+        if isinstance(args, list):
+            cmd += [str(a) for a in args]
+        cmd += ["-p", prompt]
+        return cmd
+
+    # Default fallback
+    cmd = [resolved]
+    if session_id:
+        cmd += ["--resume", session_id]
+    if model:
+        cmd += ["--model", model]
+    if isinstance(args, list):
+        cmd += [str(a) for a in args]
+    cmd += ["-p", prompt]
+    return cmd
+
+
+def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
+    """Run a headless agent invocation against a local checkout.
+
+    Payload keys:
+      binary: "claude" (default), "codex", "agy", etc.
+      cwd: directory to run in (default: device home)
+      prompt: instruction string to pass (required)
+      session_id: optional session id to resume
+      model: optional model flag override
+      effort: optional reasoning effort for codex
+      max_budget_usd: optional spend ceiling for claude
+      args: optional list of string arguments to append
     """
     prompt = (payload or {}).get("prompt") or ""
     if not prompt.strip():
         return {"status": "failed", "error": "empty prompt"}
 
     binary = (payload or {}).get("binary") or "claude"
-    resolved = shutil.which(binary)
+    sub_env = build_subprocess_env()
+    resolved = resolve_agent_binary(binary, sub_env.get("PATH"))
     if not resolved:
         return {"status": "failed", "error": f"agent binary not found on PATH: {binary}"}
 
     cwd = _clean_cwd((payload or {}).get("cwd"))
-
-    cmd = [resolved, "-p", prompt]
-    model = (payload or {}).get("model")
-    if model:
-        cmd += ["--model", model]
-    # Optional spend ceiling — a long agent run on someone else's machine
-    # should be boundable by the person dispatching it.
+    session_id = str((payload or {}).get("session_id") or "").strip()
+    model = str((payload or {}).get("model") or "").strip()
+    effort = str((payload or {}).get("effort") or "").strip()
     budget = (payload or {}).get("max_budget_usd")
-    if budget:
-        cmd += ["--max-budget-usd", str(budget)]
     extra = (payload or {}).get("args")
-    if isinstance(extra, list):
-        cmd += [str(a) for a in extra]
+
+    cmd = build_agent_command(
+        binary=binary,
+        resolved=resolved,
+        prompt=prompt,
+        session_id=session_id,
+        model=model,
+        effort=effort,
+        max_budget_usd=budget,
+        args=extra if isinstance(extra, list) else None,
+    )
 
     try:
         proc = subprocess.run(
             cmd, cwd=cwd, capture_output=True, text=True,
-            timeout=timeout, env=build_subprocess_env(),
+            timeout=timeout, env=sub_env,
         )
         return {
             "status": "succeeded" if proc.returncode == 0 else "failed",

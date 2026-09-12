@@ -523,6 +523,80 @@ async def _reconcile_project_documents(
                 doc.project_id = target_project.id
             await db.flush()
 
+        # 2.5. Auto-materialize parent conversation documents for subagents
+        # When subagents (e.g. projects/.../<session_id>/subagents/...) exist in this project
+        # but the parent document (projects/.../<session_id>.jsonl) does not exist (e.g. because
+        # the parent file was huge or failed upload), the session is orphaned and omitted.
+        subagent_q = select(Document).where(
+            Document.project_id == target_project.id,
+            Document.category == "conversation",
+            Document.relative_path.ilike("%/subagents/%"),
+        )
+        if target_mid is not None:
+            subagent_q = subagent_q.where(Document.machine_id == target_mid)
+        subagent_rows = (await db.execute(subagent_q)).scalars().all()
+
+        parent_to_subs: dict[str, list[Document]] = {}
+        for s_doc in subagent_rows:
+            rp = s_doc.relative_path or ""
+            if "/subagents/" in rp:
+                parent_base = rp.split("/subagents/")[0] + ".jsonl"
+                parent_to_subs.setdefault(parent_base, []).append(s_doc)
+
+        for parent_base, s_docs in parent_to_subs.items():
+            # Check if parent Document exists
+            p_exist_q = select(Document).where(
+                Document.relative_path == parent_base,
+            )
+            p_exist = (await db.execute(p_exist_q)).scalar_one_or_none()
+            if p_exist is None:
+                first_sub = s_docs[0]
+                session_id = parent_base.split("/")[-1].replace(".jsonl", "")
+                parent_title = ""
+
+                # Try to extract title from memory files referencing this session
+                mem_q = select(Document).where(
+                    Document.project_id == target_project.id,
+                    Document.category == "memory",
+                    Document.content.ilike(f"%{session_id}%"),
+                ).limit(1)
+                mem_doc = (await db.execute(mem_q)).scalar_one_or_none()
+                if mem_doc and mem_doc.title:
+                    clean_mem = mem_doc.title.strip().replace("-", " ")
+                    parent_title = clean_mem
+                elif first_sub.title and not _is_junk_or_uuid_title(first_sub.title, session_id):
+                    parent_title = first_sub.title
+
+                if not parent_title or _is_junk_or_uuid_title(parent_title, session_id):
+                    parent_title = f"{clean_title} 会话"
+
+                new_parent = Document(
+                    id=uuid.uuid4(),
+                    project_id=target_project.id,
+                    machine_id=first_sub.machine_id,
+                    tool_id=target_project.tool_id,
+                    category="conversation",
+                    content_type="jsonl",
+                    relative_path=parent_base,
+                    title=parent_title,
+                    file_size_bytes=0,
+                    content="",
+                    content_hash=f"synthetic-{session_id[:8]}",
+                    metadata_={
+                        "session_id": session_id,
+                        "is_subagent": False,
+                        "project_hash": clean_title,
+                        "synthetic": True,
+                    },
+                    synced_at=first_sub.synced_at,
+                    source_modified_at=first_sub.source_modified_at,
+                )
+                db.add(new_parent)
+                adopted_count += 1
+            elif p_exist.project_id != target_project.id:
+                p_exist.project_id = target_project.id
+                adopted_count += 1
+
         # 3. Clean up empty fragmented projects
         for fp in frag_rows:
             remaining_cnt = (await db.execute(
@@ -651,21 +725,65 @@ async def get_project_conversations(
             main_convs.append(d)
             parent_path_to_id[rp] = str(d.id)
 
+    # In-memory safety: if any subagents have a parent_base not in parent_path_to_id,
+    # include a parent Document in main_convs so their session is never omitted
+    for parent_base, children in list(subagent_map.items()):
+        if parent_base not in parent_path_to_id and children:
+            first_child = children[0]
+            sid = parent_base.split("/")[-1].replace(".jsonl", "")
+            p_title = f"{project.title} 会话"
+            proxy_doc = Document(
+                id=uuid.uuid4(),
+                project_id=project.id,
+                machine_id=first_child.machine_id,
+                tool_id=project.tool_id,
+                category="conversation",
+                content_type="jsonl",
+                relative_path=parent_base,
+                title=p_title,
+                file_size_bytes=0,
+                content="",
+                content_hash=f"synthetic-{sid[:8]}",
+                metadata_={
+                    "session_id": sid,
+                    "is_subagent": False,
+                    "project_hash": project.title,
+                    "synthetic": True,
+                },
+                synced_at=first_child.synced_at,
+                source_modified_at=first_child.source_modified_at,
+            )
+            main_convs.append(proxy_doc)
+            parent_path_to_id[parent_base] = str(proxy_doc.id)
+
     # Sort main sessions: when order == "desc" (e.g. dropdown / recent sessions),
     # sort by the LATEST activity timestamp (func.max). When order == "asc" (timeline reading),
     # sort by the FIRST message timestamp (func.min).
     conv_ts: dict[str, object] = {}
     if main_convs:
-        ids = [d.id for d in main_convs]
+        all_query_ids = [d.id for d in main_convs]
+        for d in main_convs:
+            for child in subagent_map.get(d.relative_path or "", []):
+                all_query_ids.append(child.id)
+
         agg_fn = func.max if order == "desc" else func.min
         ts_rows = await db.execute(
             select(ConversationMessage.document_id, agg_fn(ConversationMessage.timestamp))
-            .where(ConversationMessage.document_id.in_(ids))
+            .where(ConversationMessage.document_id.in_(all_query_ids))
             .group_by(ConversationMessage.document_id)
         )
         agg_ts_map = {row[0]: row[1] for row in ts_rows.all()}
         for d in main_convs:
-            conv_ts[str(d.id)] = agg_ts_map.get(d.id) or d.source_modified_at or d.synced_at
+            candidates = [agg_ts_map.get(d.id)]
+            for child in subagent_map.get(d.relative_path or "", []):
+                c_ts = agg_ts_map.get(child.id) or child.source_modified_at or child.synced_at
+                if c_ts:
+                    candidates.append(c_ts)
+            valid_ts = [t for t in candidates if t is not None]
+            if valid_ts:
+                conv_ts[str(d.id)] = max(valid_ts) if order == "desc" else min(valid_ts)
+            else:
+                conv_ts[str(d.id)] = d.source_modified_at or d.synced_at
 
     main_convs.sort(
         key=lambda d: conv_ts.get(str(d.id)) or d.synced_at,

@@ -367,6 +367,12 @@ class FileWatcher:
         if classification.sync_strategy == SyncStrategy.DELTA and new_offset < file_size:
             self._schedule(path)
 
+    def _schedule(self, path: Path) -> None:
+        """Schedule a follow-up processing of a large file that has more chunks to drain."""
+        timer = threading.Timer(0.5, self._on_file_changed, args=[path])
+        timer.daemon = True
+        timer.start()
+
     def initial_scan(self) -> int:
         """Do an initial full scan of all watched files. Returns count queued."""
         count = 0

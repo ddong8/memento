@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "server"))
+
+from server.services.ingest_service import (
+    _is_junk_or_uuid_title,
+    _title_from_user_messages,
+)
+
+
+class JunkTitleTests(unittest.TestCase):
+    def test_worker_id_titles_are_junk(self):
+        for t in (
+            "agent-ae793afb0f284c8bb",
+            "agent-acompact-48a1046426ab0b97",
+            "subagent-1234",
+            "wf_abcdef",
+            "workflow-xyz",
+        ):
+            self.assertTrue(_is_junk_or_uuid_title(t), t)
+
+    def test_compaction_preamble_is_junk(self):
+        self.assertTrue(_is_junk_or_uuid_title(
+            "This session is being continued from a previous conversation. "
+            "Analysis: the user asked..."))
+
+    def test_uuid_and_bare_session_id_are_junk(self):
+        sid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        self.assertTrue(_is_junk_or_uuid_title(sid))
+        self.assertTrue(_is_junk_or_uuid_title("a1b2c3d4", session_id="a1b2c3d4-xxxx"))
+
+    def test_regex_artifact_titles_are_junk(self):
+        for t in (r're.search(r"\d+", text)', r"match \d{4}", r"grab \w+ here"):
+            self.assertTrue(_is_junk_or_uuid_title(t), t)
+
+    def test_real_titles_are_kept(self):
+        for t in (
+            "修复登录 bug",
+            "ims系统还是报错啊",
+            # format string with \t — a real prompt, must NOT read as regex junk
+            'Run `docker compose ps --format "{{.Service}}\t{{.Status}}"`',
+            "Implement per-user data isolation for browse endpoints",
+        ):
+            self.assertFalse(_is_junk_or_uuid_title(t), t)
+
+
+class TitleFromUserMessagesTests(unittest.TestCase):
+    def test_picks_first_real_message(self):
+        self.assertEqual(
+            _title_from_user_messages(["修复登录问题", "后续追问"]),
+            "修复登录问题",
+        )
+
+    def test_scans_past_compaction_preamble(self):
+        # The real prompt is the SECOND message; the first is boilerplate.
+        self.assertEqual(
+            _title_from_user_messages([
+                "This session is being continued from a previous conversation...",
+                "继续开发时间线功能",
+            ]),
+            "继续开发时间线功能",
+        )
+
+    def test_returns_none_when_nothing_usable(self):
+        self.assertIsNone(_title_from_user_messages([None, "", "agent-xxxx"]))
+
+    def test_truncates_to_60_chars(self):
+        long = "x" * 200
+        self.assertEqual(len(_title_from_user_messages([long])), 60)
+
+
+if __name__ == "__main__":
+    unittest.main()

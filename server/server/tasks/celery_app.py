@@ -53,6 +53,7 @@ celery_app = Celery(
         "server.tasks.embedding_retry",
         "server.tasks.knowledge_retry",
         "server.tasks.tsvector_backfill",
+        "server.tasks.title_backfill",
         "server.tasks.db_backup",
     ],
 )
@@ -110,5 +111,14 @@ celery_app.conf.beat_schedule = {
     "daily-db-backup": {
         "task": "server.tasks.db_backup.run_daily_backup",
         "schedule": crontab(hour=3, minute=30),
+    },
+    # Hourly at :07 — re-derive real titles for docs still carrying junk
+    # worker-ID titles (agent-*, wf_*, UUIDs, compaction preamble). Only
+    # scans junk-titled rows and only writes on improvement, so once the
+    # backlog is drained each run is a cheap near-no-op that just catches
+    # any newly-arrived junk the ingest healer couldn't resolve.
+    "title-backfill": {
+        "task": "server.tasks.title_backfill.backfill_titles",
+        "schedule": crontab(minute=7),
     },
 }

@@ -68,7 +68,19 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
         return True
     if t_lower.startswith(("agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-")):
         return True
-    if "\\" in t or "(.*?)" in t or "<" in t or t.startswith("re.search"):
+    # Claude Code compaction preamble: when a session is compacted/continued,
+    # its first user message is this auto-generated boilerplate, not a real
+    # prompt. Without this guard the title healer promotes it verbatim, so
+    # every `acompact-*` session ends up titled "This session is being
+    # continued...". Match the prefix (the full text runs on for paragraphs).
+    if t_lower.startswith("this session is being continued from a previous conversation"):
+        return True
+    # Regex-artifact junk (e.g. a title accidentally derived from a re.search
+    # pattern). Match the regex-metacharacter escapes that only appear in
+    # patterns (\d \s \w \b …) — deliberately NOT \t \n \\ or the general
+    # "any backslash", which also occur in legitimate titles: Windows paths
+    # (d:\dev\…) and format strings ("{{.Service}}\t{{.Status}}").
+    if re.search(r"\\[dswDSWbB]", t) or "(.*?)" in t or "<" in t or t.startswith("re.search"):
         return True
     if t_lower.endswith((".jsonl", ".json", ".pbtxt", ".sqlite", ".md")):
         return True
@@ -77,6 +89,23 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     if session_id and (t == session_id or t == session_id[:8]):
         return True
     return False
+
+
+def _title_from_user_messages(contents: list[str | None], session_id: str | None = None) -> str | None:
+    """Pick a title from a sequence of user-message contents.
+
+    Returns the first line of the first message that isn't itself junk. Scans
+    past junk rather than stopping at the first entry, because compacted
+    sessions lead with the "continued from a previous conversation" preamble —
+    the real prompt is a later message. Returns None if nothing usable.
+    """
+    for content in contents:
+        if not content:
+            continue
+        cand = content.strip().split("\n")[0].strip()[:60]
+        if cand and not _is_junk_or_uuid_title(cand, session_id):
+            return cand
+    return None
 
 # Re-sanitize patterns (defense-in-depth)
 _RESANITIZE_PATTERNS = [
@@ -922,11 +951,13 @@ async def _extract_messages(
             if not _is_junk_or_uuid_title(cand, sid):
                 doc.title = cand
         elif batch:
-            first_user = next((m for m in batch if m.role == "user"), None)
-            if first_user and first_user.content:
-                cand = first_user.content.strip().split("\n")[0].strip()[:60]
-                if cand and not _is_junk_or_uuid_title(cand, sid):
-                    doc.title = cand
+            # Scan all user messages, not just the first: a compacted session
+            # leads with the continuation preamble, so the real prompt is later.
+            cand = _title_from_user_messages(
+                [m.content for m in batch if m.role == "user"], sid
+            )
+            if cand:
+                doc.title = cand
 
     # Codex user messages: supplement from history.jsonl and state_5.sqlite.
     # history.jsonl has ALL user inputs with timestamps; state_5.sqlite has first prompt.

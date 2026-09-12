@@ -40,30 +40,118 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
 
     # --- Claude Code format ---
     if tool_id == "claude_code":
+        if obj.get("isMeta"):
+            return None
+
         if msg_type in ("user", "assistant"):
             message = obj.get("message", {})
             role = message.get("role", msg_type)
             raw_content = message.get("content", "")
-            # Extract thinking separately from final text (Claude extended thinking)
-            thinking = _extract_thinking_parts(raw_content)
-            content = _extract_content(raw_content)
-            if not content.strip() and not thinking.strip():
-                return None
-            # If only thinking is present (no text reply), use thinking as content
-            if not content.strip():
-                content = thinking
-                thinking = ""
-            return NormalizedMessage(
-                role=role, content=content, thinking=thinking,
-                timestamp=timestamp, raw_type=msg_type,
-            )
+
+            # String content
+            if isinstance(raw_content, str):
+                content = _strip_system_tags(raw_content)
+                if "<command-name>" in content or "<command-message>" in content:
+                    return None
+                if not content.strip():
+                    return None
+                return NormalizedMessage(
+                    role=role, content=content,
+                    timestamp=timestamp, raw_type=msg_type,
+                )
+
+            # List of blocks
+            if isinstance(raw_content, list):
+                thinking = _extract_thinking_parts(raw_content)
+                text_blocks = [
+                    b.get("text", "") for b in raw_content
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                text_content = _strip_system_tags("\n".join(text_blocks))
+                tool_uses = [
+                    b for b in raw_content
+                    if isinstance(b, dict) and b.get("type") in ("tool_use", "toolCall")
+                ]
+                tool_results = [
+                    b for b in raw_content
+                    if isinstance(b, dict) and b.get("type") in ("tool_result", "toolResult")
+                ]
+
+                # Pure tool results (in Claude Code, sent under role "user")
+                if tool_results and not text_content.strip():
+                    b = tool_results[0]
+                    out = b.get("content", b.get("output", ""))
+                    if isinstance(out, list):
+                        out = "\n".join(
+                            r.get("text", "") if isinstance(r, dict) else str(r)
+                            for r in out
+                        )
+                    return NormalizedMessage(
+                        role="tool",
+                        content=str(out),
+                        timestamp=timestamp,
+                        raw_type="tool_output",
+                    )
+
+                # Tool use blocks
+                if tool_uses:
+                    b = tool_uses[0]
+                    name = b.get("name", "tool")
+                    inp = b.get("input") if "input" in b else b.get("arguments", {})
+                    if isinstance(inp, dict):
+                        if name == "Bash" and "command" in inp:
+                            tool_input = str(inp["command"])
+                        elif "path" in inp:
+                            tool_input = str(inp["path"])
+                        elif "file_path" in inp:
+                            tool_input = str(inp["file_path"])
+                        else:
+                            tool_input = json.dumps(inp, ensure_ascii=False)
+                    elif isinstance(inp, str):
+                        tool_input = inp
+                    else:
+                        tool_input = str(inp)
+
+                    if text_content.strip():
+                        return NormalizedMessage(
+                            role="assistant",
+                            content=text_content,
+                            thinking=thinking,
+                            tool_name=name,
+                            tool_input=tool_input,
+                            timestamp=timestamp,
+                            raw_type=msg_type,
+                        )
+                    return NormalizedMessage(
+                        role="tool",
+                        content=f"[{name}]",
+                        tool_name=name,
+                        tool_input=tool_input,
+                        thinking=thinking,
+                        timestamp=timestamp,
+                        raw_type="tool_call",
+                    )
+
+                # Normal conversational user or assistant turn
+                if not text_content.strip() and not thinking.strip():
+                    return None
+                if not text_content.strip():
+                    text_content = thinking
+                    thinking = ""
+                return NormalizedMessage(
+                    role=role,
+                    content=text_content,
+                    thinking=thinking,
+                    timestamp=timestamp,
+                    raw_type=msg_type,
+                )
 
         if msg_type == "ai-title":
             return None  # Skip title lines
 
         if msg_type == "system":
             content = _extract_content(obj.get("message", {}).get("content", ""))
-            if not content.strip() or "<command-name>" in content:
+            if not content.strip() or "<command-name>" in content or "<command-message>" in content:
                 return None  # Skip command metadata
             return NormalizedMessage(role="system", content=content, timestamp=timestamp, raw_type=msg_type)
 
@@ -348,7 +436,8 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
 
 _SYSTEM_TAGS = (
     "ide_opened_file|ide_selection|system-reminder|"
-    "user-prompt-submit-hook|task-notification"
+    "user-prompt-submit-hook|task-notification|"
+    "command-message|command-name|skill-format|total_tokens"
 )
 _SYSTEM_TAG_RE = re.compile(
     rf"<(?:{_SYSTEM_TAGS})[^>]*>.*?</(?:{_SYSTEM_TAGS})>",

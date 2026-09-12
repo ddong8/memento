@@ -847,6 +847,7 @@ async def get_project_conversations(
                 ConversationMessage.message_type,
                 ConversationMessage.timestamp,
                 ConversationMessage.line_number,
+                ConversationMessage.metadata_,
             )
             .where(ConversationMessage.document_id.in_(needed_ids))
             .order_by(ConversationMessage.document_id, ConversationMessage.line_number)
@@ -861,7 +862,7 @@ async def get_project_conversations(
                 ConversationMessage.timestamp <= as_of,
             ))
         rows = await db.execute(msg_q)
-        for did, role, content, mtype, ts, _ln in rows.all():
+        for did, role, content, mtype, ts, _ln, meta in rows.all():
             if role not in ("user", "assistant"):
                 continue
             if role == "user" and (
@@ -872,15 +873,15 @@ async def get_project_conversations(
                 continue
             if role == "assistant" and (
                 content.startswith("[Tool:")
-                and "\n" not in content.split("[Tool:")[0]
+                or content.startswith("[Result]")
             ):
                 continue
             msgs_by_doc.setdefault(did, []).append({
                 "role": role,
                 "content": content,
-                "thinking": None,
-                "tool_name": "",
-                "tool_input": "",
+                "thinking": (meta or {}).get("thinking") if meta else None,
+                "tool_name": (meta or {}).get("tool_name", "") if meta else "",
+                "tool_input": (meta or {}).get("tool_input", "") if meta else "",
                 "raw_type": mtype or "",
                 "timestamp": ts.isoformat() if ts else None,
             })

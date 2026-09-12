@@ -67,7 +67,108 @@ class ConversationParserTests(unittest.TestCase):
         self.assertFalse(_is_junk_or_uuid_title("项目时间线记录功能"))
         self.assertFalse(_is_junk_or_uuid_title("Fix login bug"))
 
+    def test_claude_code_user_text_message(self) -> None:
+        raw = json.dumps({
+            "type": "user",
+            "timestamp": "2026-09-05T07:00:02.361Z",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "在吗"}],
+            },
+        })
+        msg = parse_conversation_line(raw, "claude_code")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "user")
+        self.assertEqual(msg.content, "在吗")
+
+    def test_claude_code_skips_meta_and_command_injections(self) -> None:
+        # isMeta: true
+        meta_raw = json.dumps({
+            "type": "user",
+            "isMeta": True,
+            "message": {"role": "user", "content": "<command-message>workflow</command-message>"},
+        })
+        self.assertIsNone(parse_conversation_line(meta_raw, "claude_code"))
+
+        # command-name XML tag
+        cmd_raw = json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": "<command-name>workflow-authoring</command-name>",
+            },
+        })
+        self.assertIsNone(parse_conversation_line(cmd_raw, "claude_code"))
+
+    def test_claude_code_tool_use_parsed_as_tool_call(self) -> None:
+        raw = json.dumps({
+            "type": "assistant",
+            "timestamp": "2026-09-05T07:00:10Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_123",
+                        "name": "Bash",
+                        "input": {"command": "git status --short", "description": "Check git"},
+                    }
+                ],
+            },
+        })
+        msg = parse_conversation_line(raw, "claude_code")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "tool")
+        self.assertEqual(msg.raw_type, "tool_call")
+        self.assertEqual(msg.tool_name, "Bash")
+        self.assertEqual(msg.tool_input, "git status --short")
+
+    def test_claude_code_tool_result_parsed_as_tool_output(self) -> None:
+        raw = json.dumps({
+            "type": "user",
+            "timestamp": "2026-09-05T07:00:12Z",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_123",
+                        "content": '{"additionalProperties": false, "type": "object"}',
+                    }
+                ],
+            },
+        })
+        msg = parse_conversation_line(raw, "claude_code")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "tool")
+        self.assertEqual(msg.raw_type, "tool_output")
+        self.assertIn("additionalProperties", msg.content)
+        self.assertNotEqual(msg.role, "user")  # Crucial: NOT a user chat message!
+
+    def test_claude_code_assistant_text_with_thinking(self) -> None:
+        raw = json.dumps({
+            "type": "assistant",
+            "timestamp": "2026-09-05T07:00:20Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "Let me think about this"},
+                    {"type": "text", "text": "Here is the response."},
+                ],
+            },
+        })
+        msg = parse_conversation_line(raw, "claude_code")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "assistant")
+        self.assertEqual(msg.content, "Here is the response.")
+        self.assertEqual(msg.thinking, "Let me think about this")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

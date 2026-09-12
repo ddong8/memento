@@ -788,8 +788,14 @@ function AskPageContent() {
       );
       if (!targetSession) return;
 
-      let rawMsgs: Array<{ role: string; content: string; thinking?: string }> =
-        (targetSession.messages || []) as any;
+      let rawMsgs: Array<{
+        role: string;
+        content: string;
+        thinking?: string;
+        tool_name?: string;
+        tool_input?: string;
+        raw_type?: string;
+      }> = (targetSession.messages || []) as any;
 
       if (targetSession.conversation_id) {
         try {
@@ -799,6 +805,9 @@ function AskPageContent() {
               role: m.role || "user",
               content: m.content || "",
               thinking: m.thinking || undefined,
+              tool_name: m.tool_name || undefined,
+              tool_input: m.tool_input || undefined,
+              raw_type: m.raw_type || undefined,
             }));
           }
         } catch (err) {
@@ -806,13 +815,126 @@ function AskPageContent() {
         }
       }
 
-      const loadedTurns: Turn[] = rawMsgs
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content || "",
-          thinking: m.thinking || undefined,
-        }));
+      // Helper to parse legacy [Tool: <name>]\n<input> blocks embedded in text
+      const parseLegacyToolContent = (text: string) => {
+        const toolIdx = text.indexOf("[Tool:");
+        if (toolIdx === -1) return null;
+        const preText = text.slice(0, toolIdx).trim();
+        const toolPart = text.slice(toolIdx);
+        const match = toolPart.match(/^\[Tool:\s*([^\]]+)\]\s*([\s\S]*)$/);
+        if (!match) return null;
+        const name = match[1].trim();
+        const inputStr = match[2].trim();
+        let command = inputStr;
+        try {
+          const parsed = JSON.parse(inputStr);
+          if (typeof parsed === "object" && parsed !== null) {
+            if (parsed.command) command = parsed.command;
+          }
+        } catch {}
+        return { preText, name, command };
+      };
+
+      const loadedTurns: Turn[] = [];
+
+      for (const m of rawMsgs) {
+        let role = m.role || "user";
+        let content = m.content || "";
+        const rawType = m.raw_type || "";
+
+        // Detect legacy [Result] on user role -> treat as tool output
+        if (role === "user" && content.startsWith("[Result]")) {
+          role = "tool";
+          content = content.replace(/^\[Result\]\s*/, "");
+        }
+
+        // Detect legacy [Tool: ...] on assistant role
+        const legacyCall = role === "assistant" ? parseLegacyToolContent(content) : null;
+        if (legacyCall) {
+          content = legacyCall.preText;
+          role = content ? "assistant" : "tool";
+        }
+
+        if (role === "user") {
+          // Skip any residual tool/meta noise from appearing as user messages
+          if (
+            content.startsWith("[Tool:") ||
+            content.startsWith("[Result]") ||
+            content.startsWith('{"tool_use_id"')
+          ) {
+            continue;
+          }
+          loadedTurns.push({
+            role: "user",
+            content: content,
+          });
+        } else if (role === "assistant") {
+          const toolCalls: ToolCallItem[] = [];
+          if (legacyCall) {
+            toolCalls.push({
+              name: legacyCall.name,
+              args: { command: legacyCall.command },
+            });
+          } else if (m.tool_name) {
+            toolCalls.push({
+              name: m.tool_name,
+              args: m.tool_input ? { command: m.tool_input } : {},
+            });
+          }
+          loadedTurns.push({
+            role: "assistant",
+            content: content,
+            thinking: m.thinking || undefined,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          });
+        } else if (role === "tool") {
+          // Attach tool call or output to the last assistant turn
+          let lastTurn = loadedTurns[loadedTurns.length - 1];
+          if (!lastTurn || lastTurn.role !== "assistant") {
+            lastTurn = {
+              role: "assistant",
+              content: "",
+              toolCalls: [],
+            };
+            loadedTurns.push(lastTurn);
+          }
+          if (!lastTurn.toolCalls) {
+            lastTurn.toolCalls = [];
+          }
+
+          if (legacyCall) {
+            lastTurn.toolCalls.push({
+              name: legacyCall.name,
+              args: { command: legacyCall.command },
+            });
+          } else if (rawType === "tool_call" || m.tool_name) {
+            lastTurn.toolCalls.push({
+              name: m.tool_name || "tool",
+              args: m.tool_input ? { command: m.tool_input } : {},
+            });
+          } else {
+            // Tool output: attach stdout to the most recent tool call if available
+            if (lastTurn.toolCalls.length > 0) {
+              const lastCall = lastTurn.toolCalls[lastTurn.toolCalls.length - 1];
+              lastCall.result = {
+                stdout: content,
+                status: "succeeded",
+                exit_code: 0,
+              };
+            } else {
+              lastTurn.toolCalls.push({
+                name: "tool",
+                args: {},
+                result: {
+                  stdout: content,
+                  status: "succeeded",
+                  exit_code: 0,
+                },
+              });
+            }
+          }
+        }
+      }
 
       abortRef.current?.abort();
       streamingRef.current = false;

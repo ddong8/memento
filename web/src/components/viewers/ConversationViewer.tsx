@@ -132,12 +132,42 @@ export const ChatBubble = memo(function ChatBubble({
   locale: string;
   t: ReturnType<typeof useI18n>["t"];
 }) {
-  const role = msg.role || msg.message_type || "unknown";
-  const toolName = msg.tool_name ?? "";
-  const toolInput = msg.tool_input ?? "";
+  let role = msg.role || msg.message_type || "unknown";
+  let toolName = msg.tool_name ?? "";
+  let toolInput = msg.tool_input ?? "";
+  let content = msg.content || "";
   const thinking = msg.thinking?.trim() || "";
   const [expanded, setExpanded] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
+
+  // Legacy fallback: convert old [Result] / [Tool: ...] messages into tool roles
+  if (role === "user" && content.startsWith("[Result]")) {
+    role = "tool";
+    content = content.replace(/^\[Result\]\s*/, "");
+  } else if (role === "assistant" && content.startsWith("[Tool:")) {
+    role = "tool";
+    const match = content.match(/^\[Tool:\s*([^\]]+)\]\s*([\s\S]*)$/);
+    if (match) {
+      toolName = toolName || match[1].trim();
+      toolInput = toolInput || match[2].trim();
+      content = "";
+    }
+  }
+
+  // Format toolInput: if it's JSON containing "command" (e.g. Bash), extract command cleanly
+  let displayInput = toolInput;
+  if (toolInput) {
+    try {
+      const parsed = JSON.parse(toolInput);
+      if (typeof parsed === "object" && parsed !== null) {
+        if (parsed.command) {
+          displayInput = parsed.command;
+        } else {
+          displayInput = JSON.stringify(parsed, null, 2);
+        }
+      }
+    } catch {}
+  }
 
   // User — right aligned, violet gradient.
   // OpenClaw subagent sessions inject a synthetic "user" message at the top
@@ -350,33 +380,13 @@ export const ChatBubble = memo(function ChatBubble({
             maxWidth: "90%",
           }}
         >
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: toolInput || msg.content ? 6 : 0 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: displayInput || content ? 6 : 0 }}>
             <Icon name="terminal" size={13} style={{ color: "var(--aurora-accent)" }} />
             <span style={{ fontFamily: "ui-monospace,monospace", fontWeight: 600, fontSize: 11.5 }}>{toolName || "Tool"}</span>
           </div>
-          {toolInput && (
+          {displayInput && (
             <pre
               style={{
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                maxHeight: 128,
-                overflow: "hidden",
-                background: "var(--aurora-surface-solid)",
-                border: "1px solid var(--aurora-border)",
-                borderRadius: 8,
-                padding: 8,
-                fontFamily: "ui-monospace,monospace",
-                fontSize: 11,
-                color: "var(--aurora-fg2)",
-              }}
-            >
-              {toolInput}
-            </pre>
-          )}
-          {msg.content && msg.content !== `[${toolName}]` && (
-            <pre
-              style={{
-                marginTop: 4,
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
                 maxHeight: 180,
@@ -387,10 +397,30 @@ export const ChatBubble = memo(function ChatBubble({
                 padding: 8,
                 fontFamily: "ui-monospace,monospace",
                 fontSize: 11,
+                color: "var(--aurora-fg2)",
+              }}
+            >
+              {displayInput}
+            </pre>
+          )}
+          {content && content !== `[${toolName}]` && (
+            <pre
+              style={{
+                marginTop: 4,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 240,
+                overflow: "hidden",
+                background: "var(--aurora-surface-solid)",
+                border: "1px solid var(--aurora-border)",
+                borderRadius: 8,
+                padding: 8,
+                fontFamily: "ui-monospace,monospace",
+                fontSize: 11,
                 color: "var(--aurora-fg3)",
               }}
             >
-              {msg.content.length > 500 ? msg.content.slice(0, 500) + "..." : msg.content}
+              {content.length > 800 && !expanded ? content.slice(0, 800) + "..." : content}
             </pre>
           )}
         </div>

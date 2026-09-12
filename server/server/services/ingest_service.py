@@ -988,6 +988,10 @@ async def _extract_messages(
             meta = {}
             if normalized.thinking:
                 meta["thinking"] = normalized.thinking.replace("\x00", "")
+            if normalized.tool_name:
+                meta["tool_name"] = normalized.tool_name.replace("\x00", "")
+            if normalized.tool_input:
+                meta["tool_input"] = normalized.tool_input.replace("\x00", "")
             batch.append(ConversationMessage(
                 document_id=doc.id,
                 line_number=line_num,

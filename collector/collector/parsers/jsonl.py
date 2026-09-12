@@ -89,26 +89,24 @@ class JsonlParser(BaseParser):
                     has_more = current_tell < file_size
                     break
 
-        # If title wasn't found in this delta slice, scan file for aiTitle
-        if not title and path.is_file():
+        # Scan file for latest aiTitle if available
+        if path.is_file():
             try:
+                latest_ai = None
                 with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    for _ in range(250):
-                        l = f.readline()
-                        if not l:
-                            break
+                    for l in f:
                         if '"aiTitle"' in l:
                             try:
                                 obj = json.loads(l)
                                 cand = obj.get("aiTitle") or obj.get("customTitle") or obj.get("title")
                                 if cand and isinstance(cand, str) and cand.strip():
-                                    title = cand.strip()
-                                    break
+                                    latest_ai = cand.strip()
                             except Exception:
                                 m = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', l)
                                 if m:
-                                    title = m.group(1).strip()
-                                    break
+                                    latest_ai = m.group(1).strip()
+                if latest_ai:
+                    title = latest_ai
             except Exception:
                 pass
 

@@ -794,10 +794,11 @@ async def get_project_conversations(
     # Paginate by main session (subagents folded into parents)
     page_convs = main_convs[session_offset:session_offset + session_limit]
 
-    # For paginated docs, find any that need a real title (currently junk or UUID)
+    # For paginated docs, find any that need a real title (junk, UUID, or Claude Code aiTitle check)
     docs_needing_title = [
         d for d in page_convs
         if _is_junk_or_uuid_title(d.title, (d.metadata_ or {}).get("session_id"))
+        or d.tool_id == "claude_code"
     ]
     doc_contents: dict[uuid.UUID, str] = {}
     if docs_needing_title:
@@ -940,7 +941,29 @@ async def get_project_conversations(
         conv_title = (d.title or "").strip()
         is_title_junk = _is_junk_or_uuid_title(conv_title, session_id)
 
-        # 1. Try metadata title / ai_title
+        # 1. For Claude Code, always extract latest aiTitle from content if available
+        if d.tool_id == "claude_code" and d.id in doc_contents:
+            c = doc_contents[d.id]
+            ai_matches = re.findall(r'"aiTitle"\s*:\s*"([^"]+)"', c)
+            if ai_matches:
+                latest_ai = ai_matches[-1].strip()
+                if latest_ai and not _is_junk_or_uuid_title(latest_ai, session_id):
+                    if conv_title != latest_ai:
+                        conv_title = latest_ai
+                        is_title_junk = False
+                        d.title = latest_ai
+                        await db.execute(
+                            update(Document).where(Document.id == d.id).values(title=latest_ai)
+                        )
+                        for child in subagent_map.get(d.relative_path or "", []):
+                            child.title = latest_ai
+                            await db.execute(
+                                update(Document).where(Document.id == child.id).values(title=latest_ai)
+                            )
+                    else:
+                        is_title_junk = False
+
+        # 2. Try metadata title / ai_title
         if is_title_junk:
             m_title = (d.metadata_ or {}).get("title") or (d.metadata_ or {}).get("ai_title")
             if m_title and not _is_junk_or_uuid_title(str(m_title), session_id):
@@ -951,12 +974,12 @@ async def get_project_conversations(
                     update(Document).where(Document.id == d.id).values(title=conv_title)
                 )
 
-        # 2. Try extracting aiTitle from document content
+        # 3. Try extracting aiTitle from document content (fallback)
         if is_title_junk and d.id in doc_contents:
             c = doc_contents[d.id]
-            m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', c)
-            if m_ai:
-                cand = m_ai.group(1).strip()
+            ai_matches = re.findall(r'"aiTitle"\s*:\s*"([^"]+)"', c)
+            if ai_matches:
+                cand = ai_matches[-1].strip()
                 if not _is_junk_or_uuid_title(cand, session_id):
                     conv_title = cand
                     is_title_junk = False

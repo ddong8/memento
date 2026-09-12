@@ -21,6 +21,7 @@ from sqlalchemy import select, update
 from ..db.models import ConversationMessage, Document
 from ..db.session import async_session_factory
 from ..services.ingest_service import (
+    _extract_latest_ai_title,
     _is_junk_or_uuid_title,
     _parent_session_id_from_content,
     _title_from_user_messages,
@@ -85,8 +86,18 @@ async def _run() -> dict:
                     if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
                         cand = parent_title
 
-                # For non-sidechain docs, only touch junk titles. (A sidechain
-                # with a resolvable parent title is handled above regardless.)
+                # Claude Code main conversation: check if document has an aiTitle
+                # in content that should take precedence over a raw user prompt
+                if not cand and rel_path and "projects/" in rel_path and rel_path.endswith(".jsonl") and not parent_sid:
+                    doc_content = (await db.execute(
+                        select(Document.content).where(Document.id == did)
+                    )).scalar_one_or_none()
+                    if doc_content:
+                        ai_cand = _extract_latest_ai_title(doc_content)
+                        if ai_cand and not _is_junk_or_uuid_title(ai_cand, sid):
+                            cand = ai_cand
+
+                # For non-sidechain docs, only touch junk titles (or Claude Code aiTitles).
                 if not cand and not _is_junk_or_uuid_title(title, sid):
                     continue
                 scanned += 1

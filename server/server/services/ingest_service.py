@@ -126,6 +126,18 @@ def _parent_session_id_from_content(content: str | None) -> str | None:
     m = re.search(r'"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"', content)
     return m.group(1) if m else None
 
+
+def _extract_latest_ai_title(content: str | None) -> str | None:
+    """Extract the LATEST aiTitle from Claude Code JSONL content."""
+    if not content or '"aiTitle"' not in content:
+        return None
+    matches = re.findall(r'"aiTitle"\s*:\s*"([^"]+)"', content)
+    if matches:
+        cand = matches[-1].strip()
+        if cand:
+            return cand
+    return None
+
 # Re-sanitize patterns (defense-in-depth)
 _RESANITIZE_PATTERNS = [
     (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "[API_KEY_REDACTED]"),
@@ -449,13 +461,11 @@ async def ingest_file(
             is_title_junk = _is_junk_or_uuid_title(existing_doc.title, sid)
             is_valid_new_title = bool(new_title) and not _is_junk_or_uuid_title(new_title, sid)
 
-            if not is_valid_new_title and content and category == "conversation":
-                m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
-                if m_ai:
-                    cand = m_ai.group(1).strip()
-                    if not _is_junk_or_uuid_title(cand, sid):
-                        new_title = cand
-                        is_valid_new_title = True
+            if content and category == "conversation":
+                ai_cand = _extract_latest_ai_title(content)
+                if ai_cand and not _is_junk_or_uuid_title(ai_cand, sid):
+                    new_title = ai_cand
+                    is_valid_new_title = True
 
             # Sidechain: inherit the parent conversation's title. This runs even
             # on the unchanged-file fast path so a `resync` heals the existing
@@ -643,12 +653,10 @@ async def ingest_file(
 
         # 1. Claude Code aiTitle
         if is_title_junk:
-            m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
-            if m_ai:
-                cand = m_ai.group(1).strip()
-                if not _is_junk_or_uuid_title(cand, sid):
-                    title = cand
-                    is_title_junk = False
+            cand = _extract_latest_ai_title(content)
+            if cand and not _is_junk_or_uuid_title(cand, sid):
+                title = cand
+                is_title_junk = False
 
         # 2. Antigravity <USER_REQUEST>
         if is_title_junk:
@@ -1015,20 +1023,17 @@ async def _extract_messages(
 
     # Ensure doc.title is updated if it was previously junk or UUID
     sid = (doc.metadata_ or {}).get("session_id")
-    if _is_junk_or_uuid_title(doc.title, sid):
-        m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
-        if m_ai:
-            cand = m_ai.group(1).strip()
-            if not _is_junk_or_uuid_title(cand, sid):
-                doc.title = cand
-        elif batch:
-            # Scan all user messages, not just the first: a compacted session
-            # leads with the continuation preamble, so the real prompt is later.
-            cand = _title_from_user_messages(
-                [m.content for m in batch if m.role == "user"], sid
-            )
-            if cand:
-                doc.title = cand
+    ai_cand = _extract_latest_ai_title(content)
+    if ai_cand and not _is_junk_or_uuid_title(ai_cand, sid):
+        doc.title = ai_cand
+    elif _is_junk_or_uuid_title(doc.title, sid) and batch:
+        # Scan all user messages, not just the first: a compacted session
+        # leads with the continuation preamble, so the real prompt is later.
+        cand = _title_from_user_messages(
+            [m.content for m in batch if m.role == "user"], sid
+        )
+        if cand:
+            doc.title = cand
 
     # Codex user messages: supplement from history.jsonl and state_5.sqlite.
     # history.jsonl has ALL user inputs with timestamps; state_5.sqlite has first prompt.

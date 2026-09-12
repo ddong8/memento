@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
 from server.services.ingest_service import (
+    _extract_latest_ai_title,
     _is_junk_or_uuid_title,
     _parent_session_id_from_content,
     _title_from_user_messages,
@@ -97,6 +98,26 @@ class ParentSessionExtractionTests(unittest.TestCase):
     def test_none_for_empty(self):
         self.assertIsNone(_parent_session_id_from_content(None))
         self.assertIsNone(_parent_session_id_from_content(""))
+
+
+class ExtractLatestAiTitleTests(unittest.TestCase):
+    def test_extracts_single_ai_title(self):
+        content = '{"type":"ai-title","aiTitle":"构建PubChem化合物相似性搜索平台","sessionId":"sid-1"}'
+        self.assertEqual(_extract_latest_ai_title(content), "构建PubChem化合物相似性搜索平台")
+
+    def test_extracts_latest_when_multiple_ai_titles_exist(self):
+        content = (
+            '{"type":"ai-title","aiTitle":"Research how to obtain and use PubChem public data for a com","sessionId":"sid-1"}\n'
+            '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"构建平台"}]}}\n'
+            '{"type":"ai-title","aiTitle":"构建PubChem化合物相似性搜索平台","sessionId":"sid-1"}\n'
+        )
+        self.assertEqual(_extract_latest_ai_title(content), "构建PubChem化合物相似性搜索平台")
+
+    def test_returns_none_when_no_ai_title(self):
+        content = '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}'
+        self.assertIsNone(_extract_latest_ai_title(content))
+        self.assertIsNone(_extract_latest_ai_title(None))
+        self.assertIsNone(_extract_latest_ai_title(""))
 
 
 if __name__ == "__main__":

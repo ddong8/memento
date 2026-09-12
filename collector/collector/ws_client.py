@@ -200,6 +200,22 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
 
         full_stdout = "".join(stdout_chunks)[:100_000]
         full_stderr = "".join(stderr_chunks)[:100_000]
+        if proc.returncode != 0 and "already has an active writer" in full_stderr:
+            tip = (
+                "\n\n💡 [诊断提示] 该 Codex 会话当前正被 ChatGPT 桌面端 (ChatGPT.app) 打开锁定。\n"
+                "Codex 为防止多端同时写入导致数据冲突损坏，加了排他独占写锁 (thread-writer lock)。\n"
+                "👉 解决办法：请在 ChatGPT 桌面客户端中切换到其他对话（或 Cmd+Q 退出 ChatGPT），释放该会话的锁后再点击发送。"
+            )
+            full_stderr += tip
+            try:
+                await ws.send(json.dumps({
+                    "type": "task_output",
+                    "task_id": task_id,
+                    "stream": "stderr",
+                    "chunk": tip,
+                }))
+            except Exception:
+                pass
         status = "succeeded" if proc.returncode == 0 else "failed"
 
         await ws.send(json.dumps({

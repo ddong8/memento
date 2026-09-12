@@ -20,7 +20,7 @@ from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
 from ..services.ingest_service import (
-    _clean_source_path, _is_junk_or_uuid_title,
+    _clean_source_path, _is_junk_or_uuid_title, _title_from_user_messages,
     _prettify_project_name, _is_invalid_project_name,
 )
 
@@ -712,14 +712,31 @@ async def get_project_conversations(
     subagent_map: dict[str, list] = {}  # parent_doc_id → [subagent docs]
     parent_path_to_id: dict[str, str] = {}
 
+    # Map session IDs / UUIDs to documents for parent linking
+    sid_to_rp: dict[str, str] = {}
+    for d in all_convs:
+        rp = d.relative_path or ""
+        if "/subagents/" not in rp and not (d.metadata_ or {}).get("is_subagent"):
+            sid = (d.metadata_ or {}).get("session_id")
+            if sid:
+                sid_to_rp[sid] = rp
+            stem = rp.split("/")[-1].replace(".jsonl", "")
+            m = re.search(r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", stem)
+            if m:
+                sid_to_rp[m.group(1)] = rp
+
     for d in all_convs:
         rp = d.relative_path or ""
         # Skip the sidecar noise that isn't real conversation content.
         if ".meta.json" in rp or ".metadata.json" in rp or ".resolved" in rp:
             continue
+        parent_sid = (d.metadata_ or {}).get("parent_session_id")
         if "/subagents/" in rp:
             # Extract parent path: everything before /subagents/
             parent_base = rp.split("/subagents/")[0] + ".jsonl"
+            subagent_map.setdefault(parent_base, []).append(d)
+        elif parent_sid and parent_sid in sid_to_rp:
+            parent_base = sid_to_rp[parent_sid]
             subagent_map.setdefault(parent_base, []).append(d)
         else:
             main_convs.append(d)
@@ -798,7 +815,7 @@ async def get_project_conversations(
     docs_needing_title = [
         d for d in page_convs
         if _is_junk_or_uuid_title(d.title, (d.metadata_ or {}).get("session_id"))
-        or d.tool_id == "claude_code"
+        or d.tool_id in ("claude_code", "codex")
     ]
     doc_contents: dict[uuid.UUID, str] = {}
     if docs_needing_title:
@@ -963,9 +980,14 @@ async def get_project_conversations(
                     else:
                         is_title_junk = False
 
-        # 2. Try metadata title / ai_title
+        # 2. Try metadata name / title / ai_title / first_user_message
         if is_title_junk:
-            m_title = (d.metadata_ or {}).get("title") or (d.metadata_ or {}).get("ai_title")
+            m_title = (
+                (d.metadata_ or {}).get("name")
+                or (d.metadata_ or {}).get("title")
+                or (d.metadata_ or {}).get("ai_title")
+                or (d.metadata_ or {}).get("first_user_message")
+            )
             if m_title and not _is_junk_or_uuid_title(str(m_title), session_id):
                 conv_title = str(m_title).strip()
                 is_title_junk = False
@@ -988,18 +1010,36 @@ async def get_project_conversations(
                         update(Document).where(Document.id == d.id).values(title=cand)
                     )
 
-        # 3. Fallback to first user message
+        # 4. Try parent title if subagent
+        if is_title_junk and (d.metadata_ or {}).get("parent_session_id"):
+            parent_sid = d.metadata_["parent_session_id"]
+            p_doc = (await db.execute(
+                select(Document.title).where(
+                    Document.tool_id == d.tool_id,
+                    or_(
+                        Document.metadata_["session_id"].astext == parent_sid,
+                        Document.relative_path.like(f"%{parent_sid}%"),
+                    ),
+                ).limit(1)
+            )).scalar_one_or_none()
+            if p_doc and not _is_junk_or_uuid_title(p_doc, parent_sid):
+                p_cand = f"审核: {p_doc}" if d.tool_id == "codex" else p_doc
+                conv_title = p_cand
+                is_title_junk = False
+                d.title = p_cand
+                await db.execute(update(Document).where(Document.id == d.id).values(title=p_cand))
+
+        # 5. Fallback to user messages (scan all user messages for first non-junk)
         if is_title_junk:
-            first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
-            if first_user_msg and first_user_msg.get("content"):
-                c = first_user_msg["content"].strip().split("\n")[0].strip()[:60]
-                if c and not _is_junk_or_uuid_title(c, session_id):
-                    conv_title = c
-                    is_title_junk = False
-                    d.title = c
-                    await db.execute(
-                        update(Document).where(Document.id == d.id).values(title=c)
-                    )
+            user_msg_contents = [m.get("content") for m in messages if m.get("role") == "user"]
+            c = _title_from_user_messages(user_msg_contents, session_id)
+            if c:
+                conv_title = c
+                is_title_junk = False
+                d.title = c
+                await db.execute(
+                    update(Document).where(Document.id == d.id).values(title=c)
+                )
 
         if is_title_junk:
             conv_title = session_id[:8] if session_id else "会话"

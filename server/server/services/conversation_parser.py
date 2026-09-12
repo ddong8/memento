@@ -179,9 +179,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                 if not content.strip():
                     return None
                 # Skip Codex system context injections (not real user text)
-                if content.lstrip().startswith("<environment_context>"):
-                    return None
-                if content.lstrip().startswith("<turn_aborted>"):
+                if content.lstrip().startswith(("<environment_context>", "<turn_aborted>", "<recommended_plugins>")):
                     return None
                 return NormalizedMessage(role="user", content=content, timestamp=timestamp, raw_type=msg_type)
             return None

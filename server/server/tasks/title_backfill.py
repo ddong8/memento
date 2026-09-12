@@ -71,20 +71,26 @@ async def _run() -> dict:
                 # transcript — this heals existing subagent docs without waiting
                 # for a re-ingest. Only pull the (large) content for paths that
                 # look like a subagent transcript, to avoid loading 1MB per doc.
-                if not parent_sid and rel_path and "agent-" in rel_path:
+                if not parent_sid and rel_path and ("agent-" in rel_path or "rollout-" in rel_path):
                     doc_content = (await db.execute(
                         select(Document.content).where(Document.id == did)
                     )).scalar_one_or_none()
                     if doc_content:
                         parent_sid = _parent_session_id_from_content(doc_content)
                 if parent_sid:
+                    from sqlalchemy import or_
                     parent_title = (await db.execute(
                         select(Document.title)
-                        .where(Document.metadata_["session_id"].astext == parent_sid)
+                        .where(
+                            or_(
+                                Document.metadata_["session_id"].astext == parent_sid,
+                                Document.relative_path.like(f"%{parent_sid}%"),
+                            )
+                        )
                         .limit(1)
                     )).scalar_one_or_none()
                     if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
-                        cand = parent_title
+                        cand = f"审核: {parent_title}" if (rel_path and "rollout-" in rel_path) else parent_title
 
                 # Claude Code main conversation: check if document has an aiTitle
                 # in content that should take precedence over a raw user prompt
@@ -102,12 +108,12 @@ async def _run() -> dict:
                     continue
                 scanned += 1
 
-                # Metadata fallback (Codex state_5.sqlite first prompt),
+                # Metadata fallback (Codex state_5.sqlite name/title/first prompt),
                 # then the stored user messages in order.
                 if not cand and isinstance(meta, dict):
-                    fum = (meta.get("first_user_message") or "").strip()
-                    if fum:
-                        cand = _title_from_user_messages([fum], sid)
+                    name_cand = (meta.get("name") or meta.get("title") or meta.get("first_user_message") or "").strip()
+                    if name_cand:
+                        cand = _title_from_user_messages([name_cand], sid)
 
                 if not cand:
                     msgs = (await db.execute(

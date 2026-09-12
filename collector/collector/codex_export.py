@@ -323,7 +323,7 @@ def scan_session_files(codex_home: Path) -> dict[str, dict[str, Any]]:
         if session_meta.get("timestamp"):
             record.setdefault("created_at", session_meta["timestamp"])
             record.setdefault("updated_at", session_meta["timestamp"])
-        title = session_meta.get("title") or path.stem
+        title = session_meta.get("title") or (path.stem if not path.stem.startswith("rollout-") else "")
         if title:
             record.setdefault("title", title)
 
@@ -356,7 +356,7 @@ def load_threads_from_state(state_path: Path) -> dict[str, dict[str, Any]]:
         rows[thread_id] = {
             "thread_id": thread_id,
             "rollout_path": data.get("rollout_path", "") or "",
-            "title": data.get("title", "") or "",
+            "title": data.get("name") or data.get("title", "") or "",
             "cwd": data.get("cwd", "") or "",
             "source": data.get("source", "") or "",
             "model_provider": data.get("model_provider", "") or "",

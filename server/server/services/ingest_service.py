@@ -66,7 +66,7 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     t_lower = t.lower()
     if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown"):
         return True
-    if t_lower.startswith(("agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-")):
+    if t_lower.startswith(("agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-", "rollout-")):
         return True
     # Claude Code compaction preamble: when a session is compacted/continued,
     # its first user message is this auto-generated boilerplate, not a real
@@ -74,6 +74,12 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     # every `acompact-*` session ends up titled "This session is being
     # continued...". Match the prefix (the full text runs on for paragraphs).
     if t_lower.startswith("this session is being continued from a previous conversation"):
+        return True
+    # Codex guardian / review subagent preamble
+    if t_lower.startswith("the following is the codex agent history"):
+        return True
+    # Codex IDE plugin recommendation / context injection
+    if t_lower.startswith(("<recommended_plugins>", "<environment_context>", "<turn_aborted>")):
         return True
     # Regex-artifact junk (e.g. a title accidentally derived from a re.search
     # pattern). Match the regex-metacharacter escapes that only appear in
@@ -109,22 +115,21 @@ def _title_from_user_messages(contents: list[str | None], session_id: str | None
 
 
 def _parent_session_id_from_content(content: str | None) -> str | None:
-    """For a Claude Code sidechain (subagent) transcript, return the parent
-    session's UUID.
-
-    The transcript filename is a synthetic ``agent-<hash>`` id, but every line
-    carries the real parent conversation's ``sessionId``. Subagent transcripts
-    have ``"isSidechain": true`` and no ``aiTitle`` of their own, so the only
-    way to give them the title Claude Code shows is to inherit it from that
-    parent. Returns None when the content isn't a sidechain.
+    """For a Claude Code sidechain (subagent) or Codex guardian transcript,
+    return the parent session's UUID.
     """
-    if not content or '"isSidechain"' not in content:
+    if not content:
         return None
-    # Only treat as sidechain if a line actually sets it true.
-    if not re.search(r'"isSidechain"\s*:\s*true', content):
-        return None
-    m = re.search(r'"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"', content)
-    return m.group(1) if m else None
+    # Claude Code sidechain
+    if '"isSidechain"' in content and re.search(r'"isSidechain"\s*:\s*true', content):
+        m = re.search(r'"sessionId"\s*:\s*"([0-9a-fA-F-]{32,36})"', content)
+        if m:
+            return m.group(1)
+    # Codex guardian / review subagent
+    m = re.search(r"Reviewed Codex session id:\s*([0-9a-fA-F-]{36})", content)
+    if m:
+        return m.group(1)
+    return None
 
 
 def _extract_latest_ai_title(content: str | None) -> str | None:
@@ -467,11 +472,19 @@ async def ingest_file(
                     new_title = ai_cand
                     is_valid_new_title = True
 
-            # Sidechain: inherit the parent conversation's title. This runs even
+            if is_title_junk and not is_valid_new_title and isinstance(metadata, dict):
+                m_cand = metadata.get("name") or metadata.get("first_user_message")
+                if m_cand and not _is_junk_or_uuid_title(str(m_cand), sid):
+                    new_title = str(m_cand).strip().split("\n")[0][:60]
+                    is_valid_new_title = True
+
+            # Sidechain / guardian: inherit the parent conversation's title. This runs even
             # on the unchanged-file fast path so a `resync` heals the existing
             # subagent docs (whose stored title is their own task prompt, not
             # the title Claude Code shows). Record the parent link too.
             parent_sid = _parent_session_id_from_content(content) if content else None
+            if not parent_sid and isinstance(metadata, dict):
+                parent_sid = metadata.get("parent_session_id")
             if parent_sid:
                 # Persist the parent link independently of whether we can
                 # resolve the title right now — the hourly backfill uses it to
@@ -481,19 +494,23 @@ async def ingest_file(
                 if md.get("parent_session_id") != parent_sid:
                     existing_doc.metadata_ = {**md, "parent_session_id": parent_sid}
                     await db.flush()
+                from sqlalchemy import or_
                 parent_title = (await db.execute(
                     select(Document.title)
                     .where(
                         Document.tool_id == tool_id,
-                        Document.metadata_["session_id"].astext == parent_sid,
+                        or_(
+                            Document.metadata_["session_id"].astext == parent_sid,
+                            Document.relative_path.like(f"%{parent_sid}%"),
+                        ),
                     )
                     .limit(1)
                 )).scalar_one_or_none()
                 if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
-                    new_title = parent_title
+                    new_title = f"审核: {parent_title}" if tool_id == "codex" else parent_title
                     is_valid_new_title = True
 
-            if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code")) and existing_doc.title != new_title:
+            if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code", "codex")) and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
 
@@ -636,19 +653,27 @@ async def ingest_file(
         # record the link in metadata so the periodic backfill can re-resolve
         # if the parent's title lands later.
         parent_sid = _parent_session_id_from_content(content)
+        if not parent_sid and isinstance(metadata, dict):
+            parent_sid = metadata.get("parent_session_id")
         if parent_sid:
             if isinstance(metadata, dict):
                 metadata["parent_session_id"] = parent_sid
+                if "is_subagent" not in metadata:
+                    metadata["is_subagent"] = True
+            from sqlalchemy import or_
             parent_title = (await db.execute(
                 select(Document.title)
                 .where(
                     Document.tool_id == tool_id,
-                    Document.metadata_["session_id"].astext == parent_sid,
+                    or_(
+                        Document.metadata_["session_id"].astext == parent_sid,
+                        Document.relative_path.like(f"%{parent_sid}%"),
+                    ),
                 )
                 .limit(1)
             )).scalar_one_or_none()
             if parent_title and not _is_junk_or_uuid_title(parent_title, parent_sid):
-                title = parent_title
+                title = f"审核: {parent_title}" if tool_id == "codex" else parent_title
                 is_title_junk = False
 
         # 1. Claude Code aiTitle
@@ -665,6 +690,15 @@ async def ingest_file(
                 cand = req_m.group(1).strip().split("\n")[0][:60]
                 if not _is_junk_or_uuid_title(cand, sid):
                     title = cand
+                    is_title_junk = False
+
+        # 3. Metadata name / first_user_message / title
+        if is_title_junk and isinstance(metadata, dict):
+            cand = metadata.get("name") or metadata.get("first_user_message") or metadata.get("title")
+            if cand:
+                cand_str = str(cand).strip().split("\n")[0][:60]
+                if not _is_junk_or_uuid_title(cand_str, sid):
+                    title = cand_str
                     is_title_junk = False
 
     # Antigravity annotations: update conversation doc title if annotation arrives

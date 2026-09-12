@@ -67,14 +67,20 @@ def _load_threads_from_sqlite(codex_home: Path) -> dict[str, dict]:
     try:
         conn = sqlite3.connect(f"file:{state_db}?mode=ro", uri=True, timeout=5)
         cursor = conn.execute(
-            "SELECT id, title, first_user_message FROM threads"
+            "SELECT id, name, title, first_user_message, source FROM threads"
         )
         for row in cursor.fetchall():
-            tid, title, first_msg = row
+            tid, name, title, first_msg, source = row
             if tid:
+                clean_name = (name or "").strip()
+                clean_title = (title or "").strip()
+                clean_first = (first_msg or "").strip()
+                best_title = clean_name or clean_title or clean_first
                 result[str(tid)] = {
-                    "title": title or "",
-                    "first_user_message": first_msg or "",
+                    "name": clean_name,
+                    "title": best_title,
+                    "first_user_message": clean_first or clean_title,
+                    "source": str(source or ""),
                 }
         conn.close()
     except Exception:
@@ -289,19 +295,50 @@ class CodexTool(BaseTool):
         thread_id = self._extract_thread_id(abs_path)
         if not thread_id:
             return
+        meta["session_id"] = thread_id
         # Thread info from sqlite (title + first prompt)
         threads = _load_threads_from_sqlite(self.root_path)
         info = threads.get(thread_id)
         if info:
+            if info.get("name"):
+                meta["name"] = info["name"]
             if info.get("title"):
                 meta["title"] = info["title"]
             if info.get("first_user_message"):
                 meta["first_user_message"] = info["first_user_message"]
+            if info.get("source") and "subagent" in info["source"]:
+                meta["is_subagent"] = True
+
+        # Check for guardian/subagent parent session in file content
+        parent_sid = self._extract_parent_session_id(abs_path)
+        if parent_sid:
+            meta["parent_session_id"] = parent_sid
+            meta["is_subagent"] = True
+            parent_info = threads.get(parent_sid)
+            if parent_info and parent_info.get("title"):
+                meta["title"] = f"审核: {parent_info['title']}"
+
         # User input history from history.jsonl (all user messages for this session)
         history = _load_history(self.root_path)
         user_inputs = history.get(thread_id, [])
         if user_inputs:
             meta["user_history"] = user_inputs
+
+    @staticmethod
+    def _extract_parent_session_id(abs_path: Path) -> str:
+        """Extract parent thread UUID from guardian/subagent transcript if present."""
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="ignore") as f:
+                for i, line in enumerate(f):
+                    if i > 60:
+                        break
+                    if "Reviewed Codex session id:" in line:
+                        m = re.search(r"Reviewed Codex session id:\s*([0-9a-fA-F-]{36})", line)
+                        if m:
+                            return m.group(1)
+        except Exception:
+            pass
+        return ""
 
     @staticmethod
     def _extract_thread_id(abs_path: Path) -> str:

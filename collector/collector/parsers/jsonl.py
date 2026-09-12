@@ -123,9 +123,10 @@ class JsonlParser(BaseParser):
         if has_more:
             metadata["has_more"] = True
 
+        stem_title = "" if path.stem.startswith("rollout-") else path.stem
         return ParseResult(
             content=content,
-            title=title or path.stem,
+            title=title or stem_title,
             metadata=metadata,
             line_count=line_count,
             is_partial=is_partial or has_more,

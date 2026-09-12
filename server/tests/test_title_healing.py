@@ -23,13 +23,19 @@ class JunkTitleTests(unittest.TestCase):
             "subagent-1234",
             "wf_abcdef",
             "workflow-xyz",
+            "rollout-2026-09-08T23-50-06-01a081b6-5805-79e3-8900-9b010a4ce54d",
+            "rollout-2026-09-08T11-01-49-01a07ef6-f778-7b01-87c2-84b8617b1dc4",
         ):
             self.assertTrue(_is_junk_or_uuid_title(t), t)
 
-    def test_compaction_preamble_is_junk(self):
+    def test_compaction_and_guardian_preamble_are_junk(self):
         self.assertTrue(_is_junk_or_uuid_title(
             "This session is being continued from a previous conversation. "
             "Analysis: the user asked..."))
+        self.assertTrue(_is_junk_or_uuid_title(
+            "The following is the Codex agent history whose request action you are assessing."))
+        self.assertTrue(_is_junk_or_uuid_title(
+            "<recommended_plugins>\nHere is a list of plugins..."))
 
     def test_uuid_and_bare_session_id_are_junk(self):
         sid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -68,6 +74,15 @@ class TitleFromUserMessagesTests(unittest.TestCase):
             "继续开发时间线功能",
         )
 
+    def test_scans_past_codex_recommended_plugins(self):
+        self.assertEqual(
+            _title_from_user_messages([
+                "<recommended_plugins>\nHere is a list of plugins...",
+                "帮我分析一下我这三个vps选择的代理协议是不是最优的",
+            ]),
+            "帮我分析一下我这三个vps选择的代理协议是不是最优的",
+        )
+
     def test_returns_none_when_nothing_usable(self):
         self.assertIsNone(_title_from_user_messages([None, "", "agent-xxxx"]))
 
@@ -85,6 +100,17 @@ class ParentSessionExtractionTests(unittest.TestCase):
         self.assertEqual(
             _parent_session_id_from_content(content),
             "914b83f9-244a-42d2-a8a7-064b2da6cdc5",
+        )
+
+    def test_extracts_parent_sid_from_codex_guardian(self):
+        content = (
+            '{"type":"session_meta"}\n'
+            'Reviewed Codex session id: 01a07ef6-f778-7b01-87c2-84b8617b1dc4\n'
+            'The Codex agent has requested the following action:'
+        )
+        self.assertEqual(
+            _parent_session_id_from_content(content),
+            "01a07ef6-f778-7b01-87c2-84b8617b1dc4",
         )
 
     def test_none_for_non_sidechain(self):

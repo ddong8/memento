@@ -5,7 +5,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage, Document, User
@@ -166,3 +167,50 @@ async def get_conversation_messages(
             for m in messages
         ],
     }
+
+
+class ConversationUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+@router.patch("/{doc_id}")
+async def update_conversation(
+    doc_id: uuid.UUID,
+    payload: ConversationUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Update conversation title, cascading to child subagents and invalidating cache."""
+    mids = await user_machine_ids(db, _user)
+
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404)
+    if mids is not None and doc.machine_id not in mids:
+        raise HTTPException(status_code=404)
+
+    new_title = payload.title.strip()
+    doc.title = new_title
+
+    # If this is a parent conversation, also cascade to subagents
+    rp = doc.relative_path or ""
+    if rp.endswith(".jsonl"):
+        parent_prefix = rp[:-6] + "/subagents/"
+        await db.execute(
+            update(Document)
+            .where(
+                Document.project_id == doc.project_id,
+                Document.relative_path.like(f"{parent_prefix}%"),
+            )
+            .values(title=new_title)
+        )
+
+    await db.commit()
+
+    from ..services.cache import cache_delete_prefix
+    if doc.project_id:
+        await cache_delete_prefix(f"project:conv:{_user.id}:{doc.project_id}:")
+
+    return {"status": "ok", "id": str(doc.id), "title": doc.title}
+

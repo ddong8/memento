@@ -120,5 +120,45 @@ class ExtractLatestAiTitleTests(unittest.TestCase):
         self.assertIsNone(_extract_latest_ai_title(""))
 
 
+class ConversationPatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_update_conversation_cascades_to_subagents(self):
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from server.api.conversations import ConversationUpdate, update_conversation
+        from server.db.models import Document, User
+
+        doc_id = uuid.uuid4()
+        proj_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        user = User(id=user_id, email="tester@example.com")
+        doc = Document(
+            id=doc_id,
+            project_id=proj_id,
+            title="Old Prompt Title",
+            relative_path="projects/test-proj/session-123.jsonl",
+            tool_id="claude_code",
+            category="conversation",
+            content_type="jsonl",
+        )
+
+        db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = doc
+        db.execute.return_value = mock_result
+
+        with patch("server.api.conversations.user_machine_ids", return_value=None), \
+             patch("server.services.cache.cache_delete_prefix", new_callable=AsyncMock) as mock_cache_del:
+            payload = ConversationUpdate(title="新会话标题")
+            res = await update_conversation(doc_id, payload, db=db, _user=user)
+
+            self.assertEqual(res["status"], "ok")
+            self.assertEqual(res["title"], "新会话标题")
+            self.assertEqual(doc.title, "新会话标题")
+            db.commit.assert_awaited_once()
+            mock_cache_del.assert_awaited_once_with(f"project:conv:{user_id}:{proj_id}:")
+
+
 if __name__ == "__main__":
     unittest.main()
+

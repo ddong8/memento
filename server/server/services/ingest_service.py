@@ -54,6 +54,28 @@ TOOL_DISPLAY_NAMES = {
     "hermes": "Hermes",
 }
 
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> bool:
+    if not title:
+        return True
+    t = str(title).strip()
+    if not t:
+        return True
+    t_lower = t.lower()
+    if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown"):
+        return True
+    if "\\" in t or "(.*?)" in t or "<" in t or t.startswith("re.search"):
+        return True
+    if t_lower.endswith((".jsonl", ".json", ".pbtxt", ".sqlite")):
+        return True
+    if _UUID_RE.match(t):
+        return True
+    if session_id and (t == session_id or t == session_id[:8]):
+        return True
+    return False
+
 # Re-sanitize patterns (defense-in-depth)
 _RESANITIZE_PATTERNS = [
     (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "[API_KEY_REDACTED]"),
@@ -349,21 +371,19 @@ async def ingest_file(
             new_title = metadata.get("title")
             if new_title:
                 new_title = str(new_title).strip()
-            is_title_junk = (
-                not existing_doc.title
-                or existing_doc.title.lower() in ("transcript", "transcript.jsonl")
-                or "\\" in existing_doc.title
-                or "(.*?)" in existing_doc.title
-                or "<" in existing_doc.title
-            )
-            is_valid_new_title = (
-                bool(new_title)
-                and new_title.lower() not in ("transcript", "transcript.jsonl")
-                and "\\" not in new_title
-                and "(.*?)" not in new_title
-                and not new_title.startswith(("<", "re.search"))
-            )
-            if is_valid_new_title and (is_title_junk or tool_id == "antigravity") and existing_doc.title != new_title:
+            sid = (metadata.get("session_id") or relative_path.split("/")[-1].split(".")[0]).strip()
+            is_title_junk = _is_junk_or_uuid_title(existing_doc.title, sid)
+            is_valid_new_title = bool(new_title) and not _is_junk_or_uuid_title(new_title, sid)
+
+            if not is_valid_new_title and content and category == "conversation":
+                m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
+                if m_ai:
+                    cand = m_ai.group(1).strip()
+                    if not _is_junk_or_uuid_title(cand, sid):
+                        new_title = cand
+                        is_valid_new_title = True
+
+            if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code")) and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
 
@@ -475,19 +495,26 @@ async def ingest_file(
     title = metadata.pop("title", None) or relative_path.split("/")[-1]
     if title:
         title = str(title).strip()
-    is_title_junk = (
-        not title
-        or title.lower() in ("transcript", "transcript.jsonl")
-        or "\\" in title
-        or "(.*?)" in title
-        or "<" in title
-    )
+    sid = (metadata.get("session_id") or relative_path.split("/")[-1].split(".")[0]).strip()
+    is_title_junk = _is_junk_or_uuid_title(title, sid)
+
     if is_title_junk and content and category == "conversation":
-        req_m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content[:15000], re.DOTALL)
-        if req_m:
-            cand = req_m.group(1).strip().split("\n")[0][:60]
-            if cand and "\\" not in cand and "(.*?)" not in cand and not cand.startswith(("<", "re.search")):
+        # 1. Claude Code aiTitle
+        m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
+        if m_ai:
+            cand = m_ai.group(1).strip()
+            if not _is_junk_or_uuid_title(cand, sid):
                 title = cand
+                is_title_junk = False
+
+        # 2. Antigravity <USER_REQUEST>
+        if is_title_junk:
+            req_m = re.search(r"<USER_REQUEST>\s*(.*?)\s*</USER_REQUEST>", content[:15000], re.DOTALL)
+            if req_m:
+                cand = req_m.group(1).strip().split("\n")[0][:60]
+                if not _is_junk_or_uuid_title(cand, sid):
+                    title = cand
+                    is_title_junk = False
 
     # Antigravity annotations: update conversation doc title if annotation arrives
     if tool_id == "antigravity" and "annotations" in relative_path:
@@ -551,9 +578,9 @@ async def ingest_file(
         doc.synced_at = now
         if machine_id and not doc.machine_id:
             doc.machine_id = machine_id
-        if title and title not in ("transcript", "transcript.jsonl"):
+        if title and not _is_junk_or_uuid_title(title, sid):
             doc.title = title
-        elif doc.title in ("transcript", "transcript.jsonl", None, "") and title:
+        elif _is_junk_or_uuid_title(doc.title, sid) and title and not _is_junk_or_uuid_title(title, sid):
             doc.title = title
         # Backfill project_id when newly resolved (was NULL, or changed).
         # Don't overwrite an existing link with NULL — keep last good value.
@@ -838,6 +865,21 @@ async def _extract_messages(
     if batch:
         db.add_all(batch)
         await db.flush()
+
+    # Ensure doc.title is updated if it was previously junk or UUID
+    sid = (doc.metadata_ or {}).get("session_id")
+    if _is_junk_or_uuid_title(doc.title, sid):
+        m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', content)
+        if m_ai:
+            cand = m_ai.group(1).strip()
+            if not _is_junk_or_uuid_title(cand, sid):
+                doc.title = cand
+        elif batch:
+            first_user = next((m for m in batch if m.role == "user"), None)
+            if first_user and first_user.content:
+                cand = first_user.content.strip().split("\n")[0].strip()[:60]
+                if cand and not _is_junk_or_uuid_title(cand, sid):
+                    doc.title = cand
 
     # Codex user messages: supplement from history.jsonl and state_5.sqlite.
     # history.jsonl has ALL user inputs with timestamps; state_5.sqlite has first prompt.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from .base import BaseParser, ParseResult
@@ -65,13 +66,15 @@ class JsonlParser(BaseParser):
                 # Lightweight metadata extraction
                 try:
                     meta_slice = line[:500] if len(line) > 500 else line
-                    if '"type"' in meta_slice or '"title"' in meta_slice or '"timestamp"' in meta_slice:
+                    if '"type"' in meta_slice or '"title"' in meta_slice or '"timestamp"' in meta_slice or '"aiTitle"' in meta_slice:
                         obj = json.loads(line)
                         msg_type = obj.get("type", "unknown")
                         message_types[msg_type] = message_types.get(msg_type, 0) + 1
 
-                        if msg_type == "ai-title" and not title:
-                            title = obj.get("title", "")
+                        if msg_type in ("ai-title", "title"):
+                            cand = obj.get("aiTitle") or obj.get("customTitle") or obj.get("title") or ""
+                            if cand and isinstance(cand, str) and cand.strip():
+                                title = cand.strip()
 
                         ts = obj.get("timestamp", "")
                         if ts:
@@ -85,6 +88,29 @@ class JsonlParser(BaseParser):
                 if content_size >= MAX_BATCH_SIZE:
                     has_more = current_tell < file_size
                     break
+
+        # If title wasn't found in this delta slice, scan file for aiTitle
+        if not title and path.is_file():
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    for _ in range(250):
+                        l = f.readline()
+                        if not l:
+                            break
+                        if '"aiTitle"' in l:
+                            try:
+                                obj = json.loads(l)
+                                cand = obj.get("aiTitle") or obj.get("customTitle") or obj.get("title")
+                                if cand and isinstance(cand, str) and cand.strip():
+                                    title = cand.strip()
+                                    break
+                            except Exception:
+                                m = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', l)
+                                if m:
+                                    title = m.group(1).strip()
+                                    break
+            except Exception:
+                pass
 
         content = "\n".join(content_parts)
 

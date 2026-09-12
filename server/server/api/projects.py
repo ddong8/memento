@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -18,7 +19,7 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
-from ..services.ingest_service import _clean_source_path
+from ..services.ingest_service import _clean_source_path, _is_junk_or_uuid_title
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -272,7 +273,9 @@ async def get_project_timeline(
 
         if d_category == "conversation":
             c_title = d_title
-            if not c_title or c_title.lower() in ("transcript", "transcript.jsonl"):
+            if _is_junk_or_uuid_title(c_title, session_id):
+                c_title = (d_meta or {}).get("title") or (d_meta or {}).get("ai_title") or ""
+            if _is_junk_or_uuid_title(c_title, session_id):
                 c_title = session_id[:8] if session_id else "会话"
             session["conversation"] = {
                 "id": str(d_id),
@@ -549,6 +552,20 @@ async def get_project_conversations(
     # Paginate by main session (subagents folded into parents)
     page_convs = main_convs[session_offset:session_offset + session_limit]
 
+    # For paginated docs, find any that need a real title (currently junk or UUID)
+    docs_needing_title = [
+        d for d in page_convs
+        if _is_junk_or_uuid_title(d.title, (d.metadata_ or {}).get("session_id"))
+    ]
+    doc_contents: dict[uuid.UUID, str] = {}
+    if docs_needing_title:
+        c_rows = await db.execute(
+            select(Document.id, Document.content).where(
+                Document.id.in_([d.id for d in docs_needing_title])
+            )
+        )
+        doc_contents = {r[0]: (r[1] or "") for r in c_rows.all()}
+
     # Get all plan docs for this project (for artifact embedding)
     plans_q = select(Document).where(Document.project_id == project_id, Document.category == "plan")
     if target_mid is not None:
@@ -678,20 +695,47 @@ async def get_project_conversations(
             })
 
         conv_title = (d.title or "").strip()
-        is_title_junk = (
-            not conv_title
-            or conv_title.lower() in ("transcript", "transcript.jsonl")
-            or "\\" in conv_title
-            or "(.*?)" in conv_title
-            or "<" in conv_title
-        )
+        is_title_junk = _is_junk_or_uuid_title(conv_title, session_id)
+
+        # 1. Try metadata title / ai_title
+        if is_title_junk:
+            m_title = (d.metadata_ or {}).get("title") or (d.metadata_ or {}).get("ai_title")
+            if m_title and not _is_junk_or_uuid_title(str(m_title), session_id):
+                conv_title = str(m_title).strip()
+                is_title_junk = False
+                d.title = conv_title
+                await db.execute(
+                    update(Document).where(Document.id == d.id).values(title=conv_title)
+                )
+
+        # 2. Try extracting aiTitle from document content
+        if is_title_junk and d.id in doc_contents:
+            c = doc_contents[d.id]
+            m_ai = re.search(r'"aiTitle"\s*:\s*"([^"]+)"', c)
+            if m_ai:
+                cand = m_ai.group(1).strip()
+                if not _is_junk_or_uuid_title(cand, session_id):
+                    conv_title = cand
+                    is_title_junk = False
+                    d.title = cand
+                    await db.execute(
+                        update(Document).where(Document.id == d.id).values(title=cand)
+                    )
+
+        # 3. Fallback to first user message
         if is_title_junk:
             first_user_msg = next((m for m in messages if m.get("role") == "user"), None)
             if first_user_msg and first_user_msg.get("content"):
                 c = first_user_msg["content"].strip().split("\n")[0].strip()[:60]
-                if c and "\\" not in c and "(.*?)" not in c and not c.startswith(("<", "re.search")):
+                if c and not _is_junk_or_uuid_title(c, session_id):
                     conv_title = c
-        if not conv_title or conv_title.lower() in ("transcript", "transcript.jsonl") or "\\" in conv_title or "(.*?)" in conv_title:
+                    is_title_junk = False
+                    d.title = c
+                    await db.execute(
+                        update(Document).where(Document.id == d.id).values(title=c)
+                    )
+
+        if is_title_junk:
             conv_title = session_id[:8] if session_id else "会话"
         conv_title = conv_title.strip()
 
@@ -727,6 +771,7 @@ async def get_project_conversations(
         "order": order,
         "sessions": sessions,
     }
+    await db.commit()
     await cache_set(cache_key, payload, ttl_seconds=30)
     return payload
 

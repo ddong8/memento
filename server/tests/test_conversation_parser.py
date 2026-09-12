@@ -51,6 +51,23 @@ class ConversationParserTests(unittest.TestCase):
         self.assertEqual(msg.thinking, "Only thinking available")
         self.assertEqual(msg.raw_type, "thinking_fallback")
 
+    def test_junk_or_uuid_title_detection(self) -> None:
+        from server.services.ingest_service import _is_junk_or_uuid_title
+
+        self.assertTrue(_is_junk_or_uuid_title(None))
+        self.assertTrue(_is_junk_or_uuid_title(""))
+        self.assertTrue(_is_junk_or_uuid_title("   "))
+        self.assertTrue(_is_junk_or_uuid_title("transcript"))
+        self.assertTrue(_is_junk_or_uuid_title("transcript.jsonl"))
+        self.assertTrue(_is_junk_or_uuid_title("untitled"))
+        self.assertTrue(_is_junk_or_uuid_title("aa549791-3f81-4e86-bbee-e892b7131a4f"))
+        self.assertTrue(_is_junk_or_uuid_title("5a4ed0ef-230f-4965-b1ab-c9945a0b77fa"))
+        self.assertTrue(_is_junk_or_uuid_title("session-12345", "session-12345"))
+
+        self.assertFalse(_is_junk_or_uuid_title("项目时间线记录功能"))
+        self.assertFalse(_is_junk_or_uuid_title("Fix login bug"))
+
 
 if __name__ == "__main__":
     unittest.main()
+

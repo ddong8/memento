@@ -86,6 +86,23 @@ class LargeFileAndWSTests(unittest.TestCase):
         except AttributeError:
             self.fail("Connection.connection_lost raised AttributeError when recv_messages is missing")
 
+    def test_jsonl_parser_extracts_claude_ai_title(self):
+        with tempfile.NamedTemporaryFile(suffix=".jsonl", mode="w+", delete=False, encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "hello"}}) + "\n")
+            f.write(json.dumps({"type": "ai-title", "aiTitle": "项目时间线记录功能", "sessionId": "aa549791-3f81-4e86-bbee-e892b7131a4f"}) + "\n")
+            file_path = Path(f.name)
+
+        try:
+            parser = JsonlParser()
+            res = parser.parse(file_path, offset=0)
+            self.assertEqual(res.title, "项目时间线记录功能")
+
+            # Also check when parsing with offset after ai-title
+            res_delta = parser.parse(file_path, offset=file_path.stat().st_size)
+            self.assertEqual(res_delta.title, "项目时间线记录功能")
+        finally:
+            file_path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

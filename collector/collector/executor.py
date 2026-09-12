@@ -306,6 +306,7 @@ def build_agent_command(
     max_budget_usd: Any = None,
     args: list[Any] | None = None,
     fork: bool = False,
+    system_prompt_append: str = "",
 ) -> list[str]:
     """Build CLI argument list for the target agent runner."""
     binary_norm = binary.strip().lower()
@@ -313,6 +314,8 @@ def build_agent_command(
         cmd = [resolved, "-p"]
         if session_id:
             cmd += ["-r", session_id]
+        if system_prompt_append:
+            cmd += ["--append-system-prompt", system_prompt_append]
         cmd += ["--output-format", "text", "--dangerously-skip-permissions"]
         if model:
             cmd += ["--model", model]
@@ -410,6 +413,7 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
     budget = (payload or {}).get("max_budget_usd")
     extra = (payload or {}).get("args")
     fork_mode = bool((payload or {}).get("fork"))
+    sys_append = str((payload or {}).get("system_prompt_append") or "").strip()
 
     # Auto-fork if session is currently locked by active writer
     if not fork_mode and binary in ("codex", "codex-cli") and session_id and is_codex_thread_locked(session_id):
@@ -425,6 +429,7 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
         max_budget_usd=budget,
         args=extra if isinstance(extra, list) else None,
         fork=fork_mode,
+        system_prompt_append=sys_append,
     )
 
     try:
@@ -450,6 +455,7 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
                 max_budget_usd=budget,
                 args=extra if isinstance(extra, list) else None,
                 fork=True,
+                system_prompt_append=sys_append,
             )
             proc = subprocess.run(
                 retry_cmd, cwd=cwd, capture_output=True, text=True,
@@ -459,28 +465,35 @@ def _run_agent(payload: dict | None, timeout: int) -> dict[str, Any]:
         stdout_txt = _truncate(proc.stdout or "")
         stderr_txt = _truncate(proc.stderr or "")
 
+        err_type = None
         if (
             proc.returncode != 0
             and binary in ("claude", "claude-code")
             and session_id
             and ("Prompt is too long" in stdout_txt or "Prompt is too long" in stderr_txt)
         ):
+            err_type = "prompt_too_long"
             diag = (
                 "\n\n💡 [诊断原因与建议]\n"
                 f"当前接续的 Claude Code 会话历史过长（Session ID: {session_id[:8]}...）。\n"
                 "“Prompt is too long”并非指您输入的提问过长，而是该旧会话已累计数千条消息与工具记录，"
                 "超出了 Anthropic 200,000 Token 上下文限制。\n\n"
                 "👉 解决办法：\n"
-                "请在上方下拉框切换为【➕ 新建独立会话】（或清除已选历史会话），重新提问即可立即恢复正常对话。"
+                "1. 点击下方【⚡ 立即智能瘦身并重试 (推荐)】，自动提炼前序关键记忆并继续；\n"
+                "2. 或在上方切换为【➕ 新建独立会话】开始新对话。"
             )
             stderr_txt += diag
 
-        return {
+        res_dict = {
             "status": "succeeded" if proc.returncode == 0 else "failed",
             "exit_code": proc.returncode,
             "stdout": stdout_txt,
             "stderr": stderr_txt,
         }
+        if err_type:
+            res_dict["error_type"] = err_type
+            res_dict["session_id"] = session_id
+        return res_dict
     except subprocess.TimeoutExpired:
         return {"status": "timeout", "error": f"agent timed out after {timeout}s"}
     except Exception as e:

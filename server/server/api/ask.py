@@ -84,6 +84,8 @@ class AskRequest(BaseModel):
     session_id: str | None = None
     # Force fork mode instead of resume when continuing conversation
     fork: bool | None = None
+    # Smart sliding-window hierarchical context compaction
+    compact_mode: bool | None = None
 
 
 async def _retrieve(
@@ -630,6 +632,7 @@ async def _direct_agent_stream(
     session_id: str | None = None,
     project_id: str | None = None,
     fork: bool | None = None,
+    compact_mode: bool | None = None,
 ):
     """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
     from ..services.orchestrator import _tool_run_on_device
@@ -655,6 +658,22 @@ async def _direct_agent_stream(
     if fork is not None:
         args["fork"] = fork
 
+    orig_session_id = session_id
+    if compact_mode and session_id and action == "agent":
+        try:
+            from ..services.session_compactor import build_compacted_continuation
+            comp_res = await build_compacted_continuation(db, session_id, question, recent_turns=6)
+            injected_ctx = comp_res.get("injected_context", "")
+            if injected_ctx:
+                args["compact_mode"] = True
+                args["parent_session_id"] = session_id
+                args["system_prompt_append"] = injected_ctx
+                args["prompt"] = f"{injected_ctx}\n\n当前用户指令：\n{question}"
+                args.pop("session_id", None)
+                session_id = None
+        except Exception as e:
+            logger.warning("Failed to perform compact continuation for session %s: %s", session_id, e)
+
     if action == "shell":
         args["command"] = question
         cmd_display = question
@@ -665,11 +684,12 @@ async def _direct_agent_stream(
             "antigravity": "agy",
         }
         binary = binary_map.get(execution_mode, execution_mode)
-        args["prompt"] = question
+        if "prompt" not in args:
+            args["prompt"] = question
         args["binary"] = binary
-        if session_id:
-            tag = "fork" if fork else "resume"
-            resume_tag = f" [{tag}:{session_id[:8]}]"
+        if orig_session_id:
+            tag = "compact" if compact_mode else ("fork" if fork else "resume")
+            resume_tag = f" [{tag}:{orig_session_id[:8]}]"
         else:
             resume_tag = ""
         model_tag = f" ({model})" if model else ""
@@ -805,6 +825,7 @@ async def ask(
                 session_id=body.session_id,
                 project_id=body.project_id,
                 fork=body.fork,
+                compact_mode=body.compact_mode,
             ),
             media_type="text/event-stream",
             headers={
@@ -816,6 +837,16 @@ async def ask(
 
     if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
+
+    if body.compact_mode and body.session_id:
+        try:
+            from ..services.session_compactor import build_compacted_continuation
+            comp_res = await build_compacted_continuation(db, body.session_id, question, recent_turns=6)
+            injected_ctx = comp_res.get("injected_context", "")
+            if injected_ctx:
+                question = f"{injected_ctx}\n\n当前用户指令：\n{question}"
+        except Exception as e:
+            logger.warning("Failed to compact session in AI mode: %s", e)
 
     is_cont, is_action, extracted_context = _classify_continuation(question, body.history)
 

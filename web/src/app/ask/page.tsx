@@ -190,6 +190,9 @@ function AskPageContent() {
       conversation_id: string;
       message_count: number;
       timestamp: string;
+      file_size_bytes?: number;
+      estimated_tokens?: number;
+      compact_recommended?: boolean;
       messages?: Array<{
         role: string;
         content: string;
@@ -200,6 +203,7 @@ function AskPageContent() {
     }>
   >([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
+  const [compactMode, setCompactMode] = useState<boolean>(false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
@@ -281,6 +285,8 @@ function AskPageContent() {
     streamingRef.current = false;
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
+    setSelectedSessionId("");
+    setCompactMode(false);
     setTurns([]);
     setInput("");
     window.history.replaceState(null, "", "/ask");
@@ -377,9 +383,15 @@ function AskPageContent() {
     };
   }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
 
-  const sendWithText = useCallback(async (textToSend: string) => {
+  const sendWithText = useCallback(async (
+    textToSend: string,
+    options?: { forceCompact?: boolean; overrideSessionId?: string }
+  ) => {
     const question = textToSend.trim();
     if (!question || streamingRef.current) return;
+
+    const effectiveSessionId = options?.overrideSessionId !== undefined ? options.overrideSessionId : selectedSessionId;
+    const effectiveCompact = options?.forceCompact !== undefined ? options.forceCompact : compactMode;
 
     // Snapshot history BEFORE appending, preserving tool execution results for follow-up turns
     const history = turns
@@ -438,7 +450,8 @@ function AskPageContent() {
           execution_mode: executionMode,
           model: selectedModel || undefined,
           effort: selectedEffort || undefined,
-          session_id: selectedSessionId || undefined,
+          session_id: effectiveSessionId || undefined,
+          compact_mode: effectiveCompact || undefined,
           project_id: selectedProjectId || undefined,
         }),
         signal: ctrl.signal,
@@ -664,11 +677,26 @@ function AskPageContent() {
       abortRef.current = null;
       loadConversations();
     }
-  }, [activeConversationId, cwd, executionMode, loadConversations, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
+  }, [activeConversationId, compactMode, cwd, executionMode, loadConversations, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
   }, [input, sendWithText]);
+
+  const handleSmartCompactAndRetry = useCallback(
+    (targetSid?: string) => {
+      const sidToUse = targetSid || selectedSessionId;
+      if (sidToUse) {
+        setSelectedSessionId(sidToUse);
+      }
+      setCompactMode(true);
+      const lastUserTurn = [...turns].reverse().find((t) => t.role === "user" && t.content);
+      if (lastUserTurn?.content) {
+        sendWithText(lastUserTurn.content, { forceCompact: true, overrideSessionId: sidToUse });
+      }
+    },
+    [selectedSessionId, turns, sendWithText]
+  );
 
   useEffect(() => {
     if (qParam && !initialSentRef.current && !streaming) {
@@ -787,6 +815,12 @@ function AskPageContent() {
         (s) => (s.session_id || s.conversation_id) === sid
       );
       if (!targetSession) return;
+
+      if (targetSession.compact_recommended || (targetSession.file_size_bytes && targetSession.file_size_bytes > 300_000) || targetSession.message_count > 35) {
+        setCompactMode(true);
+      } else {
+        setCompactMode(false);
+      }
 
       let rawMsgs: Array<{
         role: string;
@@ -1187,7 +1221,7 @@ function AskPageContent() {
                     {/* Render tool executions with multi-device tabs */}
                     {hasTools && (
                       <div style={{ marginBottom: 12 }}>
-                        <ExecutionTabs calls={turn.toolCalls!} />
+                        <ExecutionTabs calls={turn.toolCalls!} onSmartCompactAndRetry={handleSmartCompactAndRetry} />
                       </div>
                     )}
 
@@ -1951,9 +1985,11 @@ function AskPageContent() {
                     </option>
                     {sessions.map((s) => {
                       const sid = s.session_id || s.conversation_id;
+                      const isHeavy = s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000);
+                      const tag = isHeavy ? " [⚠️ 建议瘦身]" : "";
                       return (
                         <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                          💬 {s.title ? (s.title.length > 25 ? s.title.slice(0, 25) + "..." : s.title) : (sid ? sid.slice(0, 10) + "..." : "会话")}
+                          💬 {s.title ? (s.title.length > 25 ? s.title.slice(0, 25) + "..." : s.title) : (sid ? sid.slice(0, 10) + "..." : "会话")}{tag}
                         </option>
                       );
                     })}
@@ -1968,6 +2004,7 @@ function AskPageContent() {
               const msgs = activeSession?.messages || [];
               const previewMsgs = msgs.slice(-5);
               const totalCount = activeSession?.message_count || msgs.length;
+              const isHeavy = activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000);
 
               return (
                 <div style={{ marginBottom: 10 }}>
@@ -1978,17 +2015,17 @@ function AskPageContent() {
                       justifyContent: "space-between",
                       gap: 8,
                       padding: "6px 12px",
-                      background: "var(--aurora-accent-soft)",
-                      border: "1px solid var(--aurora-accent)",
+                      background: compactMode ? "rgba(16, 185, 129, 0.08)" : "var(--aurora-accent-soft)",
+                      border: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
                       borderRadius: showSessionContext ? "10px 10px 0 0" : 10,
                       fontSize: 12,
                       color: "var(--aurora-fg1)",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
-                      <Icon name="clock" size={14} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
-                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)", flexShrink: 0 }}>
-                        {isZh ? "续接历史会话:" : "Resuming session:"}
+                      <Icon name={compactMode ? "sparkles" : "clock"} size={14} style={{ color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }}>
+                        {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : (isZh ? "续接历史会话:" : "Resuming session:")}
                       </span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
                         {activeSession?.title || selectedSessionId}
@@ -1996,8 +2033,35 @@ function AskPageContent() {
                       <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
                         ({isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
                       </span>
+                      {isHeavy && (
+                        <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
+                          ⚠️ {isZh ? "建议瘦身" : "Long"}
+                        </span>
+                      )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => setCompactMode(!compactMode)}
+                        style={{
+                          background: compactMode ? "rgba(16, 185, 129, 0.18)" : "var(--aurora-chip)",
+                          border: `1px solid ${compactMode ? "#10b981" : "var(--aurora-border)"}`,
+                          color: compactMode ? "#10b981" : "var(--aurora-fg2)",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          fontWeight: compactMode ? 600 : 500,
+                          transition: "all 0.15s ease",
+                        }}
+                        title={compactMode ? (isZh ? "已开启智能记忆压缩（轻装接续）" : "Smart compaction active") : (isZh ? "切换为智能瘦身模式" : "Switch to smart compact")}
+                      >
+                        <Icon name="sparkles" size={11} />
+                        <span>{compactMode ? (isZh ? "智能瘦身接续" : "Smart Compact") : (isZh ? "原生接续" : "Raw Resume")}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setShowSessionContext(!showSessionContext)}

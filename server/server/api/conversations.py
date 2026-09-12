@@ -214,3 +214,38 @@ async def update_conversation(
 
     return {"status": "ok", "id": str(doc.id), "title": doc.title}
 
+
+class CompactRequest(BaseModel):
+    recent_turns: int = Field(default=6, ge=2, le=30)
+    new_prompt: str = Field(default="")
+
+
+@router.get("/{session_id}/stats")
+async def get_conversation_stats(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Get context token footprint and health stats for a conversation session."""
+    from ..services.session_compactor import get_session_stats
+
+    stats = await get_session_stats(db, session_id)
+    return stats.to_dict()
+
+
+@router.post("/{session_id}/compact")
+async def compact_conversation_session(
+    session_id: str,
+    payload: CompactRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Generate a sliding-window compacted checkpoint for a session."""
+    from ..services.session_compactor import build_compacted_continuation
+
+    recent = payload.recent_turns if payload else 6
+    prompt = payload.new_prompt if payload else ""
+    result = await build_compacted_continuation(db, session_id, prompt, recent_turns=recent)
+    return result
+
+

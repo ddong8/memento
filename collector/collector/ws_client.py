@@ -149,6 +149,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             budget = payload.get("max_budget_usd")
             extra = payload.get("args")
             fork_mode = bool(payload.get("fork"))
+            sys_append = str(payload.get("system_prompt_append") or "").strip()
 
             # Proactive lock detection: if locked by ChatGPT.app or another process, auto-switch to fork
             if not fork_mode and binary in ("codex", "codex-cli") and session_id:
@@ -179,6 +180,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 max_budget_usd=budget,
                 args=extra if isinstance(extra, list) else None,
                 fork=fork_mode,
+                system_prompt_append=sys_append,
             )
 
             proc = await asyncio.create_subprocess_exec(
@@ -266,6 +268,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
                 max_budget_usd=budget,
                 args=extra if isinstance(extra, list) else None,
                 fork=True,
+                system_prompt_append=sys_append,
             )
             retry_proc = await asyncio.create_subprocess_exec(
                 *retry_cmd,
@@ -291,6 +294,7 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             full_stdout = "".join(stdout_chunks)[:100_000]
             full_stderr = "".join(stderr_chunks)[:100_000]
 
+        err_type = None
         if (
             proc.returncode != 0
             and action == "agent"
@@ -298,19 +302,21 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             and session_id
             and ("Prompt is too long" in full_stdout or "Prompt is too long" in full_stderr)
         ):
+            err_type = "prompt_too_long"
             diag_notice = (
                 "\n\n💡 [诊断原因与建议]\n"
                 f"当前接续的 Claude Code 会话历史过长（Session ID: {session_id[:8]}...）。\n"
                 "“Prompt is too long”并非指您输入的提问过长，而是该旧会话已累计数千条消息与工具记录，"
                 "超出了 Anthropic 200,000 Token 上下文限制。\n\n"
                 "👉 解决办法：\n"
-                "请在上方下拉框切换为【➕ 新建独立会话】（或清除已选历史会话），重新提问即可立即恢复正常对话。"
+                "1. 点击下方【⚡ 立即智能瘦身并重试 (推荐)】，自动提炼前序关键记忆并继续；\n"
+                "2. 或在上方切换为【➕ 新建独立会话】开始新对话。"
             )
             full_stderr += diag_notice
 
         status = "succeeded" if proc.returncode == 0 else "failed"
 
-        await ws.send(json.dumps({
+        finished_payload: dict[str, Any] = {
             "type": "task_finished",
             "task_id": task_id,
             "status": status,
@@ -318,7 +324,12 @@ async def _execute_task_stream(ws: Any, task_id: str, action: str, payload: dict
             "stdout": full_stdout,
             "stderr": full_stderr,
             "error": None if proc.returncode == 0 else f"exit code {proc.returncode}",
-        }))
+        }
+        if err_type:
+            finished_payload["error_type"] = err_type
+            finished_payload["session_id"] = session_id
+
+        await ws.send(json.dumps(finished_payload))
     except Exception as e:
         logger.exception("Task %s failed: %s", task_id, e)
         try:

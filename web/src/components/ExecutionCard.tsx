@@ -29,9 +29,10 @@ export interface ToolCallItem {
 interface ExecutionCardProps {
   call: ToolCallItem;
   isVisible?: boolean;
+  onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
-export default function ExecutionCard({ call, isVisible = true }: ExecutionCardProps) {
+export default function ExecutionCard({ call, isVisible = true, onSmartCompactAndRetry }: ExecutionCardProps) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -592,7 +593,7 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
             <div
               style={{
                 marginTop: 10,
-                padding: "10px 14px",
+                padding: "12px 14px",
                 borderRadius: 8,
                 background: "rgba(245, 158, 11, 0.12)",
                 border: "1px solid rgba(245, 158, 11, 0.35)",
@@ -604,10 +605,39 @@ export default function ExecutionCard({ call, isVisible = true }: ExecutionCardP
                 ⚠️ Claude Code 历史会话超出上下文限制 (Prompt is too long)
               </div>
               <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
-                “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与记录（超过了 200,000 Token 上下文限制）。
+                “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与工具记录（超过了 200,000 Token 上下文限制）。
                 <br />
-                👉 <b>解决办法</b>：请在底部提问区域的会话下拉框中切换为<b>【➕ 新建独立会话】</b>，重新提问即可立即正常对话。
+                👉 <b>推荐解决办法</b>：点击下方按钮一键智能提炼前序记忆并轻装重试；或在下方下拉框中切换为<b>【➕ 新建独立会话】</b>。
               </div>
+              {onSmartCompactAndRetry && (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const sid = (result as any)?.session_id || (args?.session_id as string) || "";
+                      onSmartCompactAndRetry(sid);
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 6,
+                      padding: "6px 14px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      boxShadow: "0 2px 6px rgba(245, 158, 11, 0.25)",
+                    }}
+                  >
+                    <Icon name="sparkles" size={13} />
+                    <span>⚡ 立即智能瘦身并重试 (Smart Compact & Retry)</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

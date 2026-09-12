@@ -518,6 +518,9 @@ export const api = {
         conversation_id: string;
         timestamp: string;
         message_count: number;
+        file_size_bytes?: number;
+        estimated_tokens?: number;
+        compact_recommended?: boolean;
         messages?: Array<{
           role: string;
           content: string;
@@ -529,6 +532,29 @@ export const api = {
       total_sessions: number;
     }>(`/api/projects/${projectId}/conversations?${params}`);
   },
+
+  getSessionStats: (sessionId: string) =>
+    apiFetch<{
+      session_id: string;
+      message_count: number;
+      char_count: number;
+      estimated_tokens: number;
+      file_size_bytes: number;
+      status: "normal" | "heavy" | "overflow_risk";
+      compact_recommended: boolean;
+    }>(`/api/conversations/${sessionId}/stats`),
+
+  compactConversation: (sessionId: string, newPrompt = "", recentTurns = 6) =>
+    apiFetch<{
+      session_id: string;
+      title: string;
+      checkpoint: string;
+      injected_context: string;
+      new_prompt_with_context: string;
+    }>(`/api/conversations/${sessionId}/compact`, {
+      method: "POST",
+      body: JSON.stringify({ new_prompt: newPrompt, recent_turns: recentTurns }),
+    }),
 
   getAgentCapabilities: (tool: string, deviceId?: string) => {
     const params = new URLSearchParams({ tool });

@@ -170,8 +170,11 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
             # Skip reasoning — AI internal thought process, not a reply
             if p_type == "reasoning":
                 return None
-            # Skip assistant response_item/message — duplicates event_msg/agent_message
+            # Assistant response_item/message — AI response in Codex
             if p_type == "message" and role == "assistant":
+                content = _extract_codex_content(payload.get("content", []))
+                if content.strip():
+                    return NormalizedMessage(role="assistant", content=content.strip(), timestamp=timestamp, raw_type="message")
                 return None
             # User response_item/message — real user input (not system context)
             if p_type == "message" and role == "user":
@@ -181,7 +184,43 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                 # Skip Codex system context injections (not real user text)
                 if content.lstrip().startswith(("<environment_context>", "<turn_aborted>", "<recommended_plugins>")):
                     return None
-                return NormalizedMessage(role="user", content=content, timestamp=timestamp, raw_type=msg_type)
+                return NormalizedMessage(role="user", content=content.strip(), timestamp=timestamp, raw_type="message")
+            # Tool calls (custom_tool_call, function_call, web_search_call)
+            if p_type in ("custom_tool_call", "function_call", "web_search_call"):
+                tool_name = payload.get("name") or p_type
+                tool_input = payload.get("input") or payload.get("arguments") or ""
+                if isinstance(tool_input, dict):
+                    tool_input = json.dumps(tool_input, ensure_ascii=False)
+                elif not isinstance(tool_input, str):
+                    tool_input = str(tool_input)
+                return NormalizedMessage(
+                    role="tool",
+                    content=f"[{tool_name}]",
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    timestamp=timestamp,
+                    raw_type="tool_call",
+                )
+            # Tool call outputs
+            if p_type in ("custom_tool_call_output", "function_call_output"):
+                raw_out = payload.get("output", "")
+                if isinstance(raw_out, list):
+                    out_text = _extract_codex_content(raw_out)
+                elif isinstance(raw_out, dict):
+                    out_text = json.dumps(raw_out, ensure_ascii=False)
+                else:
+                    out_text = str(raw_out)
+                display = out_text.strip()
+                if len(display) > 5000:
+                    display = display[:5000] + "\n…(truncated)"
+                if display:
+                    return NormalizedMessage(
+                        role="tool",
+                        content=display,
+                        timestamp=timestamp,
+                        raw_type="tool_result",
+                    )
+                return None
             return None
 
         if msg_type == "event_msg":
@@ -192,17 +231,19 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
             if event_type == "user_message":
                 text = payload.get("message", "")
                 if text.strip():
-                    return NormalizedMessage(role="user", content=text, timestamp=timestamp, raw_type="user_message")
+                    return NormalizedMessage(role="user", content=text.strip(), timestamp=timestamp, raw_type="user_message")
                 return None
             # Agent message — intermediate commentary in new Codex, sole reply in old Codex.
-            # Kept as assistant message; if task_complete also exists, ingest dedup handles it.
             if event_type == "agent_message":
                 text = payload.get("message", "")
                 if text.strip():
-                    return NormalizedMessage(role="assistant", content=text, timestamp=timestamp, raw_type="agent_message")
+                    return NormalizedMessage(role="assistant", content=text.strip(), timestamp=timestamp, raw_type="agent_message")
                 return None
-            # Task complete — last_agent_message duplicates the last agent_message, skip
+            # Task complete — if last_agent_message is present, emit as assistant (dedup will drop if already seen)
             if event_type == "task_complete":
+                last_msg = payload.get("last_agent_message", "")
+                if isinstance(last_msg, str) and last_msg.strip():
+                    return NormalizedMessage(role="assistant", content=last_msg.strip(), timestamp=timestamp, raw_type="task_complete")
                 return None
             return None
 

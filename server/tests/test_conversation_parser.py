@@ -167,6 +167,84 @@ class ConversationParserTests(unittest.TestCase):
         self.assertEqual(msg.content, "Here is the response.")
         self.assertEqual(msg.thinking, "Let me think about this")
 
+    def test_codex_assistant_response_item_parsed(self) -> None:
+        raw = json.dumps({
+            "type": "response_item",
+            "timestamp": "2026-09-08T15:50:50Z",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "IPv6 可以让两台设备直接传文件。"}],
+            },
+        })
+        msg = parse_conversation_line(raw, "codex")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "assistant")
+        self.assertEqual(msg.content, "IPv6 可以让两台设备直接传文件。")
+
+    def test_codex_user_response_item_parsed_and_plugins_skipped(self) -> None:
+        raw_user = json.dumps({
+            "type": "response_item",
+            "timestamp": "2026-09-08T15:50:44Z",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "有基于ipv6点对点传输文件的协议吗"}],
+            },
+        })
+        msg = parse_conversation_line(raw_user, "codex")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "user")
+        self.assertEqual(msg.content, "有基于ipv6点对点传输文件的协议吗")
+
+        raw_plugins = json.dumps({
+            "type": "response_item",
+            "timestamp": "2026-09-08T15:50:44Z",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "<recommended_plugins>\nPlugin list"}],
+            },
+        })
+        self.assertIsNone(parse_conversation_line(raw_plugins, "codex"))
+
+    def test_codex_tool_call_and_output_parsed(self) -> None:
+        raw_call = json.dumps({
+            "type": "response_item",
+            "timestamp": "2026-09-08T15:51:00Z",
+            "payload": {
+                "type": "custom_tool_call",
+                "name": "exec",
+                "input": "ls -la",
+                "call_id": "call_123",
+            },
+        })
+        call_msg = parse_conversation_line(raw_call, "codex")
+        self.assertIsNotNone(call_msg)
+        assert call_msg is not None
+        self.assertEqual(call_msg.role, "tool")
+        self.assertEqual(call_msg.raw_type, "tool_call")
+        self.assertEqual(call_msg.tool_name, "exec")
+        self.assertEqual(call_msg.tool_input, "ls -la")
+
+        raw_out = json.dumps({
+            "type": "response_item",
+            "timestamp": "2026-09-08T15:51:01Z",
+            "payload": {
+                "type": "custom_tool_call_output",
+                "call_id": "call_123",
+                "output": [{"type": "input_text", "text": "total 42\nfile.txt"}],
+            },
+        })
+        out_msg = parse_conversation_line(raw_out, "codex")
+        self.assertIsNotNone(out_msg)
+        assert out_msg is not None
+        self.assertEqual(out_msg.role, "tool")
+        self.assertEqual(out_msg.raw_type, "tool_result")
+        self.assertEqual(out_msg.content, "total 42\nfile.txt")
+
 
 if __name__ == "__main__":
     unittest.main()

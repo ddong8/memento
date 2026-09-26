@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/collector_config.dart';
 import '../models/task_message.dart';
+import 'agent_hook_bridge.dart';
 import 'p2p_media_server.dart';
 
 /// Represents a prepared command line ready to be spawned via Process.start.
@@ -32,6 +33,7 @@ class WsTaskClient {
   P2pMediaServer? _p2pServer;
   final Map<String, Process> _runningTasks = {};
   final Map<String, StringBuffer> _activeStdoutBuffers = {};
+  AgentHookBridge? _hookBridge;
 
   WsTaskClient({
     required this.config,
@@ -69,6 +71,8 @@ class WsTaskClient {
     _ws?.close();
     unawaited(_p2pServer?.stop());
     _p2pServer = null;
+    unawaited(_hookBridge?.stop());
+    _hookBridge = null;
     // Kill any active tasks cleanly
     for (final entry in _runningTasks.entries) {
       _killTaskProcess(entry.value);
@@ -1447,7 +1451,14 @@ class WsTaskClient {
         if (sysAppend.isNotEmpty) args.addAll(['--append-system-prompt', sysAppend]);
         args.addAll(['--output-format', 'text', '--dangerously-skip-permissions']);
         if (model.isNotEmpty) args.addAll(['--model', model]);
-        if (effort.isNotEmpty) args.addAll(['--settings', jsonEncode({'effortLevel': effort})]);
+        final settings = <String, dynamic>{};
+        if (effort.isNotEmpty) settings['effortLevel'] = effort;
+        // Report each tool call to the server, which pushes risky ones to the phone.
+        final hooks = await (_hookBridge ??= AgentHookBridge(
+          onToolUse: (tid, use) => _sendJson({'type': 'agent_tool_use', 'task_id': tid, ...use}),
+        )).claudeHooks(taskId);
+        if (hooks != null) settings['hooks'] = hooks;
+        if (settings.isNotEmpty) args.addAll(['--settings', jsonEncode(settings)]);
         args.add(prompt);
       } else if (binary.contains('codex')) {
         args = [];

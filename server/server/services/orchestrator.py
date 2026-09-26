@@ -42,6 +42,8 @@ from .ai_provider import (
     get_ai_providers,
     split_thinking,
 )
+from . import notify_service, task_alerts
+from .risk_policy import classify_shell_command
 from .ws_manager import ws_manager
 
 logger = logging.getLogger("server.orchestrator")
@@ -263,7 +265,7 @@ async def _await_task_stream(
                 if itype == "task_chunk":
                     yield item
                     continue
-                elif itype == "task_progress":
+                elif itype in ("task_progress", "task_alert"):
                     yield item
                     continue
                 elif itype == "task_finished":
@@ -306,7 +308,9 @@ async def _await_task_stream(
     yield {"type": "_task_timeout", "task_id": str(task_id)}
 
 
-async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
+async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, classify_shell: bool = False):
+    """classify_shell: the command came from the LLM rather than the user, so
+    report it if risky (a retrieved document could have talked the model into it)."""
     from ..api.tasks import EXEC_ACTIONS, REMOTE_EXEC_ENABLED
 
     if not REMOTE_EXEC_ENABLED:
@@ -537,6 +541,19 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
             "status": "queued",
         }
 
+        if classify_shell and action == "shell":
+            finding = classify_shell_command(payload.get("command"))
+            if finding:
+                notify_service.spawn(task_alerts.raise_alert(
+                    task_id_str, finding, "Bash", mach_name, user_id=user.id, stream_to_watchers=False,
+                ))
+                yield {
+                    "type": "task_alert",
+                    "task_id": task_id_str,
+                    "device_name": mach_name,
+                    "alert": finding.as_alert("Bash"),
+                }
+
         task_q = None
         # Try WebSocket dispatch by all candidate aliases
         target_ws_id = None
@@ -615,6 +632,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                     "stderr": ws_err[:MAX_TOOL_OUTPUT],
                     "error": done_ws.get("error"),
                     "session_id": ext_sid,
+                    "alerts": await _load_alerts(task_id_str),
                 },
             }
             return
@@ -656,6 +674,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
                 "stderr": task_err[:MAX_TOOL_OUTPUT],
                 "error": done_task.error,
                 "session_id": task_sid,
+                "alerts": done_task.alerts or [],
             },
         }
     except Exception as e:
@@ -667,13 +686,25 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict):
         }
 
 
+async def _load_alerts(task_id: str) -> list:
+    """Risky operations recorded on the task, for the final tool result."""
+    try:
+        async with async_session_factory() as session:
+            alerts = (await session.execute(
+                select(DeviceTask.alerts).where(DeviceTask.id == uuid.UUID(task_id))
+            )).scalar_one_or_none()
+        return alerts or []
+    except Exception:
+        return []
+
+
 async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict):
     if name == "list_devices":
         res = await _tool_list_devices(db, user)
         yield {"type": "tool_result", "name": name, "result": res}
         return
     if name == "run_on_device":
-        async for evt in _tool_run_on_device(db, user, args):
+        async for evt in _tool_run_on_device(db, user, args, classify_shell=True):
             yield evt
         return
     yield {"type": "tool_result", "name": name, "result": {"error": f"unknown tool: {name}"}}

@@ -362,13 +362,34 @@ class AskNotifier extends StateNotifier<AskState> {
           return prev.copyWith(toolCalls: calls);
         });
       },
+      onTaskAlert: (taskId, toolCallId, deviceName, alert) {
+        _flushPending();
+        _updateLastAssistantSync((prev) {
+          final calls = [...prev.toolCalls];
+          final idx = _findCallIndex(calls, taskId, toolCallId, deviceName);
+          if (idx >= 0) {
+            final prevRes = calls[idx].result ?? ToolCallResult();
+            calls[idx] = calls[idx].copyWith(
+              result: prevRes.copyWith(
+                taskId: taskId ?? prevRes.taskId,
+                alerts: [...prevRes.alerts, alert],
+              ),
+            );
+          }
+          return prev.copyWith(toolCalls: calls);
+        });
+      },
       onToolResult: (taskId, toolCallId, result) {
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
           final idx = _findCallIndex(calls, taskId, toolCallId, result.deviceName);
           if (idx >= 0) {
-            calls[idx] = calls[idx].copyWith(result: result);
+            // Older servers don't send alerts in the final result; keep the streamed ones.
+            final streamed = calls[idx].result?.alerts ?? const <Map<String, dynamic>>[];
+            calls[idx] = calls[idx].copyWith(
+              result: result.alerts.isEmpty && streamed.isNotEmpty ? result.copyWith(alerts: streamed) : result,
+            );
           } else if (calls.isNotEmpty) {
             calls[calls.length - 1] =
                 calls[calls.length - 1].copyWith(result: result);

@@ -444,6 +444,27 @@ class ApiClient {
     }
   }
 
+  // --- Phone push (Bark) ---
+
+  Future<Map<String, dynamic>> getNotifySettings() async {
+    final response = await _dio.get('/api/notify/settings');
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// barkUrl: "" clears it, null leaves it unchanged.
+  Future<Map<String, dynamic>> saveNotifySettings({String? barkUrl, bool? notifyRisky, bool? notifyTaskDone}) async {
+    final response = await _dio.put('/api/notify/settings', data: {
+      if (barkUrl != null) 'bark_url': barkUrl,
+      if (notifyRisky != null) 'notify_risky': notifyRisky,
+      if (notifyTaskDone != null) 'notify_task_done': notifyTaskDone,
+    });
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<void> sendTestNotification() async {
+    await _dio.post('/api/notify/test');
+  }
+
   // --- Resident profile (persona) ---
 
   Future<Map<String, dynamic>> getProfile() async {

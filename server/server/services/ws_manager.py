@@ -140,6 +140,18 @@ class DeviceConnectionManager:
             except asyncio.QueueFull:
                 logger.warning("Task stream queue full for %s, dropping chunk", task_id)
 
+    def has_subscriber(self, task_id: str) -> bool:
+        """Someone (an open ask stream) is currently waiting on this task."""
+        return task_id in self._task_queues
+
+    def push_alert(self, task_id: str, alert: dict[str, Any]) -> None:
+        q = self._task_queues.get(task_id)
+        if q:
+            try:
+                q.put_nowait({"type": "task_alert", "task_id": task_id, "alert": alert})
+            except asyncio.QueueFull:
+                pass
+
     def push_progress(self, task_id: str, status: str) -> None:
         q = self._task_queues.get(task_id)
         if q:

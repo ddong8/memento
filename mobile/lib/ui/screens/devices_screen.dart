@@ -6,6 +6,7 @@ import '../../state/device_state.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/aurora_shimmer.dart';
 import '../widgets/aurora_empty_state.dart';
+import '../widgets/notify_settings_sheet.dart';
 
 class DevicesScreen extends ConsumerWidget {
   const DevicesScreen({super.key});
@@ -24,6 +25,11 @@ class DevicesScreen extends ConsumerWidget {
             onPressed: () {
               ref.read(deviceProvider.notifier).loadDevices();
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_none_rounded, size: 20),
+            tooltip: '手机推送',
+            onPressed: () => showNotifySettingsSheet(context),
           ),
           IconButton(
             icon: const Icon(Icons.logout, size: 20),

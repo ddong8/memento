@@ -17,6 +17,7 @@ import 'daily_screen.dart';
 import 'devices_screen.dart';
 import 'collector_screen.dart';
 import 'memory_screen.dart';
+import '../widgets/notify_settings_sheet.dart';
 
 class ShellScreen extends ConsumerStatefulWidget {
   const ShellScreen({super.key});
@@ -307,6 +308,14 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with WidgetsBindingOb
                               style: const TextStyle(fontSize: 12, color: AuroraColors.fg1, fontWeight: FontWeight.w500),
                             ),
                           ),
+                          IconButton(
+                            icon: const Icon(Icons.notifications_none_rounded, size: 16, color: AuroraColors.fg3),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: '手机推送',
+                            onPressed: () => showNotifySettingsSheet(context),
+                          ),
+                          const SizedBox(width: 10),
                           IconButton(
                             icon: const Icon(Icons.logout, size: 16, color: AuroraColors.fg3),
                             padding: EdgeInsets.zero,

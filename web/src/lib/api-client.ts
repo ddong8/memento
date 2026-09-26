@@ -265,6 +265,8 @@ export interface DeviceTask {
   created_at: string | null;
   dispatched_at: string | null;
   finished_at: string | null;
+  /** Risky operations the agent performed (pushed to the phone). */
+  alerts?: { label: string; detail: string; tool: string; at?: string }[];
 }
 
 export interface DeviceSummary {

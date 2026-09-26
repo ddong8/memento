@@ -406,6 +406,10 @@ class _ExecutionCardState extends State<ExecutionCard> {
                     ],
                   ),
                   const SizedBox(height: 6),
+                  if (res != null && res.alerts.isNotEmpty) ...[
+                    RiskAlertList(alerts: res.alerts),
+                    const SizedBox(height: 6),
+                  ],
                   if (isRunning &&
                       (res?.stdout == null || res!.stdout!.isEmpty) &&
                       (res?.stderr == null || res!.stderr!.isEmpty))
@@ -556,6 +560,61 @@ class _ExecutionCardState extends State<ExecutionCard> {
                       ),
                     ),
                   ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Risky operations the agent performed during a task (also pushed to the phone).
+class RiskAlertList extends StatelessWidget {
+  final List<Map<String, dynamic>> alerts;
+
+  const RiskAlertList({super.key, required this.alerts});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AuroraColors.warnSoft,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AuroraColors.warn.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final alert in alerts)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.warning_amber_rounded, size: 14, color: AuroraColors.warn),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(children: [
+                        TextSpan(
+                          text: '${alert['label'] ?? '危险操作'}  ',
+                          style: const TextStyle(fontWeight: FontWeight.w600, color: AuroraColors.warn),
+                        ),
+                        TextSpan(
+                          text: alert['detail']?.toString() ?? '',
+                          style: const TextStyle(
+                            color: AuroraColors.fg2,
+                            fontFamilyFallback: AuroraTheme.monospaceFontFamilyFallback,
+                          ),
+                        ),
+                      ]),
+                      style: const TextStyle(fontSize: 11.5, height: 1.4),
+                    ),
+                  ),
                 ],
               ),
             ),

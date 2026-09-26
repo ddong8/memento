@@ -50,6 +50,12 @@ class AskSseClient {
       String? toolCallId,
       ToolCallResult result,
     ) onToolResult,
+    void Function(
+      String? taskId,
+      String? toolCallId,
+      String? deviceName,
+      Map<String, dynamic> alert,
+    )? onTaskAlert,
     required void Function(String text) onThinking,
     required void Function(String text) onDelta,
     required void Function(String error) onError,
@@ -160,6 +166,13 @@ class AskSseClient {
                   evt['device_name']?.toString(),
                   evt['stream']?.toString() ?? 'stdout',
                   evt['text']?.toString() ?? '',
+                );
+              } else if (type == 'task_alert' && evt['alert'] is Map) {
+                onTaskAlert?.call(
+                  evt['task_id']?.toString(),
+                  evt['tool_call_id']?.toString(),
+                  evt['device_name']?.toString(),
+                  (evt['alert'] as Map).cast<String, dynamic>(),
                 );
               } else if (type == 'tool_result') {
                 final resJson = evt['result'] as Map<String, dynamic>? ?? {};

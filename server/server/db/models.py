@@ -255,6 +255,8 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | active | disabled
     collector_token: Mapped[str | None] = mapped_column(String(64), unique=True)
     github_id: Mapped[str | None] = mapped_column(String(50))
+    # Phone push settings: {"bark_url", "notify_risky", "notify_task_done"}.
+    notify_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -514,6 +516,8 @@ class DeviceTask(Base):
     stdout: Mapped[str | None] = mapped_column(Text)
     stderr: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
+    # Risky operations the agent performed while running this task (see risk_policy).
+    alerts: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
 
     # Seconds the collector may spend before killing the process.
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)

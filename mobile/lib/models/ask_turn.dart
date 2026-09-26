@@ -11,6 +11,8 @@ class ToolCallResult {
   final int? exitCode;
   final List<dynamic>? devices;
   final String? sessionId;
+  /// Risky operations the agent performed during this task ({label, detail, tool}).
+  final List<Map<String, dynamic>> alerts;
 
   ToolCallResult({
     this.taskId,
@@ -25,6 +27,7 @@ class ToolCallResult {
     this.exitCode,
     this.devices,
     this.sessionId,
+    this.alerts = const [],
   });
 
   factory ToolCallResult.fromJson(Map<String, dynamic> json) {
@@ -41,6 +44,10 @@ class ToolCallResult {
       exitCode: json['exit_code'] as int?,
       devices: json['devices'] as List<dynamic>?,
       sessionId: json['session_id']?.toString(),
+      alerts: ((json['alerts'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((a) => a.cast<String, dynamic>())
+          .toList(),
     );
   }
 
@@ -57,6 +64,7 @@ class ToolCallResult {
     int? exitCode,
     List<dynamic>? devices,
     String? sessionId,
+    List<Map<String, dynamic>>? alerts,
   }) {
     return ToolCallResult(
       taskId: taskId ?? this.taskId,
@@ -71,6 +79,7 @@ class ToolCallResult {
       exitCode: exitCode ?? this.exitCode,
       devices: devices ?? this.devices,
       sessionId: sessionId ?? this.sessionId,
+      alerts: alerts ?? this.alerts,
     );
   }
 }

@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, hierarchy, ingest, install_bootstrap, memory, profile, projects, public, search, share, tools, updates
+from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, hierarchy, ingest, install_bootstrap, memory, notify, profile, projects, public, search, share, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
 # from the `server.tasks` package (Celery jobs). Importing it bare here would
 # read as the latter.
@@ -55,6 +55,16 @@ def _run_migrations(conn) -> None:
     user_cols = {c["name"] for c in insp.get_columns("users")}
     if "collector_token" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN collector_token VARCHAR(64) UNIQUE"))
+
+    # DeviceTask.alerts — risky operations an agent performed during the task.
+    if "device_tasks" in tables:
+        task_cols = {c["name"] for c in insp.get_columns("device_tasks")}
+        if "alerts" not in task_cols:
+            conn.execute(text("ALTER TABLE device_tasks ADD COLUMN alerts JSONB NOT NULL DEFAULT '[]'"))
+
+    # User.notify_settings — phone push (Bark) preferences.
+    if "notify_settings" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN notify_settings JSONB NOT NULL DEFAULT '{}'"))
 
     # User.github_id — GitHub OAuth login. Partial unique index: one account
     # per GitHub identity, while the many github_id IS NULL rows stay allowed.
@@ -389,6 +399,7 @@ app.include_router(devices.router)
 app.include_router(hierarchy.router)
 app.include_router(memory.router)
 app.include_router(profile.router)
+app.include_router(notify.router)
 app.include_router(install_bootstrap.router)
 app.include_router(public.router)
 app.include_router(share.router)

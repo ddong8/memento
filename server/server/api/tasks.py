@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
+from ..services import notify_service, task_alerts
 from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger("server.tasks_api")
@@ -180,6 +181,7 @@ def _serialize(t: DeviceTask) -> dict:
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "dispatched_at": t.dispatched_at.isoformat() if t.dispatched_at else None,
         "finished_at": t.finished_at.isoformat() if t.finished_at else None,
+        "alerts": t.alerts or [],
     }
 
 
@@ -555,11 +557,16 @@ async def device_websocket_endpoint(
                         data.get("stream", "stdout"),
                         data.get("text", ""),
                     )
+            elif msg_type == "agent_tool_use":
+                # Classified and pushed off the receive loop: a slow push must
+                # never stall chunk streaming.
+                notify_service.spawn(task_alerts.handle_agent_tool_use(machine.id, machine.name, data))
             elif msg_type in ("file_stat_resp", "file_chunk_resp"):
                 ws_manager.handle_file_response(data)
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")
                 if tid_str:
+                    watched = ws_manager.has_subscriber(tid_str)
                     ws_manager.push_finished(tid_str, data)
                     try:
                         tid_uuid = uuid.UUID(tid_str)
@@ -577,6 +584,9 @@ async def device_websocket_endpoint(
                                 await db.commit()
                     except Exception as e:
                         logger.exception("Error saving WS finished task %s: %s", tid_str, e)
+                    notify_service.spawn(task_alerts.handle_task_finished(
+                        tid_str, data.get("status"), machine.name, watched,
+                    ))
     except WebSocketDisconnect:
         logger.info("Device WebSocket disconnected: %s", real_device_id)
     except Exception as e:

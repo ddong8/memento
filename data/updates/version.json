@@ -1,7 +1,7 @@
 {
   "version": "1.0.53",
   "title": "Memento v1.0.53",
-  "release_notes": "1. 新增「常驻画像」：Memento 每晚根据你亲口说的话生成一份「关于我」草稿，你审阅发布后，自动写入 Claude Code、Codex、Gemini、OpenClaw、Hermes 的全局指令文件，每个 AI 一开会话就知道该怎么和你协作\n2. 画像写入按设备、按工具单独开关，关闭后自动清理；只改 Memento 自己的标记段，首次写入前自动备份原文件\n3. 做梦记忆更准：只从你亲手输入的内容里学习偏好与铁律，工具输出和网页内容不再被误学；你手写或改过的记忆不会再被覆盖",
+  "release_notes": "1. 危险操作推送：设备上的 Claude Code 执行 git push、rm -rf、sudo、改 ~/.ssh 或 .env 等危险操作时，通过 Bark 推送到手机（不拦截，全自动照常运行）\n2. 任务完成推送：agent 任务结束时如果你没在看，推送一条完成或失败通知\n3. 在「设备」页右上角（桌面版在侧边栏底部）的 🔔 里填入 Bark 推送地址即可开启，可发送测试通知\n4. 执行卡片用黄色标出任务期间的危险操作；点通知可打开任务详情并一键停止",
   "platforms": {
     "windows": {
       "asset_name": "Memento-windows-x64.zip",

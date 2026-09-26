@@ -794,74 +794,33 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
         backgroundColor: AuroraColors.bg,
         elevation: 0,
         titleSpacing: 20,
-        title: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: AuroraColors.brandGradient,
-                borderRadius: BorderRadius.circular(9),
-                boxShadow: [
-                  BoxShadow(
-                    color: AuroraColors.accent.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.psychology, size: 20, color: Colors.white),
-            ),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '外脑认知记忆库',
-                  style: TextStyle(
-                    color: AuroraColors.fg1,
-                    fontSize: 16.5,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                Text(
-                  '三层认知架构 · 39 个核心工程 · 长期核心准则',
-                  style: TextStyle(fontSize: 10.5, color: AuroraColors.fg3),
-                ),
-              ],
-            ),
-          ],
-        ),
+        title: const Text('记忆库'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: const EdgeInsets.all(3),
+            // Segmented control: a quiet track with the selection as a solid block.
             decoration: BoxDecoration(
-              color: AuroraColors.surface,
+              color: AuroraColors.surfaceSolid,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AuroraColors.border, width: 0.8),
             ),
             child: TabBar(
               controller: _tabController,
               // Four labelled tabs don't fit side by side on a phone.
               isScrollable: MediaQuery.sizeOf(context).width < 640,
+              tabAlignment: MediaQuery.sizeOf(context).width < 640 ? TabAlignment.start : TabAlignment.fill,
               indicator: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0x3338BDF8), Color(0x226366F1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: AuroraColors.surfaceElevated,
                 borderRadius: BorderRadius.circular(9),
-                border: Border.all(color: AuroraColors.accent.withValues(alpha: 0.6), width: 1),
               ),
+              splashBorderRadius: BorderRadius.circular(9),
               indicatorSize: TabBarIndicatorSize.tab,
               dividerColor: Colors.transparent,
               labelColor: AuroraColors.fg1,
               unselectedLabelColor: AuroraColors.fg3,
-              labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.normal),
+              labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              unselectedLabelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
               tabs: [
                 Tab(
                   child: Row(
@@ -1319,12 +1278,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 10),
 
-              // Live Search & Control Action Bar
-              Row(
-                children: [
-                  // Fast Filter Input
-                  Expanded(
-                    child: Container(
+              // Live Search & Control Action Bar: one row when there's room; on a
+              // phone the filter gets its own line and the buttons scroll beneath it.
+              LayoutBuilder(builder: (context, constraints) {
+                final filter = Container(
                       height: 36,
                       decoration: BoxDecoration(
                         color: AuroraColors.surface,
@@ -1345,7 +1302,7 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                         },
                         style: const TextStyle(color: AuroraColors.fg1, fontSize: 13),
                         decoration: InputDecoration(
-                          hintText: '实时过滤 39 个工程、技术标识或规则关键词...',
+                          hintText: '过滤工程、技术标识或规则关键词...',
                           hintStyle: const TextStyle(color: AuroraColors.fg3, fontSize: 12),
                           prefixIcon: const Icon(Icons.filter_list_rounded, color: AuroraColors.fg3, size: 17),
                           suffixIcon: _treeFilterQuery.isNotEmpty
@@ -1366,9 +1323,10 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                           focusedBorder: InputBorder.none,
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
+                    );
+                final actions = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
 
                   // View Toggle (Tree vs Flat)
                   Container(
@@ -1512,8 +1470,20 @@ class _MemoryScreenState extends State<MemoryScreen> with SingleTickerProviderSt
                     ),
                     onPressed: () => _showAddOrEditMemoryDialog(),
                   ),
-                ],
-              ),
+                  ],
+                );
+                if (constraints.maxWidth < 640) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      filter,
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(scrollDirection: Axis.horizontal, child: actions),
+                    ],
+                  );
+                }
+                return Row(children: [Expanded(child: filter), const SizedBox(width: 10), actions]);
+              }),
             ],
           ),
         ),

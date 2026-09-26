@@ -198,34 +198,18 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with WidgetsBindingOb
                           decoration: BoxDecoration(
                             gradient: AuroraColors.brandGradient,
                             borderRadius: BorderRadius.circular(9),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AuroraColors.accent.withOpacity(0.35),
-                                blurRadius: 10,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
                           ),
                           child: const Icon(Icons.psychology, size: 20, color: Colors.white),
                         ),
                         const SizedBox(width: 10),
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Memento',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: AuroraColors.fg1,
-                                letterSpacing: -0.5,
-                              ),
-                            ),
-                            Text(
-                              'Desktop / Mobile',
-                              style: TextStyle(fontSize: 10, color: AuroraColors.fg3),
-                            ),
-                          ],
+                        const Text(
+                          'Memento',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AuroraColors.fg1,
+                            letterSpacing: -0.3,
+                          ),
                         ),
                       ],
                     ),
@@ -252,9 +236,6 @@ class _ShellScreenState extends ConsumerState<ShellScreen> with WidgetsBindingOb
                             decoration: BoxDecoration(
                               color: isSelected ? AuroraColors.surfaceElevated : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isSelected ? AuroraColors.borderStrong : Colors.transparent,
-                              ),
                             ),
                             child: Row(
                               children: [

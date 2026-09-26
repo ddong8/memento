@@ -235,7 +235,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('本机采集器 (Local Collector)'),
+            title: const Text('本机采集器'),
             actions: [
               IconButton(
                 icon: Icon(

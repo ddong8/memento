@@ -13,7 +13,7 @@ class GlassCard extends StatefulWidget {
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(16),
-    this.borderRadius = 16,
+    this.borderRadius = 14,
     this.onTap,
     this.borderColor,
     this.backgroundColor,
@@ -29,34 +29,19 @@ class _GlassCardState extends State<GlassCard> {
   @override
   Widget build(BuildContext context) {
     final effectiveBorderColor = widget.borderColor ??
-        (_isHovered ? AuroraColors.borderStrong : AuroraColors.border);
+        (_isHovered && widget.onTap != null ? AuroraColors.borderStrong : AuroraColors.border);
     final effectiveBgColor = widget.backgroundColor ??
-        (_isHovered ? AuroraColors.surfaceElevated : AuroraColors.surfaceSolid);
+        (_isHovered && widget.onTap != null ? AuroraColors.surfaceElevated : AuroraColors.surfaceSolid);
 
+    // Flat: tone and a hairline do the separating; drop shadows only muddy a dark UI.
     Widget card = AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+      duration: const Duration(milliseconds: 160),
       curve: Curves.easeOut,
       padding: widget.padding,
       decoration: BoxDecoration(
         color: effectiveBgColor,
         borderRadius: BorderRadius.circular(widget.borderRadius),
-        border: Border.all(
-          color: effectiveBorderColor,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(_isHovered ? 0.28 : 0.15),
-            blurRadius: _isHovered ? 16 : 12,
-            offset: Offset(0, _isHovered ? 6 : 4),
-          ),
-          if (_isHovered)
-            BoxShadow(
-              color: AuroraColors.accent.withOpacity(0.08),
-              blurRadius: 18,
-              spreadRadius: 1,
-            ),
-        ],
+        border: Border.all(color: effectiveBorderColor, width: 1),
       ),
       child: widget.child,
     );

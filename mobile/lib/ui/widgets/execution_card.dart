@@ -148,24 +148,19 @@ class _ExecutionCardState extends State<ExecutionCard> {
         : isStillRunning
             ? '后台运行中'
             : isSuccess
-                ? (res?.exitCode != null ? '完成 (0)' : '成功')
+                ? '完成'
                 : isFailed
-                    ? (res?.exitCode != null ? '失败 (${res?.exitCode})' : '失败')
+                    ? (res?.exitCode != null ? '失败 · 退出码 ${res?.exitCode}' : '失败')
                     : '就绪';
+
+    final alertCount = res?.alerts.length ?? 0;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: AuroraColors.surfaceSolid,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AuroraColors.borderStrong),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AuroraColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,85 +169,88 @@ class _ExecutionCardState extends State<ExecutionCard> {
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
             borderRadius: _expanded
-                ? const BorderRadius.vertical(top: Radius.circular(14))
-                : BorderRadius.circular(14),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AuroraColors.chip,
-                borderRadius: _expanded
-                    ? const BorderRadius.vertical(top: Radius.circular(14))
-                    : BorderRadius.circular(14),
-              ),
+                ? const BorderRadius.vertical(top: Radius.circular(12))
+                : BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   Container(
-                    width: 24,
-                    height: 24,
+                    width: 30,
+                    height: 30,
                     decoration: BoxDecoration(
-                      color: agentColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(6),
+                      color: agentColor.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(
-                      agentIcon,
-                      size: 14,
-                      color: agentColor,
+                    child: Icon(agentIcon, size: 16, color: agentColor),
+                  ),
+                  const SizedBox(width: 10),
+                  // Title on top (what it's doing), agent and device underneath.
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          call.command.isNotEmpty
+                              ? (cmd.startsWith('[') && cmd.contains('] ') ? cmd.substring(cmd.indexOf('] ') + 2) : call.command)
+                              : (call.prompt.isNotEmpty ? call.prompt : call.name),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: call.action == 'shell' ? 'monospace' : null,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AuroraColors.fg1,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text.rich(
+                          TextSpan(children: [
+                            TextSpan(
+                              text: agentLabel,
+                              style: TextStyle(color: agentColor, fontWeight: FontWeight.w600),
+                            ),
+                            if (call.deviceName != null && call.deviceName!.isNotEmpty)
+                              TextSpan(text: '  ·  ${call.deviceName}'),
+                          ]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: AuroraColors.fg3),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Agent Badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: agentColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: agentColor.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      agentLabel,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: agentColor,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  if (call.deviceName != null && call.deviceName!.isNotEmpty) ...[
-                    Flexible(
-                      child: Text(
-                        '${call.deviceName}',
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: AuroraColors.fg3,
+                  // Risky operations stay visible while the card is collapsed.
+                  if (alertCount > 0) ...[
+                    Tooltip(
+                      message: '期间有 $alertCount 次危险操作',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AuroraColors.warnSoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, size: 11, color: AuroraColors.warn),
+                            const SizedBox(width: 3),
+                            Text('$alertCount',
+                                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: AuroraColors.warn)),
+                          ],
                         ),
                       ),
                     ),
                     const SizedBox(width: 6),
                   ],
-                  Expanded(
-                    child: Text(
-                      call.command.isNotEmpty
-                          ? (cmd.startsWith('[') && cmd.contains('] ') ? cmd.substring(cmd.indexOf('] ') + 2) : call.command)
-                          : (call.prompt.isNotEmpty ? call.prompt : call.name),
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11.5,
-                        color: AuroraColors.fg2,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   // Status pill
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.12),
+                      color: statusColor.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: statusColor.withOpacity(0.3)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -299,8 +297,8 @@ class _ExecutionCardState extends State<ExecutionCard> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: const BoxDecoration(
-                color: Color(0xFF080C14),
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(14)),
+                color: AuroraColors.bg,
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(12)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

@@ -57,9 +57,9 @@ class _AuroraShimmerBoxState extends State<AuroraShimmerBox>
               begin: Alignment(v * 3.0 - 2.0, -0.2),
               end: Alignment(v * 3.0 - 0.5, 0.2),
               colors: const [
-                Color(0xFF0F172A),
-                Color(0xFF1E293B),
-                Color(0xFF0F172A),
+                AuroraColors.surface,
+                AuroraColors.surfaceElevated,
+                AuroraColors.surface,
               ],
               stops: const [0.0, 0.5, 1.0],
             ),

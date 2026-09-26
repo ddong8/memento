@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/aurora_theme.dart';
 import '../../state/auth_state.dart';
+import '../../models/device.dart';
 import '../../state/device_state.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/aurora_shimmer.dart';
@@ -17,7 +18,7 @@ class DevicesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('在线设备'),
+        title: const Text('设备'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, size: 20),
@@ -71,154 +72,124 @@ class DevicesScreen extends ConsumerWidget {
                     margin: const EdgeInsets.only(bottom: 12),
                     child: GlassCard(
                       padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 10,
-                                height: 10,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isOnline ? AuroraColors.success : AuroraColors.fg4,
-                                  boxShadow: isOnline
-                                      ? [
-                                          BoxShadow(
-                                            color: AuroraColors.success.withOpacity(0.5),
-                                            blurRadius: 6,
-                                            spreadRadius: 1,
-                                          )
-                                        ]
-                                      : null,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  dev.name,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: AuroraColors.fg1,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: isOnline ? AuroraColors.successSoft : AuroraColors.chip,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  isOnline ? 'ONLINE' : 'OFFLINE',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: isOnline ? AuroraColors.success : AuroraColors.fg3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              const Icon(Icons.fingerprint, size: 14, color: AuroraColors.fg3),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  'ID: ${dev.deviceId}',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                    color: AuroraColors.fg3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.access_time,
-                                size: 14,
-                                color: isOnline ? AuroraColors.success : AuroraColors.fg3,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  '最近心跳: ${dev.heartbeatText}',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isOnline ? AuroraColors.success : AuroraColors.fg3,
-                                  ),
-                                ),
-                              ),
-                              if (dev.collectorVersion != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                  decoration: BoxDecoration(
-                                    color: AuroraColors.chip,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: AuroraColors.border),
-                                  ),
-                                  child: Text(
-                                    'v${dev.collectorVersion}',
-                                    style: const TextStyle(fontSize: 10.5, color: AuroraColors.fg3),
-                                  ),
-                                ),
-                              if (dev.documentCount > 0) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                                  decoration: BoxDecoration(
-                                    color: AuroraColors.accentSoft,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '${dev.documentCount} 条记忆',
-                                    style: const TextStyle(fontSize: 10.5, color: AuroraColors.accent),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          if (dev.tools.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              children: dev.tools.map(
-                                (tool) => Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: AuroraColors.chip,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: AuroraColors.border),
-                                  ),
-                                  child: Text(
-                                    tool,
-                                    style: const TextStyle(
-                                      fontSize: 10.5,
-                                      color: AuroraColors.accent,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ).toList(),
-                            ),
-                          ],
-                        ],
-                      ),
+                      child: _DeviceCardBody(dev: dev, isOnline: isOnline),
                     ),
                   );
                 },
               ),
       ),
+    );
+  }
+}
+
+const _toolNames = {
+  'claude_code': 'Claude Code',
+  'codex': 'Codex',
+  'antigravity': 'Antigravity',
+  'cursor': 'Cursor',
+  'hermes': 'Hermes',
+  'obsidian': 'Obsidian',
+  'openclaw': 'OpenClaw',
+  'windsurf': 'Windsurf',
+  'cline': 'Cline',
+};
+
+class _DeviceCardBody extends StatelessWidget {
+  final Device dev;
+  final bool isOnline;
+
+  const _DeviceCardBody({required this.dev, required this.isOnline});
+
+  @override
+  Widget build(BuildContext context) {
+    final (name, platform) = splitDeviceName(dev.name);
+    final meta = [
+      if (platform != null) platform,
+      if (dev.collectorVersion != null) 'v${dev.collectorVersion}',
+      if (dev.documentCount > 0) '${dev.documentCount} 条记忆',
+    ].join('  ·  ');
+    final tools = dev.tools;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isOnline ? AuroraColors.success : AuroraColors.fg4,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: AuroraColors.fg1),
+                  ),
+                  if (meta.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(meta, style: const TextStyle(fontSize: 12, color: AuroraColors.fg3)),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: isOnline ? AuroraColors.successSoft : AuroraColors.chip,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                isOnline ? '在线' : '离线',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: isOnline ? AuroraColors.success : AuroraColors.fg3,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (tools.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final tool in tools)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AuroraColors.chip,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _toolNames[tool] ?? tool,
+                    style: const TextStyle(fontSize: 11.5, color: AuroraColors.fg2),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 12),
+        Text(
+          '最近心跳 ${dev.heartbeatText}  ·  ${dev.deviceId}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 11, color: AuroraColors.fg4),
+        ),
+      ],
     );
   }
 }

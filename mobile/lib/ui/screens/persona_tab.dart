@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme/aurora_theme.dart';
+import '../../models/device.dart';
 import '../widgets/app_markdown.dart';
 import '../widgets/aurora_shimmer.dart';
 import '../widgets/glass_card.dart';
@@ -172,8 +175,13 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
     return RefreshIndicator(
       onRefresh: _load,
       color: AuroraColors.accent,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+      // A readable column on wide windows instead of spanning the whole page.
+      child: LayoutBuilder(
+        builder: (context, constraints) => ListView(
+        padding: EdgeInsets.symmetric(
+          horizontal: math.max(16, (constraints.maxWidth - 880) / 2),
+          vertical: 16,
+        ),
         children: [
           _buildIntro(),
           if (_error != null) _banner(_error!, AuroraColors.danger),
@@ -185,6 +193,7 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
           const SizedBox(height: 12),
           _buildDevicesCard(),
         ],
+      ),
       ),
     );
   }
@@ -422,6 +431,7 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
     final results = ((status['results'] as Map?) ?? const {}).cast<String, dynamic>();
 
     return Container(
+      width: double.infinity,
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.only(top: 12),
       decoration: const BoxDecoration(border: Border(top: BorderSide(color: AuroraColors.border))),
@@ -432,7 +442,7 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
             spacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text(device['name'].toString(),
+              Text(splitDeviceName(device['name'].toString()).$1,
                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: AuroraColors.fg1)),
               if (device['online'] != true) _chip('离线', AuroraColors.fg3),
               if (status['reported_at'] != null)
@@ -441,32 +451,52 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final tool in targets)
-                _buildToggle(
-                  device,
-                  tool,
-                  on: enabled.contains(tool),
-                  result: results[tool]?.toString(),
-                  state: personaTargetState(
-                    enabled: enabled.contains(tool),
+          // Side by side where there's room; one full-width row each on a phone.
+          LayoutBuilder(
+            builder: (context, constraints) => Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tool in targets)
+                  _buildToggle(
+                    device,
+                    tool,
+                    fullWidth: constraints.maxWidth < 520,
+                    on: enabled.contains(tool),
                     result: results[tool]?.toString(),
-                    reportedVersion: status['version'] as int?,
-                    publishedVersion: publishedVersion,
+                    state: personaTargetState(
+                      enabled: enabled.contains(tool),
+                      result: results[tool]?.toString(),
+                      reportedVersion: status['version'] as int?,
+                      publishedVersion: publishedVersion,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
+  Widget _toggleLabel(String label, String file, bool on) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: on ? FontWeight.w600 : FontWeight.w500,
+                  color: on ? AuroraColors.fg1 : AuroraColors.fg2)),
+          Text(file,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 10.5, color: AuroraColors.fg4, fontFamilyFallback: AuroraTheme.monospaceFontFamilyFallback)),
+        ],
+      );
+
   Widget _buildToggle(Map<String, dynamic> device, String tool,
-      {required bool on, required String? result, required PersonaTargetState? state}) {
+      {required bool on, required String? result, required PersonaTargetState? state, bool fullWidth = false}) {
     final (label, file) = personaTargetMeta[tool] ?? (tool, '');
     final (stateText, stateColor) = switch (state) {
       PersonaTargetState.written => ('已写入', AuroraColors.success),
@@ -484,32 +514,20 @@ class _PersonaTabState extends State<PersonaTab> with AutomaticKeepAliveClientMi
         borderRadius: BorderRadius.circular(12),
         onTap: () => _toggleTarget(device, tool),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          width: fullWidth ? double.infinity : null,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
             color: on ? AuroraColors.accentSoft : AuroraColors.chip,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: on ? AuroraColors.accent : AuroraColors.border),
+            border: Border.all(color: on ? AuroraColors.accent.withValues(alpha: 0.5) : Colors.transparent),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: fullWidth ? MainAxisSize.max : MainAxisSize.min,
             children: [
               Icon(on ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
                   size: 16, color: on ? AuroraColors.accent : AuroraColors.fg3),
               const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(label,
-                      style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: on ? FontWeight.w600 : FontWeight.w500,
-                          color: on ? AuroraColors.fg1 : AuroraColors.fg2)),
-                  Text(file,
-                      style: const TextStyle(
-                          fontSize: 10.5, color: AuroraColors.fg4, fontFamilyFallback: AuroraTheme.monospaceFontFamilyFallback)),
-                ],
-              ),
+              if (fullWidth) Expanded(child: _toggleLabel(label, file, on)) else _toggleLabel(label, file, on),
               if (state != null) ...[const SizedBox(width: 8), _chip(stateText, stateColor)],
             ],
           ),

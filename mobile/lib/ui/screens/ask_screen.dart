@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -1707,18 +1708,23 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                           }
                           return false;
                         },
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          itemCount: askState.turns.length,
-                          itemBuilder: (context, index) {
-                            final turn = askState.turns[index];
-                            return _buildTurnItem(
-                                turn, index, askState.isStreaming);
-                          },
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => ListView.builder(
+                            controller: _scrollController,
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            // Keep a readable line length on wide windows: center a
+                            // column of at most ~860 px instead of spanning the page.
+                            padding: EdgeInsets.symmetric(
+                                horizontal: math.max(16, (constraints.maxWidth - 860) / 2),
+                                vertical: 12),
+                            itemCount: askState.turns.length,
+                            itemBuilder: (context, index) {
+                              final turn = askState.turns[index];
+                              return _buildTurnItem(
+                                  turn, index, askState.isStreaming);
+                            },
+                          ),
                         ),
                       ),
                       if (_isUserScrolledUp)
@@ -2179,12 +2185,17 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         child: Align(
           alignment: Alignment.centerRight,
           child: Container(
-            margin: const EdgeInsets.only(bottom: 12, left: 40),
+            margin: const EdgeInsets.only(bottom: 18, left: 48),
+            constraints: const BoxConstraints(maxWidth: 640),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: AuroraColors.accentSoft,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AuroraColors.accent.withOpacity(0.3)),
+            decoration: const BoxDecoration(
+              color: AuroraColors.surfaceElevated,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(18),
+                topRight: Radius.circular(18),
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(6),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -2198,9 +2209,9 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   SelectableText(
                     turn.content,
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 14.5,
                       color: AuroraColors.fg1,
-                      height: 1.45,
+                      height: 1.5,
                     ),
                   ),
               ],
@@ -2210,15 +2221,14 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       );
     }
 
-    // Assistant Card
+    // Assistant turn: no card of its own. The answer reads as plain text on the
+    // page; only tool executions get a surface.
     final isLastTurn = index == ref.read(askProvider).turns.length - 1;
     final isThinkingLive = isGlobalStreaming && isLastTurn && turn.content.isEmpty;
 
     return RepaintBoundary(
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-      child: GlassCard(
-        padding: const EdgeInsets.all(14),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 24, right: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2230,9 +2240,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
-                    color: AuroraColors.chip,
+                    color: AuroraColors.accentSoft,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AuroraColors.border),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -2297,7 +2306,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
           ],
         ),
       ),
-    ));
+    );
   }
 
   Widget _buildCollapsedSummaryBar(DeviceState deviceState) {
@@ -2347,12 +2356,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
       borderRadius: BorderRadius.circular(10),
       child: Container(
         height: 32,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: AuroraColors.chip,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AuroraColors.border),
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Row(
           children: [
             Expanded(
@@ -2363,11 +2367,10 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   children: [
                     // Mode Chip
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: modeColor.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: modeColor.withOpacity(0.7), width: 0.8),
+                        color: modeColor.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -2492,21 +2495,16 @@ class _AskScreenState extends ConsumerState<AskScreen> {
             ),
             const SizedBox(width: 6),
             // Expand button
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: AuroraColors.accentSoft,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AuroraColors.accent.withOpacity(0.6), width: 0.8),
-              ),
-              child: const Row(
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.keyboard_arrow_down, size: 13, color: AuroraColors.accent),
-                  SizedBox(width: 2),
+                  Icon(Icons.tune_rounded, size: 14, color: AuroraColors.fg3),
+                  SizedBox(width: 4),
                   Text(
-                    '展开配置',
-                    style: TextStyle(fontSize: 10.5, color: AuroraColors.accent, fontWeight: FontWeight.w600),
+                    '配置',
+                    style: TextStyle(fontSize: 12, color: AuroraColors.fg3, fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -2527,18 +2525,15 @@ class _AskScreenState extends ConsumerState<AskScreen> {
             ? MediaQuery.of(context).viewInsets.bottom + 10
             : MediaQuery.of(context).padding.bottom + 10,
       ),
-      decoration: BoxDecoration(
-        color: AuroraColors.surfaceSolid,
-        border: const Border(top: BorderSide(color: AuroraColors.borderStrong)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
-          ),
-        ],
+      decoration: const BoxDecoration(
+        color: AuroraColors.bg,
+        border: Border(top: BorderSide(color: AuroraColors.border)),
       ),
-      child: Column(
+      // Same column as the conversation above it on wide windows.
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 892),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3369,9 +3364,8 @@ class _AskScreenState extends ConsumerState<AskScreen> {
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
-                  color: AuroraColors.chip,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AuroraColors.border),
+                  color: AuroraColors.surfaceElevated,
+                  borderRadius: BorderRadius.circular(20),
                 ),
                 child: TextField(
                   controller: _inputController,
@@ -3383,10 +3377,11 @@ class _AskScreenState extends ConsumerState<AskScreen> {
                   style: const TextStyle(color: AuroraColors.fg1, fontSize: 14),
                   decoration: InputDecoration(
                     hintText: _getHintText(),
+                    filled: false,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
                   ),
                   onSubmitted: (_) => _handleSend(),
                 ),
@@ -3411,6 +3406,7 @@ class _AskScreenState extends ConsumerState<AskScreen> {
         ),
       ],
     ),
+      ),
   );
 }
 

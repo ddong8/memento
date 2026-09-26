@@ -3,16 +3,18 @@ import 'package:flutter/material.dart';
 /// Aurora Design System - Colors matching the Memento Web UI
 class AuroraColors {
   // Backgrounds
-  static const Color bg = Color(0xFF080C14);
-  static const Color bg2 = Color(0xFF0C1220);
-  static const Color surface = Color(0xFF0F172A);
-  static const Color surfaceSolid = Color(0xFF131D33);
-  static const Color surfaceElevated = Color(0xFF1E293B);
+  // Neutral graphite rather than saturated navy: surfaces separate by tone, so
+  // cards don't need heavy outlines to read as cards.
+  static const Color bg = Color(0xFF0B0E14);
+  static const Color bg2 = Color(0xFF10141B);
+  static const Color surface = Color(0xFF12161E);
+  static const Color surfaceSolid = Color(0xFF161B24);
+  static const Color surfaceElevated = Color(0xFF1D2330);
 
   // Borders
-  static const Color border = Color(0x1AFFFFFF); // rgba(255,255,255,0.10)
-  static const Color borderStrong = Color(0x2EFFFFFF); // rgba(255,255,255,0.18)
-  static const Color chip = Color(0x14FFFFFF); // rgba(255,255,255,0.08)
+  static const Color border = Color(0x12FFFFFF); // rgba(255,255,255,0.07)
+  static const Color borderStrong = Color(0x24FFFFFF); // rgba(255,255,255,0.14)
+  static const Color chip = Color(0x0FFFFFFF); // rgba(255,255,255,0.06)
 
   // Accents & Brands
   static const Color accent = Color(0xFF38BDF8); // Sky 400
@@ -24,8 +26,8 @@ class AuroraColors {
   // Foreground / Typography
   static const Color fg1 = Color(0xFFF8FAFC); // Primary White
   static const Color fg2 = Color(0xFF94A3B8); // Muted Silver
-  static const Color fg3 = Color(0xFF64748B); // Slate Grey
-  static const Color fg4 = Color(0xFF475569); // Dark Slate
+  static const Color fg3 = Color(0xFF7B879C); // Slate Grey (≥4.5:1 on bg for small text)
+  static const Color fg4 = Color(0xFF56637A); // Dark Slate
 
   // Status
   static const Color success = Color(0xFF10B981);
@@ -94,11 +96,12 @@ class AuroraTheme {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
+        titleSpacing: 20,
         titleTextStyle: TextStyle(
           color: AuroraColors.fg1,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          letterSpacing: -0.5,
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.3,
         ),
         iconTheme: IconThemeData(color: AuroraColors.fg2),
       ),
@@ -127,6 +130,15 @@ class AuroraTheme {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AuroraColors.accent, width: 1.5),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AuroraColors.fg1,
+          side: const BorderSide(color: AuroraColors.borderStrong),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(

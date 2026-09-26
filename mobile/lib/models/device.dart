@@ -74,3 +74,16 @@ class Device {
     );
   }
 }
+
+/// "haixingdeMac-mini.local (Darwin)" -> ("haixingdeMac-mini", "macOS").
+(String, String?) splitDeviceName(String raw) {
+  final m = RegExp(r'^(.*?)\s*\(([^)]*)\)\s*$').firstMatch(raw);
+  var name = (m?.group(1) ?? raw).trim();
+  if (name.endsWith('.local')) name = name.substring(0, name.length - 6);
+  final platform = switch (m?.group(2)) {
+    'Darwin' => 'macOS',
+    final p? when p.isNotEmpty => p,
+    _ => null,
+  };
+  return (name.isEmpty ? raw : name, platform);
+}

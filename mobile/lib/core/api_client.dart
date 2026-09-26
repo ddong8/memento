@@ -444,6 +444,24 @@ class ApiClient {
     }
   }
 
+  // --- Background ask runs ---
+
+  /// The run for a conversation, or null if none is on the server.
+  Future<Map<String, dynamic>?> getAskRun(String conversationId) async {
+    try {
+      final response = await _dio.get('/api/ask/conversations/$conversationId/run');
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Stop a run and any device task it is waiting on.
+  Future<void> cancelAskRun(String conversationId) async {
+    await _dio.post('/api/ask/conversations/$conversationId/cancel');
+  }
+
   // --- Phone push (Bark) ---
 
   Future<Map<String, dynamic>> getNotifySettings() async {

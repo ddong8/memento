@@ -54,6 +54,10 @@ class AskNotifier extends StateNotifier<AskState> {
   String _pendingDelta = '';
   String _pendingThinking = '';
 
+  /// Bumped whenever the stream being shown changes (send, attach, switch, clear),
+  /// so callbacks still arriving from a detached stream are ignored.
+  int _generation = 0;
+
   AskNotifier() : super(AskState());
 
   void _flushPending() {
@@ -79,22 +83,26 @@ class AskNotifier extends StateNotifier<AskState> {
     });
   }
 
-  void newChat() {
-    _sseClient.abort();
+  /// Stop showing the current stream. The run itself keeps going on the server.
+  void _detach() {
+    _generation++;
+    _sseClient.detach();
     _flushPending();
+  }
+
+  void newChat() {
+    _detach();
     state = AskState();
     AppStorage.setLastAskConversationId(null);
   }
 
   void clearChat() {
-    _sseClient.abort();
-    _flushPending();
-    state = state.copyWith(turns: []);
+    _detach();
+    state = state.copyWith(turns: [], isStreaming: false);
   }
 
   void setSessionTurns(List<AskTurn> turns, {String? title}) {
-    _sseClient.abort();
-    _flushPending();
+    _detach();
     state = state.copyWith(
       turns: turns,
       isStreaming: false,
@@ -109,11 +117,8 @@ class AskNotifier extends StateNotifier<AskState> {
     String id, {
     void Function(String? deviceId, String? cwd)? onMetaLoaded,
   }) async {
-    if (state.isStreaming) {
-      _sseClient.abort();
-      _flushPending();
-    }
-    state = state.copyWith(isLoadingHistory: true, error: null);
+    _detach();
+    state = state.copyWith(isLoadingHistory: true, isStreaming: false, error: null);
 
     try {
       final res = await ApiClient().getAskConversation(id);
@@ -138,6 +143,9 @@ class AskNotifier extends StateNotifier<AskState> {
         res['device_id']?.toString(),
         res['cwd']?.toString(),
       );
+
+      // Still running (e.g. started before the app was closed, or from another device)?
+      await _attachIfRunning(id);
     } catch (e) {
       state = state.copyWith(
         isLoadingHistory: false,
@@ -146,59 +154,90 @@ class AskNotifier extends StateNotifier<AskState> {
     }
   }
 
-  /// Silently resynchronize the active conversation when the app returns to foreground.
+  /// If [id] has a run in progress on the server, show it live: add its question
+  /// and an empty answer, then replay the run's events into them.
+  Future<void> _attachIfRunning(String id) async {
+    Map<String, dynamic>? run;
+    try {
+      run = await ApiClient().getAskRun(id);
+    } catch (_) {
+      return;
+    }
+    if (run == null || run['done'] == true || state.activeConversationId != id) return;
+
+    _detach();
+    final gen = _generation;
+    state = state.copyWith(
+      turns: [
+        ...state.turns,
+        AskTurn(role: 'user', content: run['question']?.toString() ?? ''),
+        AskTurn(role: 'assistant', content: ''),
+      ],
+      isStreaming: true,
+      error: null,
+    );
+    await _sseClient.attach(conversationId: id, after: 0, handlers: _handlers(gen));
+  }
+
+  /// Called when the app returns to the foreground.
   ///
-  /// Solves the iOS background suspension issue: if a stream or remote task was
-  /// interrupted when the user switched to background, this fetches the server's
-  /// latest complete conversation state and replaces the interrupted turn silently.
+  /// A stream that dropped while in the background reconnects by itself (from the
+  /// last event it saw). This covers the rest: a run started elsewhere while we
+  /// were away, or one that has already finished and been saved.
   Future<void> syncOnForegroundResumed() async {
     final activeId = state.activeConversationId;
     if (activeId == null || activeId.isEmpty) return;
+    if (_sseClient.isFollowing) {
+      // The socket may have died while suspended; resume from the last event now.
+      _sseClient.reconnect();
+      return;
+    }
+
+    Map<String, dynamic>? run;
+    try {
+      run = await ApiClient().getAskRun(activeId);
+    } catch (_) {
+      return;
+    }
+    if (run != null && run['done'] != true) {
+      await _reloadFromServer(activeId);
+      await _attachIfRunning(activeId);
+      return;
+    }
 
     final lastTurn = state.turns.isNotEmpty ? state.turns.last : null;
     final needsSync = state.isStreaming ||
         state.error != null ||
-        (lastTurn != null &&
-            lastTurn.role == 'assistant' &&
-            (lastTurn.content.isEmpty ||
-             lastTurn.content.contains('⚠️ *[网络连接提前中断') ||
-             lastTurn.content.contains('⚠️ *[连接提前中断') ||
-             lastTurn.content.contains('⚠️ *[任务执行耗时较长')));
+        (lastTurn != null && lastTurn.role == 'assistant' && lastTurn.content.isEmpty);
+    if (needsSync) await _reloadFromServer(activeId);
+  }
 
-    if (!needsSync) return;
-
+  /// Replace the shown turns with the saved conversation.
+  Future<void> _reloadFromServer(String id) async {
     try {
-      final res = await ApiClient().getAskConversation(activeId);
-      final rawTurns = res['turns'] as List<dynamic>? ?? [];
-      final serverTurns = rawTurns
+      final res = await ApiClient().getAskConversation(id);
+      if (state.activeConversationId != id) return;
+      final serverTurns = (res['turns'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
           .map((t) => AskTurn.fromJson(t))
           .toList();
-
-      if (serverTurns.isNotEmpty) {
-        final lastServerTurn = serverTurns.last;
-        // If server has more turns or server's last assistant turn has more/completed content
-        if (serverTurns.length > state.turns.length ||
-            (serverTurns.length == state.turns.length &&
-             lastServerTurn.role == 'assistant' &&
-             (lastServerTurn.content.length > (lastTurn?.content.length ?? 0) ||
-              lastTurn?.content.contains('⚠️ *[') == true))) {
-          _flushPending();
-          state = state.copyWith(
-            turns: serverTurns,
-            isStreaming: false,
-            error: null,
-            activeConversationTitle: res['title']?.toString() ?? state.activeConversationTitle,
-          );
-        }
-      }
+      _flushPending();
+      state = state.copyWith(
+        turns: serverTurns,
+        isStreaming: false,
+        error: null,
+        activeConversationTitle: res['title']?.toString() ?? state.activeConversationTitle,
+      );
     } catch (_) {
-      // Silently ignore network errors during resume sync
+      // Silently ignore network errors; the next resume retries.
     }
   }
 
   Future<void> deleteConversation(String id) async {
     try {
+      if (state.activeConversationId == id && state.isStreaming) {
+        await _sseClient.stop(id);
+      }
       await ApiClient().deleteAskConversation(id);
       if (state.activeConversationId == id) {
         newChat();
@@ -208,10 +247,13 @@ class AskNotifier extends StateNotifier<AskState> {
     }
   }
 
-  void abort() {
-    _sseClient.abort();
+  /// The stop button: ends the run on the server, including its device tasks.
+  Future<void> abort() async {
+    final id = state.activeConversationId;
+    _generation++;
     _flushPending();
     state = state.copyWith(isStreaming: false);
+    await _sseClient.stop(id);
   }
 
   void _updateLastAssistantSync(AskTurn Function(AskTurn prev) fn) {
@@ -245,7 +287,8 @@ class AskNotifier extends StateNotifier<AskState> {
 
     if (effectiveQuestion.isEmpty || state.isStreaming) return;
 
-    _flushPending();
+    _detach();
+    final gen = _generation;
 
     final imageList = <String>[];
     final attachmentDataList = <Map<String, dynamic>>[];
@@ -296,7 +339,16 @@ class AskNotifier extends StateNotifier<AskState> {
       timeoutSeconds: timeoutSeconds,
       images: imageList.isNotEmpty ? imageList : null,
       attachments: attachmentDataList.isNotEmpty ? attachmentDataList : null,
+      handlers: _handlers(gen),
+    );
+  }
+
+  /// Event handlers bound to stream generation [gen]; stale ones do nothing.
+  AskStreamHandlers _handlers(int gen) {
+    bool live() => gen == _generation;
+    return AskStreamHandlers(
       onConversationId: (id, title) {
+        if (!live()) return;
         state = state.copyWith(
           activeConversationId: id,
           activeConversationTitle: title ?? state.activeConversationTitle,
@@ -304,10 +356,12 @@ class AskNotifier extends StateNotifier<AskState> {
         AppStorage.setLastAskConversationId(id);
       },
       onSources: (sources) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) => prev.copyWith(sources: sources));
       },
       onToolCall: (item) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls, item];
@@ -315,6 +369,7 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onTaskProgress: (taskId, toolCallId, deviceName, status) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
@@ -334,6 +389,7 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onTaskChunk: (taskId, toolCallId, deviceName, stream, text) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
@@ -363,6 +419,7 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onTaskAlert: (taskId, toolCallId, deviceName, alert) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
@@ -380,6 +437,7 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onToolResult: (taskId, toolCallId, result) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           final calls = [...prev.toolCalls];
@@ -398,14 +456,17 @@ class AskNotifier extends StateNotifier<AskState> {
         });
       },
       onThinking: (chunk) {
+        if (!live()) return;
         _pendingThinking += chunk;
         _scheduleBatchFlush();
       },
       onDelta: (chunk) {
+        if (!live()) return;
         _pendingDelta += chunk;
         _scheduleBatchFlush();
       },
       onError: (err) {
+        if (!live()) return;
         _flushPending();
         _updateLastAssistantSync((prev) {
           if (prev.content.trim().isNotEmpty) {
@@ -418,7 +479,13 @@ class AskNotifier extends StateNotifier<AskState> {
         });
         state = state.copyWith(error: err, isStreaming: false);
       },
+      onRunGone: () {
+        if (!live()) return;
+        final id = state.activeConversationId;
+        if (id != null) unawaited(_reloadFromServer(id));
+      },
       onDone: () {
+        if (!live()) return;
         _flushPending();
         state = state.copyWith(isStreaming: false);
       },

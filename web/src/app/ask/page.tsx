@@ -73,6 +73,12 @@ interface Source {
   excerpt: string;
 }
 
+/** Where a client is in a run's event stream (see server services/ask_runs.py). */
+interface RunCursor {
+  lastId: number;
+  convId: string | null;
+}
+
 interface Turn {
   role: "user" | "assistant";
   content: string;
@@ -408,6 +414,9 @@ function AskPageContent() {
     }
   }, [historyFilterDevice, selectedDevice]);
 
+  // Declared further down; loadConversation reaches it through this ref.
+  const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[]) => Promise<void>) | null>(null);
+
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
     if (!id || streamingRef.current) return;
@@ -421,6 +430,12 @@ function AskPageContent() {
       setTurns(data.turns || []);
       setHistoryOpen(false);
       setSourcesOpen(false);
+      // Still running (started before a reload, or from another device)? Show it live.
+      const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${data.id}/run`);
+      if (runRes.ok) {
+        const run = await runRes.json();
+        if (!run.done) attachRunRef.current?.(data.id, run.question || "", data.turns || []);
+      }
     } catch (e) {
       console.error("Failed to load conversation:", e);
     }
@@ -535,6 +550,302 @@ function AskPageContent() {
     };
   }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
 
+  // RAF-batched patchLast: mutate ref immediately, schedule single flush per frame
+  const patchLast = useCallback((fn: (turn: Turn) => Turn) => {
+    const arr = turnsRef.current;
+    const i = arr.length - 1;
+    if (i >= 0 && arr[i].role === "assistant") {
+      arr[i] = fn(arr[i]);
+    } else {
+      arr.push(fn({ role: "assistant", content: "", toolCalls: [] }));
+    }
+    if (!turnsDirtyRef.current) {
+      turnsDirtyRef.current = true;
+      rafIdRef.current = requestAnimationFrame(() => {
+        turnsDirtyRef.current = false;
+        setTurns([...turnsRef.current]);
+      });
+    }
+  }, []);
+
+  // Read one SSE response of a run, applying its events. Returns true once the run is done.
+  const consumeRun = useCallback(async (res: Response, cursor: RunCursor): Promise<boolean> => {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sawDone = false;
+
+    const handleFrame = (frame: string) => {
+      const lines = frame.split("\n");
+      const idLine = lines.find((l) => l.startsWith("id: "));
+      if (idLine) cursor.lastId = Number(idLine.slice(4)) || cursor.lastId;
+      const line = lines.find((l) => l.startsWith("data: "));
+      if (!line) return;
+      let evt: {
+        type: string;
+        id?: string;
+        tool_call_id?: string;
+        text?: string;
+        sources?: Source[];
+        message?: string;
+        name?: string;
+        args?: Record<string, unknown>;
+        task_id?: string;
+        device_id?: string;
+        device_name?: string;
+        action?: string;
+        status?: string;
+        stream?: "stdout" | "stderr";
+        result?: ToolCallItem["result"];
+        call?: ToolCallItem;
+      };
+      try {
+        evt = JSON.parse(line.slice(6));
+      } catch {
+        return;
+      }
+
+      if (evt.type === "conversation_id" && evt.id) {
+        cursor.convId = evt.id;
+        activeConversationIdRef.current = evt.id;
+        setActiveConversationId(evt.id);
+        window.history.replaceState(null, "", `/ask?id=${evt.id}`);
+      } else if (evt.type === "sources") {
+        patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
+      } else if (evt.type === "tool_call") {
+        patchLast((x) => {
+          const calls = [...(x.toolCalls || [])];
+          const callObj = evt.call || ({} as any);
+          const callId = evt.id || evt.tool_call_id || callObj.id || `call_${Date.now()}`;
+          if (!calls.some((c) => c.id === callId)) {
+            calls.push({
+              id: callId,
+              name: evt.name || callObj.name || "",
+              args: evt.args || callObj.args || {},
+              device_name: evt.device_name || callObj.device_name,
+            });
+          }
+          return { ...x, toolCalls: calls };
+        });
+      } else if (evt.type === "task_progress") {
+        patchLast((x) => {
+          const calls = [...(x.toolCalls || [])];
+          let idx = -1;
+          if (evt.task_id) {
+            idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+          }
+          if (idx === -1 && evt.tool_call_id) {
+            idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+          }
+          if (idx === -1 && evt.device_name) {
+            idx = calls.findIndex(
+              (c) =>
+                (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
+                (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
+            );
+          }
+          if (idx === -1) {
+            idx = calls
+              .map((c, i) =>
+                c.name === "run_on_device" &&
+                (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+                  ? i
+                  : -1
+              )
+              .filter((i) => i >= 0)
+              .pop() ?? -1;
+          }
+          if (idx >= 0) {
+            calls[idx] = {
+              ...calls[idx],
+              device_name: evt.device_name || calls[idx].device_name,
+              result: {
+                ...(calls[idx].result || {}),
+                task_id: evt.task_id,
+                device_id: evt.device_id,
+                device_name: evt.device_name || calls[idx].device_name,
+                action: evt.action || (calls[idx].args?.action as string),
+                status: evt.status,
+              },
+            };
+          }
+          return { ...x, toolCalls: calls };
+        });
+      } else if (evt.type === "task_chunk" || evt.type === "tool_stream") {
+        patchLast((x) => {
+          const calls = [...(x.toolCalls || [])];
+          let idx = -1;
+          if (evt.task_id) {
+            idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
+          }
+          if (idx === -1 && evt.tool_call_id) {
+            idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+          }
+          if (idx === -1 && evt.device_name) {
+            idx = calls.findIndex(
+              (c) =>
+                (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
+                (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+            );
+          }
+          if (idx === -1) {
+            idx = calls
+              .map((c, i) =>
+                c.name === "run_on_device" &&
+                (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
+                  ? i
+                  : -1
+              )
+              .filter((i) => i >= 0)
+              .pop() ?? -1;
+          }
+          if (idx >= 0) {
+            const target = calls[idx];
+            const prevRes = target.result || {};
+            const chunkText = evt.text || "";
+            if (evt.stream === "stderr") {
+              calls[idx] = {
+                ...target,
+                result: {
+                  ...prevRes,
+                  task_id: evt.task_id || prevRes.task_id,
+                  status: "running",
+                  stderr: (prevRes.stderr || "") + chunkText,
+                },
+              };
+            } else {
+              calls[idx] = {
+                ...target,
+                result: {
+                  ...prevRes,
+                  task_id: evt.task_id || prevRes.task_id,
+                  status: "running",
+                  stdout: (prevRes.stdout || "") + chunkText,
+                },
+              };
+            }
+          }
+          return { ...x, toolCalls: calls };
+        });
+      } else if (evt.type === "tool_result") {
+        patchLast((x) => {
+          const calls = [...(x.toolCalls || [])];
+          let idx = -1;
+          const resTaskId = evt.result?.task_id;
+          if (resTaskId) {
+            idx = calls.findIndex((c) => c.result?.task_id === resTaskId);
+          }
+          if (idx === -1 && evt.tool_call_id) {
+            idx = calls.findIndex((c) => c.id === evt.tool_call_id);
+          }
+          const res = evt.result;
+          if (idx === -1 && res?.device_name) {
+            idx = calls.findIndex(
+              (c) =>
+                (c.device_name === res.device_name || (c.args as Record<string, any>)?.device_id === res.device_id) &&
+                (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
+            );
+          }
+          if (idx === -1) {
+            idx = calls
+              .map((c, i) =>
+                !c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout")
+                  ? i
+                  : -1
+              )
+              .filter((i) => i >= 0)
+              .pop() ?? -1;
+          }
+          if (idx !== undefined && idx >= 0) {
+            calls[idx] = { ...calls[idx], result: evt.result };
+          } else if (calls.length > 0) {
+            calls[calls.length - 1] = { ...calls[calls.length - 1], result: evt.result };
+          }
+          return { ...x, toolCalls: calls };
+        });
+      } else if (evt.type === "thinking" && evt.text) {
+        patchLast((x) => ({ ...x, thinking: (x.thinking || "") + evt.text }));
+      } else if (evt.type === "delta" && evt.text) {
+        patchLast((x) => ({ ...x, content: x.content + evt.text }));
+      } else if (evt.type === "done") {
+        sawDone = true;
+      } else if (evt.type === "error") {
+        patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true }));
+      }
+    };
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      frames.forEach(handleFrame);
+    }
+    if (buffer.trim()) handleFrame(buffer);
+    return sawDone;
+  }, [patchLast, t]);
+
+  // Reattach to a run from the last event seen, until it ends.
+  const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
+    for (let attempt = 1; attempt <= 20 && !ctrl.signal.aborted; attempt++) {
+      try {
+        const res = await authFetch(
+          `${getApiBase()}/api/ask/conversations/${cursor.convId}/stream?after=${cursor.lastId}`,
+          { signal: ctrl.signal },
+        );
+        if (res.status === 404) {
+          // Finished and no longer held by the server: the saved conversation has it all.
+          const data = await api.getAskConversation(cursor.convId!);
+          turnsRef.current = data.turns || [];
+          return;
+        }
+        if (res.ok && res.body && (await consumeRun(res, cursor))) return;
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+      }
+      await new Promise((r) => setTimeout(r, Math.min(2000 * attempt, 15000)));
+    }
+  }, [consumeRun]);
+
+  const finishStream = useCallback((ctrl: AbortController) => {
+    if (abortRef.current !== ctrl) return; // superseded by a newer stream
+    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    turnsDirtyRef.current = false;
+    setTurns([...turnsRef.current]);
+    streamingRef.current = false;
+    setStreaming(false);
+    abortRef.current = null;
+    loadConversations();
+  }, [loadConversations]);
+
+  // Show a run that is still going (opened from history, or after a reload).
+  const attachRun = useCallback(async (convId: string, question: string, baseTurns: Turn[]) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    turnsRef.current = [...baseTurns, { role: "user", content: question }, { role: "assistant", content: "", toolCalls: [] }];
+    setTurns([...turnsRef.current]);
+    streamingRef.current = true;
+    setStreaming(true);
+    try {
+      await followRun({ lastId: 0, convId }, ctrl);
+    } finally {
+      finishStream(ctrl);
+    }
+  }, [finishStream, followRun]);
+  attachRunRef.current = attachRun;
+
+  // The stop button: ends the run on the server, including its device tasks.
+  // Closing or leaving the page only detaches; the run keeps going.
+  const stopRun = useCallback(() => {
+    const convId = activeConversationIdRef.current;
+    abortRef.current?.abort();
+    if (convId) {
+      authFetch(`${getApiBase()}/api/ask/conversations/${convId}/cancel`, { method: "POST" }).catch(() => {});
+    }
+  }, []);
+
   const sendWithText = useCallback(async (
     textToSend: string,
     options?: { forceCompact?: boolean; overrideSessionId?: string }
@@ -576,28 +887,9 @@ function AskPageContent() {
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-
-    // RAF-batched patchLast: mutate ref immediately, schedule single flush per frame
-    const scheduleFlush = () => {
-      if (!turnsDirtyRef.current) {
-        turnsDirtyRef.current = true;
-        rafIdRef.current = requestAnimationFrame(() => {
-          turnsDirtyRef.current = false;
-          setTurns([...turnsRef.current]);
-        });
-      }
-    };
-
-    const patchLast = (fn: (turn: Turn) => Turn) => {
-      const arr = turnsRef.current;
-      const i = arr.length - 1;
-      if (i >= 0 && arr[i].role === "assistant") {
-        arr[i] = fn(arr[i]);
-      } else {
-        arr.push(fn({ role: "assistant", content: "", toolCalls: [] }));
-      }
-      scheduleFlush();
-    };
+    // convId is set only once this send's run announces itself, so a send that
+    // never reached the server reports an error instead of "reattaching".
+    const cursor: RunCursor = { lastId: 0, convId: null };
 
     try {
       const res = await authFetch(`${getApiBase()}/api/ask`, {
@@ -605,6 +897,8 @@ function AskPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
+          // Lets the server attach a retried send to the run it already started.
+          request_id: crypto.randomUUID(),
           conversation_id: activeConversationId || undefined,
           history,
           device_id: selectedDevice,
@@ -621,230 +915,26 @@ function AskPageContent() {
       });
 
       if (!res.ok || !res.body) {
-        patchLast((x) => ({ ...x, content: t.ask.error, error: true }));
+        const busy = res.status === 409;
+        patchLast((x) => ({ ...x, content: busy ? "这个对话还有任务在运行，请等它结束或先停止" : t.ask.error, error: true }));
         return;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-
-        for (const frame of frames) {
-          const line = frame.split("\n").find((l) => l.startsWith("data: "));
-          if (!line) continue;
-          let evt: {
-            type: string;
-            id?: string;
-            tool_call_id?: string;
-            text?: string;
-            sources?: Source[];
-            message?: string;
-            name?: string;
-            args?: Record<string, unknown>;
-            task_id?: string;
-            device_id?: string;
-            device_name?: string;
-            action?: string;
-            status?: string;
-            stream?: "stdout" | "stderr";
-            result?: ToolCallItem["result"];
-            call?: ToolCallItem;
-          };
-          try {
-            evt = JSON.parse(line.slice(6));
-          } catch {
-            continue;
-          }
-
-          if (evt.type === "conversation_id" && evt.id) {
-            activeConversationIdRef.current = evt.id;
-            setActiveConversationId(evt.id);
-            window.history.replaceState(null, "", `/ask?id=${evt.id}`);
-          } else if (evt.type === "sources") {
-            patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
-          } else if (evt.type === "tool_call") {
-            patchLast((x) => {
-              const calls = [...(x.toolCalls || [])];
-              const callObj = evt.call || ({} as any);
-              const callId = evt.id || evt.tool_call_id || callObj.id || `call_${Date.now()}`;
-              if (!calls.some((c) => c.id === callId)) {
-                calls.push({
-                  id: callId,
-                  name: evt.name || callObj.name || "",
-                  args: evt.args || callObj.args || {},
-                  device_name: evt.device_name || callObj.device_name,
-                });
-              }
-              return { ...x, toolCalls: calls };
-            });
-          } else if (evt.type === "task_progress") {
-            patchLast((x) => {
-              const calls = [...(x.toolCalls || [])];
-              let idx = -1;
-              if (evt.task_id) {
-                idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
-              }
-              if (idx === -1 && evt.tool_call_id) {
-                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
-              }
-              if (idx === -1 && evt.device_name) {
-                idx = calls.findIndex(
-                  (c) =>
-                    (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
-                    (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
-                );
-              }
-              if (idx === -1) {
-                idx = calls
-                  .map((c, i) =>
-                    c.name === "run_on_device" &&
-                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
-                      ? i
-                      : -1
-                  )
-                  .filter((i) => i >= 0)
-                  .pop() ?? -1;
-              }
-              if (idx >= 0) {
-                calls[idx] = {
-                  ...calls[idx],
-                  device_name: evt.device_name || calls[idx].device_name,
-                  result: {
-                    ...(calls[idx].result || {}),
-                    task_id: evt.task_id,
-                    device_id: evt.device_id,
-                    device_name: evt.device_name || calls[idx].device_name,
-                    action: evt.action || (calls[idx].args?.action as string),
-                    status: evt.status,
-                  },
-                };
-              }
-              return { ...x, toolCalls: calls };
-            });
-          } else if (evt.type === "task_chunk" || evt.type === "tool_stream") {
-            patchLast((x) => {
-              const calls = [...(x.toolCalls || [])];
-              let idx = -1;
-              if (evt.task_id) {
-                idx = calls.findIndex((c) => c.result?.task_id === evt.task_id);
-              }
-              if (idx === -1 && evt.tool_call_id) {
-                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
-              }
-              if (idx === -1 && evt.device_name) {
-                idx = calls.findIndex(
-                  (c) =>
-                    (c.device_name === evt.device_name || (c.args as Record<string, any>)?.device_id === evt.device_id) &&
-                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
-                );
-              }
-              if (idx === -1) {
-                idx = calls
-                  .map((c, i) =>
-                    c.name === "run_on_device" &&
-                    (!c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout"))
-                      ? i
-                      : -1
-                  )
-                  .filter((i) => i >= 0)
-                  .pop() ?? -1;
-              }
-              if (idx >= 0) {
-                const target = calls[idx];
-                const prevRes = target.result || {};
-                const chunkText = evt.text || "";
-                if (evt.stream === "stderr") {
-                  calls[idx] = {
-                    ...target,
-                    result: {
-                      ...prevRes,
-                      task_id: evt.task_id || prevRes.task_id,
-                      status: "running",
-                      stderr: (prevRes.stderr || "") + chunkText,
-                    },
-                  };
-                } else {
-                  calls[idx] = {
-                    ...target,
-                    result: {
-                      ...prevRes,
-                      task_id: evt.task_id || prevRes.task_id,
-                      status: "running",
-                      stdout: (prevRes.stdout || "") + chunkText,
-                    },
-                  };
-                }
-              }
-              return { ...x, toolCalls: calls };
-            });
-          } else if (evt.type === "tool_result") {
-            patchLast((x) => {
-              const calls = [...(x.toolCalls || [])];
-              let idx = -1;
-              const resTaskId = evt.result?.task_id;
-              if (resTaskId) {
-                idx = calls.findIndex((c) => c.result?.task_id === resTaskId);
-              }
-              if (idx === -1 && evt.tool_call_id) {
-                idx = calls.findIndex((c) => c.id === evt.tool_call_id);
-              }
-              const res = evt.result;
-              if (idx === -1 && res?.device_name) {
-                idx = calls.findIndex(
-                  (c) =>
-                    (c.device_name === res.device_name || (c.args as Record<string, any>)?.device_id === res.device_id) &&
-                    (!c.result || !c.result.status || c.result.status === "queued" || c.result.status === "running")
-                );
-              }
-              if (idx === -1) {
-                idx = calls
-                  .map((c, i) =>
-                    !c.result || (c.result.status !== "succeeded" && c.result.status !== "failed" && c.result.status !== "timeout")
-                      ? i
-                      : -1
-                  )
-                  .filter((i) => i >= 0)
-                  .pop() ?? -1;
-              }
-              if (idx !== undefined && idx >= 0) {
-                calls[idx] = { ...calls[idx], result: evt.result };
-              } else if (calls.length > 0) {
-                calls[calls.length - 1] = { ...calls[calls.length - 1], result: evt.result };
-              }
-              return { ...x, toolCalls: calls };
-            });
-          } else if (evt.type === "thinking" && evt.text) {
-            patchLast((x) => ({ ...x, thinking: (x.thinking || "") + evt.text }));
-          } else if (evt.type === "delta" && evt.text) {
-            patchLast((x) => ({ ...x, content: x.content + evt.text }));
-          } else if (evt.type === "error") {
-            patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true }));
-          }
-        }
-      }
+      const done = await consumeRun(res, cursor);
+      // The run lives on the server: a dropped connection reattaches, never resends.
+      if (!done && !ctrl.signal.aborted && cursor.convId) await followRun(cursor, ctrl);
     } catch (err) {
       if ((err as Error)?.name !== "AbortError") {
-        patchLast((x) => ({ ...x, content: x.content || t.ask.error, error: true }));
+        if (cursor.convId && !ctrl.signal.aborted) {
+          await followRun(cursor, ctrl);
+        } else {
+          patchLast((x) => ({ ...x, content: x.content || t.ask.error, error: true }));
+        }
       }
     } finally {
-      // Final flush: cancel pending RAF and push last state
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      turnsDirtyRef.current = false;
-      setTurns([...turnsRef.current]);
-      streamingRef.current = false;
-      setStreaming(false);
-      abortRef.current = null;
-      loadConversations();
+      finishStream(ctrl);
     }
-  }, [activeConversationId, compactMode, cwd, executionMode, loadConversations, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, streaming, turns, t]);
+  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t]);
 
   const send = useCallback(() => {
     sendWithText(input);
@@ -2383,7 +2473,7 @@ function AskPageContent() {
                 disabled={streaming}
               />
               {streaming ? (
-                <Btn onClick={() => abortRef.current?.abort()} style={{ flexShrink: 0 }}>{t.ask.stop}</Btn>
+                <Btn onClick={stopRun} style={{ flexShrink: 0 }}>{t.ask.stop}</Btn>
               ) : (
                 <Btn
                   onClick={send}

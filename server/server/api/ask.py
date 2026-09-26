@@ -34,6 +34,7 @@ from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
 from ..services.ai_provider import get_ai_providers, stream_chat_completion
+from ..services.ask_runs import RunConflict, ask_runs
 from .search import _semantic_doc_ranks, RRF_K
 
 logger = logging.getLogger("server.ask")
@@ -63,6 +64,9 @@ SYSTEM_PROMPT = """你是 Memento 的记忆助手。用户把自己在各种 AI 
 class AskRequest(BaseModel):
     question: str
     conversation_id: str | None = None
+    # Client-generated per send. A retry carrying the same id attaches to the run
+    # the first attempt started instead of starting (and dispatching) it twice.
+    request_id: str | None = None
     # [{"role": "user"|"assistant", "content": "..."}] — prior turns.
     history: list[dict] | None = None
     tool: str | None = None
@@ -1084,6 +1088,54 @@ async def _direct_agent_stream(
     await asyncio.sleep(0.05)
 
 
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+def _run_response(conv_id, user: User, question: str, request_id: str | None, factory) -> StreamingResponse:
+    """Start the ask as a background run and stream it. The run survives the
+    client disconnecting; see services/ask_runs.py."""
+    try:
+        run = ask_runs.start(str(conv_id), user.id, question, factory, request_id=request_id)
+    except RunConflict:
+        raise HTTPException(status_code=409, detail="这个对话还有任务在运行，请等它结束或先停止")
+    return StreamingResponse(run.stream(0), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.get("/runs")
+async def list_active_runs(_user: User = Depends(get_current_user)) -> list[dict]:
+    """Runs still in progress for this user (e.g. to show them after reopening the app)."""
+    return [r.summary() for r in ask_runs.active_for_user(_user.id)]
+
+
+@router.get("/conversations/{conv_id}/run")
+async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
+    run = ask_runs.get(conv_id, _user.id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="no run")
+    return run.summary()
+
+
+@router.get("/conversations/{conv_id}/stream")
+async def attach_run(conv_id: str, after: int = 0, _user: User = Depends(get_current_user)):
+    """Replay a run's frames after `after` and follow it live."""
+    run = ask_runs.get(conv_id, _user.id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="no run")
+    return StreamingResponse(run.stream(after), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.post("/conversations/{conv_id}/cancel")
+async def cancel_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
+    """Stop a run, and with it any device task it is waiting on."""
+    if not ask_runs.cancel(conv_id, _user.id):
+        raise HTTPException(status_code=404, detail="no running task")
+    return {"status": "cancelling"}
+
+
 @router.post("")
 async def ask(
     body: AskRequest,
@@ -1103,6 +1155,10 @@ async def ask(
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
 
+    retried = ask_runs.by_request(body.request_id, _user.id)
+    if retried is not None:
+        return StreamingResponse(retried.stream(0), media_type="text/event-stream", headers=_SSE_HEADERS)
+
     device_id = (body.device_id or "").strip()
 
     conv_id, conv_title = await _get_or_create_conversation(
@@ -1117,11 +1173,9 @@ async def ask(
 
     exec_mode = (body.execution_mode or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "shell"):
-        return StreamingResponse(
-            sse_keepalive_generator(
-                _direct_agent_stream(
-                    db=db,
-                    user=_user,
+        return _run_response(conv_id, _user, question, body.request_id, lambda run_db, run_user: _direct_agent_stream(
+                    db=run_db,
+                    user=run_user,
                     question=question,
                     conv_id=conv_id,
                     conv_title=conv_title,
@@ -1138,16 +1192,7 @@ async def ask(
                     timeout_seconds=body.timeout_seconds,
                     images=body.images,
                     attachments=body.attachments,
-                ),
-                interval=8.0,
-            ),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-                "Connection": "keep-alive",
-            },
-        )
+                ))
 
     if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
@@ -1248,7 +1293,7 @@ async def ask(
 
         agent_messages = [{"role": "system", "content": system_content}] + messages[1:]
 
-        async def agent_stream():
+        async def agent_stream(run_db: AsyncSession, run_user: User):
             yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
             accumulated_text: list[str] = []
@@ -1275,7 +1320,7 @@ async def ask(
                 )
 
             try:
-                async for evt in run_agent_loop(db, _user, agent_messages):
+                async for evt in run_agent_loop(run_db, run_user, agent_messages):
                     if evt.get("type") == "ping":
                         yield ": ping\n\n"
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
@@ -1311,15 +1356,7 @@ async def ask(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             await asyncio.sleep(0.05)
 
-        return StreamingResponse(
-            sse_keepalive_generator(agent_stream(), interval=8.0),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        return _run_response(conv_id, _user, question, body.request_id, agent_stream)
 
     async def stream():
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
@@ -1378,15 +1415,8 @@ async def ask(
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         await asyncio.sleep(0.05)
 
-    return StreamingResponse(
-        sse_keepalive_generator(stream(), interval=8.0),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    # Plain answers need no database session of their own.
+    return _run_response(conv_id, _user, question, body.request_id, lambda run_db, run_user: stream())
 
 
 # ---------------------------------------------------------------------------

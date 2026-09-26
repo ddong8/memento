@@ -1,146 +1,264 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memento_mobile/core/sse_client.dart';
 import 'package:memento_mobile/core/storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Records what the client sent and lets each test script the server's replies.
+class _FakeServer {
+  late HttpServer server;
+  final posts = <Map<String, dynamic>>[];
+  final gets = <Uri>[];
+  final cancels = <String>[];
+  late Future<void> Function(HttpRequest req, int n) onPost;
+  Future<void> Function(HttpRequest req, int n)? onAttach;
+
+  Future<void> start() async {
+    server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    await AppStorage.setServerUrl('http://127.0.0.1:${server.port}');
+    server.listen((req) async {
+      final path = req.uri.path;
+      if (req.method == 'POST' && path == '/api/ask') {
+        posts.add(jsonDecode(await utf8.decoder.bind(req).join()) as Map<String, dynamic>);
+        await onPost(req, posts.length);
+      } else if (req.method == 'GET' && path.endsWith('/stream')) {
+        gets.add(req.uri);
+        await onAttach!(req, gets.length);
+      } else if (req.method == 'POST' && path.endsWith('/cancel')) {
+        cancels.add(path);
+        req.response.write('{"status":"cancelling"}');
+        await req.response.close();
+      } else {
+        req.response.statusCode = 404;
+        await req.response.close();
+      }
+    });
+  }
+
+  static void sse(HttpRequest req) {
+    req.response.bufferOutput = false;
+    req.response.headers.contentType = ContentType('text', 'event-stream');
+  }
+
+  static Future<void> drop(HttpRequest req) async {
+    await req.response.flush();
+    final socket = await req.response.detachSocket();
+    socket.destroy();
+  }
+
+  /// Send [frames] and then cut the connection mid-stream, like a phone
+  /// suspending in the background.
+  static Future<void> dropAfter(HttpRequest req, String frames) async {
+    req.response.headers.contentType = ContentType('text', 'event-stream');
+    req.response.headers.chunkedTransferEncoding = false;
+    final socket = await req.response.detachSocket();
+    socket.write(frames);
+    await socket.flush();
+    socket.destroy();
+  }
+}
+
+class _Recorder {
+  final deltas = <String>[];
+  final errors = <String>[];
+  var runGone = false;
+  final done = Completer<void>();
+
+  AskStreamHandlers get handlers => AskStreamHandlers(
+        onConversationId: (_, __) {},
+        onSources: (_) {},
+        onToolCall: (_) {},
+        onTaskProgress: (_, __, ___, ____) {},
+        onTaskChunk: (_, __, ___, ____, _____) {},
+        onToolResult: (_, __, ___) {},
+        onThinking: (_) {},
+        onDelta: deltas.add,
+        onError: errors.add,
+        onRunGone: () => runGone = true,
+        onDone: () => done.complete(),
+      );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = null;
 
-  group('AskSseClient Resiliency & Error Recovery Tests', () {
-    setUp(() {
-      SharedPreferences.setMockInitialValues({});
-    });
+  late _FakeServer fake;
+  final clients = <AskSseClient>[];
+  AskSseClient newClient({Duration idle = const Duration(seconds: 30)}) {
+    final c = AskSseClient(idleTimeout: idle);
+    clients.add(c);
+    return c;
+  }
 
-    test('ignores keepalive SSE comments and receives delta cleanly', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      await AppStorage.setServerUrl('http://127.0.0.1:${server.port}');
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    fake = _FakeServer();
+    await fake.start();
+  });
 
-      server.listen((HttpRequest request) async {
-        request.response.headers.contentType = ContentType('text', 'event-stream');
-        request.response.headers.set('Cache-Control', 'no-cache');
+  tearDown(() async {
+    for (final c in clients) {
+      c.detach();
+    }
+    clients.clear();
+    await fake.server.close(force: true);
+  });
 
-        request.response.write(': keepalive\n\n');
-        await request.response.flush();
+  test('ignores keepalive comments and receives deltas', () async {
+    fake.onPost = (req, _) async {
+      _FakeServer.sse(req);
+      req.response.write(': keepalive\n\n');
+      req.response.write('id: 1\ndata: {"type": "delta", "text": "Hello world"}\n\n');
+      req.response.write('id: 2\ndata: {"type": "done"}\n\n');
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    await newClient().ask(question: 'ping', handlers: rec.handlers);
+    await rec.done.future;
+    expect(rec.deltas, ['Hello world']);
+    expect(rec.errors, isEmpty);
+  });
 
-        request.response.write('data: {"type": "delta", "text": "Hello world"}\n\n');
-        await request.response.flush();
+  test('retries a send that dropped before the run started, with the same request id', () async {
+    fake.onPost = (req, n) async {
+      _FakeServer.sse(req);
+      if (n == 1) return _FakeServer.drop(req);
+      req.response.write('data: {"type": "delta", "text": "Recovered"}\n\n');
+      req.response.write('data: {"type": "done"}\n\n');
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    await newClient().ask(question: 'retry', handlers: rec.handlers);
+    await rec.done.future;
+    expect(fake.posts, hasLength(2));
+    expect(fake.posts[0]['request_id'], isNotEmpty);
+    expect(fake.posts[1]['request_id'], fake.posts[0]['request_id']);
+    expect(rec.deltas, ['Recovered']);
+  });
 
-        request.response.write('data: {"type": "done"}\n\n');
-        await request.response.close();
-      });
+  test('once the run started, a dropped connection reattaches instead of resending', () async {
+    fake.onPost = (req, _) => _FakeServer.dropAfter(
+          req,
+          'id: 1\ndata: {"type": "run_started"}\n\n'
+          'id: 2\ndata: {"type": "conversation_id", "id": "conv-1"}\n\n'
+          'id: 3\ndata: {"type": "delta", "text": "part 1 "}\n\n',
+        );
+    fake.onAttach = (req, _) async {
+      _FakeServer.sse(req);
+      req.response.write('id: 4\ndata: {"type": "delta", "text": "part 2"}\n\n');
+      req.response.write('id: 5\ndata: {"type": "done"}\n\n');
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    await newClient().ask(question: 'long task', handlers: rec.handlers);
+    await rec.done.future;
 
-      final client = AskSseClient();
-      final deltas = <String>[];
-      final completer = Completer<void>();
+    expect(fake.posts, hasLength(1)); // never dispatched twice
+    expect(fake.gets.single.path, '/api/ask/conversations/conv-1/stream');
+    expect(fake.gets.single.queryParameters['after'], '3');
+    expect(rec.deltas.join(), 'part 1 part 2');
+    expect(rec.errors, isEmpty);
+  });
 
-      await client.ask(
-        question: 'ping',
-        onConversationId: (_, __) {},
-        onSources: (_) {},
-        onToolCall: (_) {},
-        onTaskProgress: (_, __, ___, ____) {},
-        onTaskChunk: (_, __, ___, ____, _____) {},
-        onToolResult: (_, __, ___) {},
-        onThinking: (_) {},
-        onDelta: (text) => deltas.add(text),
-        onError: (err) => fail('Should not error: $err'),
-        onDone: () => completer.complete(),
-      );
+  test('a run that is gone from the server hands over to the saved conversation', () async {
+    fake.onAttach = (req, _) async {
+      req.response.statusCode = 404;
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    await newClient().attach(conversationId: 'conv-2', after: 7, handlers: rec.handlers);
+    await rec.done.future;
+    expect(fake.gets.single.queryParameters['after'], '7');
+    expect(rec.runGone, isTrue);
+  });
 
-      await completer.future;
-      await server.close();
+  test('stop cancels the run on the server', () async {
+    fake.onAttach = (req, _) async {
+      _FakeServer.sse(req);
+      req.response.write('id: 1\ndata: {"type": "delta", "text": "working"}\n\n');
+      await req.response.flush(); // stays open, like a long-running run
+    };
+    final rec = _Recorder();
+    final client = newClient();
+    unawaited(client.attach(conversationId: 'conv-3', handlers: rec.handlers));
+    for (var i = 0; rec.deltas.isEmpty && i < 200; i++) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    expect(rec.deltas, ['working']);
+    await client.stop(null);
+    await rec.done.future;
+    expect(fake.cancels, ['/api/ask/conversations/conv-3/cancel']);
+    expect(client.isFollowing, isFalse);
+  });
 
-      expect(deltas, equals(['Hello world']));
-    });
+  test('friendly error when every send attempt drops before the run starts', () async {
+    fake.onPost = (req, _) async {
+      _FakeServer.sse(req);
+      await _FakeServer.drop(req);
+    };
+    final rec = _Recorder();
+    await newClient().ask(question: 'fail', handlers: rec.handlers);
+    await rec.done.future;
+    expect(rec.errors.single, contains('服务器连接中断'));
+    expect(fake.posts, hasLength(3));
+  });
 
-    test('transparently retries when connection drops before first chunk', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      await AppStorage.setServerUrl('http://127.0.0.1:${server.port}');
+  test('a follow-up send that never reached the server errors instead of reattaching', () async {
+    fake.onPost = (req, _) async {
+      _FakeServer.sse(req);
+      await _FakeServer.drop(req);
+    };
+    fake.onAttach = (req, _) async => fail('must not reattach');
+    final rec = _Recorder();
+    await newClient().ask(question: 'follow-up', conversationId: 'existing-conv', handlers: rec.handlers);
+    await rec.done.future;
+    expect(rec.errors.single, contains('服务器连接中断'));
+    expect(fake.gets, isEmpty);
+    expect(rec.runGone, isFalse);
+  });
 
-      int requestCount = 0;
-      server.listen((HttpRequest request) async {
-        requestCount++;
-        if (requestCount == 1) {
-          // Simulate premature connection drop before any content
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          await request.response.flush();
-          // Abruptly detach socket
-          final socket = await request.response.detachSocket();
-          socket.destroy();
-        } else {
-          // Second attempt succeeds
-          request.response.headers.contentType = ContentType('text', 'event-stream');
-          request.response.write('data: {"type": "delta", "text": "Recovered"}\n\n');
-          request.response.write('data: {"type": "done"}\n\n');
-          await request.response.close();
-        }
-      });
+  test('a silent (half-open) connection is dropped and resumed from the last event', () async {
+    fake.onAttach = (req, n) async {
+      _FakeServer.sse(req);
+      if (n == 1) {
+        req.response.write('id: 4\ndata: {"type": "delta", "text": "before "}\n\n');
+        await req.response.flush(); // then silence: no keepalives, no close
+        return;
+      }
+      req.response.write('id: 5\ndata: {"type": "delta", "text": "after"}\n\n');
+      req.response.write('id: 6\ndata: {"type": "done"}\n\n');
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    await newClient(idle: const Duration(milliseconds: 300))
+        .attach(conversationId: 'conv-4', after: 3, handlers: rec.handlers);
+    await rec.done.future;
+    expect(fake.gets.map((u) => u.queryParameters['after']), ['3', '4']);
+    expect(rec.deltas.join(), 'before after');
+  });
 
-      final client = AskSseClient();
-      final deltas = <String>[];
-      final completer = Completer<void>();
-
-      await client.ask(
-        question: 'retry test',
-        onConversationId: (_, __) {},
-        onSources: (_) {},
-        onToolCall: (_) {},
-        onTaskProgress: (_, __, ___, ____) {},
-        onTaskChunk: (_, __, ___, ____, _____) {},
-        onToolResult: (_, __, ___) {},
-        onThinking: (_) {},
-        onDelta: (text) => deltas.add(text),
-        onError: (err) => fail('Should have recovered on retry: $err'),
-        onDone: () => completer.complete(),
-      );
-
-      await completer.future;
-      await server.close();
-
-      expect(requestCount, equals(2));
-      expect(deltas, equals(['Recovered']));
-    });
-
-    test('returns friendly error message when all retries fail without content', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      await AppStorage.setServerUrl('http://127.0.0.1:${server.port}');
-
-      server.listen((HttpRequest request) async {
-        request.response.headers.contentType = ContentType('text', 'event-stream');
-        await request.response.flush();
-        final socket = await request.response.detachSocket();
-        socket.destroy();
-      });
-
-      final client = AskSseClient();
-      String? errorMessage;
-      final completer = Completer<void>();
-
-      await client.ask(
-        question: 'fail test',
-        onConversationId: (_, __) {},
-        onSources: (_) {},
-        onToolCall: (_) {},
-        onTaskProgress: (_, __, ___, ____) {},
-        onTaskChunk: (_, __, ___, ____, _____) {},
-        onToolResult: (_, __, ___) {},
-        onThinking: (_) {},
-        onDelta: (_) {},
-        onError: (err) {
-          errorMessage = err;
-        },
-        onDone: () => completer.complete(),
-      );
-
-      await completer.future;
-      await server.close();
-
-      expect(errorMessage, isNotNull);
-      expect(errorMessage, contains('服务器连接中断'));
-      expect(errorMessage, isNot(contains('请求异常: HttpException')));
-    });
+  test('reconnect() resumes immediately from the last event', () async {
+    fake.onAttach = (req, n) async {
+      _FakeServer.sse(req);
+      if (n == 1) {
+        req.response.write('id: 1\ndata: {"type": "delta", "text": "a"}\n\n');
+        await req.response.flush(); // keeps streaming (connection stays open)
+        return;
+      }
+      req.response.write('id: 2\ndata: {"type": "done"}\n\n');
+      await req.response.close();
+    };
+    final rec = _Recorder();
+    final client = newClient();
+    unawaited(client.attach(conversationId: 'conv-5', handlers: rec.handlers));
+    for (var i = 0; rec.deltas.isEmpty && i < 200; i++) {
+      await Future.delayed(const Duration(milliseconds: 10));
+    }
+    client.reconnect(); // app came back to the foreground
+    await rec.done.future.timeout(const Duration(seconds: 2));
+    expect(fake.gets.map((u) => u.queryParameters['after']), ['0', '1']);
   });
 }

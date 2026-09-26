@@ -8,7 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../storage.dart';
 
 /// Compile-time or environment-defined application version fallback
-const String kAppDefaultVersion = String.fromEnvironment('APP_VERSION', defaultValue: '1.0.54');
+const String kAppDefaultVersion = String.fromEnvironment('APP_VERSION', defaultValue: '1.0.55');
 String _currentAppVersion = kAppDefaultVersion;
 
 /// Dynamically resolved current application version

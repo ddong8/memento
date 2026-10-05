@@ -199,6 +199,7 @@ export default function DigitalTwinAvatar3D({
   const currentModelRef = useRef<THREE.Group | null>(null);
   const currentLoadedGenderRef = useRef<string | null>(null);
   const avatarLoaderRef = useRef<GLTFLoader | null>(null);
+  const activeMixerRef = useRef<THREE.AnimationMixer | null>(null);
 
   // Dynamic animation states in frame loop
   const activeDimRef = useRef<PersonaDimension>(activeDimension);
@@ -298,32 +299,32 @@ export default function DigitalTwinAvatar3D({
       typeof window !== "undefined" &&
       (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
 
-    // 1. Responsive Camera Setup (默认全身全貌，底盘光环完整收纳)
+    // 1. Responsive Camera Setup (黄金大尺寸：人物充盈全屏，脚底贴齐底边，头顶紧贴上方)
     let currentCamMode: "full" | "close" = "full";
     const getCameraConfig = (w: number, h: number, mode: "full" | "close" = "full") => {
       const aspect = w / h;
       if (mode === "close") {
         return {
           fov: 34,
-          pos: [0, 1.45, 2.05] as [number, number, number],
+          pos: [0, 1.45, 1.95] as [number, number, number],
           targetY: 1.38,
         };
       }
       if (aspect < 1.0) {
-        // 手机竖屏自适应：将相机适度拉远并居中对齐模型中心，保证角色全身、双手姿态、底盘与光环 100% 完整容纳
-        const zoomFactor = Math.max(1.0, 0.74 / Math.max(aspect, 0.38));
-        const dist = Math.min(4.85, 3.45 * zoomFactor);
-        return {
-          fov: 38,
-          pos: [0, 1.05, dist] as [number, number, number],
-          targetY: 0.98,
-        };
-      } else {
-        // PC 桌面端宽屏：默认全身全貌（展示立于发光底座的完整体态与头顶光环）
+        // 手机竖屏自适应：将相机适度拉远以容纳完整全身比例
+        const zoomFactor = Math.max(1.0, 0.72 / Math.max(aspect, 0.38));
+        const dist = Math.min(4.2, 2.95 * zoomFactor);
         return {
           fov: 36,
-          pos: [0, 1.05, 3.65] as [number, number, number],
-          targetY: 0.98,
+          pos: [0, 0.94, dist] as [number, number, number],
+          targetY: 0.92,
+        };
+      } else {
+        // PC 桌面端宽屏：用户指定黄金大尺寸（人物充盈全屏，脚底贴齐底边）
+        return {
+          fov: 36,
+          pos: [0, 0.94, 2.95] as [number, number, number],
+          targetY: 0.92,
         };
       }
     };
@@ -539,7 +540,11 @@ export default function DigitalTwinAvatar3D({
         soundWave.position.set(0, 1.48, 0.15);
       }
 
-      // 清除旧模型
+      // 清除旧模型与旧动画
+      if (activeMixerRef.current) {
+        activeMixerRef.current.stopAllAction();
+        activeMixerRef.current = null;
+      }
       if (currentModelRef.current) {
         avatarGroup.remove(currentModelRef.current);
         currentModelRef.current.traverse((child) => {
@@ -567,6 +572,11 @@ export default function DigitalTwinAvatar3D({
           currentModelRef.current = model;
           avatarGroup.add(model);
 
+          // Vanguard 男性模型 Mixamo 坐标系默认面向 -Z，旋转 180 度正对观察者
+          if (targetGender === "male") {
+            model.rotation.y = Math.PI;
+          }
+
           // 自动包围盒归一化与黄金高度对齐（智能体 1.55m，人类标准 1.78m）
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
@@ -581,6 +591,22 @@ export default function DigitalTwinAvatar3D({
           model.position.z -= (scaledBox.min.z + scaledBox.max.z) / 2;
 
           solidMannequin.visible = false;
+
+          // 挂载原生 Idle 待机动作（如 Mixamo 男性与机器人智能体），防止骨骼动作冲突
+          if (gltf.animations && gltf.animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(model);
+            const idleClip =
+              gltf.animations.find((a) => a.name.toLowerCase() === "idle") ||
+              gltf.animations.find((a) => a.name.toLowerCase().includes("idle")) ||
+              gltf.animations[0];
+            if (idleClip) {
+              const action = mixer.clipAction(idleClip);
+              action.play();
+            }
+            activeMixerRef.current = mixer;
+          } else {
+            activeMixerRef.current = null;
+          }
 
           const bones: Record<string, THREE.Object3D> = {};
           model.traverse((child) => {
@@ -694,12 +720,12 @@ export default function DigitalTwinAvatar3D({
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       camTransition.active = false;
-      const newZ = Math.max(1.3, Math.min(6.0, camera.position.z + e.deltaY * 0.004));
+      const newZ = Math.max(1.2, Math.min(5.5, camera.position.z + e.deltaY * 0.004));
       camera.position.z = newZ;
-      // 当拉近时，观察目标平滑上移至面部；拉远时平滑居中全身（0.98）
-      const t = THREE.MathUtils.clamp((newZ - 1.8) / (3.65 - 1.8), 0, 1);
-      cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
-      camera.position.y = THREE.MathUtils.lerp(1.45, 1.05, t);
+      // 当拉近时，观察目标平滑上移至面部；拉远时平滑居中全身（0.92）
+      const t = THREE.MathUtils.clamp((newZ - 1.8) / (2.95 - 1.8), 0, 1);
+      cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.92, t);
+      camera.position.y = THREE.MathUtils.lerp(1.45, 0.94, t);
     };
 
     container.style.touchAction = "none";
@@ -747,11 +773,11 @@ export default function DigitalTwinAvatar3D({
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = initialPinchDist / (currentDist || 1);
-        const newZ = Math.max(1.3, Math.min(6.0, initialCamZ * factor));
+        const newZ = Math.max(1.2, Math.min(5.5, initialCamZ * factor));
         camera.position.z = newZ;
-        const t = THREE.MathUtils.clamp((newZ - 1.8) / (3.65 - 1.8), 0, 1);
-        cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
-        camera.position.y = THREE.MathUtils.lerp(1.45, 1.05, t);
+        const t = THREE.MathUtils.clamp((newZ - 1.8) / (2.95 - 1.8), 0, 1);
+        cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.92, t);
+        camera.position.y = THREE.MathUtils.lerp(1.45, 0.94, t);
       }
     };
 
@@ -856,36 +882,45 @@ export default function DigitalTwinAvatar3D({
       currentPose.leftForeArm.y = THREE.MathUtils.lerp(currentPose.leftForeArm.y, targetPose.leftForeArm.y, lerpSpeed);
       currentPose.leftForeArm.z = THREE.MathUtils.lerp(currentPose.leftForeArm.z, targetPose.leftForeArm.z, lerpSpeed);
 
+      // Update Animation Mixer for models with native glTF animations (Mixamo male & Robot)
+      const delta = clock.getDelta();
+      if (activeMixerRef.current) {
+        activeMixerRef.current.update(delta);
+      }
+
       // Apply to GLB Bones
       const bones = bonesRef.current;
       if (bones.Head && !isDragging) {
+        const lookMult = currentLoadedGenderRef.current === "male" ? -1 : 1;
         bones.Head.rotation.x = currentPose.head.x - mouse.y * 0.18 + nodAngle + saccade;
-        bones.Head.rotation.y = currentPose.head.y + mouse.x * 0.28 + saccade;
+        bones.Head.rotation.y = currentPose.head.y + lookMult * mouse.x * 0.28 + saccade;
         bones.Head.rotation.z = currentPose.head.z;
       }
-      if (bones.Spine) bones.Spine.rotation.x = currentPose.spine.x + breath * 0.02;
-      if (bones.Spine2) bones.Spine2.rotation.x = currentPose.spine2.x + breath * 0.02;
+      if (!activeMixerRef.current) {
+        if (bones.Spine) bones.Spine.rotation.x = currentPose.spine.x + breath * 0.02;
+        if (bones.Spine2) bones.Spine2.rotation.x = currentPose.spine2.x + breath * 0.02;
 
-      if (bones.RightArm) {
-        bones.RightArm.rotation.x = currentPose.rightArm.x + breath * 0.015;
-        bones.RightArm.rotation.y = currentPose.rightArm.y;
-        bones.RightArm.rotation.z = currentPose.rightArm.z;
-      }
-      if (bones.RightForeArm) {
-        bones.RightForeArm.rotation.x = currentPose.rightForeArm.x;
-        bones.RightForeArm.rotation.y = currentPose.rightForeArm.y;
-        bones.RightForeArm.rotation.z = currentPose.rightForeArm.z;
-      }
+        if (bones.RightArm) {
+          bones.RightArm.rotation.x = currentPose.rightArm.x + breath * 0.015;
+          bones.RightArm.rotation.y = currentPose.rightArm.y;
+          bones.RightArm.rotation.z = currentPose.rightArm.z;
+        }
+        if (bones.RightForeArm) {
+          bones.RightForeArm.rotation.x = currentPose.rightForeArm.x;
+          bones.RightForeArm.rotation.y = currentPose.rightForeArm.y;
+          bones.RightForeArm.rotation.z = currentPose.rightForeArm.z;
+        }
 
-      if (bones.LeftArm) {
-        bones.LeftArm.rotation.x = currentPose.leftArm.x + breath * 0.015;
-        bones.LeftArm.rotation.y = currentPose.leftArm.y;
-        bones.LeftArm.rotation.z = currentPose.leftArm.z;
-      }
-      if (bones.LeftForeArm) {
-        bones.LeftForeArm.rotation.x = currentPose.leftForeArm.x;
-        bones.LeftForeArm.rotation.y = currentPose.leftForeArm.y;
-        bones.LeftForeArm.rotation.z = currentPose.leftForeArm.z;
+        if (bones.LeftArm) {
+          bones.LeftArm.rotation.x = currentPose.leftArm.x + breath * 0.015;
+          bones.LeftArm.rotation.y = currentPose.leftArm.y;
+          bones.LeftArm.rotation.z = currentPose.leftArm.z;
+        }
+        if (bones.LeftForeArm) {
+          bones.LeftForeArm.rotation.x = currentPose.leftForeArm.x;
+          bones.LeftForeArm.rotation.y = currentPose.leftForeArm.y;
+          bones.LeftForeArm.rotation.z = currentPose.leftForeArm.z;
+        }
       }
 
       // Apply to Solid Mannequin
@@ -986,6 +1021,10 @@ export default function DigitalTwinAvatar3D({
 
     return () => {
       cancelAnimationFrame(animId);
+      if (activeMixerRef.current) {
+        activeMixerRef.current.stopAllAction();
+        activeMixerRef.current = null;
+      }
       window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
       window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
       resizeObserver.disconnect();

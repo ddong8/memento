@@ -178,6 +178,7 @@ export default function DigitalTwinAvatar3D({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isRotating, setIsRotating] = useState(false);
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [viewMode, setViewMode] = useState<"full" | "close">("full");
   const [hudSynapse, setHudSynapse] = useState<SynapsePulse | null>(null);
 
   const isPausedRef = useRef(isPaused);
@@ -297,29 +298,37 @@ export default function DigitalTwinAvatar3D({
       typeof window !== "undefined" &&
       (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
 
-    // 1. Responsive Camera Setup (竖屏自适应全身缩放)
-    const getCameraConfig = (w: number, h: number) => {
+    // 1. Responsive Camera Setup (默认全身全貌，底盘光环完整收纳)
+    let currentCamMode: "full" | "close" = "full";
+    const getCameraConfig = (w: number, h: number, mode: "full" | "close" = "full") => {
       const aspect = w / h;
+      if (mode === "close") {
+        return {
+          fov: 34,
+          pos: [0, 1.45, 2.05] as [number, number, number],
+          targetY: 1.38,
+        };
+      }
       if (aspect < 1.0) {
-        // 手机竖屏自适应：将相机适度拉远并向下微移目标点，保证角色全身、双手姿态、底盘与光环 100% 完整容纳
-        const zoomFactor = Math.max(1.0, 0.72 / Math.max(aspect, 0.35));
-        const dist = Math.min(4.3, 3.4 * zoomFactor);
+        // 手机竖屏自适应：将相机适度拉远并居中对齐模型中心，保证角色全身、双手姿态、底盘与光环 100% 完整容纳
+        const zoomFactor = Math.max(1.0, 0.74 / Math.max(aspect, 0.38));
+        const dist = Math.min(4.85, 3.45 * zoomFactor);
         return {
           fov: 38,
-          pos: [0, 1.15, dist] as [number, number, number],
-          targetY: 1.02,
+          pos: [0, 1.05, dist] as [number, number, number],
+          targetY: 0.98,
         };
       } else {
-        // PC 桌面端宽屏：优雅半身特写
+        // PC 桌面端宽屏：默认全身全貌（展示立于发光底座的完整体态与头顶光环）
         return {
           fov: 36,
-          pos: [0, 1.32, 2.15] as [number, number, number],
-          targetY: 1.22,
+          pos: [0, 1.05, 3.65] as [number, number, number],
+          targetY: 0.98,
         };
       }
     };
 
-    const initialConfig = getCameraConfig(width, height);
+    const initialConfig = getCameraConfig(width, height, "full");
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(initialConfig.fov, width / height, 0.1, 100);
     camera.position.set(...initialConfig.pos);
@@ -664,12 +673,47 @@ export default function DigitalTwinAvatar3D({
       }
     };
 
+    const camTransition = {
+      active: false,
+      targetZ: initialConfig.pos[2],
+      targetCamY: initialConfig.pos[1],
+      targetY: initialConfig.targetY,
+    };
+
+    const handleCamViewSwitch = (e: Event) => {
+      const mode = (e as CustomEvent).detail as "full" | "close";
+      currentCamMode = mode;
+      const cfg = getCameraConfig(container.clientWidth, container.clientHeight, mode);
+      camTransition.targetZ = cfg.pos[2];
+      camTransition.targetCamY = cfg.pos[1];
+      camTransition.targetY = cfg.targetY;
+      camTransition.active = true;
+    };
+    window.addEventListener("memento:set-cam-view", handleCamViewSwitch);
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      camera.position.z = Math.max(1.3, Math.min(5.5, camera.position.z + e.deltaY * 0.005));
+      camTransition.active = false;
+      const newZ = Math.max(1.3, Math.min(6.0, camera.position.z + e.deltaY * 0.004));
+      camera.position.z = newZ;
+      // 当拉近时，观察目标平滑上移至面部；拉远时平滑居中全身（0.98）
+      const t = THREE.MathUtils.clamp((newZ - 1.8) / (3.65 - 1.8), 0, 1);
+      cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
+      camera.position.y = THREE.MathUtils.lerp(1.45, 1.05, t);
     };
 
     container.style.touchAction = "none";
+
+    const handleDblClick = () => {
+      const next = currentCamMode === "full" ? "close" : "full";
+      currentCamMode = next;
+      const cfg = getCameraConfig(container.clientWidth, container.clientHeight, next);
+      camTransition.targetZ = cfg.pos[2];
+      camTransition.targetCamY = cfg.pos[1];
+      camTransition.targetY = cfg.targetY;
+      camTransition.active = true;
+      setViewMode(next);
+    };
 
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
@@ -697,12 +741,17 @@ export default function DigitalTwinAvatar3D({
         mouse.x = ((e.touches[0].clientX - rect.left) / rect.width) * 2 - 1;
         mouse.y = -((e.touches[0].clientY - rect.top) / rect.height) * 2 + 1;
       } else if (e.touches.length === 2 && initialPinchDist > 0) {
+        camTransition.active = false;
         const currentDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = initialPinchDist / (currentDist || 1);
-        camera.position.z = Math.max(1.3, Math.min(5.5, initialCamZ * factor));
+        const newZ = Math.max(1.3, Math.min(6.0, initialCamZ * factor));
+        camera.position.z = newZ;
+        const t = THREE.MathUtils.clamp((newZ - 1.8) / (3.65 - 1.8), 0, 1);
+        cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
+        camera.position.y = THREE.MathUtils.lerp(1.45, 1.05, t);
       }
     };
 
@@ -716,6 +765,7 @@ export default function DigitalTwinAvatar3D({
     container.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("mouseup", handlePointerUp);
     container.addEventListener("mousemove", handlePointerMove);
+    container.addEventListener("dblclick", handleDblClick);
     container.addEventListener("wheel", handleWheel, { passive: false });
     container.addEventListener("touchstart", handleTouchStart, { passive: false });
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
@@ -895,6 +945,22 @@ export default function DigitalTwinAvatar3D({
         avatarGroup.rotation.y += 0.005;
       }
 
+      if (camTransition.active) {
+        camera.position.z = THREE.MathUtils.lerp(camera.position.z, camTransition.targetZ, 0.12);
+        camera.position.y = THREE.MathUtils.lerp(camera.position.y, camTransition.targetCamY, 0.12);
+        cameraTarget.y = THREE.MathUtils.lerp(cameraTarget.y, camTransition.targetY, 0.12);
+        if (
+          Math.abs(camera.position.z - camTransition.targetZ) < 0.01 &&
+          Math.abs(camera.position.y - camTransition.targetCamY) < 0.01 &&
+          Math.abs(cameraTarget.y - camTransition.targetY) < 0.01
+        ) {
+          camera.position.z = camTransition.targetZ;
+          camera.position.y = camTransition.targetCamY;
+          cameraTarget.y = camTransition.targetY;
+          camTransition.active = false;
+        }
+      }
+
       camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
     };
@@ -905,7 +971,7 @@ export default function DigitalTwinAvatar3D({
       if (!container || !renderer || !camera) return;
       const newW = container.clientWidth;
       const newH = container.clientHeight;
-      const cfg = getCameraConfig(newW, newH);
+      const cfg = getCameraConfig(newW, newH, currentCamMode);
       camera.aspect = newW / newH;
       camera.fov = cfg.fov;
       camera.position.set(camera.position.x, cfg.pos[1], cfg.pos[2]);
@@ -921,11 +987,13 @@ export default function DigitalTwinAvatar3D({
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
+      window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       container.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("mouseup", handlePointerUp);
       container.removeEventListener("mousemove", handlePointerMove);
+      container.removeEventListener("dblclick", handleDblClick);
       container.removeEventListener("wheel", handleWheel);
       container.removeEventListener("touchstart", handleTouchStart);
       container.removeEventListener("touchmove", handleTouchMove);
@@ -1173,6 +1241,26 @@ export default function DigitalTwinAvatar3D({
           >
             <span>🔄</span>
             <span className="hidden sm:inline">{isRotating ? "自转中" : "自转"}</span>
+          </button>
+
+          {/* 视角切换按钮：默认全身全貌 / 半身特写 */}
+          <button
+            onClick={() => {
+              const nextMode = viewMode === "full" ? "close" : "full";
+              setViewMode(nextMode);
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("memento:set-cam-view", { detail: nextMode }));
+              }
+            }}
+            className={`px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border flex items-center gap-1 ${
+              viewMode === "close"
+                ? "bg-[#3B82F6]/30 text-[#93C5FD] border-[#3B82F6]/50 shadow-xs"
+                : "bg-black/50 text-white/70 border-white/10 hover:bg-black/70 hover:text-white"
+            }`}
+            title={viewMode === "full" ? "切换为半身近景特写" : "切换回默认全身全貌（双击画面亦可快速切换）"}
+          >
+            <span>{viewMode === "full" ? "🧍" : "👤"}</span>
+            <span className="hidden sm:inline">{viewMode === "full" ? "全身" : "特写"}</span>
           </button>
 
           {onToggleCollapse && (

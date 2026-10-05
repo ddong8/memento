@@ -15,6 +15,7 @@ from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..config import settings
 from ..db.models import AgentMission, DeviceTask, Machine, User
@@ -137,7 +138,9 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
 请直接输出合法 JSON，不要加多余修饰："""
 
     try:
-        reply = await call_plain_chat([{"role": "user", "content": prompt}], background=True)
+        reply = await call_plain_chat([{"role": "user", "content": prompt}], user=user, background=True)
+        if not reply:
+            return False
         # Parse JSON
         clean_text = reply.strip()
         if clean_text.startswith("```json"):
@@ -163,6 +166,7 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
             "finished_at": datetime.now(timezone.utc).isoformat(),
         })
         mission.current_step += 1
+        flag_modified(mission, "steps")
         await db.commit()
         # Push notification to user
         await notify_user(
@@ -184,6 +188,7 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         mission.current_step += 1
+        flag_modified(mission, "steps")
         await db.commit()
         return True
 
@@ -192,10 +197,12 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
         if not cmd:
             return False
 
-        # Classify risk
+        # Classify risk safely
         risk = classify_shell_command(cmd)
-        requires_approval = risk.level in ("danger", "critical") or (
-            risk.level == "warn" and not user.proactive_settings.get("auto_approve_safe", True)
+        risk_level = risk.level if risk else "low"
+        risk_reasons = risk.reasons if risk else []
+        requires_approval = risk_level in ("danger", "critical") or (
+            risk_level == "warn" and not user.proactive_settings.get("auto_approve_safe", True)
         )
 
         if requires_approval:
@@ -207,18 +214,20 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
                 "action": "exec_shell",
                 "command": cmd,
                 "reason": decision.get("reason", ""),
-                "risk_level": risk.level,
-                "risk_reasons": risk.reasons,
+                "risk_level": risk_level,
+                "risk_reasons": risk_reasons,
             }
             mission.steps.append({
                 "step": mission.current_step + 1,
                 "type": "waiting_approval",
                 "command": cmd,
-                "risk_level": risk.level,
-                "risk_reasons": risk.reasons,
+                "risk_level": risk_level,
+                "risk_reasons": risk_reasons,
                 "requested_at": datetime.now(timezone.utc).isoformat(),
             })
             mission.current_step += 1
+            flag_modified(mission, "pending_action")
+            flag_modified(mission, "steps")
             await db.commit()
 
             # Push approval notification to user's phone
@@ -290,6 +299,8 @@ async def _dispatch_remote_shell(
         "dispatched_at": datetime.now(timezone.utc).isoformat(),
     })
     mission.current_step += 1
+    flag_modified(mission, "context")
+    flag_modified(mission, "steps")
     await db.commit()
     logger.info("Mission %s dispatched remote shell on %s: %s", mission.id, target_machine.name, command)
     return True
@@ -319,6 +330,8 @@ async def approve_mission(db: AsyncSession, mission_id: uuid.UUID, token: str | 
         "approved_at": datetime.now(timezone.utc).isoformat(),
     })
     mission.current_step += 1
+    flag_modified(mission, "pending_action")
+    flag_modified(mission, "steps")
     await db.commit()
 
     # Immediately execute the approved action
@@ -354,5 +367,7 @@ async def reject_mission(
         "rejected_at": datetime.now(timezone.utc).isoformat(),
     })
     mission.current_step += 1
+    flag_modified(mission, "pending_action")
+    flag_modified(mission, "steps")
     await db.commit()
     return True

@@ -801,11 +801,23 @@ export default function DigitalTwinAvatar3D({
     let animId: number;
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
+    let isElementIntersecting = true;
 
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden;
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
+      intersectionObserver = new IntersectionObserver(
+        ([entry]) => {
+          isElementIntersecting = entry.isIntersecting;
+        },
+        { threshold: 0.05 }
+      );
+      intersectionObserver.observe(container);
+    }
 
     const currentColor = new THREE.Color(0xef4444);
     const targetColor = new THREE.Color(0xef4444);
@@ -823,8 +835,8 @@ export default function DigitalTwinAvatar3D({
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      // Stop GPU work when tab is in background or parent page asks to pause
-      if (!isPageVisible || isPausedRef.current) return;
+      // Stop GPU work when tab is in background, element is offscreen, or parent page asks to pause
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return;
 
       const elapsed = clock.getElapsedTime();
 
@@ -1029,6 +1041,7 @@ export default function DigitalTwinAvatar3D({
       window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
       window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
       resizeObserver.disconnect();
+      intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       container.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("mouseup", handlePointerUp);

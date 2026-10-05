@@ -19,248 +19,7 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    name: Build macOS (Apple Silicon arm64)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-          cache: true
-
-      - name: Install dependencies
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: Build macOS Release
-        working-directory: mobile
-        run: |
-          VERSION="${{ github.event.inputs.tag_name }}"
-          VERSION="${VERSION#v}"
-          if [ -z "$VERSION" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-          fi
-          if [ -z "$VERSION" ]; then
-            VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1 | tr -d ' ')
-          fi
-          echo "Building macOS Release with version: $VERSION"
-          flutter build macos --release --dart-define=APP_VERSION=$VERSION
-
-      - name: Sign macOS App with Stable Designated Requirement
-        working-directory: mobile/build/macos/Build/Products/Release
-        run: |
-          codesign --force --deep -s - -r='designated => identifier "com.ihasy.memento"' Memento.app
-
-      - name: Package macOS App (.dmg and .zip)
-        working-directory: mobile/build/macos/Build/Products/Release
-        run: |
-          set -e
-          echo "release" > .release_marker
-          zip -r -y Memento-macos-arm64.zip Memento.app .release_marker
-          hdiutil create -volname "Memento" -srcfolder Memento.app -ov -format UDZO Memento-macos-arm64.dmg
-
-      - name: Upload macOS Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-release
-          path: |
-            mobile/build/macos/Build/Products/Release/Memento-macos-arm64.zip
-            mobile/build/macos/Build/Products/Release/Memento-macos-arm64.dmg
-          retention-days: 2
-
-  build-windows:
-    name: Build Windows (x64)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-          cache: true
-
-      - name: Install dependencies
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: Build Windows Release
-        working-directory: mobile
-        shell: pwsh
-        run: |
-          $version = "${{ github.event.inputs.tag_name }}".TrimStart('v')
-          if (-not $version -and "${{ github.ref }}" -like "refs/tags/v*") {
-            $version = "${{ github.ref_name }}".TrimStart('v')
-          }
-          if (-not $version) {
-            $version = (Get-Content pubspec.yaml | Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Split('+')[0].Trim()
-          }
-          Write-Host "Building Windows Release with version: $version"
-          flutter build windows --release --dart-define=APP_VERSION=$version
-
-      - name: Package Windows ZIP
-        shell: pwsh
-        run: |
-          $src = "mobile/build/windows/x64/runner/Release"
-          # Create secondary directories with marker files to ensure backwards compatibility with older clients (v1.0.28-v1.0.29)
-          # where subDirs.length == 1 caused the updater to erroneously dive into the data/ directory.
-          # Note: Compress-Archive ignores empty directories, so a non-empty marker file (.keep) is required.
-          New-Item -ItemType Directory -Path "$src\plugins" -Force | Out-Null
-          Set-Content -Path "$src\plugins\.keep" -Value "memento"
-          New-Item -ItemType Directory -Path "$src\resources" -Force | Out-Null
-          Set-Content -Path "$src\resources\.keep" -Value "memento"
-          $outZip = "mobile/build/windows/Memento-windows-x64.zip"
-          Compress-Archive -Path "$src\*" -DestinationPath "$outZip" -Force
-
-      - name: Install Inno Setup
-        shell: pwsh
-        run: |
-          choco install innosetup -y --no-progress
-          $innoPath = "C:\Program Files (x86)\Inno Setup 6"
-          if (Test-Path "$innoPath\ISCC.exe") {
-            echo "$innoPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          }
-
-      - name: Build Windows Setup Installer
-        shell: pwsh
-        working-directory: mobile/windows
-        run: |
-          $version = "${{ github.event.inputs.tag_name }}".TrimStart('v')
-          if (-not $version -and "${{ github.ref }}" -like "refs/tags/v*") {
-            $version = "${{ github.ref_name }}".TrimStart('v')
-          }
-          if (-not $version) {
-            $version = (Get-Content ../pubspec.yaml | Select-String '^version:\s*(.+)$').Matches.Groups[1].Value.Split('+')[0].Trim()
-          }
-          Write-Host "Building installer with version: $version"
-          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue)?.Source
-          if (-not $iscc -or -not (Test-Path $iscc)) {
-            $candidates = @(
-              "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-              "C:\Program Files\Inno Setup 6\ISCC.exe",
-              "C:\ProgramData\chocolatey\bin\iscc.exe"
-            )
-            foreach ($c in $candidates) {
-              if (Test-Path $c) {
-                $iscc = $c
-                break
-              }
-            }
-          }
-          if (-not $iscc) {
-            $iscc = "iscc"
-          }
-          Write-Host "Using ISCC: $iscc"
-          & $iscc /DMyAppVersion="$version" installer.iss
-          if ($LASTEXITCODE -ne 0) {
-            throw "ISCC compilation failed with code $LASTEXITCODE"
-          }
-
-      - name: Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-release
-          path: |
-            mobile/build/windows/Memento-windows-x64.zip
-            mobile/build/windows/Memento-windows-x64-setup.exe
-          retention-days: 2
-
-  build-linux:
-    name: Build Linux (x64)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Linux Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev mpv
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-          cache: true
-
-      - name: Install dependencies
-        working-directory: mobile
-        run: flutter pub get
-
-      - name: Build Linux Release
-        working-directory: mobile
-        run: |
-          VERSION="${{ github.event.inputs.tag_name }}"
-          VERSION="${VERSION#v}"
-          if [ -z "$VERSION" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"
-          fi
-          if [ -z "$VERSION" ]; then
-            VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1 | tr -d ' ')
-          fi
-          echo "Building Linux Release with version: $VERSION"
-          flutter build linux --release --dart-define=APP_VERSION=$VERSION
-
-      - name: Package Linux Artifacts (.tar.gz and .deb)
-        run: |
-          set -e
-          BUNDLE_DIR="mobile/build/linux/x64/release/bundle"
-          OUTPUT_DIR="mobile/build/linux"
-          mkdir -p "$OUTPUT_DIR"
-
-          # 1. Package portable tar.gz
-          mkdir -p "$OUTPUT_DIR/dist/memento"
-          cp -r "$BUNDLE_DIR"/* "$OUTPUT_DIR/dist/memento/"
-          tar -czvf "$OUTPUT_DIR/Memento-linux-x64.tar.gz" -C "$OUTPUT_DIR/dist" memento
-
-          # 2. Package standard Debian/Ubuntu .deb package
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            VERSION="${{ github.event.inputs.tag_name }}"
-            VERSION="${VERSION#v}"
-          elif [ "$VERSION" = "$GITHUB_REF" ] || [ -z "$VERSION" ]; then
-            VERSION=$(grep '^version:' mobile/pubspec.yaml | head -n 1 | awk '{print $2}' | cut -d'+' -f1)
-          fi
-
-          DEB_ROOT="deb-build"
-          mkdir -p "$DEB_ROOT/opt/memento"
-          mkdir -p "$DEB_ROOT/usr/bin"
-          mkdir -p "$DEB_ROOT/usr/share/applications"
-          mkdir -p "$DEB_ROOT/usr/share/icons/hicolor/512x512/apps"
-          mkdir -p "$DEB_ROOT/DEBIAN"
-
-          cp -r "$BUNDLE_DIR"/* "$DEB_ROOT/opt/memento/"
-          chmod +x "$DEB_ROOT/opt/memento/memento"
-          printf '#!/bin/sh\nexec /opt/memento/memento "$@"\n' > "$DEB_ROOT/usr/bin/memento"
-          chmod 755 "$DEB_ROOT/usr/bin/memento"
-          cp mobile/linux/assets/memento.png "$DEB_ROOT/usr/share/icons/hicolor/512x512/apps/memento.png"
-          cp mobile/linux/assets/memento.desktop "$DEB_ROOT/usr/share/applications/memento.desktop"
-          chmod 644 "$DEB_ROOT/usr/share/applications/memento.desktop"
-          chmod 644 "$DEB_ROOT/usr/share/icons/hicolor/512x512/apps/memento.png"
-
-          printf "Package: memento\nVersion: %s\nSection: devel\nPriority: optional\nArchitecture: amd64\nMaintainer: Memento <support@ihasy.com>\nDepends: libgtk-3-0\nDescription: Memento AI Coding Memory & Cross-Device Remote Dispatch Assistant\n" "$VERSION" > "$DEB_ROOT/DEBIAN/control"
-
-          dpkg-deb --build "$DEB_ROOT" "$OUTPUT_DIR/Memento-linux-amd64.deb"
-
-      - name: Upload Linux Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-release
-          path: |
-            mobile/build/linux/Memento-linux-x64.tar.gz
-            mobile/build/linux/Memento-linux-amd64.deb
-          retention-days: 2
-
-  # Electron desktop app (apps/desktop). Kept out of publish-release's needs so a
-  # failure here never holds back the Flutter release; its files are added to
-  # the same GitHub release afterwards (electron-updater reads latest*.yml there).
+  # Electron desktop app (apps/desktop) for macOS, Windows and Linux.
   build-electron:
     name: Build Electron (${{ matrix.name }})
     strategy:
@@ -297,7 +56,7 @@ jobs:
           if [ -z "$VERSION" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then VERSION="${{ github.ref_name }}"; fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
-            VERSION=$(grep '^version:' mobile/pubspec.yaml | sed 's/version: //' | cut -d'+' -f1 | tr -d ' ')
+            VERSION=$(node -p "require('./apps/desktop/package.json').version")
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
@@ -318,6 +77,7 @@ jobs:
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip
+            apps/desktop/release/*.tar.gz
             apps/desktop/release/*.exe
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.blockmap
@@ -325,30 +85,7 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  publish-electron:
-    name: Add Electron builds to the release
-    needs: [publish-release, build-electron]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download Electron artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: electron-*
-          merge-multiple: true
-          path: electron
-
-      - name: Upload to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.inputs.tag_name }}"
-          if [ -z "$TAG" ]; then TAG="${GITHUB_REF#refs/tags/}"; fi
-          ls -la electron
-          gh release upload "$TAG" electron/* --clobber --repo "${{ github.repository }}"
-
-  # Expo mobile app (apps/mobile): Android APK built here. It's signed with the
-  # React Native template's debug keystore (the same on every build, so
-  # sideloaded updates install over each other); iOS is built locally in Xcode.
+  # Expo mobile app (apps/mobile): Android APK built here.
   build-android:
     name: Build Android (Expo)
     runs-on: ubuntu-latest
@@ -377,7 +114,7 @@ jobs:
           if [ -z "$VERSION" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then VERSION="${{ github.ref_name }}"; fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
-            VERSION=$(grep '^version:' mobile/pubspec.yaml | sed 's/version: //' | cut -d'+' -f1 | tr -d ' ')
+            VERSION=$(node -p "require('./apps/mobile/package.json').version")
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
@@ -418,29 +155,16 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  publish-android:
-    name: Add the Android APK to the release
-    needs: [publish-release, build-android]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: android-apk
-          path: apk
-
-      - name: Upload to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.inputs.tag_name }}"
-          if [ -z "$TAG" ]; then TAG="${GITHUB_REF#refs/tags/}"; fi
-          gh release upload "$TAG" apk/*.apk --clobber --repo "${{ github.repository }}"
-
   publish-release:
-    name: Publish GitHub Release
-    needs: [build-macos, build-windows, build-linux]
+    name: Publish GitHub Release & Update Version Metadata
+    needs: [build-electron, build-android]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repo for version metadata update
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -454,33 +178,37 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           else
-            echo "tag=v1.0.5" >> $GITHUB_OUTPUT
+            DEFAULT_VER=$(node -p "require('./apps/desktop/package.json').version")
+            echo "tag=v${DEFAULT_VER}" >> $GITHUB_OUTPUT
           fi
 
       - name: Upload Assets & Publish Release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.release_meta.outputs.tag }}
           name: Memento ${{ steps.release_meta.outputs.tag }}
           generate_release_notes: true
           make_latest: true
           files: |
-            dist/windows-release/*
-            dist/macos-release/*
-            dist/linux-release/*
-
-      - name: Checkout repo for version metadata update
-        uses: actions/checkout@v4
-        with:
-          ref: main
+            dist/electron-*/*
+            dist/android-apk/*
 
       - name: Update data/updates/version.json
         run: |
           TAG="${{ steps.release_meta.outputs.tag }}"
           VER="${TAG#v}"
           python3 -c "
-          import json, os, glob
+          import hashlib, json, os, glob
           from pathlib import Path
+
+          def calc_sha256(filepath):
+              h = hashlib.sha256()
+              with open(filepath, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return h.hexdigest()
 
           ver_file = Path('data/updates/version.json')
           ver_file.parent.mkdir(parents=True, exist_ok=True)
@@ -497,33 +225,87 @@ jobs:
           if 'platforms' not in meta:
               meta['platforms'] = {}
 
-          # Find windows asset (prefer .zip for in-place hot-replacement, fallback setup.exe)
-          for p in glob.glob('dist/windows-release/*'):
+          all_files = glob.glob('dist/**/*', recursive=True)
+
+          # Find windows asset (prefer .zip for in-place hot-replacement, fallback setup.exe / .exe)
+          for p in all_files:
+              if not os.path.isfile(p):
+                  continue
               fn = os.path.basename(p)
-              if fn.endswith('.zip'):
-                  meta['platforms']['windows'] = {'asset_name': fn, 'size': os.path.getsize(p)}
+              fn_lower = fn.lower()
+              if ('win' in fn_lower or 'windows' in fn_lower) and fn_lower.endswith('.zip') and not fn_lower.endswith('.blockmap'):
+                  meta['platforms']['windows'] = {
+                      'asset_name': fn,
+                      'size': os.path.getsize(p),
+                      'sha256': calc_sha256(p)
+                  }
                   break
           if 'windows' not in meta.get('platforms', {}):
-              for p in glob.glob('dist/windows-release/*'):
+              for p in all_files:
+                  if not os.path.isfile(p):
+                      continue
                   fn = os.path.basename(p)
-                  if fn.endswith('setup.exe') or fn.endswith('.exe'):
-                      meta['platforms']['windows'] = {'asset_name': fn, 'size': os.path.getsize(p)}
+                  fn_lower = fn.lower()
+                  if ('win' in fn_lower or 'windows' in fn_lower) and fn_lower.endswith('.exe') and not fn_lower.endswith('.blockmap'):
+                      meta['platforms']['windows'] = {
+                          'asset_name': fn,
+                          'size': os.path.getsize(p),
+                          'sha256': calc_sha256(p)
+                      }
                       break
 
           # Find macos asset (prefer .zip for hot-update, fallback .dmg)
-          for p in glob.glob('dist/macos-release/*'):
+          for p in all_files:
+              if not os.path.isfile(p):
+                  continue
               fn = os.path.basename(p)
-              if fn.endswith('.zip') or fn.endswith('.dmg'):
-                  meta['platforms']['macos'] = {'asset_name': fn, 'size': os.path.getsize(p)}
-                  if fn.endswith('.zip'):
+              fn_lower = fn.lower()
+              if ('mac' in fn_lower or 'darwin' in fn_lower) and fn_lower.endswith('.zip') and not fn_lower.endswith('.blockmap'):
+                  meta['platforms']['macos'] = {
+                      'asset_name': fn,
+                      'size': os.path.getsize(p),
+                      'sha256': calc_sha256(p)
+                  }
+                  break
+          if 'macos' not in meta.get('platforms', {}):
+              for p in all_files:
+                  if not os.path.isfile(p):
+                      continue
+                  fn = os.path.basename(p)
+                  fn_lower = fn.lower()
+                  if ('mac' in fn_lower or 'darwin' in fn_lower) and fn_lower.endswith('.dmg'):
+                      meta['platforms']['macos'] = {
+                          'asset_name': fn,
+                          'size': os.path.getsize(p),
+                          'sha256': calc_sha256(p)
+                      }
                       break
 
-          # Find linux asset (prefer .tar.gz, fallback .deb)
-          for p in glob.glob('dist/linux-release/*'):
+          # Find linux asset (prefer .tar.gz / .zip, fallback .AppImage / .deb)
+          for p in all_files:
+              if not os.path.isfile(p):
+                  continue
               fn = os.path.basename(p)
-              if fn.endswith('.tar.gz') or fn.endswith('.zip') or fn.endswith('.deb'):
-                  meta['platforms']['linux'] = {'asset_name': fn, 'size': os.path.getsize(p)}
-                  if fn.endswith('.tar.gz'):
+              fn_lower = fn.lower()
+              if 'linux' in fn_lower and (fn_lower.endswith('.tar.gz') or fn_lower.endswith('.zip')):
+                  meta['platforms']['linux'] = {
+                      'asset_name': fn,
+                      'size': os.path.getsize(p),
+                      'sha256': calc_sha256(p)
+                  }
+                  break
+          if 'linux' not in meta.get('platforms', {}):
+              for p in all_files:
+                  if not os.path.isfile(p):
+                      continue
+                  fn = os.path.basename(p)
+                  fn_lower = fn.lower()
+                  if 'linux' in fn_lower and (fn_lower.endswith('.appimage') or fn_lower.endswith('.deb')):
+                      meta['platforms']['linux'] = {
+                          'asset_name': fn,
+                          'size': os.path.getsize(p),
+                          'sha256': calc_sha256(p)
+                      }
                       break
 
           with open(ver_file, 'w', encoding='utf-8') as f:
@@ -547,4 +329,3 @@ jobs:
               sleep 3
             done
           fi
-

@@ -409,17 +409,8 @@ export class FileWatcher {
         } else {
           const fails = (this.failures.get(file) ?? 0) + 1;
           this.failures.set(file, fails);
-          if (fails >= 3) {
-            // The same slice keeps failing (rejected by the server): skip it so the rest still syncs.
-            this.log(`Repeatedly failed (${fails} times) at offset ${offset} for ${relPath}; skipping ${slice.length}B`);
-            offset += slice.length;
-            this.offsets.set(file, offset);
-            await this.saveOffsets();
-            this.failures.delete(file);
-          } else {
-            this.log(`Upload failed for ${relPath} at offset ${offset} (attempt ${fails}/3), will retry`);
-            break;
-          }
+          this.log(`Upload failed for ${relPath} at offset ${offset} (attempt ${fails}), retaining offset to retry`);
+          break;
         }
         if (offset < size) await sleep(50);
         else break;

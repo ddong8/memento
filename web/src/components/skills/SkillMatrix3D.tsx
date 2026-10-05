@@ -473,21 +473,33 @@ export default function SkillMatrix3D({
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
 
-    // 8. Render Animation Loop (with Battery-Friendly Pause on Inactivity / Background)
+    // 8. Render Animation Loop (with Battery-Friendly Pause on Inactivity / Background / Offscreen)
     let animId = 0;
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
+    let isElementIntersecting = true;
 
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden;
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
+      intersectionObserver = new IntersectionObserver(
+        ([entry]) => {
+          isElementIntersecting = entry.isIntersecting;
+        },
+        { threshold: 0.05 }
+      );
+      intersectionObserver.observe(container);
+    }
+
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      // Stop GPU work when tab is in background or parent page asks to pause
-      if (!isPageVisible || isPausedRef.current) return;
+      // Stop GPU work when tab is in background, offscreen, or parent page asks to pause
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return;
 
       const elapsed = clock.getElapsedTime();
 
@@ -574,6 +586,7 @@ export default function SkillMatrix3D({
     return () => {
       cancelAnimationFrame(animId);
       resizeObserver.disconnect();
+      intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       container.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("mouseup", handlePointerUp);

@@ -483,19 +483,24 @@ async def ingest_file(
 ) -> Document:
     """Process and store an ingested file."""
     # Fast-path dedup: if this exact (tool_id, relative_path, content_hash,
-    # offset) was already ingested, skip everything. Common in multi-collector
+    # offset) was already ingested on this machine, skip everything. Common in multi-collector
     # setups where pip + Tauri sidecar both watch the same .jsonl and resend
-    # the same chunk within milliseconds. Without this, the second request:
-    #   - holds a get_db() connection for several seconds
-    #   - races UPDATE on the same Document row
-    #   - fires a redundant post-ingest task that re-embeds 50 chunks
-    # all to write the same bytes back to the same row.
-    sync_row = (await db.execute(
-        select(SyncState).where(
-            SyncState.tool_id == tool_id,
-            SyncState.relative_path == relative_path,
-        )
-    )).scalar_one_or_none()
+    # the same chunk within milliseconds.
+    mach_uuid = None
+    if machine_id:
+        try:
+            mach_uuid = uuid.UUID(str(machine_id))
+        except (ValueError, TypeError):
+            mach_uuid = None
+
+    sync_query = select(SyncState).where(
+        SyncState.tool_id == tool_id,
+        SyncState.relative_path == relative_path,
+    )
+    if mach_uuid is not None:
+        sync_query = sync_query.where(SyncState.machine_id == mach_uuid)
+
+    sync_row = (await db.execute(sync_query)).scalar_one_or_none()
     if (
         category != "discovery"
         and sync_row is not None
@@ -505,15 +510,16 @@ async def ingest_file(
         # Touch last_synced_at so dashboards know we still see this file,
         # but skip all the actual ingestion work + the post-ingest task.
         sync_row.last_synced_at = datetime.now(timezone.utc)
-        existing_doc = (await db.execute(
-            select(Document).where(
-                Document.tool_id == tool_id,
-                Document.relative_path == relative_path,
-            )
-        )).scalar_one_or_none()
+        doc_query = select(Document).where(
+            Document.tool_id == tool_id,
+            Document.relative_path == relative_path,
+        )
+        if mach_uuid is not None:
+            doc_query = doc_query.where(Document.machine_id == mach_uuid)
+        existing_doc = (await db.execute(doc_query)).scalar_one_or_none()
         if existing_doc is not None:
-            if machine_id and not existing_doc.machine_id:
-                existing_doc.machine_id = machine_id
+            if mach_uuid and not existing_doc.machine_id:
+                existing_doc.machine_id = mach_uuid
                 await db.flush()
             new_title = metadata.get("title")
             if new_title:
@@ -702,12 +708,13 @@ async def ingest_file(
                 project_id = row
 
     # Find existing document
-    result = await db.execute(
-        select(Document).where(
-            Document.tool_id == tool_id,
-            Document.relative_path == relative_path,
-        )
+    doc_lookup_query = select(Document).where(
+        Document.tool_id == tool_id,
+        Document.relative_path == relative_path,
     )
+    if mach_uuid is not None:
+        doc_lookup_query = doc_lookup_query.where(Document.machine_id == mach_uuid)
+    result = await db.execute(doc_lookup_query)
     doc = result.scalar_one_or_none()
 
     now = datetime.now(timezone.utc)
@@ -835,7 +842,7 @@ async def ingest_file(
         doc = Document(
             tool_id=tool_id,
             project_id=project_id,
-            machine_id=machine_id,
+            machine_id=mach_uuid,
             relative_path=relative_path,
             category=category,
             content_type=content_type,
@@ -1279,17 +1286,29 @@ async def _update_sync_state(
     machine_id: str | None,
 ) -> None:
     """Update server-side sync state."""
-    result = await db.execute(
-        select(SyncState).where(
-            SyncState.tool_id == tool_id,
-            SyncState.relative_path == relative_path,
-        )
+    mach_uuid = None
+    if machine_id:
+        try:
+            mach_uuid = uuid.UUID(str(machine_id))
+        except (ValueError, TypeError):
+            mach_uuid = None
+
+    query = select(SyncState).where(
+        SyncState.tool_id == tool_id,
+        SyncState.relative_path == relative_path,
     )
+    if mach_uuid is not None:
+        query = query.where(SyncState.machine_id == mach_uuid)
+    else:
+        query = query.where(SyncState.machine_id.is_(None))
+
+    result = await db.execute(query)
     state = result.scalar_one_or_none()
     now = datetime.now(timezone.utc)
 
     if state is None:
         state = SyncState(
+            machine_id=mach_uuid,
             tool_id=tool_id,
             relative_path=relative_path,
             last_hash=content_hash,

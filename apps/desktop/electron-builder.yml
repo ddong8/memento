@@ -35,6 +35,8 @@ win:
   target:
     - target: nsis
       arch: [x64]
+    - target: zip
+      arch: [x64]
   icon: build/icon.png
 nsis:
   oneClick: true
@@ -45,6 +47,8 @@ linux:
   executableName: memento
   target:
     - target: AppImage
+      arch: [x64]
+    - target: tar.gz
       arch: [x64]
   icon: build/icon.png
   category: Development

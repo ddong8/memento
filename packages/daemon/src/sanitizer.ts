@@ -97,3 +97,34 @@ export function contentHash(s: string): string {
   for (let i = 0; i < s.length; i++) hash = (Math.imul(31, hash) + s.charCodeAt(i)) >>> 0;
   return hash.toString(16);
 }
+
+/** Sanitize text or structured JSON/JSONL content before uploading to server. */
+export function sanitizeDocumentContent(content: string, contentType: string): string {
+  if (contentType === "json") {
+    try {
+      const parsed = JSON.parse(content);
+      return JSON.stringify(sanitizeJson(parsed));
+    } catch {
+      return sanitizeText(content).content;
+    }
+  }
+  if (contentType === "jsonl") {
+    try {
+      const lines = content.split("\n");
+      const sanitizedLines = lines.map((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return line;
+        try {
+          const parsed = JSON.parse(trimmed);
+          return JSON.stringify(sanitizeJson(parsed));
+        } catch {
+          return sanitizeText(line).content;
+        }
+      });
+      return sanitizedLines.join("\n");
+    } catch {
+      return sanitizeText(content).content;
+    }
+  }
+  return sanitizeText(content).content;
+}

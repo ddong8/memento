@@ -35,14 +35,16 @@ _EXTRACTION_TEMPLATE = (
 )
 
 
-async def _call_llm(prompt: str) -> dict | None:
+async def _call_llm(prompt: str, user: Any = None) -> dict | None:
     """Call LLM for entity extraction with multi-provider fallback. Returns parsed JSON or None."""
-    providers = get_ai_providers()
+    providers = get_ai_providers(background=True, user=user)
     raw_text = None
     if providers:
         raw_text = await call_plain_chat(
             messages=[{"role": "user", "content": prompt + "\n\nRespond with JSON only."}],
             max_tokens=2000,
+            user=user,
+            background=True,
         )
 
     if not raw_text:
@@ -119,7 +121,9 @@ async def extract_knowledge_from_document(
 
     # Skip if already extracted for this content version (hash-based dedup)
     import hashlib
-    content_hash = hashlib.md5(doc.content[:4000].encode()).hexdigest()
+    content_raw = doc.content or ""
+    hash_seed = f"{len(content_raw)}:{content_raw[:2000]}:{content_raw[-2000:]}"
+    content_hash = hashlib.md5(hash_seed.encode("utf-8", errors="ignore")).hexdigest()
     existing_obs = (await db.execute(
         select(KnowledgeObservation.id)
         .where(KnowledgeObservation.source_document_id == doc.id)
@@ -136,23 +140,11 @@ async def extract_knowledge_from_document(
         delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id == doc.id)
     )
 
-    # Content prep — the LLM only sees ~4000 chars, so what those 4000
-    # chars ARE matters a lot. For conversation docs the raw .jsonl
-    # head is mostly tool_use / tool_result JSON metadata — opaque to
-    # the LLM, no entities to be found. That's why the initial sweep
-    # of large conversations all got marked 'failed' even on glm-5.2:
-    # the model literally never saw the user / assistant text.
-    #
-    # For conversations, pull role='user'/'assistant' rows from the
-    # already-parsed conversation_messages table and concat into a
-    # role-tagged transcript. For other categories (memory / plan /
-    # learning / identity) the raw content IS the text — keep the
-    # original head-of-content path.
+    # Content prep — expanded up to 12,000 chars with head + tail dual-window strategy.
+    # Long conversations capture the initial goal/problem (head 4000) and final resolutions/code (tail 8000).
+    MAX_GRAPH_CHARS = 12000
     content = ""
     if doc.category == "conversation":
-        msg_rows = (await db.execute(
-            select(KnowledgeObservation.__table__)  # type: ignore[arg-type]
-        )) if False else None  # placeholder so import order doesn't drift
         from ..db.models import ConversationMessage
         rows = (await db.execute(
             select(ConversationMessage.role, ConversationMessage.content)
@@ -161,51 +153,60 @@ async def extract_knowledge_from_document(
                 ConversationMessage.role.in_(("user", "assistant")),
             )
             .order_by(ConversationMessage.line_number)
-            .limit(200)
+            .limit(400)
         )).all()
         chunks: list[str] = []
-        used = 0
         for role, c in rows:
             text = (c or "").strip()
             if not text:
                 continue
             # Drop tool-result noise that often pads user-role messages
-            if text.startswith("[Result]") or text.startswith("[Tool:") \
-                    or text.startswith('{"tool_use_id"'):
+            if text.startswith("[Result]") or text.startswith("[Tool:") or text.startswith('{"tool_use_id"'):
                 continue
-            chunk = f"[{role}] {text}\n"
-            if used + len(chunk) > 4000:
-                # Truncate the last chunk to fit, then stop.
-                chunks.append(chunk[: 4000 - used])
-                break
-            chunks.append(chunk)
-            used += len(chunk)
-        content = "".join(chunks)
-        # Conversation has no parsed messages yet (very fresh ingest /
-        # parse miss) — fall back to raw head so we still try.
+            chunks.append(f"[{role}] {text}\n")
+        full_chat = "".join(chunks)
+        if len(full_chat) <= MAX_GRAPH_CHARS:
+            content = full_chat
+        else:
+            head_part = full_chat[:4000]
+            tail_part = full_chat[-8000:]
+            content = f"{head_part}\n\n... [省略部分中间交互，保留开头意图与最终技术决策结论] ...\n\n{tail_part}"
+
+        # Fallback to raw content if parsed messages empty
         if not content:
-            content = (doc.content or "")[:4000]
+            if len(content_raw) <= MAX_GRAPH_CHARS:
+                content = content_raw
+            else:
+                content = f"{content_raw[:4000]}\n\n...\n\n{content_raw[-8000:]}"
     else:
-        content = (doc.content or "")[:4000]
+        if len(content_raw) <= MAX_GRAPH_CHARS:
+            content = content_raw
+        else:
+            content = f"{content_raw[:4000]}\n\n...\n\n{content_raw[-8000:]}"
 
     prompt = _EXTRACTION_TEMPLATE + content
+
+    # Get or determine user_id from document's machine
+    user_obj = None
+    from ..db.models import Machine, User
+    if not user_id and doc.machine_id:
+        machine = (await db.execute(
+            select(Machine).where(Machine.id == doc.machine_id)
+        )).scalar_one_or_none()
+        if machine and machine.user_id:
+            user_id = machine.user_id
+    if user_id:
+        user_obj = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
 
     # Charge an attempt up front so a hung LLM still counts toward the
     # cap (otherwise a stuck call would never block subsequent retries).
     doc.knowledge_attempts = (doc.knowledge_attempts or 0) + 1
-    result = await _call_llm(prompt)
+    result = await _call_llm(prompt, user=user_obj)
     if not result:
         doc.knowledge_status = "failed"
         return 0
 
     count = 0
-
-    # Get or determine user_id from document's machine
-    if not user_id and doc.machine_id:
-        machine = (await db.execute(
-            select(Machine.user_id).where(Machine.id == doc.machine_id)
-        )).scalar_one_or_none()
-        user_id = machine
 
     # Process entities
     entity_map: dict[str, KnowledgeEntity] = {}

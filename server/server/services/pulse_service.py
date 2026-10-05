@@ -236,9 +236,15 @@ async def _send_evening_reflection(db: AsyncSession, user: User, user_now: datet
     try:
         # Run dreaming pipeline to distill memories, persona, and daily summary
         target_date = user_now.date()
-        result = await run_dreaming_pipeline(db, user, target_date=target_date)
+        result = await run_dreaming_pipeline(
+            db, user, start_date=target_date, end_date=target_date, tag="nightly"
+        )
 
-        distilled_count = result.get("memories_distilled", 0) if isinstance(result, dict) else 0
+        distilled_count = 0
+        if hasattr(result, "stage_metrics") and isinstance(result.stage_metrics, dict):
+            distilled_count = result.stage_metrics.get("promoted_count", 0)
+        elif isinstance(result, dict):
+            distilled_count = result.get("memories_distilled", result.get("promoted_count", 0))
         title = "🌌 晚间梦境自进化完成"
         body = (
             f"今日工作沉淀已完成！已自动吸收碎片记忆，更新画像偏好与避坑规则（提炼 {distilled_count} 条核心洞察）。"

@@ -1,6 +1,6 @@
 import type { CollectorConfig } from "./config.js";
 import { toolReport, type DiscoveredTool } from "./discovery.js";
-import { sanitizeText } from "./sanitizer.js";
+import { sanitizeDocumentContent } from "./sanitizer.js";
 
 export const DAEMON_VERSION = "node-0.1.0";
 
@@ -84,7 +84,7 @@ export class IngestClient {
   /** Upload a file or a slice of one, with secrets stripped first. */
   async ingestDocument(doc: IngestDocument): Promise<boolean> {
     try {
-      const sanitized = sanitizeText(doc.content).content;
+      const sanitized = sanitizeDocumentContent(doc.content, doc.contentType);
       const res = await this.request("/api/ingest/file", {
         method: "POST",
         timeoutMs: 30_000,

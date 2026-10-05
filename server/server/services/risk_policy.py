@@ -9,16 +9,22 @@ commands the orchestrator LLM decides to run.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class RiskFinding:
     label: str   # short Chinese label, used as the push title
     detail: str  # the command or path, truncated
+    level: str = "danger"  # "low" | "warn" | "danger" | "critical"
+    reasons: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.reasons and self.label:
+            object.__setattr__(self, "reasons", [self.label])
 
     def as_alert(self, tool: str) -> dict[str, str]:
-        return {"label": self.label, "detail": self.detail, "tool": tool}
+        return {"label": self.label, "detail": self.detail, "tool": tool, "level": self.level}
 
 
 DETAIL_MAX = 300

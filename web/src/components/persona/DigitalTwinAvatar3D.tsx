@@ -338,12 +338,12 @@ export default function DigitalTwinAvatar3D({
 
     // 2. High-Performance WebGL Renderer
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isMobile,
+      antialias: true,
       alpha: true,
       powerPreference: "high-performance",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.38;
     container.appendChild(renderer.domElement);
@@ -1013,6 +1013,7 @@ export default function DigitalTwinAvatar3D({
       cameraTarget.set(0, cfg.targetY, 0);
       camera.updateProjectionMatrix();
       camera.lookAt(cameraTarget);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(newW, newH);
     };
 

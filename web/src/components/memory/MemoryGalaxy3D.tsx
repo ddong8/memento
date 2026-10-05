@@ -54,10 +54,11 @@ const TYPE_COLOR_HEX: Record<string, string> = {
 /** Create text canvas sprite for crisp 3D labels */
 function createTextSprite(text: string, colorHex: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 128;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    ctx.scale(2, 2);
     ctx.clearRect(0, 0, 256, 64);
     // Soft glowing text background pill
     ctx.fillStyle = "rgba(10, 13, 20, 0.75)";
@@ -78,7 +79,8 @@ function createTextSprite(text: string, colorHex: string): THREE.Sprite {
   }
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
   const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
@@ -155,12 +157,12 @@ export default function MemoryGalaxy3D({
     camera.position.set(0, 4.5, 11);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isMobile, // Disable hardware MSAA on mobile for significant power and memory savings
+      antialias: true,
       alpha: true,
       powerPreference: "high-performance",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
     container.innerHTML = "";
@@ -616,6 +618,7 @@ export default function MemoryGalaxy3D({
         spherical.radius = getOptimalRadius(newW, newH);
         updateCameraFromSpherical();
       }
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(newW, newH);
     };
 

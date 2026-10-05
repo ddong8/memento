@@ -37,10 +37,11 @@ const TERMINAL_TARGETS = [
 /** Create crisp 3D text billboard sprite */
 function createSkillTextSprite(title: string, version: number, isPublished: boolean): THREE.Sprite {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 512;
+  canvas.height = 128;
   const ctx = canvas.getContext("2d");
   if (ctx) {
+    ctx.scale(2, 2);
     ctx.clearRect(0, 0, 256, 64);
     // Background pill
     ctx.fillStyle = isPublished ? "rgba(16, 185, 129, 0.2)" : "rgba(245, 158, 11, 0.2)";
@@ -62,7 +63,8 @@ function createSkillTextSprite(title: string, version: number, isPublished: bool
   }
 
   const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
   const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
@@ -119,12 +121,12 @@ export default function SkillMatrix3D({
     camera.position.set(0, 5.0, 11.0);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isMobile, // Disable hardware MSAA on mobile for significant power and memory savings
+      antialias: true,
       alpha: true,
       powerPreference: "high-performance",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
     container.innerHTML = "";
@@ -562,6 +564,7 @@ export default function SkillMatrix3D({
         spherical.radius = getOptimalRadius(newW, newH);
         updateCameraFromSpherical();
       }
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(newW, newH);
     };
 

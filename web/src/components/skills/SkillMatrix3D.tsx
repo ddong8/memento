@@ -268,15 +268,16 @@ export default function SkillMatrix3D({
     // 7. Interactive Controls & Responsive Spherical Camera
     const getOptimalRadius = (w: number, h: number) => {
       const aspect = w / h;
-      const baseRadius = 10;
+      // 默认全景半径：适度放小，使 5 端全息星阵与科技树多面体拥有充裕留白与精致全景感
+      const baseRadius = 14.5;
       if (aspect >= 1.25) {
         return baseRadius;
       }
-      // 竖屏与窄屏自适应：确保 5 端环形基座及中心技能多面体 100% 完整容纳
+      // 竖屏与窄屏自适应：确保 5 端环形基座及中心技能多面体 100% 完整容纳且不贴边
       // 5端基座半径 4.2 + 基座外径 0.65，半视野取 5.1
       const fovRad = (48 * Math.PI) / 360;
-      const requiredRadius = (5.1 * 1.15) / (Math.tan(fovRad) * Math.max(aspect, 0.32));
-      return Math.max(baseRadius, Math.min(28, requiredRadius));
+      const requiredRadius = (5.1 * 1.42) / (Math.tan(fovRad) * Math.max(aspect, 0.32));
+      return Math.max(baseRadius, Math.min(38, requiredRadius));
     };
 
     const raycaster = new THREE.Raycaster();
@@ -308,6 +309,8 @@ export default function SkillMatrix3D({
       userHasManuallyZoomed = false;
       targetCameraTarget.set(0, 1.2, 0);
       spherical.radius = getOptimalRadius(container.clientWidth || width, container.clientHeight || height);
+      spherical.theta = 0;
+      spherical.phi = Math.PI / 3.0;
       updateCameraFromSpherical();
     };
 
@@ -347,7 +350,7 @@ export default function SkillMatrix3D({
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       userHasManuallyZoomed = true;
-      spherical.radius = Math.max(5, Math.min(32, spherical.radius + e.deltaY * 0.015));
+      spherical.radius = Math.max(6, Math.min(42, spherical.radius + e.deltaY * 0.015));
       updateCameraFromSpherical();
     };
 
@@ -364,7 +367,7 @@ export default function SkillMatrix3D({
         if (skill && onSelectSkillRef.current) {
           onSelectSkillRef.current(skill);
           targetCameraTarget.set(hit.position.x, hit.position.y, hit.position.z);
-          spherical.radius = 7.5;
+          spherical.radius = 9.5;
         }
       }
     };
@@ -411,7 +414,7 @@ export default function SkillMatrix3D({
         );
         const factor = initialPinchDist / (currentDist || 1);
         userHasManuallyZoomed = true;
-        spherical.radius = Math.max(5, Math.min(32, initialPinchRadius * factor));
+        spherical.radius = Math.max(6, Math.min(42, initialPinchRadius * factor));
         updateCameraFromSpherical();
       }
     };
@@ -436,7 +439,7 @@ export default function SkillMatrix3D({
               if (skill && onSelectSkillRef.current) {
                 onSelectSkillRef.current(skill);
                 targetCameraTarget.set(hit.position.x, hit.position.y, hit.position.z);
-                spherical.radius = 7.5;
+                spherical.radius = 9.5;
               }
             }
           }
@@ -448,11 +451,19 @@ export default function SkillMatrix3D({
       }
     };
 
+    const handleDblClick = () => {
+      if (onSelectSkillRef.current) {
+        onSelectSkillRef.current(null);
+      }
+      resetCameraRef.current?.();
+    };
+
     container.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("mouseup", handlePointerUp);
     container.addEventListener("mousemove", handlePointerMove);
     container.addEventListener("wheel", handleWheel, { passive: false });
     container.addEventListener("click", handleClick);
+    container.addEventListener("dblclick", handleDblClick);
     container.addEventListener("touchstart", handleTouchStart, { passive: false });
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
@@ -563,6 +574,7 @@ export default function SkillMatrix3D({
       container.removeEventListener("mousemove", handlePointerMove);
       container.removeEventListener("wheel", handleWheel);
       container.removeEventListener("click", handleClick);
+      container.removeEventListener("dblclick", handleDblClick);
       container.removeEventListener("touchstart", handleTouchStart);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);

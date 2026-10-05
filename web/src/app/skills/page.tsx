@@ -121,8 +121,8 @@ export default function SkillsPage() {
   const [selectedSkillSlug, setSelectedSkillSlug] = useState<string | null>(null);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: True for 100% 3D Skill Matrix)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
+  // Fullscreen Theater & Panel Collapse State (Default: False for Split-Screen Cockpit)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   const togglePhysicalFullscreen = () => {

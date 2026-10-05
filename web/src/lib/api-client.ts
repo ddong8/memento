@@ -415,6 +415,34 @@ export interface ProfileState {
   devices: ProfileDevice[];
 }
 
+export interface AvatarSettings {
+  is_initialized: boolean;
+  gender: "male" | "female" | "agent";
+  style: string;
+  preset_id: string;
+  nickname: string;
+  avatar_url?: string;
+  custom_photo_url?: string;
+  theme_color: string;
+  outfit_color: string;
+  features: string[];
+  updated_at?: string;
+}
+
+export interface AvatarGenerateResult {
+  status: string;
+  gender: "male" | "female" | "agent";
+  style: string;
+  preset_id: string;
+  nickname: string;
+  features: string[];
+  theme_color: string;
+  outfit_color: string;
+  custom_photo_url?: string;
+  analysis_summary: string;
+  latency_ms: number;
+}
+
 function _invalidateProfile() {
   invalidateApiCache(`${getApiBase()}/api/profile`);
 }
@@ -522,6 +550,18 @@ export const api = {
     }>("/api/profile/simulate", {
       method: "POST",
       body: JSON.stringify({ prompt, scenario }),
+    }),
+  // Digital Twin Cartoon Avatar API
+  getAvatarSettings: () => fresh<AvatarSettings>("/api/profile/avatar"),
+  saveAvatarSettings: (body: AvatarSettings) =>
+    apiFetch<{ status: string; settings: AvatarSettings }>("/api/profile/avatar", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateAvatarFromPhoto: (body: { photo_data?: string; gender?: string; style_preference?: string }) =>
+    apiFetch<AvatarGenerateResult>("/api/profile/avatar/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   getPublicStats: () => apiFetch<PublicStats>("/api/public/stats"),
 

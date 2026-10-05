@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, DailyDate, ProfileDevice, ProfileState } from "@/lib/api-client";
+import { api, AvatarSettings, DailyDate, ProfileDevice, ProfileState } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
@@ -10,6 +10,7 @@ import { Icon } from "@/components/aurora/Icon";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import LearnedCorrections from "@/components/persona/LearnedCorrections";
 import CognitiveCompass from "@/components/memory/CognitiveCompass";
+import AvatarOnboardingModal from "@/components/persona/AvatarOnboardingModal";
 import type { PersonaDimension, SynapsePulse } from "@/components/persona/DigitalTwinAvatar3D";
 
 const DigitalTwinAvatar3D = dynamic(
@@ -390,6 +391,11 @@ export default function PersonaPage() {
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
+  // Digital Twin Cartoon Avatar Onboarding & Customization State
+  const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(null);
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
+
   const togglePhysicalFullscreen = () => {
     if (!document.fullscreenElement) {
       cockpitRef.current?.requestFullscreen?.();
@@ -400,10 +406,11 @@ export default function PersonaPage() {
 
   const load = useCallback(async () => {
     try {
-      const [profile, corrections, daily] = await Promise.all([
+      const [profile, corrections, daily, avatar] = await Promise.all([
         api.getProfile(),
         api.getCorrections().catch(() => ({}) as Record<string, unknown>),
         api.getDailyDates(30).catch(() => [] as DailyDate[]),
+        api.getAvatarSettings().catch(() => null),
       ]);
       setState(profile);
       setPending(
@@ -412,6 +419,13 @@ export default function PersonaPage() {
           : []
       );
       setDailyHistory(Array.isArray(daily) ? daily : []);
+      if (avatar) {
+        setAvatarSettings(avatar);
+        if (!avatar.is_initialized) {
+          setIsAvatarFirstTime(true);
+          setTimeout(() => setIsAvatarModalOpen(true), 600);
+        }
+      }
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -741,6 +755,18 @@ export default function PersonaPage() {
           <Btn
             variant="glass"
             size="sm"
+            icon="sparkles"
+            onClick={() => {
+              setIsAvatarFirstTime(false);
+              setIsAvatarModalOpen(true);
+            }}
+            title="定制与重塑数字孪生形象：设置性别、卡通人物形象，或上传照片制作"
+          >
+            🎨 形象定制
+          </Btn>
+          <Btn
+            variant="glass"
+            size="sm"
             icon="refresh"
             onClick={regenerate}
             disabled={busy !== null}
@@ -806,6 +832,11 @@ export default function PersonaPage() {
             onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
             onToggleFullscreen={togglePhysicalFullscreen}
             isPaused={!isPanelCollapsed}
+            avatarSettings={avatarSettings}
+            onOpenAvatarCustomizer={() => {
+              setIsAvatarFirstTime(false);
+              setIsAvatarModalOpen(true);
+            }}
             className="w-full h-full"
           />
 
@@ -1950,6 +1981,19 @@ export default function PersonaPage() {
           <span className="font-semibold tracking-wide">展开控制台</span>
         </button>
       )}
+
+      {/* 首次进入引导或主动重塑形象向导弹窗 (Glass Holographic Onboarding Modal) */}
+      <AvatarOnboardingModal
+        isOpen={isAvatarModalOpen}
+        onClose={() => setIsAvatarModalOpen(false)}
+        currentSettings={avatarSettings}
+        isFirstTime={isAvatarFirstTime}
+        onSaved={(newSettings) => {
+          setAvatarSettings(newSettings);
+          triggerSynapse(`✨ 数字孪生形象已激活 · ${newSettings.nickname} · 神经突触已同步`);
+          setNotice(`✅ 数字孪生形象「${newSettings.nickname}」已同步激活！`);
+        }}
+      />
     </div>
   </div>
 );

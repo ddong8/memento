@@ -87,6 +87,9 @@ def _run_migrations(conn) -> None:
     # User.llm_settings — User-customized LLM provider, base URL, keys, and model preferences
     if "llm_settings" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN llm_settings JSONB NOT NULL DEFAULT '{}'"))
+    # User.avatar_settings — Digital twin avatar onboarding and styling settings
+    if "avatar_settings" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN avatar_settings JSONB NOT NULL DEFAULT '{}'"))
 
     # User.github_id — GitHub OAuth login. Partial unique index: one account
     # per GitHub identity, while the many github_id IS NULL rows stay allowed.

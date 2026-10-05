@@ -284,6 +284,8 @@ class User(Base):
     proactive_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # Custom LLM API settings: {"custom_enabled", "provider", "base_url", "api_key", "model", "background_model", "temperature", etc.}
     llm_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    # Digital twin avatar & onboarding settings: {"is_initialized", "gender", "style", "preset_id", "nickname", "avatar_url", "custom_photo_url", "theme_color", "outfit_color", "features"}
+    avatar_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Icon } from "@/components/aurora/Icon";
+import type { AvatarSettings } from "@/lib/api-client";
+import CartoonAvatarGraphic from "./CartoonAvatarGraphic";
 
 export type PersonaDimension =
   | "brain"
@@ -40,6 +42,8 @@ interface DigitalTwinAvatar3DProps {
   onToggleCollapse?: () => void;
   onToggleFullscreen?: () => void;
   isPaused?: boolean;
+  avatarSettings?: AvatarSettings | null;
+  onOpenAvatarCustomizer?: () => void;
   className?: string;
 }
 
@@ -167,6 +171,8 @@ export default function DigitalTwinAvatar3D({
   onToggleCollapse,
   onToggleFullscreen,
   isPaused = false,
+  avatarSettings,
+  onOpenAvatarCustomizer,
   className = "",
 }: DigitalTwinAvatar3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -180,6 +186,8 @@ export default function DigitalTwinAvatar3D({
   // References for live 3D mutations without React re-renders
   const avatarGroupRef = useRef<THREE.Group | null>(null);
   const solidMannequinRef = useRef<THREE.Group | null>(null);
+  const solidHumanMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
+  const haloMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
   const bonesRef = useRef<Record<string, THREE.Object3D>>({});
   const auraRingsRef = useRef<THREE.Group | null>(null);
   const haloRef = useRef<THREE.Mesh | null>(null);
@@ -217,6 +225,30 @@ export default function DigitalTwinAvatar3D({
     isInterceptRef.current = false;
     pulseIntensityRef.current = 1.8;
   }, [activeDimension]);
+
+  // Handle Dynamic Avatar Settings (Theme Color, Outfit Color & Metallic Vibe)
+  useEffect(() => {
+    if (!avatarSettings) return;
+    if (solidHumanMatRef.current) {
+      if (avatarSettings.outfit_color) {
+        try {
+          solidHumanMatRef.current.color.set(avatarSettings.outfit_color);
+        } catch {}
+      }
+      if (avatarSettings.gender === "agent") {
+        solidHumanMatRef.current.metalness = 0.92;
+        solidHumanMatRef.current.roughness = 0.15;
+      } else {
+        solidHumanMatRef.current.metalness = 0.65;
+        solidHumanMatRef.current.roughness = 0.3;
+      }
+    }
+    if (haloMatRef.current && avatarSettings.theme_color) {
+      try {
+        haloMatRef.current.color.set(avatarSettings.theme_color);
+      } catch {}
+    }
+  }, [avatarSettings]);
 
   // Handle Synapse Pulse from Props
   useEffect(() => {
@@ -350,12 +382,13 @@ export default function DigitalTwinAvatar3D({
     avatarGroup.add(solidMannequin);
 
     const solidHumanMat = new THREE.MeshStandardMaterial({
-      color: 0x6366f1,
-      metalness: 0.7,
-      roughness: 0.25,
+      color: avatarSettings?.outfit_color ? new THREE.Color(avatarSettings.outfit_color) : 0x6366f1,
+      metalness: avatarSettings?.gender === "agent" ? 0.92 : 0.7,
+      roughness: avatarSettings?.gender === "agent" ? 0.15 : 0.25,
       emissive: 0x312e81,
       emissiveIntensity: 0.2,
     });
+    solidHumanMatRef.current = solidHumanMat;
 
     const jointMat = new THREE.MeshStandardMaterial({
       color: 0x8b5cf6,
@@ -411,7 +444,12 @@ export default function DigitalTwinAvatar3D({
     solidMannequin.add(legL, legR);
 
     // ── 专属特点光学特效系统 ──
-    const haloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.9 });
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: avatarSettings?.theme_color ? new THREE.Color(avatarSettings.theme_color) : 0xef4444,
+      transparent: true,
+      opacity: 0.9,
+    });
+    haloMatRef.current = haloMat;
     const haloMesh = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.005, 16, 48), haloMat);
     haloMesh.rotation.x = Math.PI / 2.2;
     haloMesh.position.set(0, 1.84, 0);
@@ -939,21 +977,64 @@ export default function DigitalTwinAvatar3D({
 
       {/* Top Floating Holographic Growth & Level HUD */}
       <div className="relative z-20 p-2 sm:p-3.5 flex items-center justify-between pointer-events-none gap-1 sm:gap-2 flex-nowrap overflow-hidden">
-        {/* Level & Evolution Status Pill */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl pointer-events-auto shrink-0">
-          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
-          <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
-            <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
-              Lv.{evolutionLevel} <span className="hidden sm:inline">· {evolutionStage}</span>
-            </span>
-            <span className="text-[10px] text-white/50 font-mono hidden md:inline">
-              EXP {evolutionExp}/1000
-            </span>
+        {/* Left Side: Avatar Identity Pill & Evolution Level Pill */}
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto shrink-0">
+          {/* Avatar Identity Hologram Pill */}
+          <button
+            onClick={onOpenAvatarCustomizer}
+            className="flex items-center gap-1.5 sm:gap-2 bg-black/70 hover:bg-black/90 backdrop-blur-xl px-2 sm:px-3 py-1 rounded-full border border-white/20 shadow-xl cursor-pointer transition-all hover:scale-102 group text-left"
+            style={{
+              borderColor: avatarSettings?.theme_color ? `${avatarSettings.theme_color}60` : undefined,
+            }}
+            title="点击定制或重塑数字孪生形象"
+          >
+            <CartoonAvatarGraphic
+              presetId={avatarSettings?.preset_id || "geek_male"}
+              customPhotoUrl={avatarSettings?.avatar_url || avatarSettings?.custom_photo_url}
+              size={20}
+              themeColor={avatarSettings?.theme_color || "#8B5CF6"}
+              showGlow={false}
+            />
+            <div className="flex items-center gap-1 text-[11px]">
+              <span className="font-bold text-white tracking-tight truncate max-w-[80px] sm:max-w-[120px]">
+                {avatarSettings?.nickname || "极客孪生"}
+              </span>
+              <span className="text-[10px] text-white/60 font-mono hidden sm:inline">
+                {avatarSettings?.gender === "female" ? "👧" : avatarSettings?.gender === "agent" ? "🤖" : "👦"}
+              </span>
+              <span className="text-[10px] text-white/40 group-hover:text-white transition-colors">
+                🎨
+              </span>
+            </div>
+          </button>
+
+          {/* Level & Evolution Status Pill */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 bg-black/65 backdrop-blur-xl px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full border border-white/15 shadow-xl shrink-0">
+            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
+            <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
+              <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
+                Lv.{evolutionLevel} <span className="hidden sm:inline">· {evolutionStage}</span>
+              </span>
+              <span className="text-[10px] text-white/50 font-mono hidden md:inline">
+                EXP {evolutionExp}/1000
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Action Controls: Voice, Spark Evolution & Rotation */}
+        {/* Action Controls: Voice, Spark Evolution, Avatar & Rotation */}
         <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
+          {onOpenAvatarCustomizer && (
+            <button
+              onClick={onOpenAvatarCustomizer}
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/60 hover:text-white flex items-center gap-1 shadow-md"
+              title="定制或重塑数字孪生形象"
+            >
+              <span>🎨</span>
+              <span className="hidden sm:inline">重塑形象</span>
+            </button>
+          )}
+
           {/* Voice Toggle */}
           <button
             onClick={() => {

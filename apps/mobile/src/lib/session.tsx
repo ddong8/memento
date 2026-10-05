@@ -30,6 +30,7 @@ interface Session {
   signIn(server: string, email: string, password: string): Promise<void>;
   signInWithToken(server: string, token: string): Promise<void>;
   signOut(): Promise<void>;
+  deleteAccount(confirmation: string): Promise<void>;
 }
 
 const SessionContext = createContext<Session | null>(null);
@@ -134,7 +135,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToken(accessToken);
   }, []);
 
-  const value = useMemo(() => ({ ready, server, token, signIn, signInWithToken, signOut }), [ready, server, token, signIn, signInWithToken, signOut]);
+  const deleteAccount = useCallback(async (confirmation: string) => {
+    if (!token) throw new ApiError("未登录", 401);
+    const res = await fetch(`${server}/api/profile/account`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ confirmation }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new ApiError(data.detail || `注销失败（${res.status}）`, res.status);
+    }
+    await signOut();
+  }, [server, token, signOut]);
+
+  const value = useMemo(
+    () => ({ ready, server, token, signIn, signInWithToken, signOut, deleteAccount }),
+    [ready, server, token, signIn, signInWithToken, signOut, deleteAccount],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

@@ -11,7 +11,10 @@
       "bundleIdentifier": "com.ihasy.memento.mobile",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Memento 需要使用麦克风以支持语音吩咐与实时听写功能。",
-        "NSSpeechRecognitionUsageDescription": "Memento 需要语音识别权限以将您的语音吩咐实时转录为文字。"
+        "NSSpeechRecognitionUsageDescription": "Memento 需要语音识别权限以将您的语音吩咐实时转录为文字。",
+        "NSPhotoLibraryUsageDescription": "Memento 需要访问相册以选取照片生成专属卡通数字孪生形象或更换头像。",
+        "NSCameraUsageDescription": "Memento 需要使用相机以拍摄照片生成专属卡通数字孪生形象或头像。",
+        "NSPhotoLibraryAddUsageDescription": "Memento 需要保存生成的数字孪生形象卡片或导出的知识图谱至相册。"
       }
     },
     "android": {

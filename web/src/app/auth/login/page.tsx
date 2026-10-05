@@ -211,6 +211,16 @@ export default function LoginPage() {
             {t.register}
           </Link>
         </p>
+        <p style={{ textAlign: "center", fontSize: 11, color: "var(--aurora-fg4)", marginTop: 12 }}>
+          使用即代表您已阅读并同意{" "}
+          <Link href="/privacy" style={{ color: "var(--aurora-fg3)", textDecoration: "underline" }}>
+            隐私政策
+          </Link>{" "}
+          与{" "}
+          <Link href="/support" style={{ color: "var(--aurora-fg3)", textDecoration: "underline" }}>
+            技术支持
+          </Link>
+        </p>
       </Glass>
     </div>
   );

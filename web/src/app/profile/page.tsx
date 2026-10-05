@@ -149,7 +149,12 @@ function AccountTab() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [errMsg, setErrMsg] = useState<string>("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (user?.name !== undefined) {
@@ -478,6 +483,127 @@ function AccountTab() {
           </div>
         )}
       </Glass>
+
+      {/* Danger Zone: Account Deletion (App Store Compliance) */}
+      <div
+        style={{
+          marginTop: 28,
+          marginBottom: 20,
+          padding: "18px 20px",
+          borderRadius: 16,
+          border: "1px solid rgba(239, 68, 68, 0.25)",
+          background: "rgba(239, 68, 68, 0.04)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#EF4444", marginBottom: 3 }}>
+              注销账号与清除全部数据 (Delete Account)
+            </div>
+            <div style={{ fontSize: 12, color: "var(--aurora-fg4)" }}>
+              物理永久删除您的账号及全部记忆、会话、设备绑定与知识图谱数据，此操作不可逆。
+            </div>
+          </div>
+          <Btn
+            variant="danger"
+            size="sm"
+            icon="trash"
+            onClick={() => {
+              setShowDeleteModal(true);
+              setDeleteConfirmation("");
+              setDeleteError("");
+            }}
+          >
+            注销账户
+          </Btn>
+        </div>
+      </div>
+
+      {showDeleteModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--aurora-card, #12121A)",
+              border: "1px solid rgba(239, 68, 68, 0.4)",
+              borderRadius: 20,
+              padding: 24,
+              maxWidth: 440,
+              width: "100%",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#EF4444", marginBottom: 12 }}>
+              <Icon name="trash" size={24} />
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>永久注销账户确认</h3>
+            </div>
+            <p style={{ fontSize: 13, color: "var(--aurora-fg2)", lineHeight: 1.6, marginBottom: 16 }}>
+              您即将彻底注销账户 <strong>{user.email}</strong>。注销后，您的所有个人知识图谱、长期记忆规则、大模型配置和设备绑定数据将被<strong>永久物理抹除</strong>，无法恢复。
+            </p>
+            <p style={{ fontSize: 12, color: "var(--aurora-fg4)", marginBottom: 8 }}>
+              请输入您的账号邮箱 <strong>{user.email}</strong> 以确认操作：
+            </p>
+            <GhostInput
+              placeholder={user.email}
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              style={{ marginBottom: 16 }}
+            />
+            {deleteError && (
+              <div style={{ color: "#EF4444", fontSize: 12, marginBottom: 14 }}>
+                {deleteError}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <Btn
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={isDeletingAccount}
+              >
+                取消
+              </Btn>
+              <Btn
+                variant="danger"
+                size="sm"
+                onClick={async () => {
+                  if (deleteConfirmation.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
+                    setDeleteError(`请输入正确的账号邮箱「${user.email}」进行确认`);
+                    return;
+                  }
+                  setIsDeletingAccount(true);
+                  setDeleteError("");
+                  try {
+                    await api.deleteAccount(deleteConfirmation.trim());
+                    setShowDeleteModal(false);
+                    logout();
+                    router.push("/");
+                  } catch (err: unknown) {
+                    setDeleteError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setIsDeletingAccount(false);
+                  }
+                }}
+                disabled={isDeletingAccount}
+                icon="trash"
+              >
+                {isDeletingAccount ? "正在抹除数据..." : "确认永久注销"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ textAlign: "right" }}>
         <Btn variant="ghost" size="sm" icon="log_out" onClick={logout}>

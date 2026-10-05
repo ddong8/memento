@@ -558,6 +558,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  deleteAccount: (confirmation: string) =>
+    apiFetch<{ success: boolean; message: string }>("/api/profile/account", {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation }),
+    }),
   generateAvatarFromPhoto: (body: { photo_data?: string; gender?: string; style_preference?: string }) =>
     apiFetch<AvatarGenerateResult>("/api/profile/avatar/generate", {
       method: "POST",

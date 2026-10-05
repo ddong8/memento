@@ -35,6 +35,8 @@ export function Footer() {
           </FooterLink>
           <FooterLink href="/install">{t.landing.footer_install}</FooterLink>
           <FooterLink href="/docs">{t.landing.footer_api}</FooterLink>
+          <FooterLink href="/privacy">隐私政策</FooterLink>
+          <FooterLink href="/support">技术支持</FooterLink>
         </div>
       </div>
     </footer>

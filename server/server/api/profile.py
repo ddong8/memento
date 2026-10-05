@@ -6,10 +6,25 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Machine, User, UserProfile
+from ..db.models import (
+    AccessLog,
+    ConversationMessage,
+    Document,
+    DocumentEmbedding,
+    DocumentVersion,
+    KnowledgeEntity,
+    KnowledgeObservation,
+    KnowledgeRelation,
+    Machine,
+    Project,
+    SyncState,
+    User,
+    UserMemory,
+    UserProfile,
+)
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, verify_collector_token
 from ..services import ai_health
@@ -412,6 +427,74 @@ async def generate_avatar_from_photo(
     }
 
 
+
+
+class DeleteAccountBody(BaseModel):
+    confirmation: str
+
+
+@router.delete("/account")
+async def delete_account(
+    body: DeleteAccountBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Self-service account deletion and complete data wipe (App Store Guideline 5.1.1(v))."""
+    expected = (user.email or "").strip().lower()
+    provided = body.confirmation.strip().lower()
+    if provided != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"确认内容不匹配，请输入您的账号邮箱「{user.email}」以确认永久注销。",
+        )
+
+    user_id = user.id
+
+    # Cascade through the user's machines -> documents -> embeddings -> everything
+    machine_ids = [r[0] for r in (await db.execute(
+        select(Machine.id).where(Machine.user_id == user_id)
+    )).all()]
+    for mid in machine_ids:
+        doc_ids = [r[0] for r in (await db.execute(
+            select(Document.id).where(Document.machine_id == mid)
+        )).all()]
+        for i in range(0, len(doc_ids), 500):
+            batch = doc_ids[i:i + 500]
+            await db.execute(delete(AccessLog).where(AccessLog.document_id.in_(batch)))
+            await db.execute(delete(ConversationMessage).where(ConversationMessage.document_id.in_(batch)))
+            await db.execute(delete(DocumentVersion).where(DocumentVersion.document_id.in_(batch)))
+            await db.execute(delete(DocumentEmbedding).where(DocumentEmbedding.document_id.in_(batch)))
+            await db.execute(delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id.in_(batch)))
+            await db.execute(delete(Document).where(Document.id.in_(batch)))
+        await db.execute(delete(SyncState).where(SyncState.machine_id == mid))
+
+    if machine_ids:
+        await db.execute(delete(Machine).where(Machine.id.in_(machine_ids)))
+
+    # User-scoped knowledge entities
+    ent_ids = [r[0] for r in (await db.execute(
+        select(KnowledgeEntity.id).where(KnowledgeEntity.user_id == user_id)
+    )).all()]
+    if ent_ids:
+        await db.execute(delete(KnowledgeRelation).where(
+            KnowledgeRelation.source_id.in_(ent_ids) | KnowledgeRelation.target_id.in_(ent_ids)
+        ))
+        await db.execute(delete(KnowledgeObservation).where(KnowledgeObservation.entity_id.in_(ent_ids)))
+        await db.execute(delete(KnowledgeEntity).where(KnowledgeEntity.id.in_(ent_ids)))
+
+    # User memories, profile and access logs
+    await db.execute(delete(UserMemory).where(UserMemory.user_id == user_id))
+    await db.execute(delete(UserProfile).where(UserProfile.user_id == user_id))
+    await db.execute(delete(AccessLog).where(AccessLog.user_id == user_id))
+
+    # Finally delete the user account
+    await db.execute(delete(User).where(User.id == user_id))
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "账户注销成功，您的全部记忆图谱、会话及设备绑定数据已彻底物理抹除。",
+    }
 
 
 # ---------------------------------------------------------------------------

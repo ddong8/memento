@@ -179,7 +179,12 @@ export default function DigitalTwinAvatar3D({
 
   // References for live 3D mutations without React re-renders
   const avatarGroupRef = useRef<THREE.Group | null>(null);
-  const solidMannequinRef = useRef<THREE.Group | null>(null);
+  const energyCocoonRef = useRef<THREE.Group | null>(null);
+  const modelRef = useRef<THREE.Group | null>(null);
+  const isModelLoadedRef = useRef<boolean>(false);
+  const modelOpacityRef = useRef<number>(0);
+  const cocoonScaleRef = useRef<number>(1.0);
+  const [isAvatarModelReady, setIsAvatarModelReady] = useState(false);
   const bonesRef = useRef<Record<string, THREE.Object3D>>({});
   const auraRingsRef = useRef<THREE.Group | null>(null);
   const haloRef = useRef<THREE.Mesh | null>(null);
@@ -344,71 +349,69 @@ export default function DigitalTwinAvatar3D({
     pedestalRing.position.set(0, 0.042, 0);
     avatarGroup.add(pedestalRing);
 
-    // ── Zero-Second Solid Sculpted Humanoid Figure ──
-    const solidMannequin = new THREE.Group();
-    solidMannequinRef.current = solidMannequin;
-    avatarGroup.add(solidMannequin);
+    // ── Zero-Second Futuristic Holographic Neural Cocoon (全息神经星核，彻底摒弃粗糙几何素体建模) ──
+    const energyCocoon = new THREE.Group();
+    energyCocoon.position.set(0, 1.22, 0);
+    avatarGroup.add(energyCocoon);
+    energyCocoonRef.current = energyCocoon;
 
-    const solidHumanMat = new THREE.MeshStandardMaterial({
-      color: 0x6366f1,
-      metalness: 0.7,
-      roughness: 0.25,
-      emissive: 0x312e81,
-      emissiveIntensity: 0.2,
-    });
-
-    const jointMat = new THREE.MeshStandardMaterial({
+    // 1. 全息几何多面体晶格 (Icosahedron Holographic Lattice)
+    const latticeMat = new THREE.MeshBasicMaterial({
       color: 0x8b5cf6,
-      metalness: 0.85,
-      roughness: 0.2,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.65,
     });
+    const latticeMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 2), latticeMat);
+    energyCocoon.add(latticeMesh);
 
-    const solidHead = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 24), solidHumanMat);
-    solidHead.scale.set(0.9, 1.15, 0.95);
-    solidHead.position.set(0, 1.62, 0);
-    solidMannequin.add(solidHead);
+    // 2. 内部聚变能量光核 (Inner Fusion Core)
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0x6366f1,
+      emissive: 0x8b5cf6,
+      emissiveIntensity: 1.2,
+      roughness: 0.15,
+      metalness: 0.7,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), coreMat);
+    energyCocoon.add(coreMesh);
 
-    const solidNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.16, 16), solidHumanMat);
-    solidNeck.position.set(0, 1.42, 0);
-    solidMannequin.add(solidNeck);
+    // 3. 双轨立体全息自转环 (Dual Quantum Orbit Rings)
+    const orbitRing1Mat = new THREE.MeshBasicMaterial({
+      color: 0x06b6d4,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+    });
+    const orbitRing1 = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.55, 48), orbitRing1Mat);
+    orbitRing1.rotation.x = Math.PI / 3;
+    energyCocoon.add(orbitRing1);
 
-    const solidChest = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.42, 20), solidHumanMat);
-    solidChest.position.set(0, 1.2, 0);
-    solidMannequin.add(solidChest);
+    const orbitRing2Mat = new THREE.MeshBasicMaterial({
+      color: 0xec4899,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.65,
+    });
+    const orbitRing2 = new THREE.Mesh(new THREE.RingGeometry(0.64, 0.67, 48), orbitRing2Mat);
+    orbitRing2.rotation.y = Math.PI / 4;
+    energyCocoon.add(orbitRing2);
 
-    const solidSpine = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.32, 16), solidHumanMat);
-    solidSpine.position.set(0, 0.95, 0);
-    solidMannequin.add(solidSpine);
-
-    const shoulderL = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), jointMat);
-    shoulderL.position.set(-0.35, 1.35, 0);
-    const shoulderR = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), jointMat);
-    shoulderR.position.set(0.35, 1.35, 0);
-    solidMannequin.add(shoulderL, shoulderR);
-
-    const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.55, 12), solidHumanMat);
-    armL.position.set(-0.41, 1.05, 0.02);
-    armL.rotation.z = 0.18;
-    const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.55, 12), solidHumanMat);
-    armR.position.set(0.41, 1.05, 0.02);
-    armR.rotation.z = -0.18;
-    solidMannequin.add(armL, armR);
-
-    const foreArmL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.48, 12), solidHumanMat);
-    foreArmL.position.set(-0.46, 0.62, 0.05);
-    const foreArmR = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.48, 12), solidHumanMat);
-    foreArmR.position.set(0.46, 0.62, 0.05);
-    solidMannequin.add(foreArmL, foreArmR);
-
-    const solidPelvis = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.18, 0.22, 16), solidHumanMat);
-    solidPelvis.position.set(0, 0.75, 0);
-    solidMannequin.add(solidPelvis);
-
-    const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.72, 12), solidHumanMat);
-    legL.position.set(-0.12, 0.38, 0);
-    const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.72, 12), solidHumanMat);
-    legR.position.set(0.12, 0.38, 0);
-    solidMannequin.add(legL, legR);
+    // 4. 纵向全息数据扫描光柱 (Holographic Data Uplink Column)
+    const uplinkMat = new THREE.MeshBasicMaterial({
+      color: 0x8b5cf6,
+      transparent: true,
+      opacity: 0.18,
+      side: THREE.DoubleSide,
+    });
+    const uplinkCylinder = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.32, 0.42, 2.0, 32, 1, true),
+      uplinkMat
+    );
+    uplinkCylinder.position.set(0, -0.15, 0);
+    energyCocoon.add(uplinkCylinder);
 
     // ── 专属特点光学特效系统 ──
     const haloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.9 });
@@ -470,20 +473,28 @@ export default function DigitalTwinAvatar3D({
       (gltf) => {
         const model = gltf.scene;
         model.scale.set(1.0, 1.0, 1.0);
-        avatarGroup.add(model);
 
-        solidMannequin.visible = false;
+        // 初始透明度设为 0，平滑光影淡入
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.material) {
+            child.material.transparent = true;
+            child.material.opacity = 0;
+            child.material.side = THREE.FrontSide;
+            if ("roughness" in child.material) {
+              child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
+            }
+          }
+        });
+
+        avatarGroup.add(model);
+        modelRef.current = model;
+        isModelLoadedRef.current = true;
+        setIsAvatarModelReady(true);
 
         const bones: Record<string, THREE.Object3D> = {};
         model.traverse((child) => {
           if (child instanceof THREE.Bone) {
             bones[child.name] = child;
-          }
-          if (child instanceof THREE.Mesh && child.material) {
-            child.material.side = THREE.FrontSide;
-            if ("roughness" in child.material) {
-              child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
-            }
           }
         });
         bonesRef.current = bones;
@@ -501,7 +512,7 @@ export default function DigitalTwinAvatar3D({
       },
       undefined,
       (err) => {
-        console.info("Using solid sculpted digital mannequin as core avatar.", err);
+        console.info("Avatar model loading notice:", err);
       }
     );
 
@@ -707,21 +718,33 @@ export default function DigitalTwinAvatar3D({
         bones.LeftForeArm.rotation.z = currentPose.leftForeArm.z;
       }
 
-      // Apply to Solid Mannequin
-      if (solidMannequin.visible) {
-        solidChest.scale.set(1 + breath * 0.025, 1 + breath * 0.015, 1 + breath * 0.03);
-        solidHead.rotation.y = currentPose.head.y + mouse.x * 0.25;
-        solidHead.rotation.x = currentPose.head.x - mouse.y * 0.16 + nodAngle;
-
-        armR.rotation.z = currentPose.rightArm.z;
-        armR.rotation.x = currentPose.rightArm.x;
-        foreArmR.rotation.z = currentPose.rightForeArm.z;
-        foreArmR.rotation.x = currentPose.rightForeArm.x;
-
-        armL.rotation.z = currentPose.leftArm.z;
-        armL.rotation.x = currentPose.leftArm.x;
-        foreArmL.rotation.z = currentPose.leftForeArm.z;
-        foreArmL.rotation.x = currentPose.leftForeArm.x;
+      // 5. 平滑光影淡入高精数字人，并优雅收敛全息星核
+      if (isModelLoadedRef.current && modelRef.current) {
+        if (modelOpacityRef.current < 1.0) {
+          modelOpacityRef.current = Math.min(1.0, modelOpacityRef.current + 0.04);
+          modelRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.material) {
+              child.material.opacity = modelOpacityRef.current;
+            }
+          });
+        }
+        if (energyCocoonRef.current && energyCocoonRef.current.visible) {
+          cocoonScaleRef.current = THREE.MathUtils.lerp(cocoonScaleRef.current, 0, 0.08);
+          energyCocoonRef.current.scale.setScalar(cocoonScaleRef.current);
+          if (cocoonScaleRef.current < 0.015) {
+            energyCocoonRef.current.visible = false;
+          }
+        }
+      } else if (energyCocoonRef.current && energyCocoonRef.current.visible) {
+        // 未就绪阶段：全息几何星核自转与律动，杜绝任何素体几何建模感
+        latticeMesh.rotation.x = elapsed * 0.7;
+        latticeMesh.rotation.y = elapsed * 1.1;
+        coreMesh.scale.setScalar(1 + breath * 0.06);
+        orbitRing1.rotation.z = elapsed * 1.4;
+        orbitRing2.rotation.x = elapsed * -1.1;
+        uplinkCylinder.rotation.y = elapsed * 0.4;
+        latticeMat.color.copy(currentColor);
+        coreMat.emissive.copy(currentColor);
       }
 
       // 特征专属特效
@@ -944,11 +967,13 @@ export default function DigitalTwinAvatar3D({
           <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#10B981] animate-ping" />
           <div className="flex items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
             <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#F59E0B] via-[#EC4899] to-[#8B5CF6] font-mono tracking-wide">
-              Lv.{evolutionLevel} <span className="hidden sm:inline">· {evolutionStage}</span>
+              {isAvatarModelReady ? `Lv.${evolutionLevel}` : "🧬 神经星核"} <span className="hidden sm:inline">· {isAvatarModelReady ? evolutionStage : "同调中"}</span>
             </span>
-            <span className="text-[10px] text-white/50 font-mono hidden md:inline">
-              EXP {evolutionExp}/1000
-            </span>
+            {isAvatarModelReady && (
+              <span className="text-[10px] text-white/50 font-mono hidden md:inline">
+                EXP {evolutionExp}/1000
+              </span>
+            )}
           </div>
         </div>
 

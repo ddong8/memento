@@ -571,7 +571,17 @@ export const api = {
     }),
 
   // 24/7 Life Rhythm, Screen Time & AI Decision Advisor
-  getLifeRhythm: (days = 7) => fresh<DailyLifeRhythm[]>(`/api/life/rhythm?days=${days}`),
+  getLifeRhythm: (days = 7, tzOffset?: number) => {
+    const tz = tzOffset !== undefined ? tzOffset : new Date().getTimezoneOffset();
+    return fresh<DailyLifeRhythm[]>(`/api/life/rhythm?days=${days}&tz_offset=${tz}`);
+  },
+  syncLifeRhythm: (days = 7, tzOffset?: number) => {
+    const tz = tzOffset !== undefined ? tzOffset : new Date().getTimezoneOffset();
+    return apiFetch<{ status: string; synced_days: number; records: DailyLifeRhythm[] }>("/api/life/rhythm/sync", {
+      method: "POST",
+      body: JSON.stringify({ days, tz_offset: tz }),
+    });
+  },
   recordLifeRhythm: (body: {
     log_date?: string;
     wakeup_time?: string;

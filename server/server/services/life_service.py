@@ -14,10 +14,32 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Todo, User, UserLifeRhythm
+from ..db.models import ConversationMessage, Document, Todo, User, UserLifeRhythm
 from .ai_provider import call_plain_chat
 
 logger = logging.getLogger("server.life_service")
+
+# Professional display names for developer tools
+TOOL_DISPLAY_NAMES: dict[str, str] = {
+    "claude": "Claude Code",
+    "claude_code": "Claude Code",
+    "cursor": "Cursor",
+    "vscode": "VS Code",
+    "antigravity": "Antigravity",
+    "trae": "Trae",
+    "windsurf": "Windsurf",
+    "terminal": "Terminal",
+    "iterm2": "iTerm2",
+    "chatgpt": "ChatGPT",
+    "codex": "Codex",
+    "pycharm": "PyCharm",
+    "intellij": "IntelliJ IDEA",
+}
+
+
+def format_tool_name(raw_name: str) -> str:
+    norm = raw_name.strip().lower()
+    return TOOL_DISPLAY_NAMES.get(norm, raw_name.strip() or "开发工具")
 
 # Categorization rules for common desktop and mobile applications
 APP_CATEGORIES: dict[str, str] = {
@@ -95,9 +117,10 @@ APP_CATEGORIES: dict[str, str] = {
 def classify_app(app_name: str) -> str:
     """Classify an application into work, social, entertainment, reading, or general."""
     norm = app_name.strip().lower()
-    for pattern, cat in APP_CATEGORIES.items():
+    # Match more specific patterns first (e.g. "微信读书" before "微信")
+    for pattern in sorted(APP_CATEGORIES.keys(), key=len, reverse=True):
         if pattern in norm:
-            return cat
+            return APP_CATEGORIES[pattern]
     return "general"
 
 
@@ -208,8 +231,179 @@ async def record_daily_rhythm(
     return record
 
 
-async def get_recent_rhythms(db: AsyncSession, user: User, days: int = 7) -> list[dict[str, Any]]:
-    """Retrieve daily rhythms for the past N days."""
+async def sync_rhythms_from_collector(
+    db: AsyncSession,
+    user: User,
+    days: int = 7,
+    tz_offset: int = 0,
+) -> list[UserLifeRhythm]:
+    """Analyze real collector activity (conversation messages & document events) to compute authentic sleep/wake rhythms.
+
+    Logic:
+    - Working days cut off at 04:00 AM local time (night owl developer working past midnight belongs to previous day).
+    - Wakeup Time: First interaction event of the day.
+    - Bedtime: Last interaction event of the day before sleep.
+    - Sleep Hours: Rest duration between previous day's end and current day's start.
+    - Productive Minutes & Tool Allocation: Active session slicing of interactions per tool.
+    """
+    from ..services.user_filter import user_machine_ids
+
+    mids = await user_machine_ids(db, user)
+    tz_delta = timedelta(minutes=-tz_offset)
+    user_now = datetime.now(timezone.utc) + tz_delta
+    today_user_date = user_now.date()
+
+    # Look back (days + 2) days so we have the prior day to compute sleep hours for day 1
+    start_date = today_user_date - timedelta(days=days + 2)
+    start_cutoff_utc = datetime.combine(start_date, datetime.min.time()) + timedelta(hours=4) - tz_delta
+
+    # 1. Fetch conversation messages
+    msg_stmt = (
+        select(ConversationMessage.timestamp, Document.tool_id)
+        .join(Document, ConversationMessage.document_id == Document.id)
+        .where(
+            ConversationMessage.timestamp >= start_cutoff_utc,
+            ConversationMessage.timestamp.isnot(None),
+            Document.tool_id != "system",
+        )
+    )
+    if mids is not None:
+        msg_stmt = msg_stmt.where(Document.machine_id.in_(mids))
+
+    msg_res = await db.execute(msg_stmt)
+    raw_events: list[tuple[datetime, str]] = []
+    for ts, tool in msg_res.all():
+        if ts:
+            raw_events.append((ts, tool or "unknown"))
+
+    # 2. Also fetch document synced timestamps as supplement
+    doc_stmt = (
+        select(Document.synced_at, Document.tool_id)
+        .where(
+            Document.synced_at >= start_cutoff_utc,
+            Document.synced_at.isnot(None),
+            Document.tool_id != "system",
+        )
+    )
+    if mids is not None:
+        doc_stmt = doc_stmt.where(Document.machine_id.in_(mids))
+
+    doc_res = await db.execute(doc_stmt)
+    for ts, tool in doc_res.all():
+        if ts:
+            raw_events.append((ts, tool or "unknown"))
+
+    if not raw_events:
+        return []
+
+    # Convert all timestamps to local time and sort chronologically
+    local_events: list[tuple[datetime, str]] = []
+    for utc_ts, tool in raw_events:
+        if utc_ts.tzinfo is None:
+            utc_ts = utc_ts.replace(tzinfo=timezone.utc)
+        local_dt = utc_ts + tz_delta
+        local_events.append((local_dt.replace(tzinfo=None), tool))
+
+    local_events.sort(key=lambda x: x[0])
+
+    # Group events by logical working day (Day boundary: 04:00 AM)
+    def event_to_work_date(dt: datetime) -> date:
+        if dt.hour < 4:
+            return (dt - timedelta(days=1)).date()
+        return dt.date()
+
+    days_events: dict[date, list[tuple[datetime, str]]] = {}
+    for dt, tool in local_events:
+        w_date = event_to_work_date(dt)
+        if w_date not in days_events:
+            days_events[w_date] = []
+        days_events[w_date].append((dt, tool))
+
+    sorted_work_dates = sorted(days_events.keys())
+    saved_records: list[UserLifeRhythm] = []
+    last_event_of_prev_day: datetime | None = None
+
+    for w_date in sorted_work_dates:
+        evs = days_events[w_date]
+        if not evs:
+            continue
+
+        first_dt = evs[0][0]
+        last_dt = evs[-1][0]
+
+        wakeup_str = first_dt.strftime("%H:%M")
+        bedtime_str = last_dt.strftime("%H:%M")
+
+        # Sleep duration between prior day's last event and current day's first event
+        sleep_hrs: float | None = None
+        if last_event_of_prev_day:
+            gap_seconds = (first_dt - last_event_of_prev_day).total_seconds()
+            gap_hours = gap_seconds / 3600.0
+            if 3.0 <= gap_hours <= 16.0:
+                sleep_hrs = round(gap_hours, 1)
+
+        last_event_of_prev_day = last_dt
+
+        # Slicing active session duration per tool
+        tool_minutes: dict[str, int] = {}
+        SESSION_GAP_MINUTES = 20
+        BASE_INTERACTION_MINUTES = 3
+
+        if len(evs) == 1:
+            disp_tool = format_tool_name(evs[0][1])
+            tool_minutes[disp_tool] = BASE_INTERACTION_MINUTES
+        else:
+            i = 0
+            while i < len(evs):
+                tool = format_tool_name(evs[i][1])
+                session_start = evs[i][0]
+                session_end = session_start
+
+                while i + 1 < len(evs) and (evs[i + 1][0] - session_end).total_seconds() <= SESSION_GAP_MINUTES * 60:
+                    i += 1
+                    session_end = evs[i][0]
+
+                duration_min = max(BASE_INTERACTION_MINUTES, int((session_end - session_start).total_seconds() / 60))
+                tool_minutes[tool] = tool_minutes.get(tool, 0) + duration_min
+                i += 1
+
+        app_usages: list[dict[str, Any]] = []
+        for t_name, mins in sorted(tool_minutes.items(), key=lambda x: x[1], reverse=True):
+            app_usages.append({
+                "name": t_name,
+                "category": "work",
+                "minutes": mins,
+                "icon": t_name.lower().replace(" ", ""),
+            })
+
+        rec = await record_daily_rhythm(
+            db=db,
+            user=user,
+            log_date=w_date,
+            app_usages=app_usages,
+            wakeup_time=wakeup_str,
+            bedtime=bedtime_str,
+            sleep_hours=sleep_hrs,
+        )
+        saved_records.append(rec)
+
+    return saved_records
+
+
+async def get_recent_rhythms(
+    db: AsyncSession,
+    user: User,
+    days: int = 7,
+    tz_offset: int = 0,
+    sync_collector: bool = True,
+) -> list[dict[str, Any]]:
+    """Retrieve daily rhythms for the past N days, automatically derived from collector activity."""
+    if sync_collector:
+        try:
+            await sync_rhythms_from_collector(db, user, days=days, tz_offset=tz_offset)
+        except Exception as e:
+            logger.warning("Collector rhythm auto-sync skipped: %s", e)
+
     start_date = date.today() - timedelta(days=days)
     records = (await db.execute(
         select(UserLifeRhythm)

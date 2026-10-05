@@ -29,14 +29,51 @@ class ParseImageBody(BaseModel):
     image: str  # Base64 string or data:image/... data URL
 
 
+class SyncRhythmBody(BaseModel):
+    days: int = 7
+    tz_offset: int = 0
+
+
 @router.get("/rhythm")
 async def get_rhythms(
     days: int = Query(7, ge=1, le=90),
+    tz_offset: int = Query(0, description="Client timezone offset in minutes, e.g. -480 for UTC+8"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Get user's daily life rhythms and screen time allocation for the past N days."""
-    return await life_service.get_recent_rhythms(db, user, days=days)
+    return await life_service.get_recent_rhythms(db, user, days=days, tz_offset=tz_offset)
+
+
+@router.post("/rhythm/sync")
+async def sync_collector_rhythms(
+    body: SyncRhythmBody = SyncRhythmBody(),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Explicitly trigger sync and recompute life rhythms from collector interaction events."""
+    synced = await life_service.sync_rhythms_from_collector(
+        db, user, days=body.days, tz_offset=body.tz_offset
+    )
+    return {
+        "status": "ok",
+        "synced_days": len(synced),
+        "records": [
+            {
+                "id": str(r.id),
+                "date": r.log_date.isoformat(),
+                "wakeup_time": r.wakeup_time,
+                "bedtime": r.bedtime,
+                "sleep_hours": r.sleep_hours,
+                "total_screen_minutes": r.total_screen_minutes,
+                "productive_minutes": r.productive_minutes,
+                "distraction_minutes": r.distraction_minutes,
+                "app_usages": r.app_usages,
+                "ai_advice": r.ai_advice,
+            }
+            for r in synced
+        ],
+    }
 
 
 @router.post("/rhythm")

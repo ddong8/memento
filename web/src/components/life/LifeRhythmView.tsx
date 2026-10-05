@@ -6,6 +6,7 @@ import { Icon } from "@/components/aurora/Icon";
 export function LifeRhythmView() {
   const [rhythms, setRhythms] = useState<DailyLifeRhythm[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [generatingAdvice, setGeneratingAdvice] = useState(false);
   const [populating, setPopulating] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -23,6 +24,26 @@ export function LifeRhythmView() {
       console.error("Failed to load life rhythms", e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncCollector = async () => {
+    try {
+      setSyncing(true);
+      setFeedback(null);
+      const res = await api.syncLifeRhythm(7);
+      await loadData();
+      setFeedback({
+        text: `✨ 采集器同步完成！已基于全终端事件流推导 ${res.synced_days} 天真实作息与工具精力分布。`,
+      });
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (e: any) {
+      setFeedback({
+        text: `❌ 同步失败: ${e.message || "请确认后端服务连接"}`,
+        error: true,
+      });
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -145,12 +166,21 @@ export function LifeRhythmView() {
                 </span>
               </div>
               <p className="text-xs text-[var(--aurora-fg3)] mt-1.5 leading-relaxed max-w-xl">
-                全天候记住您每日的起床就寝、工作专注与手机各 App 耗时分布，让 AI 深入您的生活节律，提供量身定制的生活与精力决策建议。
+                基于全终端 AI 助手（Claude Code、Cursor、VS Code、Antigravity 等）采集器的真实交互事件流，自动精准统计每日开工起床、深夜收工、离线睡眠及各开发工具实际精力分布，无需手动打卡。
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            <Btn
+              variant="primary"
+              onClick={handleSyncCollector}
+              disabled={syncing}
+              className="text-xs py-1.5"
+            >
+              {syncing ? "⚡ 正在计算采集数据..." : "🔄 从采集器同步作息"}
+            </Btn>
+
             <input
               type="file"
               ref={fileInputRef}
@@ -165,7 +195,7 @@ export function LifeRhythmView() {
               disabled={parsingImage}
               className="text-xs py-1.5"
             >
-              {parsingImage ? "AI 视觉解析中..." : "📸 手机截图智能解析"}
+              {parsingImage ? "AI 视觉解析中..." : "📸 手机截图解析"}
             </Btn>
 
             {rhythms.length > 0 && (
@@ -192,7 +222,7 @@ export function LifeRhythmView() {
 
             {currentDay && (
               <Btn
-                variant="primary"
+                variant="glass"
                 onClick={() => handleGenerateAdvice(currentDay.date)}
                 disabled={generatingAdvice}
                 className="text-xs py-1.5"
@@ -404,15 +434,18 @@ export function LifeRhythmView() {
 
               {/* Data Sync Channels Info */}
               <div className="mt-6 pt-4 border-t border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg4)] space-y-2">
-                <div className="font-semibold text-[var(--aurora-fg2)]">📱 手机与电脑如何自动感知？</div>
+                <div className="font-semibold text-[var(--aurora-fg2)]">⚡ 作息节律与精力分配推算原理</div>
                 <div className="leading-relaxed">
-                  • <b className="text-[var(--aurora-fg2)]">电脑桌面端（Mac / Windows / Linux）</b>：已内置原生秒级前台窗口探针，自动无感统计 Cursor、VS Code、Chrome、微信等活跃应用耗时。
+                  • <b className="text-[var(--aurora-fg2)]">全终端采集器真实事件流</b>：实时基于 Claude Code、Cursor、VS Code、Antigravity 等终端采集器收集的真实会话交互与代码保存事件，无需前台监控后台常驻或截屏打卡。
                 </div>
                 <div className="leading-relaxed">
-                  • <b className="text-[var(--aurora-fg2)]">iPhone 手机</b>：已支持 Apple HealthKit（健康）全自动静默同步就寝、起床及精准睡眠时长；各 App 屏幕时长支持点击顶部「📸 手机截图智能解析」上传系统屏幕时间截图（AI 视觉秒级提取真实数据）。
+                  • <b className="text-[var(--aurora-fg2)]">开发者日切与真实作息</b>：以凌晨 04:00 作为每日自然周期日切点（深夜编程至凌晨 2~3 点自动归属前日），精准推导每日清晨开工（起床）与深夜末次对话（就寝），并计算连续休息睡眠时长。
                 </div>
                 <div className="leading-relaxed">
-                  • <b className="text-[var(--aurora-fg2)]">Android 手机</b>：开启 Memento 移动端「应用使用情况」权限即可全自动后台读取各 App 时长。
+                  • <b className="text-[var(--aurora-fg2)]">连续会话滑动窗口切片</b>：根据真实的交互活跃频次（20分钟滑动切片）计算纯专注工时，客观呈现精力在各工具与项目上的真实分配。
+                </div>
+                <div className="leading-relaxed">
+                  • <b className="text-[var(--aurora-fg2)]">移动端数据补充</b>：支持点击顶部「📸 手机截图解析」上传系统屏幕使用时间截图，或在手机端通过 Apple 健康补充离线睡眠与移动端应用时长。
                 </div>
               </div>
             </Glass>
@@ -420,26 +453,34 @@ export function LifeRhythmView() {
         </div>
       ) : (
         <div className="py-16 text-center text-sm text-[var(--aurora-fg4)] border border-dashed border-[var(--aurora-border)] rounded-2xl space-y-4">
-          <div className="text-3xl">📱 💻</div>
+          <div className="text-3xl">⚡ 💻 🌙</div>
           <p className="max-w-md mx-auto text-xs text-[var(--aurora-fg3)] leading-relaxed">
-            暂无作息与屏幕使用时间数据。桌面端已启动实时前台应用监测；手机端可直接上传屏幕使用时间截图，或载入示例数据体验。
+            暂无作息数据。如果您已在使用 Claude Code、Cursor、VS Code 或已接入采集器，点击下方按钮即可一键根据历史事件流自动推算作息与专注分布！
           </p>
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <Btn
               variant="primary"
+              onClick={handleSyncCollector}
+              disabled={syncing}
+              className="text-xs py-2 px-4"
+            >
+              {syncing ? "⚡ 正在计算采集数据..." : "🔄 立即从采集器同步作息"}
+            </Btn>
+            <Btn
+              variant="glass"
               onClick={() => fileInputRef.current?.click()}
               disabled={parsingImage}
-              className="text-xs"
+              className="text-xs py-2 px-3"
             >
-              {parsingImage ? "AI 视觉解析中..." : "📸 上传手机截图解析"}
+              {parsingImage ? "AI 视觉解析中..." : "📸 手机截图解析"}
             </Btn>
             <Btn
               variant="glass"
               onClick={handlePopulateSample}
               disabled={populating}
-              className="text-xs"
+              className="text-xs py-2 px-3"
             >
-              {populating ? "生成中..." : "✨ 一键载入真实示例数据体验"}
+              {populating ? "生成中..." : "✨ 体验示例作息数据"}
             </Btn>
           </div>
         </div>

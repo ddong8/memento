@@ -1003,15 +1003,11 @@ export default function DigitalTwinAvatar3D({
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
-              className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-mono font-semibold backdrop-blur-md border flex items-center gap-1.5 shadow-md transition-all active:scale-95 ${
-                isPanelCollapsed
-                  ? "bg-[var(--aurora-accent)] hover:opacity-90 text-white border-[var(--aurora-accent)] shadow-lg"
-                  : "bg-black/65 hover:bg-black/90 text-white border-white/20"
-              }`}
-              title={isPanelCollapsed ? "打开个人画像规则面板" : "让 3D 数字人铺满整屏"}
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
+              title={isPanelCollapsed ? "打开右侧管理面板" : "让 3D 数字人铺满整屏"}
             >
-              <span>{isPanelCollapsed ? "📋" : "⛶"}</span>
-              <span>{isPanelCollapsed ? "画像规则" : "3D全屏"}</span>
+              <span>{isPanelCollapsed ? "⧉" : "⛶"}</span>
+              <span className="hidden sm:inline">{isPanelCollapsed ? "打开侧边面板" : "3D 铺满整屏"}</span>
             </button>
           )}
 

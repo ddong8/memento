@@ -126,8 +126,8 @@ export default function MemoryPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: False for Split-Screen Cockpit)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  // Fullscreen Theater & Panel Collapse State (Default: True for 100% 3D Cognitive Nebula)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   const togglePhysicalFullscreen = () => {

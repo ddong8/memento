@@ -386,8 +386,8 @@ export default function PersonaPage() {
     prompt: string;
   } | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: False for Split-Screen Twin Cockpit)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  // Fullscreen Theater & Panel Collapse State (Default: True for 100% 3D Digital Twin Avatar)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   const togglePhysicalFullscreen = () => {
@@ -738,30 +738,6 @@ export default function PersonaPage() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Mobile View Switcher: 快速在画像规则与3D舞台间切换 */}
-          <div className="lg:hidden flex items-center p-0.5 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
-            <button
-              onClick={() => setIsPanelCollapsed(false)}
-              className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
-                !isPanelCollapsed
-                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] font-medium"
-              }`}
-            >
-              📋 画像规则
-            </button>
-            <button
-              onClick={() => setIsPanelCollapsed(true)}
-              className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
-                isPanelCollapsed
-                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] font-medium"
-              }`}
-            >
-              🎭 3D 数字人
-            </button>
-          </div>
-
           <Btn
             variant="glass"
             size="sm"

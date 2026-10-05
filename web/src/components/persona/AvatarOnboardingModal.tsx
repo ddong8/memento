@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip } from "@/components/aurora/primitives";
 import { api, AvatarSettings } from "@/lib/api-client";
@@ -51,8 +52,12 @@ export default function AvatarOnboardingModal({
   const [analysisSummary, setAnalysisSummary] = useState<string>("");
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [avatarMode, setAvatarMode] = useState<"preset" | "custom_photo">("preset");
-
+  const [mounted, setMounted] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // 初始化设置同步
   useEffect(() => {
@@ -178,16 +183,16 @@ export default function AvatarOnboardingModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
   const currentPresets = getPresetsByGender(gender);
   const activePreset = getPresetById(selectedPresetId);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
       {/* 深色全息磨砂背景 */}
       <div
-        className="fixed inset-0 bg-black/80 backdrop-blur-xl transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-black/85 backdrop-blur-2xl transition-opacity animate-in fade-in"
         onClick={() => !isFirstTime && onClose()}
       />
 
@@ -829,6 +834,7 @@ export default function AvatarOnboardingModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -195,6 +195,9 @@ export default function DigitalTwinAvatar3D({
   const soundWaveRef = useRef<THREE.Mesh | null>(null);
   const scanRingRef = useRef<THREE.Mesh | null>(null);
   const spotlightRef = useRef<THREE.SpotLight | null>(null);
+  const currentModelRef = useRef<THREE.Group | null>(null);
+  const currentLoadedGenderRef = useRef<string | null>(null);
+  const avatarLoaderRef = useRef<GLTFLoader | null>(null);
 
   // Dynamic animation states in frame loop
   const activeDimRef = useRef<PersonaDimension>(activeDimension);
@@ -249,6 +252,14 @@ export default function DigitalTwinAvatar3D({
       } catch {}
     }
   }, [avatarSettings]);
+
+  // Handle Dynamic Gender Switch (Male, Female, Agent)
+  const targetGender = avatarSettings?.gender || "male";
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("memento:switch-avatar-gender", { detail: targetGender }));
+    }
+  }, [targetGender]);
 
   // Handle Synapse Pulse from Props
   useEffect(() => {
@@ -501,47 +512,129 @@ export default function DigitalTwinAvatar3D({
       satellites.push(sat);
     }
 
-    // 5. Load Real-Human GLB Model
-    const loader = new GLTFLoader();
-    loader.load(
-      "/models/avatar.glb",
-      (gltf) => {
-        const model = gltf.scene;
-        model.scale.set(1.0, 1.0, 1.0);
-        avatarGroup.add(model);
+    // 5. Dynamic Multi-Gender (Male, Female, Silicon Agent) 3D Model Loader
+    const loadAvatarModel = (targetGender: string) => {
+      currentLoadedGenderRef.current = targetGender;
 
-        solidMannequin.visible = false;
-
-        const bones: Record<string, THREE.Object3D> = {};
-        model.traverse((child) => {
-          if (child instanceof THREE.Bone) {
-            bones[child.name] = child;
-          }
-          if (child instanceof THREE.Mesh && child.material) {
-            child.material.side = THREE.FrontSide;
-            if ("roughness" in child.material) {
-              child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
-            }
-          }
-        });
-        bonesRef.current = bones;
-
-        if (bones.Head) {
-          bones.Head.add(haloMesh);
-          haloMesh.position.set(0, 0.16, 0);
-          bones.Head.add(soundWave);
-          soundWave.position.set(0, -0.05, 0.16);
-        }
-        if (bones.Spine2) {
-          bones.Spine2.add(chestCore);
-          chestCore.position.set(0, 0.08, 0.12);
-        }
-      },
-      undefined,
-      (err) => {
-        console.info("Using solid sculpted digital mannequin as core avatar.", err);
+      // 保护特效 Mesh 不随旧模型意外销毁
+      if (haloMesh.parent !== avatarGroup) {
+        avatarGroup.add(haloMesh);
+        haloMesh.position.set(0, 1.84, 0);
       }
-    );
+      if (chestCore.parent !== avatarGroup) {
+        avatarGroup.add(chestCore);
+        chestCore.position.set(0, 1.25, 0.14);
+      }
+      if (soundWave.parent !== avatarGroup) {
+        avatarGroup.add(soundWave);
+        soundWave.position.set(0, 1.48, 0.15);
+      }
+
+      // 清除旧模型
+      if (currentModelRef.current) {
+        avatarGroup.remove(currentModelRef.current);
+        currentModelRef.current.traverse((child) => {
+          if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
+        });
+        currentModelRef.current = null;
+      }
+
+      solidMannequin.visible = true;
+
+      // 三大模型映射：男 -> avatar_male.glb, 女 -> avatar_female.glb, 硅基 -> avatar_agent.glb
+      let modelUrl = "/models/avatar_male.glb";
+      if (targetGender === "female") modelUrl = "/models/avatar_female.glb";
+      else if (targetGender === "agent") modelUrl = "/models/avatar_agent.glb";
+
+      const loader = new GLTFLoader();
+      avatarLoaderRef.current = loader;
+
+      loader.load(
+        modelUrl,
+        (gltf) => {
+          if (currentLoadedGenderRef.current !== targetGender) return;
+
+          const model = gltf.scene;
+          currentModelRef.current = model;
+          avatarGroup.add(model);
+
+          // 自动包围盒归一化与黄金高度对齐（智能体 1.55m，人类标准 1.78m）
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
+          const targetHeight = targetGender === "agent" ? 1.55 : 1.78;
+          const scaleFactor = targetHeight / (size.y || 1);
+          model.scale.setScalar(scaleFactor);
+
+          // 重新根据实际尺寸对齐底座
+          const scaledBox = new THREE.Box3().setFromObject(model);
+          model.position.y -= scaledBox.min.y - 0.04;
+          model.position.x -= (scaledBox.min.x + scaledBox.max.x) / 2;
+          model.position.z -= (scaledBox.min.z + scaledBox.max.z) / 2;
+
+          solidMannequin.visible = false;
+
+          const bones: Record<string, THREE.Object3D> = {};
+          model.traverse((child) => {
+            if (child instanceof THREE.Bone) {
+              const cleanName = child.name.replace(/^mixamorig[:_]?/i, "");
+              bones[cleanName] = child;
+              bones[child.name] = child;
+            }
+            if (child instanceof THREE.Mesh && child.material) {
+              child.material.side = THREE.FrontSide;
+              if ("roughness" in child.material) {
+                child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
+              }
+            }
+          });
+
+          // 骨骼别名对齐（支持 Mixamo 标准、Ready Player Me、以及 RobotExpressive 硅基骨骼）
+          if (!bones.RightArm && bones["UpperArm.R"]) bones.RightArm = bones["UpperArm.R"];
+          if (!bones.RightForeArm && bones["LowerArm.R"]) bones.RightForeArm = bones["LowerArm.R"];
+          if (!bones.LeftArm && bones["UpperArm.L"]) bones.LeftArm = bones["UpperArm.L"];
+          if (!bones.LeftForeArm && bones["LowerArm.L"]) bones.LeftForeArm = bones["LowerArm.L"];
+          if (!bones.Spine && bones["Torso"]) bones.Spine = bones["Torso"];
+          if (!bones.Spine2 && bones["Abdomen"]) bones.Spine2 = bones["Abdomen"];
+          bonesRef.current = bones;
+
+          const headBone = bones.Head || bones.head;
+          if (headBone) {
+            headBone.add(haloMesh);
+            haloMesh.position.set(0, 0.16, 0);
+            headBone.add(soundWave);
+            soundWave.position.set(0, -0.05, 0.16);
+          } else {
+            avatarGroup.add(haloMesh);
+            haloMesh.position.set(0, 1.84, 0);
+            avatarGroup.add(soundWave);
+            soundWave.position.set(0, 1.48, 0.15);
+          }
+
+          const chestBone = bones.Spine2 || bones.Spine || bones.spine2 || bones.spine;
+          if (chestBone) {
+            chestBone.add(chestCore);
+            chestCore.position.set(0, 0.08, 0.12);
+          } else {
+            avatarGroup.add(chestCore);
+            chestCore.position.set(0, 1.25, 0.14);
+          }
+        },
+        undefined,
+        (err) => {
+          console.warn(`载入 ${modelUrl} 模型失败，降级显示全息数字人体:`, err);
+          solidMannequin.visible = true;
+        }
+      );
+    };
+
+    const handleGenderSwitch = (e: Event) => {
+      const g = (e as CustomEvent).detail;
+      if (g) loadAvatarModel(g);
+    };
+    window.addEventListener("memento:switch-avatar-gender", handleGenderSwitch);
+
+    // 初始载入用户形象设定性别模型
+    loadAvatarModel(avatarSettings?.gender || "male");
 
     // 6. Interactive Drag, Parallax Look-At & Zoom Controls
     const mouse = new THREE.Vector2();
@@ -827,6 +920,7 @@ export default function DigitalTwinAvatar3D({
 
     return () => {
       cancelAnimationFrame(animId);
+      window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       container.removeEventListener("mousedown", handlePointerDown);

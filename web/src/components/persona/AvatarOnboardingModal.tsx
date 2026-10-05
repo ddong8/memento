@@ -75,9 +75,12 @@ export default function AvatarOnboardingModal({
     }
   }, [currentSettings, isOpen]);
 
-  // 当性别改变时，更新推荐预设
+  // 当性别改变时，更新推荐预设并即时实时切换 3D 舞台角色
   const handleGenderChange = (nextGender: "male" | "female" | "agent") => {
     setGender(nextGender);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("memento:switch-avatar-gender", { detail: nextGender }));
+    }
     const presets = getPresetsByGender(nextGender);
     if (presets.length > 0) {
       const defaultP = presets[0];
@@ -86,6 +89,18 @@ export default function AvatarOnboardingModal({
       setOutfitColor(defaultP.outfitColor);
       setFeatures(defaultP.features);
     }
+  };
+
+  // 关闭向导（若未保存则复原至当前保存的性别形象）
+  const handleModalClose = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("memento:switch-avatar-gender", {
+          detail: currentSettings?.gender || "male",
+        })
+      );
+    }
+    onClose();
   };
 
   // 选中预设
@@ -247,7 +262,7 @@ export default function AvatarOnboardingModal({
 
           {/* 右上角关闭按钮 (如果是初次进入但用户想稍后再试，也允许跳过) */}
           <button
-            onClick={onClose}
+            onClick={handleModalClose}
             className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors"
             title="关闭向导"
           >
@@ -794,7 +809,7 @@ export default function AvatarOnboardingModal({
           <div className="flex items-center gap-2">
             {!isFirstTime && (
               <button
-                onClick={onClose}
+                onClick={handleModalClose}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/50 hover:text-white transition-all"
               >
                 取消

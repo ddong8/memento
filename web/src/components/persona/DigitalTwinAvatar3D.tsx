@@ -299,7 +299,7 @@ export default function DigitalTwinAvatar3D({
       typeof window !== "undefined" &&
       (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
 
-    // 1. Responsive Camera Setup (黄金大尺寸：人物充盈全屏，脚底贴齐底边，头顶紧贴上方)
+    // 1. Responsive Camera Setup (默认全景放小尺寸：人物比例适中，保留充裕留白与精致底座展示)
     let currentCamMode: "full" | "close" = "full";
     const getCameraConfig = (w: number, h: number, mode: "full" | "close" = "full") => {
       const aspect = w / h;
@@ -311,20 +311,20 @@ export default function DigitalTwinAvatar3D({
         };
       }
       if (aspect < 1.0) {
-        // 手机竖屏自适应：将相机适度拉远以容纳完整全身比例
-        const zoomFactor = Math.max(1.0, 0.72 / Math.max(aspect, 0.38));
-        const dist = Math.min(4.2, 2.95 * zoomFactor);
+        // 手机竖屏自适应：将相机拉远以缩小显示
+        const zoomFactor = Math.max(1.0, 0.72 / Math.max(aspect, 0.35));
+        const dist = Math.min(5.6, 4.2 * zoomFactor);
         return {
           fov: 36,
-          pos: [0, 0.94, dist] as [number, number, number],
-          targetY: 0.92,
+          pos: [0, 1.08, dist] as [number, number, number],
+          targetY: 0.98,
         };
       } else {
-        // PC 桌面端宽屏：用户指定黄金大尺寸（人物充盈全屏，脚底贴齐底边）
+        // PC 桌面端宽屏：默认放小全身尺寸（人物占比约 65%，四周留有呼吸感）
         return {
           fov: 36,
-          pos: [0, 0.94, 2.95] as [number, number, number],
-          targetY: 0.92,
+          pos: [0, 1.08, 4.2] as [number, number, number],
+          targetY: 0.98,
         };
       }
     };
@@ -720,12 +720,12 @@ export default function DigitalTwinAvatar3D({
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       camTransition.active = false;
-      const newZ = Math.max(1.2, Math.min(5.5, camera.position.z + e.deltaY * 0.004));
+      const newZ = Math.max(1.2, Math.min(6.5, camera.position.z + e.deltaY * 0.004));
       camera.position.z = newZ;
-      // 当拉近时，观察目标平滑上移至面部；拉远时平滑居中全身（0.92）
-      const t = THREE.MathUtils.clamp((newZ - 1.8) / (2.95 - 1.8), 0, 1);
-      cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.92, t);
-      camera.position.y = THREE.MathUtils.lerp(1.45, 0.94, t);
+      // 当拉近时，观察目标平滑上移至面部；拉远时平滑居中全身（0.98）
+      const t = THREE.MathUtils.clamp((newZ - 1.8) / (4.2 - 1.8), 0, 1);
+      cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
+      camera.position.y = THREE.MathUtils.lerp(1.45, 1.08, t);
     };
 
     container.style.touchAction = "none";
@@ -773,11 +773,11 @@ export default function DigitalTwinAvatar3D({
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = initialPinchDist / (currentDist || 1);
-        const newZ = Math.max(1.2, Math.min(5.5, initialCamZ * factor));
+        const newZ = Math.max(1.2, Math.min(6.5, initialCamZ * factor));
         camera.position.z = newZ;
-        const t = THREE.MathUtils.clamp((newZ - 1.8) / (2.95 - 1.8), 0, 1);
-        cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.92, t);
-        camera.position.y = THREE.MathUtils.lerp(1.45, 0.94, t);
+        const t = THREE.MathUtils.clamp((newZ - 1.8) / (4.2 - 1.8), 0, 1);
+        cameraTarget.y = THREE.MathUtils.lerp(1.38, 0.98, t);
+        camera.position.y = THREE.MathUtils.lerp(1.45, 1.08, t);
       }
     };
 

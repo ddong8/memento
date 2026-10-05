@@ -115,8 +115,8 @@ export default function SkillMatrix3D({
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x060814, 0.04);
 
-    const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 100);
-    camera.position.set(0, 5.5, 10);
+    const camera = new THREE.PerspectiveCamera(44, width / height, 0.1, 100);
+    camera.position.set(0, 5.0, 11.0);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !isMobile, // Disable hardware MSAA on mobile for significant power and memory savings
@@ -266,18 +266,21 @@ export default function SkillMatrix3D({
     scene.add(beamLines);
 
     // 7. Interactive Controls & Responsive Spherical Camera
+    // 微俯视舞台视角（俯角约 22°），呈现极具纵深与科技层次感的立体星阵全景
+    const DEFAULT_PHI = (68 * Math.PI) / 180;
+    const DEFAULT_TARGET_Y = 0.95;
+
     const getOptimalRadius = (w: number, h: number) => {
       const aspect = w / h;
-      // 默认全景半径：适度放小，使 5 端全息星阵与科技树多面体拥有充裕留白与精致全景感
-      const baseRadius = 14.5;
+      // 默认全景半径：11.8（黄金折中尺寸，绝不显小，又具备充足周边留白）
+      const baseRadius = 11.8;
       if (aspect >= 1.25) {
         return baseRadius;
       }
       // 竖屏与窄屏自适应：确保 5 端环形基座及中心技能多面体 100% 完整容纳且不贴边
-      // 5端基座半径 4.2 + 基座外径 0.65，半视野取 5.1
-      const fovRad = (48 * Math.PI) / 360;
-      const requiredRadius = (5.1 * 1.42) / (Math.tan(fovRad) * Math.max(aspect, 0.32));
-      return Math.max(baseRadius, Math.min(38, requiredRadius));
+      const fovRad = (44 * Math.PI) / 360;
+      const requiredRadius = (5.1 * 1.28) / (Math.tan(fovRad) * Math.max(aspect, 0.32));
+      return Math.max(baseRadius, Math.min(34, requiredRadius));
     };
 
     const raycaster = new THREE.Raycaster();
@@ -286,9 +289,9 @@ export default function SkillMatrix3D({
     let isMouseActive = false;
     let prevMousePos = { x: 0, y: 0 };
     let userHasManuallyZoomed = false;
-    let spherical = { radius: getOptimalRadius(width, height), theta: 0, phi: Math.PI / 3.0 };
-    let targetCameraTarget = new THREE.Vector3(0, 1.2, 0);
-    const currentCameraTarget = new THREE.Vector3(0, 1.2, 0);
+    let spherical = { radius: getOptimalRadius(width, height), theta: 0, phi: DEFAULT_PHI };
+    let targetCameraTarget = new THREE.Vector3(0, DEFAULT_TARGET_Y, 0);
+    const currentCameraTarget = new THREE.Vector3(0, DEFAULT_TARGET_Y, 0);
 
     const updateCameraFromSpherical = () => {
       camera.position.x =
@@ -307,10 +310,10 @@ export default function SkillMatrix3D({
     // 绑定重置视角回调，供顶部按钮触发
     resetCameraRef.current = () => {
       userHasManuallyZoomed = false;
-      targetCameraTarget.set(0, 1.2, 0);
+      targetCameraTarget.set(0, DEFAULT_TARGET_Y, 0);
       spherical.radius = getOptimalRadius(container.clientWidth || width, container.clientHeight || height);
       spherical.theta = 0;
-      spherical.phi = Math.PI / 3.0;
+      spherical.phi = DEFAULT_PHI;
       updateCameraFromSpherical();
     };
 
@@ -367,7 +370,7 @@ export default function SkillMatrix3D({
         if (skill && onSelectSkillRef.current) {
           onSelectSkillRef.current(skill);
           targetCameraTarget.set(hit.position.x, hit.position.y, hit.position.z);
-          spherical.radius = 9.5;
+          spherical.radius = 8.6;
         }
       }
     };
@@ -439,7 +442,7 @@ export default function SkillMatrix3D({
               if (skill && onSelectSkillRef.current) {
                 onSelectSkillRef.current(skill);
                 targetCameraTarget.set(hit.position.x, hit.position.y, hit.position.z);
-                spherical.radius = 9.5;
+                spherical.radius = 8.6;
               }
             }
           }

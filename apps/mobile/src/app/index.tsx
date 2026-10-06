@@ -345,7 +345,7 @@ export default function WebShell() {
     if (!ready || !token) return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    let lastSeen = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    let lastSeen = new Date().toISOString();
 
     const fetchFeed = async () => {
       try {
@@ -363,8 +363,15 @@ export default function WebShell() {
           }>;
           if (Array.isArray(items) && items.length > 0) {
             for (const item of items) {
+              const contentKey = `${item.id || ""}:${item.title}:${item.body}`;
               if (item.id && notifiedIds.current.has(item.id)) continue;
+              if (notifiedIds.current.has(contentKey)) continue;
               if (item.id) notifiedIds.current.add(item.id);
+              notifiedIds.current.add(contentKey);
+              setTimeout(() => {
+                notifiedIds.current.delete(contentKey);
+              }, 15000);
+
               await triggerLocalNotification(item.title, item.body, { url: item.url });
               if (item.created_at > lastSeen) {
                 lastSeen = item.created_at;
@@ -429,7 +436,14 @@ export default function WebShell() {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       } else if (msg.type === "notify" && msg.title) {
-        void triggerLocalNotification(msg.title, msg.body || "", msg.data);
+        const contentKey = `bridge:${msg.title}:${msg.body || ""}`;
+        if (!notifiedIds.current.has(contentKey)) {
+          notifiedIds.current.add(contentKey);
+          setTimeout(() => {
+            notifiedIds.current.delete(contentKey);
+          }, 5000);
+          void triggerLocalNotification(msg.title, msg.body || "", msg.data);
+        }
       }
     } catch {
       // not ours

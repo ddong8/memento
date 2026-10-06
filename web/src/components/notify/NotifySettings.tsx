@@ -89,22 +89,28 @@ export default function NotifySettings() {
 
   const test = () =>
     run(async () => {
-      // 1. Immediately trigger local native notification popup on this computer / device
-      await sendLocalNotification(
-        "🔔 Memento 本机通知测试",
-        "收到这条说明您当前这台设备的系统通知已完全通畅！危险操作与简报都将在此弹出。",
-        "/profile?tab=account"
-      );
-      setLocalPermission(getLocalNotificationPermission());
+      const isMobileApp =
+        typeof window !== "undefined" &&
+        !!(window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView;
 
-      // 2. Trigger server test for connected mobile apps / fallback channels
+      // 1. 如果在桌面端或纯网页浏览器端，立即触发本机通知权限测试
+      if (!isMobileApp) {
+        await sendLocalNotification(
+          "🔔 Memento 本机通知测试",
+          "收到这条说明您当前这台设备的系统通知已完全通畅！危险操作与简报都将在此弹出。",
+          "/profile?tab=account"
+        );
+        setLocalPermission(getLocalNotificationPermission());
+      }
+
+      // 2. 触发服务端测试通知（移动端 App 会通过原生通道接收并弹出，全终端设备同步）
       try {
         await api.sendTestNotification();
       } catch (e) {
         console.warn("Backend test notification dispatch returned:", e);
       }
 
-      setMessage({ text: "✅ 测试通知已在本机屏幕右上角弹出并向云端同步！", error: false });
+      setMessage({ text: "✅ 测试通知已发送，正在同步至您的设备！", error: false });
     });
 
   const barkConfigured = settings?.bark_configured === true;

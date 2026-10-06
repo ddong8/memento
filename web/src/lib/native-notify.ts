@@ -129,6 +129,15 @@ export function showInAppToast(title: string, body: string): void {
 export async function sendLocalNotification(title: string, body: string, url?: string): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
+  const dedupKey = `${title}:${body}`;
+  if (_recentLocalNotifications.has(dedupKey)) {
+    return true;
+  }
+  _recentLocalNotifications.add(dedupKey);
+  setTimeout(() => {
+    _recentLocalNotifications.delete(dedupKey);
+  }, 4000);
+
   let delivered = false;
 
   // 1. Electron Desktop App
@@ -201,12 +210,17 @@ export async function sendLocalNotification(title: string, body: string, url?: s
   return delivered;
 }
 
+const _recentLocalNotifications = new Set<string>();
 let _pollerTimer: ReturnType<typeof setInterval> | null = null;
-let _lastSeenTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+let _lastSeenTime = new Date().toISOString();
 const _seenIds = new Set<string>();
 
 export function startNotificationFeedPoller(): () => void {
   if (typeof window === "undefined") return () => {};
+  // 在移动端 App (ReactNativeWebView) 中由客户端原生层直接管理通知拉取与弹窗，Web 层无需重复轮询
+  if ((window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView) {
+    return () => {};
+  }
   if (_pollerTimer) return () => {};
 
   const poll = async () => {

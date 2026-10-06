@@ -437,27 +437,6 @@ function AskPageContent() {
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
-  // 3-Column Workspace: Left conversation history column state
-  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const saved = localStorage.getItem("memento_ask_history_sidebar");
-      if (saved !== null) return saved === "true";
-      return window.innerWidth >= 1024;
-    } catch {
-      return true;
-    }
-  });
-
-  const toggleHistorySidebar = useCallback(() => {
-    setIsHistorySidebarOpen((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("memento_ask_history_sidebar", String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
 
   // Sources drawer state
   const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
@@ -1533,103 +1512,34 @@ function AskPageContent() {
 
   return (
     <div className="w-full flex h-[calc(100vh-5.5rem)] rounded-2xl border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
-      {/* 栏 1: 桌面端常驻历史会话侧边栏 (支持折叠) */}
-      {isHistorySidebarOpen && (
-        <aside className="w-[260px] lg:w-[280px] shrink-0 border-r border-[var(--aurora-border)] flex flex-col h-full bg-[var(--aurora-surface-solid)]/80 backdrop-blur-xl transition-all duration-200 select-none z-10">
-          {/* Header: 新建对话 & 收起按钮 */}
-          <div className="p-3 border-b border-[var(--aurora-border)] flex items-center justify-between gap-2 shrink-0 bg-[var(--aurora-chip)]/20">
-            <button
-              type="button"
-              onClick={startNewChat}
-              className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-[var(--aurora-accent-soft)] hover:bg-[var(--aurora-accent)] hover:text-white border border-[var(--aurora-accent)] text-[var(--aurora-accent)] text-xs font-semibold shadow-sm transition-all cursor-pointer group"
-            >
-              <Icon name="plus" size={14} className="group-hover:rotate-90 transition-transform duration-200" />
-              <span>{t.ask.newChat}</span>
-            </button>
-            <button
-              type="button"
-              onClick={toggleHistorySidebar}
-              title={isZh ? "收起历史会话栏" : "Collapse sidebar"}
-              className="p-2 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
-            >
-              <Icon name="chevron_left" size={14} />
-            </button>
-          </div>
-
-          {/* 会话列表 */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
-            {conversations.length === 0 ? (
-              <div className="text-center py-12 text-xs text-[var(--aurora-fg4)]">
-                {t.ask.noHistory}
-              </div>
-            ) : (
-              conversations.map((c) => {
-                const isActive = c.id === activeConversationId;
-                const dateStr = c.updated_at
-                  ? new Date(c.updated_at).toLocaleString(undefined, {
-                      month: "numeric",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : "";
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => loadConversation(c.id)}
-                    className={`group relative flex items-center justify-between p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
-                      isActive
-                        ? "bg-[var(--aurora-accent-soft)] border-[var(--aurora-accent)] shadow-sm"
-                        : "bg-transparent border-transparent hover:bg-[var(--aurora-chip)] hover:border-[var(--aurora-border)]"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1 pr-1">
-                      <div
-                        className={`text-xs font-medium truncate ${
-                          isActive ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
-                        }`}
-                        title={c.title || t.ask.title}
-                      >
-                        {c.title || t.ask.title}
-                      </div>
-                      <div className="text-[10.5px] text-[var(--aurora-fg4)] flex items-center gap-1.5 mt-0.5">
-                        <span>{dateStr}</span>
-                        <span>·</span>
-                        <span>{c.message_count || 0} 轮</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => deleteConversation(e, c.id)}
-                      title={t.ask.deleteConfirm}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-[var(--aurora-fg4)] hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                    >
-                      <Icon name="trash" size={12} />
-                    </button>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </aside>
-      )}
-
-      {/* 栏 2: 中间主对话沟通区 */}
+      {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
-        {/* 中栏顶部 Bar */}
+        {/* 对话区顶部 Bar */}
         <header className="px-4 py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            {!isHistorySidebarOpen && (
-              <button
-                type="button"
-                onClick={toggleHistorySidebar}
-                title={isZh ? "展开历史会话栏" : "Expand history sidebar"}
-                className="p-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] hover:text-[var(--aurora-accent)] transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
-              >
-                <Icon name="sidebar" size={14} />
-                <span className="hidden sm:inline">{t.ask.historyTitle}</span>
-              </button>
-            )}
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="clock"
+              onClick={() => setHistoryOpen(true)}
+              title={isZh ? "查看历史对话" : "View history"}
+            >
+              <span className="hidden sm:inline">{t.ask.historyTitle}</span>
+              {conversations.length > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: "var(--aurora-chip)",
+                    color: "var(--aurora-fg3)",
+                    marginLeft: 4,
+                  }}
+                >
+                  {conversations.length}
+                </span>
+              )}
+            </Btn>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[200px] sm:max-w-md">
                 {activeConversation?.title || t.ask.title}

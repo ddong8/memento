@@ -49,13 +49,17 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
                 (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
                  getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
               );
-              if (compactMedia || isDuplicate || isCurrentlyInspected) {
+              if (inspector || compactMedia || isDuplicate || isCurrentlyInspected) {
                 const label = alt || getFilenameFromUrl(src);
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
                     <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
                     <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">已在右侧视窗展示</span>
+                    {isCurrentlyInspected && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                        已在右侧视窗展示
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -63,9 +67,9 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
                         e.stopPropagation();
                         inspector?.openMediaByUrl(src, label);
                       }}
-                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer"
+                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
                     >
-                      对焦视窗 ↗
+                      {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧独立视窗播放 ↗"}
                     </button>
                   </div>
                 );
@@ -94,8 +98,9 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
                  getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
               );
 
-              // If compactMedia is enabled, already duplicate, or already displaying in right inspector, render sleek badge
-              if (compactMedia || isDuplicate || isCurrentlyInspected) {
+              // 当处于 AskPage 三栏视窗环境（inspector 存在）或设置了 compactMedia / 重复媒体时：
+              // 统一渲染精致微章卡片，杜绝在对话气泡中内嵌重复大播放器，把播放完整交给右侧第3栏视窗
+              if (inspector || compactMedia || isDuplicate || isCurrentlyInspected) {
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
                     <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
@@ -112,9 +117,9 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
                         e.stopPropagation();
                         inspector?.openMediaByUrl(href, label);
                       }}
-                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer"
+                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
                     >
-                      {isCurrentlyInspected ? "对焦视窗 ↗" : "独立窗口播放 ↗"}
+                      {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧独立视窗播放 ↗"}
                     </button>
                   </div>
                 );

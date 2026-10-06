@@ -32,7 +32,13 @@ interface MediaInspectorPanelProps {
 
 export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaInspectorPanelProps) {
   const inspector = useMediaInspector();
-  const [panelWidth, setPanelWidth] = useState<number>(460);
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      if (window.innerWidth < 1200) return 380;
+      if (window.innerWidth < 1440) return 420;
+    }
+    return 460;
+  });
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
@@ -97,7 +103,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingRef.current) return;
       const delta = startXRef.current - moveEvent.clientX;
-      const nextWidth = Math.min(840, Math.max(380, startWidthRef.current + delta));
+      const nextWidth = Math.min(840, Math.max(320, startWidthRef.current + delta));
       setPanelWidth(nextWidth);
     };
 
@@ -141,9 +147,9 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
   return (
     <>
-      {/* Mobile Backdrop: 仅在移动小屏 (<1024px) 显示半透明遮罩，桌面大屏通过 lg:hidden 彻底屏蔽，绝无任何模糊蒙层 */}
+      {/* Mobile Backdrop: 仅在移动端抽屉模式生效，纯净暗色半透明，绝无任何模糊滤镜，桌面大屏通过 lg:hidden 彻底隐藏 */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 transition-opacity lg:hidden"
+        className="fixed inset-0 bg-black/50 z-40 transition-opacity lg:hidden"
         onClick={closeInspector}
       />
 
@@ -169,26 +175,26 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         )}
 
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 border-b border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shrink-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--aurora-accent)]/15 text-[var(--aurora-accent)] shrink-0">
               {getItemIcon(activeMedia.type)}
             </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[var(--aurora-fg1)] truncate max-w-[200px] sm:max-w-[280px]" title={displayTitle}>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs font-semibold text-[var(--aurora-fg1)] truncate" title={displayTitle}>
                   {displayTitle}
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] uppercase shrink-0">
                   {ext}
                 </span>
               </div>
-              <div className="text-[10.5px] text-[var(--aurora-fg3)] flex items-center gap-1.5 mt-0.5">
-                <span>独立视窗</span>
+              <div className="text-[10.5px] text-[var(--aurora-fg3)] flex items-center gap-1.5 mt-0.5 truncate">
+                <span className="shrink-0">独立视窗</span>
                 {mediaList.length > 1 && (
                   <>
                     <span>•</span>
-                    <span className="text-[var(--aurora-accent)] font-medium">
+                    <span className="text-[var(--aurora-accent)] font-medium shrink-0">
                       第 {currentIndex + 1} / {mediaList.length} 个媒体
                     </span>
                   </>

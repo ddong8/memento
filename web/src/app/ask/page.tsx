@@ -1596,13 +1596,14 @@ function AskPageContent() {
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
         <header className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0">
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             <Btn
               variant="glass"
               size="sm"
               icon="clock"
               onClick={() => setHistoryOpen(true)}
               title={isZh ? "查看历史对话" : "View history"}
+              className="shrink-0"
             >
               <span className="hidden sm:inline">{t.ask.historyTitle}</span>
               {conversations.length > 0 && (
@@ -1620,8 +1621,8 @@ function AskPageContent() {
                 </span>
               )}
             </Btn>
-            <div className="min-w-0">
-              <h1 className="text-xs sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[140px] sm:max-w-md">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xs sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[120px] sm:max-w-xs md:max-w-sm">
                 {activeConversation?.title || t.ask.title}
               </h1>
             </div>
@@ -1636,6 +1637,7 @@ function AskPageContent() {
                 icon="sidebar"
                 onClick={inspector.toggleInspector}
                 title={inspector.isOpen ? (isZh ? "折叠媒体独立视窗" : "Collapse media inspector") : (isZh ? "展开媒体独立视窗" : "Open media inspector")}
+                className="shrink-0"
               >
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -1651,6 +1653,7 @@ function AskPageContent() {
               size="sm"
               icon="plus"
               onClick={startNewChat}
+              className="shrink-0"
             >
               <span className="hidden sm:inline">{t.ask.newChat}</span>
             </Btn>
@@ -1662,6 +1665,7 @@ function AskPageContent() {
                   abortRef.current?.abort();
                   setTurns([]);
                 }}
+                className="shrink-0"
               >
                 {t.ask.clear}
               </Btn>

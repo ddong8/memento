@@ -10,6 +10,8 @@ import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
 import { showInAppToast } from "@/lib/native-notify";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
+import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
+import { MediaInspectorPanel } from "@/components/viewers/MediaInspectorPanel";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 
@@ -350,7 +352,14 @@ const AssistantBubble = memo(function AssistantBubble({
 
 function AskPageContent() {
   const searchParams = useSearchParams();
+  const inspector = useMediaInspector();
   const [turns, setTurns] = useState<Turn[]>([]);
+
+  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中
+  useEffect(() => {
+    inspector?.syncTurnsMedia(turns);
+  }, [turns, inspector]);
+
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
@@ -1494,12 +1503,41 @@ function AskPageContent() {
   }
 
   return (
-    <div className="w-full max-w-4xl mx-auto pb-44 min-w-0 overflow-x-hidden">
+    <div
+      className="w-full max-w-4xl mx-auto pb-44 min-w-0 overflow-x-hidden transition-all duration-300"
+      style={{
+        marginRight: inspector?.isOpen ? "clamp(380px, 32vw, 540px)" : undefined,
+      }}
+    >
       <TopBar
         title={t.ask.title}
         subtitle={t.ask.subtitle}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {inspector && inspector.mediaList.length > 0 && (
+              <Btn
+                variant={inspector.isOpen ? "primary" : "glass"}
+                size="sm"
+                icon="sidebar"
+                onClick={inspector.toggleInspector}
+                title="打开右侧媒体独立视窗"
+              >
+                <span>媒体视窗</span>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: inspector.isOpen ? "rgba(255,255,255,0.25)" : "var(--aurora-chip)",
+                    color: inspector.isOpen ? "#fff" : "var(--aurora-accent)",
+                    marginLeft: 4,
+                    fontWeight: 700,
+                  }}
+                >
+                  {inspector.mediaList.length}
+                </span>
+              </Btn>
+            )}
             <Btn
               variant="glass"
               size="sm"
@@ -1644,13 +1682,14 @@ function AskPageContent() {
 
       {/* Fixed Viewport Bottom Interactive Console Bar */}
       <div
-        className="fixed bottom-0 left-0 lg:left-60 right-0 z-20 pointer-events-none"
+        className="fixed bottom-0 left-0 lg:left-60 right-0 z-20 pointer-events-none transition-all duration-300"
         style={{
           paddingBottom: "clamp(12px, 2.5vh, 20px)",
           paddingTop: 28,
           background: "linear-gradient(to top, var(--aurora-bg) 75%, transparent)",
           maxWidth: "100vw",
           boxSizing: "border-box",
+          right: inspector?.isOpen ? "clamp(380px, 32vw, 540px)" : 0,
         }}
       >
         <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 pointer-events-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
@@ -3344,6 +3383,9 @@ function AskPageContent() {
           </div>
         </div>
       )}
+
+      {/* 右侧媒体独立视窗 */}
+      <MediaInspectorPanel />
     </div>
   );
 }
@@ -3351,7 +3393,9 @@ function AskPageContent() {
 export default function AskPage() {
   return (
     <Suspense fallback={<div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>加载中...</div>}>
-      <AskPageContent />
+      <MediaInspectorProvider>
+        <AskPageContent />
+      </MediaInspectorProvider>
     </Suspense>
   );
 }

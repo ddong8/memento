@@ -6,6 +6,8 @@ import { api, ConversationMessage } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
 import MarkdownViewer from "./MarkdownViewer";
 import { Icon } from "@/components/aurora/Icon";
+import { MediaInspectorProvider, useMediaInspector } from "./MediaInspectorContext";
+import { MediaInspectorPanel } from "./MediaInspectorPanel";
 
 interface Artifact {
   id: string;
@@ -15,7 +17,7 @@ interface Artifact {
   file_size_bytes: number;
 }
 
-export default function ConversationViewer({
+function ConversationViewerContent({
   documentId,
   totalMessages,
   artifacts,
@@ -25,6 +27,7 @@ export default function ConversationViewer({
   artifacts?: Artifact[];
 }) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const inspector = useMediaInspector();
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,11 +74,20 @@ export default function ConversationViewer({
     }
   };
 
+  useEffect(() => {
+    if (inspector && messages.length > 0) {
+      inspector.syncTurnsMedia(messages.map((m) => ({ content: m.content || "", role: m.role })));
+    }
+  }, [messages, inspector]);
+
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="h-[calc(100vh-8rem)] sm:h-[calc(100vh-10rem)] md:h-[calc(100vh-12rem)] overflow-y-auto"
+      className="h-[calc(100vh-8rem)] sm:h-[calc(100vh-10rem)] md:h-[calc(100vh-12rem)] overflow-y-auto transition-all duration-300"
+      style={{
+        marginRight: inspector?.isOpen ? "clamp(380px, 32vw, 540px)" : undefined,
+      }}
     >
       <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginBottom: 16, textAlign: "center" }}>
         {fmt(t.conversation.messagesTotal, { total: totalMessages, loaded: messages.length })}
@@ -119,7 +131,22 @@ export default function ConversationViewer({
       {!hasMore && messages.length > 0 && (
         <div style={{ textAlign: "center", padding: 12, color: "var(--aurora-fg4)", fontSize: 13 }}>{t.conversation.allLoaded}</div>
       )}
+
+      {/* 右侧媒体独立视窗 */}
+      <MediaInspectorPanel />
     </div>
+  );
+}
+
+export default function ConversationViewer(props: {
+  documentId: string;
+  totalMessages: number;
+  artifacts?: Artifact[];
+}) {
+  return (
+    <MediaInspectorProvider>
+      <ConversationViewerContent {...props} />
+    </MediaInspectorProvider>
   );
 }
 

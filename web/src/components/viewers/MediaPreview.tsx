@@ -22,10 +22,12 @@ import {
   FiZoomOut,
   FiX,
   FiFolder,
+  FiSidebar,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
+import { useMediaInspector } from "./MediaInspectorContext";
 
 export type MediaType = "video" | "audio" | "image" | "pdf" | "unknown";
 
@@ -207,6 +209,11 @@ export function VideoPlayer({
   const [hasError, setHasError] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
+
+  const inspector = useMediaInspector();
+  const isPlayingInInspector = Boolean(
+    inspector?.isOpen && inspector?.activeMedia && safeDecodePath(inspector.activeMedia.url) === safeDecodePath(src)
+  );
 
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
   useEffect(() => {
@@ -417,6 +424,21 @@ export function VideoPlayer({
           >
             {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
           </button>
+          {inspector && (
+            <button
+              type="button"
+              onClick={() => inspector.openMediaByUrl(src, displayTitle)}
+              title={isPlayingInInspector ? "已在右侧独立视窗播放" : "在右侧独立窗播放"}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all ${
+                isPlayingInInspector
+                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                  : "text-white/80 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <FiSidebar className="w-3.5 h-3.5 text-sky-300" />
+              <span className="text-[11px]">独立窗</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleExternalOpen}
@@ -673,6 +695,7 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
   const [duration, setDuration] = useState<number>(0);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [copied, setCopied] = useState<boolean>(false);
+  const inspector = useMediaInspector();
 
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
   useEffect(() => {
@@ -771,6 +794,16 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
           >
             {playbackRate}x
           </button>
+          {inspector && (
+            <button
+              type="button"
+              onClick={() => inspector.openMediaByUrl(src, displayTitle)}
+              title="在右侧独立窗播放"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-accent)] hover:bg-[var(--aurora-chip)] transition-colors"
+            >
+              <FiSidebar className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleCopy}
@@ -962,6 +995,7 @@ export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
   const [expanded, setExpanded] = useState<boolean>(true);
 
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(url));
+  const inspector = useMediaInspector();
   useEffect(() => {
     setResolved(resolveMediaUrl(url));
   }, [url]);
@@ -977,13 +1011,25 @@ export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
             <FiVideo className="w-3.5 h-3.5 text-[var(--aurora-accent)]" />
             <span>视频产物：{displayTitle}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="text-[var(--aurora-accent)] hover:underline text-[11px]"
-          >
-            {expanded ? "收起预览" : "展开播放"}
-          </button>
+          <div className="flex items-center gap-2.5">
+            {inspector && (
+              <button
+                type="button"
+                onClick={() => inspector.openMediaByUrl(url, displayTitle)}
+                className="text-[var(--aurora-accent)] hover:underline text-[11px] flex items-center gap-1 font-medium"
+              >
+                <FiSidebar className="w-3 h-3" />
+                <span>独立窗播放</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] text-[11px]"
+            >
+              {expanded ? "收起预览" : "展开播放"}
+            </button>
+          </div>
         </div>
         {expanded && <VideoPlayer src={url} title={displayTitle} />}
       </div>

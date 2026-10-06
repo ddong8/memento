@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
+import { useEffect } from "react";
 import {
   detectMediaType,
   VideoPlayer,
@@ -14,6 +15,7 @@ import {
   isLocalFilePath,
   resolveMediaUrl,
 } from "./MediaPreview";
+import { useMediaInspector, extractMediaFromMarkdown } from "./MediaInspectorContext";
 
 interface MarkdownViewerProps {
   content: string;
@@ -21,6 +23,16 @@ interface MarkdownViewerProps {
 }
 
 export default function MarkdownViewer({ content, className = "" }: MarkdownViewerProps) {
+  const inspector = useMediaInspector();
+
+  // 自动将当前内容中的视频/音频/媒体注册到右侧独立视窗列表中
+  useEffect(() => {
+    if (!inspector || !content) return;
+    const items = extractMediaFromMarkdown(content);
+    for (const item of items) {
+      inspector.registerMedia(item);
+    }
+  }, [content, inspector]);
   return (
     <div className={`prose prose-sm max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown

@@ -56,10 +56,12 @@ interface DashboardData {
   };
 }
 
+let cachedDashboardData: DashboardData | null = null;
+
 export default function Dashboard() {
   const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(() => cachedDashboardData);
+  const [loading, setLoading] = useState(() => !cachedDashboardData);
   const [lastEvent, setLastEvent] = useState("");
   const [askPrompt, setAskPrompt] = useState("");
   const [askDevice, setAskDevice] = useState("auto");
@@ -79,7 +81,10 @@ export default function Dashboard() {
     const tz = new Date().getTimezoneOffset();
     authFetch(`${getApiBase()}/api/dashboard?tz_offset=${tz}`)
       .then((r) => r.json())
-      .then(setData)
+      .then((res: DashboardData) => {
+        cachedDashboardData = res;
+        setData(res);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);

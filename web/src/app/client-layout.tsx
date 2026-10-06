@@ -106,6 +106,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [router]);
 
+  // Save current route for seamless session restoration on reopening
+  useEffect(() => {
+    if (typeof window === "undefined" || !pathname) return;
+    const isPublic = pathname === "/" || pathname.startsWith("/auth/") || pathname.startsWith("/s/");
+    if (!isPublic) {
+      try {
+        const full = window.location.pathname + window.location.search;
+        localStorage.setItem("memento_last_route", full);
+      } catch {}
+    }
+  }, [pathname]);
+
   // Always plain layout for the marketing landing page — its own nav is
   // rendered by the landing component itself.
   const isLanding = pathname === "/";

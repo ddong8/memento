@@ -106,6 +106,18 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     }
   };
 
+  const [askHref, setAskHref] = useState("/ask");
+  useEffect(() => {
+    const updateHref = () => {
+      if (typeof window === "undefined") return;
+      const lastId = localStorage.getItem("memento_last_ask_conv_id");
+      setAskHref(lastId ? `/ask?id=${encodeURIComponent(lastId)}` : "/ask");
+    };
+    updateHref();
+    window.addEventListener("storage", updateHref);
+    return () => window.removeEventListener("storage", updateHref);
+  }, [pathname]);
+
   const isAskActive = pathname === "/ask" || (pathname.startsWith("/ask/") && !pathname.startsWith("/ask/tools"));
   const isOverviewActive = pathname === "/app";
   const isPersonaActive = pathname.startsWith("/memory/persona");
@@ -142,7 +154,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           }`}
         >
           <Link
-            href="/ask"
+            href={askHref}
             onClick={handleNavClick}
             className={`flex items-center gap-2.5 min-w-0 app-region-no-drag ${
               collapsed ? "w-full justify-center" : "flex-1"
@@ -267,7 +279,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           {/* Section 1: 主控制台 */}
           <SectionHeader label={t.nav.sectionExecutive || "主控制台"} collapsed={collapsed} />
           <NavRow
-            href="/ask"
+            href={askHref}
             label={t.nav.ask || "AI 执事"}
             icon="sparkles"
             active={isAskActive}

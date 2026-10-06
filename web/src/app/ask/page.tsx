@@ -354,34 +354,53 @@ const AssistantBubble = memo(function AssistantBubble({
   );
 });
 
+interface CachedAskState {
+  activeConversationId: string | null;
+  turns: Turn[];
+  input: string;
+  conversations: AskConversationSummary[];
+  selectedDevice: string;
+  cwd: string;
+  executionMode: ExecutionMode;
+  selectedModel: string;
+  selectedEffort: string;
+  worktreeMode: boolean;
+  selectedProjectId: string;
+  selectedSessionId: string;
+  compactMode: boolean;
+}
+
+// Module-level in-memory cache to preserve state when switching menus in-app
+let askCache: CachedAskState | null = null;
+
 function AskPageContent() {
   const searchParams = useSearchParams();
   const inspector = useMediaInspector();
   const syncTurnsMedia = inspector?.syncTurnsMedia;
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(() => askCache?.turns || []);
 
   // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（使用稳定方法引用，防止循环渲染卡死）
   useEffect(() => {
     syncTurnsMedia?.(turns);
   }, [turns, syncTurnsMedia]);
 
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState(false);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string>("auto");
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>("ai");
-  const [cwd, setCwd] = useState<string>("");
+  const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || "auto");
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || "ai");
+  const [cwd, setCwd] = useState<string>(() => askCache?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
 
   // Agent Context: Model, Project & Session selection
-  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || "");
   /** Run agent tasks in their own git worktree and branch. */
-  const [worktreeMode, setWorktreeMode] = useState(false);
-  const [selectedEffort, setSelectedEffort] = useState<string>("");
+  const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode || false);
+  const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || "");
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || "");
   const [sessions, setSessions] = useState<
     Array<{
       session_id: string;
@@ -401,8 +420,8 @@ function AskPageContent() {
       }>;
     }>
   >([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>("");
-  const [compactMode, setCompactMode] = useState<boolean>(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => askCache?.selectedSessionId || "");
+  const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
@@ -430,13 +449,45 @@ function AskPageContent() {
   }, []);
 
   // Conversation history state
-  const [conversations, setConversations] = useState<AskConversationSummary[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const activeConversationIdRef = useRef<string | null>(null);
+  const [conversations, setConversations] = useState<AskConversationSummary[]>(() => askCache?.conversations || []);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(() => askCache?.activeConversationId || null);
+  const activeConversationIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const streamingRef = useRef<boolean>(false);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
+  // Sync state continuously into in-memory cache so switching tabs/menus retains all data
+  useEffect(() => {
+    askCache = {
+      activeConversationId,
+      turns,
+      input,
+      conversations,
+      selectedDevice,
+      cwd,
+      executionMode,
+      selectedModel,
+      selectedEffort,
+      worktreeMode,
+      selectedProjectId,
+      selectedSessionId,
+      compactMode,
+    };
+  }, [
+    activeConversationId,
+    turns,
+    input,
+    conversations,
+    selectedDevice,
+    cwd,
+    executionMode,
+    selectedModel,
+    selectedEffort,
+    worktreeMode,
+    selectedProjectId,
+    selectedSessionId,
+    compactMode,
+  ]);
 
   // Sources drawer state
   const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
@@ -482,6 +533,9 @@ function AskPageContent() {
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       window.history.replaceState(null, "", `/ask?id=${data.id}`);
+      try {
+        localStorage.setItem("memento_last_ask_conv_id", data.id);
+      } catch {}
       if (data.device_id) setSelectedDevice(data.device_id);
       if (data.cwd) setCwd(data.cwd);
       setTurns(data.turns || []);
@@ -509,6 +563,10 @@ function AskPageContent() {
     setTurns([]);
     setInput("");
     window.history.replaceState(null, "", "/ask");
+    try {
+      localStorage.removeItem("memento_last_ask_conv_id");
+    } catch {}
+    askCache = null;
     setHistoryOpen(false);
     setSourcesOpen(false);
   }, []);
@@ -550,10 +608,29 @@ function AskPageContent() {
 
   useEffect(() => {
     loadConversations();
-    if (idParam && idParam !== activeConversationIdRef.current && !streamingRef.current) {
-      loadConversation(idParam);
+
+    // Determine target conversation ID:
+    // 1) Explicit URL idParam
+    // 2) Stored in localStorage from last session
+    // 3) Currently active in askCache
+    let targetId = idParam;
+    if (!targetId && !qParam) {
+      if (typeof window !== "undefined") {
+        targetId = localStorage.getItem("memento_last_ask_conv_id") || askCache?.activeConversationId || null;
+      }
     }
-  }, [idParam, loadConversation, loadConversations]);
+
+    if (targetId && !streamingRef.current) {
+      // If already in memory with matching turns, avoid network re-fetch
+      if (activeConversationIdRef.current === targetId && turns.length > 0) {
+        if (!idParam) {
+          window.history.replaceState(null, "", `/ask?id=${targetId}`);
+        }
+        return;
+      }
+      loadConversation(targetId);
+    }
+  }, [idParam, qParam, loadConversation, loadConversations]);
 
   // Follow the stream as tokens land — throttled to avoid layout thrash.
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -814,6 +891,9 @@ function AskPageContent() {
         activeConversationIdRef.current = evt.id;
         setActiveConversationId(evt.id);
         window.history.replaceState(null, "", `/ask?id=${evt.id}`);
+        try {
+          localStorage.setItem("memento_last_ask_conv_id", evt.id);
+        } catch {}
       } else if (evt.type === "sources") {
         patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
       } else if (evt.type === "tool_call") {

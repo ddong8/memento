@@ -15,16 +15,19 @@ import type { GalaxyNode, GalaxyEdge } from "@/components/memory/MemoryGalaxy3D"
 
 const MemoryGalaxy3D = dynamic(
   () => import("@/components/memory/MemoryGalaxy3D"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full rounded-3xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] animate-pulse flex flex-col items-center justify-center gap-3 text-xs text-[var(--aurora-fg3)]">
-        <div className="w-10 h-10 rounded-2xl bg-[var(--aurora-accent)]/20 animate-spin border-2 border-transparent border-t-[var(--aurora-accent)]" />
-        <span className="font-mono">正在载入 3D 认知星云中枢...</span>
-      </div>
-    ),
-  }
+  { ssr: false }
 );
+
+interface CachedMemoryData {
+  nodes: GalaxyNode[];
+  edges: GalaxyEdge[];
+  stats: MemoryStats | null;
+  profileState: ProfileState | null;
+  memoryTree: MemoryTreeNode[];
+  markdownContent: string;
+}
+
+let cachedMemoryData: CachedMemoryData | null = null;
 
 interface MemoryStats {
   entities: number;
@@ -94,27 +97,36 @@ export default function MemoryPage() {
   const [activeTab, setActiveTab] = useState<"tree" | "entity" | "dreaming" | "search" | "markdown">("tree");
 
   // Profile & stats
-  const [profileState, setProfileState] = useState<ProfileState | null>(null);
-  const [stats, setStats] = useState<MemoryStats | null>(null);
+  const [profileState, setProfileState] = useState<ProfileState | null>(() => cachedMemoryData?.profileState ?? null);
+  const [stats, setStats] = useState<MemoryStats | null>(() => cachedMemoryData?.stats ?? null);
 
   // 3D Galaxy Graph State
-  const [nodes, setNodes] = useState<GalaxyNode[]>([]);
-  const [edges, setEdges] = useState<GalaxyEdge[]>([]);
+  const [nodes, setNodes] = useState<GalaxyNode[]>(() => cachedMemoryData?.nodes ?? []);
+  const [edges, setEdges] = useState<GalaxyEdge[]>(() => cachedMemoryData?.edges ?? []);
   const [selectedEntity, setSelectedEntity] = useState<EntityDetail | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>("");
   const [dreamingActive, setDreamingActive] = useState<boolean>(false);
 
   // Core Memory Tree State
-  const [memoryTree, setMemoryTree] = useState<MemoryTreeNode[]>([]);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [memoryTree, setMemoryTree] = useState<MemoryTreeNode[]>(() => cachedMemoryData?.memoryTree ?? []);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    const paths = new Set<string>();
+    (cachedMemoryData?.memoryTree || []).forEach((r) => {
+      if (r.tree_path) paths.add(r.tree_path);
+      r.children?.forEach((c) => {
+        if (c.tree_path) paths.add(c.tree_path);
+      });
+    });
+    return paths;
+  });
   const [treeFilter, setTreeFilter] = useState("");
   const [selectedDimension, setSelectedDimension] = useState<string | null>(null);
   const [isTreeLoading, setIsTreeLoading] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   // Markdown Document State
-  const [markdownContent, setMarkdownContent] = useState("");
+  const [markdownContent, setMarkdownContent] = useState<string>(() => cachedMemoryData?.markdownContent ?? "");
   const [isMarkdownLoading, setIsMarkdownLoading] = useState(false);
 
   // Search State
@@ -140,13 +152,18 @@ export default function MemoryPage() {
 
   // 1. Load Tree Data
   const loadMemoryTree = useCallback(async () => {
-    setIsTreeLoading(true);
+    if (!cachedMemoryData?.memoryTree?.length) {
+      setIsTreeLoading(true);
+    }
     try {
       const param = selectedDimension ? `?category=${selectedDimension}` : "";
       const res = await authFetch(`${getApiBase()}/api/memory/core/tree${param}`);
       const data = await res.json();
       const tree: MemoryTreeNode[] = data.tree || [];
-      setMemoryTree(tree);
+      setMemoryTree((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(tree)) return prev;
+        return tree;
+      });
       const paths = new Set<string>();
       tree.forEach((r) => {
         if (r.tree_path) paths.add(r.tree_path);
@@ -155,6 +172,20 @@ export default function MemoryPage() {
         });
       });
       setExpandedPaths(paths);
+      if (!selectedDimension) {
+        if (cachedMemoryData) {
+          cachedMemoryData.memoryTree = tree;
+        } else {
+          cachedMemoryData = {
+            nodes: [],
+            edges: [],
+            stats: null,
+            profileState: null,
+            memoryTree: tree,
+            markdownContent: "",
+          };
+        }
+      }
     } catch {
       // ignore
     } finally {
@@ -162,7 +193,7 @@ export default function MemoryPage() {
     }
   }, [selectedDimension]);
 
-  // 2. Load Graph Data
+  // 2. Load Graph Data (with Shallow Diffing to Avoid Recreating WebGL Scene)
   const loadGraph = useCallback(async () => {
     try {
       const params = filterType ? `?entity_type=${filterType}&limit=200` : "?limit=200";
@@ -180,8 +211,52 @@ export default function MemoryPage() {
         type: e.type || "relates_to",
         strength: typeof e.strength === "number" ? e.strength : 1,
       }));
-      setNodes(graphNodes);
-      setEdges(graphEdges);
+
+      // Diff check to preserve object references and prevent WebGL scene re-mount
+      setNodes((prev) => {
+        if (
+          prev.length === graphNodes.length &&
+          prev.every(
+            (p, i) =>
+              p.id === graphNodes[i]?.id &&
+              p.name === graphNodes[i]?.name &&
+              p.type === graphNodes[i]?.type
+          )
+        ) {
+          return prev;
+        }
+        return graphNodes;
+      });
+
+      setEdges((prev) => {
+        if (
+          prev.length === graphEdges.length &&
+          prev.every(
+            (p, i) =>
+              p.source === graphEdges[i]?.source &&
+              p.target === graphEdges[i]?.target
+          )
+        ) {
+          return prev;
+        }
+        return graphEdges;
+      });
+
+      if (!filterType) {
+        if (cachedMemoryData) {
+          cachedMemoryData.nodes = graphNodes;
+          cachedMemoryData.edges = graphEdges;
+        } else {
+          cachedMemoryData = {
+            nodes: graphNodes,
+            edges: graphEdges,
+            stats: null,
+            profileState: null,
+            memoryTree: [],
+            markdownContent: "",
+          };
+        }
+      }
     } catch {
       // ignore
     }
@@ -189,11 +264,17 @@ export default function MemoryPage() {
 
   // 3. Load Markdown
   const loadMemoryMarkdown = useCallback(async () => {
-    setIsMarkdownLoading(true);
+    if (!cachedMemoryData?.markdownContent) {
+      setIsMarkdownLoading(true);
+    }
     try {
       const res = await authFetch(`${getApiBase()}/api/memory/core/markdown`);
       const data = await res.json();
-      setMarkdownContent(data.markdown || data || "");
+      const md = data.markdown || data || "";
+      setMarkdownContent(md);
+      if (cachedMemoryData) {
+        cachedMemoryData.markdownContent = md;
+      }
     } catch {
       setMarkdownContent("未能获取 MEMORY.md 全文");
     } finally {
@@ -203,8 +284,20 @@ export default function MemoryPage() {
 
   // 4. Initial Mount
   useEffect(() => {
-    authFetch(`${getApiBase()}/api/memory/stats`).then((r) => r.json()).then(setStats).catch(() => {});
-    api.getProfile().then(setProfileState).catch(() => {});
+    authFetch(`${getApiBase()}/api/memory/stats`)
+      .then((r) => r.json())
+      .then((s) => {
+        setStats(s);
+        if (cachedMemoryData) cachedMemoryData.stats = s;
+      })
+      .catch(() => {});
+    api
+      .getProfile()
+      .then((p) => {
+        setProfileState(p);
+        if (cachedMemoryData) cachedMemoryData.profileState = p;
+      })
+      .catch(() => {});
     loadMemoryTree();
     loadGraph();
     loadMemoryMarkdown();
@@ -332,7 +425,7 @@ export default function MemoryPage() {
   };
 
   return (
-    <div className="h-[calc(100dvh-68px)] max-h-[calc(100dvh-68px)] flex flex-col gap-2 overflow-hidden">
+    <div className="h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-6rem)] max-h-[calc(100dvh-4.5rem)] sm:max-h-[calc(100vh-6rem)] flex flex-col gap-2 overflow-hidden">
       {/* ─────────────────────────────────────────────────────────────
           1. 统一顶栏 (Ultra-Refined Single-Row Cockpit Header)
           ───────────────────────────────────────────────────────────── */}

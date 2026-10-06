@@ -12,16 +12,15 @@ import type { SkillItem } from "@/components/skills/SkillMatrix3D";
 
 const SkillMatrix3D = dynamic(
   () => import("@/components/skills/SkillMatrix3D"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full rounded-3xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] animate-pulse flex flex-col items-center justify-center gap-3 text-xs text-[var(--aurora-fg3)]">
-        <div className="w-10 h-10 rounded-2xl bg-[var(--aurora-accent)]/20 animate-spin border-2 border-transparent border-t-[var(--aurora-accent)]" />
-        <span className="font-mono">正在载入 3D 技能科技树星阵...</span>
-      </div>
-    ),
-  }
+  { ssr: false }
 );
+
+interface CachedSkillsData {
+  data: Obj | null;
+  reviews: Obj;
+}
+
+let cachedSkillsData: CachedSkillsData | null = null;
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : {});
@@ -104,8 +103,8 @@ function SkillEditor({
 export default function SkillsPage() {
   const { t } = useI18n();
   const s = t.skills;
-  const [data, setData] = useState<Obj | null>(null);
-  const [reviews, setReviews] = useState<Obj>({});
+  const [data, setData] = useState<Obj | null>(() => cachedSkillsData?.data ?? null);
+  const [reviews, setReviews] = useState<Obj>(() => cachedSkillsData?.reviews ?? {});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -139,8 +138,22 @@ export default function SkillsPage() {
   const load = useCallback(async () => {
     try {
       const [skills, rev] = await Promise.all([api.getSkills(), api.getReviews().catch(() => ({}))]);
-      setData(skills);
-      setReviews(rev);
+      setData((prev) => {
+        if (prev && JSON.stringify(prev) === JSON.stringify(skills)) {
+          return prev;
+        }
+        return skills;
+      });
+      setReviews((prev) => {
+        if (prev && JSON.stringify(prev) === JSON.stringify(rev)) {
+          return prev;
+        }
+        return rev;
+      });
+      cachedSkillsData = {
+        data: skills,
+        reviews: rev,
+      };
       setError(null);
       return obj(obj(rev).job).status === "running";
     } catch (e) {
@@ -462,7 +475,7 @@ export default function SkillsPage() {
   }, [drafts, searchQuery]);
 
   return (
-    <div className="h-[calc(100dvh-68px)] max-h-[calc(100dvh-68px)] flex flex-col gap-2 overflow-hidden">
+    <div className="h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-6rem)] max-h-[calc(100dvh-4.5rem)] sm:max-h-[calc(100vh-6rem)] flex flex-col gap-2 overflow-hidden">
       {/* ─────────────────────────────────────────────────────────────
           1. 统一顶栏 (Ultra-Refined Single-Row Cockpit Header)
           ───────────────────────────────────────────────────────────── */}

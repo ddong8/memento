@@ -141,19 +141,29 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
   return (
     <>
+      {/* Mobile / Overlay Backdrop */}
+      {!isDocked && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
+          onClick={closeInspector}
+        />
+      )}
+
       {/* Resizable / Docked Right Inspector Container */}
       <aside
         className={
           isDocked
             ? `relative flex flex-col h-full shrink-0 bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden z-20 ${className}`
-            : `fixed top-0 right-0 bottom-0 z-40 flex flex-col bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] shadow-2xl transition-all duration-200 select-none ${className}`
+            : `fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-[var(--aurora-surface-solid,#0f172a)] backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] shadow-2xl transition-all duration-200 select-none w-full sm:w-[460px] max-w-full ${className}`
         }
         style={{
-          width: isExpandedFull ? (isDocked ? "min(100%, 960px)" : "min(100vw, 980px)") : isDocked ? `${panelWidth}px` : `min(100vw, ${panelWidth}px)`,
+          width: isDocked
+            ? (isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`)
+            : (isExpandedFull ? "min(100vw, 980px)" : undefined),
         }}
       >
-        {/* Resize Handle on the left border */}
-        {!isExpandedFull && (
+        {/* Resize Handle on the left border (Docked mode only) */}
+        {isDocked && !isExpandedFull && (
           <div
             onMouseDown={handleMouseDown}
             title="拖拽调节独立窗宽度"

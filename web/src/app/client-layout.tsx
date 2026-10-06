@@ -79,7 +79,7 @@ function AppShellInner({
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className={`transition-all duration-200 ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} />
-        <main className="pt-20 px-4 pb-4 md:px-6 md:pb-6">{children}</main>
+        <main className="pt-16 px-2 pb-2 sm:pt-20 sm:px-4 sm:pb-4 md:px-6 md:pb-6">{children}</main>
       </div>
     </div>
   );

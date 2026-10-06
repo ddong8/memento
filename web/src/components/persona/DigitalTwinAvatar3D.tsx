@@ -1120,7 +1120,7 @@ export default function DigitalTwinAvatar3D({
       className={`relative w-full h-full min-h-[340px] sm:min-h-[460px] rounded-3xl overflow-hidden select-none border border-[var(--aurora-border)] bg-[radial-gradient(ellipse_at_50%_0%,#181a36_0%,#080912_55%,#030308_100%)] shadow-2xl flex flex-col justify-between ${className}`}
     >
       {/* 3D WebGL Canvas */}
-      <div ref={containerRef} className="absolute inset-0 cursor-grab active:cursor-grabbing z-0" />
+      <div ref={containerRef} className="absolute inset-0 cursor-grab active:cursor-grabbing z-0 touch-none" />
 
       {/* 身体各部位「特点神经突触热点」(仅在桌面端显示，手机端通过底部精致 Dock 掌控，彻底消除小屏重叠) */}
       <div className="hidden sm:block absolute inset-0 pointer-events-none z-15 overflow-hidden">

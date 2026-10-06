@@ -1591,12 +1591,12 @@ function AskPageContent() {
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
   return (
-    <div className="w-full flex h-[calc(100vh-5.5rem)] rounded-2xl border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
+    <div className="w-full flex h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-5.5rem)] rounded-xl sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-4 py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <header className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <Btn
               variant="glass"
               size="sm"
@@ -1621,13 +1621,13 @@ function AskPageContent() {
               )}
             </Btn>
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[200px] sm:max-w-md">
+              <h1 className="text-xs sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[140px] sm:max-w-md">
                 {activeConversation?.title || t.ask.title}
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* 媒体视窗快捷开关 (若对话中有视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
@@ -1639,7 +1639,7 @@ function AskPageContent() {
               >
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>媒体视窗</span>
+                  <span className="hidden sm:inline">媒体视窗</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
                   </span>

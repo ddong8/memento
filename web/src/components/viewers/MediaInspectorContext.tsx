@@ -228,10 +228,13 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
         }
       }
 
-      // 如果有媒体，且用户未在当前会话显式关闭，自动展开为第三栏视窗
+      // 如果有媒体，且用户未在当前会话显式关闭，自动展开为第三栏视窗 (仅在大屏桌面端自动停靠，移动端不遮挡主对话)
       if (discovered.length > 0) {
         if (!userManuallyClosedRef.current) {
-          setIsOpen(true);
+          const isDesktopLarge = typeof window !== "undefined" ? window.innerWidth >= 1024 : true;
+          if (isDesktopLarge) {
+            setIsOpen(true);
+          }
         }
       } else {
         // 当前对话无媒体，重置手动关闭状态并收起第三栏

@@ -677,7 +677,7 @@ export default function MemoryGalaxy3D({
       className={`relative w-full h-full min-h-[340px] sm:min-h-[520px] rounded-3xl overflow-hidden select-none border border-[var(--aurora-border)] bg-[radial-gradient(ellipse_at_50%_0%,#13172e_0%,#080914_60%,#030308_100%)] shadow-2xl flex flex-col justify-between ${className}`}
     >
       {/* 3D WebGL Canvas */}
-      <div ref={containerRef} className="absolute inset-0 cursor-grab active:cursor-grabbing z-0" />
+      <div ref={containerRef} className="absolute inset-0 cursor-grab active:cursor-grabbing z-0 touch-none" />
 
       {/* Top Floating HUD: Unified Single-Row Controls & Metrics */}
       <div className="relative z-10 p-2 sm:p-3.5 flex items-center justify-between pointer-events-none gap-1 sm:gap-2 flex-nowrap overflow-hidden">

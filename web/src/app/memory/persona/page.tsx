@@ -15,16 +15,17 @@ import type { PersonaDimension, SynapsePulse } from "@/components/persona/Digita
 
 const DigitalTwinAvatar3D = dynamic(
   () => import("@/components/persona/DigitalTwinAvatar3D"),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full min-h-[460px] rounded-3xl bg-[var(--aurora-surface)] border border-[var(--aurora-border)] animate-pulse flex flex-col items-center justify-center gap-3 text-xs text-[var(--aurora-fg3)]">
-        <div className="w-10 h-10 rounded-2xl bg-[var(--aurora-accent)]/20 animate-spin border-2 border-transparent border-t-[var(--aurora-accent)]" />
-        <span>正在载入 3D 数字孪生神经中枢...</span>
-      </div>
-    ),
-  }
+  { ssr: false }
 );
+
+interface CachedPersonaData {
+  state: ProfileState | null;
+  pending: Record<string, unknown>[];
+  dailyHistory: DailyDate[];
+  avatarSettings: AvatarSettings | null;
+}
+
+let cachedPersonaData: CachedPersonaData | null = null;
 
 const TARGET_META: Record<string, { label: string; file: string; desc: string }> = {
   claude_code: { label: "Claude Code", file: "~/.claude/CLAUDE.md", desc: "Anthropic 官方终端 Agent" },
@@ -357,9 +358,9 @@ type ChapterTab =
 
 export default function PersonaPage() {
   const { t } = useI18n();
-  const [state, setState] = useState<ProfileState | null>(null);
-  const [pending, setPending] = useState<Record<string, unknown>[]>([]);
-  const [dailyHistory, setDailyHistory] = useState<DailyDate[]>([]);
+  const [state, setState] = useState<ProfileState | null>(() => cachedPersonaData?.state ?? null);
+  const [pending, setPending] = useState<Record<string, unknown>[]>(() => cachedPersonaData?.pending ?? []);
+  const [dailyHistory, setDailyHistory] = useState<DailyDate[]>(() => cachedPersonaData?.dailyHistory ?? []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"regenerate" | "publish" | "save" | "discard" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -392,7 +393,7 @@ export default function PersonaPage() {
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
-  const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(null);
+  const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(() => cachedPersonaData?.avatarSettings ?? null);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
 
@@ -412,20 +413,55 @@ export default function PersonaPage() {
         api.getDailyDates(30).catch(() => [] as DailyDate[]),
         api.getAvatarSettings().catch(() => null),
       ]);
-      setState(profile);
-      setPending(
-        Array.isArray(corrections.pending)
-          ? (corrections.pending as Record<string, unknown>[])
-          : []
-      );
-      setDailyHistory(Array.isArray(daily) ? daily : []);
+      const nextPending = Array.isArray(corrections.pending)
+        ? (corrections.pending as Record<string, unknown>[])
+        : [];
+      const nextDaily = Array.isArray(daily) ? daily : [];
+
+      setState((prev) => {
+        if (
+          prev &&
+          prev.published?.version === profile.published?.version &&
+          prev.draft?.content === profile.draft?.content &&
+          prev.published?.content === profile.published?.content
+        ) {
+          return prev;
+        }
+        return profile;
+      });
+
+      setPending((prev) => {
+        if (prev.length === nextPending.length && JSON.stringify(prev) === JSON.stringify(nextPending)) {
+          return prev;
+        }
+        return nextPending;
+      });
+
+      setDailyHistory((prev) => {
+        if (prev.length === nextDaily.length && JSON.stringify(prev) === JSON.stringify(nextDaily)) {
+          return prev;
+        }
+        return nextDaily;
+      });
+
       if (avatar) {
-        setAvatarSettings(avatar);
+        setAvatarSettings((prev) => {
+          if (prev && JSON.stringify(prev) === JSON.stringify(avatar)) return prev;
+          return avatar;
+        });
         if (!avatar.is_initialized) {
           setIsAvatarFirstTime(true);
           setTimeout(() => setIsAvatarModalOpen(true), 600);
         }
       }
+
+      cachedPersonaData = {
+        state: profile,
+        pending: nextPending,
+        dailyHistory: nextDaily,
+        avatarSettings: avatar || cachedPersonaData?.avatarSettings || null,
+      };
+
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -730,7 +766,7 @@ export default function PersonaPage() {
   ];
 
   return (
-    <div className="h-[calc(100dvh-68px)] max-h-[calc(100dvh-68px)] flex flex-col gap-2 overflow-hidden">
+    <div className="h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-6rem)] max-h-[calc(100dvh-4.5rem)] sm:max-h-[calc(100vh-6rem)] flex flex-col gap-2 overflow-hidden">
       {/* ─────────────────────────────────────────────────────────────
           1. 统一顶栏 (Ultra-Refined Single-Row Cockpit Header)
           ───────────────────────────────────────────────────────────── */}

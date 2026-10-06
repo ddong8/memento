@@ -61,5 +61,40 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
         self.assertIn('not connected', stat['error'])
 
 
+    async def test_stream_device_file_double_encoded_chinese_path(self):
+        import os
+        import tempfile
+        import urllib.parse
+        from unittest.mock import MagicMock
+        from server.api.devices import stream_device_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            chinese_dir = os.path.join(tmpdir, "NAS相册第九支")
+            os.makedirs(chinese_dir, exist_ok=True)
+            video_path = os.path.join(chinese_dir, "去海边_45秒.mp4")
+            with open(video_path, "wb") as f:
+                f.write(b"fake-video-content-1234567890")
+
+            # 模拟双重 URL 编码
+            double_encoded_path = urllib.parse.quote(urllib.parse.quote(video_path))
+
+            mock_user = MagicMock(role="admin", id=1)
+            mock_db = MagicMock()
+            mock_req = MagicMock(headers={})
+
+            resp = await stream_device_file(
+                device_id="auto",
+                path=double_encoded_path,
+                filename="去海边_45秒.mp4",
+                request=mock_req,
+                db=mock_db,
+                _user=mock_user,
+            )
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.headers["Content-Type"], "video/mp4")
+            self.assertEqual(resp.headers["Content-Length"], str(len(b"fake-video-content-1234567890")))
+
+
 if __name__ == '__main__':
     unittest.main()

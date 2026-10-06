@@ -60,12 +60,28 @@ export function formatTime(seconds: number): string {
   return `${pad(m)}:${pad(s)}`;
 }
 
+/** Safely decode URI-encoded string recursively up to 3 times */
+export function safeDecodePath(path: string | null | undefined): string {
+  if (!path) return "";
+  let decoded = path;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
+
 /** Extract filename from URL or file path */
 export function getFilenameFromUrl(url: string): string {
   try {
-    const clean = url.split("?")[0].split("#")[0];
+    const clean = safeDecodePath(url.split("?")[0].split("#")[0]);
     const name = clean.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : "media-file";
+    return name || "media-file";
   } catch {
     return "media-file";
   }
@@ -82,36 +98,36 @@ export interface ResolvedMedia {
 /** Check if a given string represents a local file path */
 export function isLocalFilePath(url: string | null | undefined): boolean {
   if (!url) return false;
-  const trimmed = url.trim();
-  if (trimmed.startsWith("file://")) return true;
+  const decoded = safeDecodePath(url.trim());
+  if (decoded.startsWith("file://")) return true;
   // Windows absolute path: e.g. C:\... or C:/...
-  if (/^[a-zA-Z]:[/\\]/.test(trimmed)) return true;
+  if (/^[a-zA-Z]:[/\\]/.test(decoded)) return true;
   // POSIX absolute path
-  if (trimmed.startsWith("/")) {
+  if (decoded.startsWith("/")) {
     if (
-      trimmed.startsWith("/api/") ||
-      trimmed.startsWith("/auth/") ||
-      trimmed.startsWith("/models/") ||
-      trimmed.startsWith("/icons/") ||
-      trimmed.startsWith("/static/") ||
-      trimmed.startsWith("/_next/") ||
-      trimmed.startsWith("/favicon")
+      decoded.startsWith("/api/") ||
+      decoded.startsWith("/auth/") ||
+      decoded.startsWith("/models/") ||
+      decoded.startsWith("/icons/") ||
+      decoded.startsWith("/static/") ||
+      decoded.startsWith("/_next/") ||
+      decoded.startsWith("/favicon")
     ) {
       return false;
     }
-    if (/^\/(Users|home|private|var|tmp|Volumes|data|mnt|root|opt|etc|Library|dev|System|usr)\//i.test(trimmed)) {
+    if (/^\/(Users|home|private|var|tmp|Volumes|data|mnt|root|opt|etc|Library|dev|System|usr)\//i.test(decoded)) {
       return true;
     }
-    const lastSlash = trimmed.lastIndexOf("/");
-    const lastPart = trimmed.slice(lastSlash + 1);
+    const lastSlash = decoded.lastIndexOf("/");
+    const lastPart = decoded.slice(lastSlash + 1);
     if (lastSlash > 0 && /\.[a-zA-Z0-9]{2,5}$/.test(lastPart)) {
       if (
-        !trimmed.startsWith("/documents/") &&
-        !trimmed.startsWith("/notes/") &&
-        !trimmed.startsWith("/ask/") &&
-        !trimmed.startsWith("/settings/") &&
-        !trimmed.startsWith("/projects/") &&
-        !trimmed.startsWith("/dashboard/")
+        !decoded.startsWith("/documents/") &&
+        !decoded.startsWith("/notes/") &&
+        !decoded.startsWith("/ask/") &&
+        !decoded.startsWith("/settings/") &&
+        !decoded.startsWith("/projects/") &&
+        !decoded.startsWith("/dashboard/")
       ) {
         return true;
       }
@@ -125,11 +141,11 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
   if (!rawUrl) {
     return { playUrl: "", downloadUrl: "", localPath: null, filename: "", isLocal: false };
   }
-  const trimmed = rawUrl.trim();
-  const filename = getFilenameFromUrl(trimmed);
+  const decoded = safeDecodePath(rawUrl.trim());
+  const filename = getFilenameFromUrl(decoded);
 
-  if (isLocalFilePath(trimmed)) {
-    let clean = trimmed.replace(/^file:\/\//, "");
+  if (isLocalFilePath(decoded)) {
+    let clean = decoded.replace(/^file:\/\//, "");
     if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
       clean = clean.slice(1);
     }
@@ -147,8 +163,8 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
   }
 
   return {
-    playUrl: trimmed,
-    downloadUrl: trimmed,
+    playUrl: rawUrl.trim(),
+    downloadUrl: rawUrl.trim(),
     localPath: null,
     filename,
     isLocal: false,

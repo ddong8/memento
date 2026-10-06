@@ -435,7 +435,15 @@ async def stream_device_file(
         if target_machine and mids is not None and target_machine.id not in mids:
             raise HTTPException(status_code=403, detail="Device access denied")
 
-    clean_path = path.strip().replace("\\", "/")
+    # Defensive recursive unquote in case client double-encoded or path contains %XX
+    clean_path = path.strip()
+    for _ in range(3):
+        unquoted = urllib.parse.unquote(clean_path)
+        if unquoted == clean_path:
+            break
+        clean_path = unquoted
+
+    clean_path = clean_path.replace("\\", "/")
     if clean_path.startswith("file://"):
         clean_path = clean_path.replace("file://", "")
         if clean_path.startswith("/") and len(clean_path) > 3 and clean_path[2] == ":":

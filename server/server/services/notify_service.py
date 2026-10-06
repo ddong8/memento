@@ -239,9 +239,12 @@ async def send_apns_push(
             },
             "sound": "default",
             "badge": 1,
-            "interruption-level": "time-sensitive" if level == "timeSensitive" else "active",
+            "mutable-content": 1,
+            "content-available": 1,
         },
     }
+    if level == "timeSensitive":
+        payload["aps"]["interruption-level"] = "time-sensitive"
     if url:
         payload["url"] = url
 
@@ -250,7 +253,7 @@ async def send_apns_push(
         "apns-topic": bundle_id,
         "apns-push-type": "alert",
         "apns-priority": "10",
-        "apns-expiration": "0",
+        "apns-expiration": str(int(time.time()) + 86400 * 3),
     }
 
     delivered = 0

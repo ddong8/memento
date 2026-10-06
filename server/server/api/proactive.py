@@ -56,7 +56,7 @@ import logging
 import traceback
 import uuid
 from ..db.session import async_session_factory
-from ..services.notify_service import notify_user, send_expo_push, send_bark
+from ..services.notify_service import notify_user, send_apns_push, send_expo_push, send_bark
 
 logger = logging.getLogger("server.proactive")
 
@@ -97,6 +97,7 @@ async def test_morning_brief(
         # Push to registered devices if any
         device_tokens = notify_prefs.get("device_tokens") or []
         if device_tokens:
+            await send_apns_push(device_tokens, item["title"], item["body"])
             await send_expo_push(device_tokens, item["title"], item["body"])
         if notify_prefs.get("bark_url"):
             await send_bark(notify_prefs["bark_url"], item["title"], item["body"])
@@ -150,6 +151,7 @@ async def test_evening_reflection(
         # Push to registered devices if any
         device_tokens = notify_prefs.get("device_tokens") or []
         if device_tokens:
+            await send_apns_push(device_tokens, item["title"], item["body"])
             await send_expo_push(device_tokens, item["title"], item["body"])
         if notify_prefs.get("bark_url"):
             await send_bark(notify_prefs["bark_url"], item["title"], item["body"])

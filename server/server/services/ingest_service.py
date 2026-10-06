@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 
 # Set of background tasks — prevents GC from collecting them before completion

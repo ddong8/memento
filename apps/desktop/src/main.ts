@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile } from "node:child_process";
 import { join, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -797,6 +798,21 @@ function setupIpc(): void {
     }
     return false;
   });
+  ipcMain.handle("shell:open-external", (_e, url: unknown) => {
+    if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:"))) {
+      return shell.openExternal(url);
+    }
+  });
+  ipcMain.handle("shell:open-path", async (_e, filePath: unknown) => {
+    if (typeof filePath === "string") {
+      return shell.openPath(filePath);
+    }
+  });
+  ipcMain.handle("shell:show-item-in-folder", (_e, filePath: unknown) => {
+    if (typeof filePath === "string") {
+      shell.showItemInFolder(filePath);
+    }
+  });
 
   const forward = (channel: string) => (payload: unknown) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -808,6 +824,20 @@ function setupIpc(): void {
     forward("daemon:mode-event")({ mode, label: modeLabel(mode) });
   });
 }
+
+// Privileged scheme for streaming local media (video, audio) in Desktop window
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "memento-media",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+    },
+  },
+]);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -841,6 +871,19 @@ if (!app.requestSingleInstanceLock()) {
   app.on("activate", () => showWindow());
 
   void app.whenReady().then(async () => {
+    // Enable local media stream handler
+    protocol.handle("memento-media", (request) => {
+      try {
+        let filePath = decodeURIComponent(new URL(request.url).pathname);
+        if (process.platform === "win32" && filePath.startsWith("/")) {
+          filePath = filePath.slice(1);
+        }
+        return net.fetch(pathToFileURL(filePath).toString());
+      } catch {
+        return new Response("Media not found", { status: 404 });
+      }
+    });
+
     if (process.platform === "win32") {
       app.setAppUserModelId("com.ihasy.memento.desktop");
     }

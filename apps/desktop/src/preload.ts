@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
   checkForUpdates: () => ipcRenderer.invoke("app:check-updates"),
   notify: (options: { title: string; body: string; url?: string }) =>
     ipcRenderer.invoke("app:notify", options),
+  openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
+  openPath: (path: string) => ipcRenderer.invoke("shell:open-path", path),
+  showItemInFolder: (path: string) => ipcRenderer.invoke("shell:show-item-in-folder", path),
+  toMediaUrl: (path: string) => `memento-media://${path.startsWith("/") ? "" : "/"}${encodeURI(path)}`,
   daemon: {
     status: () => ipcRenderer.invoke("daemon:status"),
     logs: () => ipcRenderer.invoke("daemon:logs"),

@@ -47,6 +47,10 @@ export interface MementoDesktop {
   setOpenAtLogin(on: boolean): Promise<boolean>;
   checkForUpdates(): Promise<void>;
   notify?(options: { title: string; body: string; url?: string }): Promise<boolean>;
+  openExternal?(url: string): Promise<void>;
+  openPath?(path: string): Promise<string>;
+  showItemInFolder?(path: string): Promise<void>;
+  toMediaUrl?(path: string): string;
   daemon: {
     status(): Promise<DaemonState>;
     logs(): Promise<string[]>;

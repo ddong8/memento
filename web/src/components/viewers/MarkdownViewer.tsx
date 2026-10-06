@@ -4,6 +4,14 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
+import {
+  detectMediaType,
+  VideoPlayer,
+  AudioPlayer,
+  ImagePreview,
+  MediaAttachmentCard,
+  getFilenameFromUrl,
+} from "./MediaPreview";
 
 interface MarkdownViewerProps {
   content: string;
@@ -17,57 +25,59 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
         components={{
-          table: ({ node, children, ...props }: any) => (
-            <div className="my-3.5 w-full overflow-x-auto rounded-xl border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/70 shadow-xs">
-              <table className="w-full min-w-full border-collapse text-left text-sm" {...props}>
+          img: ({ node, src, alt, ...props }: any) => {
+            if (!src) return null;
+            const type = detectMediaType(src);
+            if (type === "video") {
+              return <VideoPlayer src={src} title={alt} />;
+            }
+            if (type === "audio") {
+              return <AudioPlayer src={src} title={alt} />;
+            }
+            return <ImagePreview src={src} alt={alt} />;
+          },
+          a: ({ node, children, href, ...props }: any) => {
+            if (!href) return <span {...props}>{children}</span>;
+            const type = detectMediaType(href);
+
+            // If the link directly points to video/audio/pdf media, render an inline preview
+            if (type === "video") {
+              const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              return (
+                <div className="not-prose my-3">
+                  <VideoPlayer src={href} title={label} />
+                </div>
+              );
+            }
+            if (type === "audio") {
+              const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              return (
+                <div className="not-prose my-2">
+                  <AudioPlayer src={href} title={label} />
+                </div>
+              );
+            }
+            if (type === "pdf") {
+              const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              return (
+                <div className="not-prose my-2">
+                  <MediaAttachmentCard url={href} title={label} />
+                </div>
+              );
+            }
+
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                {...props}
+              >
                 {children}
-              </table>
-            </div>
-          ),
-          thead: ({ node, children, ...props }: any) => (
-            <thead className="border-b border-[var(--aurora-border-strong)] bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] font-semibold" {...props}>
-              {children}
-            </thead>
-          ),
-          tbody: ({ node, children, ...props }: any) => (
-            <tbody className="divide-y divide-[var(--aurora-border)] text-[var(--aurora-fg2)]" {...props}>
-              {children}
-            </tbody>
-          ),
-          tr: ({ node, children, ...props }: any) => (
-            <tr className="transition-colors hover:bg-[var(--aurora-chip)]/40" {...props}>
-              {children}
-            </tr>
-          ),
-          th: ({ node, children, style, ...props }: any) => (
-            <th
-              className="px-4 py-2.5 font-semibold text-xs text-[var(--aurora-fg1)] tracking-wide border-r border-[var(--aurora-border)] last:border-r-0 whitespace-nowrap"
-              style={style}
-              {...props}
-            >
-              {children}
-            </th>
-          ),
-          td: ({ node, children, style, ...props }: any) => (
-            <td
-              className="px-4 py-2.5 text-sm text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)] last:border-r-0 align-top"
-              style={style}
-              {...props}
-            >
-              {children}
-            </td>
-          ),
-          a: ({ node, children, href, ...props }: any) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
-              {...props}
-            >
-              {children}
-            </a>
-          ),
+              </a>
+            );
+          },
           blockquote: ({ node, children, ...props }: any) => (
             <blockquote
               className="my-3 border-l-4 border-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] px-4 py-2 rounded-r-lg text-[var(--aurora-fg2)]"

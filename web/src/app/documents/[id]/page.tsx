@@ -6,6 +6,7 @@ import { api, DocumentDetail } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import ConfigViewer from "@/components/viewers/ConfigViewer";
+import { VideoPlayer, AudioPlayer, detectMediaType } from "@/components/viewers/MediaPreview";
 import { ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
 import { Chip, Glass } from "@/components/aurora/primitives";
 import BacklinksPanel from "@/components/BacklinksPanel";
@@ -49,12 +50,46 @@ export default function DocumentPage() {
       )}
 
       <Glass padding={22} radius={20}>
-        {doc.content ? (
-          doc.content_type === "markdown" ? <MarkdownViewer content={doc.content} />
-            : <ConfigViewer content={doc.content} language={doc.content_type} />
-        ) : (
-          <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: 32 }}>{t.document.contentInS3}</div>
-        )}
+        {(() => {
+          const mediaType = detectMediaType(doc.relative_path || doc.title || "");
+          const mediaUrl: string =
+            typeof doc.content === "string" && doc.content.startsWith("http")
+              ? doc.content
+              : typeof doc.metadata?.s3_url === "string"
+              ? doc.metadata.s3_url
+              : typeof doc.metadata?.url === "string"
+              ? doc.metadata.url
+              : "";
+
+          if (mediaType === "video" && mediaUrl) {
+            return (
+              <div className="py-2">
+                <VideoPlayer src={mediaUrl} title={doc.title || doc.relative_path} />
+              </div>
+            );
+          }
+          if (mediaType === "audio" && mediaUrl) {
+            return (
+              <div className="py-2">
+                <AudioPlayer src={mediaUrl} title={doc.title || doc.relative_path} />
+              </div>
+            );
+          }
+
+          if (doc.content) {
+            return doc.content_type === "markdown" ? (
+              <MarkdownViewer content={doc.content} />
+            ) : (
+              <ConfigViewer content={doc.content} language={doc.content_type} />
+            );
+          }
+
+          return (
+            <div style={{ color: "var(--aurora-fg4)", textAlign: "center", padding: 32 }}>
+              {t.document.contentInS3}
+            </div>
+          );
+        })()}
       </Glass>
 
       <BacklinksPanel docId={docId} />

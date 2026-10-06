@@ -7,6 +7,7 @@ it automatically falls back to the next configured provider (e.g. OneAPI qwen3.8
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -188,6 +189,7 @@ async def call_chat_completion(
         switch_off_thinking = background and _provider_key(p) not in _THINKING_SWITCH_REJECTED
         widened = False
         retried_without_switch = False
+        rate_limit_retries = 0
         while True:
             req_body: dict = {
                 "model": p.model,
@@ -211,6 +213,21 @@ async def call_chat_completion(
                         },
                         json=req_body,
                     )
+            except (httpx.TimeoutException, httpx.NetworkError) as e:
+                if rate_limit_retries < 2:
+                    rate_limit_retries += 1
+                    wait_s = 1.0 * rate_limit_retries
+                    logger.warning(
+                        "Provider '%s' (%s) network error %s; retrying in %.1fs (retry %d/2)",
+                        p.name, p.model, type(e).__name__, wait_s, rate_limit_retries,
+                    )
+                    await asyncio.sleep(wait_s)
+                    continue
+                err_msg = f"Provider '{p.name}' ({p.base_url}, {p.model}) error: {type(e).__name__}: {e}"
+                logger.warning(err_msg)
+                errors.append(err_msg)
+                fell_short(p, ai_health.reason_for_exception(e), f"{type(e).__name__}: {e}")
+                break
             except Exception as e:
                 err_msg = f"Provider '{p.name}' ({p.base_url}, {p.model}) error: {type(e).__name__}: {e}"
                 logger.warning(err_msg)
@@ -230,6 +247,16 @@ async def call_chat_completion(
                 # The switch was the problem; stop sending it to this provider.
                 _THINKING_SWITCH_REJECTED.add(_provider_key(p))
                 retried_without_switch = False
+
+            if resp.status_code in (429, 503) and rate_limit_retries < 2:
+                rate_limit_retries += 1
+                wait_s = 1.5 * rate_limit_retries
+                logger.warning(
+                    "Provider '%s' (%s) returned HTTP %d (%s); retrying in %.1fs (retry %d/2)",
+                    p.name, p.model, resp.status_code, resp.text[:120], wait_s, rate_limit_retries,
+                )
+                await asyncio.sleep(wait_s)
+                continue
 
             if resp.status_code != 200:
                 err_msg = f"Provider '{p.name}' ({p.base_url}, {p.model}) returned HTTP {resp.status_code}: {resp.text[:200]}"
@@ -348,34 +375,46 @@ async def stream_chat_completion(
     for index, p in enumerate(providers):
         started = False
         began = time.monotonic()
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{p.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {p.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": p.model,
-                        "messages": messages,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "stream": True,
-                    },
-                ) as resp:
-                    if resp.status_code != 200:
-                        detail = (await resp.aread()).decode("utf-8", "replace")[:200]
-                        err_msg = f"Provider '{p.name}' HTTP {resp.status_code}: {detail}"
-                        logger.warning(err_msg)
-                        errors.append(err_msg)
-                        failures.append({
-                            "provider": p.name, "model": p.model,
-                            "reason": ai_health.reason_for_status(resp.status_code),
-                            "detail": f"HTTP {resp.status_code}: {detail}",
-                        })
-                        continue
+        stream_retries = 0
+        while stream_retries <= 2:
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{p.base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {p.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": p.model,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                            "stream": True,
+                        },
+                    ) as resp:
+                        if resp.status_code in (429, 503) and stream_retries < 2:
+                            stream_retries += 1
+                            wait_s = 1.5 * stream_retries
+                            logger.warning(
+                                "Provider '%s' stream returned HTTP %d; retrying in %.1fs (retry %d/2)",
+                                p.name, resp.status_code, wait_s, stream_retries,
+                            )
+                            await asyncio.sleep(wait_s)
+                            continue
+
+                        if resp.status_code != 200:
+                            detail = (await resp.aread()).decode("utf-8", "replace")[:200]
+                            err_msg = f"Provider '{p.name}' HTTP {resp.status_code}: {detail}"
+                            logger.warning(err_msg)
+                            errors.append(err_msg)
+                            failures.append({
+                                "provider": p.name, "model": p.model,
+                                "reason": ai_health.reason_for_status(resp.status_code),
+                                "detail": f"HTTP {resp.status_code}: {detail}",
+                            })
+                            break
 
                     started = True
                     in_think_tag = False
@@ -423,24 +462,25 @@ async def stream_chat_completion(
                                     yield {"type": "content", "text": content}
                         except Exception:
                             continue
-                    await ai_health.record_call(
-                        "stream", "ok" if index == 0 else "fallback",
-                        provider=p.name, model=p.model,
-                        latency_ms=int((time.monotonic() - began) * 1000),
-                        failures=failures,
-                    )
+                        await ai_health.record_call(
+                            "stream", "ok" if index == 0 else "fallback",
+                            provider=p.name, model=p.model,
+                            latency_ms=int((time.monotonic() - began) * 1000),
+                            failures=failures,
+                        )
+                        return
+            except Exception as e:
+                err_msg = f"Provider '{p.name}' stream error: {type(e).__name__}: {e}"
+                logger.warning(err_msg)
+                errors.append(err_msg)
+                failures.append({
+                    "provider": p.name, "model": p.model,
+                    "reason": ai_health.reason_for_exception(e), "detail": f"{type(e).__name__}: {e}",
+                })
+                if started:  # broke off mid-answer; the caller already has part of it
+                    await ai_health.record_call("stream", "failed", failures=failures)
                     return
-        except Exception as e:
-            err_msg = f"Provider '{p.name}' stream error: {type(e).__name__}: {e}"
-            logger.warning(err_msg)
-            errors.append(err_msg)
-            failures.append({
-                "provider": p.name, "model": p.model,
-                "reason": ai_health.reason_for_exception(e), "detail": f"{type(e).__name__}: {e}",
-            })
-            if started:  # broke off mid-answer; the caller already has part of it
-                await ai_health.record_call("stream", "failed", failures=failures)
-                return
+                break
 
     await ai_health.record_call("stream", "failed", failures=failures)
     raise RuntimeError(f"All {len(providers)} AI providers failed to stream: " + "; ".join(errors))

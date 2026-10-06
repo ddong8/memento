@@ -331,6 +331,7 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
 
     events = 0
     new_topics: list[CorrectionTopic] = []
+    auto_accepted: list[CorrectionTopic] = []
     for start in range(0, len(said), LLM_BATCH):
         batch = said[start:start + LLM_BATCH]
         known = [(ref, obj.statement if isinstance(obj, CorrectionTopic) else obj.content) for ref, obj in refs.items()]
@@ -342,7 +343,6 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
             key=lambda pair: pair[0].said_at,
         )
         resolved: dict[int, CorrectionTopic] = {}
-        auto_accepted: list[CorrectionTopic] = []
         for s, n in occurrences:
             item = items[n]
             fp = fingerprint(s)

@@ -40,6 +40,36 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
             if (!src) return null;
             const type = detectMediaType(src);
             if (type === "video") {
+              const cleanHref = safeDecodePath(src);
+              const isDuplicate = renderedVideos.current.has(cleanHref);
+              renderedVideos.current.add(cleanHref);
+              const isCurrentlyInspected = Boolean(
+                inspector?.isOpen &&
+                inspector?.activeMedia &&
+                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+                 getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
+              );
+              if (compactMedia || isDuplicate || isCurrentlyInspected) {
+                const label = alt || getFilenameFromUrl(src);
+                return (
+                  <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
+                    <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
+                    <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">已在右侧视窗展示</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        inspector?.openMediaByUrl(src, label);
+                      }}
+                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer"
+                    >
+                      对焦视窗 ↗
+                    </button>
+                  </div>
+                );
+              }
               return <VideoPlayer src={src} title={alt} />;
             }
             if (type === "audio") {
@@ -57,13 +87,24 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
               const cleanHref = safeDecodePath(href);
               const isDuplicate = renderedVideos.current.has(cleanHref);
               renderedVideos.current.add(cleanHref);
+              const isCurrentlyInspected = Boolean(
+                inspector?.isOpen &&
+                inspector?.activeMedia &&
+                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+                 getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
+              );
 
-              // If compactMedia is enabled or this video has already been rendered in this view, render a sleek compact badge
-              if (compactMedia || isDuplicate) {
+              // If compactMedia is enabled, already duplicate, or already displaying in right inspector, render sleek badge
+              if (compactMedia || isDuplicate || isCurrentlyInspected) {
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
                     <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
                     <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
+                    {isCurrentlyInspected && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                        已在右侧视窗展示
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -73,7 +114,7 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
                       }}
                       className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer"
                     >
-                      独立窗口播放 ↗
+                      {isCurrentlyInspected ? "对焦视窗 ↗" : "独立窗口播放 ↗"}
                     </button>
                   </div>
                 );

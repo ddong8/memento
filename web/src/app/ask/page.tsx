@@ -3466,11 +3466,8 @@ function AskPageContent() {
         </div>
       )}
 
-      {/* 栏 3: 右侧媒体独立视窗 (Docked 模式，桌面端停靠为第三栏) */}
-      <MediaInspectorPanel mode="docked" className="hidden lg:flex" />
-
-      {/* 移动端媒体视窗抽屉 */}
-      <MediaInspectorPanel mode="overlay" className="lg:hidden" />
+      {/* 栏 3: 右侧媒体独立视窗 (桌面端并列第三栏，移动端滑出全屏抽屉) */}
+      <MediaInspectorPanel />
     </div>
   );
 }

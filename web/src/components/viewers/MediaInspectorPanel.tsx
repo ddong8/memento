@@ -141,33 +141,28 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
   return (
     <>
-      {/* Mobile / Overlay Backdrop */}
-      {!isDocked && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
-          onClick={closeInspector}
-        />
-      )}
+      {/* Mobile Backdrop: 仅在移动小屏 (<1024px) 显示半透明遮罩，桌面大屏通过 lg:hidden 彻底屏蔽，绝无任何模糊蒙层 */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 transition-opacity lg:hidden"
+        onClick={closeInspector}
+      />
 
-      {/* Resizable / Docked Right Inspector Container */}
+      {/* 媒体独立视窗容器: 桌面端为固定第三栏嵌入式展示，移动端为右侧滑出抽屉 */}
       <aside
-        className={
-          isDocked
-            ? `relative flex flex-col h-full shrink-0 bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden z-20 ${className}`
-            : `fixed top-0 right-0 bottom-0 z-50 flex flex-col bg-[var(--aurora-surface-solid,#0f172a)] backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] shadow-2xl transition-all duration-200 select-none w-full sm:w-[460px] max-w-full ${className}`
-        }
+        className={`bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
+          lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20
+          max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl
+          ${className}`}
         style={{
-          width: isDocked
-            ? (isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`)
-            : (isExpandedFull ? "min(100vw, 980px)" : undefined),
+          width: isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`,
         }}
       >
-        {/* Resize Handle on the left border (Docked mode only) */}
-        {isDocked && !isExpandedFull && (
+        {/* Resize Handle on the left border (桌面大屏停靠模式下可见) */}
+        {!isExpandedFull && (
           <div
             onMouseDown={handleMouseDown}
             title="拖拽调节独立窗宽度"
-            className="absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-[var(--aurora-accent)]/50 active:bg-[var(--aurora-accent)] transition-colors z-30 group"
+            className="hidden lg:block absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-[var(--aurora-accent)]/50 active:bg-[var(--aurora-accent)] transition-colors z-30 group"
           >
             <div className="w-0.5 h-8 bg-white/20 rounded-full mx-auto my-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[var(--aurora-accent)]" />
           </div>

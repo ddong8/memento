@@ -123,7 +123,7 @@ def _fake_client(responses: list[dict], calls: list[tuple[str, dict]]):
 
         async def post(self, url: str, headers=None, json=None):
             calls.append((url, json))
-            item = responses.pop(0)
+            item = responses.pop(0) if len(responses) > 1 else (responses[0] if responses else ({"error": "empty"}, 500))
             if isinstance(item, tuple):
                 return _FakeResponse(item[0], status_code=item[1])
             return _FakeResponse(item)
@@ -159,6 +159,9 @@ class CallChatCompletionTests(unittest.IsolatedAsyncioTestCase):
         recorder = patch("server.services.ai_provider.ai_health.record_call", new=AsyncMock())
         self.recorded = recorder.start()
         self.addCleanup(recorder.stop)
+        sleep_patch = patch("server.services.ai_provider.asyncio.sleep", new_callable=AsyncMock)
+        self.sleep_mock = sleep_patch.start()
+        self.addCleanup(sleep_patch.stop)
 
     def outcomes(self) -> list[str]:
         return [c.args[1] for c in self.recorded.await_args_list]
@@ -209,6 +212,17 @@ class CallChatCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.outcomes(), ["failed"])
         self.assertEqual(self.recorded.await_args.args[0], "interactive")
         self.assertEqual(self.recorded.await_args.kwargs["failures"][0]["reason"], "server_error")
+
+    async def test_rate_limit_503_retries_and_succeeds(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        responses = [({"error": "busy"}, 503), _completion("hello after retry")]
+        providers = [AIProviderConfig("primary", "https://a.example/v1", "k1", "m1")]
+        with patch("server.services.ai_provider.get_ai_providers", return_value=providers), \
+                patch("server.services.ai_provider.httpx.AsyncClient", _fake_client(responses, calls)):
+            text = await call_plain_chat([{"role": "user", "content": "hi"}])
+        self.assertEqual(text, "hello after retry")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.outcomes(), ["ok"])
 
     async def test_background_calls_switch_thinking_off(self) -> None:
         calls: list[tuple[str, dict]] = []

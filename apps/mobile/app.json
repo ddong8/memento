@@ -16,6 +16,9 @@
         "NSCameraUsageDescription": "Memento 需要使用相机以拍摄照片生成专属卡通数字孪生形象或头像。",
         "NSPhotoLibraryAddUsageDescription": "Memento 需要保存生成的数字孪生形象卡片或导出的知识图谱至相册。",
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "aps-environment": "production"
       }
     },
     "android": {

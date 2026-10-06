@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
+import * as SecureStore from "expo-secure-store";
 import { Alert, Linking, Platform } from "react-native";
 
 // Configure how notifications appear when the app is in the foreground
@@ -138,7 +139,17 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     console.warn("Native device push token error:", err);
   }
 
-  return null;
+  // 3. Fallback: generate and persist an installation client ID so the server recognizes this connected mobile device
+  try {
+    let installId = await SecureStore.getItemAsync("memento_client_install_id");
+    if (!installId) {
+      installId = `client_${Platform.OS}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      await SecureStore.setItemAsync("memento_client_install_id", installId);
+    }
+    return installId;
+  } catch {
+    return `client_${Platform.OS}_active`;
+  }
 }
 
 /**

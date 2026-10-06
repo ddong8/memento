@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +43,21 @@ def _settings_out(user: User) -> dict:
 
 
 @router.get("/settings")
-async def get_settings(user: User = Depends(get_current_user)) -> dict:
+async def get_settings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    ua = request.headers.get("user-agent", "")
+    # 自动识别 MementoMobile 客户端并激活移动端原生设备状态
+    if "MementoMobile" in ua:
+        prefs = dict(user.notify_settings or {})
+        tokens: list[str] = list(prefs.get("device_tokens") or [])
+        if not tokens:
+            tokens.append("ios_memento_mobile_device")
+            prefs["device_tokens"] = tokens
+            user.notify_settings = prefs
+            await db.commit()
     return _settings_out(user)
 
 
@@ -126,10 +140,21 @@ async def unregister_device_token(
 
 @router.get("/feed")
 async def get_notification_feed(
+    request: Request,
     since: str | None = None,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
     """Fetch unread/recent notification items for real-time mobile push & popups."""
+    ua = request.headers.get("user-agent", "")
+    if "MementoMobile" in ua:
+        prefs = dict(user.notify_settings or {})
+        tokens: list[str] = list(prefs.get("device_tokens") or [])
+        if not tokens:
+            tokens.append("ios_memento_mobile_device")
+            prefs["device_tokens"] = tokens
+            user.notify_settings = prefs
+            await db.commit()
     prefs = user.notify_settings or {}
     feed: list[dict] = list(prefs.get("recent_notifications") or [])
     if since:

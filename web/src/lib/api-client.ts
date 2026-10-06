@@ -496,6 +496,8 @@ export const api = {
   // === Push notifications ===
   getNotifySettings: () => fresh<Json>("/api/notify/settings"),
   updateNotifySettings: (fields: Json) => put("/api/notify/settings", fields),
+  registerDeviceToken: (token: string, platform = "mobile") =>
+    post("/api/notify/device-token", { token, platform }),
   sendTestNotification: () => post("/api/notify/test"),
   getNotificationFeed: (since?: string) =>
     fresh<Array<{ id: string; title: string; body: string; kind?: string; created_at: string; url?: string }>>(

@@ -11,6 +11,8 @@ import {
   ImagePreview,
   MediaAttachmentCard,
   getFilenameFromUrl,
+  isLocalFilePath,
+  resolveMediaUrl,
 } from "./MediaPreview";
 
 interface MarkdownViewerProps {
@@ -66,9 +68,12 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
               );
             }
 
+            const isLocal = isLocalFilePath(href);
+            const resolvedHref = isLocal ? resolveMediaUrl(href).downloadUrl : href;
+
             return (
               <a
-                href={href}
+                href={resolvedHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"

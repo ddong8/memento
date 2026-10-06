@@ -21,9 +21,11 @@ import {
   FiZoomIn,
   FiZoomOut,
   FiX,
+  FiFolder,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
+import { getApiBase } from "@/lib/api-client";
 
 export type MediaType = "video" | "audio" | "image" | "pdf" | "unknown";
 
@@ -58,7 +60,7 @@ export function formatTime(seconds: number): string {
   return `${pad(m)}:${pad(s)}`;
 }
 
-/** Extract filename from URL */
+/** Extract filename from URL or file path */
 export function getFilenameFromUrl(url: string): string {
   try {
     const clean = url.split("?")[0].split("#")[0];
@@ -67,6 +69,90 @@ export function getFilenameFromUrl(url: string): string {
   } catch {
     return "media-file";
   }
+}
+
+export interface ResolvedMedia {
+  playUrl: string;
+  downloadUrl: string;
+  localPath: string | null;
+  filename: string;
+  isLocal: boolean;
+}
+
+/** Check if a given string represents a local file path */
+export function isLocalFilePath(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const trimmed = url.trim();
+  if (trimmed.startsWith("file://")) return true;
+  // Windows absolute path: e.g. C:\... or C:/...
+  if (/^[a-zA-Z]:[/\\]/.test(trimmed)) return true;
+  // POSIX absolute path
+  if (trimmed.startsWith("/")) {
+    if (
+      trimmed.startsWith("/api/") ||
+      trimmed.startsWith("/auth/") ||
+      trimmed.startsWith("/models/") ||
+      trimmed.startsWith("/icons/") ||
+      trimmed.startsWith("/static/") ||
+      trimmed.startsWith("/_next/") ||
+      trimmed.startsWith("/favicon")
+    ) {
+      return false;
+    }
+    if (/^\/(Users|home|private|var|tmp|Volumes|data|mnt|root|opt|etc|Library|dev|System|usr)\//i.test(trimmed)) {
+      return true;
+    }
+    const lastSlash = trimmed.lastIndexOf("/");
+    const lastPart = trimmed.slice(lastSlash + 1);
+    if (lastSlash > 0 && /\.[a-zA-Z0-9]{2,5}$/.test(lastPart)) {
+      if (
+        !trimmed.startsWith("/documents/") &&
+        !trimmed.startsWith("/notes/") &&
+        !trimmed.startsWith("/ask/") &&
+        !trimmed.startsWith("/settings/") &&
+        !trimmed.startsWith("/projects/") &&
+        !trimmed.startsWith("/dashboard/")
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Resolve media path into a streamable/playable URL and local path */
+export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedia {
+  if (!rawUrl) {
+    return { playUrl: "", downloadUrl: "", localPath: null, filename: "", isLocal: false };
+  }
+  const trimmed = rawUrl.trim();
+  const filename = getFilenameFromUrl(trimmed);
+
+  if (isLocalFilePath(trimmed)) {
+    let clean = trimmed.replace(/^file:\/\//, "");
+    if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+      clean = clean.slice(1);
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+    const apiBase = getApiBase();
+    const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
+    return {
+      playUrl: streamUrl,
+      downloadUrl: streamUrl,
+      localPath: clean,
+      filename,
+      isLocal: true,
+    };
+  }
+
+  return {
+    playUrl: trimmed,
+    downloadUrl: trimmed,
+    localPath: null,
+    filename,
+    isLocal: false,
+  };
 }
 
 /* ========================================================================= */
@@ -106,9 +192,24 @@ export function VideoPlayer({
   const [copied, setCopied] = useState<boolean>(false);
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
 
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
+  useEffect(() => {
+    setResolved(resolveMediaUrl(src));
+    setHasError(false);
+    setIsLoading(true);
+  }, [src]);
+
+  const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
+  const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "video-file";
+  const finalDownloadUrl = downloadUrl || resolvedDownload || playUrl;
+
+  let downloadFilename = displayTitle;
+  const ext = resolvedFilename.split(".").pop();
+  if (ext && !downloadFilename.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+    downloadFilename = `${downloadFilename}.${ext}`;
+  }
+
   const hideControlsTimer = useRef<NodeJS.Timeout | null>(null);
-  const filename = title || getFilenameFromUrl(src);
-  const finalDownloadUrl = downloadUrl || src;
 
   // Auto-hide controls during playback
   const triggerControlsActivity = useCallback(() => {
@@ -216,21 +317,40 @@ export function VideoPlayer({
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(src);
+      await navigator.clipboard.writeText(localPath || src);
       setCopied(true);
-      showInAppToast("已复制", "视频直链已复制到剪贴板");
+      showInAppToast("已复制", localPath ? "本地路径已复制到剪贴板" : "视频链接已复制到剪贴板");
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // ignore
     }
   };
 
-  const handleExternalOpen = () => {
+  const handleExternalOpen = async () => {
     const d = desktop();
-    if (d && (d as any).openExternal) {
-      (d as any).openExternal(src);
+    if (localPath && d && typeof (d as any).openPath === "function") {
+      try {
+        const err = await (d as any).openPath(localPath);
+        if (!err) {
+          showInAppToast("已在本地播放器打开", displayTitle);
+          return;
+        }
+      } catch (e) {
+        console.warn("openPath failed, falling back to openExternal", e);
+      }
+    }
+    if (d && typeof (d as any).openExternal === "function") {
+      (d as any).openExternal(finalDownloadUrl);
     } else {
-      window.open(src, "_blank", "noopener,noreferrer");
+      window.open(finalDownloadUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleRevealFolder = () => {
+    const d = desktop();
+    if (localPath && d && typeof (d as any).showItemInFolder === "function") {
+      (d as any).showItemInFolder(localPath);
+      showInAppToast("已在访达中显示", displayTitle);
     }
   };
 
@@ -254,19 +374,29 @@ export function VideoPlayer({
           <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[var(--aurora-accent)]/20 text-[var(--aurora-accent)] text-xs">
             <FiVideo className="w-3.5 h-3.5" />
           </span>
-          <span className="text-xs font-medium text-white/90 truncate tracking-wide" title={filename}>
-            {filename}
+          <span className="text-xs font-medium text-white/90 truncate tracking-wide" title={displayTitle}>
+            {displayTitle}
           </span>
           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/60 uppercase">
-            {filename.split(".").pop() || "VIDEO"}
+            {downloadFilename.split(".").pop() || "VIDEO"}
           </span>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
+          {localPath && (
+            <button
+              type="button"
+              onClick={handleRevealFolder}
+              title="在访达/资源管理器中定位文件"
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
+            >
+              <FiFolder className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={handleCopyLink}
-            title={copied ? "已复制" : "复制视频链接"}
+            title={copied ? "已复制" : localPath ? "复制本地文件路径" : "复制视频链接"}
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
           >
             {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
@@ -274,17 +404,17 @@ export function VideoPlayer({
           <button
             type="button"
             onClick={handleExternalOpen}
-            title="在独立窗口或系统外部打开"
+            title={localPath ? "在系统本地播放器打开" : "在独立窗口或系统外部打开"}
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
           >
             <FiExternalLink className="w-3.5 h-3.5" />
           </button>
           <a
             href={finalDownloadUrl}
-            download={filename}
+            download={downloadFilename}
             target="_blank"
             rel="noopener noreferrer"
-            title="下载完整原片视频文件"
+            title="下载/导出完整原片视频文件"
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)] hover:bg-[var(--aurora-accent-hover,var(--aurora-accent))] text-white text-[11px] font-medium transition-all shadow-sm"
           >
             <FiDownload className="w-3 h-3" />
@@ -297,7 +427,7 @@ export function VideoPlayer({
       <div className="relative w-full aspect-video flex items-center justify-center bg-black cursor-pointer" onClick={togglePlay}>
         <video
           ref={videoRef}
-          src={src}
+          src={playUrl}
           poster={poster}
           autoPlay={autoPlay}
           playsInline
@@ -338,22 +468,46 @@ export function VideoPlayer({
 
         {/* Fallback Error Overlay */}
         {hasError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/85 z-10">
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/90 z-10 backdrop-blur-xs">
             <FiAlertCircle className="w-12 h-12 text-amber-400 mb-3" />
-            <h4 className="text-white font-medium text-sm mb-1">无法在此环境直接内嵌解码播放</h4>
+            <h4 className="text-white font-medium text-sm mb-1">
+              {localPath ? "当前环境无法直接硬件解码此格式" : "无法在此环境直接内嵌解码播放"}
+            </h4>
             <p className="text-white/60 text-xs max-w-sm mb-4">
-              此格式可能受当前桌面沙箱/浏览器解码器策略限制，您可以直接下载原片并在本地媒体播放器中查看。
+              {localPath
+                ? `原片位于本地磁盘：${localPath}。若浏览器沙箱不支持此视频编码，您可以直接调用系统播放器无损秒播。`
+                : "此格式可能受当前桌面沙箱/浏览器解码器策略限制，您可以直接下载原片并在本地媒体播放器中查看。"}
             </p>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5 flex-wrap justify-center">
+              {localPath && desktop() && typeof (desktop() as any).openPath === "function" && (
+                <button
+                  type="button"
+                  onClick={handleExternalOpen}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--aurora-accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity shadow-sm"
+                >
+                  <FiPlay className="w-4 h-4 fill-white" />
+                  <span>在系统播放器中打开</span>
+                </button>
+              )}
+              {localPath && desktop() && typeof (desktop() as any).showItemInFolder === "function" && (
+                <button
+                  type="button"
+                  onClick={handleRevealFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-colors"
+                >
+                  <FiFolder className="w-4 h-4" />
+                  <span>在访达中定位</span>
+                </button>
+              )}
               <a
                 href={finalDownloadUrl}
-                download={filename}
+                download={downloadFilename}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--aurora-accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-medium transition-colors"
               >
                 <FiDownload className="w-4 h-4" />
-                <span>下载原片本地播放</span>
+                <span>下载原片</span>
               </a>
               <button
                 type="button"
@@ -504,8 +658,20 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [copied, setCopied] = useState<boolean>(false);
 
-  const filename = title || getFilenameFromUrl(src);
-  const finalDownloadUrl = downloadUrl || src;
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
+  useEffect(() => {
+    setResolved(resolveMediaUrl(src));
+  }, [src]);
+
+  const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
+  const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "audio-file";
+  const finalDownloadUrl = downloadUrl || resolvedDownload || playUrl;
+
+  let downloadFilename = displayTitle;
+  const ext = resolvedFilename.split(".").pop();
+  if (ext && !downloadFilename.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+    downloadFilename = `${downloadFilename}.${ext}`;
+  }
 
   const togglePlay = () => {
     const a = audioRef.current;
@@ -535,9 +701,9 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(src);
+      await navigator.clipboard.writeText(localPath || src);
       setCopied(true);
-      showInAppToast("已复制", "音频直链已复制到剪贴板");
+      showInAppToast("已复制", localPath ? "本地路径已复制" : "音频直链已复制");
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // ignore
@@ -550,7 +716,7 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
     >
       <audio
         ref={audioRef}
-        src={src}
+        src={playUrl}
         preload="metadata"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -569,8 +735,8 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
             {isPlaying ? <FiPause className="w-4 h-4" /> : <FiPlay className="w-4 h-4 ml-0.5" />}
           </button>
           <div className="min-w-0">
-            <div className="text-xs font-semibold text-[var(--aurora-fg1)] truncate" title={filename}>
-              {filename}
+            <div className="text-xs font-semibold text-[var(--aurora-fg1)] truncate" title={displayTitle}>
+              {displayTitle}
             </div>
             <div className="text-[11px] font-mono text-[var(--aurora-fg3)] flex items-center gap-2 mt-0.5">
               <span>{formatTime(currentTime)}</span>
@@ -599,7 +765,7 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
           </button>
           <a
             href={finalDownloadUrl}
-            download={filename}
+            download={downloadFilename}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
@@ -641,7 +807,15 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1);
   const [rotation, setRotation] = useState<number>(0);
-  const filename = alt || getFilenameFromUrl(src);
+
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
+  useEffect(() => {
+    setResolved(resolveMediaUrl(src));
+  }, [src]);
+
+  const { playUrl, downloadUrl: resolvedDownload, filename: resolvedFilename } = resolved;
+  const displayTitle = alt || resolvedFilename || "image-preview";
+  const finalDownloadUrl = resolvedDownload || playUrl;
 
   const handleOpen = () => {
     setZoom(1);
@@ -666,8 +840,8 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
       <div className={`relative group my-3 inline-block overflow-hidden rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shadow-xs cursor-zoom-in transition-all hover:border-[var(--aurora-accent)] ${className}`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={src}
-          alt={filename}
+          src={playUrl}
+          alt={displayTitle}
           loading="lazy"
           onClick={handleOpen}
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
@@ -692,7 +866,7 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
             onClick={(e) => e.stopPropagation()}
             className="absolute top-4 inset-x-6 flex items-center justify-between z-10 text-white"
           >
-            <span className="text-sm font-medium truncate max-w-md">{filename}</span>
+            <span className="text-sm font-medium truncate max-w-md">{displayTitle}</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -719,8 +893,8 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
                 <FiRotateCw className="w-4 h-4" />
               </button>
               <a
-                href={src}
-                download={filename}
+                href={finalDownloadUrl}
+                download={displayTitle}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
@@ -743,8 +917,8 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
           <div onClick={(e) => e.stopPropagation()} className="relative max-w-full max-h-[85vh] overflow-hidden flex items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={src}
-              alt={filename}
+              src={playUrl}
+              alt={displayTitle}
               style={{
                 transform: `scale(${zoom}) rotate(${rotation}deg)`,
                 transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
@@ -770,7 +944,14 @@ export interface MediaAttachmentCardProps {
 export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
   const type = detectMediaType(url);
   const [expanded, setExpanded] = useState<boolean>(true);
-  const filename = title || getFilenameFromUrl(url);
+
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(url));
+  useEffect(() => {
+    setResolved(resolveMediaUrl(url));
+  }, [url]);
+
+  const displayTitle = (title && title.includes(".") ? title : "") || resolved.filename || title || "media-file";
+  const finalDownloadUrl = resolved.downloadUrl || url;
 
   if (type === "video") {
     return (
@@ -778,7 +959,7 @@ export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
         <div className="flex items-center justify-between text-xs text-[var(--aurora-fg3)] mb-1 px-1">
           <div className="flex items-center gap-1.5 font-medium text-[var(--aurora-fg2)]">
             <FiVideo className="w-3.5 h-3.5 text-[var(--aurora-accent)]" />
-            <span>视频产物：{filename}</span>
+            <span>视频产物：{displayTitle}</span>
           </div>
           <button
             type="button"
@@ -788,17 +969,17 @@ export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
             {expanded ? "收起预览" : "展开播放"}
           </button>
         </div>
-        {expanded && <VideoPlayer src={url} title={filename} />}
+        {expanded && <VideoPlayer src={url} title={displayTitle} />}
       </div>
     );
   }
 
   if (type === "audio") {
-    return <AudioPlayer src={url} title={filename} />;
+    return <AudioPlayer src={url} title={displayTitle} />;
   }
 
   if (type === "image") {
-    return <ImagePreview src={url} alt={filename} />;
+    return <ImagePreview src={url} alt={displayTitle} />;
   }
 
   // Fallback downloadable file card (PDF, archive, documents)
@@ -809,17 +990,17 @@ export function MediaAttachmentCard({ url, title }: MediaAttachmentCardProps) {
           <FiFileText className="w-4 h-4" />
         </span>
         <div className="min-w-0">
-          <div className="text-xs font-medium text-[var(--aurora-fg1)] truncate" title={filename}>
-            {filename}
+          <div className="text-xs font-medium text-[var(--aurora-fg1)] truncate" title={displayTitle}>
+            {displayTitle}
           </div>
           <div className="text-[10px] text-[var(--aurora-fg3)] uppercase">
-            {filename.split(".").pop() || "FILE"} 产物文件
+            {displayTitle.split(".").pop() || "FILE"} 产物文件
           </div>
         </div>
       </div>
       <a
-        href={url}
-        download={filename}
+        href={finalDownloadUrl}
+        download={displayTitle}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--aurora-accent)] hover:opacity-90 text-white text-xs font-medium transition-all shrink-0"

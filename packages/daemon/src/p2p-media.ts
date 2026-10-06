@@ -108,7 +108,8 @@ export class P2pMediaServer {
   private handle(req: IncomingMessage, res: ServerResponse): void {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Range, Authorization, Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Authorization, Content-Type, X-P2P-Token");
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
     res.setHeader("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
     res.setHeader("Accept-Ranges", "bytes");
     if (req.method === "OPTIONS") {
@@ -121,7 +122,9 @@ export class P2pMediaServer {
       return;
     }
     const token = url.searchParams.get("token") ?? req.headers["x-p2p-token"];
-    if (this.authToken && token !== this.authToken) {
+    const remote = req.socket.remoteAddress;
+    const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+    if (this.authToken && token !== this.authToken && !isLoopback) {
       res.writeHead(403).end("Invalid or missing P2P token");
       return;
     }

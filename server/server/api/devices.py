@@ -564,13 +564,15 @@ async def stream_device_file(
                 curr += len(chunk)
                 yield chunk
 
+    quoted_fname = urllib.parse.quote(filename or os.path.basename(clean_path) or "media-file")
     headers = {
         "Content-Type": mime_type,
         "Accept-Ranges": "bytes",
         "Content-Length": str(content_length),
+        "Content-Disposition": f'inline; filename="{quoted_fname}"; filename*=UTF-8\'\'{quoted_fname}',
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Range, Authorization, Content-Type",
-        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, Content-Disposition",
     }
     if status_code == 206:
         headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"

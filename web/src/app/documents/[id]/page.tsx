@@ -53,12 +53,14 @@ export default function DocumentPage() {
         {(() => {
           const mediaType = detectMediaType(doc.relative_path || doc.title || "");
           const mediaUrl: string =
-            typeof doc.content === "string" && doc.content.startsWith("http")
+            typeof doc.content === "string" && (doc.content.startsWith("http") || doc.content.startsWith("/") || doc.content.startsWith("file://"))
               ? doc.content
               : typeof doc.metadata?.s3_url === "string"
               ? doc.metadata.s3_url
               : typeof doc.metadata?.url === "string"
               ? doc.metadata.url
+              : typeof doc.relative_path === "string" && (doc.relative_path.startsWith("/") || doc.relative_path.startsWith("file://"))
+              ? doc.relative_path
               : "";
 
           if (mediaType === "video" && mediaUrl) {

@@ -185,9 +185,14 @@ async def send_test(
     user.notify_settings = prefs
     await db.commit()
 
-    from ..services.notify_service import send_expo_push
+    from ..services.notify_service import send_apns_push, send_expo_push
 
     if device_tokens:
+        await send_apns_push(
+            device_tokens,
+            item["title"],
+            item["body"],
+        )
         await send_expo_push(
             device_tokens,
             item["title"],

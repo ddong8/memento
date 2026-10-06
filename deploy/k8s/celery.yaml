@@ -21,6 +21,14 @@ spec:
               valueFrom: { secretKeyRef: { name: memento-secret, key: MINIO_ROOT_USER } }
             - name: MEMENTO_S3_SECRET_KEY
               valueFrom: { secretKeyRef: { name: memento-secret, key: MINIO_ROOT_PASSWORD } }
+            - name: MEMENTO_APNS_AUTH_KEY
+              valueFrom: { secretKeyRef: { name: memento-apns, key: auth_key, optional: true } }
+            - name: MEMENTO_APNS_KEY_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: key_id, optional: true } }
+            - name: MEMENTO_APNS_TEAM_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: team_id, optional: true } }
+            - name: MEMENTO_APNS_BUNDLE_ID
+              valueFrom: { secretKeyRef: { name: memento-apns, key: bundle_id, optional: true } }
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "2", memory: 2Gi }

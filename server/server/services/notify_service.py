@@ -12,6 +12,7 @@ import asyncio
 import ipaddress
 import logging
 import socket
+import time
 import uuid
 from urllib.parse import urlparse
 
@@ -160,6 +161,125 @@ def task_link(task_id: str) -> str | None:
     return f"{base}/tasks/{task_id}" if base else None
 
 
+_apns_jwt_cache: dict[str, tuple[str, float]] = {}
+
+
+def _get_apns_jwt() -> str | None:
+    auth_key = getattr(settings, "apns_auth_key", "")
+    key_id = getattr(settings, "apns_key_id", "JMF779PKS9")
+    team_id = getattr(settings, "apns_team_id", "WHNZV34GK4")
+    if not auth_key or not key_id or not team_id:
+        return None
+
+    now = time.time()
+    cached = _apns_jwt_cache.get(key_id)
+    if cached and now < cached[1]:
+        return cached[0]
+
+    key_pem = auth_key.strip()
+    if not key_pem.startswith("-----BEGIN"):
+        try:
+            import base64
+            key_pem = base64.b64decode(key_pem).decode("utf-8")
+        except Exception:
+            pass
+
+    try:
+        from jose import jwt
+        claims = {"iss": team_id, "iat": int(now)}
+        token = jwt.encode(claims, key_pem, algorithm="ES256", headers={"kid": key_id})
+        _apns_jwt_cache[key_id] = (token, now + 3000)  # 50 min validity
+        return token
+    except Exception as e:
+        logger.warning("Failed to generate APNs JWT token: %s", e)
+        return None
+
+
+async def send_apns_push(
+    tokens: list[str],
+    title: str,
+    body: str,
+    *,
+    url: str | None = None,
+    level: str = "active",
+) -> bool:
+    """Send native remote push notifications directly to iOS devices via Apple APNs HTTP/2 gateway.
+    
+    This delivers notifications even when the app is completely terminated or killed.
+    """
+    if not tokens:
+        return False
+
+    jwt_token = _get_apns_jwt()
+    if not jwt_token:
+        logger.debug("APNs push skipped: APNs credentials not configured")
+        return False
+
+    # Real APNs device tokens are hexadecimal strings (typically 64 chars)
+    apns_tokens = [
+        tok.strip()
+        for tok in tokens
+        if tok and not tok.startswith("ExponentPushToken")
+        and not tok.startswith("ExpoPushToken")
+        and not tok.startswith("client_")
+        and not tok.startswith("memento_")
+        and not tok.startswith("ios_")
+    ]
+    if not apns_tokens:
+        return False
+
+    bundle_id = getattr(settings, "apns_bundle_id", "com.ihasy.memento")
+    is_prod = getattr(settings, "apns_production", True)
+
+    payload = {
+        "aps": {
+            "alert": {
+                "title": title,
+                "body": body,
+            },
+            "sound": "default",
+            "badge": 1,
+            "interruption-level": "time-sensitive" if level == "timeSensitive" else "active",
+        },
+    }
+    if url:
+        payload["url"] = url
+
+    headers = {
+        "authorization": f"bearer {jwt_token}",
+        "apns-topic": bundle_id,
+        "apns-push-type": "alert",
+        "apns-priority": "10",
+        "apns-expiration": "0",
+    }
+
+    delivered = 0
+    hosts = ["api.push.apple.com", "api.sandbox.push.apple.com"] if is_prod else ["api.sandbox.push.apple.com", "api.push.apple.com"]
+
+    try:
+        async with httpx.AsyncClient(http2=True, timeout=10.0) as client:
+            for tok in apns_tokens:
+                for host in hosts:
+                    endpoint = f"https://{host}/3/device/{tok}"
+                    try:
+                        resp = await client.post(endpoint, json=payload, headers=headers)
+                        if resp.status_code == 200:
+                            delivered += 1
+                            logger.info("APNs push delivered successfully to device %s… via %s", tok[:8], host)
+                            break
+                        elif resp.status_code == 400 and "BadDeviceToken" in resp.text:
+                            # Sandbox vs Production mismatch: try fallback host
+                            continue
+                        else:
+                            logger.warning("APNs push to %s failed (HTTP %s): %s", host, resp.status_code, resp.text[:200])
+                    except Exception as e:
+                        logger.warning("APNs request error to %s: %s", host, e)
+    except Exception as e:
+        logger.warning("APNs HTTP/2 client error: %s", e)
+
+    return delivered > 0
+
+
 async def send_expo_push(
     tokens: list[str],
     title: str,
@@ -261,9 +381,10 @@ async def notify_user(
 
     sent = True
 
-    # 1. Native Memento Mobile App Push (No third-party app needed)
+    # 1. Native Memento Mobile App Push (APNs & Expo)
     device_tokens = prefs.get("device_tokens") or []
     if device_tokens:
+        await send_apns_push(device_tokens, title, body, url=url, level=level)
         await send_expo_push(device_tokens, title, body, url=url, level=level)
 
     # 2. Bark / ntfy channel (if configured as secondary or fallback)

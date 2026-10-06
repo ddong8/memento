@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     wechat_app_secret: str = ""
     wechat_oauth_scope: str = "snsapi_login"  # snsapi_login (PC扫码) or snsapi_userinfo (服务号网页)
 
+    # Apple Push Notification Service (APNs) for iOS offline background & lock-screen pushes
+    apns_auth_key: str = ""  # Raw PEM content of AuthKey_xxx.p8
+    apns_key_id: str = "JMF779PKS9"
+    apns_team_id: str = "WHNZV34GK4"
+    apns_bundle_id: str = "com.ihasy.memento"
+    apns_production: bool = True
+
     def validate_production(self) -> None:
         """Refuse to start with dev defaults when debug is off."""
         bad = []

@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   detectMediaType,
   VideoPlayer,
@@ -14,15 +14,22 @@ import {
   getFilenameFromUrl,
   isLocalFilePath,
   resolveMediaUrl,
+  safeDecodePath,
 } from "./MediaPreview";
 import { useMediaInspector, extractMediaFromMarkdown } from "./MediaInspectorContext";
 
 interface MarkdownViewerProps {
   content: string;
   className?: string;
+  compactMedia?: boolean;
 }
 
-export default function MarkdownViewer({ content, className = "" }: MarkdownViewerProps) {
+export default function MarkdownViewer({ content, className = "", compactMedia = false }: MarkdownViewerProps) {
+  const inspector = useMediaInspector();
+  const renderedVideos = useRef(new Set<string>());
+  // Clear rendered video tracker for this render pass
+  renderedVideos.current.clear();
+
   return (
     <div className={`prose prose-sm max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown
@@ -47,6 +54,31 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
             // If the link directly points to video/audio/pdf media, render an inline preview
             if (type === "video") {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              const cleanHref = safeDecodePath(href);
+              const isDuplicate = renderedVideos.current.has(cleanHref);
+              renderedVideos.current.add(cleanHref);
+
+              // If compactMedia is enabled or this video has already been rendered in this view, render a sleek compact badge
+              if (compactMedia || isDuplicate) {
+                return (
+                  <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
+                    <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
+                    <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        inspector?.openMediaByUrl(href, label);
+                      }}
+                      className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer"
+                    >
+                      独立窗口播放 ↗
+                    </button>
+                  </div>
+                );
+              }
+
               return (
                 <div className="not-prose my-3">
                   <VideoPlayer src={href} title={label} />

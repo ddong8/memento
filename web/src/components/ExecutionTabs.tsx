@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 
 export interface ExecutionTabsProps {
   calls: ToolCallItem[];
+  parentContent?: string;
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
@@ -72,7 +73,7 @@ function getCallLabel(call: ToolCallItem, defaultLabel: string, discoveryLabel: 
   return call.result?.device_name || call.device_name || (call.args?.device_id as string) || defaultLabel;
 }
 
-export default function ExecutionTabs({ calls, onSmartCompactAndRetry }: ExecutionTabsProps) {
+export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndRetry }: ExecutionTabsProps) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<string>("all");
 
@@ -105,7 +106,12 @@ export default function ExecutionTabs({ calls, onSmartCompactAndRetry }: Executi
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {calls.map((call, idx) => (
-          <ExecutionCard key={call.id || idx} call={call} onSmartCompactAndRetry={onSmartCompactAndRetry} />
+          <ExecutionCard
+            key={call.id || idx}
+            call={call}
+            parentContent={parentContent}
+            onSmartCompactAndRetry={onSmartCompactAndRetry}
+          />
         ))}
       </div>
     );
@@ -270,7 +276,12 @@ export default function ExecutionTabs({ calls, onSmartCompactAndRetry }: Executi
                 display: isVisible ? "block" : "none",
               }}
             >
-              <ExecutionCard call={call} isVisible={isVisible} onSmartCompactAndRetry={onSmartCompactAndRetry} />
+              <ExecutionCard
+                call={call}
+                isVisible={isVisible}
+                parentContent={parentContent}
+                onSmartCompactAndRetry={onSmartCompactAndRetry}
+              />
             </div>
           );
         })}

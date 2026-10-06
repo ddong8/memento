@@ -33,13 +33,17 @@ export interface ToolCallItem {
 interface ExecutionCardProps {
   call: ToolCallItem;
   isVisible?: boolean;
+  parentContent?: string;
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
-export default function ExecutionCard({ call, isVisible = true, onSmartCompactAndRetry }: ExecutionCardProps) {
+export default function ExecutionCard({
+  call,
+  isVisible = true,
+  parentContent,
+  onSmartCompactAndRetry,
+}: ExecutionCardProps) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(true);
-  const [copied, setCopied] = useState(false);
   const terminalRef = useRef<HTMLPreElement>(null);
 
   const { name, args, device_name, result } = call;
@@ -84,19 +88,11 @@ export default function ExecutionCard({ call, isVisible = true, onSmartCompactAn
     agentLabel = t.ask.deviceDiscovery || "设备发现";
   }
 
-  const [viewMode, setViewMode] = useState<"markdown" | "terminal">(isAgent ? "markdown" : "terminal");
-
   const isTerminal =
     result?.status === "succeeded" ||
     result?.status === "failed" ||
     result?.status === "timeout";
   const isRunning = !result || result.status === "running" || result.status === "queued" || result.status === "still_running";
-
-  useEffect(() => {
-    if (isVisible && isRunning && terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-    }
-  }, [result?.stdout, result?.stderr, isRunning, isVisible]);
 
   const isMatchFilter = Boolean(
     command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
@@ -109,6 +105,38 @@ export default function ExecutionCard({ call, isVisible = true, onSmartCompactAn
 
   const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
   const isFailed = !isExit1NoMatch && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
+
+  const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
+
+  // 当任务已成功完成且外部已有正文回复时，默认折叠为紧凑状态条，突出正文回复与媒体产物；未完成或无正文时保持展开
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (isSuccess && hasParentContent) return false;
+    return true;
+  });
+
+  // 如果外部已有正文，ExecutionCard 定位为调试控制台，默认展示 terminal 视图；无外部正文时才保持 agent 的 markdown 模式
+  const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
+    if (hasParentContent) return "terminal";
+    return isAgent ? "markdown" : "terminal";
+  });
+
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isVisible && isRunning && terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [result?.stdout, result?.stderr, isRunning, isVisible]);
+
+  const isOutputInParentContent = Boolean(
+    hasParentContent &&
+    result?.stdout &&
+    (
+      parentContent!.trim() === result.stdout.trim() ||
+      parentContent!.includes(result.stdout.trim()) ||
+      result.stdout.trim().includes(parentContent!.trim())
+    )
+  );
 
   const copyText = () => {
     const parts: string[] = [];
@@ -488,7 +516,30 @@ export default function ExecutionCard({ call, isVisible = true, onSmartCompactAn
                   $ {command}
                 </div>
               )}
-              <MarkdownViewer content={result.stdout} />
+              {isOutputInParentContent ? (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 8,
+                    background: "var(--aurora-chip)",
+                    border: "1px dashed var(--aurora-border)",
+                    color: "var(--aurora-fg2)",
+                    fontSize: 12.5,
+                    lineHeight: 1.6,
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 2 }}>
+                    <Icon name="check" size={13} style={{ color: "#10b981" }} />
+                    <span>执行产物与回复已在正文主回复中完整呈现</span>
+                  </div>
+                  <div style={{ color: "var(--aurora-fg3)", fontSize: 11.5 }}>
+                    为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“终端”模式查验底层输出与命令日志。
+                  </div>
+                </div>
+              ) : (
+                <MarkdownViewer content={result.stdout} compactMedia={true} />
+              )}
               {result?.stderr && (
                 <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>
                   <span style={{ opacity: 0.7 }}>[stderr]</span>

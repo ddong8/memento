@@ -323,7 +323,11 @@ const AssistantBubble = memo(function AssistantBubble({
       )}
       {hasTools && (
         <div style={{ marginBottom: 12 }}>
-          <ExecutionTabs calls={turn.toolCalls!} onSmartCompactAndRetry={onSmartCompactAndRetry} />
+          <ExecutionTabs
+            calls={turn.toolCalls!}
+            parentContent={content}
+            onSmartCompactAndRetry={onSmartCompactAndRetry}
+          />
         </div>
       )}
       {content ? (

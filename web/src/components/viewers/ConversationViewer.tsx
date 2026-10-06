@@ -74,11 +74,12 @@ function ConversationViewerContent({
     }
   };
 
+  const syncTurnsMedia = inspector?.syncTurnsMedia;
   useEffect(() => {
-    if (inspector && messages.length > 0) {
-      inspector.syncTurnsMedia(messages.map((m) => ({ content: m.content || "", role: m.role })));
+    if (syncTurnsMedia && messages.length > 0) {
+      syncTurnsMedia(messages.map((m) => ({ content: m.content || "", role: m.role })));
     }
-  }, [messages, inspector]);
+  }, [messages, syncTurnsMedia]);
 
   return (
     <div

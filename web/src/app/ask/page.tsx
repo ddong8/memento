@@ -353,12 +353,13 @@ const AssistantBubble = memo(function AssistantBubble({
 function AskPageContent() {
   const searchParams = useSearchParams();
   const inspector = useMediaInspector();
+  const syncTurnsMedia = inspector?.syncTurnsMedia;
   const [turns, setTurns] = useState<Turn[]>([]);
 
-  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中
+  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（使用稳定方法引用，防止循环渲染卡死）
   useEffect(() => {
-    inspector?.syncTurnsMedia(turns);
-  }, [turns, inspector]);
+    syncTurnsMedia?.(turns);
+  }, [turns, syncTurnsMedia]);
 
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);

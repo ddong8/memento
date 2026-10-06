@@ -81,49 +81,62 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
 
   const registerMedia = useCallback(
     (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string }) => {
+      setMediaList((prev) => {
+        const cleanUrl = safeDecodePath(item.url);
+        const exists = prev.some((m) => safeDecodePath(m.url) === cleanUrl);
+        if (exists) {
+          return prev; // 引用不变，杜绝无意义重渲染
+        }
+        const newItem: MediaItem = {
+          id: item.id || `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          url: item.url,
+          title: item.title || getFilenameFromUrl(item.url),
+          type: item.type || detectMediaType(item.url),
+          localPath: isLocalFilePath(item.url) ? safeDecodePath(item.url.replace(/^file:\/\//, "")) : null,
+        };
+        return [...prev, newItem];
+      });
+    },
+    []
+  );
+
+  const openMedia = useCallback((item: MediaItem) => {
     setMediaList((prev) => {
       const cleanUrl = safeDecodePath(item.url);
-      const existing = prev.find((m) => safeDecodePath(m.url) === cleanUrl);
-      if (existing) {
+      const exists = prev.some((m) => safeDecodePath(m.url) === cleanUrl);
+      if (exists) {
+        setActiveId(item.id);
+        setIsOpen(true);
         return prev;
       }
-      const newItem: MediaItem = {
-        id: item.id || `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        url: item.url,
-        title: item.title || getFilenameFromUrl(item.url),
-        type: item.type || detectMediaType(item.url),
-        localPath: isLocalFilePath(item.url) ? safeDecodePath(item.url.replace(/^file:\/\//, "")) : null,
-      };
-      return [...prev, newItem];
+      setActiveId(item.id);
+      setIsOpen(true);
+      return [...prev, item];
     });
   }, []);
 
-  const openMedia = useCallback((item: MediaItem) => {
-    registerMedia(item);
-    setActiveId(item.id);
-    setIsOpen(true);
-  }, [registerMedia]);
-
   const openMediaByUrl = useCallback((url: string, title?: string) => {
     const cleanUrl = safeDecodePath(url);
-    const existing = mediaList.find((m) => safeDecodePath(m.url) === cleanUrl);
-    if (existing) {
-      setActiveId(existing.id);
+    setMediaList((prev) => {
+      const existing = prev.find((m) => safeDecodePath(m.url) === cleanUrl);
+      if (existing) {
+        setActiveId(existing.id);
+        setIsOpen(true);
+        return prev; // 引用不变
+      }
+      const type = detectMediaType(url);
+      const newItem: MediaItem = {
+        id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        url,
+        title: title || safeDecodePath(getFilenameFromUrl(url)),
+        type,
+        localPath: isLocalFilePath(url) ? safeDecodePath(url.replace(/^file:\/\//, "")) : null,
+      };
+      setActiveId(newItem.id);
       setIsOpen(true);
-      return;
-    }
-    const type = detectMediaType(url);
-    const newItem: MediaItem = {
-      id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      url,
-      title: title || safeDecodePath(getFilenameFromUrl(url)),
-      type,
-      localPath: isLocalFilePath(url) ? safeDecodePath(url.replace(/^file:\/\//, "")) : null,
-    };
-    setMediaList((prev) => [...prev, newItem]);
-    setActiveId(newItem.id);
-    setIsOpen(true);
-  }, [mediaList]);
+      return [...prev, newItem];
+    });
+  }, []);
 
   const closeInspector = useCallback(() => {
     setIsOpen(false);
@@ -134,25 +147,38 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   }, []);
 
   const selectIndex = useCallback((index: number) => {
-    if (index >= 0 && index < mediaList.length) {
-      setActiveId(mediaList[index].id);
-      setIsOpen(true);
-    }
-  }, [mediaList]);
+    setMediaList((list) => {
+      if (index >= 0 && index < list.length) {
+        setActiveId(list[index].id);
+        setIsOpen(true);
+      }
+      return list;
+    });
+  }, []);
 
   const nextMedia = useCallback(() => {
-    if (mediaList.length === 0) return;
-    const currentIndex = activeMedia ? mediaList.findIndex((m) => m.id === activeMedia.id) : -1;
-    const nextIdx = (currentIndex + 1) % mediaList.length;
-    setActiveId(mediaList[nextIdx].id);
-  }, [mediaList, activeMedia]);
+    setMediaList((list) => {
+      if (list.length === 0) return list;
+      setActiveId((currId) => {
+        const idx = currId ? list.findIndex((m) => m.id === currId) : 0;
+        const nextIdx = (idx + 1) % list.length;
+        return list[nextIdx].id;
+      });
+      return list;
+    });
+  }, []);
 
   const prevMedia = useCallback(() => {
-    if (mediaList.length === 0) return;
-    const currentIndex = activeMedia ? mediaList.findIndex((m) => m.id === activeMedia.id) : 0;
-    const prevIdx = (currentIndex - 1 + mediaList.length) % mediaList.length;
-    setActiveId(mediaList[prevIdx].id);
-  }, [mediaList, activeMedia]);
+    setMediaList((list) => {
+      if (list.length === 0) return list;
+      setActiveId((currId) => {
+        const idx = currId ? list.findIndex((m) => m.id === currId) : 0;
+        const prevIdx = (idx - 1 + list.length) % list.length;
+        return list[prevIdx].id;
+      });
+      return list;
+    });
+  }, []);
 
   const syncTurnsMedia = useCallback((turns: Array<{ content?: string | null; role?: string | null }>) => {
     const discovered: MediaItem[] = [];
@@ -177,14 +203,20 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     }
 
     setMediaList((prev) => {
-      // Merge discovered with existing, preserving items user opened manually
-      const prevMap = new Map(prev.map((m) => [safeDecodePath(m.url), m]));
-      for (const d of discovered) {
-        if (!prevMap.has(safeDecodePath(d.url))) {
-          prevMap.set(safeDecodePath(d.url), d);
+      // 深度比对 discovered 和 prev 是否相同，若完全相同则返回原 prev 引用，彻底杜绝死循环
+      if (prev.length === discovered.length) {
+        let isSame = true;
+        for (let i = 0; i < prev.length; i++) {
+          if (safeDecodePath(prev[i].url) !== safeDecodePath(discovered[i].url)) {
+            isSame = false;
+            break;
+          }
+        }
+        if (isSame) {
+          return prev; // 返回同一引用，React 绝对不会重新触发渲染！
         }
       }
-      return Array.from(prevMap.values());
+      return discovered;
     });
   }, []);
 

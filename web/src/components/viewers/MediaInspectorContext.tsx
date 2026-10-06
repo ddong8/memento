@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { detectMediaType, getFilenameFromUrl, isLocalFilePath, safeDecodePath, type MediaType } from "./MediaPreview";
 
 export interface MediaItem {
@@ -74,6 +74,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState<boolean>(false);
 
+  const userManuallyClosedRef = useRef<boolean>(false);
+
   const activeMedia = useMemo(() => {
     if (!activeId) return mediaList[0] || null;
     return mediaList.find((m) => m.id === activeId) || mediaList[0] || null;
@@ -101,6 +103,7 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   );
 
   const openMedia = useCallback((item: MediaItem) => {
+    userManuallyClosedRef.current = false;
     setMediaList((prev) => {
       const cleanUrl = safeDecodePath(item.url);
       const exists = prev.some((m) => safeDecodePath(m.url) === cleanUrl);
@@ -116,6 +119,7 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   }, []);
 
   const openMediaByUrl = useCallback((url: string, title?: string) => {
+    userManuallyClosedRef.current = false;
     const cleanUrl = safeDecodePath(url);
     setMediaList((prev) => {
       const existing = prev.find((m) => safeDecodePath(m.url) === cleanUrl);
@@ -139,14 +143,24 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   }, []);
 
   const closeInspector = useCallback(() => {
+    userManuallyClosedRef.current = true;
     setIsOpen(false);
   }, []);
 
   const toggleInspector = useCallback(() => {
-    setIsOpen((prev) => !prev);
+    setIsOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        userManuallyClosedRef.current = true;
+      } else {
+        userManuallyClosedRef.current = false;
+      }
+      return next;
+    });
   }, []);
 
   const selectIndex = useCallback((index: number) => {
+    userManuallyClosedRef.current = false;
     setMediaList((list) => {
       if (index >= 0 && index < list.length) {
         setActiveId(list[index].id);
@@ -204,17 +218,29 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
 
     setMediaList((prev) => {
       // 深度比对 discovered 和 prev 是否相同，若完全相同则返回原 prev 引用，彻底杜绝死循环
-      if (prev.length === discovered.length) {
-        let isSame = true;
+      let isSame = prev.length === discovered.length;
+      if (isSame) {
         for (let i = 0; i < prev.length; i++) {
           if (safeDecodePath(prev[i].url) !== safeDecodePath(discovered[i].url)) {
             isSame = false;
             break;
           }
         }
-        if (isSame) {
-          return prev; // 返回同一引用，React 绝对不会重新触发渲染！
+      }
+
+      // 如果有媒体，且用户未在当前会话显式关闭，自动展开为第三栏视窗
+      if (discovered.length > 0) {
+        if (!userManuallyClosedRef.current) {
+          setIsOpen(true);
         }
+      } else {
+        // 当前对话无媒体，重置手动关闭状态并收起第三栏
+        userManuallyClosedRef.current = false;
+        setIsOpen(false);
+      }
+
+      if (isSame) {
+        return prev; // 返回同一引用，React 绝对不会重新触发渲染！
       }
       return discovered;
     });

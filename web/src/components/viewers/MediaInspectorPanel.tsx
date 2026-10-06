@@ -26,16 +26,18 @@ import { showInAppToast } from "@/lib/native-notify";
 interface MediaInspectorPanelProps {
   /** If provided, custom width for the docked split mode */
   className?: string;
+  /** Layout mode: 'docked' for embedded 3rd column, 'overlay' for fixed floating overlay */
+  mode?: "docked" | "overlay";
 }
 
-export function MediaInspectorPanel({ className = "" }: MediaInspectorPanelProps) {
+export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaInspectorPanelProps) {
   const inspector = useMediaInspector();
-  const [panelWidth, setPanelWidth] = useState<number>(480);
+  const [panelWidth, setPanelWidth] = useState<number>(460);
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
   const startXRef = useRef<number>(0);
-  const startWidthRef = useRef<number>(480);
+  const startWidthRef = useRef<number>(460);
 
   if (!inspector || !inspector.isOpen || !inspector.activeMedia) {
     return null;
@@ -135,13 +137,19 @@ export function MediaInspectorPanel({ className = "" }: MediaInspectorPanelProps
     }
   };
 
+  const isDocked = mode === "docked";
+
   return (
     <>
       {/* Resizable / Docked Right Inspector Container */}
       <aside
-        className={`fixed top-0 right-0 bottom-0 z-40 flex flex-col bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] shadow-2xl transition-all duration-200 select-none ${className}`}
+        className={
+          isDocked
+            ? `relative flex flex-col h-full shrink-0 bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden z-20 ${className}`
+            : `fixed top-0 right-0 bottom-0 z-40 flex flex-col bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] shadow-2xl transition-all duration-200 select-none ${className}`
+        }
         style={{
-          width: isExpandedFull ? "min(100vw, 980px)" : `min(100vw, ${panelWidth}px)`,
+          width: isExpandedFull ? (isDocked ? "min(100%, 960px)" : "min(100vw, 980px)") : isDocked ? `${panelWidth}px` : `min(100vw, ${panelWidth}px)`,
         }}
       >
         {/* Resize Handle on the left border */}
@@ -149,7 +157,7 @@ export function MediaInspectorPanel({ className = "" }: MediaInspectorPanelProps
           <div
             onMouseDown={handleMouseDown}
             title="拖拽调节独立窗宽度"
-            className="absolute left-0 top-0 bottom-0 w-1.5 -ml-1 cursor-col-resize hover:bg-[var(--aurora-accent)]/50 active:bg-[var(--aurora-accent)] transition-colors z-50 group"
+            className="absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-[var(--aurora-accent)]/50 active:bg-[var(--aurora-accent)] transition-colors z-30 group"
           >
             <div className="w-0.5 h-8 bg-white/20 rounded-full mx-auto my-auto relative top-1/2 -translate-y-1/2 group-hover:bg-[var(--aurora-accent)]" />
           </div>

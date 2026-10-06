@@ -437,6 +437,28 @@ function AskPageContent() {
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
+  // 3-Column Workspace: Left conversation history column state
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("memento_ask_history_sidebar");
+      if (saved !== null) return saved === "true";
+      return window.innerWidth >= 1024;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleHistorySidebar = useCallback(() => {
+    setIsHistorySidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("memento_ask_history_sidebar", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // Sources drawer state
   const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
@@ -1507,64 +1529,133 @@ function AskPageContent() {
     placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问，例如：「检查 git 状态」...` : `Run task or question on ${currentDev.name}...`;
   }
 
+  const activeConversation = conversations.find((c) => c.id === activeConversationId);
+
   return (
-    <div
-      className="w-full max-w-4xl mx-auto pb-44 min-w-0 overflow-x-hidden transition-all duration-300"
-      style={{
-        marginRight: inspector?.isOpen ? "clamp(380px, 32vw, 540px)" : undefined,
-      }}
-    >
-      <TopBar
-        title={t.ask.title}
-        subtitle={t.ask.subtitle}
-        right={
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+    <div className="w-full flex h-[calc(100vh-5.5rem)] rounded-2xl border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
+      {/* 栏 1: 桌面端常驻历史会话侧边栏 (支持折叠) */}
+      {isHistorySidebarOpen && (
+        <aside className="w-[260px] lg:w-[280px] shrink-0 border-r border-[var(--aurora-border)] flex flex-col h-full bg-[var(--aurora-surface-solid)]/80 backdrop-blur-xl transition-all duration-200 select-none z-10">
+          {/* Header: 新建对话 & 收起按钮 */}
+          <div className="p-3 border-b border-[var(--aurora-border)] flex items-center justify-between gap-2 shrink-0 bg-[var(--aurora-chip)]/20">
+            <button
+              type="button"
+              onClick={startNewChat}
+              className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-[var(--aurora-accent-soft)] hover:bg-[var(--aurora-accent)] hover:text-white border border-[var(--aurora-accent)] text-[var(--aurora-accent)] text-xs font-semibold shadow-sm transition-all cursor-pointer group"
+            >
+              <Icon name="plus" size={14} className="group-hover:rotate-90 transition-transform duration-200" />
+              <span>{t.ask.newChat}</span>
+            </button>
+            <button
+              type="button"
+              onClick={toggleHistorySidebar}
+              title={isZh ? "收起历史会话栏" : "Collapse sidebar"}
+              className="p-2 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+            >
+              <Icon name="chevron_left" size={14} />
+            </button>
+          </div>
+
+          {/* 会话列表 */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
+            {conversations.length === 0 ? (
+              <div className="text-center py-12 text-xs text-[var(--aurora-fg4)]">
+                {t.ask.noHistory}
+              </div>
+            ) : (
+              conversations.map((c) => {
+                const isActive = c.id === activeConversationId;
+                const dateStr = c.updated_at
+                  ? new Date(c.updated_at).toLocaleString(undefined, {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "";
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => loadConversation(c.id)}
+                    className={`group relative flex items-center justify-between p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                      isActive
+                        ? "bg-[var(--aurora-accent-soft)] border-[var(--aurora-accent)] shadow-sm"
+                        : "bg-transparent border-transparent hover:bg-[var(--aurora-chip)] hover:border-[var(--aurora-border)]"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1 pr-1">
+                      <div
+                        className={`text-xs font-medium truncate ${
+                          isActive ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
+                        }`}
+                        title={c.title || t.ask.title}
+                      >
+                        {c.title || t.ask.title}
+                      </div>
+                      <div className="text-[10.5px] text-[var(--aurora-fg4)] flex items-center gap-1.5 mt-0.5">
+                        <span>{dateStr}</span>
+                        <span>·</span>
+                        <span>{c.message_count || 0} 轮</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => deleteConversation(e, c.id)}
+                      title={t.ask.deleteConfirm}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-[var(--aurora-fg4)] hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* 栏 2: 中间主对话沟通区 */}
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
+        {/* 中栏顶部 Bar */}
+        <header className="px-4 py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {!isHistorySidebarOpen && (
+              <button
+                type="button"
+                onClick={toggleHistorySidebar}
+                title={isZh ? "展开历史会话栏" : "Expand history sidebar"}
+                className="p-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] hover:text-[var(--aurora-accent)] transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium"
+              >
+                <Icon name="sidebar" size={14} />
+                <span className="hidden sm:inline">{t.ask.historyTitle}</span>
+              </button>
+            )}
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[200px] sm:max-w-md">
+                {activeConversation?.title || t.ask.title}
+              </h1>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* 媒体视窗快捷开关 (若对话中有视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
                 variant={inspector.isOpen ? "primary" : "glass"}
                 size="sm"
                 icon="sidebar"
                 onClick={inspector.toggleInspector}
-                title="打开右侧媒体独立视窗"
+                title={inspector.isOpen ? (isZh ? "折叠媒体独立视窗" : "Collapse media inspector") : (isZh ? "展开媒体独立视窗" : "Open media inspector")}
               >
-                <span>媒体视窗</span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "1px 6px",
-                    borderRadius: 999,
-                    background: inspector.isOpen ? "rgba(255,255,255,0.25)" : "var(--aurora-chip)",
-                    color: inspector.isOpen ? "#fff" : "var(--aurora-accent)",
-                    marginLeft: 4,
-                    fontWeight: 700,
-                  }}
-                >
-                  {inspector.mediaList.length}
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>媒体视窗</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
+                    {inspector.mediaList.length}
+                  </span>
                 </span>
               </Btn>
             )}
-            <Btn
-              variant="glass"
-              size="sm"
-              icon="clock"
-              onClick={() => setHistoryOpen(true)}
-            >
-              <span className="hidden sm:inline">{t.ask.historyTitle}</span>
-              {conversations.length > 0 && (
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "1px 6px",
-                    borderRadius: 999,
-                    background: "var(--aurora-chip)",
-                    color: "var(--aurora-fg3)",
-                    marginLeft: 4,
-                  }}
-                >
-                  {conversations.length}
-                </span>
-              )}
-            </Btn>
             <Btn
               variant="glass"
               size="sm"
@@ -1586,8 +1677,15 @@ function AskPageContent() {
               </Btn>
             )}
           </div>
-        }
-      />
+        </header>
+
+        {/* 中栏消息滚动列表 */}
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 scroll-smooth"
+        >
+          <div className="w-full max-w-3xl mx-auto space-y-4">
 
       {turns.length === 0 && (
         <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
@@ -1658,11 +1756,7 @@ function AskPageContent() {
       )}
 
       {/* Conversation turns list */}
-      <div
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 20, maxWidth: "100%", minWidth: 0 }}
-      >
+      <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: "100%", minWidth: 0 }}>
         {turns.map((turn, i) =>
           turn.role === "user" ? (
             <UserBubble key={i} content={turn.content} />
@@ -1684,34 +1778,26 @@ function AskPageContent() {
         )}
         <div ref={bottomRef} />
       </div>
+    </div>
+  </div>
 
-      {/* Fixed Viewport Bottom Interactive Console Bar */}
+  {/* 中栏底部交互控制台 (作为 flex footer，不再 fixed 悬空) */}
+  <footer className="shrink-0 p-3 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl">
+    <div className="max-w-3xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
       <div
-        className="fixed bottom-0 left-0 lg:left-60 right-0 z-20 pointer-events-none transition-all duration-300"
         style={{
-          paddingBottom: "clamp(12px, 2.5vh, 20px)",
-          paddingTop: 28,
-          background: "linear-gradient(to top, var(--aurora-bg) 75%, transparent)",
-          maxWidth: "100vw",
+          background: "var(--aurora-surface-solid)",
+          border: "1px solid var(--aurora-border-strong)",
+          borderRadius: 18,
+          padding: "10px 14px",
+          boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
+          backdropFilter: "blur(20px)",
+          maxWidth: "100%",
+          width: "100%",
+          minWidth: 0,
           boxSizing: "border-box",
-          right: inspector?.isOpen ? "clamp(380px, 32vw, 540px)" : 0,
         }}
       >
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 pointer-events-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
-          <div
-            style={{
-              background: "var(--aurora-surface-solid)",
-              border: "1px solid var(--aurora-border-strong)",
-              borderRadius: 18,
-              padding: "10px 14px",
-              boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
-              backdropFilter: "blur(20px)",
-              maxWidth: "100%",
-              width: "100%",
-              minWidth: 0,
-              boxSizing: "border-box",
-            }}
-          >
             {isConfigCollapsed ? (
               /* Collapsed Summary Pill Bar */
               <div
@@ -2886,7 +2972,8 @@ function AskPageContent() {
             </div>
           </div>
         </div>
-      </div>
+      </footer>
+    </div>
 
       {/* History Drawer Overlay & Sidebar */}
       {historyOpen && (
@@ -3389,8 +3476,11 @@ function AskPageContent() {
         </div>
       )}
 
-      {/* 右侧媒体独立视窗 */}
-      <MediaInspectorPanel />
+      {/* 栏 3: 右侧媒体独立视窗 (Docked 模式，桌面端停靠为第三栏) */}
+      <MediaInspectorPanel mode="docked" className="hidden lg:flex" />
+
+      {/* 移动端媒体视窗抽屉 */}
+      <MediaInspectorPanel mode="overlay" className="lg:hidden" />
     </div>
   );
 }

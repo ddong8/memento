@@ -15,9 +15,17 @@ export default function ActiveRunsMonitor() {
 
   const [runs, setRuns] = useState<AskRunSummary[]>([]);
   const [now, setNow] = useState<number>(() => Date.now());
-  const [collapsed, setCollapsed] = useState<boolean>(false);
+  const [collapsed, setCollapsed] = useState<boolean>(true);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const updateSize = () => setIsMobile(window.innerWidth < 768);
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
 
   // Keep track of previously active conversation IDs so we know when one transitions to done
   const activeIdsRef = useRef<Set<string>>(new Set());
@@ -179,13 +187,13 @@ export default function ActiveRunsMonitor() {
     <div
       className="fixed z-50 pointer-events-none transition-all duration-300"
       style={{
-        bottom: "24px",
-        right: "24px",
-        maxWidth: "calc(100vw - 32px)",
-        width: collapsed ? "auto" : "420px",
+        top: isMobile ? "calc(env(safe-area-inset-top, 0px) + 54px)" : "76px",
+        right: isMobile ? "12px" : "24px",
+        maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
+        width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
       }}
     >
-      <div className="flex flex-col gap-2.5 pointer-events-auto">
+      <div className="flex flex-col gap-2.5 pointer-events-auto items-end">
         {/* 1. Finished Notifications Toasts */}
         {recentFinishedRuns.map((r) => {
           const isCurrentChat = currentConvId === r.conversation_id;
@@ -195,7 +203,7 @@ export default function ActiveRunsMonitor() {
             <div
               key={`notice-${r.conversation_id}`}
               onClick={() => jumpToChat(r.conversation_id)}
-              className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02]"
+              className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] w-full"
               style={{
                 background: isError
                   ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
@@ -237,63 +245,84 @@ export default function ActiveRunsMonitor() {
           );
         })}
 
-        {/* 2. Active Runs Floating Panel (Claude Code / Workbuddy style) */}
+        {/* 2. Active Runs Floating Panel / Dynamic Pill (Zero occlusion design) */}
         {activeRuns.length > 0 && (
-          <div
-            className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden"
-            style={{
-              background: "linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92))",
-              border: "1px solid rgba(56, 189, 248, 0.35)",
-              boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
-            }}
-          >
-            {/* Header bar */}
-            <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10">
-              <div className="flex items-center gap-2.5">
-                {/* Radar pulsing live status indicator */}
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          collapsed ? (
+            <div
+              onClick={() => setCollapsed(false)}
+              className="cursor-pointer flex items-center gap-2.5 px-3.5 py-1.5 rounded-full shadow-2xl backdrop-blur-2xl border transition-all duration-200 hover:scale-[1.03] ml-auto group"
+              style={{
+                background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))",
+                borderColor: "rgba(56, 189, 248, 0.45)",
+                boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.2)",
+              }}
+              title="点击展开查看后台智能体任务详情"
+            >
+              <span className="relative flex h-2 w-2 flex-shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-semibold text-white tracking-wide whitespace-nowrap">
+                后台智能体运行中
+              </span>
+              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap">
+                {formatDuration(activeRuns[0].started_at)}
+              </span>
+              {activeRuns.length > 1 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
+                  +{activeRuns.length - 1}
                 </span>
-                <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
-                  后台智能体运行中
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
-                    {activeRuns.length}
-                  </span>
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setCollapsed((v) => !v)}
-                  title={collapsed ? "展开监控窗" : "最小化"}
-                  className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-                >
-                  <Icon name={collapsed ? "chevron_up" : "chevron_down"} size={14} />
-                </button>
-              </div>
+              )}
+              <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
+                展开 <Icon name="chevron_down" size={12} />
+              </span>
             </div>
-
-            {/* If collapsed: show compact single-line ticker */}
-            {collapsed ? (
-              <div
-                onClick={() => setCollapsed(false)}
-                className="px-3 py-2 cursor-pointer hover:bg-white/5 flex items-center justify-between gap-3 text-xs"
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <span className="text-emerald-400 font-mono text-[11px]">
-                    ⏱️ {formatDuration(activeRuns[0].started_at)}
+          ) : (
+            <div
+              className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden w-full"
+              style={{
+                background: "linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94))",
+                border: "1px solid rgba(56, 189, 248, 0.35)",
+                boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
+              }}
+            >
+              {/* Header bar */}
+              <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                   </span>
-                  <span className="text-gray-300 truncate text-xs">
-                    {activeRuns[0].current_step || activeRuns[0].question}
+                  <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
+                    后台智能体运行中
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
+                      {activeRuns.length}
+                    </span>
                   </span>
                 </div>
-                <span className="text-[11px] text-sky-400 flex-shrink-0">点击展开</span>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed(true)}
+                    title="收起为精简胶囊"
+                    className="px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px]"
+                  >
+                    <span>收起</span>
+                    <Icon name="chevron_up" size={13} />
+                  </button>
+                </div>
               </div>
-            ) : (
-              /* Expanded list of active runs */
-              <div className="divide-y divide-white/5 max-h-[360px] overflow-y-auto">
+
+              {/* Expanded list of active runs */}
+              <div
+                className="divide-y divide-white/5 overflow-y-auto"
+                style={{
+                  maxHeight: "min(360px, 50vh)",
+                  overscrollBehavior: "contain",
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
                 {activeRuns.map((run) => {
                   const badge = getModeBadge(run.execution_mode);
                   const isCurrentChat = currentConvId === run.conversation_id;
@@ -399,8 +428,8 @@ export default function ActiveRunsMonitor() {
                   );
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          )
         )}
       </div>
     </div>

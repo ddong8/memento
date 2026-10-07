@@ -207,6 +207,7 @@ export function VideoPlayer({
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
+  const [bufferedProgress, setBufferedProgress] = useState<number>(0);
   const [copied, setCopied] = useState<boolean>(false);
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
 
@@ -469,16 +470,30 @@ export function VideoPlayer({
           poster={poster}
           autoPlay={autoPlay}
           playsInline
-          preload="metadata"
+          preload="auto"
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
+          onProgress={() => {
+            const v = videoRef.current;
+            if (!v || !v.duration) return;
+            if (v.buffered.length > 0) {
+              for (let i = 0; i < v.buffered.length; i++) {
+                if (v.buffered.start(i) <= v.currentTime && v.currentTime <= v.buffered.end(i)) {
+                  setBufferedProgress((v.buffered.end(i) / v.duration) * 100);
+                  return;
+                }
+              }
+              setBufferedProgress((v.buffered.end(v.buffered.length - 1) / v.duration) * 100);
+            }
+          }}
           onLoadedMetadata={() => {
             if (videoRef.current) {
               setDuration(videoRef.current.duration);
               setIsLoading(false);
             }
           }}
+          onCanPlay={() => setIsLoading(false)}
           onWaiting={() => setIsLoading(true)}
           onPlaying={() => setIsLoading(false)}
           onError={() => {
@@ -566,8 +581,22 @@ export function VideoPlayer({
           showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
-        {/* Progress Bar Slider */}
-        <div className="relative flex items-center group/progress mb-2 cursor-pointer">
+        {/* Progress Bar Slider with Network Buffered Range */}
+        <div className="relative flex items-center group/progress mb-2 cursor-pointer h-3">
+          {/* Dual Layer Track: Background + Network Buffered + Current Played */}
+          <div className="absolute inset-x-0 h-1.5 group-hover/progress:h-2 rounded-full bg-white/15 overflow-hidden transition-all pointer-events-none">
+            {/* Network Buffered Track (浅白指示网络流已缓冲段) */}
+            <div
+              className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-full transition-all duration-200"
+              style={{ width: `${Math.min(100, Math.max(0, bufferedProgress))}%` }}
+              title={`网络已缓冲: ${Math.round(bufferedProgress)}%`}
+            />
+            {/* Current Played Track (主题色高亮已播段) */}
+            <div
+              className="absolute left-0 top-0 bottom-0 bg-[var(--aurora-accent)] rounded-full transition-all"
+              style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+            />
+          </div>
           <input
             type="range"
             min={0}
@@ -575,10 +604,7 @@ export function VideoPlayer({
             step={0.1}
             value={currentTime}
             onChange={handleSeek}
-            className="w-full h-1.5 rounded-lg appearance-none bg-white/20 accent-[var(--aurora-accent)] hover:h-2 transition-all cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, var(--aurora-accent) ${(currentTime / (duration || 1)) * 100}%, rgba(255,255,255,0.2) ${(currentTime / (duration || 1)) * 100}%)`,
-            }}
+            className="relative z-10 w-full h-1.5 group-hover/progress:h-2 appearance-none bg-transparent accent-[var(--aurora-accent)] cursor-pointer"
           />
         </div>
 

@@ -609,27 +609,85 @@ function AskPageContent() {
   useEffect(() => {
     loadConversations();
 
-    // Determine target conversation ID:
-    // 1) Explicit URL idParam
-    // 2) Stored in localStorage from last session
-    // 3) Currently active in askCache
-    let targetId = idParam;
-    if (!targetId && !qParam) {
-      if (typeof window !== "undefined") {
-        targetId = localStorage.getItem("memento_last_ask_conv_id") || askCache?.activeConversationId || null;
-      }
-    }
-
-    if (targetId && !streamingRef.current) {
-      // If already in memory with matching turns, avoid network re-fetch
-      if (activeConversationIdRef.current === targetId && turns.length > 0) {
-        if (!idParam) {
-          window.history.replaceState(null, "", `/ask?id=${targetId}`);
+    const checkAndRestore = async () => {
+      // Determine target conversation ID:
+      // 1) Explicit URL idParam
+      // 2) Stored in localStorage from last session
+      // 3) Currently active in askCache
+      let resolvedTargetId = idParam;
+      if (!resolvedTargetId && !qParam) {
+        if (typeof window !== "undefined") {
+          resolvedTargetId = localStorage.getItem("memento_last_ask_conv_id") || askCache?.activeConversationId || null;
         }
+      }
+
+      // Check server for any active runs for this user
+      let activeRunToAttach: any = null;
+      try {
+        const runsRes = await authFetch(`${getApiBase()}/api/ask/runs`);
+        if (runsRes.ok) {
+          const activeRuns = await runsRes.json();
+          if (Array.isArray(activeRuns) && activeRuns.length > 0) {
+            if (resolvedTargetId) {
+              activeRunToAttach = activeRuns.find((r: any) => r.conversation_id === resolvedTargetId && !r.done);
+            }
+            // If user opened /ask with no specific id, but there is an active run, prioritize that active run!
+            if (!activeRunToAttach && !idParam && activeRuns[0] && !activeRuns[0].done) {
+              activeRunToAttach = activeRuns[0];
+              resolvedTargetId = activeRunToAttach.conversation_id;
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check active runs:", err);
+      }
+
+      if (!resolvedTargetId || streamingRef.current) return;
+
+      // If an active run is currently ongoing on the server: MUST reattach live stream!
+      if (activeRunToAttach) {
+        activeConversationIdRef.current = resolvedTargetId;
+        setActiveConversationId(resolvedTargetId);
+        if (!idParam) {
+          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+        }
+        try {
+          localStorage.setItem("memento_last_ask_conv_id", resolvedTargetId);
+        } catch {}
+
+        let baseTurns = (activeConversationIdRef.current === resolvedTargetId && turns.length > 0)
+          ? turns
+          : [];
+        if (baseTurns.length === 0) {
+          try {
+            const data = await api.getAskConversation(resolvedTargetId);
+            baseTurns = data.turns || [];
+          } catch {}
+        }
+        attachRunRef.current?.(resolvedTargetId, activeRunToAttach.question || "", baseTurns);
         return;
       }
-      loadConversation(targetId);
-    }
+
+      // If no active run: check if memory has matching turns
+      if (activeConversationIdRef.current === resolvedTargetId && turns.length > 0) {
+        if (!idParam) {
+          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+        }
+        // Background sync to pull fully completed turns if the run finished while away
+        api.getAskConversation(resolvedTargetId).then((data) => {
+          if (data && data.turns && data.turns.length >= turnsRef.current.length) {
+            setTurns(data.turns);
+            turnsRef.current = data.turns;
+          }
+        }).catch(() => {});
+        return;
+      }
+
+      // Otherwise load conversation fresh from DB
+      loadConversation(resolvedTargetId);
+    };
+
+    checkAndRestore();
   }, [idParam, qParam, loadConversation, loadConversations]);
 
   // Follow the stream as tokens land — throttled to avoid layout thrash.
@@ -1125,8 +1183,28 @@ function AskPageContent() {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    turnsRef.current = [...baseTurns, { role: "user", content: question }, { role: "assistant", content: "", toolCalls: [] }];
-    setTurns([...turnsRef.current]);
+
+    let turnsToUse = [...baseTurns];
+    const len = turnsToUse.length;
+    const last = len > 0 ? turnsToUse[len - 1] : null;
+    const secondLast = len > 1 ? turnsToUse[len - 2] : null;
+
+    if (last?.role === "assistant" && secondLast?.role === "user" && secondLast.content === question) {
+      // Already ends with user question and assistant placeholder, reset assistant content and toolCalls for clean replay
+      turnsToUse = [...turnsToUse.slice(0, -1), { role: "assistant", content: "", toolCalls: [] }];
+    } else if (last?.role === "user" && last.content === question) {
+      // Ends with user question, append assistant placeholder
+      turnsToUse.push({ role: "assistant", content: "", toolCalls: [] });
+    } else {
+      // Normal case: append both user and assistant
+      turnsToUse.push(
+        { role: "user", content: question },
+        { role: "assistant", content: "", toolCalls: [] }
+      );
+    }
+
+    turnsRef.current = turnsToUse;
+    setTurns([...turnsToUse]);
     streamingRef.current = true;
     setStreaming(true);
     try {

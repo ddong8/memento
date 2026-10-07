@@ -807,6 +807,10 @@ export const api = {
     apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
   deleteAskConversation: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
+  listAskRuns: (recentSeconds = 0) =>
+    apiFetch<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
+  cancelAskRun: (convId: string) =>
+    apiFetch<{ status: string }>(`/api/ask/conversations/${convId}/cancel`, { method: "POST" }),
   listProjects: (toolId?: string, deviceId?: string) => {
     const params = new URLSearchParams();
     if (toolId) params.set("tool_id", toolId);
@@ -934,6 +938,25 @@ export interface AskConversationDetail {
   cwd: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface AskRunSummary {
+  conversation_id: string;
+  title: string;
+  question: string;
+  execution_mode?: string | null;
+  model?: string | null;
+  device_name?: string | null;
+  started_at: number;
+  finished_at?: number | null;
+  elapsed_seconds: number;
+  done: boolean;
+  cancelled: boolean;
+  failed: boolean;
+  current_step?: string;
+  step_type?: "init" | "thinking" | "tool_call" | "executing" | "tool_result" | "generating" | "done" | "cancelled" | "error";
+  tool_name?: string | null;
+  events: number;
 }
 
 export interface ProactiveSettings {

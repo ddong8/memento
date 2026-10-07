@@ -10,6 +10,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { AuroraBackdrop } from "@/components/aurora/AuroraBackdrop";
 import CommandPalette from "@/components/CommandPalette";
+import ActiveRunsMonitor from "@/components/agent/ActiveRunsMonitor";
 
 /** Detect the best initial locale: user's saved choice → browser preference → zh-CN default. */
 function detectInitialLocale(): Locale {
@@ -136,6 +137,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             filter) and inside the authed branch, so it never mounts on the
             landing or public share pages. */}
         <CommandPalette />
+        <ActiveRunsMonitor />
         <AppShellInner sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen}>
           {children}
         </AppShellInner>

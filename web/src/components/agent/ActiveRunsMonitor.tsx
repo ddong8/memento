@@ -1,0 +1,408 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { api, type AskRunSummary } from "@/lib/api-client";
+import { Icon } from "@/components/aurora/Icon";
+import { useAuth } from "@/lib/auth-context";
+
+export default function ActiveRunsMonitor() {
+  const { token } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentConvId = pathname === "/ask" ? searchParams.get("id") : null;
+
+  const [runs, setRuns] = useState<AskRunSummary[]>([]);
+  const [now, setNow] = useState<number>(() => Date.now());
+  const [collapsed, setCollapsed] = useState<boolean>(false);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set());
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  // Keep track of previously active conversation IDs so we know when one transitions to done
+  const activeIdsRef = useRef<Set<string>>(new Set());
+  const completedNoticeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Local ticker every 1000ms for smooth elapsed seconds updates
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Poll server for active and recently finished runs
+  const fetchRuns = useCallback(async () => {
+    if (!token) return;
+    try {
+      // Ask for runs active or finished in the last 20 seconds
+      const data = await api.listAskRuns(20);
+      if (!Array.isArray(data)) return;
+
+      const currentActiveIds = new Set<string>();
+      data.forEach((r) => {
+        if (!r.done) currentActiveIds.add(r.conversation_id);
+      });
+
+      // Check transitions: was active previously, now done
+      data.forEach((r) => {
+        if (r.done && activeIdsRef.current.has(r.conversation_id)) {
+          // Auto-dismiss completed notification after 8 seconds
+          if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
+            const t = setTimeout(() => {
+              setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
+            }, 8000);
+            completedNoticeTimerRef.current.set(r.conversation_id, t);
+          }
+        }
+      });
+
+      activeIdsRef.current = currentActiveIds;
+      setRuns(data);
+    } catch {
+      // Ignore network errors during polling
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchRuns();
+
+    const activeCount = runs.filter((r) => !r.done).length;
+    // Faster poll (1500ms) when agent is active, slower (4000ms) when idle
+    const intervalTime = activeCount > 0 ? 1500 : 4000;
+    const interval = setInterval(fetchRuns, intervalTime);
+    return () => clearInterval(interval);
+  }, [token, fetchRuns, runs]);
+
+  const activeRuns = runs.filter((r) => !r.done);
+  const recentFinishedRuns = runs.filter(
+    (r) => r.done && !dismissedNotificationIds.has(r.conversation_id) && (now / 1000 - (r.finished_at || 0) < 20)
+  );
+
+  // Handle task stop/cancel
+  const handleCancel = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    try {
+      setCancellingId(convId);
+      await api.cancelAskRun(convId);
+      setTimeout(fetchRuns, 400);
+    } catch (err) {
+      console.error("Failed to cancel run:", err);
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const handleDismissNotice = (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    setDismissedNotificationIds((prev) => new Set([...prev, convId]));
+  };
+
+  const jumpToChat = (convId: string) => {
+    router.push(`/ask?id=${convId}`);
+  };
+
+  // If nothing active and no recent notifications, render nothing
+  if (activeRuns.length === 0 && recentFinishedRuns.length === 0) {
+    return null;
+  }
+
+  // Helper to format elapsed duration
+  const formatDuration = (startedAtSec: number, finishedAtSec?: number | null) => {
+    const end = finishedAtSec ? finishedAtSec * 1000 : now;
+    const diffSec = Math.max(0, Math.floor((end - startedAtSec * 1000) / 1000));
+    const mins = Math.floor(diffSec / 60);
+    const secs = diffSec % 60;
+    if (mins > 0) return `${mins}分${secs}秒`;
+    return `${secs}秒`;
+  };
+
+  // Mode badge stylings
+  const getModeBadge = (mode?: string | null) => {
+    const m = (mode || "ai").toLowerCase();
+    if (m === "claude") {
+      return {
+        label: "Claude",
+        bgColor: "rgba(168, 85, 247, 0.15)",
+        borderColor: "rgba(168, 85, 247, 0.4)",
+        textColor: "#c084fc",
+        icon: "zap",
+      };
+    }
+    if (m === "codex") {
+      return {
+        label: "Codex",
+        bgColor: "rgba(16, 185, 129, 0.15)",
+        borderColor: "rgba(16, 185, 129, 0.4)",
+        textColor: "#34d399",
+        icon: "terminal",
+      };
+    }
+    if (m === "antigravity") {
+      return {
+        label: "Antigravity",
+        bgColor: "rgba(14, 165, 233, 0.15)",
+        borderColor: "rgba(14, 165, 233, 0.4)",
+        textColor: "#38bdf8",
+        icon: "rocket",
+      };
+    }
+    if (m === "agent") {
+      return {
+        label: "Agent",
+        bgColor: "rgba(245, 158, 11, 0.15)",
+        borderColor: "rgba(245, 158, 11, 0.4)",
+        textColor: "#fbbf24",
+        icon: "sparkles",
+      };
+    }
+    return {
+      label: "Memento AI",
+      bgColor: "rgba(99, 102, 241, 0.15)",
+      borderColor: "rgba(99, 102, 241, 0.4)",
+      textColor: "#818cf8",
+      icon: "brain",
+    };
+  };
+
+  const getStepIcon = (type?: string) => {
+    if (type === "tool_call" || type === "executing") return "⚡";
+    if (type === "thinking") return "🧠";
+    if (type === "generating") return "✨";
+    if (type === "done") return "✅";
+    if (type === "error") return "❌";
+    return "⚙️";
+  };
+
+  return (
+    <div
+      className="fixed z-50 pointer-events-none transition-all duration-300"
+      style={{
+        bottom: "24px",
+        right: "24px",
+        maxWidth: "calc(100vw - 32px)",
+        width: collapsed ? "auto" : "420px",
+      }}
+    >
+      <div className="flex flex-col gap-2.5 pointer-events-auto">
+        {/* 1. Finished Notifications Toasts */}
+        {recentFinishedRuns.map((r) => {
+          const isCurrentChat = currentConvId === r.conversation_id;
+          if (isCurrentChat) return null; // Don't show toast if user is already watching it
+          const isError = r.failed;
+          return (
+            <div
+              key={`notice-${r.conversation_id}`}
+              onClick={() => jumpToChat(r.conversation_id)}
+              className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02]"
+              style={{
+                background: isError
+                  ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
+                  : "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(15, 23, 42, 0.95))",
+                border: isError
+                  ? "1px solid rgba(239, 68, 68, 0.4)"
+                  : "1px solid rgba(16, 185, 129, 0.4)",
+                boxShadow: isError
+                  ? "0 10px 30px -5px rgba(239, 68, 68, 0.3)"
+                  : "0 10px 30px -5px rgba(16, 185, 129, 0.3)",
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{isError ? "❌" : "✅"}</span>
+                  <span className="text-xs font-semibold text-white tracking-wide">
+                    {isError ? "智能体任务出错" : "智能体任务已完成"}
+                  </span>
+                  <span className="text-[11px] text-gray-400">
+                    ({formatDuration(r.started_at, r.finished_at)})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-emerald-400 group-hover:underline flex items-center gap-0.5">
+                    查看成果 <Icon name="arrow_right" size={12} />
+                  </span>
+                  <button
+                    onClick={(e) => handleDismissNotice(e, r.conversation_id)}
+                    className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-1"
+                  >
+                    <Icon name="close" size={13} />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-gray-300 line-clamp-1 pl-6">
+                {r.question || r.title || "（无描述）"}
+              </p>
+            </div>
+          );
+        })}
+
+        {/* 2. Active Runs Floating Panel (Claude Code / Workbuddy style) */}
+        {activeRuns.length > 0 && (
+          <div
+            className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden"
+            style={{
+              background: "linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92))",
+              border: "1px solid rgba(56, 189, 248, 0.35)",
+              boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
+            }}
+          >
+            {/* Header bar */}
+            <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10">
+              <div className="flex items-center gap-2.5">
+                {/* Radar pulsing live status indicator */}
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
+                  后台智能体运行中
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
+                    {activeRuns.length}
+                  </span>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((v) => !v)}
+                  title={collapsed ? "展开监控窗" : "最小化"}
+                  className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  <Icon name={collapsed ? "chevron_up" : "chevron_down"} size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* If collapsed: show compact single-line ticker */}
+            {collapsed ? (
+              <div
+                onClick={() => setCollapsed(false)}
+                className="px-3 py-2 cursor-pointer hover:bg-white/5 flex items-center justify-between gap-3 text-xs"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className="text-emerald-400 font-mono text-[11px]">
+                    ⏱️ {formatDuration(activeRuns[0].started_at)}
+                  </span>
+                  <span className="text-gray-300 truncate text-xs">
+                    {activeRuns[0].current_step || activeRuns[0].question}
+                  </span>
+                </div>
+                <span className="text-[11px] text-sky-400 flex-shrink-0">点击展开</span>
+              </div>
+            ) : (
+              /* Expanded list of active runs */
+              <div className="divide-y divide-white/5 max-h-[360px] overflow-y-auto">
+                {activeRuns.map((run) => {
+                  const badge = getModeBadge(run.execution_mode);
+                  const isCurrentChat = currentConvId === run.conversation_id;
+                  const isCancelling = cancellingId === run.conversation_id;
+
+                  return (
+                    <div
+                      key={run.conversation_id}
+                      className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
+                    >
+                      {/* Top status info line */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Mode tag */}
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border"
+                            style={{
+                              background: badge.bgColor,
+                              borderColor: badge.borderColor,
+                              color: badge.textColor,
+                            }}
+                          >
+                            <span>{badge.label}</span>
+                          </span>
+
+                          {/* Model or device info */}
+                          {run.model && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
+                              {run.model}
+                            </span>
+                          )}
+                          {run.device_name && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
+                              💻 {run.device_name}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Live Timer */}
+                        <div className="flex items-center gap-1 font-mono text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
+                          <Icon name="clock" size={11} />
+                          <span>{formatDuration(run.started_at)}</span>
+                        </div>
+                      </div>
+
+                      {/* Question / Task title */}
+                      <div className="text-xs font-medium text-white line-clamp-1">
+                        {run.question || run.title || "后台长任务"}
+                      </div>
+
+                      {/* Current Step (Dynamic updates like Claude Code / Workbuddy) */}
+                      <div
+                        className="rounded-xl px-2.5 py-2 flex items-center gap-2 border"
+                        style={{
+                          background: "rgba(15, 23, 42, 0.6)",
+                          borderColor: "rgba(56, 189, 248, 0.2)",
+                        }}
+                      >
+                        <span className="text-sm flex-shrink-0 animate-pulse">
+                          {getStepIcon(run.step_type)}
+                        </span>
+                        <span className="text-[11px] text-sky-200 line-clamp-1 font-mono flex-1">
+                          {run.current_step || "正在深度思考与执行任务..."}
+                        </span>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span className="text-[10px] text-gray-400">
+                          已接收 {run.events} 个事件帧
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
+                          {/* Jump to chat button */}
+                          <button
+                            type="button"
+                            onClick={() => jumpToChat(run.conversation_id)}
+                            className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+                            style={{
+                              background: isCurrentChat
+                                ? "rgba(255, 255, 255, 0.1)"
+                                : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
+                              border: "1px solid rgba(56, 189, 248, 0.4)",
+                              color: isCurrentChat ? "#94a3b8" : "#38bdf8",
+                            }}
+                          >
+                            <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>
+                            <Icon name="arrow_right" size={11} />
+                          </button>
+
+                          {/* Cancel / Stop button */}
+                          <button
+                            type="button"
+                            disabled={isCancelling}
+                            onClick={(e) => handleCancel(e, run.conversation_id)}
+                            className="px-2 py-1 rounded-lg text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
+                          >
+                            <span>{isCancelling ? "停止中..." : "终止"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

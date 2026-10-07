@@ -210,6 +210,58 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         await run2.task
         self.assertTrue(run2.done)
 
+    async def test_run_metadata_and_dynamic_steps(self):
+        step_observed = asyncio.Event()
+        release = asyncio.Event()
+
+        async def gen(db, user):
+            yield frame({"type": "thinking", "text": "let me think"})
+            yield frame({"type": "tool_call", "name": "run_command", "args": {"command": "git status"}})
+            step_observed.set()
+            await release.wait()
+            yield frame({"type": "delta", "text": "all done"})
+            yield frame({"type": "done"})
+
+        run = self.registry.start(
+            "c12",
+            self.user.id,
+            "Check git status",
+            gen,
+            execution_mode="claude",
+            model="claude-3-7-sonnet",
+            device_name="work-laptop",
+            title="Git Status Conversation",
+        )
+        await step_observed.wait()
+        summary = run.summary()
+        self.assertEqual(summary["execution_mode"], "claude")
+        self.assertEqual(summary["model"], "claude-3-7-sonnet")
+        self.assertEqual(summary["device_name"], "work-laptop")
+        self.assertEqual(summary["title"], "Git Status Conversation")
+        self.assertIn("run_command", summary["current_step"])
+        self.assertEqual(summary["step_type"], "tool_call")
+
+        release.set()
+        await run.task
+        final_summary = run.summary()
+        self.assertTrue(final_summary["done"])
+        self.assertEqual(final_summary["current_step"], "任务完成")
+        self.assertEqual(final_summary["step_type"], "done")
+
+    async def test_active_for_user_with_recent_seconds(self):
+        async def gen(db, user):
+            yield frame({"type": "done"})
+
+        run = self.registry.start("c13", self.user.id, "q", gen)
+        await run.task
+        # Immediately after finishing: not in active_for_user(recent=0)
+        self.assertEqual(len(self.registry.active_for_user(self.user.id, include_recent_seconds=0)), 0)
+        # But in active_for_user(recent=10)
+        recent = self.registry.active_for_user(self.user.id, include_recent_seconds=10)
+        self.assertEqual(len(recent), 1)
+        self.assertEqual(recent[0].conversation_id, "c13")
+
 
 if __name__ == "__main__":
     unittest.main()
+

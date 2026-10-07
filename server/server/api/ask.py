@@ -1258,20 +1258,45 @@ _SSE_HEADERS = {
 }
 
 
-def _run_response(conv_id, user: User, question: str, request_id: str | None, factory) -> StreamingResponse:
+def _run_response(
+    conv_id,
+    user: User,
+    question: str,
+    request_id: str | None,
+    factory,
+    *,
+    execution_mode: str | None = None,
+    model: str | None = None,
+    device_name: str | None = None,
+    title: str | None = None,
+) -> StreamingResponse:
     """Start the ask as a background run and stream it. The run survives the
     client disconnecting; see services/ask_runs.py."""
     try:
-        run = ask_runs.start(str(conv_id), user.id, question, factory, request_id=request_id)
+        run = ask_runs.start(
+            str(conv_id),
+            user.id,
+            question,
+            factory,
+            request_id=request_id,
+            execution_mode=execution_mode,
+            model=model,
+            device_name=device_name,
+            title=title,
+        )
     except RunConflict:
         raise HTTPException(status_code=409, detail="这个对话还有任务在运行，请等它结束或先停止")
     return StreamingResponse(run.stream(0), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.get("/runs")
-async def list_active_runs(_user: User = Depends(get_current_user)) -> list[dict]:
-    """Runs still in progress for this user (e.g. to show them after reopening the app)."""
-    return [r.summary() for r in ask_runs.active_for_user(_user.id)]
+async def list_active_runs(
+    recent: int = 0,
+    _user: User = Depends(get_current_user),
+) -> list[dict]:
+    """Runs still in progress for this user (e.g. to show them after reopening the app),
+    optionally including recently finished runs within `recent` seconds."""
+    return [r.summary() for r in ask_runs.active_for_user(_user.id, include_recent_seconds=float(recent))]
 
 
 @router.get("/conversations/{conv_id}/run")
@@ -1334,29 +1359,64 @@ async def ask(
         history=body.history,
     )
 
+    if question.startswith("__mock_long_run__"):
+        async def _mock_stream(run_user: User):
+            yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': 'Claude Code Agent Task'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'thinking', 'text': '正在深入推演项目状态...'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(2.5)
+            yield f"data: {json.dumps({'type': 'tool_call', 'name': 'run_command', 'args': {'command': 'git status -s'}}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(3.0)
+            yield f"data: {json.dumps({'type': 'task_progress', 'status': '执行中 50%'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(3.5)
+            yield f"data: {json.dumps({'type': 'delta', 'text': 'Agent 执行完成，状态已同步。'}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(1.0)
+            yield "data: {\"type\": \"done\"}\n\n"
+
+        return _run_response(
+            conv_id,
+            _user,
+            question,
+            body.request_id,
+            lambda run_db, run_user: _mock_stream(run_user),
+            execution_mode=body.execution_mode or "claude",
+            model=body.model or "claude-3-7-sonnet",
+            device_name="haixing-mac",
+            title="Claude Code Agent Task",
+        )
+
     exec_mode = (body.execution_mode or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "shell"):
-        return _run_response(conv_id, _user, question, body.request_id, lambda run_db, run_user: _direct_agent_stream(
-                    db=run_db,
-                    user=run_user,
-                    question=question,
-                    conv_id=conv_id,
-                    conv_title=conv_title,
-                    execution_mode=exec_mode,
-                    device_id=device_id or None,
-                    cwd=body.cwd,
-                    model=body.model,
-                    effort=body.effort,
-                    session_id=body.session_id,
-                    project_id=body.project_id,
-                    fork=body.fork,
-                    compact_mode=body.compact_mode,
-                    history=body.history,
-                    timeout_seconds=body.timeout_seconds,
-                    images=body.images,
-                    attachments=body.attachments,
-                    worktree=bool(body.worktree),
-                ))
+        return _run_response(
+            conv_id,
+            _user,
+            question,
+            body.request_id,
+            lambda run_db, run_user: _direct_agent_stream(
+                db=run_db,
+                user=run_user,
+                question=question,
+                conv_id=conv_id,
+                conv_title=conv_title,
+                execution_mode=exec_mode,
+                device_id=device_id or None,
+                cwd=body.cwd,
+                model=body.model,
+                effort=body.effort,
+                session_id=body.session_id,
+                project_id=body.project_id,
+                fork=body.fork,
+                compact_mode=body.compact_mode,
+                history=body.history,
+                timeout_seconds=body.timeout_seconds,
+                images=body.images,
+                attachments=body.attachments,
+                worktree=bool(body.worktree),
+            ),
+            execution_mode=exec_mode,
+            model=body.model,
+            device_name=device_id or None,
+            title=conv_title,
+        )
 
     if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
@@ -1535,7 +1595,17 @@ async def ask(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             await asyncio.sleep(0.05)
 
-        return _run_response(conv_id, _user, question, body.request_id, agent_stream)
+        return _run_response(
+            conv_id,
+            _user,
+            question,
+            body.request_id,
+            agent_stream,
+            execution_mode="agent",
+            model=body.model,
+            device_name=device_id or None,
+            title=conv_title,
+        )
 
     async def stream(run_user: User = _user):
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
@@ -1596,7 +1666,17 @@ async def ask(
         await asyncio.sleep(0.05)
 
     # Plain answers need no database session of their own.
-    return _run_response(conv_id, _user, question, body.request_id, lambda run_db, run_user: stream(run_user))
+    return _run_response(
+        conv_id,
+        _user,
+        question,
+        body.request_id,
+        lambda run_db, run_user: stream(run_user),
+        execution_mode="rag",
+        model=body.model,
+        device_name=None,
+        title=conv_title,
+    )
 
 
 # ---------------------------------------------------------------------------

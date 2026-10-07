@@ -44,18 +44,37 @@ def _frame(payload: dict) -> str:
 
 
 class AskRun:
-    def __init__(self, conversation_id: str, user_id: uuid.UUID, question: str, request_id: str | None):
+    def __init__(
+        self,
+        conversation_id: str,
+        user_id: uuid.UUID,
+        question: str,
+        request_id: str | None,
+        *,
+        execution_mode: str | None = None,
+        model: str | None = None,
+        device_name: str | None = None,
+        title: str | None = None,
+    ):
         self.conversation_id = conversation_id
         self.user_id = user_id
         self.question = question
         self.request_id = request_id
+        self.execution_mode = execution_mode
+        self.model = model
+        self.device_name = device_name
+        self.title = title or ""
         self.started_at = time.time()
         self.finished_at: float | None = None
+        self.last_active_at = time.time()
         self.frames: list[str] = []
         self.readers = 0
         self.done = False
         self.cancelled = False
         self.failed = False
+        self.current_step = "正在启动任务..."
+        self.step_type = "init"
+        self.tool_name: str | None = None
         self.task: asyncio.Task | None = None
         # Clients from before background runs stop a task by dropping the
         # connection, and they never send a request id. Keep that meaning for them.
@@ -64,13 +83,23 @@ class AskRun:
         self._cond = asyncio.Condition()
 
     def summary(self) -> dict:
+        elapsed = round((self.finished_at or time.time()) - self.started_at, 1)
         return {
             "conversation_id": self.conversation_id,
+            "title": self.title or (self.question[:40] if self.question else ""),
             "question": self.question,
+            "execution_mode": self.execution_mode,
+            "model": self.model,
+            "device_name": self.device_name,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "elapsed_seconds": elapsed,
             "done": self.done,
             "cancelled": self.cancelled,
+            "failed": self.failed,
+            "current_step": self.current_step,
+            "step_type": self.step_type,
+            "tool_name": self.tool_name,
             "events": len(self.frames),
         }
 
@@ -78,6 +107,61 @@ class AskRun:
         # Pings are the reader's job; storing them would only bloat replays.
         if not frame.startswith("data:") or '"type": "ping"' in frame:
             return
+
+        try:
+            payload = json.loads(frame[5:].strip())
+            evt_type = payload.get("type")
+            self.last_active_at = time.time()
+            if evt_type == "conversation_id":
+                t = payload.get("title")
+                if t:
+                    self.title = t
+            elif evt_type == "tool_call":
+                self.step_type = "tool_call"
+                name = payload.get("name") or "tool"
+                self.tool_name = name
+                args = payload.get("args") or {}
+                if isinstance(args, dict):
+                    cmd = args.get("command") or args.get("prompt") or args.get("code") or ""
+                    if cmd:
+                        cmd_str = str(cmd).replace("\n", " ").strip()
+                        if len(cmd_str) > 40:
+                            cmd_str = cmd_str[:37] + "..."
+                        self.current_step = f"调用工具: {name} ({cmd_str})"
+                    else:
+                        self.current_step = f"调用工具: {name}"
+                else:
+                    self.current_step = f"调用工具: {name}"
+            elif evt_type == "task_progress":
+                self.step_type = "task_progress"
+                status = payload.get("status") or ""
+                if status:
+                    self.current_step = f"执行进度: {status}"
+            elif evt_type == "task_chunk":
+                self.step_type = "executing"
+                if not self.current_step.startswith("正在执行"):
+                    self.current_step = f"正在执行工具任务 ({self.tool_name or 'device'})..."
+            elif evt_type == "tool_result":
+                self.step_type = "tool_result"
+                self.current_step = f"工具 {self.tool_name or ''} 执行完毕，整理输出..."
+            elif evt_type == "thinking":
+                self.step_type = "thinking"
+                self.current_step = "正在深度思考与推演..."
+            elif evt_type == "delta":
+                self.step_type = "generating"
+                if self.current_step != "正在生成回复...":
+                    self.current_step = "正在生成回复..."
+            elif evt_type == "error":
+                self.step_type = "error"
+                self.failed = True
+                msg = payload.get("message") or "出错了"
+                self.current_step = f"发生错误: {msg[:40]}"
+            elif evt_type == "done":
+                self.step_type = "done"
+                self.current_step = "任务完成"
+        except Exception:
+            pass
+
         if '"type": "error"' in frame:
             self.failed = True
         # Past the cap, drop streamed output; the final tool_result still carries it.
@@ -92,6 +176,9 @@ class AskRun:
         async with self._cond:
             self.done = True
             self.finished_at = time.time()
+            if not self.failed and not self.cancelled:
+                self.current_step = "任务完成"
+                self.step_type = "done"
             self._cond.notify_all()
 
     async def stream(self, after: int = 0) -> AsyncGenerator[str, None]:
@@ -140,8 +227,17 @@ class AskRunRegistry:
                 return run
         return None
 
-    def active_for_user(self, user_id: uuid.UUID) -> list[AskRun]:
-        return [r for r in self._runs.values() if r.user_id == user_id and not r.done]
+    def active_for_user(self, user_id: uuid.UUID, include_recent_seconds: float = 0) -> list[AskRun]:
+        now = time.time()
+        res = []
+        for r in self._runs.values():
+            if r.user_id != user_id:
+                continue
+            if not r.done:
+                res.append(r)
+            elif include_recent_seconds > 0 and r.finished_at and (now - r.finished_at <= include_recent_seconds):
+                res.append(r)
+        return res
 
     def start(
         self,
@@ -151,16 +247,31 @@ class AskRunRegistry:
         factory: GeneratorFactory,
         *,
         request_id: str | None = None,
+        execution_mode: str | None = None,
+        model: str | None = None,
+        device_name: str | None = None,
+        title: str | None = None,
     ) -> AskRun:
         existing = self._runs.get(conversation_id)
         if existing and not existing.done:
             raise RunConflict(conversation_id)
-        run = AskRun(conversation_id, user_id, question, request_id)
+        run = AskRun(
+            conversation_id,
+            user_id,
+            question,
+            request_id,
+            execution_mode=execution_mode,
+            model=model,
+            device_name=device_name,
+            title=title,
+        )
         run.frames.append(_frame({
             "type": "run_started",
             "conversation_id": conversation_id,
             "question": question,
             "started_at": run.started_at,
+            "execution_mode": execution_mode,
+            "model": model,
         }))
         self._runs[conversation_id] = run
         run.task = asyncio.create_task(self._pump(run, factory))
@@ -174,6 +285,8 @@ class AskRunRegistry:
         if run.done:
             return
         run.cancelled = True
+        run.current_step = "已停止"
+        run.step_type = "cancelled"
         run.frames.append(_frame({"type": "error", "message": "已停止"}))
         run.frames.append(_frame({"type": "done"}))
         run.done = True
@@ -212,10 +325,15 @@ class AskRunRegistry:
             pass  # reported below; some generators swallow the cancel themselves
         except Exception as e:
             logger.exception("Ask run %s failed", run.conversation_id)
+            run.failed = True
+            run.current_step = f"运行失败: {e}"
+            run.step_type = "error"
             await run.append(_frame({"type": "error", "message": f"运行失败: {e}"}))
             await run.append(_frame({"type": "done"}))
         finally:
             if run.cancelled:
+                run.current_step = "已停止"
+                run.step_type = "cancelled"
                 await run.append(_frame({"type": "error", "message": "已停止"}))
                 await run.append(_frame({"type": "done"}))
             await run.finish()

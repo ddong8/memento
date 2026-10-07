@@ -532,6 +532,127 @@ function AskPageContent() {
     api.updateAskConversation(convId, patch).catch(() => {});
   }, []);
 
+  // Defensive extraction helper to infer executionMode, model, effort, project, session, cwd, device from turns
+  const inferConfigFromTurns = useCallback((turnsList: Turn[]) => {
+    const res: {
+      executionMode?: ExecutionMode;
+      deviceId?: string;
+      cwd?: string;
+      projectId?: string;
+      sessionId?: string;
+      model?: string;
+      effort?: string;
+    } = {};
+
+    for (let i = turnsList.length - 1; i >= 0; i--) {
+      const turn = turnsList[i];
+      const calls = turn.toolCalls || (turn as any).tool_calls || [];
+      for (let j = calls.length - 1; j >= 0; j--) {
+        const call = calls[j];
+        if (!call) continue;
+
+        let args: Record<string, any> = {};
+        if (typeof call.args === "object" && call.args !== null) {
+          args = call.args as Record<string, any>;
+        } else if (typeof call.args === "string") {
+          try { args = JSON.parse(call.args); } catch {}
+        }
+
+        let resObj: Record<string, any> = {};
+        if (typeof call.result === "object" && call.result !== null) {
+          resObj = call.result as Record<string, any>;
+        } else if (typeof call.result === "string") {
+          try { resObj = JSON.parse(call.result); } catch {}
+        }
+
+        let callObj: Record<string, any> = {};
+        if (typeof (call as any).call === "object" && (call as any).call !== null) {
+          callObj = (call as any).call as Record<string, any>;
+        }
+
+        const binary = (
+          (args.binary as string) ||
+          ((call as any).binary as string) ||
+          (callObj.binary as string) ||
+          (resObj.binary as string) ||
+          ""
+        ).toLowerCase().trim();
+
+        const action = (
+          (resObj.action as string) ||
+          (args.action as string) ||
+          (call.name === "run_on_device" ? "shell" : call.name) ||
+          ""
+        ).toLowerCase().trim();
+
+        const name = (call.name || callObj.name || "").toLowerCase().trim();
+        const cmd = (
+          (args.command as string) ||
+          (args.prompt as string) ||
+          (callObj.command as string) ||
+          ((call as any).command as string) ||
+          ""
+        ).toLowerCase().trim();
+
+        let detectedMode: ExecutionMode | undefined;
+        if (binary.includes("claude") || name === "claude" || cmd.includes("[claude")) {
+          detectedMode = "claude";
+        } else if (binary.includes("codex") || name === "codex" || cmd.includes("[codex")) {
+          detectedMode = "codex";
+        } else if (binary.includes("agy") || binary.includes("antigravity") || name === "antigravity" || cmd.includes("[antigravity") || cmd.includes("[agy")) {
+          detectedMode = "antigravity";
+        } else if (action === "shell" || ["bash", "sh", "zsh"].includes(binary) || cmd.includes("[shell")) {
+          detectedMode = "shell";
+        }
+
+        if (detectedMode && !res.executionMode) {
+          res.executionMode = detectedMode;
+        }
+
+        const pid = (args.project_id as string) || (callObj.project_id as string) || (resObj.project_id as string);
+        if (pid && !res.projectId) {
+          res.projectId = String(pid);
+        }
+
+        const sid = (resObj.session_id as string) || (args.session_id as string) || (callObj.session_id as string);
+        if (sid && !res.sessionId) {
+          res.sessionId = String(sid);
+        }
+
+        const mod = (args.model as string) || (callObj.model as string);
+        if (mod && !res.model) {
+          res.model = String(mod);
+        }
+
+        const eff = (args.effort as string) || (callObj.effort as string);
+        if (eff && !res.effort) {
+          res.effort = String(eff);
+        }
+
+        const tcCwd = (args.cwd as string) || (callObj.cwd as string);
+        if (tcCwd && !res.cwd) {
+          res.cwd = String(tcCwd);
+        }
+
+        const dev = (
+          (resObj.device_name as string) ||
+          call.device_name ||
+          (args.device_id as string) ||
+          (resObj.device_id as string) ||
+          (callObj.device_name as string)
+        );
+        if (dev && !res.deviceId) {
+          res.deviceId = String(dev);
+        }
+
+        if (res.executionMode && res.sessionId && res.projectId) {
+          return res;
+        }
+      }
+    }
+    return res;
+  }, []);
+
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
     if (!id || streamingRef.current) return;
@@ -544,30 +665,58 @@ function AskPageContent() {
         localStorage.setItem("memento_last_ask_conv_id", data.id);
       } catch {}
 
-      // 1. Device and working directory
-      const devToUse = data.device_id || "auto";
+      // 1. Device, cwd, and turns
+      let targetDev = data.device_id || "";
+      let targetCwd = data.cwd || "";
+      const loadedTurns = data.turns || [];
+      setTurns(loadedTurns);
+      setHistoryOpen(false);
+      setSourcesOpen(false);
+
+      // 2. Execution mode, model, effort, project, session
+      let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
+      let targetModel = data.model || data.config?.model || "";
+      let targetEffort = data.effort || data.config?.effort || "";
+      let targetProjId = data.project_id || data.config?.project_id || "";
+      let targetSessionId = data.session_id || data.config?.session_id || "";
+
+      // Defensive infer if returned mode was generic "ai"
+      if (targetMode === "ai" || !targetMode) {
+        const inferred = inferConfigFromTurns(loadedTurns);
+        if (inferred.executionMode) targetMode = inferred.executionMode;
+        if (!targetProjId && inferred.projectId) targetProjId = inferred.projectId;
+        if (!targetSessionId && inferred.sessionId) targetSessionId = inferred.sessionId;
+        if (!targetModel && inferred.model) targetModel = inferred.model;
+        if (!targetEffort && inferred.effort) targetEffort = inferred.effort;
+        if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
+        if (!targetDev && inferred.deviceId) targetDev = inferred.deviceId;
+
+        // Persist inferred configuration back to server DB
+        if (targetMode !== "ai") {
+          api.updateAskConversation(data.id, {
+            execution_mode: targetMode,
+            project_id: targetProjId,
+            session_id: targetSessionId,
+            model: targetModel,
+            effort: targetEffort,
+            cwd: targetCwd,
+            device_id: targetDev,
+          }).catch(() => {});
+        }
+      }
+
+      const devToUse = targetDev || "auto";
       setSelectedDevice(devToUse);
-      if (data.cwd) {
-        setCwd(data.cwd);
+      if (targetCwd) {
+        setCwd(targetCwd);
         setShowCwd(true);
       } else {
         setCwd("");
       }
 
-      // 2. Turns and sidebar states
-      setTurns(data.turns || []);
-      setHistoryOpen(false);
-      setSourcesOpen(false);
-
-      // 3. Execution mode, model, effort, worktree, compact
-      const targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
       setExecutionMode(targetMode);
-
-      const targetModel = data.model || data.config?.model || "";
       setSelectedModel(targetModel);
       setIsCustomModel(Boolean(targetModel && !FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)));
-
-      const targetEffort = data.effort || data.config?.effort || "";
       setSelectedEffort(targetEffort);
 
       const isWorktree = Boolean(data.worktree ?? data.config?.worktree ?? false);
@@ -576,7 +725,7 @@ function AskPageContent() {
       const isCompact = Boolean(data.compact_mode ?? data.config?.compact_mode ?? false);
       setCompactMode(isCompact);
 
-      // 4. Project and Session restoration
+      // 3. Project and Session restoration
       if (["codex", "claude", "antigravity"].includes(targetMode)) {
         const toolMap: Record<string, string> = {
           codex: "codex",
@@ -587,41 +736,52 @@ function AskPageContent() {
         if (toolId) {
           try {
             const devForQuery = devToUse !== "auto" && devToUse !== "ask_only" && devToUse !== "all" ? devToUse : undefined;
-            const projList = await api.listProjects(toolId, devForQuery);
+            let projList = await api.listProjects(toolId, devForQuery);
+            if ((!projList || projList.length === 0) && devForQuery) {
+              projList = await api.listProjects(toolId);
+            }
             const projs = projList || [];
             setProjects(projs);
 
-            const targetProjId = data.project_id || data.config?.project_id || "";
             let matchedProj = targetProjId ? projs.find((p) => p.id === targetProjId) : undefined;
-            if (!matchedProj && data.cwd) {
-              const cleanCwd = data.cwd.trim().toLowerCase();
+            if (!matchedProj && targetCwd) {
+              const cleanCwd = targetCwd.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+              const folderName = cleanCwd.split("/").filter(Boolean).pop();
               matchedProj = projs.find((p) => {
                 if (!p.source_path) return false;
-                const sp = p.source_path.trim().toLowerCase();
-                return sp.includes(cleanCwd) || cleanCwd.includes(sp);
+                const sp = p.source_path.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+                if (sp === cleanCwd) return true;
+                if (sp.endsWith(cleanCwd) || cleanCwd.endsWith(sp)) return true;
+                if (sp.includes(cleanCwd) || cleanCwd.includes(sp)) return true;
+                if (folderName && (p.title?.toLowerCase() === folderName || p.slug?.toLowerCase() === folderName)) return true;
+                return false;
               });
             }
 
-            if (matchedProj) {
-              setSelectedProjectId(matchedProj.id);
-              selectedProjectIdRef.current = matchedProj.id;
+            const effectiveProjId = matchedProj ? matchedProj.id : targetProjId;
+            if (effectiveProjId) {
+              setSelectedProjectId(effectiveProjId);
+              selectedProjectIdRef.current = effectiveProjId;
               setLoadingSessions(true);
               try {
-                const res = await api.getProjectConversations(matchedProj.id, 0, 50, "desc", devForQuery);
-                const sessList = res.sessions || [];
+                let res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
+                let sessList = res?.sessions || [];
+                if ((!sessList || sessList.length === 0) && devForQuery) {
+                  res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc");
+                  sessList = res?.sessions || [];
+                }
                 setSessions(sessList);
-                const targetSessionId = data.session_id || data.config?.session_id || "";
                 setSelectedSessionId(targetSessionId);
               } catch (e) {
                 console.error("Failed to restore project sessions:", e);
                 setSessions([]);
-                setSelectedSessionId("");
+                setSelectedSessionId(targetSessionId);
               } finally {
                 setLoadingSessions(false);
               }
             } else {
-              setSelectedProjectId(targetProjId || "");
-              selectedProjectIdRef.current = targetProjId || "";
+              setSelectedProjectId("");
+              selectedProjectIdRef.current = "";
               setSessions([]);
               setSelectedSessionId("");
             }
@@ -642,7 +802,7 @@ function AskPageContent() {
         setSelectedSessionId("");
       }
 
-      // 5. Still running (started before a reload, or from another device)? Show it live.
+      // 4. Still running? Show live
       const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${data.id}/run`);
       if (runRes.ok) {
         const run = await runRes.json();
@@ -651,7 +811,7 @@ function AskPageContent() {
     } catch (e) {
       console.error("Failed to load conversation:", e);
     }
-  }, []);
+  }, [inferConfigFromTurns]);
 
   // Start fresh chat
   const startNewChat = useCallback(() => {
@@ -769,22 +929,7 @@ function AskPageContent() {
         return;
       }
 
-      // If no active run: check if memory has matching turns
-      if (activeConversationIdRef.current === resolvedTargetId && turns.length > 0) {
-        if (!idParam) {
-          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
-        }
-        // Background sync to pull fully completed turns if the run finished while away
-        api.getAskConversation(resolvedTargetId).then((data) => {
-          if (data && data.turns && data.turns.length >= turnsRef.current.length) {
-            setTurns(data.turns);
-            turnsRef.current = data.turns;
-          }
-        }).catch(() => {});
-        return;
-      }
-
-      // Otherwise load conversation fresh from DB
+      // Load conversation fresh from DB to ensure runtime mode, project, and session are properly restored!
       loadConversation(resolvedTargetId);
     };
 
@@ -2758,6 +2903,11 @@ function AskPageContent() {
                       <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                         {loadingSessions ? (isZh ? "加载会话列表中..." : "Loading sessions...") : (isZh ? "➕ 新建独立会话" : "➕ New Session")}
                       </option>
+                      {selectedSessionId && !sessions.some((s) => (s.session_id || s.conversation_id) === selectedSessionId) && (
+                        <option value={selectedSessionId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                          💬 {selectedSessionId.length > 25 ? selectedSessionId.slice(0, 25) + "..." : selectedSessionId}
+                        </option>
+                      )}
                       {sessions.map((s) => {
                         const sid = s.session_id || s.conversation_id;
                         const isHeavy = s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000);

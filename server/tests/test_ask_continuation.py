@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,6 +114,88 @@ class AskContinuationTests(unittest.TestCase):
         self.assertTrue(len(mems) > 0)
         keys = [m.key for m in mems]
         self.assertIn("proj_memento_overview", keys)
+
+    def test_infer_conversation_config_codex(self):
+        from server.api.ask import _infer_conversation_config
+        from server.db.models import AskConversation
+
+        mock_conv = AskConversation(
+            id=uuid.uuid4(),
+            title="写一个打地鼠的游戏",
+            cwd="/Users/dev/react-native/my-game",
+            device_id="haixingdeMac-mini.local",
+            config={"execution_mode": "ai"},  # generic default
+            turns=[
+                {
+                    "role": "user",
+                    "content": "写一个打地鼠的游戏",
+                },
+                {
+                    "role": "assistant",
+                    "content": "任务执行完成",
+                    "toolCalls": [
+                        {
+                            "name": "run_on_device",
+                            "device_name": "haixingdeMac-mini.local",
+                            "args": {
+                                "action": "agent",
+                                "binary": "codex",
+                                "prompt": "【前文对话历史】 用户: 写一个打地鼠的游戏...",
+                                "project_id": "proj-react-native-123",
+                                "session_id": "sess-codex-abc",
+                                "model": "gpt-5-codex",
+                                "effort": "high",
+                                "cwd": "/Users/dev/react-native/my-game",
+                            },
+                            "result": {
+                                "status": "succeeded",
+                                "exit_code": 0,
+                            },
+                        }
+                    ],
+                },
+            ],
+        )
+
+        cfg, inferred = _infer_conversation_config(mock_conv)
+        self.assertEqual(cfg["execution_mode"], "codex")
+        self.assertEqual(cfg["project_id"], "proj-react-native-123")
+        self.assertEqual(cfg["session_id"], "sess-codex-abc")
+        self.assertEqual(cfg["model"], "gpt-5-codex")
+        self.assertEqual(cfg["effort"], "high")
+        self.assertEqual(cfg["cwd"], "/Users/dev/react-native/my-game")
+        self.assertEqual(cfg["device_id"], "haixingdeMac-mini.local")
+
+    def test_infer_conversation_config_json_string_args(self):
+        import json
+        from server.api.ask import _infer_conversation_config
+        from server.db.models import AskConversation
+
+        mock_conv = AskConversation(
+            id=uuid.uuid4(),
+            title="Claude 历史会话测试",
+            config=None,
+            turns=[
+                {
+                    "role": "assistant",
+                    "content": "完成",
+                    "tool_calls": [
+                        {
+                            "name": "run_on_device",
+                            "args": json.dumps({
+                                "action": "agent",
+                                "binary": "claude",
+                                "session_id": "sess-claude-xyz",
+                            }),
+                        }
+                    ],
+                }
+            ],
+        )
+
+        cfg, inferred = _infer_conversation_config(mock_conv)
+        self.assertEqual(cfg["execution_mode"], "claude")
+        self.assertEqual(cfg["session_id"], "sess-claude-xyz")
 
 
 if __name__ == "__main__":

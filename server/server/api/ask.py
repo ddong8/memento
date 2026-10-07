@@ -726,6 +726,8 @@ async def _get_or_create_conversation(
                         cfg = dict(conv.config or {})
                         for k, v in config.items():
                             if v is not None and v != "":
+                                if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                                    continue
                                 cfg[k] = v
                         conv.config = cfg
                         updated = True
@@ -855,6 +857,8 @@ async def _append_conversation_turns(
                 cfg = dict(conv.config or {})
                 for k, v in config.items():
                     if v is not None and v != "":
+                        if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                            continue
                         cfg[k] = v
                 conv.config = cfg
             await session.commit()
@@ -928,6 +932,131 @@ async def list_conversations(
     ]
 
 
+def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
+    """Extract runtime config (execution_mode, model, effort, project_id, session_id, device_id, cwd)
+    from historical turns if missing or defaulted to 'ai'."""
+    cfg = dict(conv.config or {})
+    existing_mode = cfg.get("execution_mode")
+    mode_needed = not existing_mode or existing_mode == "ai"
+
+    inferred: dict = {}
+    for turn in reversed(conv.turns or []):
+        tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
+        for tc in reversed(tcs):
+            if not isinstance(tc, dict):
+                continue
+
+            raw_args = tc.get("args") or {}
+            if isinstance(raw_args, str):
+                try:
+                    args = json.loads(raw_args)
+                except Exception:
+                    args = {}
+            elif isinstance(raw_args, dict):
+                args = raw_args
+            else:
+                args = {}
+
+            call_dict = tc.get("call") or {}
+            if isinstance(call_dict, str):
+                try:
+                    call_dict = json.loads(call_dict)
+                except Exception:
+                    call_dict = {}
+            elif not isinstance(call_dict, dict):
+                call_dict = {}
+
+            res_dict = tc.get("result") or {}
+            if isinstance(res_dict, str):
+                try:
+                    res_dict = json.loads(res_dict)
+                except Exception:
+                    res_dict = {}
+            elif not isinstance(res_dict, dict):
+                res_dict = {}
+
+            binary = str(
+                args.get("binary")
+                or tc.get("binary")
+                or call_dict.get("binary")
+                or res_dict.get("binary")
+                or ""
+            ).lower().strip()
+
+            action = str(
+                res_dict.get("action")
+                or args.get("action")
+                or tc.get("action")
+                or call_dict.get("action")
+                or ("shell" if tc.get("name") == "run_on_device" and "command" in args else "")
+                or ""
+            ).lower().strip()
+
+            name = str(tc.get("name") or call_dict.get("name") or "").lower().strip()
+            cmd = str(args.get("command") or args.get("prompt") or tc.get("command") or call_dict.get("command") or "")
+
+            detected_mode = None
+            if "claude" in binary or name == "claude" or "[claude" in cmd.lower() or "[claude" in (tc.get("command") or "").lower():
+                detected_mode = "claude"
+            elif "codex" in binary or name == "codex" or "[codex" in cmd.lower() or "[codex" in (tc.get("command") or "").lower():
+                detected_mode = "codex"
+            elif "agy" in binary or "antigravity" in binary or name == "antigravity" or "[antigravity" in cmd.lower() or "[agy" in cmd.lower():
+                detected_mode = "antigravity"
+            elif action == "shell" or binary in ("bash", "sh", "zsh") or "[shell" in cmd.lower():
+                detected_mode = "shell"
+
+            if detected_mode and ("execution_mode" not in inferred):
+                inferred["execution_mode"] = detected_mode
+
+            pid = args.get("project_id") or call_dict.get("project_id") or res_dict.get("project_id")
+            if pid and "project_id" not in inferred:
+                inferred["project_id"] = str(pid)
+
+            sid = (
+                res_dict.get("session_id")
+                or args.get("session_id")
+                or call_dict.get("session_id")
+            )
+            if sid and "session_id" not in inferred:
+                inferred["session_id"] = str(sid)
+
+            mod = args.get("model") or call_dict.get("model")
+            if mod and "model" not in inferred:
+                inferred["model"] = str(mod)
+
+            eff = args.get("effort") or call_dict.get("effort")
+            if eff and "effort" not in inferred:
+                inferred["effort"] = str(eff)
+
+            tc_cwd = args.get("cwd") or call_dict.get("cwd")
+            if tc_cwd and "cwd" not in inferred:
+                inferred["cwd"] = str(tc_cwd)
+
+            dev = (
+                res_dict.get("device_name")
+                or tc.get("device_name")
+                or args.get("device_id")
+                or res_dict.get("device_id")
+                or call_dict.get("device_name")
+            )
+            if dev and "device_id" not in inferred:
+                inferred["device_id"] = str(dev)
+
+            if detected_mode and inferred.get("session_id") and inferred.get("project_id"):
+                break
+        if inferred.get("execution_mode") and inferred.get("session_id") and inferred.get("project_id"):
+            break
+
+    if mode_needed and inferred.get("execution_mode"):
+        cfg["execution_mode"] = inferred["execution_mode"]
+
+    for k in ("project_id", "session_id", "model", "effort", "cwd", "device_id"):
+        if not cfg.get(k) and inferred.get(k):
+            cfg[k] = inferred[k]
+
+    return cfg, inferred
+
+
 @router.get("/conversations/{conv_id}")
 async def get_conversation(
     conv_id: str,
@@ -947,29 +1076,17 @@ async def get_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    cfg = dict(conv.config or {})
-    # Fallback inference for legacy conversations created before this update:
-    if not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai":
-        for turn in conv.turns or []:
-            for tc in (turn.get("toolCalls") or []):
-                args = tc.get("args") or {}
-                binary = str(tc.get("binary") or args.get("binary") or "").lower()
-                name = str(tc.get("name") or "").lower()
-                cmd = str(tc.get("command") or "")
-                if "claude" in binary or "claude" in name or "[CLAUDE" in cmd:
-                    cfg["execution_mode"] = "claude"
-                    break
-                elif "codex" in binary or "codex" in name or "[CODEX" in cmd:
-                    cfg["execution_mode"] = "codex"
-                    break
-                elif "antigravity" in binary or "antigravity" in name or "[ANTIGRAVITY" in cmd:
-                    cfg["execution_mode"] = "antigravity"
-                    break
-                elif binary in ("bash", "sh", "zsh") or "[SHELL" in cmd:
-                    cfg["execution_mode"] = "shell"
-                    break
-            if cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
-                break
+    cfg, inferred = _infer_conversation_config(conv)
+    if (conv.config != cfg) or (not conv.cwd and inferred.get("cwd")) or (not conv.device_id and inferred.get("device_id")):
+        conv.config = cfg
+        if not conv.cwd and inferred.get("cwd"):
+            conv.cwd = inferred["cwd"]
+        if not conv.device_id and inferred.get("device_id"):
+            conv.device_id = inferred["device_id"]
+        try:
+            await db.commit()
+        except Exception as e:
+            logger.warning("Failed to persist inferred conversation config: %s", e)
 
     return {
         "id": str(conv.id),

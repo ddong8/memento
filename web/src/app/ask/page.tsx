@@ -1787,11 +1787,8 @@ function AskPageContent() {
       );
       if (!targetSession) return;
 
-      if (targetSession.compact_recommended || (targetSession.file_size_bytes && targetSession.file_size_bytes > 300_000) || targetSession.message_count > 35) {
-        setCompactMode(true);
-      } else {
-        setCompactMode(false);
-      }
+      // 默认保持原生接续（Raw Resume），绝不静默强制开启瘦身模式，仅在 UI 提供建议标记并由用户显式切换
+      setCompactMode(false);
 
       let rawMsgs: Array<{
         role: string;
@@ -1943,13 +1940,16 @@ function AskPageContent() {
 
       abortRef.current?.abort();
       streamingRef.current = false;
-      const associatedConvId = targetSession.conversation_id;
-      if (associatedConvId) {
-        activeConversationIdRef.current = associatedConvId;
-        setActiveConversationId(associatedConvId);
-        window.history.replaceState(null, "", `/ask?id=${associatedConvId}`);
+      // 优先从已有的 AskConversations 中寻找关联该底层 session 的真正 Ask 会话，避免将 Document ID 误作为 AskConversation ID
+      const matchedAskConv = conversations.find(
+        (c) => c.config?.session_id === sid || c.id === sid
+      );
+      if (matchedAskConv) {
+        activeConversationIdRef.current = matchedAskConv.id;
+        setActiveConversationId(matchedAskConv.id);
+        window.history.replaceState(null, "", `/ask?id=${matchedAskConv.id}`);
         try {
-          localStorage.setItem("memento_last_ask_conv_id", associatedConvId);
+          localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
         } catch {}
       } else if (!activeConversationIdRef.current) {
         activeConversationIdRef.current = null;
@@ -1957,7 +1957,7 @@ function AskPageContent() {
       }
       setTurns(loadedTurns);
     },
-    [sessions, startNewChat]
+    [conversations, sessions, startNewChat]
   );
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)

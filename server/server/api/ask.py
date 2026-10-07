@@ -748,7 +748,53 @@ async def _get_or_create_conversation(
                     if updated:
                         conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
-                    return conv.id, conv.title, dict(conv.config or {})
+            except Exception:
+                pass
+
+        # 尝试通过底层 session_id 复用已有 AskConversation，避免续接时重复新开会话
+        effective_sess_id = session_id
+        if not effective_sess_id and conv_id_str:
+            try:
+                doc_cid = uuid.UUID(conv_id_str)
+                doc_item = (await session.execute(
+                    select(Document).where(Document.id == doc_cid)
+                )).scalars().first()
+                if doc_item:
+                    meta = doc_item.metadata_ or {}
+                    effective_sess_id = meta.get("session_id") or meta.get("cascade_id")
+            except Exception:
+                pass
+
+        if effective_sess_id:
+            try:
+                sess_conv = (await session.execute(
+                    select(AskConversation).where(
+                        (AskConversation.config.op("->>")("session_id") == effective_sess_id) &
+                        ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
+                    ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
+                )).scalars().first()
+                if sess_conv:
+                    updated = False
+                    cfg = dict(sess_conv.config or {})
+                    if config:
+                        for k, v in config.items():
+                            if v is not None and v != "":
+                                if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                                    continue
+                                if k == "compact_mode":
+                                    continue
+                                cfg[k] = v
+                    cfg["compact_mode"] = False
+                    sess_conv.config = cfg
+                    if device_id and sess_conv.device_id != device_id:
+                        sess_conv.device_id = device_id
+                        updated = True
+                    if cwd and sess_conv.cwd != cwd:
+                        sess_conv.cwd = cwd
+                        updated = True
+                    sess_conv.updated_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    return sess_conv.id, sess_conv.title, dict(sess_conv.config or {})
             except Exception:
                 pass
 

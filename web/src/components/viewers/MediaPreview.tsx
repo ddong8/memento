@@ -210,18 +210,28 @@ export function VideoPlayer({
   const [bufferedProgress, setBufferedProgress] = useState<number>(0);
   const [copied, setCopied] = useState<boolean>(false);
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
+  const [quality, setQuality] = useState<"1080p" | "720p">("1080p");
+  const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
 
   const inspector = useMediaInspector();
   const isPlayingInInspector = Boolean(
     inspector?.isOpen && inspector?.activeMedia && safeDecodePath(inspector.activeMedia.url) === safeDecodePath(src)
   );
 
-  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
+  // Compute active source according to chosen quality (1080p vs 720p stream)
+  const activeSrc = React.useMemo(() => {
+    if (quality === "720p" && src.toLowerCase().endsWith(".mp4") && !src.toLowerCase().includes("_720p")) {
+      return src.replace(/\.mp4$/i, "_720p.mp4");
+    }
+    return src;
+  }, [src, quality]);
+
+  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(activeSrc));
   useEffect(() => {
-    setResolved(resolveMediaUrl(src));
+    setResolved(resolveMediaUrl(activeSrc));
     setHasError(false);
     setIsLoading(true);
-  }, [src]);
+  }, [activeSrc]);
 
   const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
   const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "video-file";
@@ -303,6 +313,24 @@ export function VideoPlayer({
     setPlaybackRate(rate);
     setShowRateMenu(false);
     triggerControlsActivity();
+  };
+
+  const handleQualityChange = (newQ: "1080p" | "720p") => {
+    if (newQ === quality) {
+      setShowQualityMenu(false);
+      return;
+    }
+    const cur = videoRef.current?.currentTime || 0;
+    const playing = isPlaying;
+    setQuality(newQ);
+    setShowQualityMenu(false);
+    triggerControlsActivity();
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.currentTime = cur;
+        if (playing) videoRef.current.play().catch(() => {});
+      }
+    }, 150);
   };
 
   const toggleFullscreen = async () => {
@@ -650,6 +678,48 @@ export function VideoPlayer({
           </div>
 
           <div className="flex items-center gap-2 text-xs">
+            {/* Quality Selector (弱网/3M公网可快速切720P流畅流) */}
+            {src.toLowerCase().endsWith(".mp4") && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQualityMenu((v) => !v);
+                    setShowRateMenu(false);
+                  }}
+                  className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-white/90 text-[11px] font-medium transition-colors flex items-center gap-1"
+                  title="切换清晰度（公网3M主机或弱网环境建议切换至720P秒开）"
+                >
+                  <span>{quality === "1080p" ? "原画" : "流畅"}</span>
+                  <span className="text-[9px] opacity-70 font-mono uppercase">{quality}</span>
+                </button>
+                {showQualityMenu && (
+                  <div className="absolute bottom-full mb-1.5 right-0 py-1 rounded-xl bg-gray-950/95 border border-white/15 backdrop-blur-md shadow-2xl flex flex-col min-w-32 z-30">
+                    <button
+                      type="button"
+                      onClick={() => handleQualityChange("1080p")}
+                      className={`px-3 py-1.5 text-left text-xs hover:bg-[var(--aurora-accent)]/20 transition-colors flex items-center justify-between gap-2 ${
+                        quality === "1080p" ? "text-[var(--aurora-accent)] font-semibold" : "text-white/80"
+                      }`}
+                    >
+                      <span>1080P 原画</span>
+                      <span className="text-[10px] opacity-60">内网/高速</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQualityChange("720p")}
+                      className={`px-3 py-1.5 text-left text-xs hover:bg-[var(--aurora-accent)]/20 transition-colors flex items-center justify-between gap-2 ${
+                        quality === "720p" ? "text-[var(--aurora-accent)] font-semibold" : "text-white/80"
+                      }`}
+                    >
+                      <span>720P 流畅</span>
+                      <span className="text-[10px] text-emerald-400 font-mono">3M秒开</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Speed Selector */}
             <div className="relative">
               <button

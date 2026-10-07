@@ -394,6 +394,20 @@ async def get_playback_source(
             if p2p_info:
                 break
 
+    if not p2p_info and device_id == "auto":
+        query = select(Machine)
+        if _user.role not in ("admin", "owner") and mids is not None:
+            query = query.where(Machine.id.in_(mids))
+        user_machines = (await db.execute(query)).scalars().all()
+        for m in user_machines:
+            for k in (m.collector_token_hash, m.name):
+                if k:
+                    p2p_info = ws_manager.get_p2p_info(k)
+                    if p2p_info:
+                        break
+            if p2p_info:
+                break
+
     has_p2p = False
     p2p_url = None
     if p2p_info and p2p_info.get("ipv6") and p2p_info.get("port"):

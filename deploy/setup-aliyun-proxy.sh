@@ -61,7 +61,13 @@ echo "=== 3. Request SSL cert for ${DOMAIN} ==="
 certbot --nginx -d ${DOMAIN} --non-interactive --agree-tos -m ${EMAIL}
 
 echo "=== 4. Write full HTTPS reverse-proxy config ==="
+# 确保缓存目录存在
+mkdir -p /var/cache/nginx/memento_media
+chown -R www-data:www-data /var/cache/nginx/memento_media 2>/dev/null || true
+
 cat > /etc/nginx/sites-available/${DOMAIN} <<NGINX
+proxy_cache_path /var/cache/nginx/memento_media levels=1:2 keys_zone=memento_media_cache:20m max_size=20g inactive=7d use_temp_path=off;
+
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -87,6 +93,27 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # 针对媒体流与大文件开启 Range 切片缓存加速，减轻公网穿透回源延迟
+    location ~* ^/api/devices/.+/files/stream {
+        proxy_pass http://${BACKEND_IP}:${API_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # 启用媒体本地缓存与 HTTP 206 Partial Content 支持
+        proxy_cache memento_media_cache;
+        proxy_cache_key \$uri\$is_args\$args;
+        proxy_cache_valid 200 206 7d;
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_lock on;
+        proxy_cache_lock_timeout 5s;
+        proxy_force_ranges on;
+        add_header X-Cache-Status \$upstream_cache_status;
         proxy_read_timeout 86400;
     }
 

@@ -235,31 +235,51 @@ async function codexCapabilities(codexPath: string, home: string): Promise<Recor
   const { model: defaultModel, effort: defaultEffort } = codexConfigValues(
     await readFile(join(codexHome, "config.toml"), "utf8").catch(() => ""),
   );
-  const models: ModelOption[] = [
-    {
-      id: "",
-      name: defaultModel ? `⚡ 默认模型 (跟随CLI配置: ${defaultModel})` : "⚡ 默认模型 (跟随客户端配置)",
-      desc: defaultModel ? `当前配置: ${defaultModel}` : "使用本地默认配置模型",
-      is_default: true,
-    },
-  ];
+
   const cache = await readJson(join(codexHome, "models_cache.json"));
+  const found = new Set<string>();
+  const cachedOptions: ModelOption[] = [];
   if (Array.isArray(cache?.models)) {
     const raw = (cache.models as Record<string, unknown>[]).filter((m) => m && typeof m === "object");
     raw.sort((a, b) => Number(a.priority ?? 999) - Number(b.priority ?? 999));
-    const found = new Set<string>();
     for (const m of raw) {
       const slug = String(m.slug ?? "");
       if (!slug || slug === "codex-auto-review" || found.has(slug)) continue;
       found.add(slug);
       const name = String(m.display_name ?? slug);
-      models.push({ id: slug, name: slug === defaultModel ? `${name} (当前主力)` : name, desc: String(m.description ?? "") });
+      cachedOptions.push({
+        id: slug,
+        name: slug === defaultModel ? `${name} (当前主力)` : name,
+        desc: String(m.description ?? ""),
+      });
     }
   }
+
+  // 若本地 cache 存在且 defaultModel 无法匹配可用列表（如降级为 Free 账号导致高阶模型权限受限），智能推荐可用首选
+  const isDefaultModelValid = !defaultModel || found.size === 0 || found.has(defaultModel);
+  const fallbackRecommended = found.size > 0 ? cachedOptions[0]?.id : "";
+
+  let defaultModelDisplayName = defaultModel;
+  let defaultModelDesc = defaultModel ? `当前配置: ${defaultModel}` : "使用本地默认配置模型";
+  if (!isDefaultModelValid && fallbackRecommended) {
+    defaultModelDisplayName = `${defaultModel} (账号权限受限，建议使用 ${fallbackRecommended})`;
+    defaultModelDesc = `原配置 ${defaultModel} 当前账号暂不可用，已智能回退推荐 ${fallbackRecommended}`;
+  }
+
+  const models: ModelOption[] = [
+    {
+      id: "",
+      name: defaultModel ? `⚡ 默认模型 (跟随CLI配置: ${defaultModelDisplayName})` : "⚡ 默认模型 (跟随客户端配置)",
+      desc: defaultModelDesc,
+      is_default: true,
+    },
+    ...cachedOptions,
+  ];
+
   if (models.length === 1) {
     models.push(
-      { id: "gpt-6-astra", name: "GPT-6-Astra (最新旗舰)", desc: "前沿深度多步推理模型，复杂编码首选" },
       { id: "gpt-reserve", name: "GPT-Reserve (极速主力)", desc: "高性价比快速编码与日常任务" },
+      { id: "gpt-6-astra", name: "GPT-6-Astra (前沿旗舰)", desc: "前沿深度多步推理模型，复杂编码首选" },
       { id: "gpt-5.6-sol", name: "GPT-5.6-Sol (日常主力)", desc: "可靠的主力 Agent 编码模型" },
       { id: "gpt-5.6-terra", name: "GPT-5.6-Terra", desc: "均衡的高性价比日常模型" },
       { id: "gpt-5.6-luna", name: "GPT-5.6-Luna", desc: "极速响应日常编码模型" },

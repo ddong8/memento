@@ -22,8 +22,8 @@ import type { AgentCapabilities, AgentModelOption, AgentEffortOption } from "@/l
 export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
   codex: [
     { id: "", name: "⚡ 默认模型 (跟随客户端/CLI配置)", desc: "使用本地 Codex 客户端配置的默认模型" },
-    { id: "gpt-6-astra", name: "GPT-6-Astra (最新旗舰)", desc: "最新前沿多步推理模型，复杂编码首选" },
     { id: "gpt-reserve", name: "GPT-Reserve (极速主力)", desc: "高性价比快速编码与日常任务" },
+    { id: "gpt-6-astra", name: "GPT-6-Astra (前沿旗舰)", desc: "最新前沿多步推理模型，复杂编码首选" },
     { id: "gpt-5.6-sol", name: "GPT-5.6-Sol (日常主力)", desc: "可靠的主力 Agent 编码模型" },
     { id: "gpt-5.6-terra", name: "GPT-5.6-Terra", desc: "均衡的高性价比日常模型" },
     { id: "gpt-5.6-luna", name: "GPT-5.6-Luna", desc: "极速响应日常编码模型" },

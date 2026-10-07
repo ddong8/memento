@@ -429,8 +429,130 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 ::-webkit-scrollbar-thumb:hover { background: var(--aurora-fg5); }
 
 /* =========================================================================
-   Markdown
+   Markdown Typography System
    ========================================================================= */
+.prose {
+  color: var(--aurora-fg1);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.prose h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+.prose h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  margin-top: 0.875rem;
+  margin-bottom: 0.375rem;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+.prose h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.45;
+}
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--aurora-fg2);
+  margin-top: 0.625rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+.prose p {
+  margin-top: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+.prose p:first-child,
+.prose h1:first-child,
+.prose h2:first-child,
+.prose h3:first-child {
+  margin-top: 0;
+}
+.prose p:last-child {
+  margin-bottom: 0;
+}
+.prose ul,
+.prose ol {
+  padding-left: 1.25rem;
+  margin-top: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+.prose li {
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}
+
+/* Compact prose mode for terminal execution cards & debug views */
+.prose-compact {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--aurora-fg1);
+}
+.prose-compact h1 {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.35;
+}
+.prose-compact h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--aurora-fg1);
+  margin-top: 0.4rem;
+  margin-bottom: 0.2rem;
+  line-height: 1.4;
+}
+.prose-compact h3,
+.prose-compact h4,
+.prose-compact h5,
+.prose-compact h6 {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--aurora-fg2);
+  margin-top: 0.35rem;
+  margin-bottom: 0.15rem;
+  line-height: 1.45;
+}
+.prose-compact p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.prose-compact p:first-child,
+.prose-compact h1:first-child,
+.prose-compact h2:first-child,
+.prose-compact h3:first-child {
+  margin-top: 0;
+}
+.prose-compact p:last-child {
+  margin-bottom: 0;
+}
+.prose-compact ul,
+.prose-compact ol {
+  padding-left: 1.1rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.prose-compact li {
+  margin-top: 0.1rem;
+  margin-bottom: 0.1rem;
+}
+
 .prose pre {
   background: #1e1e1e;
   color: #f4f4f8;

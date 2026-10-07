@@ -501,12 +501,14 @@ export default function ExecutionCard({
           {/* Conditional Content: Markdown or Terminal Console */}
           {viewMode === "markdown" && result?.stdout ? (
             <div
+              className="prose-compact"
               style={{
                 padding: "14px 16px",
                 borderRadius: 10,
                 background: "var(--aurora-surface-solid)",
                 border: "1px solid var(--aurora-border)",
                 color: "var(--aurora-fg1)",
+                fontSize: 12,
                 maxHeight: 480,
                 overflowY: "auto",
               }}
@@ -538,7 +540,7 @@ export default function ExecutionCard({
                   </div>
                 </div>
               ) : (
-                <MarkdownViewer content={result.stdout} compactMedia={true} />
+                <MarkdownViewer content={result.stdout} compactMedia={true} compactText={true} />
               )}
               {result?.stderr && (
                 <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>

@@ -22,16 +22,24 @@ interface MarkdownViewerProps {
   content: string;
   className?: string;
   compactMedia?: boolean;
+  compactText?: boolean;
 }
 
-export default function MarkdownViewer({ content, className = "", compactMedia = false }: MarkdownViewerProps) {
+export default function MarkdownViewer({
+  content,
+  className = "",
+  compactMedia = false,
+  compactText = false,
+}: MarkdownViewerProps) {
   const inspector = useMediaInspector();
-  const renderedVideos = useRef(new Set<string>());
+  const renderedVideos = useRef<Set<string>>(new Set<string>());
   // Clear rendered video tracker for this render pass
   renderedVideos.current.clear();
 
+  const baseProse = compactText ? "prose-compact" : "prose";
+
   return (
-    <div className={`prose prose-sm max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
+    <div className={`${baseProse} max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
@@ -189,6 +197,57 @@ export default function MarkdownViewer({ content, className = "", compactMedia =
               </code>
             );
           },
+          h1: ({ node, children, ...props }: any) => (
+            <h1 className={compactText ? "text-[13.5px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[18px] font-semibold text-[var(--aurora-fg1)] mt-3.5 mb-1.5 first:mt-0 tracking-tight"} {...props}>
+              {children}
+            </h1>
+          ),
+          h2: ({ node, children, ...props }: any) => (
+            <h2 className={compactText ? "text-[13px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[16px] font-semibold text-[var(--aurora-fg1)] mt-3 mb-1 first:mt-0 tracking-tight"} {...props}>
+              {children}
+            </h2>
+          ),
+          h3: ({ node, children, ...props }: any) => (
+            <h3 className={compactText ? "text-[12.5px] font-semibold text-[var(--aurora-fg1)] mt-1.5 mb-0.5 first:mt-0" : "text-[14.5px] font-semibold text-[var(--aurora-fg1)] mt-2.5 mb-1 first:mt-0"} {...props}>
+              {children}
+            </h3>
+          ),
+          h4: ({ node, children, ...props }: any) => (
+            <h4 className="text-[13px] font-semibold text-[var(--aurora-fg2)] mt-2 mb-0.5 first:mt-0" {...props}>
+              {children}
+            </h4>
+          ),
+          h5: ({ node, children, ...props }: any) => (
+            <h5 className="text-[12px] font-semibold text-[var(--aurora-fg2)] mt-1.5 mb-0.5 first:mt-0" {...props}>
+              {children}
+            </h5>
+          ),
+          h6: ({ node, children, ...props }: any) => (
+            <h6 className="text-[11.5px] font-semibold text-[var(--aurora-fg3)] mt-1.5 mb-0.5 first:mt-0 uppercase" {...props}>
+              {children}
+            </h6>
+          ),
+          p: ({ node, children, ...props }: any) => (
+            <p className={compactText ? "text-[12px] leading-relaxed my-1 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]" : "text-[13.5px] leading-relaxed my-1.5 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]"} {...props}>
+              {children}
+            </p>
+          ),
+          ul: ({ node, children, ...props }: any) => (
+            <ul className={compactText ? "list-disc pl-4 my-1 space-y-0.5 text-[12px]" : "list-disc pl-5 my-1.5 space-y-1 text-[13.5px]"} {...props}>
+              {children}
+            </ul>
+          ),
+          ol: ({ node, children, ...props }: any) => (
+            <ol className={compactText ? "list-decimal pl-4 my-1 space-y-0.5 text-[12px]" : "list-decimal pl-5 my-1.5 space-y-1 text-[13.5px]"} {...props}>
+              {children}
+            </ol>
+          ),
+          li: ({ node, children, ...props }: any) => (
+            <li className={compactText ? "text-[12px] leading-normal" : "text-[13.5px] leading-normal"} {...props}>
+              {children}
+            </li>
+          ),
+          hr: (props: any) => <hr className="my-2.5 border-[var(--aurora-border)]" {...props} />,
         }}
       >
         {content}

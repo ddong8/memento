@@ -3,9 +3,17 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { Icon } from "@/components/aurora/Icon";
 import type { AvatarSettings } from "@/lib/api-client";
 import CartoonAvatarGraphic from "./CartoonAvatarGraphic";
+
+// 模块级 GLTF 模型与动画单例缓存池，避免切换菜单或重复渲染时从头下载与初始化
+interface CachedAvatarModel {
+  scene: THREE.Group;
+  animations: THREE.AnimationClip[];
+}
+const gltfAvatarCache = new Map<string, CachedAvatarModel>();
 
 export type PersonaDimension =
   | "brain"
@@ -522,7 +530,7 @@ export default function DigitalTwinAvatar3D({
       satellites.push(sat);
     }
 
-    // 5. Dynamic Multi-Gender (Male, Female, Silicon Agent) 3D Model Loader
+    // 5. Dynamic Multi-Gender (Male, Female, Silicon Agent) 3D Model Loader with Instant Module Cache
     const loadAvatarModel = (targetGender: string) => {
       currentLoadedGenderRef.current = targetGender;
 
@@ -547,18 +555,120 @@ export default function DigitalTwinAvatar3D({
       }
       if (currentModelRef.current) {
         avatarGroup.remove(currentModelRef.current);
-        currentModelRef.current.traverse((child) => {
-          if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose();
-        });
         currentModelRef.current = null;
       }
-
-      solidMannequin.visible = true;
 
       // 三大模型映射：男 -> avatar_male.glb, 女 -> avatar_female.glb, 硅基 -> avatar_agent.glb
       let modelUrl = "/models/avatar_male.glb";
       if (targetGender === "female") modelUrl = "/models/avatar_female.glb";
       else if (targetGender === "agent") modelUrl = "/models/avatar_agent.glb";
+
+      const applyModelToScene = (sourceScene: THREE.Group, animations: THREE.AnimationClip[]) => {
+        if (currentLoadedGenderRef.current !== targetGender) return;
+
+        // 使用 SkeletonUtils.clone 快速克隆带骨架网格，保证场景间隔离与极速装配
+        const model = SkeletonUtils.clone(sourceScene) as THREE.Group;
+        currentModelRef.current = model;
+        avatarGroup.add(model);
+
+        // Vanguard 男性模型 Mixamo 坐标系默认面向 -Z，旋转 180 度正对观察者
+        if (targetGender === "male") {
+          model.rotation.y = Math.PI;
+        }
+
+        // 自动包围盒归一化与黄金高度对齐（智能体 1.55m，人类标准 1.78m）
+        model.position.set(0, 0, 0);
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const targetHeight = targetGender === "agent" ? 1.55 : 1.78;
+        if (size.y > 0.1) {
+          const scaleFactor = targetHeight / size.y;
+          model.scale.setScalar(scaleFactor);
+        }
+
+        // 重新更新矩阵并精确对齐底座表面，水平严格居中于底座 (0, 0)
+        model.updateMatrixWorld(true);
+        const scaledBox = new THREE.Box3().setFromObject(model);
+        model.position.y -= (scaledBox.min.y - 0.04);
+        model.position.x = 0;
+        model.position.z = 0;
+
+        // 隐藏素模假人
+        solidMannequin.visible = false;
+
+        // 挂载原生 Idle 待机动作（如 Mixamo 男性与机器人智能体），防止骨骼动作冲突
+        if (animations && animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(model);
+          const idleClip =
+            animations.find((a) => a.name.toLowerCase() === "idle") ||
+            animations.find((a) => a.name.toLowerCase().includes("idle")) ||
+            animations[0];
+          if (idleClip) {
+            const action = mixer.clipAction(idleClip);
+            action.play();
+          }
+          activeMixerRef.current = mixer;
+        } else {
+          activeMixerRef.current = null;
+        }
+
+        const bones: Record<string, THREE.Object3D> = {};
+        model.traverse((child) => {
+          if (child instanceof THREE.Bone) {
+            const cleanName = child.name.replace(/^mixamorig[:_]?/i, "");
+            bones[cleanName] = child;
+            bones[child.name] = child;
+          }
+          if (child instanceof THREE.Mesh && child.material) {
+            child.material.side = THREE.FrontSide;
+            if ("roughness" in child.material) {
+              child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
+            }
+          }
+        });
+
+        // 骨骼别名对齐（支持 Mixamo 标准、Ready Player Me、以及 RobotExpressive 硅基骨骼）
+        if (!bones.RightArm && bones["UpperArm.R"]) bones.RightArm = bones["UpperArm.R"];
+        if (!bones.RightForeArm && bones["LowerArm.R"]) bones.RightForeArm = bones["LowerArm.R"];
+        if (!bones.LeftArm && bones["UpperArm.L"]) bones.LeftArm = bones["UpperArm.L"];
+        if (!bones.LeftForeArm && bones["LowerArm.L"]) bones.LeftForeArm = bones["LowerArm.L"];
+        if (!bones.Spine && bones["Torso"]) bones.Spine = bones["Torso"];
+        if (!bones.Spine2 && bones["Abdomen"]) bones.Spine2 = bones["Abdomen"];
+        bonesRef.current = bones;
+
+        const headBone = bones.Head || bones.head;
+        if (headBone) {
+          headBone.add(haloMesh);
+          haloMesh.position.set(0, 0.16, 0);
+          headBone.add(soundWave);
+          soundWave.position.set(0, -0.05, 0.16);
+        } else {
+          avatarGroup.add(haloMesh);
+          haloMesh.position.set(0, 1.84, 0);
+          avatarGroup.add(soundWave);
+          soundWave.position.set(0, 1.48, 0.15);
+        }
+
+        const chestBone = bones.Spine2 || bones.Spine || bones.spine2 || bones.spine;
+        if (chestBone) {
+          chestBone.add(chestCore);
+          chestCore.position.set(0, 0.08, 0.12);
+        } else {
+          avatarGroup.add(chestCore);
+          chestCore.position.set(0, 1.25, 0.14);
+        }
+      };
+
+      // 关键优化：若模型已在模块缓存池中，0ms 同步秒开！直接跳过假人阶段
+      const cached = gltfAvatarCache.get(modelUrl);
+      if (cached) {
+        applyModelToScene(cached.scene, cached.animations);
+        return;
+      }
+
+      // 仅在首次拉取时展示全息素模待机过渡
+      solidMannequin.visible = true;
 
       const loader = new GLTFLoader();
       avatarLoaderRef.current = loader;
@@ -566,93 +676,11 @@ export default function DigitalTwinAvatar3D({
       loader.load(
         modelUrl,
         (gltf) => {
-          if (currentLoadedGenderRef.current !== targetGender) return;
-
-          const model = gltf.scene;
-          currentModelRef.current = model;
-          avatarGroup.add(model);
-
-          // Vanguard 男性模型 Mixamo 坐标系默认面向 -Z，旋转 180 度正对观察者
-          if (targetGender === "male") {
-            model.rotation.y = Math.PI;
-          }
-
-          // 自动包围盒归一化与黄金高度对齐（智能体 1.55m，人类标准 1.78m）
-          const box = new THREE.Box3().setFromObject(model);
-          const size = box.getSize(new THREE.Vector3());
-          const targetHeight = targetGender === "agent" ? 1.55 : 1.78;
-          const scaleFactor = targetHeight / (size.y || 1);
-          model.scale.setScalar(scaleFactor);
-
-          // 重新根据实际尺寸对齐底座
-          const scaledBox = new THREE.Box3().setFromObject(model);
-          model.position.y -= scaledBox.min.y - 0.04;
-          model.position.x -= (scaledBox.min.x + scaledBox.max.x) / 2;
-          model.position.z -= (scaledBox.min.z + scaledBox.max.z) / 2;
-
-          solidMannequin.visible = false;
-
-          // 挂载原生 Idle 待机动作（如 Mixamo 男性与机器人智能体），防止骨骼动作冲突
-          if (gltf.animations && gltf.animations.length > 0) {
-            const mixer = new THREE.AnimationMixer(model);
-            const idleClip =
-              gltf.animations.find((a) => a.name.toLowerCase() === "idle") ||
-              gltf.animations.find((a) => a.name.toLowerCase().includes("idle")) ||
-              gltf.animations[0];
-            if (idleClip) {
-              const action = mixer.clipAction(idleClip);
-              action.play();
-            }
-            activeMixerRef.current = mixer;
-          } else {
-            activeMixerRef.current = null;
-          }
-
-          const bones: Record<string, THREE.Object3D> = {};
-          model.traverse((child) => {
-            if (child instanceof THREE.Bone) {
-              const cleanName = child.name.replace(/^mixamorig[:_]?/i, "");
-              bones[cleanName] = child;
-              bones[child.name] = child;
-            }
-            if (child instanceof THREE.Mesh && child.material) {
-              child.material.side = THREE.FrontSide;
-              if ("roughness" in child.material) {
-                child.material.roughness = Math.max(0.3, child.material.roughness * 0.9);
-              }
-            }
+          gltfAvatarCache.set(modelUrl, {
+            scene: gltf.scene,
+            animations: gltf.animations || [],
           });
-
-          // 骨骼别名对齐（支持 Mixamo 标准、Ready Player Me、以及 RobotExpressive 硅基骨骼）
-          if (!bones.RightArm && bones["UpperArm.R"]) bones.RightArm = bones["UpperArm.R"];
-          if (!bones.RightForeArm && bones["LowerArm.R"]) bones.RightForeArm = bones["LowerArm.R"];
-          if (!bones.LeftArm && bones["UpperArm.L"]) bones.LeftArm = bones["UpperArm.L"];
-          if (!bones.LeftForeArm && bones["LowerArm.L"]) bones.LeftForeArm = bones["LowerArm.L"];
-          if (!bones.Spine && bones["Torso"]) bones.Spine = bones["Torso"];
-          if (!bones.Spine2 && bones["Abdomen"]) bones.Spine2 = bones["Abdomen"];
-          bonesRef.current = bones;
-
-          const headBone = bones.Head || bones.head;
-          if (headBone) {
-            headBone.add(haloMesh);
-            haloMesh.position.set(0, 0.16, 0);
-            headBone.add(soundWave);
-            soundWave.position.set(0, -0.05, 0.16);
-          } else {
-            avatarGroup.add(haloMesh);
-            haloMesh.position.set(0, 1.84, 0);
-            avatarGroup.add(soundWave);
-            soundWave.position.set(0, 1.48, 0.15);
-          }
-
-          const chestBone = bones.Spine2 || bones.Spine || bones.spine2 || bones.spine;
-          if (chestBone) {
-            chestBone.add(chestCore);
-            chestCore.position.set(0, 0.08, 0.12);
-          } else {
-            avatarGroup.add(chestCore);
-            chestCore.position.set(0, 1.25, 0.14);
-          }
+          applyModelToScene(gltf.scene, gltf.animations || []);
         },
         undefined,
         (err) => {

@@ -91,14 +91,41 @@ export default function AvatarOnboardingModal({
     }
   };
 
-  // 关闭向导（若未保存则复原至当前保存的性别形象）
+  // 关闭向导（若未保存则复原至当前保存的性别形象，并持久化跳过状态防止重复弹窗）
   const handleModalClose = () => {
     if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("memento_avatar_onboarding_dismissed", "true");
+      } catch {}
       window.dispatchEvent(
         new CustomEvent("memento:switch-avatar-gender", {
           detail: currentSettings?.gender || "male",
         })
       );
+    }
+    // 若初次进入且尚未初始化，用户选择关闭或跳过时，静默持久化默认配置到服务端，彻底消除 is_initialized: false
+    if (isFirstTime && (!currentSettings || !currentSettings.is_initialized)) {
+      try {
+        const fallbackPreset = getPresetById(selectedPresetId) || AVATAR_PRESETS[0];
+        const payload: AvatarSettings = {
+          is_initialized: true,
+          gender: gender || "male",
+          style: fallbackPreset.style,
+          preset_id: selectedPresetId || "geek_male",
+          nickname: nickname.trim() || "极客孪生",
+          avatar_url: customPhotoUrl || undefined,
+          custom_photo_url: customPhotoUrl || undefined,
+          theme_color: themeColor || "#8B5CF6",
+          outfit_color: outfitColor || "#4F46E5",
+          features: features && features.length > 0 ? features : ["全栈极客", "黑框眼镜", "全息代码环"],
+          updated_at: new Date().toISOString(),
+        };
+        api.saveAvatarSettings(payload).then((res) => {
+          if (res?.settings) {
+            onSaved(res.settings);
+          }
+        }).catch(() => {});
+      } catch {}
     }
     onClose();
   };
@@ -170,6 +197,9 @@ export default function AvatarOnboardingModal({
         features: features,
         updated_at: new Date().toISOString(),
       };
+      try {
+        localStorage.setItem("memento_avatar_onboarding_dismissed", "true");
+      } catch {}
       const res = await api.saveAvatarSettings(payload);
       if (res && res.settings) {
         onSaved(res.settings);
@@ -179,6 +209,9 @@ export default function AvatarOnboardingModal({
       onClose();
     } catch (err) {
       console.error("保存形象失败:", err);
+      try {
+        localStorage.setItem("memento_avatar_onboarding_dismissed", "true");
+      } catch {}
       // 本地保底
       onSaved({
         is_initialized: true,
@@ -807,7 +840,16 @@ export default function AvatarOnboardingModal({
           </div>
 
           <div className="flex items-center gap-2">
-            {!isFirstTime && (
+            {isFirstTime ? (
+              <button
+                onClick={handleModalClose}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-white/50 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5"
+                title="稍后设置，保留默认配置直接进入"
+              >
+                <span>稍后设置</span>
+                <span className="text-[10px] text-white/30 hidden sm:inline">(使用默认)</span>
+              </button>
+            ) : (
               <button
                 onClick={handleModalClose}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/50 hover:text-white transition-all"

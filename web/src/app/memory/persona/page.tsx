@@ -27,6 +27,30 @@ interface CachedPersonaData {
 
 let cachedPersonaData: CachedPersonaData | null = null;
 
+const isAvatarOnboardingDismissed = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    const token = localStorage.getItem("dr_token") || "anon";
+    const userKey = `memento_avatar_dismissed_${token.slice(-12)}`;
+    return (
+      localStorage.getItem(userKey) === "true" ||
+      localStorage.getItem("memento_avatar_onboarding_dismissed") === "true"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const markAvatarOnboardingDismissed = () => {
+  if (typeof window === "undefined") return;
+  try {
+    const token = localStorage.getItem("dr_token") || "anon";
+    const userKey = `memento_avatar_dismissed_${token.slice(-12)}`;
+    localStorage.setItem(userKey, "true");
+    localStorage.setItem("memento_avatar_onboarding_dismissed", "true");
+  } catch {}
+};
+
 const TARGET_META: Record<string, { label: string; file: string; desc: string }> = {
   claude_code: { label: "Claude Code", file: "~/.claude/CLAUDE.md", desc: "Anthropic 官方终端 Agent" },
   antigravity: { label: "Antigravity / Gemini", file: "~/.gemini/GEMINI.md", desc: "Google DeepMind 编码助手" },
@@ -396,6 +420,7 @@ export default function PersonaPage() {
   const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(() => cachedPersonaData?.avatarSettings ?? null);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
+  const hasCheckedAvatarOnboardingRef = useRef(false);
 
   const togglePhysicalFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -449,9 +474,18 @@ export default function PersonaPage() {
           if (prev && JSON.stringify(prev) === JSON.stringify(avatar)) return prev;
           return avatar;
         });
-        if (!avatar.is_initialized) {
+        // 关键防护：仅在服务端未初始化、且本地从未跳过或设置过、且本次应用运行未曾检测过时，才允许单次静默延迟唤起
+        if (!avatar.is_initialized && !isAvatarOnboardingDismissed() && !hasCheckedAvatarOnboardingRef.current) {
+          hasCheckedAvatarOnboardingRef.current = true;
           setIsAvatarFirstTime(true);
-          setTimeout(() => setIsAvatarModalOpen(true), 600);
+          setTimeout(() => {
+            if (!isAvatarOnboardingDismissed()) {
+              setIsAvatarModalOpen(true);
+            }
+          }, 600);
+        } else if (!avatar.is_initialized && isAvatarOnboardingDismissed()) {
+          // 本地已跳过但服务端尚未写回，后台静默自动保存默认形象同步服务端状态
+          api.saveAvatarSettings(avatar).catch(() => {});
         }
       }
 
@@ -2021,10 +2055,16 @@ export default function PersonaPage() {
       {/* 首次进入引导或主动重塑形象向导弹窗 (Glass Holographic Onboarding Modal) */}
       <AvatarOnboardingModal
         isOpen={isAvatarModalOpen}
-        onClose={() => setIsAvatarModalOpen(false)}
+        onClose={() => {
+          setIsAvatarModalOpen(false);
+          markAvatarOnboardingDismissed();
+          hasCheckedAvatarOnboardingRef.current = true;
+        }}
         currentSettings={avatarSettings}
         isFirstTime={isAvatarFirstTime}
         onSaved={(newSettings) => {
+          markAvatarOnboardingDismissed();
+          hasCheckedAvatarOnboardingRef.current = true;
           setAvatarSettings(newSettings);
           triggerSynapse(`✨ 数字孪生形象已激活 · ${newSettings.nickname} · 神经突触已同步`);
           setNotice(`✅ 数字孪生形象「${newSettings.nickname}」已同步激活！`);

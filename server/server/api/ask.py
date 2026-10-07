@@ -707,6 +707,7 @@ async def _get_or_create_conversation(
     cwd: str | None,
     session_id: str | None = None,
     history: list[dict] | None = None,
+    config: dict | None = None,
 ) -> tuple[uuid.UUID, str]:
     """Retrieve existing conversation or create a new one."""
     async with async_session_factory() as session:
@@ -720,6 +721,23 @@ async def _get_or_create_conversation(
                     )
                 )).scalars().first()
                 if conv:
+                    updated = False
+                    if config:
+                        cfg = dict(conv.config or {})
+                        for k, v in config.items():
+                            if v is not None and v != "":
+                                cfg[k] = v
+                        conv.config = cfg
+                        updated = True
+                    if device_id and conv.device_id != device_id:
+                        conv.device_id = device_id
+                        updated = True
+                    if cwd and conv.cwd != cwd:
+                        conv.cwd = cwd
+                        updated = True
+                    if updated:
+                        conv.updated_at = datetime.now(timezone.utc)
+                        await session.commit()
                     return conv.id, conv.title
             except Exception:
                 pass
@@ -772,6 +790,7 @@ async def _get_or_create_conversation(
             turns=init_turns,
             device_id=device_id,
             cwd=cwd,
+            config=config or {},
         )
         session.add(conv)
         await session.commit()
@@ -790,6 +809,7 @@ async def _append_conversation_turns(
     cwd: str | None = None,
     images: list[str] | None = None,
     attachments: list[dict] | None = None,
+    config: dict | None = None,
 ):
     """Persist user and assistant turns into the conversation row."""
     try:
@@ -831,6 +851,12 @@ async def _append_conversation_turns(
                 conv.device_id = device_id
             if cwd:
                 conv.cwd = cwd
+            if config:
+                cfg = dict(conv.config or {})
+                for k, v in config.items():
+                    if v is not None and v != "":
+                        cfg[k] = v
+                conv.config = cfg
             await session.commit()
 
             # Fast-path self-evolution: if the user's message contains pushback or correction signals,
@@ -877,6 +903,8 @@ async def list_conversations(
             AskConversation.created_at,
             AskConversation.updated_at,
             AskConversation.device_id,
+            AskConversation.cwd,
+            AskConversation.config,
             func.jsonb_array_length(AskConversation.turns).label("message_count"),
         )
         .where(cond)
@@ -892,6 +920,8 @@ async def list_conversations(
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "device_id": r.device_id,
+            "cwd": r.cwd,
+            "config": r.config or {},
             "message_count": r.message_count or 0,
         }
         for r in rows
@@ -904,7 +934,7 @@ async def get_conversation(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Get full conversation history with all turns."""
+    """Get full conversation history with all turns and runtime configuration."""
     try:
         cid = uuid.UUID(conv_id)
     except ValueError:
@@ -917,15 +947,112 @@ async def get_conversation(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    cfg = dict(conv.config or {})
+    # Fallback inference for legacy conversations created before this update:
+    if not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai":
+        for turn in conv.turns or []:
+            for tc in (turn.get("toolCalls") or []):
+                args = tc.get("args") or {}
+                binary = str(tc.get("binary") or args.get("binary") or "").lower()
+                name = str(tc.get("name") or "").lower()
+                cmd = str(tc.get("command") or "")
+                if "claude" in binary or "claude" in name or "[CLAUDE" in cmd:
+                    cfg["execution_mode"] = "claude"
+                    break
+                elif "codex" in binary or "codex" in name or "[CODEX" in cmd:
+                    cfg["execution_mode"] = "codex"
+                    break
+                elif "antigravity" in binary or "antigravity" in name or "[ANTIGRAVITY" in cmd:
+                    cfg["execution_mode"] = "antigravity"
+                    break
+                elif binary in ("bash", "sh", "zsh") or "[SHELL" in cmd:
+                    cfg["execution_mode"] = "shell"
+                    break
+            if cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                break
+
     return {
         "id": str(conv.id),
         "title": conv.title,
         "turns": conv.turns or [],
         "device_id": conv.device_id,
         "cwd": conv.cwd,
+        "execution_mode": cfg.get("execution_mode", "ai"),
+        "model": cfg.get("model", ""),
+        "effort": cfg.get("effort", ""),
+        "project_id": cfg.get("project_id", ""),
+        "session_id": cfg.get("session_id", ""),
+        "worktree": bool(cfg.get("worktree", False)),
+        "compact_mode": bool(cfg.get("compact_mode", False)),
+        "config": cfg,
         "created_at": conv.created_at.isoformat() if conv.created_at else None,
         "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
     }
+
+
+class UpdateConversationRequest(BaseModel):
+    title: str | None = None
+    device_id: str | None = None
+    cwd: str | None = None
+    execution_mode: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    project_id: str | None = None
+    session_id: str | None = None
+    worktree: bool | None = None
+    compact_mode: bool | None = None
+    config: dict | None = None
+
+
+@router.patch("/conversations/{conv_id}")
+async def update_conversation(
+    conv_id: str,
+    body: UpdateConversationRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Update conversation metadata and configuration."""
+    try:
+        cid = uuid.UUID(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID")
+
+    cond = (AskConversation.id == cid) & (
+        (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
+    )
+    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if body.title is not None:
+        conv.title = body.title.strip()
+    if body.device_id is not None:
+        conv.device_id = body.device_id.strip() or None
+    if body.cwd is not None:
+        conv.cwd = body.cwd.strip() or None
+
+    cfg = dict(conv.config or {})
+    if body.config:
+        cfg.update(body.config)
+    if body.execution_mode is not None:
+        cfg["execution_mode"] = body.execution_mode
+    if body.model is not None:
+        cfg["model"] = body.model
+    if body.effort is not None:
+        cfg["effort"] = body.effort
+    if body.project_id is not None:
+        cfg["project_id"] = body.project_id
+    if body.session_id is not None:
+        cfg["session_id"] = body.session_id
+    if body.worktree is not None:
+        cfg["worktree"] = body.worktree
+    if body.compact_mode is not None:
+        cfg["compact_mode"] = body.compact_mode
+
+    conv.config = cfg
+    conv.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"ok": True, "config": cfg}
 
 
 @router.delete("/conversations/{conv_id}")
@@ -1181,6 +1308,15 @@ async def _direct_agent_stream(
             cwd=cwd,
             images=images,
             attachments=attachments,
+            config={
+                "execution_mode": execution_mode,
+                "model": model or "",
+                "effort": effort or "",
+                "project_id": project_id or "",
+                "session_id": session_id or "",
+                "worktree": bool(worktree),
+                "compact_mode": bool(compact_mode),
+            },
         )
 
     try:
@@ -1349,6 +1485,16 @@ async def ask(
 
     device_id = (body.device_id or "").strip()
 
+    req_config = {
+        "execution_mode": body.execution_mode or "ai",
+        "model": body.model or "",
+        "effort": body.effort or "",
+        "project_id": body.project_id or "",
+        "session_id": body.session_id or "",
+        "worktree": bool(body.worktree),
+        "compact_mode": bool(body.compact_mode),
+    }
+
     conv_id, conv_title = await _get_or_create_conversation(
         body.conversation_id,
         _user,
@@ -1357,6 +1503,7 @@ async def ask(
         body.cwd,
         session_id=body.session_id,
         history=body.history,
+        config=req_config,
     )
 
     if question.startswith("__mock_long_run__"):
@@ -1556,6 +1703,7 @@ async def ask(
                     cwd=body.cwd,
                     images=body.images,
                     attachments=body.attachments,
+                    config=req_config,
                 )
 
             try:
@@ -1630,6 +1778,7 @@ async def ask(
                 cwd=body.cwd,
                 images=body.images,
                 attachments=body.attachments,
+                config=req_config,
             )
 
         if not sources and not body.images and not body.attachments:

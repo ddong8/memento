@@ -576,6 +576,7 @@ class AskConversation(Base):
     turns: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     device_id: Mapped[str | None] = mapped_column(String(255))
     cwd: Mapped[str | None] = mapped_column(String(500))
+    config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

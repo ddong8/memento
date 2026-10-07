@@ -805,6 +805,27 @@ export const api = {
   },
   getAskConversation: (id: string) =>
     apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
+  updateAskConversation: (
+    id: string,
+    patch: Partial<{
+      title: string;
+      device_id: string;
+      cwd: string;
+      execution_mode: string;
+      model: string;
+      effort: string;
+      project_id: string;
+      session_id: string;
+      worktree: boolean;
+      compact_mode: boolean;
+      config: Record<string, any>;
+    }>
+  ) =>
+    apiFetch<{ ok: boolean; config?: Record<string, any> }>(`/api/ask/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
   deleteAskConversation: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
   listAskRuns: (recentSeconds = 0) =>
@@ -920,6 +941,8 @@ export interface AskConversationSummary {
   created_at: string | null;
   updated_at: string | null;
   device_id: string | null;
+  cwd?: string | null;
+  config?: Record<string, any>;
   message_count: number;
 }
 
@@ -936,6 +959,14 @@ export interface AskConversationDetail {
   }>;
   device_id: string | null;
   cwd: string | null;
+  execution_mode?: string;
+  model?: string;
+  effort?: string;
+  project_id?: string;
+  session_id?: string;
+  worktree?: boolean;
+  compact_mode?: boolean;
+  config?: Record<string, any>;
   created_at: string | null;
   updated_at: string | null;
 }

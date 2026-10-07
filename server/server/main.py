@@ -91,6 +91,12 @@ def _run_migrations(conn) -> None:
     if "avatar_settings" not in user_cols:
         conn.execute(text("ALTER TABLE users ADD COLUMN avatar_settings JSONB NOT NULL DEFAULT '{}'"))
 
+    # AskConversation.config — stores tool/engine, project, session, model, effort, worktree, compact preferences.
+    if "ask_conversations" in tables:
+        ask_cols = {c["name"] for c in insp.get_columns("ask_conversations")}
+        if "config" not in ask_cols:
+            conn.execute(text("ALTER TABLE ask_conversations ADD COLUMN config JSONB NOT NULL DEFAULT '{}'"))
+
     # User.github_id — GitHub OAuth login. Partial unique index: one account
     # per GitHub identity, while the many github_id IS NULL rows stay allowed.
     if "github_id" not in user_cols:

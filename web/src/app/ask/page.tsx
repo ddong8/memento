@@ -525,6 +525,13 @@ function AskPageContent() {
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[]) => Promise<void>) | null>(null);
 
+  // Helper to persist updated configuration for current conversation if one is active
+  const persistCurrentConfig = useCallback((patch: Record<string, any>) => {
+    const convId = activeConversationIdRef.current;
+    if (!convId || streamingRef.current) return;
+    api.updateAskConversation(convId, patch).catch(() => {});
+  }, []);
+
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
     if (!id || streamingRef.current) return;
@@ -536,12 +543,106 @@ function AskPageContent() {
       try {
         localStorage.setItem("memento_last_ask_conv_id", data.id);
       } catch {}
-      if (data.device_id) setSelectedDevice(data.device_id);
-      if (data.cwd) setCwd(data.cwd);
+
+      // 1. Device and working directory
+      const devToUse = data.device_id || "auto";
+      setSelectedDevice(devToUse);
+      if (data.cwd) {
+        setCwd(data.cwd);
+        setShowCwd(true);
+      } else {
+        setCwd("");
+      }
+
+      // 2. Turns and sidebar states
       setTurns(data.turns || []);
       setHistoryOpen(false);
       setSourcesOpen(false);
-      // Still running (started before a reload, or from another device)? Show it live.
+
+      // 3. Execution mode, model, effort, worktree, compact
+      const targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
+      setExecutionMode(targetMode);
+
+      const targetModel = data.model || data.config?.model || "";
+      setSelectedModel(targetModel);
+      setIsCustomModel(Boolean(targetModel && !FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)));
+
+      const targetEffort = data.effort || data.config?.effort || "";
+      setSelectedEffort(targetEffort);
+
+      const isWorktree = Boolean(data.worktree ?? data.config?.worktree ?? false);
+      setWorktreeMode(isWorktree);
+
+      const isCompact = Boolean(data.compact_mode ?? data.config?.compact_mode ?? false);
+      setCompactMode(isCompact);
+
+      // 4. Project and Session restoration
+      if (["codex", "claude", "antigravity"].includes(targetMode)) {
+        const toolMap: Record<string, string> = {
+          codex: "codex",
+          claude: "claude_code",
+          antigravity: "antigravity",
+        };
+        const toolId = toolMap[targetMode];
+        if (toolId) {
+          try {
+            const devForQuery = devToUse !== "auto" && devToUse !== "ask_only" && devToUse !== "all" ? devToUse : undefined;
+            const projList = await api.listProjects(toolId, devForQuery);
+            const projs = projList || [];
+            setProjects(projs);
+
+            const targetProjId = data.project_id || data.config?.project_id || "";
+            let matchedProj = targetProjId ? projs.find((p) => p.id === targetProjId) : undefined;
+            if (!matchedProj && data.cwd) {
+              const cleanCwd = data.cwd.trim().toLowerCase();
+              matchedProj = projs.find((p) => {
+                if (!p.source_path) return false;
+                const sp = p.source_path.trim().toLowerCase();
+                return sp.includes(cleanCwd) || cleanCwd.includes(sp);
+              });
+            }
+
+            if (matchedProj) {
+              setSelectedProjectId(matchedProj.id);
+              selectedProjectIdRef.current = matchedProj.id;
+              setLoadingSessions(true);
+              try {
+                const res = await api.getProjectConversations(matchedProj.id, 0, 50, "desc", devForQuery);
+                const sessList = res.sessions || [];
+                setSessions(sessList);
+                const targetSessionId = data.session_id || data.config?.session_id || "";
+                setSelectedSessionId(targetSessionId);
+              } catch (e) {
+                console.error("Failed to restore project sessions:", e);
+                setSessions([]);
+                setSelectedSessionId("");
+              } finally {
+                setLoadingSessions(false);
+              }
+            } else {
+              setSelectedProjectId(targetProjId || "");
+              selectedProjectIdRef.current = targetProjId || "";
+              setSessions([]);
+              setSelectedSessionId("");
+            }
+          } catch (e) {
+            console.error("Failed to load projects for mode:", e);
+            setProjects([]);
+            setSelectedProjectId("");
+            selectedProjectIdRef.current = "";
+            setSessions([]);
+            setSelectedSessionId("");
+          }
+        }
+      } else {
+        setProjects([]);
+        setSelectedProjectId("");
+        selectedProjectIdRef.current = "";
+        setSessions([]);
+        setSelectedSessionId("");
+      }
+
+      // 5. Still running (started before a reload, or from another device)? Show it live.
       const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${data.id}/run`);
       if (runRes.ok) {
         const run = await runRes.json();
@@ -1351,15 +1452,18 @@ function AskPageContent() {
 
   const handleSelectProject = useCallback(async (projId: string, customProjects?: ProjectSummary[]) => {
     setSelectedProjectId(projId);
+    selectedProjectIdRef.current = projId;
     setSelectedSessionId("");
     if (!projId) {
       setSessions([]);
+      persistCurrentConfig({ project_id: "", session_id: "" });
       return;
     }
     const projs = customProjects || projectsRef.current;
     const proj = projs.find((p) => p.id === projId);
+    let clean = "";
     if (proj?.source_path) {
-      let clean = proj.source_path.trim();
+      clean = proj.source_path.trim();
       const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
       if (match) {
         clean = match[1].replace(/[\/\\]+$/, "");
@@ -1369,19 +1473,20 @@ function AskPageContent() {
       setCwd(clean);
       setShowCwd(true);
     }
+    persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined });
     setLoadingSessions(true);
     try {
       const res = await api.getProjectConversations(projId, 0, 30, "desc", selectedDevice);
       setSessions(res.sessions || []);
       if (res.project?.source_path) {
-        let clean = res.project.source_path.trim();
-        const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
+        let cleanProj = res.project.source_path.trim();
+        const match = cleanProj.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
         if (match) {
-          clean = match[1].replace(/[\/\\]+$/, "");
+          cleanProj = match[1].replace(/[\/\\]+$/, "");
         } else {
-          clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
+          cleanProj = cleanProj.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
         }
-        setCwd(clean);
+        setCwd(cleanProj);
         setShowCwd(true);
       }
     } catch (e) {
@@ -1390,7 +1495,7 @@ function AskPageContent() {
     } finally {
       setLoadingSessions(false);
     }
-  }, [selectedDevice]);
+  }, [selectedDevice, persistCurrentConfig]);
 
   const loadProjectsForMode = useCallback(async (mode: ExecutionMode, targetDev?: string, preferredTitle?: string) => {
     const toolMap: Record<string, string> = {
@@ -1402,6 +1507,7 @@ function AskPageContent() {
     if (!toolId) {
       setProjects([]);
       setSelectedProjectId("");
+      selectedProjectIdRef.current = "";
       setSessions([]);
       setSelectedSessionId("");
       return;
@@ -1425,6 +1531,7 @@ function AskPageContent() {
         }
       } else {
         setSelectedProjectId("");
+        selectedProjectIdRef.current = "";
         setSessions([]);
         setSelectedSessionId("");
       }
@@ -1432,6 +1539,7 @@ function AskPageContent() {
       console.error("Failed to load projects:", e);
       setProjects([]);
       setSelectedProjectId("");
+      selectedProjectIdRef.current = "";
       setSessions([]);
       setSelectedSessionId("");
     }
@@ -1439,8 +1547,10 @@ function AskPageContent() {
 
   const handleDeviceChange = (newDev: string) => {
     setSelectedDevice(newDev);
+    persistCurrentConfig({ device_id: newDev });
     const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     setSelectedProjectId("");
+    selectedProjectIdRef.current = "";
     setSelectedSessionId("");
     setSessions([]);
     if (["codex", "claude", "antigravity"].includes(executionMode)) {
@@ -1458,8 +1568,10 @@ function AskPageContent() {
     // Default to empty (follow client/CLI config), never force hardcoded model!
     setSelectedModel("");
     setIsCustomModel(false);
+    persistCurrentConfig({ execution_mode: mode, model: "", project_id: "", session_id: "" });
     const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     setSelectedProjectId("");
+    selectedProjectIdRef.current = "";
     setSelectedSessionId("");
     setSessions([]);
     loadProjectsForMode(mode, dev, prevTitle);
@@ -1468,6 +1580,7 @@ function AskPageContent() {
   const handleSelectSession = useCallback(
     async (sid: string) => {
       setSelectedSessionId(sid);
+      persistCurrentConfig({ session_id: sid });
       if (!sid) {
         startNewChat();
         return;
@@ -2304,7 +2417,10 @@ function AskPageContent() {
                     <input
                       type="text"
                       value={cwd}
-                      onChange={(e) => setCwd(e.target.value)}
+                      onChange={(e) => {
+                        setCwd(e.target.value);
+                        persistCurrentConfig({ cwd: e.target.value });
+                      }}
                       placeholder={t.ask.cwdPlaceholder}
                       style={{
                         background: "transparent",
@@ -2377,7 +2493,10 @@ function AskPageContent() {
                     <input
                       type="text"
                       value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedModel(e.target.value);
+                        persistCurrentConfig({ model: e.target.value });
+                      }}
                       placeholder={isZh ? "输入模型名称, 如 gpt-6-astra..." : "Model name, e.g. gpt-6-astra..."}
                       autoFocus
                       style={{
@@ -2396,6 +2515,7 @@ function AskPageContent() {
                       onClick={() => {
                         setIsCustomModel(false);
                         setSelectedModel("");
+                        persistCurrentConfig({ model: "" });
                       }}
                       style={{ background: "none", border: "none", color: "var(--aurora-fg4)", cursor: "pointer", padding: 0, flexShrink: 0 }}
                       title={isZh ? "返回快捷预设列表" : "Return to preset list"}
@@ -2427,8 +2547,10 @@ function AskPageContent() {
                         if (e.target.value === "__custom__") {
                           setIsCustomModel(true);
                           setSelectedModel("");
+                          persistCurrentConfig({ model: "" });
                         } else {
                           setSelectedModel(e.target.value);
+                          persistCurrentConfig({ model: e.target.value });
                         }
                       }}
                       style={{
@@ -2482,7 +2604,10 @@ function AskPageContent() {
                   <Icon name="brain" size={13} style={{ color: selectedEffort ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
                   <select
                     value={selectedEffort}
-                    onChange={(e) => setSelectedEffort(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedEffort(e.target.value);
+                      persistCurrentConfig({ effort: e.target.value });
+                    }}
                     style={{
                       background: "transparent",
                       border: "none",
@@ -2518,7 +2643,11 @@ function AskPageContent() {
               {["codex", "claude", "antigravity"].includes(executionMode) && (
                 <button
                   type="button"
-                  onClick={() => setWorktreeMode((v) => !v)}
+                  onClick={() => {
+                    const next = !worktreeMode;
+                    setWorktreeMode(next);
+                    persistCurrentConfig({ worktree: next });
+                  }}
                   aria-pressed={worktreeMode}
                   title={worktreeMode ? t.taskRun.worktreeOn : t.taskRun.worktreeOff}
                   style={{
@@ -2708,7 +2837,11 @@ function AskPageContent() {
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                       <button
                         type="button"
-                        onClick={() => setCompactMode(!compactMode)}
+                        onClick={() => {
+                          const next = !compactMode;
+                          setCompactMode(next);
+                          persistCurrentConfig({ compact_mode: next });
+                        }}
                         style={{
                           background: compactMode ? "rgba(16, 185, 129, 0.18)" : "var(--aurora-chip)",
                           border: `1px solid ${compactMode ? "#10b981" : "var(--aurora-border)"}`,

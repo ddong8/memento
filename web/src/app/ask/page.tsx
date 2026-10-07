@@ -86,10 +86,48 @@ interface RunCursor {
 interface Turn {
   role: "user" | "assistant";
   content: string;
+  images?: string[];
   thinking?: string;
   sources?: Source[];
   toolCalls?: ToolCallItem[];
   error?: boolean;
+}
+
+function compressImageToDataUrl(file: File, maxDim = 2048, quality = 0.85): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        const dataUrl = canvas.toDataURL(mime, quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function parseTurnContent(turn: Turn): { thinking: string; content: string } {
@@ -236,8 +274,13 @@ function formatExcerpt(raw: string): string {
   return text.trim();
 }
 
-/* ── Memoized turn renderer ── */
-const UserBubble = memo(function UserBubble({ content }: { content: string }) {
+const UserBubble = memo(function UserBubble({
+  content,
+  images,
+}: {
+  content: string;
+  images?: string[];
+}) {
   return (
     <div style={{ display: "flex", justifyContent: "flex-end" }}>
       <div
@@ -252,9 +295,55 @@ const UserBubble = memo(function UserBubble({ content }: { content: string }) {
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
           boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        {content}
+        {images && images.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: content ? 4 : 0,
+            }}
+          >
+            {images.map((imgUrl, idx) => (
+              <div
+                key={idx}
+                style={{
+                  position: "relative",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  border: "1px solid rgba(255, 255, 255, 0.18)",
+                  boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+                  maxWidth: images.length === 1 ? "100%" : 240,
+                  maxHeight: 280,
+                  cursor: "pointer",
+                  background: "rgba(0,0,0,0.2)",
+                }}
+                onClick={() => {
+                  window.open(imgUrl, "_blank");
+                }}
+                title="点击在新标签页查看高清原图"
+              >
+                <img
+                  src={imgUrl}
+                  alt={`Attachment ${idx + 1}`}
+                  style={{
+                    display: "block",
+                    maxWidth: "100%",
+                    maxHeight: 280,
+                    objectFit: "contain",
+                    borderRadius: 12,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        {content && <div>{content}</div>}
       </div>
     </div>
   );
@@ -425,6 +514,86 @@ function AskPageContent() {
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+  const [attachedImages, setAttachedImages] = useState<
+    Array<{ id: string; name: string; dataUrl: string; size: number }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith("image/")) continue;
+      try {
+        const dataUrl = await compressImageToDataUrl(file);
+        newImgs.push({ id: crypto.randomUUID(), name: file.name, dataUrl, size: file.size });
+      } catch (err) {
+        console.error("Failed to compress image:", err);
+      }
+    }
+    if (newImgs.length > 0) {
+      setAttachedImages((prev) => [...prev, ...newImgs]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const removeAttachedImage = useCallback((id: string) => {
+    setAttachedImages((prev) => prev.filter((img) => img.id !== id));
+  }, []);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
+      for (const file of imageFiles) {
+        try {
+          const dataUrl = await compressImageToDataUrl(file);
+          newImgs.push({
+            id: crypto.randomUUID(),
+            name: file.name || "pasted_image.png",
+            dataUrl,
+            size: file.size,
+          });
+        } catch (err) {
+          console.error("Failed to process pasted image:", err);
+        }
+      }
+      if (newImgs.length > 0) {
+        setAttachedImages((prev) => [...prev, ...newImgs]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      let hasImage = false;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          hasImage = true;
+          break;
+        }
+      }
+      if (hasImage) {
+        handlePaste(e);
+      }
+    };
+    window.addEventListener("paste", onWindowPaste);
+    return () => window.removeEventListener("paste", onWindowPaste);
+  }, [handlePaste]);
 
   const projectsRef = useRef<ProjectSummary[]>([]);
   projectsRef.current = projects;
@@ -1510,10 +1679,12 @@ function AskPageContent() {
 
   const sendWithText = useCallback(async (
     textToSend: string,
-    options?: { forceCompact?: boolean; overrideSessionId?: string }
+    options?: { forceCompact?: boolean; overrideSessionId?: string; images?: string[] }
   ) => {
-    const question = textToSend.trim();
-    if (!question || streamingRef.current) return;
+    const rawQuestion = textToSend.trim();
+    const sendImages = options?.images || [];
+    if ((!rawQuestion && sendImages.length === 0) || streamingRef.current) return;
+    const question = rawQuestion || (sendImages.length > 0 ? (locale === "zh-CN" ? "请分析这张图片" : "Please analyze this image") : "");
 
     const effectiveSessionId = options?.overrideSessionId !== undefined ? options.overrideSessionId : selectedSessionId;
     const effectiveCompact = options?.forceCompact !== undefined ? options.forceCompact : compactMode;
@@ -1524,6 +1695,7 @@ function AskPageContent() {
       .map((x) => ({
         role: x.role,
         content: x.content,
+        images: x.images,
         tool_calls: x.toolCalls?.map((tc) => ({
           name: tc.name,
           args: tc.args,
@@ -1542,7 +1714,7 @@ function AskPageContent() {
     }
     const initialTurns: Turn[] = [
       ...turns.filter((x) => !x.error),
-      { role: "user", content: question },
+      { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined },
       { role: "assistant", content: "", toolCalls: [] },
     ];
     turnsRef.current = initialTurns;
@@ -1562,6 +1734,7 @@ function AskPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
+          images: sendImages.length > 0 ? sendImages : undefined,
           // Lets the server attach a retried send to the run it already started.
           request_id: crypto.randomUUID(),
           conversation_id: activeConversationId || undefined,
@@ -1600,11 +1773,16 @@ function AskPageContent() {
     } finally {
       finishStream(ctrl);
     }
-  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode]);
+  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode]);
 
   const send = useCallback(() => {
-    sendWithText(input);
-  }, [input, sendWithText]);
+    if (streaming || (!input.trim() && attachedImages.length === 0)) return;
+    const textToSend = input.trim();
+    const imgs = attachedImages.map((img) => img.dataUrl);
+    setAttachedImages([]);
+    setInput("");
+    sendWithText(textToSend, { images: imgs });
+  }, [streaming, input, attachedImages, sendWithText]);
 
   const handleSmartCompactAndRetry = useCallback(
     (targetSid?: string) => {
@@ -1800,6 +1978,7 @@ function AskPageContent() {
       let rawMsgs: Array<{
         role: string;
         content: string;
+        images?: string[];
         thinking?: string;
         tool_name?: string;
         tool_input?: string;
@@ -1810,9 +1989,10 @@ function AskPageContent() {
         try {
           const full = await api.getMessages(targetSession.conversation_id, 0, 100);
           if (full?.messages && full.messages.length > 0) {
-            rawMsgs = full.messages.map((m) => ({
+            rawMsgs = full.messages.map((m: any) => ({
               role: m.role || "user",
               content: m.content || "",
+              images: m.images || undefined,
               thinking: m.thinking || undefined,
               tool_name: m.tool_name || undefined,
               tool_input: m.tool_input || undefined,
@@ -1876,6 +2056,7 @@ function AskPageContent() {
           loadedTurns.push({
             role: "user",
             content: content,
+            images: m.images || undefined,
           });
         } else if (role === "assistant") {
           const toolCalls: ToolCallItem[] = [];
@@ -2160,7 +2341,7 @@ function AskPageContent() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: "100%", minWidth: 0 }}>
         {turns.map((turn, i) =>
           turn.role === "user" ? (
-            <UserBubble key={i} content={turn.content} />
+            <UserBubble key={i} content={turn.content} images={turn.images} />
           ) : (
             <AssistantBubble
               key={i}
@@ -3340,13 +3521,111 @@ function AskPageContent() {
               </div>
             )}
 
+            {/* Attached images preview list */}
+            {attachedImages.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  padding: "4px 2px 10px 2px",
+                  alignItems: "center",
+                }}
+              >
+                {attachedImages.map((img) => (
+                  <div
+                    key={img.id}
+                    style={{
+                      position: "relative",
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      border: "1px solid var(--aurora-border)",
+                      background: "rgba(0,0,0,0.25)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    <img
+                      src={img.dataUrl}
+                      alt={img.name}
+                      style={{
+                        width: 48,
+                        height: 48,
+                        objectFit: "cover",
+                        display: "block",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeAttachedImage(img.id)}
+                      title={isZh ? "移除图片" : "Remove image"}
+                      style={{
+                        position: "absolute",
+                        top: 2,
+                        right: 2,
+                        width: 16,
+                        height: 16,
+                        borderRadius: 999,
+                        background: "rgba(0,0,0,0.75)",
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 10,
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                  {isZh ? `已附加 ${attachedImages.length} 张图片` : `${attachedImages.length} image(s) attached`}
+                </span>
+              </div>
+            )}
+
             {/* Input box and action button */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+              {/* Image Upload Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: attachedImages.length > 0 ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                  border: `1px solid ${attachedImages.length > 0 ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
+                  color: attachedImages.length > 0 ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  flexShrink: 0,
+                  boxSizing: "border-box",
+                }}
+                className="hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)]"
+              >
+                <Icon name="image" size={16} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={handleFileChange}
+              />
+
               <GhostInput
                 inputRef={inputElRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onPaste={handlePaste}
                 onFocus={() => {
                   setTimeout(() => {
                     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -3401,7 +3680,7 @@ function AskPageContent() {
               ) : (
                 <Btn
                   onClick={send}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
                   style={{ flexShrink: 0 }}
                 >

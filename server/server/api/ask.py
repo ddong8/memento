@@ -13,12 +13,14 @@ token stream belonging to one caller.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from typing import AsyncGenerator
 
@@ -1406,7 +1408,7 @@ async def _direct_agent_stream(
         except Exception as e:
             logger.warning("Failed to perform compact continuation for session %s: %s", session_id, e)
 
-    # Format attachments for agent prompt
+    # Format attachments and images for agent prompt
     att_notes = []
     for a in (attachments or []):
         name = a.get("name") or "attachment"
@@ -1416,6 +1418,31 @@ async def _direct_agent_stream(
             att_notes.append(f"【用户附加文件: {name}】\n```{ext}\n{content}\n```")
         elif a.get("type") == "image":
             att_notes.append(f"【用户上传了截图/图片: {name}】")
+
+    if images:
+        args["images"] = images
+        for idx, img in enumerate(images):
+            if img.startswith("data:image/"):
+                try:
+                    header, b64data = img.split(",", 1)
+                    mime = header.split(";")[0].split(":")[1] if ":" in header else "image/png"
+                    ext = mime.split("/")[1] if "/" in mime else "png"
+                    if ext == "jpeg":
+                        ext = "jpg"
+                    img_dir = Path("/tmp/memento_images") / str(conv_id)
+                    img_dir.mkdir(parents=True, exist_ok=True)
+                    img_path = img_dir / f"image_{idx + 1}.{ext}"
+                    img_path.write_bytes(base64.b64decode(b64data))
+                    att_notes.append(
+                        f"【用户上传了图片 #{idx + 1}】\n"
+                        f"本地文件路径: {img_path.as_posix()}\n"
+                        f"提示: 你可以使用视觉/文件查看工具（如 view_file）直接读取该文件进行图像分析与代码实现。"
+                    )
+                except Exception as e:
+                    logger.warning("Failed to save image attachment to disk: %s", e)
+                    att_notes.append(f"【用户上传了图片 #{idx + 1} (多模态图像数据)】")
+            else:
+                att_notes.append(f"【用户上传了图片 #{idx + 1}: {img}】")
 
     att_summary = "\n\n".join(att_notes)
 

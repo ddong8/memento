@@ -480,6 +480,11 @@ app.include_router(missions.router)
 app.include_router(proactive.router)
 app.include_router(life_rhythm.router)
 
+from .api.ask import get_agent_capabilities, get_agent_models
+
+app.get("/api/agent/capabilities", tags=["agent"])(get_agent_capabilities)
+app.get("/api/agent/models", tags=["agent"])(get_agent_models)
+
 
 @app.get("/")
 async def root() -> dict:

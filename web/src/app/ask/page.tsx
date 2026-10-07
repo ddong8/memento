@@ -453,6 +453,8 @@ function AskPageContent() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(() => askCache?.activeConversationId || null);
   const activeConversationIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const streamingRef = useRef<boolean>(false);
+  const isRestoringRef = useRef<boolean>(false);
+  const lastRestoredIdRef = useRef<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
@@ -528,9 +530,20 @@ function AskPageContent() {
   // Helper to persist updated configuration for current conversation if one is active
   const persistCurrentConfig = useCallback((patch: Record<string, any>) => {
     const convId = activeConversationIdRef.current;
-    if (!convId || streamingRef.current) return;
+    if (!convId || streamingRef.current || isRestoringRef.current) return;
     api.updateAskConversation(convId, patch).catch(() => {});
   }, []);
+
+  const normalizeDeviceId = useCallback(
+    (devStr?: string | null) => {
+      if (!devStr || devStr === "auto" || devStr === "ask_only" || devStr === "all") return devStr || "auto";
+      const found = devices.find(
+        (d) => d.device_id === devStr || d.id === devStr || d.name === devStr || d.name?.toLowerCase() === devStr.toLowerCase()
+      );
+      return found ? found.device_id : devStr;
+    },
+    [devices]
+  );
 
   // Defensive extraction helper to infer executionMode, model, effort, project, session, cwd, device from turns
   const inferConfigFromTurns = useCallback((turnsList: Turn[]) => {
@@ -656,6 +669,8 @@ function AskPageContent() {
   // Load single conversation
   const loadConversation = useCallback(async (id: string) => {
     if (!id || streamingRef.current) return;
+    isRestoringRef.current = true;
+    lastRestoredIdRef.current = id;
     try {
       const data = await api.getAskConversation(id);
       activeConversationIdRef.current = data.id;
@@ -705,7 +720,7 @@ function AskPageContent() {
         }
       }
 
-      const devToUse = targetDev || "auto";
+      const devToUse = normalizeDeviceId(targetDev) || "auto";
       setSelectedDevice(devToUse);
       if (targetCwd) {
         setCwd(targetCwd);
@@ -810,8 +825,12 @@ function AskPageContent() {
       }
     } catch (e) {
       console.error("Failed to load conversation:", e);
+    } finally {
+      setTimeout(() => {
+        isRestoringRef.current = false;
+      }, 600);
     }
-  }, [inferConfigFromTurns]);
+  }, [inferConfigFromTurns, normalizeDeviceId]);
 
   // Start fresh chat
   const startNewChat = useCallback(() => {
@@ -905,10 +924,15 @@ function AskPageContent() {
 
       if (!resolvedTargetId || streamingRef.current) return;
 
+      if (lastRestoredIdRef.current === resolvedTargetId && activeConversationIdRef.current === resolvedTargetId) {
+        return;
+      }
+
       // If an active run is currently ongoing on the server: MUST reattach live stream!
       if (activeRunToAttach) {
         activeConversationIdRef.current = resolvedTargetId;
         setActiveConversationId(resolvedTargetId);
+        lastRestoredIdRef.current = resolvedTargetId;
         if (!idParam) {
           window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
         }
@@ -1595,100 +1619,119 @@ function AskPageContent() {
     }
   };
 
-  const handleSelectProject = useCallback(async (projId: string, customProjects?: ProjectSummary[]) => {
-    setSelectedProjectId(projId);
-    selectedProjectIdRef.current = projId;
-    setSelectedSessionId("");
-    if (!projId) {
-      setSessions([]);
-      persistCurrentConfig({ project_id: "", session_id: "" });
-      return;
-    }
-    const projs = customProjects || projectsRef.current;
-    const proj = projs.find((p) => p.id === projId);
-    let clean = "";
-    if (proj?.source_path) {
-      clean = proj.source_path.trim();
-      const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
-      if (match) {
-        clean = match[1].replace(/[\/\\]+$/, "");
-      } else {
-        clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
-      }
-      setCwd(clean);
-      setShowCwd(true);
-    }
-    persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined });
-    setLoadingSessions(true);
-    try {
-      const res = await api.getProjectConversations(projId, 0, 30, "desc", selectedDevice);
-      setSessions(res.sessions || []);
-      if (res.project?.source_path) {
-        let cleanProj = res.project.source_path.trim();
-        const match = cleanProj.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
-        if (match) {
-          cleanProj = match[1].replace(/[\/\\]+$/, "");
-        } else {
-          cleanProj = cleanProj.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
-        }
-        setCwd(cleanProj);
-        setShowCwd(true);
-      }
-    } catch (e) {
-      console.error("Failed to load project sessions:", e);
-      setSessions([]);
-    } finally {
-      setLoadingSessions(false);
-    }
-  }, [selectedDevice, persistCurrentConfig]);
-
-  const loadProjectsForMode = useCallback(async (mode: ExecutionMode, targetDev?: string, preferredTitle?: string) => {
-    const toolMap: Record<string, string> = {
-      codex: "codex",
-      claude: "claude_code",
-      antigravity: "antigravity",
-    };
-    const toolId = toolMap[mode];
-    if (!toolId) {
-      setProjects([]);
-      setSelectedProjectId("");
-      selectedProjectIdRef.current = "";
-      setSessions([]);
-      setSelectedSessionId("");
-      return;
-    }
-    try {
-      const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
-      const list = await api.listProjects(toolId, devToUse);
-      const projList = list || [];
-      setProjects(projList);
-
-      if (projList.length > 0) {
-        const pref = preferredTitle || (projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title);
-        let targetProj = pref
-          ? projList.find((p) => p.title?.toLowerCase() === pref.toLowerCase() || p.slug?.toLowerCase().endsWith(`/${pref.toLowerCase()}`))
-          : undefined;
-        if (!targetProj) {
-          targetProj = projList[0];
-        }
-        if (targetProj) {
-          handleSelectProject(targetProj.id, projList);
-        }
-      } else {
-        setSelectedProjectId("");
-        selectedProjectIdRef.current = "";
-        setSessions([]);
+  const handleSelectProject = useCallback(
+    async (projId: string, customProjects?: ProjectSummary[]) => {
+      const isSameProj = projId === selectedProjectIdRef.current;
+      setSelectedProjectId(projId);
+      selectedProjectIdRef.current = projId;
+      if (!isSameProj && !isRestoringRef.current) {
         setSelectedSessionId("");
       }
-    } catch (e) {
-      console.error("Failed to load projects:", e);
-      setProjects([]);
-      setSelectedProjectId("");
-      selectedProjectIdRef.current = "";
-      setSessions([]);
-      setSelectedSessionId("");
-    }
-  }, [selectedDevice, handleSelectProject]);
+      if (!projId) {
+        setSessions([]);
+        if (!isRestoringRef.current) {
+          persistCurrentConfig({ project_id: "", session_id: "" });
+        }
+        return;
+      }
+      const projs = customProjects || projectsRef.current;
+      const proj = projs.find((p) => p.id === projId);
+      let clean = "";
+      if (proj?.source_path) {
+        clean = proj.source_path.trim();
+        const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
+        if (match) {
+          clean = match[1].replace(/[\/\\]+$/, "");
+        } else {
+          clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
+        }
+        setCwd(clean);
+        setShowCwd(true);
+      }
+      if (!isRestoringRef.current && !isSameProj) {
+        persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined });
+      }
+      setLoadingSessions(true);
+      try {
+        const res = await api.getProjectConversations(projId, 0, 50, "desc", selectedDevice);
+        setSessions(res.sessions || []);
+        if (res.project?.source_path && !clean) {
+          let cleanProj = res.project.source_path.trim();
+          const match = cleanProj.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
+          if (match) {
+            cleanProj = match[1].replace(/[\/\\]+$/, "");
+          } else {
+            cleanProj = cleanProj.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
+          }
+          setCwd(cleanProj);
+          setShowCwd(true);
+        }
+      } catch (e) {
+        console.error("Failed to load project sessions:", e);
+        setSessions([]);
+      } finally {
+        setLoadingSessions(false);
+      }
+    },
+    [selectedDevice, persistCurrentConfig]
+  );
+
+  const loadProjectsForMode = useCallback(
+    async (mode: ExecutionMode, targetDev?: string, preferredTitle?: string) => {
+      const toolMap: Record<string, string> = {
+        codex: "codex",
+        claude: "claude_code",
+        antigravity: "antigravity",
+      };
+      const toolId = toolMap[mode];
+      if (!toolId) {
+        if (!isRestoringRef.current) {
+          setProjects([]);
+          setSelectedProjectId("");
+          selectedProjectIdRef.current = "";
+          setSessions([]);
+          setSelectedSessionId("");
+        }
+        return;
+      }
+      try {
+        const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
+        const list = await api.listProjects(toolId, devToUse);
+        const projList = list || [];
+        setProjects(projList);
+
+        if (projList.length > 0) {
+          const pref = preferredTitle || (projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title);
+          let targetProj = pref
+            ? projList.find((p) => p.title?.toLowerCase() === pref.toLowerCase() || p.slug?.toLowerCase().endsWith(`/${pref.toLowerCase()}`))
+            : undefined;
+          if (!targetProj && !selectedProjectIdRef.current) {
+            targetProj = projList[0];
+          }
+          if (targetProj && targetProj.id !== selectedProjectIdRef.current && !isRestoringRef.current) {
+            handleSelectProject(targetProj.id, projList);
+          }
+        } else {
+          if (!isRestoringRef.current) {
+            setSelectedProjectId("");
+            selectedProjectIdRef.current = "";
+            setSessions([]);
+            setSelectedSessionId("");
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load projects:", e);
+        if (!isRestoringRef.current) {
+          setProjects([]);
+          setSelectedProjectId("");
+          selectedProjectIdRef.current = "";
+          setSessions([]);
+          setSelectedSessionId("");
+        }
+      }
+    },
+    [selectedDevice, handleSelectProject]
+  );
 
   const handleDeviceChange = (newDev: string) => {
     setSelectedDevice(newDev);
@@ -1898,12 +1941,14 @@ function AskPageContent() {
     [sessions, startNewChat]
   );
 
-  // Sync projects on initial load if starting in agent mode
+  // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
   useEffect(() => {
-    if (["codex", "claude", "antigravity"].includes(executionMode)) {
-      loadProjectsForMode(executionMode);
+    if (!activeConversationId && !isRestoringRef.current && ["codex", "claude", "antigravity"].includes(executionMode)) {
+      if (projects.length === 0) {
+        loadProjectsForMode(executionMode);
+      }
     }
-  }, [executionMode, loadProjectsForMode]);
+  }, [executionMode, activeConversationId, projects.length, loadProjectsForMode]);
 
   const currentDev = devices.find((d) => d.device_id === selectedDevice);
   const isCurrentDevOnline = currentDev
@@ -2512,6 +2557,11 @@ function AskPageContent() {
                   <option value="auto" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                     {t.ask.autoDispatch}
                   </option>
+                  {selectedDevice && !["auto", "ask_only", "all"].includes(selectedDevice) && !devices.some((d) => d.device_id === selectedDevice) && (
+                    <option value={selectedDevice} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      💻 {selectedDevice}
+                    </option>
+                  )}
                   {devices.map((d) => {
                     const isOnline = d.online ?? (d.last_heartbeat ? (Date.now() - new Date(d.last_heartbeat).getTime()) < 180_000 : false);
                     return (

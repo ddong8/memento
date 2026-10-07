@@ -897,7 +897,7 @@ export const api = {
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only") {
       params.set("device_id", deviceId);
     }
-    return apiFetch<AgentCapabilities>(`/api/agent/capabilities?${params}`);
+    return apiFetch<AgentCapabilities>(`/api/ask/capabilities?${params}`);
   },
 };
 

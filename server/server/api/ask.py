@@ -1047,6 +1047,9 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
         if inferred.get("execution_mode") and inferred.get("session_id") and inferred.get("project_id"):
             break
 
+    if conv.device_id and not cfg.get("device_id"):
+        cfg["device_id"] = conv.device_id
+
     if mode_needed and inferred.get("execution_mode"):
         cfg["execution_mode"] = inferred["execution_mode"]
 
@@ -1077,23 +1080,45 @@ async def get_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     cfg, inferred = _infer_conversation_config(conv)
-    if (conv.config != cfg) or (not conv.cwd and inferred.get("cwd")) or (not conv.device_id and inferred.get("device_id")):
+
+    # Extract all model attributes into locals BEFORE any db.commit() to prevent
+    # asyncpg MissingGreenlet errors triggered by expired attribute access.
+    conv_id_str = str(conv.id)
+    conv_title = conv.title
+    conv_turns = list(conv.turns or [])
+    conv_dev = conv.device_id or cfg.get("device_id")
+    conv_cwd = conv.cwd or cfg.get("cwd")
+    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
+
+    need_commit = False
+    if conv.config != cfg:
         conv.config = cfg
-        if not conv.cwd and inferred.get("cwd"):
-            conv.cwd = inferred["cwd"]
-        if not conv.device_id and inferred.get("device_id"):
-            conv.device_id = inferred["device_id"]
+        need_commit = True
+    if not conv.cwd and inferred.get("cwd"):
+        conv.cwd = inferred["cwd"]
+        conv_cwd = inferred["cwd"]
+        need_commit = True
+    if not conv.device_id and inferred.get("device_id"):
+        conv.device_id = inferred["device_id"]
+        conv_dev = inferred["device_id"]
+        need_commit = True
+
+    if need_commit:
+        now_utc = datetime.now(timezone.utc)
+        conv.updated_at = now_utc
+        updated_at_iso = now_utc.isoformat()
         try:
             await db.commit()
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
 
     return {
-        "id": str(conv.id),
-        "title": conv.title,
-        "turns": conv.turns or [],
-        "device_id": conv.device_id,
-        "cwd": conv.cwd,
+        "id": conv_id_str,
+        "title": conv_title,
+        "turns": conv_turns,
+        "device_id": conv_dev,
+        "cwd": conv_cwd,
         "execution_mode": cfg.get("execution_mode", "ai"),
         "model": cfg.get("model", ""),
         "effort": cfg.get("effort", ""),
@@ -1102,8 +1127,8 @@ async def get_conversation(
         "worktree": bool(cfg.get("worktree", False)),
         "compact_mode": bool(cfg.get("compact_mode", False)),
         "config": cfg,
-        "created_at": conv.created_at.isoformat() if conv.created_at else None,
-        "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+        "created_at": created_at_iso,
+        "updated_at": updated_at_iso,
     }
 
 
@@ -2030,6 +2055,8 @@ FALLBACK_AGENT_CAPABILITIES = {
 }
 
 
+@router.get("/capabilities")
+@router.get("/agent/capabilities")
 @router.get("/api/agent/capabilities")
 async def get_agent_capabilities(
     tool: str = "codex",
@@ -2068,6 +2095,8 @@ async def get_agent_capabilities(
     )
 
 
+@router.get("/models")
+@router.get("/agent/models")
 @router.get("/api/agent/models")
 async def get_agent_models(
     tool: str = "codex",

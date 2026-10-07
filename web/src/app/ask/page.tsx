@@ -1377,6 +1377,17 @@ function AskPageContent() {
           }
           return { ...x, toolCalls: calls };
         });
+
+        // 智能瘦身或新会话生成时，无缝同步最新的底层 session_id 并复位瘦身模式，使后续继续在同一会话内推进
+        const newSid = (evt.result as any)?.session_id;
+        if (newSid && typeof newSid === "string") {
+          setSelectedSessionId(newSid);
+          persistCurrentConfig({ session_id: newSid });
+        }
+        if (compactMode) {
+          setCompactMode(false);
+          persistCurrentConfig({ compact_mode: false });
+        }
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
         patchLast((x) => {
@@ -1934,8 +1945,18 @@ function AskPageContent() {
 
       abortRef.current?.abort();
       streamingRef.current = false;
-      activeConversationIdRef.current = null;
-      setActiveConversationId(null);
+      const associatedConvId = targetSession.conversation_id;
+      if (associatedConvId) {
+        activeConversationIdRef.current = associatedConvId;
+        setActiveConversationId(associatedConvId);
+        window.history.replaceState(null, "", `/ask?id=${associatedConvId}`);
+        try {
+          localStorage.setItem("memento_last_ask_conv_id", associatedConvId);
+        } catch {}
+      } else if (!activeConversationIdRef.current) {
+        activeConversationIdRef.current = null;
+        setActiveConversationId(null);
+      }
       setTurns(loadedTurns);
     },
     [sessions, startNewChat]

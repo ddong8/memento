@@ -27,6 +27,7 @@ export interface ToolCallItem {
     devices?: Array<{ device_id: string; name: string; collector_version?: string; online: boolean }>;
     /** Steps of a structured agent run (Claude Code / Codex), live and after it ends. */
     events?: TaskEvent[];
+    session_id?: string;
   };
 }
 
@@ -670,7 +671,7 @@ export default function ExecutionCard({
               <div style={{ color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                 “Prompt is too long” 并非指您输入的提问过长，而是当前续接的历史会话已累计大量消息与工具记录（超过了 200,000 Token 上下文限制）。
                 <br />
-                👉 <b>推荐解决办法</b>：点击下方按钮一键智能提炼前序记忆并轻装重试；或在下方下拉框中切换为<b>【➕ 新建独立会话】</b>。
+                👉 <b>推荐解决办法</b>：点击下方按钮在<b>当前对话内就地智能提炼</b>并无缝轻装重试（保持当前对话连贯，无需新开会话）；或在下方下拉框中切换为<b>【➕ 新建独立会话】</b>。
               </div>
               {onSmartCompactAndRetry && (
                 <div style={{ marginTop: 10 }}>

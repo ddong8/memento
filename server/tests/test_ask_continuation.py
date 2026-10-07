@@ -197,7 +197,20 @@ class AskContinuationTests(unittest.TestCase):
         self.assertEqual(cfg["execution_mode"], "claude")
         self.assertEqual(cfg["session_id"], "sess-claude-xyz")
 
+    def test_clean_injected_title(self):
+        import re
+        dirty_q1 = "【前序会话核心记忆快照（原会话 ID: 52792607...）】\n### 核心记忆快照\n- 目标: 卸载\n当前用户指令：\n我是说会话新开的问题"
+        clean_q1 = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", dirty_q1)
+        clean_q1 = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q1).strip()
+        self.assertEqual(clean_q1, "我是说会话新开的问题")
+
+        dirty_q2 = "【前文对话历史】\n用户: 你好\n助手: 在的\n【当前用户指令】\n再做一个视频吧"
+        clean_q2 = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", dirty_q2)
+        clean_q2 = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q2).strip()
+        self.assertEqual(clean_q2, "再做一个视频吧")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

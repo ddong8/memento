@@ -768,7 +768,12 @@ async def _get_or_create_conversation(
                 pass
 
         if not title:
-            title = question.strip().replace("\n", " ")[:50] or "新对话"
+            clean_q = question.strip()
+            # 剥离前序核心快照及注入的系统包裹提示
+            clean_q = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", clean_q)
+            clean_q = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q)
+            clean_q = clean_q.strip().replace("\n", " ")
+            title = clean_q[:50] or "新对话"
 
         # Prepopulate turns with existing history if provided
         init_turns = []
@@ -1439,6 +1444,14 @@ async def _direct_agent_stream(
                 saved_call["status"] = result_dict.get("status", "executed")
             tool_calls_to_save.append(saved_call)
 
+        persisted_session_id = ""
+        if result_dict and result_dict.get("session_id"):
+            persisted_session_id = str(result_dict.get("session_id"))
+        elif session_id:
+            persisted_session_id = str(session_id)
+        elif orig_session_id:
+            persisted_session_id = str(orig_session_id)
+
         await _append_conversation_turns(
             conv_id=conv_id,
             user_content=question,
@@ -1455,9 +1468,9 @@ async def _direct_agent_stream(
                 "model": model or "",
                 "effort": effort or "",
                 "project_id": project_id or "",
-                "session_id": session_id or "",
+                "session_id": persisted_session_id,
                 "worktree": bool(worktree),
-                "compact_mode": bool(compact_mode),
+                "compact_mode": False,  # 瘦身完成后复位，后续在当前对话中默认以正常会话无缝续接
             },
         )
 

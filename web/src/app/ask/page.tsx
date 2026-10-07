@@ -737,8 +737,7 @@ function AskPageContent() {
       const isWorktree = Boolean(data.worktree ?? data.config?.worktree ?? false);
       setWorktreeMode(isWorktree);
 
-      const isCompact = Boolean(data.compact_mode ?? data.config?.compact_mode ?? false);
-      setCompactMode(isCompact);
+      setCompactMode(false);
 
       // 3. Project and Session restoration
       if (["codex", "claude", "antigravity"].includes(targetMode)) {
@@ -798,7 +797,7 @@ function AskPageContent() {
               setSelectedProjectId("");
               selectedProjectIdRef.current = "";
               setSessions([]);
-              setSelectedSessionId("");
+              setSelectedSessionId(targetSessionId);
             }
           } catch (e) {
             console.error("Failed to load projects for mode:", e);
@@ -806,7 +805,7 @@ function AskPageContent() {
             setSelectedProjectId("");
             selectedProjectIdRef.current = "";
             setSessions([]);
-            setSelectedSessionId("");
+            setSelectedSessionId(targetSessionId);
           }
         }
       } else {
@@ -1382,12 +1381,10 @@ function AskPageContent() {
         const newSid = (evt.result as any)?.session_id;
         if (newSid && typeof newSid === "string") {
           setSelectedSessionId(newSid);
-          persistCurrentConfig({ session_id: newSid });
+          persistCurrentConfig({ session_id: newSid, compact_mode: false });
         }
-        if (compactMode) {
-          setCompactMode(false);
-          persistCurrentConfig({ compact_mode: false });
-        }
+        setCompactMode(false);
+        persistCurrentConfig({ compact_mode: false });
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
         patchLast((x) => {
@@ -1424,7 +1421,7 @@ function AskPageContent() {
     }
     if (buffer.trim()) handleFrame(buffer);
     return sawDone;
-  }, [patchLast, t]);
+  }, [patchLast, persistCurrentConfig, t]);
 
   // Reattach to a run from the last event seen, until it ends.
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
@@ -1455,6 +1452,7 @@ function AskPageContent() {
     setTurns([...turnsRef.current]);
     streamingRef.current = false;
     setStreaming(false);
+    setCompactMode(false);
     abortRef.current = null;
     loadConversations();
   }, [loadConversations]);

@@ -708,7 +708,7 @@ async def _get_or_create_conversation(
     session_id: str | None = None,
     history: list[dict] | None = None,
     config: dict | None = None,
-) -> tuple[uuid.UUID, str]:
+) -> tuple[uuid.UUID, str, dict]:
     """Retrieve existing conversation or create a new one."""
     async with async_session_factory() as session:
         if conv_id_str:
@@ -722,15 +722,23 @@ async def _get_or_create_conversation(
                 )).scalars().first()
                 if conv:
                     updated = False
+                    cfg = dict(conv.config or {})
                     if config:
-                        cfg = dict(conv.config or {})
                         for k, v in config.items():
                             if v is not None and v != "":
                                 if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                     continue
+                                if k == "compact_mode":
+                                    continue
                                 cfg[k] = v
+                        cfg["compact_mode"] = False
                         conv.config = cfg
                         updated = True
+                    elif "compact_mode" in cfg and cfg["compact_mode"]:
+                        cfg["compact_mode"] = False
+                        conv.config = cfg
+                        updated = True
+
                     if device_id and conv.device_id != device_id:
                         conv.device_id = device_id
                         updated = True
@@ -740,7 +748,7 @@ async def _get_or_create_conversation(
                     if updated:
                         conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
-                    return conv.id, conv.title
+                    return conv.id, conv.title, dict(conv.config or {})
             except Exception:
                 pass
 
@@ -791,18 +799,21 @@ async def _get_or_create_conversation(
                 if t.get("content")
             ]
 
+        conv_cfg = dict(config or {})
+        conv_cfg["compact_mode"] = False
+
         conv = AskConversation(
             user_id=user.id,
             title=title,
             turns=init_turns,
             device_id=device_id,
             cwd=cwd,
-            config=config or {},
+            config=conv_cfg,
         )
         session.add(conv)
         await session.commit()
         await session.refresh(conv)
-        return conv.id, conv.title
+        return conv.id, conv.title, dict(conv.config or {})
 
 
 async def _append_conversation_turns(
@@ -1650,7 +1661,7 @@ async def ask(
         "compact_mode": bool(body.compact_mode),
     }
 
-    conv_id, conv_title = await _get_or_create_conversation(
+    conv_id, conv_title, effective_cfg = await _get_or_create_conversation(
         body.conversation_id,
         _user,
         question,
@@ -1686,8 +1697,14 @@ async def ask(
             title="Claude Code Agent Task",
         )
 
-    exec_mode = (body.execution_mode or "ai").lower().strip()
+    exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "shell"):
+        effective_session_id = body.session_id or effective_cfg.get("session_id") or None
+        effective_project_id = body.project_id or effective_cfg.get("project_id") or None
+        effective_model = body.model or effective_cfg.get("model") or None
+        effective_effort = body.effort or effective_cfg.get("effort") or None
+        effective_cwd = body.cwd or effective_cfg.get("cwd") or None
+
         return _run_response(
             conv_id,
             _user,
@@ -1701,11 +1718,11 @@ async def ask(
                 conv_title=conv_title,
                 execution_mode=exec_mode,
                 device_id=device_id or None,
-                cwd=body.cwd,
-                model=body.model,
-                effort=body.effort,
-                session_id=body.session_id,
-                project_id=body.project_id,
+                cwd=effective_cwd,
+                model=effective_model,
+                effort=effective_effort,
+                session_id=effective_session_id,
+                project_id=effective_project_id,
                 fork=body.fork,
                 compact_mode=body.compact_mode,
                 history=body.history,
@@ -1715,7 +1732,7 @@ async def ask(
                 worktree=bool(body.worktree),
             ),
             execution_mode=exec_mode,
-            model=body.model,
+            model=effective_model,
             device_name=device_id or None,
             title=conv_title,
         )

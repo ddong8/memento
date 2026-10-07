@@ -902,7 +902,9 @@ if (!app.requestSingleInstanceLock()) {
     } catch (e) {
       console.warn("Failed to register shortcut Alt+Space", e);
     }
-    const hidden = process.argv.includes(HIDDEN_ARG) || app.getLoginItemSettings().wasOpenedAtLogin;
+    // Only start hidden if explicitly passed --hidden (e.g. silent auto-start at boot).
+    // Avoid false positives from app.getLoginItemSettings().wasOpenedAtLogin on macOS.
+    const hidden = process.argv.includes(HIDDEN_ARG);
     createWindow(!hidden);
     if (config.token) await daemon.start();
     else daemon.mode = "no-token";

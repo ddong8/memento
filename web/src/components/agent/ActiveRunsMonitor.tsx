@@ -184,254 +184,271 @@ export default function ActiveRunsMonitor() {
   };
 
   return (
-    <div
-      className="fixed z-50 pointer-events-none transition-all duration-300"
-      style={{
-        top: isMobile ? "calc(env(safe-area-inset-top, 0px) + 54px)" : "76px",
-        right: isMobile ? "12px" : "24px",
-        maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
-        width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
-      }}
-    >
-      <div className="flex flex-col gap-2.5 pointer-events-auto items-end">
-        {/* 1. Finished Notifications Toasts */}
-        {recentFinishedRuns.map((r) => {
-          const isCurrentChat = currentConvId === r.conversation_id;
-          if (isCurrentChat) return null; // Don't show toast if user is already watching it
-          const isError = r.failed;
-          return (
-            <div
-              key={`notice-${r.conversation_id}`}
-              onClick={() => jumpToChat(r.conversation_id)}
-              className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] w-full"
-              style={{
-                background: isError
-                  ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
-                  : "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(15, 23, 42, 0.95))",
-                border: isError
-                  ? "1px solid rgba(239, 68, 68, 0.4)"
-                  : "1px solid rgba(16, 185, 129, 0.4)",
-                boxShadow: isError
-                  ? "0 10px 30px -5px rgba(239, 68, 68, 0.3)"
-                  : "0 10px 30px -5px rgba(16, 185, 129, 0.3)",
-              }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">{isError ? "❌" : "✅"}</span>
-                  <span className="text-xs font-semibold text-white tracking-wide">
-                    {isError ? "智能体任务出错" : "智能体任务已完成"}
-                  </span>
-                  <span className="text-[11px] text-gray-400">
-                    ({formatDuration(r.started_at, r.finished_at)})
-                  </span>
+    <>
+      {/* 1. Finished Notifications Toasts (顶部右上角瞬态通知栏) */}
+      {recentFinishedRuns.length > 0 && (
+        <div
+          className="fixed z-50 pointer-events-none transition-all duration-300"
+          style={{
+            top: isMobile ? "calc(env(safe-area-inset-top, 0px) + 54px)" : "76px",
+            right: isMobile ? "12px" : "24px",
+            maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
+            width: "100%",
+          }}
+        >
+          <div className="flex flex-col gap-2.5 pointer-events-auto items-end">
+            {recentFinishedRuns.map((r) => {
+              const isCurrentChat = currentConvId === r.conversation_id;
+              if (isCurrentChat) return null; // Don't show toast if user is already watching it
+              const isError = r.failed;
+              return (
+                <div
+                  key={`notice-${r.conversation_id}`}
+                  onClick={() => jumpToChat(r.conversation_id)}
+                  className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] w-full"
+                  style={{
+                    background: isError
+                      ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
+                      : "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(15, 23, 42, 0.95))",
+                    border: isError
+                      ? "1px solid rgba(239, 68, 68, 0.4)"
+                      : "1px solid rgba(16, 185, 129, 0.4)",
+                    boxShadow: isError
+                      ? "0 10px 30px -5px rgba(239, 68, 68, 0.3)"
+                      : "0 10px 30px -5px rgba(16, 185, 129, 0.3)",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">{isError ? "❌" : "✅"}</span>
+                      <span className="text-xs font-semibold text-white tracking-wide">
+                        {isError ? "智能体任务出错" : "智能体任务已完成"}
+                      </span>
+                      <span className="text-[11px] text-gray-400">
+                        ({formatDuration(r.started_at, r.finished_at)})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-emerald-400 group-hover:underline flex items-center gap-0.5">
+                        查看成果 <Icon name="arrow_right" size={12} />
+                      </span>
+                      <button
+                        onClick={(e) => handleDismissNotice(e, r.conversation_id)}
+                        className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-1"
+                      >
+                        <Icon name="close" size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-300 line-clamp-1 pl-6">
+                    {r.question || r.title || "（无描述）"}
+                  </p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-emerald-400 group-hover:underline flex items-center gap-0.5">
-                    查看成果 <Icon name="arrow_right" size={12} />
-                  </span>
-                  <button
-                    onClick={(e) => handleDismissNotice(e, r.conversation_id)}
-                    className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors ml-1"
-                  >
-                    <Icon name="close" size={13} />
-                  </button>
-                </div>
-              </div>
-              <p className="mt-1 text-xs text-gray-300 line-clamp-1 pl-6">
-                {r.question || r.title || "（无描述）"}
-              </p>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-        {/* 2. Active Runs Floating Panel / Dynamic Pill (Zero occlusion design) */}
-        {activeRuns.length > 0 && (
-          collapsed ? (
-            <div
-              onClick={() => setCollapsed(false)}
-              className="cursor-pointer flex items-center gap-2.5 px-3.5 py-1.5 rounded-full shadow-2xl backdrop-blur-2xl border transition-all duration-200 hover:scale-[1.03] ml-auto group"
-              style={{
-                background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))",
-                borderColor: "rgba(56, 189, 248, 0.45)",
-                boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.2)",
-              }}
-              title="点击展开查看后台智能体任务详情"
-            >
-              <span className="relative flex h-2 w-2 flex-shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="text-xs font-semibold text-white tracking-wide whitespace-nowrap">
-                后台智能体运行中
-              </span>
-              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap">
-                {formatDuration(activeRuns[0].started_at)}
-              </span>
-              {activeRuns.length > 1 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
-                  +{activeRuns.length - 1}
-                </span>
-              )}
-              <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
-                展开 <Icon name="chevron_down" size={12} />
-              </span>
-            </div>
-          ) : (
-            <div
-              className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden w-full"
-              style={{
-                background: "linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94))",
-                border: "1px solid rgba(56, 189, 248, 0.35)",
-                boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
-              }}
-            >
-              {/* Header bar */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10">
-                <div className="flex items-center gap-2.5">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
-                    后台智能体运行中
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
-                      {activeRuns.length}
-                    </span>
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setCollapsed(true)}
-                    title="收起为精简胶囊"
-                    className="px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px]"
-                  >
-                    <span>收起</span>
-                    <Icon name="chevron_up" size={13} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Expanded list of active runs */}
+      {/* 2. Active Runs Floating Dock (右侧靠中间垂直居中，零功能冲突，单手大拇指舒适区) */}
+      {activeRuns.length > 0 && (
+        <div
+          className="fixed z-50 pointer-events-none transition-all duration-300 ease-out"
+          style={{
+            top: "48%",
+            right: collapsed ? (isMobile ? "8px" : "16px") : (isMobile ? "12px" : "20px"),
+            transform: "translateY(-50%)",
+            maxWidth: isMobile ? "calc(100vw - 24px)" : "390px",
+            width: collapsed ? "auto" : (isMobile ? "calc(100vw - 24px)" : "390px"),
+          }}
+        >
+          <div className="pointer-events-auto flex flex-col items-end">
+            {collapsed ? (
               <div
-                className="divide-y divide-white/5 overflow-y-auto"
+                onClick={() => setCollapsed(false)}
+                className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-full shadow-2xl backdrop-blur-2xl border transition-all duration-200 hover:scale-[1.04] ml-auto group"
                 style={{
-                  maxHeight: "min(360px, 50vh)",
-                  overscrollBehavior: "contain",
-                  WebkitOverflowScrolling: "touch",
+                  background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))",
+                  borderColor: "rgba(56, 189, 248, 0.45)",
+                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.25)",
+                }}
+                title="点击展开查看后台智能体任务详情"
+              >
+                <span className="relative flex h-2 w-2 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-xs font-semibold text-white tracking-wide whitespace-nowrap">
+                  智能体运行中
+                </span>
+                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap">
+                  {formatDuration(activeRuns[0].started_at)}
+                </span>
+                {activeRuns.length > 1 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
+                    +{activeRuns.length - 1}
+                  </span>
+                )}
+                <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
+                  展开 <Icon name="chevron_down" size={12} />
+                </span>
+              </div>
+            ) : (
+              <div
+                className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
+                style={{
+                  background: "linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94))",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                  boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
+                  maxHeight: "min(480px, 70vh)",
                 }}
               >
-                {activeRuns.map((run) => {
-                  const badge = getModeBadge(run.execution_mode);
-                  const isCurrentChat = currentConvId === run.conversation_id;
-                  const isCancelling = cancellingId === run.conversation_id;
+                {/* Header bar */}
+                <div className="flex items-center justify-between px-3.5 py-2.5 bg-white/5 border-b border-white/10 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
+                      后台智能体运行中
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
+                        {activeRuns.length}
+                      </span>
+                    </span>
+                  </div>
 
-                  return (
-                    <div
-                      key={run.conversation_id}
-                      className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCollapsed(true)}
+                      title="收起为精简胶囊"
+                      className="px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1 text-[11px]"
                     >
-                      {/* Top status info line */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {/* Mode tag */}
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border"
-                            style={{
-                              background: badge.bgColor,
-                              borderColor: badge.borderColor,
-                              color: badge.textColor,
-                            }}
-                          >
-                            <span>{badge.label}</span>
+                      <span>收起</span>
+                      <Icon name="chevron_up" size={13} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded list of active runs */}
+                <div
+                  className="divide-y divide-white/5 overflow-y-auto flex-1"
+                  style={{
+                    overscrollBehavior: "contain",
+                    WebkitOverflowScrolling: "touch",
+                  }}
+                >
+                  {activeRuns.map((run) => {
+                    const badge = getModeBadge(run.execution_mode);
+                    const isCurrentChat = currentConvId === run.conversation_id;
+                    const isCancelling = cancellingId === run.conversation_id;
+
+                    return (
+                      <div
+                        key={run.conversation_id}
+                        className="p-3.5 flex flex-col gap-2 hover:bg-white/[0.03] transition-colors"
+                      >
+                        {/* Top status info line */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* Mode tag */}
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border"
+                              style={{
+                                background: badge.bgColor,
+                                borderColor: badge.borderColor,
+                                color: badge.textColor,
+                              }}
+                            >
+                              <span>{badge.label}</span>
+                            </span>
+
+                            {/* Model or device info */}
+                            {run.model && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
+                                {run.model}
+                              </span>
+                            )}
+                            {run.device_name && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
+                                💻 {run.device_name}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Live Timer */}
+                          <div className="flex items-center gap-1 font-mono text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
+                            <Icon name="clock" size={11} />
+                            <span>{formatDuration(run.started_at)}</span>
+                          </div>
+                        </div>
+
+                        {/* Question / Task title */}
+                        <div className="text-xs font-medium text-white line-clamp-1">
+                          {run.question || run.title || "后台长任务"}
+                        </div>
+
+                        {/* Current Step (Dynamic updates like Claude Code / Workbuddy) */}
+                        <div
+                          className="rounded-xl px-2.5 py-2 flex items-center gap-2 border"
+                          style={{
+                            background: "rgba(15, 23, 42, 0.6)",
+                            borderColor: "rgba(56, 189, 248, 0.2)",
+                          }}
+                        >
+                          <span className="text-sm flex-shrink-0 animate-pulse">
+                            {getStepIcon(run.step_type)}
+                          </span>
+                          <span className="text-[11px] text-sky-200 line-clamp-1 font-mono flex-1">
+                            {run.current_step || "正在深度思考与执行任务..."}
+                          </span>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <span className="text-[10px] text-gray-400">
+                            已接收 {run.events} 个事件帧
                           </span>
 
-                          {/* Model or device info */}
-                          {run.model && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-300 font-mono border border-white/10">
-                              {run.model}
-                            </span>
-                          )}
-                          {run.device_name && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/5 text-gray-400 border border-white/10">
-                              💻 {run.device_name}
-                            </span>
-                          )}
-                        </div>
+                          <div className="flex items-center gap-1.5">
+                            {/* Jump to chat button */}
+                            <button
+                              type="button"
+                              onClick={() => jumpToChat(run.conversation_id)}
+                              className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
+                              style={{
+                                background: isCurrentChat
+                                  ? "rgba(255, 255, 255, 0.1)"
+                                  : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
+                                border: "1px solid rgba(56, 189, 248, 0.4)",
+                                color: isCurrentChat ? "#94a3b8" : "#38bdf8",
+                              }}
+                            >
+                              <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>
+                              <Icon name="arrow_right" size={11} />
+                            </button>
 
-                        {/* Live Timer */}
-                        <div className="flex items-center gap-1 font-mono text-xs text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
-                          <Icon name="clock" size={11} />
-                          <span>{formatDuration(run.started_at)}</span>
-                        </div>
-                      </div>
-
-                      {/* Question / Task title */}
-                      <div className="text-xs font-medium text-white line-clamp-1">
-                        {run.question || run.title || "后台长任务"}
-                      </div>
-
-                      {/* Current Step (Dynamic updates like Claude Code / Workbuddy) */}
-                      <div
-                        className="rounded-xl px-2.5 py-2 flex items-center gap-2 border"
-                        style={{
-                          background: "rgba(15, 23, 42, 0.6)",
-                          borderColor: "rgba(56, 189, 248, 0.2)",
-                        }}
-                      >
-                        <span className="text-sm flex-shrink-0 animate-pulse">
-                          {getStepIcon(run.step_type)}
-                        </span>
-                        <span className="text-[11px] text-sky-200 line-clamp-1 font-mono flex-1">
-                          {run.current_step || "正在深度思考与执行任务..."}
-                        </span>
-                      </div>
-
-                      {/* Action buttons */}
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <span className="text-[10px] text-gray-400">
-                          已接收 {run.events} 个事件帧
-                        </span>
-
-                        <div className="flex items-center gap-1.5">
-                          {/* Jump to chat button */}
-                          <button
-                            type="button"
-                            onClick={() => jumpToChat(run.conversation_id)}
-                            className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all"
-                            style={{
-                              background: isCurrentChat
-                                ? "rgba(255, 255, 255, 0.1)"
-                                : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
-                              border: "1px solid rgba(56, 189, 248, 0.4)",
-                              color: isCurrentChat ? "#94a3b8" : "#38bdf8",
-                            }}
-                          >
-                            <span>{isCurrentChat ? "当前所在对话" : "直达对话"}</span>
-                            <Icon name="arrow_right" size={11} />
-                          </button>
-
-                          {/* Cancel / Stop button */}
-                          <button
-                            type="button"
-                            disabled={isCancelling}
-                            onClick={(e) => handleCancel(e, run.conversation_id)}
-                            className="px-2 py-1 rounded-lg text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
-                          >
-                            <span>{isCancelling ? "停止中..." : "终止"}</span>
-                          </button>
+                            {/* Cancel / Stop button */}
+                            <button
+                              type="button"
+                              disabled={isCancelling}
+                              onClick={(e) => handleCancel(e, run.conversation_id)}
+                              className="px-2 py-1 rounded-lg text-xs font-medium text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all flex items-center gap-1"
+                            >
+                              <span>{isCancelling ? "停止中..." : "终止"}</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )
-        )}
-      </div>
-    </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

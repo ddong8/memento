@@ -510,8 +510,10 @@ export default function ExecutionCard({
                 border: "1px solid var(--aurora-border)",
                 color: "var(--aurora-fg1)",
                 fontSize: 12,
-                maxHeight: 480,
+                maxHeight: "min(380px, 45vh)",
                 overflowY: "auto",
+                overscrollBehavior: "contain",
+                WebkitOverflowScrolling: "touch",
               }}
             >
               {command && (
@@ -572,9 +574,11 @@ export default function ExecutionCard({
               whiteSpace: "pre-wrap",
               wordBreak: "break-all",
               maxWidth: "100%",
-              maxHeight: 320,
+              maxHeight: "min(280px, 35vh)",
               overflowX: "auto",
               overflowY: "auto",
+              overscrollBehavior: "contain",
+              WebkitOverflowScrolling: "touch",
             }}
           >
             {command && (

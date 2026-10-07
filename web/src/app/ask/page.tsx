@@ -434,7 +434,11 @@ function AskPageContent() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("memento_ask_config_collapsed");
-      if (saved === "true") setIsConfigCollapsed(true);
+      if (saved !== null) {
+        setIsConfigCollapsed(saved === "true");
+      } else if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setIsConfigCollapsed(true);
+      }
     } catch {}
   }, []);
 
@@ -1533,6 +1537,9 @@ function AskPageContent() {
       }));
 
     setInput("");
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsConfigCollapsed(true);
+    }
     const initialTurns: Turn[] = [
       ...turns.filter((x) => !x.error),
       { role: "user", content: question },
@@ -2175,8 +2182,13 @@ function AskPageContent() {
     </div>
   </div>
 
-  {/* 中栏底部交互控制台 (作为 flex footer，不再 fixed 悬空) */}
-  <footer className="shrink-0 p-3 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl">
+  {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
+  <footer
+    className="shrink-0 px-3 pt-2.5 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
+    style={{
+      paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))",
+    }}
+  >
     <div className="max-w-3xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
       <div
         style={{
@@ -2467,6 +2479,7 @@ function AskPageContent() {
                       flex: 1,
                       paddingBottom: 2,
                       scrollbarWidth: "none",
+                      WebkitOverflowScrolling: "touch",
                       minWidth: 0,
                     }}
                   >
@@ -3185,8 +3198,10 @@ function AskPageContent() {
                           display: "flex",
                           flexDirection: "column",
                           gap: 6,
-                          maxHeight: 240,
+                          maxHeight: "min(170px, 25vh)",
                           overflowY: "auto",
+                          overscrollBehavior: "contain",
+                          WebkitOverflowScrolling: "touch",
                           paddingRight: 4,
                         }}
                       >

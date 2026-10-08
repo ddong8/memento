@@ -1,22 +1,22 @@
 {
-  "version": "1.0.64",
-  "title": "Memento v1.0.64",
+  "version": "1.0.65",
+  "title": "Memento v1.0.65",
   "release_notes": "1. 新桌面端 Memento：Windows / Linux 去掉了菜单栏下面那条黑线（菜单栏默认隐藏，按 Alt 显示）；打开时不再先闪一下深色背景\n2. 系统健康页点开不再黑屏\n3. 同一台电脑换过设备标识后留下的重复记录已自动合并，设备列表不再重复出现，文件数也合到了一起\n4. Baseline 主题的侧边栏文字看得清了，页面装饰色跟随主题",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-windows-x64.zip",
-      "size": 34826918,
-      "sha256": "57979ff8442717d761a75e987947230941b0bc120199436b84c638dc8202194d"
+      "asset_name": "Memento-1.0.65-win-x64.zip",
+      "size": 154380814,
+      "sha256": "c36720822bd96b7f0ce3ab0c323f9aff4ff400f0a13c6413205007c1ccbf632d"
     },
     "macos": {
-      "asset_name": "Memento-macos-arm64.zip",
-      "size": 38730336,
-      "sha256": "259d9c08403ffdaf2ac8c6ad6318afea549e549101dc762609bf06705c70f7b8"
+      "asset_name": "Memento-1.0.65-mac-arm64.zip",
+      "size": 128239040,
+      "sha256": "d551540a1dc1003a05d7167a1800aae72002e4ed4fe1ac99ed1404adab030529"
     },
     "linux": {
-      "asset_name": "Memento-linux-x64.tar.gz",
-      "size": 11849865,
-      "sha256": "d1b2656a8daf1280cb8268fa7903810ca7a8ad863e1d2d1a0fd79d816d7dd798"
+      "asset_name": "Memento-1.0.65-linux-x64.tar.gz",
+      "size": 120275211,
+      "sha256": "71d7a1137df68697b94b56168f21a956ccfae7c5be80ad8cf398c417da131a00"
     }
   }
 }

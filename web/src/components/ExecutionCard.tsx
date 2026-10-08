@@ -178,10 +178,10 @@ export default function ExecutionCard({
           cursor: "pointer",
           userSelect: "none",
           gap: 10,
-          flexWrap: "wrap",
+          flexWrap: "nowrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, minWidth: 0, overflow: "hidden" }}>
           <div
             style={{
               display: "flex",
@@ -190,6 +190,7 @@ export default function ExecutionCard({
               width: 26,
               height: 26,
               borderRadius: 7,
+              flexShrink: 0,
               background: isSuccess
                 ? "rgba(16,185,129,0.12)"
                 : isFailed
@@ -207,16 +208,23 @@ export default function ExecutionCard({
 
           {machineName && (
             <span
+              title={machineName}
               style={{
-                fontSize: 12.5,
+                fontSize: 12,
                 fontWeight: 600,
                 color: "var(--aurora-fg1)",
-                display: "flex",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 4,
+                maxWidth: "min(130px, 28vw)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                flexShrink: 1,
+                minWidth: 0,
               }}
             >
-              🖥️ {machineName}
+              🖥️ {machineName.replace(/\.local\b/i, "")}
             </span>
           )}
 
@@ -224,12 +232,14 @@ export default function ExecutionCard({
             style={{
               fontSize: 11,
               fontWeight: 600,
-              padding: "2px 8px",
+              padding: "2px 7px",
               borderRadius: 6,
               background: "var(--aurora-surface-solid)",
               border: `1px solid ${agentBrandId ? agentColor + "40" : "var(--aurora-border-strong)"}`,
               color: agentBrandId ? agentColor : "var(--aurora-fg2)",
               letterSpacing: "0.02em",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
             }}
           >
             {agentLabel}
@@ -245,6 +255,7 @@ export default function ExecutionCard({
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 maxWidth: "min(280px, 45vw)",
+                flexShrink: 2,
                 minWidth: 0,
               }}
             >
@@ -254,7 +265,7 @@ export default function ExecutionCard({
         </div>
 
         {/* Right side status badge & toggles */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, marginLeft: "auto" }}>
           {isRunning && (
             <span
               style={{
@@ -264,6 +275,8 @@ export default function ExecutionCard({
                 fontSize: 11,
                 padding: "3px 9px",
                 borderRadius: 9999,
+                flexShrink: 0,
+                whiteSpace: "nowrap",
                 background:
                   result?.status === "queued"
                     ? "rgba(245, 158, 11, 0.12)"
@@ -312,6 +325,8 @@ export default function ExecutionCard({
                 background: "var(--aurora-surface-solid)",
                 border: "1px solid var(--aurora-border-strong)",
                 color: "var(--aurora-fg3)",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
               ○ 无匹配 (exit 1)
@@ -331,6 +346,8 @@ export default function ExecutionCard({
                 background: "rgba(16, 185, 129, 0.12)",
                 border: "1px solid rgba(16, 185, 129, 0.25)",
                 color: "#059669",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
               ✓ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusSucceeded || "完成")}
@@ -350,6 +367,8 @@ export default function ExecutionCard({
                 background: "rgba(239, 68, 68, 0.12)",
                 border: "1px solid rgba(239, 68, 68, 0.25)",
                 color: "#dc2626",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
               ✕ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusFailed || "失败")}
@@ -369,6 +388,8 @@ export default function ExecutionCard({
                 background: "rgba(245, 158, 11, 0.12)",
                 border: "1px solid rgba(245, 158, 11, 0.25)",
                 color: "#d97706",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
               }}
             >
               ⏱️ {t.ask.statusTimeout || "超时"}

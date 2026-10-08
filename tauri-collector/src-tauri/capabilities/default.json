@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Memento desktop — permission set for window + sidecar + dialog + shell open.",
+  "description": "Memento client — permission set for window + sidecar + dialog + shell open.",
   "windows": ["main"],
   "permissions": [
     "core:default",

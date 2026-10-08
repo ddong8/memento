@@ -7,6 +7,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+// Lock application display name across macOS menu bar, dock and notification center
+app.name = "Memento";
+app.setName("Memento");
 
 import { loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
 
@@ -525,6 +528,13 @@ function setupDockMenu(): void {
 
 function setupAppMenu(): void {
   const isMac = process.platform === "darwin";
+  if (isMac) {
+    app.setAboutPanelOptions({
+      applicationName: "Memento",
+      applicationVersion: app.getVersion(),
+      copyright: "Copyright © 2026 Memento",
+    });
+  }
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
       ? [

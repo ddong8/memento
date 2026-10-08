@@ -31,6 +31,8 @@ mac:
   hardenedRuntime: false
   extendInfo:
     LSUIElement: false
+    CFBundleDisplayName: Memento
+    CFBundleName: Memento
 win:
   target:
     - target: nsis

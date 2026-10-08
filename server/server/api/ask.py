@@ -750,6 +750,7 @@ async def _get_or_create_conversation(
                     if updated:
                         conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
+                    return conv.id, conv.title, dict(conv.config or {})
             except Exception:
                 pass
 

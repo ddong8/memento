@@ -224,7 +224,7 @@ async def _send_morning_brief(db: AsyncSession, user: User, user_now: datetime) 
             kind="todo",
             title=title,
             body=body.strip(),
-            url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else None,
+            url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily",
         )
         logger.info("Sent morning brief to user %s", user.id)
     except Exception as e:
@@ -256,7 +256,7 @@ async def _send_evening_reflection(db: AsyncSession, user: User, user_now: datet
             kind="learning",
             title=title,
             body=body,
-            url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else None,
+            url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily",
         )
         logger.info("Executed evening reflection dreaming for user %s", user.id)
     except Exception as e:
@@ -283,6 +283,6 @@ async def _check_device_alerts(db: AsyncSession, user: User, now_utc: datetime) 
                     kind="health",
                     title="⚠️ 设备离线提醒",
                     body=f"终端设备「{m.name}」已超过 5 分钟未上报心跳，部分后台任务可能挂起。",
-                    url=f"{settings.public_url.rstrip('/')}/profile?tab=devices" if settings.public_url else None,
+                    url=f"{settings.public_url.rstrip('/')}/profile?tab=devices" if settings.public_url else "/profile?tab=devices",
                 )
                 await ai_health.put_json(key, {"alerted_at": now_utc.isoformat()})

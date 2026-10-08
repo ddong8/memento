@@ -36,7 +36,7 @@ async def _run() -> dict:
         users = (await db.execute(select(User.id).where(User.status == "active"))).scalars().all()
     sent = 0
     for uid in users:
-        sent += bool(await notify_user(uid, "health", "Memento AI 调用异常", body))
+        sent += bool(await notify_user(uid, "health", "Memento AI 调用异常", body, url="/profile?tab=health"))
     return {"alerted": sent}
 
 

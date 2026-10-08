@@ -86,7 +86,7 @@ async def _alert_bad_night(user: User, run: dict) -> None:
     if run.get("profile_status") in ("llm_failed", "error"):
         problems.append(f"画像草稿生成失败：{run.get('profile_error') or 'AI 没有返回可用内容'}")
     if problems:
-        await notify_user(user.id, "health", "Memento 夜间任务出错", "\n".join(problems)[:500])
+        await notify_user(user.id, "health", "Memento 夜间任务出错", "\n".join(problems)[:500], url="/profile?tab=health")
 
 
 @celery_app.task(

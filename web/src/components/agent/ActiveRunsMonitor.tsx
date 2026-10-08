@@ -108,7 +108,19 @@ export default function ActiveRunsMonitor() {
   };
 
   const jumpToChat = (convId: string) => {
-    router.push(`/ask?id=${convId}`);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("memento_last_ask_conv_id", convId);
+      } catch {}
+      if (typeof (window as any).__memento_open_chat === "function") {
+        (window as any).__memento_open_chat(convId);
+      } else if (window.location.pathname === "/ask") {
+        window.history.pushState(null, "", `/ask?id=${convId}`);
+        window.dispatchEvent(new CustomEvent("memento_switch_chat", { detail: { id: convId, forceReload: true } }));
+      } else {
+        router.push(`/ask?id=${convId}`);
+      }
+    }
   };
 
   // If nothing active and no recent notifications, render nothing

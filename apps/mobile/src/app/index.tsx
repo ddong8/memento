@@ -239,6 +239,7 @@ export default function WebShell() {
   const { ready, server, token, signOut } = useSession();
   const web = useRef<WebView>(null);
   const canGoBack = useRef(false);
+  const pendingUrlRef = useRef<string | null>(null);
   const [page, setPage] = useState<{ bg: string; dark: boolean } | null>(null);
   const [activeTab, setActiveTab] = useState<TabId | null>("ask");
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -284,24 +285,40 @@ export default function WebShell() {
 
   // Open destination URL when a native push notification is tapped
   useEffect(() => {
+    const handleUrl = (target?: string) => {
+      if (!target) return;
+      const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
+      const path = target.startsWith("http") ? new URL(target).pathname : target.split("?")[0];
+      const matched = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
+      if (matched) setActiveTab(matched.id);
+
+      if (web.current && initialLoaded) {
+        const js = `
+          if (typeof window.__memento_navigate === 'function') {
+            window.__memento_navigate(${JSON.stringify(fullUrl)});
+          } else {
+            window.location.assign(${JSON.stringify(fullUrl)});
+          }
+          true;
+        `;
+        web.current.injectJavaScript(js);
+      } else {
+        pendingUrlRef.current = fullUrl;
+      }
+    };
+
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       const target = response?.notification.request.content.data?.url as string | undefined;
-      if (target && web.current) {
-        const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
-        web.current.injectJavaScript(`window.location.assign(${JSON.stringify(fullUrl)}); true;`);
-      }
+      handleUrl(target);
     });
 
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const target = response.notification.request.content.data?.url as string | undefined;
-      if (target && web.current) {
-        const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
-        web.current.injectJavaScript(`window.location.assign(${JSON.stringify(fullUrl)}); true;`);
-      }
+      handleUrl(target);
     });
 
     return () => sub.remove();
-  }, [origin]);
+  }, [origin, initialLoaded]);
 
   const onNavigation = useCallback(
     (nav: WebViewNavigation) => {
@@ -442,7 +459,8 @@ export default function WebShell() {
           setTimeout(() => {
             notifiedIds.current.delete(contentKey);
           }, 5000);
-          void triggerLocalNotification(msg.title, msg.body || "", msg.data);
+          const notifData = { url: (msg as any).url, ...((msg as any).data || {}) };
+          void triggerLocalNotification(msg.title, msg.body || "", notifData);
         }
       }
     } catch {
@@ -490,8 +508,24 @@ export default function WebShell() {
           allowsInlineMediaPlayback={true}
           mediaCapturePermissionGrantType="grant"
           webviewDebuggingEnabled={__DEV__}
-          startInLoadingState={!initialLoaded}
-          onLoadEnd={() => setInitialLoaded(true)}
+          onLoadEnd={() => {
+            setInitialLoaded(true);
+            if (pendingUrlRef.current && web.current) {
+              const fullUrl = pendingUrlRef.current;
+              pendingUrlRef.current = null;
+              const js = `
+                setTimeout(function() {
+                  if (typeof window.__memento_navigate === 'function') {
+                    window.__memento_navigate(${JSON.stringify(fullUrl)});
+                  } else {
+                    window.location.assign(${JSON.stringify(fullUrl)});
+                  }
+                }, 300);
+                true;
+              `;
+              web.current.injectJavaScript(js);
+            }
+          }}
           renderLoading={() => (
             <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", backgroundColor: bg }]}>
               <ActivityIndicator color={t.accent} />

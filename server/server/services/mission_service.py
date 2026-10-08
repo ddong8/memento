@@ -174,7 +174,7 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
             kind="task_done",
             title=f"✅ 任务完成: {mission.title}",
             body=mission.summary[:200],
-            url=f"{settings.public_url.rstrip('/')}/tasks" if settings.public_url else None,
+            url=f"{settings.public_url.rstrip('/')}/tasks" if settings.public_url else "/tasks",
         )
         return True
 
@@ -233,7 +233,7 @@ async def step_mission(db: AsyncSession, mission: AgentMission) -> bool:
             # Push approval notification to user's phone
             approve_url = (
                 f"{settings.public_url.rstrip('/')}/api/missions/{mission.id}/approve?token={token}"
-                if settings.public_url else None
+                if settings.public_url else f"/api/missions/{mission.id}/approve?token={token}"
             )
             await notify_user(
                 mission.user_id,

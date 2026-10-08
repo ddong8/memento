@@ -21,6 +21,7 @@ from ..services import ai_health
 from ..services.correction_service import learn_from_corrections, summarize_new_topics
 from ..services.eval_service import regression, recent_runs, run_eval
 from ..services.memory_lifecycle import reconcile, sweep_dormant
+from ..config import settings
 from ..services.notify_service import notify_user
 from ..services.retrospective_service import learn_from_tasks, review_sessions
 from ..services.todo_service import due_now, learn_todos, reminder_text
@@ -105,7 +106,8 @@ async def _remind() -> dict:
         for user in await _users(db):
             due = await due_now(db, user, now)
             text = reminder_text(due)
-            if text and await notify_user(user.id, "todo", text[0], text[1] + "\n打开「日报待办」查看。"):
+            todo_url = f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily"
+            if text and await notify_user(user.id, "todo", text[0], text[1] + "\n打开「日报待办」查看。", url=todo_url):
                 sent += 1
                 for todo in due["overdue"] + due["today"]:
                     todo.reminded_at = now
@@ -161,7 +163,8 @@ async def _review() -> dict:
             await ai_health.put_json(f"review_run:{user.id}", run)
             text = _review_push(sessions, tasks)
             if text:
-                await notify_user(user.id, "learning", "Memento 昨晚的复盘", text + "到「记忆库 → 技能」确认。")
+                review_url = f"{settings.public_url.rstrip('/')}/memory?tab=skills" if settings.public_url else "/memory?tab=skills"
+                await notify_user(user.id, "learning", "Memento 昨晚的复盘", text + "到「记忆库 → 技能」确认。", url=review_url)
             out[str(user.id)] = run
     return out
 

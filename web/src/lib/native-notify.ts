@@ -59,7 +59,7 @@ export async function requestLocalNotificationPermission(): Promise<boolean> {
   return false;
 }
 
-export function showInAppToast(title: string, body: string): void {
+export function showInAppToast(title: string, body: string, url?: string): void {
   if (typeof document === "undefined") return;
 
   const id = "memento-in-app-toast-container";
@@ -84,16 +84,27 @@ export function showInAppToast(title: string, body: string): void {
   toast.style.maxWidth = "400px";
   toast.style.padding = "14px 18px";
   toast.style.borderRadius = "16px";
-  toast.style.background = "rgba(18, 18, 28, 0.88)";
+  toast.style.background = "rgba(18, 18, 28, 0.92)";
   toast.style.backdropFilter = "blur(20px)";
   (toast.style as unknown as { webkitBackdropFilter?: string }).webkitBackdropFilter = "blur(20px)";
-  toast.style.border = "1px solid rgba(255, 255, 255, 0.15)";
-  toast.style.boxShadow = "0 12px 36px -4px rgba(0, 0, 0, 0.45)";
+  toast.style.border = "1px solid rgba(255, 255, 255, 0.18)";
+  toast.style.boxShadow = "0 12px 36px -4px rgba(0, 0, 0, 0.55)";
   toast.style.color = "#fff";
   toast.style.fontFamily = "system-ui, -apple-system, sans-serif";
   toast.style.transition = "all 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
   toast.style.transform = "translateX(50px)";
   toast.style.opacity = "0";
+
+  if (url) {
+    toast.style.cursor = "pointer";
+  }
+
+  const actionLink = url
+    ? `<div style="font-size:11px;color:#34d399;font-weight:600;margin-top:6px;display:flex;align-items:center;gap:4px;">
+        <span>点击查看详情</span>
+        <span style="font-size:12px;">→</span>
+       </div>`
+    : "";
 
   toast.innerHTML = `
     <div style="display:flex;align-items:flex-start;gap:10px;">
@@ -103,9 +114,26 @@ export function showInAppToast(title: string, body: string): void {
       <div style="flex:1;">
         <div style="font-size:13px;font-weight:600;margin-bottom:3px;color:#fff;">${title}</div>
         <div style="font-size:12px;color:rgba(255,255,255,0.75);line-height:1.4;">${body}</div>
+        ${actionLink}
       </div>
     </div>
   `;
+
+  if (url) {
+    toast.onclick = (e) => {
+      e.stopPropagation();
+      toast.remove();
+      if (typeof window !== "undefined") {
+        if (typeof (window as any).__memento_navigate === "function") {
+          (window as any).__memento_navigate(url);
+        } else if (url.startsWith("/")) {
+          window.location.href = url;
+        } else {
+          window.location.assign(url);
+        }
+      }
+    };
+  }
 
   container.appendChild(toast);
 
@@ -123,7 +151,7 @@ export function showInAppToast(title: string, body: string): void {
         container.remove();
       }
     }, 300);
-  }, 4500);
+  }, 5000);
 }
 
 export async function sendLocalNotification(title: string, body: string, url?: string): Promise<boolean> {
@@ -155,7 +183,7 @@ export async function sendLocalNotification(title: string, body: string, url?: s
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
   if (bridge && typeof bridge.postMessage === "function") {
     try {
-      bridge.postMessage(JSON.stringify({ type: "notify", title, body, url }));
+      bridge.postMessage(JSON.stringify({ type: "notify", title, body, url, data: { url } }));
       delivered = true;
     } catch (e) {
       console.warn("ReactNative WebView bridge notify failed:", e);
@@ -164,6 +192,19 @@ export async function sendLocalNotification(title: string, body: string, url?: s
 
   // 3. Web Notification API (Chrome / Safari / Edge on Mac & PC)
   if ("Notification" in window) {
+    const handleNotificationClick = () => {
+      window.focus();
+      if (url) {
+        if (typeof (window as any).__memento_navigate === "function") {
+          (window as any).__memento_navigate(url);
+        } else if (url.startsWith("/")) {
+          window.location.href = url;
+        } else {
+          window.location.assign(url);
+        }
+      }
+    };
+
     if (Notification.permission === "granted") {
       try {
         const notif = new Notification(title, {
@@ -172,12 +213,7 @@ export async function sendLocalNotification(title: string, body: string, url?: s
           badge: "/favicon.png",
           tag: `memento-${Date.now()}`,
         });
-        notif.onclick = () => {
-          window.focus();
-          if (url && url.startsWith("/")) {
-            window.location.href = url;
-          }
-        };
+        notif.onclick = handleNotificationClick;
         delivered = true;
       } catch (e) {
         console.warn("Web Notification instantiation failed:", e);
@@ -192,10 +228,7 @@ export async function sendLocalNotification(title: string, body: string, url?: s
             icon: "/favicon.png",
             tag: `memento-${Date.now()}`,
           });
-          notif.onclick = () => {
-            window.focus();
-            if (url && url.startsWith("/")) window.location.href = url;
-          };
+          notif.onclick = handleNotificationClick;
           delivered = true;
         }
       } catch {
@@ -204,8 +237,8 @@ export async function sendLocalNotification(title: string, body: string, url?: s
     }
   }
 
-  // Always show in-app toast for visual confirmation
-  showInAppToast(title, body);
+  // Always show in-app toast for visual confirmation and instant mobile tapping
+  showInAppToast(title, body, url);
 
   return delivered;
 }

@@ -349,12 +349,13 @@ class AskRunRegistry:
         first = (run.question.strip().splitlines() or ["（无描述）"])[0]
         first = first if len(first) <= 60 else first[:59] + "…"
         base = (notify_service.settings.public_url or "").rstrip("/")
+        conv_url = f"{base}/ask?id={run.conversation_id}" if base else f"/ask?id={run.conversation_id}"
         await notify_service.notify_user(
             run.user_id,
             "task_done",
             "❌ 任务出错" if run.failed else "✅ 任务完成",
             first,
-            url=f"{base}/ask?id={run.conversation_id}" if base else None,
+            url=conv_url,
         )
 
 

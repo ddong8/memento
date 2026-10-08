@@ -1132,6 +1132,43 @@ function AskPageContent() {
     checkAndRestore();
   }, [idParam, qParam, loadConversation, loadConversations]);
 
+  // Support instantaneous chat navigation / switching via notifications or banners
+  useEffect(() => {
+    const handleSwitchChat = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const targetId = detail?.id;
+      if (targetId) {
+        lastRestoredIdRef.current = null;
+        loadConversation(targetId);
+      }
+    };
+    window.addEventListener("memento_switch_chat", handleSwitchChat);
+    (window as any).__memento_open_chat = (id: string) => {
+      lastRestoredIdRef.current = null;
+      loadConversation(id);
+    };
+    (window as any).__memento_navigate = (url: string) => {
+      if (url.includes("/ask")) {
+        try {
+          const parsed = new URL(url, window.location.origin);
+          const id = parsed.searchParams.get("id");
+          if (id) {
+            window.history.pushState(null, "", `/ask?id=${id}`);
+            lastRestoredIdRef.current = null;
+            loadConversation(id);
+            return;
+          }
+        } catch {}
+      }
+      window.location.href = url;
+    };
+    return () => {
+      window.removeEventListener("memento_switch_chat", handleSwitchChat);
+      delete (window as any).__memento_open_chat;
+      delete (window as any).__memento_navigate;
+    };
+  }, [loadConversation]);
+
   // Follow the stream as tokens land — throttled to avoid layout thrash.
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -2139,9 +2176,13 @@ function AskPageContent() {
         try {
           localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
         } catch {}
-      } else if (!activeConversationIdRef.current) {
+      } else {
         activeConversationIdRef.current = null;
         setActiveConversationId(null);
+        window.history.replaceState(null, "", "/ask");
+        try {
+          localStorage.removeItem("memento_last_ask_conv_id");
+        } catch {}
       }
       setTurns(loadedTurns);
     },

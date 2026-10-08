@@ -159,7 +159,7 @@ async def send_bark(
 
 def task_link(task_id: str) -> str | None:
     base = (settings.public_url or "").rstrip("/")
-    return f"{base}/tasks/{task_id}" if base else None
+    return f"{base}/tasks/{task_id}" if base else f"/tasks/{task_id}"
 
 
 _apns_jwt_cache: dict[str, tuple[str, float]] = {}

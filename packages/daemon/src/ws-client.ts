@@ -5,6 +5,7 @@ import WebSocket from "ws";
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
 import { P2pMediaServer } from "./p2p-media.js";
+import { probeAllQuotas } from "./quotas.js";
 import { parseTaskDispatch, TaskRunner } from "./task-runner.js";
 
 type Log = (message: string) => void;
@@ -141,12 +142,17 @@ export class WsTaskClient {
           this.onConnection(true);
           this.log(`Handshake verified by server (${String(data.device_name ?? "")})`);
           void this.reportP2pInfo();
+          void this.reportQuotas();
           break;
         case "pong":
           break;
         case "get_agent_capabilities":
           void this.reportCapabilities();
+          void this.reportQuotas();
           void this.reportP2pInfo();
+          break;
+        case "get_agent_quotas":
+          void this.reportQuotas();
           break;
         case "task_dispatch": {
           if (!data.task || typeof data.task !== "object") break;
@@ -205,6 +211,17 @@ export class WsTaskClient {
       this.log(`Reported agent capabilities: ${Object.keys(capabilities).join(", ")}`);
     } catch (e) {
       this.log(`Capability probe failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  private async reportQuotas(): Promise<void> {
+    try {
+      const report = await probeAllQuotas();
+      this.sendJson({ type: "agent_quotas", quotas: report });
+      const activeTools = Object.keys(report.tools).filter((k) => (report.tools as any)[k]?.available);
+      this.log(`Reported agent quotas for tools: ${activeTools.join(", ")}`);
+    } catch (e) {
+      this.log(`Quota probe failed: ${e instanceof Error ? e.message : e}`);
     }
   }
 

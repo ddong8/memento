@@ -14,6 +14,7 @@ import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/
 import { MediaInspectorPanel } from "@/components/viewers/MediaInspectorPanel";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
+import { AgentQuotaPopover } from "@/components/quota/AgentQuotaPopover";
 
 export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
 
@@ -704,6 +705,7 @@ function AskPageContent() {
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
+  const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
 
   // Sync state continuously into in-memory cache so switching tabs/menus retains all data
   useEffect(() => {
@@ -2416,6 +2418,20 @@ function AskPageContent() {
                 </span>
               </Btn>
             )}
+            {/* AI 订阅与额度监控入口 */}
+            <Btn
+              variant="glass"
+              size="sm"
+              icon="activity"
+              onClick={() => setQuotaOpen(true)}
+              title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex)" : "View AI Subscriptions & Quotas"}
+              className="shrink-0"
+            >
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                <span className="hidden sm:inline">AI 额度</span>
+              </span>
+            </Btn>
             <Btn
               variant="glass"
               size="sm"
@@ -3878,6 +3894,13 @@ function AskPageContent() {
         </div>
       </footer>
     </div>
+
+      {/* AI Subscription Quotas Popover */}
+      <AgentQuotaPopover
+        isOpen={quotaOpen}
+        onClose={() => setQuotaOpen(false)}
+        deviceId={selectedDevice}
+      />
 
       {/* History Drawer Overlay & Sidebar */}
       {historyOpen && (

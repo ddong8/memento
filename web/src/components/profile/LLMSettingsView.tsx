@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-client";
 import { Glass, Btn, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { AgentQuotaCard } from "@/components/quota/AgentQuotaCard";
 
 export function LLMSettingsView() {
   const [loading, setLoading] = useState(true);
@@ -596,6 +597,9 @@ export function LLMSettingsView() {
           )}
         </div>
       </Glass>
+
+      {/* AI 原生工具订阅与配额实时监控 */}
+      <AgentQuotaCard />
 
       {/* Save Action Bar & System Defaults Reference */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">

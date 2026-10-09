@@ -924,7 +924,60 @@ export const api = {
     }
     return apiFetch<AgentCapabilities>(`/api/ask/capabilities?${params}`);
   },
+
+  getAgentQuotas: (deviceId?: string) => {
+    const params = new URLSearchParams();
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only") {
+      params.set("device_id", deviceId);
+    }
+    const q = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<AgentQuotasResponse>(`/api/agent/quotas${q}`);
+  },
+
+  refreshAgentQuotas: (deviceId?: string) => {
+    const params = new URLSearchParams();
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only") {
+      params.set("device_id", deviceId);
+    }
+    const q = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<AgentQuotasResponse>(`/api/agent/quotas/refresh${q}`, { method: "POST" });
+  },
 };
+
+export interface QuotaModelItem {
+  label: string;
+  model_id: string;
+  remaining_fraction: number;
+  remaining_percent: number;
+  reset_time?: string;
+}
+
+export interface ToolQuotaInfo {
+  tool: "antigravity" | "claude_code" | "codex";
+  name: string;
+  available: boolean;
+  logged_in?: boolean;
+  account_email?: string;
+  account_name?: string;
+  plan_name?: string;
+  tier?: string;
+  remaining_percent?: number | null;
+  reset_time?: string | null;
+  models?: QuotaModelItem[];
+  error?: string;
+}
+
+export interface AgentQuotasResponse {
+  device_id?: string;
+  device_name?: string;
+  timestamp: string;
+  updated_at?: string;
+  tools: {
+    antigravity?: ToolQuotaInfo;
+    claude_code?: ToolQuotaInfo;
+    codex?: ToolQuotaInfo;
+  };
+}
 
 export interface AgentModelOption {
   id: string;

@@ -8,6 +8,7 @@ export * from "./exec-env.js";
 export * from "./ingest.js";
 export * from "./local-api.js";
 export * from "./profile-inject.js";
+export * from "./quotas.js";
 export * from "./skill-inject.js";
 export * from "./task-runner.js";
 export * from "./worktree.js";

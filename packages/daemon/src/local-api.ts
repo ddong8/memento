@@ -82,6 +82,11 @@ export class LocalApi {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     try {
       if (req.method === "GET" && path === "/status") return json(res, 200, this.daemon.status);
+      if (req.method === "GET" && path === "/quotas") {
+        const { probeAllQuotas } = await import("./quotas.js");
+        const quotas = await probeAllQuotas(this.home);
+        return json(res, 200, quotas);
+      }
       if (req.method === "GET" && path === "/logs") return json(res, 200, { logs: this.daemon.recentLogs });
       if (req.method === "GET" && path === "/events") return this.events(req, res);
       if (req.method === "POST" && path === "/rediscover") {

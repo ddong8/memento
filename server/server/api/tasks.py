@@ -529,6 +529,11 @@ async def device_websocket_endpoint(
                 if machine.id:
                     _device_capabilities[str(machine.id)] = caps
                 logger.info("Received dynamic agent capabilities from device %s (%s)", real_device_id, machine.name)
+            elif msg_type == "agent_quotas":
+                from .quotas import set_cached_device_quotas
+                quotas = data.get("quotas") or {}
+                set_cached_device_quotas(real_device_id, quotas, machine.name, str(machine.id) if machine.id else None)
+                logger.info("Received dynamic agent quotas from device %s (%s)", real_device_id, machine.name)
             elif msg_type == "p2p_network_info":
                 ipv6 = data.get("ipv6")
                 port = data.get("port")

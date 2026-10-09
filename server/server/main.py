@@ -481,6 +481,8 @@ app.include_router(proactive.router)
 app.include_router(life_rhythm.router)
 app.include_router(quotas.router)
 app.include_router(quotas.compat_router)
+app.include_router(quotas.raw_router)
+app.include_router(quotas.raw_compat_router)
 
 from .api.ask import get_agent_capabilities, get_agent_models
 

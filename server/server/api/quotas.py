@@ -17,8 +17,10 @@ from ..middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/agent/quotas", tags=["quotas"])
-compat_router = APIRouter(prefix="/quotas", tags=["quotas"])
+router = APIRouter(prefix="/api/agent/quotas", tags=["quotas"])
+compat_router = APIRouter(prefix="/api/quotas", tags=["quotas"])
+raw_router = APIRouter(prefix="/agent/quotas", tags=["quotas"])
+raw_compat_router = APIRouter(prefix="/quotas", tags=["quotas"])
 
 # Cache of live agent quotas reported by connected devices
 # Key: device_id | machine_name | machine_id
@@ -117,6 +119,8 @@ def _make_fallback_report(device_id: str | None = None, device_name: str | None 
 
 @router.get("")
 @compat_router.get("")
+@raw_router.get("")
+@raw_compat_router.get("")
 async def get_agent_quotas(
     device_id: str | None = Query(None, description="Optional target device ID or name"),
     _user: User = Depends(get_current_user),
@@ -157,6 +161,8 @@ async def get_agent_quotas(
 
 @router.post("/refresh")
 @compat_router.post("/refresh")
+@raw_router.post("/refresh")
+@raw_compat_router.post("/refresh")
 async def refresh_agent_quotas(
     device_id: str | None = Query(None, description="Optional target device ID to refresh"),
     _user: User = Depends(get_current_user),

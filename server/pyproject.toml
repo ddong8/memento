@@ -24,6 +24,7 @@ dependencies = [
     "openai>=1.30",
     "jieba>=0.42",
     "geoip2>=4.8",
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]

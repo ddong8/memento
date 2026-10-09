@@ -3,7 +3,7 @@
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, type AgentQuotasResponse } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -522,6 +522,8 @@ interface LocalConvSnapshot {
   worktreeMode?: boolean;
   hasMoreTurns?: boolean;
   totalTurns?: number;
+  etag?: string;
+  convDetail?: AskConversationDetail;
   updatedAt: number;
 }
 
@@ -571,6 +573,8 @@ function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; 
       worktreeMode: data.worktreeMode,
       hasMoreTurns: data.hasMoreTurns,
       totalTurns: data.totalTurns,
+      etag: data.etag,
+      convDetail: data.convDetail,
       updatedAt: Date.now(),
     };
     localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
@@ -589,6 +593,10 @@ function AskPageContent() {
       const snap = getLocalConvSnapshot();
       if (snap && (!idParam || idParam === snap.id)) {
         initialSnapshotRef.current = snap;
+        if (snap.etag && snap.convDetail) {
+          seedApiEtagCache(`/api/ask/conversations/${snap.id}?limit=40`, snap.etag, snap.convDetail);
+          seedApiEtagCache(`/api/ask/conversations/${snap.id}`, snap.etag, snap.convDetail);
+        }
       }
     }
   }
@@ -1257,6 +1265,8 @@ function AskPageContent() {
         worktreeMode: isWorktree,
         hasMoreTurns: hasMore,
         totalTurns: total,
+        etag: data._etag,
+        convDetail: data,
       });
 
       // 3. Project and Session restoration
@@ -1310,6 +1320,8 @@ function AskPageContent() {
                   worktreeMode: isWorktree,
                   hasMoreTurns: hasMore,
                   totalTurns: total,
+                  etag: data._etag,
+                  convDetail: data,
                 });
               }
               setLoadingSessions(true);
@@ -2742,21 +2754,32 @@ function AskPageContent() {
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
   const renderedTurns = useMemo(() => {
-    return turns.map((turn, i) =>
-      turn.role === "user" ? (
-        <UserBubble key={i} content={turn.content} images={turn.images} />
-      ) : (
-        <AssistantBubble
-          key={i}
-          turn={turn}
-          isLast={i === turns.length - 1}
-          streaming={streaming}
-          onSourcesClick={handleSourcesClick}
-          onSmartCompactAndRetry={handleSmartCompactAndRetry}
-          t={t}
-        />
-      )
-    );
+    return turns.map((turn, i) => {
+      const isLastAndStreaming = i === turns.length - 1 && streaming;
+      const contentVisibilityStyle: React.CSSProperties = isLastAndStreaming
+        ? {}
+        : {
+            contentVisibility: "auto",
+            containIntrinsicSize: turn.role === "user" ? "0 80px" : "0 140px",
+          };
+
+      return (
+        <div key={i} style={contentVisibilityStyle}>
+          {turn.role === "user" ? (
+            <UserBubble content={turn.content} images={turn.images} />
+          ) : (
+            <AssistantBubble
+              turn={turn}
+              isLast={i === turns.length - 1}
+              streaming={streaming}
+              onSourcesClick={handleSourcesClick}
+              onSmartCompactAndRetry={handleSmartCompactAndRetry}
+              t={t}
+            />
+          )}
+        </div>
+      );
+    });
   }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
 
   return (

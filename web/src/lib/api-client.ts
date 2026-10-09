@@ -53,9 +53,23 @@ const _inflight = new Map<string, Promise<unknown>>();
 const _cache = new Map<string, { ts: number; data: unknown }>();
 const CACHE_TTL_MS = 60_000;
 
+// HTTP ETag cache for conditional GET requests (HTTP 304 Not Modified)
+const _etagCache = new Map<string, { etag: string; data: unknown }>();
+
+export function seedApiEtagCache<T>(path: string, etag: string, data: T) {
+  const base = getApiBase();
+  const urlKey = `${base}${path}`;
+  _etagCache.set(urlKey, { etag, data });
+}
+
 export function invalidateApiCache(prefix?: string) {
-  if (!prefix) { _cache.clear(); return; }
-  for (const k of _cache.keys()) if (k.startsWith(prefix)) _cache.delete(k);
+  if (!prefix) {
+    _cache.clear();
+    _etagCache.clear();
+    return;
+  }
+  for (const k of _cache.keys()) if (k.startsWith(prefix) || k.includes(prefix)) _cache.delete(k);
+  for (const k of _etagCache.keys()) if (k.startsWith(prefix) || k.includes(prefix)) _etagCache.delete(k);
 }
 
 async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
@@ -77,7 +91,8 @@ async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
 
   const base = getApiBase();
   const method = (init.method || "GET").toUpperCase();
-  const cacheKey = method === "GET" && !skipCache ? `${base}${path}` : null;
+  const fullUrl = `${base}${path}`;
+  const cacheKey = method === "GET" && !skipCache ? fullUrl : null;
 
   if (cacheKey) {
     const hit = _cache.get(cacheKey);
@@ -86,8 +101,16 @@ async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
     if (pending) return pending;
   }
 
+  const etagEntry = method === "GET" ? _etagCache.get(fullUrl) : undefined;
+  if (etagEntry?.etag && !headers["If-None-Match"]) {
+    headers["If-None-Match"] = etagEntry.etag;
+  }
+
   const run = (async () => {
-    const res = await fetch(`${base}${path}`, { ...init, headers });
+    const res = await fetch(fullUrl, { ...init, headers });
+    if (res.status === 304 && etagEntry) {
+      return etagEntry.data as T;
+    }
     if (!res.ok) {
       if (res.status === 401 && typeof window !== "undefined" && !isPublic) {
         const onAuthPage = window.location.pathname.startsWith("/auth/");
@@ -100,7 +123,16 @@ async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
       throw new Error(`API ${res.status}: ${text}`);
     }
     const data = (await res.json()) as T;
-    if (cacheKey) _cache.set(cacheKey, { ts: Date.now(), data });
+    const resEtag = res.headers.get("etag") || res.headers.get("ETag");
+    if (method === "GET") {
+      if (cacheKey) _cache.set(cacheKey, { ts: Date.now(), data });
+      if (resEtag) {
+        if (data && typeof data === "object") {
+          (data as any)._etag = resEtag;
+        }
+        _etagCache.set(fullUrl, { etag: resEtag, data });
+      }
+    }
     return data;
   })();
 
@@ -803,8 +835,11 @@ export const api = {
       : "";
     return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
   },
-  getAskConversation: (id: string, limit?: number) =>
-    apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}${limit && limit > 0 ? `?limit=${limit}` : ""}`),
+  getAskConversation: (id: string, limit?: number, opts?: FetchOptions) =>
+    apiFetch<AskConversationDetail>(
+      `/api/ask/conversations/${id}${limit && limit > 0 ? `?limit=${limit}` : ""}`,
+      { skipCache: true, ...opts }
+    ),
   updateAskConversation: (
     id: string,
     patch: Partial<{
@@ -820,14 +855,18 @@ export const api = {
       compact_mode: boolean;
       config: Record<string, any>;
     }>
-  ) =>
-    apiFetch<{ ok: boolean; config?: Record<string, any> }>(`/api/ask/conversations/${id}`, {
+  ) => {
+    invalidateApiCache(`/api/ask/conversations/${id}`);
+    return apiFetch<{ ok: boolean; config?: Record<string, any> }>(`/api/ask/conversations/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
-    }),
-  deleteAskConversation: (id: string) =>
-    apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
+    });
+  },
+  deleteAskConversation: (id: string) => {
+    invalidateApiCache(`/api/ask/conversations`);
+    return apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" });
+  },
   listAskRuns: (recentSeconds = 0) =>
     apiFetch<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
   ensureConversationBySession: (body: {
@@ -1049,6 +1088,7 @@ export interface AskConversationDetail {
   config?: Record<string, any>;
   created_at: string | null;
   updated_at: string | null;
+  _etag?: string;
 }
 
 export interface AskRunSummary {

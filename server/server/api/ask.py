@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -25,10 +26,11 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select, func
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, User, AskConversation, UserMemory, Project
@@ -919,6 +921,43 @@ async def _get_or_create_conversation(
         return conv.id, conv.title, dict(conv.config or {})
 
 
+def _compress_b64_image_safe(data_uri: str, max_size: int = 1600, quality: int = 82) -> str:
+    """Safely compress base64 image if it exceeds threshold (>80KB).
+    Returns compressed data URL (image/jpeg) or original if already small or invalid.
+    """
+    if not isinstance(data_uri, str) or not data_uri.startswith("data:image"):
+        return data_uri
+
+    if len(data_uri) < 80_000:
+        return data_uri
+
+    try:
+        header, b64_part = data_uri.split(",", 1)
+        raw_bytes = base64.b64decode(b64_part)
+        from io import BytesIO
+        from PIL import Image
+
+        img = Image.open(BytesIO(raw_bytes))
+        if img.mode in ("RGBA", "LA", "P"):
+            img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > max_size:
+            ratio = max_size / max(w, h)
+            new_w, new_h = int(w * ratio), int(h * ratio)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+        out_io = BytesIO()
+        img.save(out_io, format="JPEG", quality=quality, optimize=True)
+        out_bytes = out_io.getvalue()
+        if len(out_bytes) < len(raw_bytes):
+            new_b64 = base64.b64encode(out_bytes).decode("ascii")
+            return f"data:image/jpeg;base64,{new_b64}"
+        return data_uri
+    except Exception as e:
+        logger.warning("Failed to compress base64 image: %s", e)
+        return data_uri
+
+
 async def _append_conversation_turns(
     conv_id: uuid.UUID,
     user_content: str,
@@ -949,7 +988,7 @@ async def _append_conversation_turns(
                 "created_at": now_iso,
             }
             if images:
-                user_turn["images"] = images
+                user_turn["images"] = [_compress_b64_image_safe(img) for img in images]
             if attachments:
                 user_turn["attachments"] = attachments
             turns.append(user_turn)
@@ -979,10 +1018,11 @@ async def _append_conversation_turns(
                         clean_tool_calls.append(tc_copy)
                     else:
                         clean_tool_calls.append(tc)
-                asst_turn["toolCalls"] = clean_tool_calls
+                    asst_turn["toolCalls"] = clean_tool_calls
             turns.append(asst_turn)
 
             conv.turns = turns
+            flag_modified(conv, "turns")
             conv.updated_at = datetime.now(timezone.utc)
             if device_id:
                 conv.device_id = device_id
@@ -1247,10 +1287,13 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
 
 
 def _sanitize_turns_for_response(turns: list[dict]) -> list[dict]:
-    """Strip bloated duplicate inlined base64 images from tool_calls args."""
+    """Strip bloated duplicate inlined base64 images from tool_calls args and compress oversized user images."""
     sanitized = []
     for t in turns:
         t_copy = dict(t)
+        imgs = t_copy.get("images")
+        if imgs and isinstance(imgs, list):
+            t_copy["images"] = [_compress_b64_image_safe(img) for img in imgs]
         tcs = t_copy.get("toolCalls") or t_copy.get("tool_calls")
         if tcs and isinstance(tcs, list):
             clean_tcs = []
@@ -1277,6 +1320,8 @@ def _sanitize_turns_for_response(turns: list[dict]) -> list[dict]:
 @router.get("/conversations/{conv_id}")
 async def get_conversation(
     conv_id: str,
+    request: Request,
+    response: Response,
     limit: int = 0,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -1302,18 +1347,9 @@ async def get_conversation(
     conv_title = conv.title
     raw_turns = list(conv.turns or [])
     total_turns = len(raw_turns)
-    sanitized_turns = _sanitize_turns_for_response(raw_turns)
-    if limit > 0 and len(sanitized_turns) > limit:
-        conv_turns = sanitized_turns[-limit:]
-        has_more = True
-    else:
-        conv_turns = sanitized_turns
-        has_more = False
 
     conv_dev = conv.device_id or cfg.get("device_id")
     conv_cwd = conv.cwd or cfg.get("cwd")
-    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
-    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
 
     need_commit = False
     if conv.config != cfg:
@@ -1331,11 +1367,35 @@ async def get_conversation(
     if need_commit:
         now_utc = datetime.now(timezone.utc)
         conv.updated_at = now_utc
-        updated_at_iso = now_utc.isoformat()
         try:
             await db.commit()
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
+
+    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
+
+    # Fast ETag evaluation before full turns sanitization and slicing
+    etag_seed = f"{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
+    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+
+    if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
+    if if_none_match:
+        client_tag = if_none_match.strip().strip('"')
+        server_tag = etag.strip('"')
+        if client_tag == server_tag:
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+
+    sanitized_turns = _sanitize_turns_for_response(raw_turns)
+    if limit > 0 and len(sanitized_turns) > limit:
+        conv_turns = sanitized_turns[-limit:]
+        has_more = True
+    else:
+        conv_turns = sanitized_turns
+        has_more = False
+
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, no-cache"
 
     return {
         "id": conv_id_str,

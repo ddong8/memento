@@ -779,7 +779,9 @@ function AskPageContent() {
       projects,
       sessions,
       capabilities,
-      scrollTop: chatScrollRef.current?.scrollTop ?? askCache?.scrollTop ?? 0,
+      scrollTop: (chatScrollRef.current && chatScrollRef.current.scrollTop > 0)
+        ? chatScrollRef.current.scrollTop
+        : (askCache?.scrollTop ?? 0),
     };
   }, [
     activeConversationId,
@@ -799,6 +801,15 @@ function AskPageContent() {
     sessions,
     capabilities,
   ]);
+
+  // Snapshot exact scroll position on unmount so switching away preserves position
+  useEffect(() => {
+    return () => {
+      if (chatScrollRef.current && askCache) {
+        askCache.scrollTop = chatScrollRef.current.scrollTop;
+      }
+    };
+  }, []);
 
   // Sources drawer state
   const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
@@ -998,6 +1009,11 @@ function AskPageContent() {
       setTurns(loadedTurns);
       setHistoryOpen(false);
       setSourcesOpen(false);
+      requestAnimationFrame(() => {
+        if (chatScrollRef.current) {
+          chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        }
+      });
 
       // 2. Execution mode, model, effort, project, session
       let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
@@ -1284,10 +1300,12 @@ function AskPageContent() {
         turns.length > 0
       ) {
         lastRestoredIdRef.current = resolvedTargetId;
-        if (askCache?.scrollTop && chatScrollRef.current) {
+        const targetScroll = askCache.scrollTop;
+        if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
+          chatScrollRef.current.scrollTop = targetScroll;
           requestAnimationFrame(() => {
-            if (chatScrollRef.current && askCache?.scrollTop) {
-              chatScrollRef.current.scrollTop = askCache.scrollTop;
+            if (chatScrollRef.current) {
+              chatScrollRef.current.scrollTop = targetScroll;
             }
           });
         }
@@ -1339,21 +1357,37 @@ function AskPageContent() {
   }, [loadConversation]);
 
   // Follow the stream as tokens land — throttled to avoid layout thrash.
+  // ONLY auto-scroll when actively streaming AI tokens. Never scroll during static tab switching.
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitialScrollMountRef = useRef<boolean>(true);
   useEffect(() => {
     if (isInitialScrollMountRef.current) {
       isInitialScrollMountRef.current = false;
-      if (askCache?.scrollTop && chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = askCache.scrollTop;
-        return;
+      const targetScroll = askCache?.scrollTop;
+      if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = targetScroll;
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = targetScroll;
+            requestAnimationFrame(() => {
+              if (chatScrollRef.current) {
+                chatScrollRef.current.scrollTop = targetScroll;
+              }
+            });
+          }
+        });
       }
+      return;
     }
+    // Only auto-scroll when actively streaming AI tokens
+    if (!streamingRef.current) return;
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }, 120);
+      if (streamingRef.current && chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    }, 80);
   }, [turns]);
 
   // Abort any in-flight stream if the user navigates away mid-answer.
@@ -1935,6 +1969,11 @@ function AskPageContent() {
     setTurns(initialTurns);
     streamingRef.current = true;
     setStreaming(true);
+    requestAnimationFrame(() => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    });
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -2535,7 +2574,7 @@ function AskPageContent() {
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 scroll-smooth"
+          className="flex-1 overflow-y-auto px-4 md:px-8 py-6"
         >
           <div className="w-full max-w-3xl mx-auto space-y-4">
 

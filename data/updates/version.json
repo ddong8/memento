@@ -1,22 +1,22 @@
 {
-  "version": "1.0.65",
-  "title": "Memento v1.0.65",
+  "version": "1.0.66",
+  "title": "Memento v1.0.66",
   "release_notes": "1. 修复 Windows 桌面端开机自启动开关状态读取不一致及回弹问题\n2. 修复 Windows 采集器因多进程误判为旧版 Flutter 导致的启动自锁问题\n3. 优化执行卡片移动端响应式布局杜绝实时输出中与徽标重叠",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.65-win-x64.zip",
-      "size": 154380814,
-      "sha256": "c36720822bd96b7f0ce3ab0c323f9aff4ff400f0a13c6413205007c1ccbf632d"
+      "asset_name": "Memento-1.0.66-win-x64.zip",
+      "size": 154381226,
+      "sha256": "2a40f52fb95c52d6e1f0dc62ec454ebfc40771d0f445958514703d0ecc0d01ac"
     },
     "macos": {
-      "asset_name": "Memento-1.0.65-mac-arm64.zip",
-      "size": 128239040,
-      "sha256": "d551540a1dc1003a05d7167a1800aae72002e4ed4fe1ac99ed1404adab030529"
+      "asset_name": "Memento-1.0.66-mac-arm64.zip",
+      "size": 128239403,
+      "sha256": "78f4ebc4e2370e5370f1a971ff6f1afc497ddcabdf608434710d6534295ec574"
     },
     "linux": {
-      "asset_name": "Memento-1.0.65-linux-x64.tar.gz",
-      "size": 120275211,
-      "sha256": "71d7a1137df68697b94b56168f21a956ccfae7c5be80ad8cf398c417da131a00"
+      "asset_name": "Memento-1.0.66-linux-x64.tar.gz",
+      "size": 120275443,
+      "sha256": "ca1232256c0d01d367e48621d42bc36fa225202d6d70b40ec9312635cd31c959"
     }
   }
 }

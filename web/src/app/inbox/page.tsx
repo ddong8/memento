@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
+import TodoPanel from "@/components/todos/TodoPanel";
 
 interface InboxItem {
   token: string;
@@ -37,11 +38,17 @@ export default function InboxPage() {
     k;
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <TopBar title={t.inbox.title} />
-      <p style={{ fontSize: 13, color: "var(--aurora-fg3)", marginBottom: 16 }}>
-        {t.inbox.subtitle}
-      </p>
+    <div className="max-w-4xl mx-auto space-y-6">
+      <TopBar title={t.nav.inbox || "工作待办"} />
+      <TodoPanel />
+
+      <div className="pt-2">
+        <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 4 }}>
+          {t.inbox.title}
+        </h3>
+        <p style={{ fontSize: 13, color: "var(--aurora-fg3)", marginBottom: 16 }}>
+          {t.inbox.subtitle}
+        </p>
 
       <Glass padding={6} radius={20}>
         {loaded && items.length === 0 && (
@@ -76,6 +83,7 @@ export default function InboxPage() {
           </div>
         ))}
       </Glass>
+      </div>
     </div>
   );
 }

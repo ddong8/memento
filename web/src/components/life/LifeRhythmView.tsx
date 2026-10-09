@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, type DailyLifeRhythm } from "@/lib/api-client";
 import { Glass, Btn, Chip, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 
 export function LifeRhythmView() {
   const [rhythms, setRhythms] = useState<DailyLifeRhythm[]>([]);
@@ -409,13 +410,13 @@ export function LifeRhythmView() {
 
                 {currentDay.ai_advice ? (
                   <div
-                    className="text-xs leading-relaxed text-[var(--aurora-fg2)] whitespace-pre-wrap p-4 rounded-xl font-sans"
+                    className="text-xs leading-relaxed text-[var(--aurora-fg2)] p-4 rounded-xl font-sans"
                     style={{
                       background: "rgba(124,58,237,0.04)",
                       border: "1px solid rgba(124,58,237,0.2)",
                     }}
                   >
-                    {currentDay.ai_advice}
+                    <MarkdownViewer content={currentDay.ai_advice} compactText={true} />
                   </div>
                 ) : (
                   <div className="py-12 text-center text-xs text-[var(--aurora-fg4)] border border-dashed border-[var(--aurora-border)] rounded-xl">

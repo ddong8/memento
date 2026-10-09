@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, type AgentQuotasResponse } from "@/lib/api-client";
@@ -779,14 +779,11 @@ function AskPageContent() {
       projects,
       sessions,
       capabilities,
-      scrollTop: (chatScrollRef.current && chatScrollRef.current.scrollTop > 0)
-        ? chatScrollRef.current.scrollTop
-        : (askCache?.scrollTop ?? 0),
+      scrollTop: askCache?.scrollTop ?? 0,
     };
   }, [
     activeConversationId,
     turns,
-    input,
     conversations,
     selectedDevice,
     cwd,
@@ -814,6 +811,20 @@ function AskPageContent() {
   // Sources drawer state
   const [sourcesOpen, setSourcesOpen] = useState<boolean>(false);
   const [selectedSources, setSelectedSources] = useState<Source[]>([]);
+
+  const handleSourcesClick = useCallback((sources: Source[]) => {
+    setSelectedSources(sources);
+    setSourcesOpen(true);
+    setHistoryOpen(false);
+  }, []);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    if (askCache) {
+      askCache.input = val;
+    }
+  }, []);
 
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
@@ -1498,7 +1509,11 @@ function AskPageContent() {
         if (transcript) {
           setInput((prev) => {
             const trimmed = prev.trim();
-            return trimmed ? `${trimmed} ${transcript}` : transcript;
+            const nextVal = trimmed ? `${trimmed} ${transcript}` : transcript;
+            if (askCache) {
+              askCache.input = nextVal;
+            }
+            return nextVal;
           });
         }
       };
@@ -1957,6 +1972,9 @@ function AskPageContent() {
       }));
 
     setInput("");
+    if (askCache) {
+      askCache.input = "";
+    }
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setIsConfigCollapsed(true);
     }
@@ -2034,6 +2052,9 @@ function AskPageContent() {
     const imgs = attachedImages.map((img) => img.dataUrl);
     setAttachedImages([]);
     setInput("");
+    if (askCache) {
+      askCache.input = "";
+    }
     sendWithText(textToSend, { images: imgs });
   }, [streaming, input, attachedImages, sendWithText]);
 
@@ -2059,12 +2080,12 @@ function AskPageContent() {
     }
   }, [qParam, streaming, sendWithText]);
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
     }
-  };
+  }, [send]);
 
   const handleSelectProject = useCallback(
     async (projId: string, customProjects?: ProjectSummary[]) => {
@@ -2452,6 +2473,24 @@ function AskPageContent() {
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
+  const renderedTurns = useMemo(() => {
+    return turns.map((turn, i) =>
+      turn.role === "user" ? (
+        <UserBubble key={i} content={turn.content} images={turn.images} />
+      ) : (
+        <AssistantBubble
+          key={i}
+          turn={turn}
+          isLast={i === turns.length - 1}
+          streaming={streaming}
+          onSourcesClick={handleSourcesClick}
+          onSmartCompactAndRetry={handleSmartCompactAndRetry}
+          t={t}
+        />
+      )
+    );
+  }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
+
   return (
     <div className="w-full flex h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-5.5rem)] rounded-xl sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
       {/* 主对话区与输入控制台 */}
@@ -2648,25 +2687,7 @@ function AskPageContent() {
 
       {/* Conversation turns list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: "100%", minWidth: 0 }}>
-        {turns.map((turn, i) =>
-          turn.role === "user" ? (
-            <UserBubble key={i} content={turn.content} images={turn.images} />
-          ) : (
-            <AssistantBubble
-              key={i}
-              turn={turn}
-              isLast={i === turns.length - 1}
-              streaming={streaming}
-              onSourcesClick={(sources) => {
-                setSelectedSources(sources);
-                setSourcesOpen(true);
-                setHistoryOpen(false);
-              }}
-              onSmartCompactAndRetry={handleSmartCompactAndRetry}
-              t={t}
-            />
-          )
-        )}
+        {renderedTurns}
         <div ref={bottomRef} />
       </div>
     </div>
@@ -3972,7 +3993,7 @@ function AskPageContent() {
                 inputRef={inputElRef}
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
                 onPaste={handlePaste}
                 onFocus={() => {
                   setTimeout(() => {

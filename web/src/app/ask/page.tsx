@@ -391,7 +391,7 @@ const AssistantBubble = memo(function AssistantBubble({
   return (
     <div
       style={{
-        contentVisibility: isLast && streaming ? "visible" : "auto",
+        contentVisibility: isLast ? "visible" : "auto",
         containIntrinsicSize: "auto 120px",
       }}
     >
@@ -844,6 +844,55 @@ function AskPageContent() {
   const isZh = locale.startsWith("zh");
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
+  const pendingScrollToBottomRef = useRef<boolean>(false);
+
+  const scrollConversationToBottom = useCallback((instant = true) => {
+    scrollSettleTimersRef.current.forEach(clearTimeout);
+    scrollSettleTimersRef.current = [];
+
+    const doScroll = () => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({
+          behavior: instant ? "auto" : "smooth",
+          block: "end",
+        });
+      }
+    };
+
+    // 阶段1：立即执行首次滚动尝试
+    doScroll();
+
+    // 阶段2：连续 5 帧 requestAnimationFrame 跟踪（对抗 React 18 异步调度与挂载）
+    let frames = 0;
+    const rafStep = () => {
+      doScroll();
+      frames++;
+      if (frames < 5) {
+        requestAnimationFrame(rafStep);
+      }
+    };
+    requestAnimationFrame(rafStep);
+
+    // 阶段3：阶梯定时器持续校准（对抗 Markdown AST 解析与布局动态展开）
+    const delays = [30, 80, 160, 300, 500, 800];
+    delays.forEach((ms) => {
+      const timer = setTimeout(() => {
+        doScroll();
+      }, ms);
+      scrollSettleTimersRef.current.push(timer);
+    });
+  }, []);
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      scrollSettleTimersRef.current.forEach(clearTimeout);
+    };
+  }, []);
 
   // RAF-batched streaming: accumulate updates, flush once per frame
   const turnsRef = useRef<Turn[]>([]);
@@ -1031,14 +1080,14 @@ function AskPageContent() {
       let targetDev = data.device_id || "";
       let targetCwd = data.cwd || "";
       const loadedTurns = data.turns || [];
+      if (askCache && askCache.activeConversationId !== data.id) {
+        delete askCache.scrollTop;
+      }
+      pendingScrollToBottomRef.current = true;
       setTurns(loadedTurns);
       setHistoryOpen(false);
       setSourcesOpen(false);
-      requestAnimationFrame(() => {
-        if (chatScrollRef.current) {
-          chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-        }
-      });
+      scrollConversationToBottom(true);
 
       // 2. Execution mode, model, effort, project, session
       let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
@@ -1381,39 +1430,47 @@ function AskPageContent() {
     };
   }, [loadConversation]);
 
-  // Follow the stream as tokens land — throttled to avoid layout thrash.
-  // ONLY auto-scroll when actively streaming AI tokens. Never scroll during static tab switching.
+  // Follow the stream as tokens land & handle conversation switching auto-scroll
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitialScrollMountRef = useRef<boolean>(true);
   useEffect(() => {
+    // 1. 切换会话或新加载会话：全速多阶段锁定滚动到最新位置
+    if (pendingScrollToBottomRef.current) {
+      pendingScrollToBottomRef.current = false;
+      scrollConversationToBottom(true);
+      return;
+    }
+
+    // 2. 跨菜单切回同一会话时保留阅读位置；若是全新挂载但无缓存位置则自动落到最新位置
     if (isInitialScrollMountRef.current) {
       isInitialScrollMountRef.current = false;
       const targetScroll = askCache?.scrollTop;
       if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
         chatScrollRef.current.scrollTop = targetScroll;
         requestAnimationFrame(() => {
-          if (chatScrollRef.current) {
-            chatScrollRef.current.scrollTop = targetScroll;
-            requestAnimationFrame(() => {
-              if (chatScrollRef.current) {
-                chatScrollRef.current.scrollTop = targetScroll;
-              }
-            });
-          }
+          if (chatScrollRef.current) chatScrollRef.current.scrollTop = targetScroll;
         });
+        return;
       }
-      return;
+      if (turns.length > 0) {
+        scrollConversationToBottom(true);
+        return;
+      }
     }
-    // Only auto-scroll when actively streaming AI tokens
+
+    // 3. 流式生成过程中的防抖自动跟踪滚动
     if (!streamingRef.current) return;
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
       if (streamingRef.current && chatScrollRef.current) {
         chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        if (bottomRef.current) {
+          bottomRef.current.scrollIntoView({ behavior: "auto", block: "end" });
+        }
       }
     }, 80);
-  }, [turns]);
+  }, [turns, activeConversationId, scrollConversationToBottom]);
 
   // Abort any in-flight stream if the user navigates away mid-answer.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -2001,11 +2058,7 @@ function AskPageContent() {
     setTurns(initialTurns);
     streamingRef.current = true;
     setStreaming(true);
-    requestAnimationFrame(() => {
-      if (chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-      }
-    });
+    scrollConversationToBottom(false);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -2708,7 +2761,7 @@ function AskPageContent() {
       {/* Conversation turns list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: "100%", minWidth: 0 }}>
         {renderedTurns}
-        <div ref={bottomRef} />
+        <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
       </div>
     </div>
   </div>

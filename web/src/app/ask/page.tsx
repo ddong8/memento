@@ -469,6 +469,26 @@ interface CachedAskState {
   selectedProjectId: string;
   selectedSessionId: string;
   compactMode: boolean;
+  projects?: ProjectSummary[];
+  sessions?: Array<{
+    session_id: string;
+    title: string;
+    conversation_id: string;
+    message_count: number;
+    timestamp: string;
+    file_size_bytes?: number;
+    estimated_tokens?: number;
+    compact_recommended?: boolean;
+    messages?: Array<{
+      role: string;
+      content: string;
+      timestamp?: string;
+      raw_type?: string;
+      subagent_name?: string;
+    }>;
+  }>;
+  capabilities?: AgentCapabilities | null;
+  scrollTop?: number;
 }
 
 // Module-level in-memory cache to preserve state when switching menus in-app
@@ -492,15 +512,16 @@ function AskPageContent() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || "ai");
   const [cwd, setCwd] = useState<string>(() => askCache?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Agent Context: Model, Project & Session selection
   const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || "");
   /** Run agent tasks in their own git worktree and branch. */
   const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode || false);
   const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || "");
-  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
+  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(() => askCache?.capabilities || null);
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => askCache?.projects || []);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || "");
   const [sessions, setSessions] = useState<
     Array<{
@@ -520,7 +541,7 @@ function AskPageContent() {
         subagent_name?: string;
       }>;
     }>
-  >([]);
+  >(() => askCache?.sessions || []);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(() => askCache?.selectedSessionId || "");
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
@@ -680,7 +701,7 @@ function AskPageContent() {
   const activeConversationIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const streamingRef = useRef<boolean>(false);
   const isRestoringRef = useRef<boolean>(false);
-  const lastRestoredIdRef = useRef<string | null>(null);
+  const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
 
@@ -700,6 +721,10 @@ function AskPageContent() {
       selectedProjectId,
       selectedSessionId,
       compactMode,
+      projects,
+      sessions,
+      capabilities,
+      scrollTop: chatScrollRef.current?.scrollTop ?? askCache?.scrollTop ?? 0,
     };
   }, [
     activeConversationId,
@@ -715,6 +740,9 @@ function AskPageContent() {
     selectedProjectId,
     selectedSessionId,
     compactMode,
+    projects,
+    sessions,
+    capabilities,
   ]);
 
   // Sources drawer state
@@ -736,7 +764,9 @@ function AskPageContent() {
   // Load conversation list
   const loadConversations = useCallback(async (filterDev?: boolean) => {
     try {
-      setLoadingHistory(true);
+      if (conversations.length === 0) {
+        setLoadingHistory(true);
+      }
       const shouldFilter = filterDev !== undefined ? filterDev : historyFilterDevice;
       const devId = (shouldFilter && selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only")
         ? selectedDevice
@@ -748,7 +778,7 @@ function AskPageContent() {
     } finally {
       setLoadingHistory(false);
     }
-  }, [historyFilterDevice, selectedDevice]);
+  }, [historyFilterDevice, selectedDevice, conversations.length]);
 
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[]) => Promise<void>) | null>(null);
@@ -1111,8 +1141,13 @@ function AskPageContent() {
   const modeParam = searchParams.get("mode") as ExecutionMode | null;
   const initialSentRef = useRef(false);
 
+  const loadConversationRef = useRef(loadConversation);
+  loadConversationRef.current = loadConversation;
+  const loadConversationsRef = useRef(loadConversations);
+  loadConversationsRef.current = loadConversations;
+
   useEffect(() => {
-    loadConversations();
+    loadConversationsRef.current();
 
     const checkAndRestore = async () => {
       // Determine target conversation ID:
@@ -1178,12 +1213,30 @@ function AskPageContent() {
         return;
       }
 
+      // If already cached in memory with complete turns and no active background run: keep in-memory state!
+      if (
+        askCache &&
+        askCache.activeConversationId === resolvedTargetId &&
+        askCache.turns.length > 0 &&
+        turns.length > 0
+      ) {
+        lastRestoredIdRef.current = resolvedTargetId;
+        if (askCache?.scrollTop && chatScrollRef.current) {
+          requestAnimationFrame(() => {
+            if (chatScrollRef.current && askCache?.scrollTop) {
+              chatScrollRef.current.scrollTop = askCache.scrollTop;
+            }
+          });
+        }
+        return;
+      }
+
       // Load conversation fresh from DB to ensure runtime mode, project, and session are properly restored!
-      loadConversation(resolvedTargetId);
+      loadConversationRef.current(resolvedTargetId);
     };
 
     checkAndRestore();
-  }, [idParam, qParam, loadConversation, loadConversations]);
+  }, [idParam, qParam]);
 
   // Support instantaneous chat navigation / switching via notifications or banners
   useEffect(() => {
@@ -1224,7 +1277,15 @@ function AskPageContent() {
 
   // Follow the stream as tokens land — throttled to avoid layout thrash.
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInitialScrollMountRef = useRef<boolean>(true);
   useEffect(() => {
+    if (isInitialScrollMountRef.current) {
+      isInitialScrollMountRef.current = false;
+      if (askCache?.scrollTop && chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = askCache.scrollTop;
+        return;
+      }
+    }
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
@@ -2357,6 +2418,12 @@ function AskPageContent() {
 
         {/* 中栏消息滚动列表 */}
         <div
+          ref={chatScrollRef}
+          onScroll={(e) => {
+            if (askCache) {
+              askCache.scrollTop = e.currentTarget.scrollTop;
+            }
+          }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           className="flex-1 overflow-y-auto px-4 md:px-8 py-6 scroll-smooth"

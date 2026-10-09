@@ -6,7 +6,6 @@ import { api, DailyDate } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Btn, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
 import { ToolGlyph } from "@/components/aurora/Icon";
-import TodoPanel from "@/components/todos/TodoPanel";
 
 /** Return YYYY-MM key for a Date (local). */
 function monthKey(d: Date): string {
@@ -130,8 +129,6 @@ export default function DailyPage() {
           </>
         }
       />
-
-      <TodoPanel />
 
       <div
         className="grid gap-5 lg:[grid-template-columns:minmax(0,1fr)_320px] grid-cols-1"

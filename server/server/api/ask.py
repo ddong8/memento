@@ -776,6 +776,20 @@ async def _get_or_create_conversation(
                         ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
                     ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
                 )).scalars().first()
+
+                if not sess_conv:
+                    # 备选深层匹配：遍历最近的会话，推导检查 session_id
+                    recent_cands = (await session.execute(
+                        select(AskConversation).where(
+                            ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
+                        ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(50)
+                    )).scalars().all()
+                    for rc in recent_cands:
+                        rc_cfg, rc_inf = _infer_conversation_config(rc)
+                        if rc_cfg.get("session_id") == effective_sess_id or rc_inf.get("session_id") == effective_sess_id:
+                            sess_conv = rc
+                            break
+
                 if sess_conv:
                     updated = False
                     cfg = dict(sess_conv.config or {})
@@ -788,6 +802,7 @@ async def _get_or_create_conversation(
                                     continue
                                 cfg[k] = v
                     cfg["compact_mode"] = False
+                    cfg["session_id"] = effective_sess_id
                     sess_conv.config = cfg
                     if device_id and sess_conv.device_id != device_id:
                         sess_conv.device_id = device_id
@@ -802,6 +817,7 @@ async def _get_or_create_conversation(
                 pass
 
         # Determine title
+        from ..services.ingest_service import _is_junk_or_uuid_title
         title = None
         if session_id:
             try:
@@ -819,18 +835,31 @@ async def _get_or_create_conversation(
                         )).scalar_one_or_none()
                     except Exception:
                         pass
-                if doc_row and doc_row.strip() and doc_row.lower() not in ("transcript", "transcript.jsonl"):
+                if doc_row and doc_row.strip() and not _is_junk_or_uuid_title(doc_row.strip(), session_id):
                     title = doc_row.strip()
             except Exception:
                 pass
 
-        if not title:
+        if not title and history:
+            for h in history:
+                if h.get("role") == "user" and h.get("content"):
+                    cleaned = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", h["content"])
+                    cleaned = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", cleaned).strip()
+                    if cleaned and not _is_junk_or_uuid_title(cleaned, session_id):
+                        title = cleaned[:50]
+                        break
+
+        if not title and question:
             clean_q = question.strip()
             # 剥离前序核心快照及注入的系统包裹提示
             clean_q = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", clean_q)
             clean_q = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q)
             clean_q = clean_q.strip().replace("\n", " ")
-            title = clean_q[:50] or "新对话"
+            if clean_q and not _is_junk_or_uuid_title(clean_q, session_id):
+                title = clean_q[:50]
+
+        if not title:
+            title = f"会话 {session_id[:8]}" if session_id else "新对话"
 
         # Prepopulate turns with existing history if provided
         init_turns = []
@@ -847,9 +876,34 @@ async def _get_or_create_conversation(
                 for t in history
                 if t.get("content")
             ]
+        elif session_id:
+            try:
+                from ..db.models import ConversationMessage
+                doc_target = (await session.execute(
+                    select(Document).where(
+                        (Document.metadata_.op("->>")("session_id") == session_id)
+                        | (Document.metadata_.op("->>")("cascade_id") == session_id)
+                    ).limit(1)
+                )).scalars().first()
+                if doc_target:
+                    msgs = (await session.execute(
+                        select(ConversationMessage).where(ConversationMessage.document_id == doc_target.id)
+                        .order_by(ConversationMessage.line_number.asc())
+                    )).scalars().all()
+                    for m in msgs:
+                        init_turns.append({
+                            "role": m.role or "user",
+                            "content": m.content or "",
+                            "toolCalls": [],
+                            "created_at": m.timestamp.isoformat() if m.timestamp else datetime.now(timezone.utc).isoformat(),
+                        })
+            except Exception:
+                pass
 
         conv_cfg = dict(config or {})
         conv_cfg["compact_mode"] = False
+        if session_id:
+            conv_cfg["session_id"] = session_id
 
         conv = AskConversation(
             user_id=user.id,
@@ -974,6 +1028,7 @@ async def list_conversations(
             AskConversation.device_id,
             AskConversation.cwd,
             AskConversation.config,
+            AskConversation.turns,
             func.jsonb_array_length(AskConversation.turns).label("message_count"),
         )
         .where(cond)
@@ -982,19 +1037,59 @@ async def list_conversations(
     )
     res = await db.execute(query)
     rows = res.all()
-    return [
-        {
+    from ..services.ingest_service import _is_junk_or_uuid_title
+
+    out_items = []
+    for r in rows:
+        cfg = dict(r.config or {})
+        turns_list = r.turns or []
+        display_title = r.title or "新对话"
+
+        # 补全 session_id / execution_mode
+        if not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai":
+            for turn in reversed(turns_list):
+                tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
+                for tc in reversed(tcs):
+                    if not isinstance(tc, dict):
+                        continue
+                    tc_args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+                    tc_res = tc.get("result") if isinstance(tc.get("result"), dict) else {}
+                    sid = tc_res.get("session_id") or tc_args.get("session_id") or (tc.get("call") or {}).get("session_id")
+                    if sid and not cfg.get("session_id"):
+                        cfg["session_id"] = str(sid)
+                    bin_name = str(tc_args.get("binary") or tc.get("binary") or "").lower()
+                    if "agy" in bin_name or "antigravity" in bin_name:
+                        cfg["execution_mode"] = "antigravity"
+                    elif "claude" in bin_name:
+                        cfg["execution_mode"] = "claude"
+                    elif "codex" in bin_name:
+                        cfg["execution_mode"] = "codex"
+                if cfg.get("session_id") and cfg.get("execution_mode"):
+                    break
+
+        # 清洗修复垃圾标题
+        if _is_junk_or_uuid_title(display_title, cfg.get("session_id")):
+            for turn in turns_list:
+                if turn.get("role") == "user" and turn.get("content"):
+                    c_text = str(turn["content"]).strip()
+                    c_text = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", c_text)
+                    c_text = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", c_text)
+                    c_text = c_text.strip().replace("\n", " ")
+                    if c_text and not _is_junk_or_uuid_title(c_text, cfg.get("session_id")):
+                        display_title = c_text[:50]
+                        break
+
+        out_items.append({
             "id": str(r.id),
-            "title": r.title,
+            "title": display_title,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "device_id": r.device_id,
             "cwd": r.cwd,
-            "config": r.config or {},
+            "config": cfg,
             "message_count": r.message_count or 0,
-        }
-        for r in rows
-    ]
+        })
+    return out_items
 
 
 def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
@@ -1195,6 +1290,124 @@ async def get_conversation(
         "created_at": created_at_iso,
         "updated_at": updated_at_iso,
     }
+
+
+class EnsureConversationBySessionRequest(BaseModel):
+    session_id: str
+    project_id: str | None = None
+    execution_mode: str | None = None
+    device_id: str | None = None
+    cwd: str | None = None
+
+
+@router.post("/conversations/ensure-by-session")
+async def ensure_conversation_by_session(
+    body: EnsureConversationBySessionRequest,
+    _user: User = Depends(get_current_user),
+):
+    """Ensure a linked AskConversation exists for the given underlying session_id and return it."""
+    req_config = {
+        "execution_mode": body.execution_mode or "ai",
+        "project_id": body.project_id or "",
+        "session_id": body.session_id,
+        "device_id": body.device_id or "",
+        "cwd": body.cwd or "",
+    }
+    conv_id, conv_title, cfg = await _get_or_create_conversation(
+        conv_id_str=None,
+        user=_user,
+        question="",
+        device_id=body.device_id,
+        cwd=body.cwd,
+        session_id=body.session_id,
+        history=None,
+        config=req_config,
+    )
+    async with async_session_factory() as session:
+        conv = (await session.execute(
+            select(AskConversation).where(AskConversation.id == conv_id)
+        )).scalars().first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        cfg_final, _ = _infer_conversation_config(conv)
+        return {
+            "id": str(conv.id),
+            "title": conv.title,
+            "turns": conv.turns or [],
+            "device_id": conv.device_id,
+            "cwd": conv.cwd,
+            "execution_mode": cfg_final.get("execution_mode", body.execution_mode or "ai"),
+            "model": cfg_final.get("model", ""),
+            "effort": cfg_final.get("effort", ""),
+            "project_id": cfg_final.get("project_id", body.project_id or ""),
+            "session_id": cfg_final.get("session_id", body.session_id),
+            "worktree": bool(cfg_final.get("worktree", False)),
+            "compact_mode": False,
+            "config": cfg_final,
+            "created_at": conv.created_at.isoformat() if conv.created_at else None,
+            "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+        }
+
+
+@router.get("/conversations/recent-active")
+async def get_recent_active_conversation(
+    _user: User = Depends(get_current_user),
+):
+    """Get the most relevant active or recent conversation to restore seamlessly on client startup."""
+    active_runs = ask_runs.active_for_user(_user.id)
+    target_conv_id = None
+    if active_runs:
+        target_conv_id = active_runs[0].conversation_id
+
+    async with async_session_factory() as session:
+        if target_conv_id:
+            try:
+                cid = uuid.UUID(target_conv_id)
+                conv = (await session.execute(
+                    select(AskConversation).where(
+                        (AskConversation.id == cid) &
+                        ((AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None)))
+                    )
+                )).scalars().first()
+                if conv:
+                    cfg, _ = _infer_conversation_config(conv)
+                    return {
+                        "id": str(conv.id),
+                        "title": conv.title,
+                        "turns": conv.turns or [],
+                        "device_id": conv.device_id,
+                        "cwd": conv.cwd,
+                        "execution_mode": cfg.get("execution_mode", "ai"),
+                        "session_id": cfg.get("session_id", ""),
+                        "project_id": cfg.get("project_id", ""),
+                        "config": cfg,
+                        "active_run": True,
+                    }
+            except Exception:
+                pass
+
+        recent_conv = (await session.execute(
+            select(AskConversation).where(
+                ((AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None)))
+            ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
+        )).scalars().first()
+
+        if recent_conv:
+            cfg, _ = _infer_conversation_config(recent_conv)
+            return {
+                "id": str(recent_conv.id),
+                "title": recent_conv.title,
+                "turns": recent_conv.turns or [],
+                "device_id": recent_conv.device_id,
+                "cwd": recent_conv.cwd,
+                "execution_mode": cfg.get("execution_mode", "ai"),
+                "session_id": cfg.get("session_id", ""),
+                "project_id": cfg.get("project_id", ""),
+                "config": cfg,
+                "active_run": False,
+            }
+
+        return {"id": None}
 
 
 class UpdateConversationRequest(BaseModel):

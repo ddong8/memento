@@ -1159,6 +1159,14 @@ function AskPageContent() {
         if (typeof window !== "undefined") {
           resolvedTargetId = localStorage.getItem("memento_last_ask_conv_id") || askCache?.activeConversationId || null;
         }
+        if (!resolvedTargetId) {
+          try {
+            const recent = await api.getRecentActiveConversation();
+            if (recent && recent.id) {
+              resolvedTargetId = recent.id;
+            }
+          } catch {}
+        }
       }
 
       // Check server for any active runs for this user
@@ -2280,7 +2288,7 @@ function AskPageContent() {
       abortRef.current?.abort();
       streamingRef.current = false;
       // 优先从已有的 AskConversations 中寻找关联该底层 session 的真正 Ask 会话，避免将 Document ID 误作为 AskConversation ID
-      const matchedAskConv = conversations.find(
+      let matchedAskConv = conversations.find(
         (c) => c.config?.session_id === sid || c.id === sid
       );
       if (matchedAskConv) {
@@ -2291,16 +2299,33 @@ function AskPageContent() {
           localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
         } catch {}
       } else {
-        activeConversationIdRef.current = null;
-        setActiveConversationId(null);
-        window.history.replaceState(null, "", "/ask");
         try {
-          localStorage.removeItem("memento_last_ask_conv_id");
-        } catch {}
+          const ensured = await api.ensureConversationBySession({
+            session_id: sid,
+            project_id: selectedProjectIdRef.current || selectedProjectId || undefined,
+            execution_mode: executionMode,
+            device_id: selectedDevice,
+            cwd: cwd.trim() || undefined,
+          });
+          if (ensured && ensured.id) {
+            activeConversationIdRef.current = ensured.id;
+            setActiveConversationId(ensured.id);
+            window.history.replaceState(null, "", `/ask?id=${ensured.id}`);
+            try {
+              localStorage.setItem("memento_last_ask_conv_id", ensured.id);
+            } catch {}
+            if (ensured.turns && ensured.turns.length > 0) {
+              setTurns(ensured.turns);
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to ensure conversation by session:", e);
+        }
       }
       setTurns(loadedTurns);
     },
-    [conversations, sessions, startNewChat]
+    [conversations, cwd, executionMode, selectedDevice, selectedProjectId, sessions, startNewChat]
   );
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)

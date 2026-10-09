@@ -830,6 +830,31 @@ export const api = {
     apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" }),
   listAskRuns: (recentSeconds = 0) =>
     apiFetch<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
+  ensureConversationBySession: (body: {
+    session_id: string;
+    project_id?: string;
+    execution_mode?: string;
+    device_id?: string;
+    cwd?: string;
+  }) =>
+    apiFetch<AskConversationDetail>("/api/ask/conversations/ensure-by-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getRecentActiveConversation: () =>
+    apiFetch<{
+      id: string | null;
+      title?: string;
+      turns?: any[];
+      device_id?: string;
+      cwd?: string;
+      execution_mode?: string;
+      session_id?: string;
+      project_id?: string;
+      config?: Record<string, any>;
+      active_run?: boolean;
+    }>("/api/ask/conversations/recent-active"),
   cancelAskRun: (convId: string) =>
     apiFetch<{ status: string }>(`/api/ask/conversations/${convId}/cancel`, { method: "POST" }),
   listProjects: (toolId?: string, deviceId?: string) => {

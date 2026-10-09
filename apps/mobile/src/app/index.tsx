@@ -523,10 +523,18 @@ export default function WebShell() {
                     void Haptics.selectionAsync();
                     setActiveTab(tab.id);
                     const script = `(() => {
+                      let targetPath = ${JSON.stringify(tab.path)};
+                      if (targetPath === "/ask") {
+                        if (window.location.pathname.startsWith("/ask")) {
+                          return;
+                        }
+                        const lastId = localStorage.getItem("memento_last_ask_conv_id");
+                        if (lastId) targetPath = "/ask?id=" + encodeURIComponent(lastId);
+                      }
                       if (typeof window.__memento_client_push === "function") {
-                        window.__memento_client_push(${JSON.stringify(tab.path)});
+                        window.__memento_client_push(targetPath);
                       } else {
-                        window.location.assign(${JSON.stringify(origin + tab.path)});
+                        window.location.assign(${JSON.stringify(origin)} + targetPath);
                       }
                     })(); true;`;
                     web.current?.injectJavaScript(script);

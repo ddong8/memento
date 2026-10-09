@@ -60,6 +60,29 @@ class DeviceConnectionManager:
     def has_device(self, device_id: str) -> bool:
         return device_id in self._connections
 
+    def is_online(self, device_id: str) -> bool:
+        return device_id in self._connections
+
+    def has_online_devices(self) -> bool:
+        return bool(self._connections)
+
+    @property
+    def active_connections(self) -> dict[str, WebSocket]:
+        return self._connections
+
+    async def send_json(self, device_id: str, payload: dict[str, Any]) -> bool:
+        """Send an arbitrary JSON payload to a connected device."""
+        ws = self._connections.get(device_id)
+        if not ws:
+            return False
+        try:
+            await ws.send_json(payload)
+            return True
+        except Exception as e:
+            logger.warning("Failed to send json to %s via WebSocket: %s", device_id, e)
+            self.unregister(device_id, ws)
+            return False
+
     async def send_task(self, device_id: str, task: dict[str, Any]) -> bool:
         """Send a task directly to the device over WebSocket."""
         ws = self._connections.get(device_id)

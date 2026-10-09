@@ -147,7 +147,7 @@ async def get_agent_quotas(
             target_mid = str(m_row.id)
 
     # 3. If online device is connected to WebSocket, trigger an async request
-    from .tasks import ws_manager
+    from ..services.ws_manager import ws_manager
     if target_mid and ws_manager.is_online(target_mid):
         await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
     elif ws_manager.has_online_devices():
@@ -169,7 +169,7 @@ async def refresh_agent_quotas(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Instruct online devices to immediately re-probe AI subscription quotas and return fresh report."""
-    from .tasks import ws_manager
+    from ..services.ws_manager import ws_manager
 
     target_mid = None
     if device_id and device_id not in ("auto", "ask_only", "all"):

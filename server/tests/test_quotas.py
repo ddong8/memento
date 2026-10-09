@@ -47,3 +47,13 @@ class QuotasCoordinatorTests(unittest.TestCase):
         res3 = get_cached_device_quotas(None)
         self.assertIsNotNone(res3)
         self.assertEqual(res3["device_id"], "mac-uuid-1")
+
+    def test_ws_manager_online_helpers(self) -> None:
+        from server.services.ws_manager import DeviceConnectionManager
+        mgr = DeviceConnectionManager()
+        self.assertFalse(mgr.has_online_devices())
+        self.assertFalse(mgr.is_online("dev-1"))
+        mgr._connections["dev-1"] = object()  # mock ws
+        self.assertTrue(mgr.has_online_devices())
+        self.assertTrue(mgr.is_online("dev-1"))
+        self.assertEqual(len(mgr.active_connections), 1)

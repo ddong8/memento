@@ -963,7 +963,23 @@ async def _append_conversation_turns(
             if sources:
                 asst_turn["sources"] = sources
             if tool_calls:
-                asst_turn["toolCalls"] = tool_calls
+                clean_tool_calls = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        tc_copy = dict(tc)
+                        args = tc_copy.get("args")
+                        if isinstance(args, dict) and "images" in args:
+                            clean_args = dict(args)
+                            img_val = clean_args.get("images")
+                            if isinstance(img_val, list):
+                                clean_args["images"] = [f"<image attachment {i+1}>" for i in range(len(img_val))]
+                            else:
+                                del clean_args["images"]
+                            tc_copy["args"] = clean_args
+                        clean_tool_calls.append(tc_copy)
+                    else:
+                        clean_tool_calls.append(tc)
+                asst_turn["toolCalls"] = clean_tool_calls
             turns.append(asst_turn)
 
             conv.turns = turns
@@ -1028,7 +1044,6 @@ async def list_conversations(
             AskConversation.device_id,
             AskConversation.cwd,
             AskConversation.config,
-            AskConversation.turns,
             func.jsonb_array_length(AskConversation.turns).label("message_count"),
         )
         .where(cond)
@@ -1042,11 +1057,22 @@ async def list_conversations(
     out_items = []
     for r in rows:
         cfg = dict(r.config or {})
-        turns_list = r.turns or []
         display_title = r.title or "新对话"
 
+        need_turns = (
+            not cfg.get("session_id")
+            or not cfg.get("execution_mode")
+            or cfg.get("execution_mode") == "ai"
+            or _is_junk_or_uuid_title(display_title, cfg.get("session_id"))
+        )
+
+        turns_list = None
+        if need_turns:
+            conv_obj = await db.get(AskConversation, r.id)
+            turns_list = list(conv_obj.turns or []) if conv_obj else []
+
         # 补全 session_id / execution_mode
-        if not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai":
+        if turns_list and (not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai"):
             for turn in reversed(turns_list):
                 tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
                 for tc in reversed(tcs):
@@ -1068,7 +1094,7 @@ async def list_conversations(
                     break
 
         # 清洗修复垃圾标题
-        if _is_junk_or_uuid_title(display_title, cfg.get("session_id")):
+        if turns_list and _is_junk_or_uuid_title(display_title, cfg.get("session_id")):
             for turn in turns_list:
                 if turn.get("role") == "user" and turn.get("content"):
                     c_text = str(turn["content"]).strip()
@@ -1220,13 +1246,42 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
     return cfg, inferred
 
 
+def _sanitize_turns_for_response(turns: list[dict]) -> list[dict]:
+    """Strip bloated duplicate inlined base64 images from tool_calls args."""
+    sanitized = []
+    for t in turns:
+        t_copy = dict(t)
+        tcs = t_copy.get("toolCalls") or t_copy.get("tool_calls")
+        if tcs and isinstance(tcs, list):
+            clean_tcs = []
+            for tc in tcs:
+                if not isinstance(tc, dict):
+                    clean_tcs.append(tc)
+                    continue
+                tc_copy = dict(tc)
+                args = tc_copy.get("args")
+                if isinstance(args, dict) and "images" in args:
+                    clean_args = dict(args)
+                    img_val = clean_args.get("images")
+                    if isinstance(img_val, list):
+                        clean_args["images"] = [f"<image attachment {i+1}>" for i in range(len(img_val))]
+                    else:
+                        del clean_args["images"]
+                    tc_copy["args"] = clean_args
+                clean_tcs.append(tc_copy)
+            t_copy["toolCalls"] = clean_tcs
+        sanitized.append(t_copy)
+    return sanitized
+
+
 @router.get("/conversations/{conv_id}")
 async def get_conversation(
     conv_id: str,
+    limit: int = 0,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Get full conversation history with all turns and runtime configuration."""
+    """Get conversation history with runtime configuration and optional recent turn limiting."""
     try:
         cid = uuid.UUID(conv_id)
     except ValueError:
@@ -1245,7 +1300,16 @@ async def get_conversation(
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
     conv_id_str = str(conv.id)
     conv_title = conv.title
-    conv_turns = list(conv.turns or [])
+    raw_turns = list(conv.turns or [])
+    total_turns = len(raw_turns)
+    sanitized_turns = _sanitize_turns_for_response(raw_turns)
+    if limit > 0 and len(sanitized_turns) > limit:
+        conv_turns = sanitized_turns[-limit:]
+        has_more = True
+    else:
+        conv_turns = sanitized_turns
+        has_more = False
+
     conv_dev = conv.device_id or cfg.get("device_id")
     conv_cwd = conv.cwd or cfg.get("cwd")
     created_at_iso = conv.created_at.isoformat() if conv.created_at else None
@@ -1277,6 +1341,8 @@ async def get_conversation(
         "id": conv_id_str,
         "title": conv_title,
         "turns": conv_turns,
+        "total_turns": total_turns,
+        "has_more": has_more,
         "device_id": conv_dev,
         "cwd": conv_cwd,
         "execution_mode": cfg.get("execution_mode", "ai"),
@@ -1740,6 +1806,14 @@ async def _direct_agent_stream(
             if result_dict:
                 saved_call["result"] = result_dict
                 saved_call["status"] = result_dict.get("status", "executed")
+            if isinstance(saved_call.get("args"), dict) and "images" in saved_call["args"]:
+                clean_args = dict(saved_call["args"])
+                img_val = clean_args.get("images")
+                if isinstance(img_val, list):
+                    clean_args["images"] = [f"<image attachment {i+1}>" for i in range(len(img_val))]
+                else:
+                    del clean_args["images"]
+                saved_call["args"] = clean_args
             tool_calls_to_save.append(saved_call)
 
         persisted_session_id = ""

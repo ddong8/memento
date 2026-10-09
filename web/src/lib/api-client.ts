@@ -803,8 +803,8 @@ export const api = {
       : "";
     return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
   },
-  getAskConversation: (id: string) =>
-    apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}`),
+  getAskConversation: (id: string, limit?: number) =>
+    apiFetch<AskConversationDetail>(`/api/ask/conversations/${id}${limit && limit > 0 ? `?limit=${limit}` : ""}`),
   updateAskConversation: (
     id: string,
     patch: Partial<{
@@ -1035,6 +1035,8 @@ export interface AskConversationDetail {
     toolCalls?: any[];
     created_at?: string;
   }>;
+  total_turns?: number;
+  has_more?: boolean;
   device_id: string | null;
   cwd: string | null;
   execution_mode?: string;

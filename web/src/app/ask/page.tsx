@@ -94,7 +94,7 @@ interface Turn {
   error?: boolean;
 }
 
-function compressImageToDataUrl(file: File, maxDim = 2048, quality = 0.85): Promise<string> {
+function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -119,7 +119,8 @@ function compressImageToDataUrl(file: File, maxDim = 2048, quality = 0.85): Prom
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
-        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        // 使用高质量 JPEG 编码，彻底避免 HTML5 Canvas 对 PNG 忽略 quality 参数造成的数兆级臃肿
+        const mime = "image/jpeg";
         const dataUrl = canvas.toDataURL(mime, quality);
         resolve(dataUrl);
       };
@@ -504,6 +505,76 @@ interface CachedAskState {
   }>;
   capabilities?: AgentCapabilities | null;
   scrollTop?: number;
+  hasMoreTurns?: boolean;
+  totalTurns?: number;
+}
+
+interface LocalConvSnapshot {
+  id: string;
+  turns: Turn[];
+  executionMode?: ExecutionMode;
+  selectedModel?: string;
+  selectedEffort?: string;
+  cwd?: string;
+  selectedDevice?: string;
+  selectedProjectId?: string;
+  selectedSessionId?: string;
+  worktreeMode?: boolean;
+  hasMoreTurns?: boolean;
+  totalTurns?: number;
+  updatedAt: number;
+}
+
+const SNAPSHOT_KEY = "memento_last_conv_snapshot";
+
+function getLocalConvSnapshot(): LocalConvSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.id === "string" && Array.isArray(parsed.turns)) {
+      return parsed;
+    }
+  } catch {}
+  return null;
+}
+
+function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; turns: Turn[] }) {
+  if (typeof window === "undefined" || !data.id) return;
+  try {
+    const recentTurns = (data.turns || []).slice(-40);
+    const sanitizedTurns: Turn[] = recentTurns.map((turn) => {
+      let content = turn.content;
+      if (typeof content === "string" && content.includes(";base64,") && content.length > 50000) {
+        content = content.replace(/data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+/g, "[图片附件]");
+      }
+      return {
+        role: turn.role,
+        content,
+        sources: turn.sources,
+        toolCalls: turn.toolCalls,
+        error: turn.error,
+      };
+    });
+
+    const snapshot: LocalConvSnapshot = {
+      id: data.id,
+      turns: sanitizedTurns,
+      executionMode: data.executionMode,
+      selectedModel: data.selectedModel,
+      selectedEffort: data.selectedEffort,
+      cwd: data.cwd,
+      selectedDevice: data.selectedDevice,
+      selectedProjectId: data.selectedProjectId,
+      selectedSessionId: data.selectedSessionId,
+      worktreeMode: data.worktreeMode,
+      hasMoreTurns: data.hasMoreTurns,
+      totalTurns: data.totalTurns,
+      updatedAt: Date.now(),
+    };
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {}
 }
 
 // Module-level in-memory cache to preserve state when switching menus in-app
@@ -511,9 +582,22 @@ let askCache: CachedAskState | null = null;
 
 function AskPageContent() {
   const searchParams = useSearchParams();
+  const idParam = searchParams.get("id");
+  const initialSnapshotRef = useRef<LocalConvSnapshot | null>(null);
+  if (initialSnapshotRef.current === null && !askCache) {
+    if (typeof window !== "undefined") {
+      const snap = getLocalConvSnapshot();
+      if (snap && (!idParam || idParam === snap.id)) {
+        initialSnapshotRef.current = snap;
+      }
+    }
+  }
+  const initSnap = initialSnapshotRef.current;
+  const initialRestoredFromSnapshotRef = useRef<boolean>(Boolean(initSnap));
+
   const inspector = useMediaInspector();
   const syncTurnsMedia = inspector?.syncTurnsMedia;
-  const [turns, setTurns] = useState<Turn[]>(() => askCache?.turns || []);
+  const [turns, setTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
 
   // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（使用稳定方法引用，防止循环渲染卡死）
   useEffect(() => {
@@ -523,21 +607,21 @@ function AskPageContent() {
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState(false);
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || "auto");
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || "ai");
-  const [cwd, setCwd] = useState<string>(() => askCache?.cwd || "");
+  const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || initSnap?.selectedDevice || "auto");
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || initSnap?.executionMode || "ai");
+  const [cwd, setCwd] = useState<string>(() => askCache?.cwd || initSnap?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Agent Context: Model, Project & Session selection
-  const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || "");
+  const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || initSnap?.selectedModel || "");
   /** Run agent tasks in their own git worktree and branch. */
-  const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode || false);
-  const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || "");
+  const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode ?? initSnap?.worktreeMode ?? false);
+  const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || initSnap?.selectedEffort || "");
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(() => askCache?.capabilities || null);
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(() => askCache?.projects || []);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || "");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || initSnap?.selectedProjectId || "");
   const [sessions, setSessions] = useState<
     Array<{
       session_id: string;
@@ -557,8 +641,11 @@ function AskPageContent() {
       }>;
     }>
   >(() => askCache?.sessions || []);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => askCache?.selectedSessionId || "");
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => askCache?.selectedSessionId || initSnap?.selectedSessionId || "");
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
+  const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
+  const [totalTurns, setTotalTurns] = useState<number>(() => askCache?.totalTurns ?? initSnap?.totalTurns ?? (initSnap?.turns?.length || 0));
+  const [loadingMoreTurns, setLoadingMoreTurns] = useState<boolean>(false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
@@ -712,8 +799,12 @@ function AskPageContent() {
 
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>(() => askCache?.conversations || []);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(() => askCache?.activeConversationId || null);
-  const activeConversationIdRef = useRef<string | null>(askCache?.activeConversationId || null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    () => askCache?.activeConversationId || initSnap?.id || idParam || null
+  );
+  const activeConversationIdRef = useRef<string | null>(
+    askCache?.activeConversationId || initSnap?.id || idParam || null
+  );
   const streamingRef = useRef<boolean>(false);
   const isRestoringRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
@@ -794,6 +885,8 @@ function AskPageContent() {
       sessions,
       capabilities,
       scrollTop: askCache?.scrollTop ?? 0,
+      hasMoreTurns,
+      totalTurns,
     };
   }, [
     activeConversationId,
@@ -811,6 +904,8 @@ function AskPageContent() {
     projects,
     sessions,
     capabilities,
+    hasMoreTurns,
+    totalTurns,
   ]);
 
   // Snapshot exact scroll position on unmount so switching away preserves position
@@ -1063,12 +1158,14 @@ function AskPageContent() {
   }, []);
 
   // Load single conversation
-  const loadConversation = useCallback(async (id: string) => {
+  const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean }) => {
     if (!id || streamingRef.current) return;
+    const limitToUse = options?.limit !== undefined ? options.limit : 40;
+    const preserveScroll = options?.preserveScroll ?? false;
     isRestoringRef.current = true;
     lastRestoredIdRef.current = id;
     try {
-      const data = await api.getAskConversation(id);
+      const data = await api.getAskConversation(id, limitToUse);
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       window.history.replaceState(null, "", `/ask?id=${data.id}`);
@@ -1080,14 +1177,21 @@ function AskPageContent() {
       let targetDev = data.device_id || "";
       let targetCwd = data.cwd || "";
       const loadedTurns = data.turns || [];
+      const hasMore = Boolean(data.has_more);
+      const total = data.total_turns ?? loadedTurns.length;
+      setHasMoreTurns(hasMore);
+      setTotalTurns(total);
+
       if (askCache && askCache.activeConversationId !== data.id) {
         delete askCache.scrollTop;
       }
-      pendingScrollToBottomRef.current = true;
       setTurns(loadedTurns);
+      if (!preserveScroll) {
+        pendingScrollToBottomRef.current = true;
+        scrollConversationToBottom(true);
+      }
       setHistoryOpen(false);
       setSourcesOpen(false);
-      scrollConversationToBottom(true);
 
       // 2. Execution mode, model, effort, project, session
       let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
@@ -1140,6 +1244,21 @@ function AskPageContent() {
 
       setCompactMode(false);
 
+      saveLocalConvSnapshot({
+        id: data.id,
+        turns: loadedTurns,
+        executionMode: targetMode,
+        selectedModel: targetModel,
+        selectedEffort: targetEffort,
+        cwd: targetCwd,
+        selectedDevice: devToUse,
+        selectedProjectId: targetProjId,
+        selectedSessionId: targetSessionId,
+        worktreeMode: isWorktree,
+        hasMoreTurns: hasMore,
+        totalTurns: total,
+      });
+
       // 3. Project and Session restoration
       if (["codex", "claude", "antigravity"].includes(targetMode)) {
         const toolMap: Record<string, string> = {
@@ -1177,6 +1296,22 @@ function AskPageContent() {
             if (effectiveProjId) {
               setSelectedProjectId(effectiveProjId);
               selectedProjectIdRef.current = effectiveProjId;
+              if (effectiveProjId !== targetProjId) {
+                saveLocalConvSnapshot({
+                  id: data.id,
+                  turns: loadedTurns,
+                  executionMode: targetMode,
+                  selectedModel: targetModel,
+                  selectedEffort: targetEffort,
+                  cwd: targetCwd,
+                  selectedDevice: devToUse,
+                  selectedProjectId: effectiveProjId,
+                  selectedSessionId: targetSessionId,
+                  worktreeMode: isWorktree,
+                  hasMoreTurns: hasMore,
+                  totalTurns: total,
+                });
+              }
               setLoadingSessions(true);
               try {
                 let res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
@@ -1232,6 +1367,36 @@ function AskPageContent() {
     }
   }, [inferConfigFromTurns, normalizeDeviceId]);
 
+  // Load full history for long conversation
+  const loadAllHistoryTurns = useCallback(async () => {
+    const currentId = activeConversationIdRef.current;
+    if (!currentId || loadingMoreTurns) return;
+    setLoadingMoreTurns(true);
+    try {
+      const scrollEl = chatScrollRef.current;
+      const prevScrollHeight = scrollEl?.scrollHeight || 0;
+      const prevScrollTop = scrollEl?.scrollTop || 0;
+
+      const data = await api.getAskConversation(currentId, 0);
+      if (data.id === activeConversationIdRef.current && data.turns) {
+        setTurns(data.turns);
+        setHasMoreTurns(false);
+        setTotalTurns(data.turns.length);
+
+        requestAnimationFrame(() => {
+          if (scrollEl) {
+            const newScrollHeight = scrollEl.scrollHeight;
+            scrollEl.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load all history turns:", e);
+    } finally {
+      setLoadingMoreTurns(false);
+    }
+  }, [loadingMoreTurns]);
+
   // Start fresh chat
   const startNewChat = useCallback(() => {
     abortRef.current?.abort();
@@ -1245,7 +1410,10 @@ function AskPageContent() {
     window.history.replaceState(null, "", "/ask");
     try {
       localStorage.removeItem("memento_last_ask_conv_id");
+      localStorage.removeItem(SNAPSHOT_KEY);
     } catch {}
+    setHasMoreTurns(false);
+    setTotalTurns(0);
     askCache = null;
     setHistoryOpen(false);
     setSourcesOpen(false);
@@ -1281,7 +1449,6 @@ function AskPageContent() {
 
   // Check URL params (?id=... or ?q=...)
   const qParam = searchParams.get("q");
-  const idParam = searchParams.get("id");
   const deviceParam = searchParams.get("device");
   const modeParam = searchParams.get("mode") as ExecutionMode | null;
   const initialSentRef = useRef(false);
@@ -1337,7 +1504,11 @@ function AskPageContent() {
 
       if (!resolvedTargetId || streamingRef.current) return;
 
-      if (lastRestoredIdRef.current === resolvedTargetId && activeConversationIdRef.current === resolvedTargetId) {
+      if (
+        lastRestoredIdRef.current === resolvedTargetId &&
+        activeConversationIdRef.current === resolvedTargetId &&
+        !initialRestoredFromSnapshotRef.current
+      ) {
         return;
       }
 
@@ -1346,6 +1517,7 @@ function AskPageContent() {
         activeConversationIdRef.current = resolvedTargetId;
         setActiveConversationId(resolvedTargetId);
         lastRestoredIdRef.current = resolvedTargetId;
+        initialRestoredFromSnapshotRef.current = false;
         if (!idParam) {
           window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
         }
@@ -1358,7 +1530,7 @@ function AskPageContent() {
           : [];
         if (baseTurns.length === 0) {
           try {
-            const data = await api.getAskConversation(resolvedTargetId);
+            const data = await api.getAskConversation(resolvedTargetId, 40);
             baseTurns = data.turns || [];
           } catch {}
         }
@@ -1386,8 +1558,10 @@ function AskPageContent() {
         return;
       }
 
+      const preserveScroll = initialRestoredFromSnapshotRef.current;
+      initialRestoredFromSnapshotRef.current = false;
       // Load conversation fresh from DB to ensure runtime mode, project, and session are properly restored!
-      loadConversationRef.current(resolvedTargetId);
+      loadConversationRef.current(resolvedTargetId, { limit: 40, preserveScroll });
     };
 
     checkAndRestore();
@@ -1956,13 +2130,40 @@ function AskPageContent() {
     if (abortRef.current !== ctrl) return; // superseded by a newer stream
     if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     turnsDirtyRef.current = false;
-    setTurns([...turnsRef.current]);
+    const finalTurns = [...turnsRef.current];
+    setTurns(finalTurns);
     streamingRef.current = false;
     setStreaming(false);
     setCompactMode(false);
     abortRef.current = null;
     loadConversations();
-  }, [loadConversations]);
+    if (activeConversationIdRef.current) {
+      saveLocalConvSnapshot({
+        id: activeConversationIdRef.current,
+        turns: finalTurns,
+        executionMode,
+        selectedModel,
+        selectedEffort,
+        cwd,
+        selectedDevice,
+        selectedProjectId,
+        selectedSessionId,
+        worktreeMode,
+        hasMoreTurns: false,
+        totalTurns: finalTurns.length,
+      });
+    }
+  }, [
+    loadConversations,
+    executionMode,
+    selectedModel,
+    selectedEffort,
+    cwd,
+    selectedDevice,
+    selectedProjectId,
+    selectedSessionId,
+    worktreeMode,
+  ]);
 
   // Show a run that is still going (opened from history, or after a reload).
   const attachRun = useCallback(async (convId: string, question: string, baseTurns: Turn[]) => {
@@ -2760,6 +2961,56 @@ function AskPageContent() {
 
       {/* Conversation turns list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: "100%", minWidth: 0 }}>
+        {hasMoreTurns && (
+          <div style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
+            <button
+              type="button"
+              onClick={loadAllHistoryTurns}
+              disabled={loadingMoreTurns}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 14px",
+                borderRadius: 16,
+                fontSize: 12,
+                color: "var(--aurora-fg2)",
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                cursor: loadingMoreTurns ? "default" : "pointer",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                if (!loadingMoreTurns) {
+                  e.currentTarget.style.borderColor = "var(--aurora-accent)";
+                  e.currentTarget.style.color = "var(--aurora-accent)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loadingMoreTurns) {
+                  e.currentTarget.style.borderColor = "var(--aurora-border)";
+                  e.currentTarget.style.color = "var(--aurora-fg2)";
+                }
+              }}
+            >
+              {loadingMoreTurns ? (
+                <>
+                  <Icon name="refresh" size={13} className="animate-spin" />
+                  <span>{isZh ? "正在加载更早历史..." : "Loading earlier history..."}</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="clock" size={13} />
+                  <span>
+                    {isZh
+                      ? `加载更早的历史记录 (${totalTurns > turns.length ? `${totalTurns - turns.length} 条` : "全部"})`
+                      : `Load earlier history (${totalTurns > turns.length ? `${totalTurns - turns.length} more` : "all"})`}
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
         {renderedTurns}
         <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
       </div>

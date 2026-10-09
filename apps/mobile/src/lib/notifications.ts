@@ -13,6 +13,69 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Sliding-window deduplication across remote APNs, Expo pushes, feed polling, and bridge (60 seconds)
+const DEDUP_WINDOW_MS = 60000;
+const _notifiedKeys = new Map<string, number>();
+
+export function getNotificationKey(title?: string | null, body?: string | null): string {
+  return `${(title || "").trim()}:::${(body || "").trim()}`;
+}
+
+export function isRecentlyNotified(
+  title?: string | null,
+  body?: string | null,
+  id?: string | null,
+): boolean {
+  const now = Date.now();
+  if (id && _notifiedKeys.has(`id:${id}`)) {
+    const t = _notifiedKeys.get(`id:${id}`)!;
+    if (now - t < DEDUP_WINDOW_MS) return true;
+  }
+  const key = getNotificationKey(title, body);
+  if (_notifiedKeys.has(key)) {
+    const t = _notifiedKeys.get(key)!;
+    if (now - t < DEDUP_WINDOW_MS) return true;
+  }
+  return false;
+}
+
+export function markAsNotified(
+  title?: string | null,
+  body?: string | null,
+  id?: string | null,
+): void {
+  const now = Date.now();
+  const key = getNotificationKey(title, body);
+  _notifiedKeys.set(key, now);
+  if (id) {
+    _notifiedKeys.set(`id:${id}`, now);
+  }
+  // Prune expired entries
+  for (const [k, time] of _notifiedKeys.entries()) {
+    if (now - time > DEDUP_WINDOW_MS * 2) {
+      _notifiedKeys.delete(k);
+    }
+  }
+}
+
+// Automatically record any incoming remote (APNs / Expo) notification
+// so that local foreground polling or webview bridge will NEVER double-notify the same content.
+if (Platform.OS !== "web") {
+  try {
+    Notifications.addNotificationReceivedListener((notification) => {
+      const c = notification.request.content;
+      markAsNotified(c.title, c.body, notification.request.identifier);
+    });
+
+    Notifications.addNotificationResponseReceivedListener((response) => {
+      const c = response.notification.request.content;
+      markAsNotified(c.title, c.body, response.notification.request.identifier);
+    });
+  } catch (err) {
+    console.warn("Failed to attach notification listeners:", err);
+  }
+}
+
 /**
  * Trigger an immediate native system notification with sound, banner and haptics on device.
  * Uses interruptionLevel: "timeSensitive" so it is shown even when Focus / Do Not Disturb is active.
@@ -23,6 +86,10 @@ export async function triggerLocalNotification(
   data?: Record<string, unknown>,
 ): Promise<void> {
   if (Platform.OS === "web") return;
+  if (isRecentlyNotified(title, body)) {
+    return;
+  }
+  markAsNotified(title, body);
   try {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;

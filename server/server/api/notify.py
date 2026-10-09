@@ -112,11 +112,19 @@ async def register_device_token(
 
     prefs = dict(user.notify_settings or {})
     tokens: list[str] = list(prefs.get("device_tokens") or [])
+
+    # If registering a real APNs hex token (typically 64 hex characters) or Expo token,
+    # clean out dummy fallback placeholders (ios_*, memento_*, client_*)
+    is_real_token = tok.startswith("ExponentPushToken") or tok.startswith("ExpoPushToken") or (len(tok) == 64 and all(c in "0123456789abcdefABCDEF" for c in tok))
+    if is_real_token:
+        tokens = [t for t in tokens if not t.startswith("ios_") and not t.startswith("memento_") and not t.startswith("client_")]
+
     if tok not in tokens:
         tokens.append(tok)
-        prefs["device_tokens"] = tokens
-        user.notify_settings = prefs
-        await db.commit()
+    tokens = list(dict.fromkeys(tokens))
+    prefs["device_tokens"] = tokens
+    user.notify_settings = prefs
+    await db.commit()
     return {"status": "ok", "registered": True, "device_tokens_count": len(tokens)}
 
 
@@ -167,43 +175,13 @@ async def send_test(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    prefs = dict(user.notify_settings or {})
-    bark_url = prefs.get("bark_url")
-    device_tokens = prefs.get("device_tokens") or []
+    from ..services.notify_service import notify_user
 
-    # 1. Record test notification to real-time feed
-    item = {
-        "id": str(uuid.uuid4()),
-        "kind": "test",
-        "title": "🔔 Memento 本机与全终端原生测试通知",
-        "body": "恭喜！您的 Memento 桌面电脑与移动终端原生通知通道已完全通畅！",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    feed = list(prefs.get("recent_notifications") or [])
-    feed.insert(0, item)
-    prefs["recent_notifications"] = feed[:30]
-    user.notify_settings = prefs
-    await db.commit()
-
-    from ..services.notify_service import send_apns_push, send_expo_push
-
-    if device_tokens:
-        await send_apns_push(
-            device_tokens,
-            item["title"],
-            item["body"],
-        )
-        await send_expo_push(
-            device_tokens,
-            item["title"],
-            item["body"],
-        )
-
-    if bark_url:
-        await send_bark(
-            bark_url,
-            "Memento 测试通知",
-            "收到这条说明推送已经通了。危险操作和任务完成都会推到这里。",
-        )
-
-    return {"ok": True, "feed_id": item["id"]}
+    ok = await notify_user(
+        user.id,
+        kind="todo",
+        title="🔔 Memento 本机与全终端原生测试通知",
+        body="恭喜！您的 Memento 桌面电脑与移动终端原生通知通道已完全通畅！",
+        url="/profile?tab=account",
+    )
+    return {"ok": ok}

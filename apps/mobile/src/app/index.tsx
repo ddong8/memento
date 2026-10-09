@@ -24,7 +24,7 @@ import { WebView, type WebViewMessageEvent, type WebViewNavigation, type WebView
 
 import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
-import { triggerLocalNotification } from "../lib/notifications";
+import { isRecentlyNotified, markAsNotified, triggerLocalNotification } from "../lib/notifications";
 import { useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
 
@@ -308,11 +308,19 @@ export default function WebShell() {
     };
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        const c = response.notification.request.content;
+        markAsNotified(c.title, c.body, response.notification.request.identifier);
+      }
       const target = response?.notification.request.content.data?.url as string | undefined;
       handleUrl(target);
     });
 
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      if (response) {
+        const c = response.notification.request.content;
+        markAsNotified(c.title, c.body, response.notification.request.identifier);
+      }
       const target = response.notification.request.content.data?.url as string | undefined;
       handleUrl(target);
     });
@@ -355,8 +363,6 @@ export default function WebShell() {
     [origin],
   );
 
-  const notifiedIds = useRef(new Set<string>());
-
   // Real-time server notification synchronization & instant native popups
   useEffect(() => {
     if (!ready || !token) return;
@@ -380,19 +386,14 @@ export default function WebShell() {
           }>;
           if (Array.isArray(items) && items.length > 0) {
             for (const item of items) {
-              const contentKey = `${item.id || ""}:${item.title}:${item.body}`;
-              if (item.id && notifiedIds.current.has(item.id)) continue;
-              if (notifiedIds.current.has(contentKey)) continue;
-              if (item.id) notifiedIds.current.add(item.id);
-              notifiedIds.current.add(contentKey);
-              setTimeout(() => {
-                notifiedIds.current.delete(contentKey);
-              }, 15000);
-
-              await triggerLocalNotification(item.title, item.body, { url: item.url });
               if (item.created_at > lastSeen) {
                 lastSeen = item.created_at;
               }
+              if (isRecentlyNotified(item.title, item.body, item.id)) {
+                continue;
+              }
+              markAsNotified(item.title, item.body, item.id);
+              await triggerLocalNotification(item.title, item.body, { url: item.url });
             }
           }
         }
@@ -404,10 +405,12 @@ export default function WebShell() {
     void fetchFeed();
     timer = setInterval(() => {
       if (!cancelled) void fetchFeed();
-    }, 3000);
+    }, 4000);
 
     const appStateSub = AppState.addEventListener("change", (state: AppStateStatus) => {
       if (state === "active" && !cancelled) {
+        // App entered active foreground: advance lastSeen so notifications delivered by APNs while backgrounded aren't replayed
+        lastSeen = new Date().toISOString();
         void fetchFeed();
       }
     });
@@ -453,12 +456,8 @@ export default function WebShell() {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         }
       } else if (msg.type === "notify" && msg.title) {
-        const contentKey = `bridge:${msg.title}:${msg.body || ""}`;
-        if (!notifiedIds.current.has(contentKey)) {
-          notifiedIds.current.add(contentKey);
-          setTimeout(() => {
-            notifiedIds.current.delete(contentKey);
-          }, 5000);
+        if (!isRecentlyNotified(msg.title, msg.body || "")) {
+          markAsNotified(msg.title, msg.body || "");
           const notifData = { url: (msg as any).url, ...((msg as any).data || {}) };
           void triggerLocalNotification(msg.title, msg.body || "", notifData);
         }

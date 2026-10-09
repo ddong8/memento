@@ -145,8 +145,8 @@ async def _execute_pulse_cycle(db: AsyncSession) -> None:
                 key = f"proactive:morning:{user.id}:{user_date_str}"
                 already_sent = await ai_health.get_json(key)
                 if not already_sent:
-                    await _send_morning_brief(db, user, user_now)
                     await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
+                    await _send_morning_brief(db, user, user_now)
 
         # 3. Evening Reflection & Self-evolution (Memory Dreaming)
         if prefs.get("evening_reflection_enabled", True):
@@ -155,8 +155,8 @@ async def _execute_pulse_cycle(db: AsyncSession) -> None:
                 key = f"proactive:evening:{user.id}:{user_date_str}"
                 already_sent = await ai_health.get_json(key)
                 if not already_sent:
-                    await _send_evening_reflection(db, user, user_now)
                     await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
+                    await _send_evening_reflection(db, user, user_now)
 
         # 4. Device Status Monitoring
         if prefs.get("device_alert_enabled", True):

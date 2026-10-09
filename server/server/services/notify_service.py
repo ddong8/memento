@@ -226,6 +226,7 @@ async def send_apns_push(
         and not tok.startswith("memento_")
         and not tok.startswith("ios_")
     ]
+    apns_tokens = list(dict.fromkeys(apns_tokens))
     if not apns_tokens:
         return False
 
@@ -333,6 +334,28 @@ async def send_expo_push(
         return False
 
 
+# Server-side sliding-window deduplication (30 seconds)
+_recent_pushes: dict[str, float] = {}
+DEDUP_WINDOW_SECONDS = 30.0
+
+
+def _is_duplicate_push(user_id: str | uuid.UUID, title: str, body: str) -> bool:
+    now = time.time()
+    # Prune old records
+    expired = [k for k, ts in _recent_pushes.items() if now - ts > DEDUP_WINDOW_SECONDS * 2]
+    for k in expired:
+        _recent_pushes.pop(k, None)
+
+    clean_title = (title or "").strip()
+    clean_body = (body or "").strip()
+    key = f"{str(user_id)}:{clean_title}:{clean_body}"
+    last_ts = _recent_pushes.get(key)
+    if last_ts is not None and (now - last_ts) < DEDUP_WINDOW_SECONDS:
+        return True
+    _recent_pushes[key] = now
+    return False
+
+
 async def notify_user(
     user_id: uuid.UUID | str | None,
     kind: str,
@@ -350,6 +373,9 @@ async def notify_user(
     """
     if not user_id:
         return False
+    if _is_duplicate_push(user_id, title, body):
+        logger.info("Deduplicated duplicate push notification for user %s: %s", user_id, title)
+        return True
     async with async_session_factory() as db:
         user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     prefs = (user.notify_settings or {}) if user else {}
@@ -388,8 +414,31 @@ async def notify_user(
     # 1. Native Memento Mobile App Push (APNs & Expo)
     device_tokens = prefs.get("device_tokens") or []
     if device_tokens:
-        await send_apns_push(device_tokens, title, body, url=url, level=level)
-        await send_expo_push(device_tokens, title, body, url=url, level=level)
+        # Separate APNs native tokens and Expo push tokens
+        apns_tokens = [
+            tok.strip()
+            for tok in device_tokens
+            if tok and not tok.startswith("ExponentPushToken")
+            and not tok.startswith("ExpoPushToken")
+            and not tok.startswith("client_")
+            and not tok.startswith("memento_")
+            and not tok.startswith("ios_")
+        ]
+        apns_tokens = list(dict.fromkeys(apns_tokens))
+
+        expo_tokens = [
+            tok.strip()
+            for tok in device_tokens
+            if tok and (tok.startswith("ExponentPushToken") or tok.startswith("ExpoPushToken"))
+        ]
+        expo_tokens = list(dict.fromkeys(expo_tokens))
+
+        # Prioritize direct APNs HTTP/2 gateway. Only fallback to Expo if no direct APNs token exists,
+        # ensuring we never send duplicate pushes through both channels to the same device.
+        if apns_tokens:
+            await send_apns_push(apns_tokens, title, body, url=url, level=level)
+        elif expo_tokens:
+            await send_expo_push(expo_tokens, title, body, url=url, level=level)
 
     # 2. Bark / ntfy channel (if configured as secondary or fallback)
     if prefs.get("bark_url"):

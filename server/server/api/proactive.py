@@ -78,31 +78,7 @@ async def test_morning_brief(
         offset = prefs.get("timezone_offset_hours", 8)
         user_now = datetime.now(timezone.utc) + timedelta(hours=offset)
 
-        # 1. Record instant test notification directly using current db session
-        item = {
-            "id": str(uuid.uuid4()),
-            "kind": "todo",
-            "title": "🌅 早上好！今日晨间简报",
-            "body": "全天候 AI 执事联动成功！今日待办与在线设备均已正常同步。",
-            "url": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        notify_prefs = dict(user.notify_settings or {})
-        feed = list(notify_prefs.get("recent_notifications") or [])
-        feed.insert(0, item)
-        notify_prefs["recent_notifications"] = feed[:30]
-        user.notify_settings = notify_prefs
-        await db.commit()
-
-        # Push to registered devices if any
-        device_tokens = notify_prefs.get("device_tokens") or []
-        if device_tokens:
-            await send_apns_push(device_tokens, item["title"], item["body"])
-            await send_expo_push(device_tokens, item["title"], item["body"])
-        if notify_prefs.get("bark_url"):
-            await send_bark(notify_prefs["bark_url"], item["title"], item["body"])
-
-        # 2. Run detailed LLM-powered briefing generation in background
+        # Run detailed LLM-powered briefing generation in background
         user_id = user.id
         async def _async_brief():
             try:
@@ -132,31 +108,7 @@ async def test_evening_reflection(
         offset = prefs.get("timezone_offset_hours", 8)
         user_now = datetime.now(timezone.utc) + timedelta(hours=offset)
 
-        # 1. Record instant test notification directly
-        item = {
-            "id": str(uuid.uuid4()),
-            "kind": "learning",
-            "title": "🌌 晚间梦境自进化复盘",
-            "body": "夜间复盘指令已接收！正在提炼今日碎片记忆并进化个人画像与避坑经验。",
-            "url": None,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        notify_prefs = dict(user.notify_settings or {})
-        feed = list(notify_prefs.get("recent_notifications") or [])
-        feed.insert(0, item)
-        notify_prefs["recent_notifications"] = feed[:30]
-        user.notify_settings = notify_prefs
-        await db.commit()
-
-        # Push to registered devices if any
-        device_tokens = notify_prefs.get("device_tokens") or []
-        if device_tokens:
-            await send_apns_push(device_tokens, item["title"], item["body"])
-            await send_expo_push(device_tokens, item["title"], item["body"])
-        if notify_prefs.get("bark_url"):
-            await send_bark(notify_prefs["bark_url"], item["title"], item["body"])
-
-        # 2. Run dreaming pipeline in background
+        # Run dreaming pipeline in background
         user_id = user.id
         async def _async_reflection():
             try:

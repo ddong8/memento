@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Icon } from "./aurora/Icon";
 import { BrandMark } from "./aurora/BrandMark";
 import MarkdownViewer from "./viewers/MarkdownViewer";
@@ -95,13 +95,23 @@ export default function ExecutionCard({
     result?.status === "timeout";
   const isRunning = !result || result.status === "running" || result.status === "queued" || result.status === "still_running";
 
+  // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
+  const cleanStderr = useMemo(() => {
+    if (!result?.stderr) return "";
+    return result.stderr
+      .split("\n")
+      .filter((line) => !/^\s*session id:\s*[0-9a-fA-F-]+\s*$/i.test(line))
+      .join("\n")
+      .trim();
+  }, [result?.stderr]);
+
   const isMatchFilter = Boolean(
     command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command)
   );
-  const isExit1NoMatch = result?.exit_code === 1 && isMatchFilter && (!result.stderr || result.stderr.trim().length === 0);
+  const isExit1NoMatch = result?.exit_code === 1 && isMatchFilter && (!cleanStderr || cleanStderr.length === 0);
   const isPromptTooLong = Boolean(
     (result?.stdout && result.stdout.includes("Prompt is too long")) ||
-    (result?.stderr && result.stderr.includes("Prompt is too long"))
+    (cleanStderr && cleanStderr.includes("Prompt is too long"))
   );
 
   const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
@@ -115,9 +125,8 @@ export default function ExecutionCard({
     return true;
   });
 
-  // 如果外部已有正文，ExecutionCard 定位为调试控制台，默认展示 terminal 视图；无外部正文时才保持 agent 的 markdown 模式
+  // Agent (Claude Code / Codex / Antigravity) 的输出是 Markdown 富文本，默认必须保持 markdown 视图，杜绝以原始 monospace 打印；shell 默认 terminal 视图
   const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
-    if (hasParentContent) return "terminal";
     return isAgent ? "markdown" : "terminal";
   });
 
@@ -127,23 +136,24 @@ export default function ExecutionCard({
     if (isVisible && isRunning && terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [result?.stdout, result?.stderr, isRunning, isVisible]);
+  }, [result?.stdout, cleanStderr, isRunning, isVisible]);
 
+  // 严格比对：仅当父级主回复确实已完整包含卡片 stdout 时才提示已同步呈现，避免父级仅有一句打招呼或部分流式文字就导致卡片隐藏内容
   const isOutputInParentContent = Boolean(
     hasParentContent &&
     result?.stdout &&
+    result.stdout.trim().length > 0 &&
     (
       parentContent!.trim() === result.stdout.trim() ||
-      parentContent!.includes(result.stdout.trim()) ||
-      result.stdout.trim().includes(parentContent!.trim())
+      (parentContent!.length >= result.stdout.length * 0.85 && parentContent!.includes(result.stdout.trim()))
     )
   );
 
   const copyText = () => {
     const parts: string[] = [];
-    if (command) parts.push(`$ ${command}`);
+    if (command) parts.push(isAgent ? `[prompt] ${command}` : `$ ${command}`);
     if (result?.stdout) parts.push(result.stdout);
-    if (result?.stderr) parts.push(`[stderr]\n${result.stderr}`);
+    if (cleanStderr) parts.push(`[stderr]\n${cleanStderr}`);
     if (result?.error) parts.push(`[error] ${result.error}`);
     if (parts.length > 0) {
       navigator.clipboard.writeText(parts.join("\n"));
@@ -426,7 +436,7 @@ export default function ExecutionCard({
                   📁 {cwd}
                 </span>
               )}
-              {result?.stdout && (
+              {(isAgent || result?.stdout) && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -521,7 +531,7 @@ export default function ExecutionCard({
           )}
 
           {/* Conditional Content: Markdown or Terminal Console */}
-          {viewMode === "markdown" && result?.stdout ? (
+          {viewMode === "markdown" ? (
             <div
               className="prose-compact"
               style={{
@@ -538,44 +548,98 @@ export default function ExecutionCard({
               }}
             >
               {command && (
-                <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>
-                  $ {command}
+                isAgent ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
+                      marginBottom: 10,
+                      fontSize: 12.5,
+                      lineHeight: 1.5,
+                      color: "var(--aurora-fg1)",
+                    }}
+                  >
+                    <span style={{ color: agentColor, fontWeight: 600, flexShrink: 0 }}>
+                      {t.ask.promptLabel || "提示词"}:
+                    </span>
+                    <span style={{ wordBreak: "break-word" }}>{command}</span>
+                  </div>
+                ) : (
+                  <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>
+                    $ {command}
+                  </div>
+                )
+              )}
+
+              {isRunning && !result?.stdout && !cleanStderr && !result?.error && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", fontStyle: "italic", padding: "10px 4px" }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: agentColor,
+                      animation: "pulse 1.5s infinite ease-in-out",
+                    }}
+                  />
+                  <span>
+                    {result?.status === "queued"
+                      ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
+                      : (t.ask.statusDeviceRunning || `${agentLabel} 正在运行中...`)}
+                  </span>
                 </div>
               )}
-              {isOutputInParentContent ? (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 8,
-                    background: "var(--aurora-chip)",
-                    border: "1px dashed var(--aurora-border)",
-                    color: "var(--aurora-fg2)",
-                    fontSize: 12.5,
-                    lineHeight: 1.6,
-                    marginBottom: 8,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 2 }}>
-                    <Icon name="check" size={13} style={{ color: "#10b981" }} />
-                    <span>执行产物与回复已在正文主回复中完整呈现</span>
+
+              {result?.stdout ? (
+                isOutputInParentContent ? (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      background: "var(--aurora-chip)",
+                      border: "1px dashed var(--aurora-border)",
+                      color: "var(--aurora-fg2)",
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 2 }}>
+                      <Icon name="check" size={13} style={{ color: "#10b981" }} />
+                      <span>执行产物与回复已在正文主回复中完整呈现</span>
+                    </div>
+                    <div style={{ color: "var(--aurora-fg3)", fontSize: 11.5 }}>
+                      为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“终端”模式查验底层输出与命令日志。
+                    </div>
                   </div>
-                  <div style={{ color: "var(--aurora-fg3)", fontSize: 11.5 }}>
-                    为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“终端”模式查验底层输出与命令日志。
-                  </div>
-                </div>
-              ) : (
-                <MarkdownViewer content={result.stdout} compactMedia={true} compactText={true} />
-              )}
-              {result?.stderr && (
+                ) : (
+                  <MarkdownViewer content={result.stdout} compactMedia={true} compactText={true} />
+                )
+              ) : null}
+
+              {cleanStderr && (
                 <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>
                   <span style={{ opacity: 0.7 }}>[stderr]</span>
                   <br />
-                  {result.stderr}
+                  {cleanStderr}
                 </div>
               )}
+
               {result?.error && !isExit1NoMatch && (
                 <div style={{ color: "#ef4444", marginTop: 8, fontFamily: "monospace", fontSize: 12 }}>
                   [error] {result.error}
+                </div>
+              )}
+
+              {result?.note && (
+                <div style={{ color: "#fbbf24", marginTop: 8, fontSize: 12 }}>
+                  ℹ️ {result.note}
                 </div>
               )}
             </div>
@@ -604,11 +668,11 @@ export default function ExecutionCard({
           >
             {command && (
               <div style={{ color: "#38bdf8", marginBottom: 6, fontWeight: 600 }}>
-                $ {command}
+                {isAgent ? `[prompt] ${command}` : `$ ${command}`}
               </div>
             )}
 
-            {isRunning && !result?.stdout && !result?.stderr && !result?.error && (
+            {isRunning && !result?.stdout && !cleanStderr && !result?.error && (
               <div style={{ color: "#94a3b8", fontStyle: "italic", margin: "4px 0" }}>
                 {result?.status === "queued"
                   ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
@@ -636,11 +700,11 @@ export default function ExecutionCard({
               <div>{result.stdout}</div>
             )}
 
-            {result?.stderr && (
+            {cleanStderr && (
               <div style={{ color: "#f87171", marginTop: 4 }}>
                 <span style={{ opacity: 0.7 }}>[stderr]</span>
                 <br />
-                {result.stderr}
+                {cleanStderr}
               </div>
             )}
 

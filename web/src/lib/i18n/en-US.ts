@@ -315,6 +315,7 @@ const enUS: Translations = {
     statusSucceeded: "Succeeded",
     statusFailed: "Failed",
     statusTimeout: "Timed out",
+    promptLabel: "Prompt",
     terminalTitle: "Terminal Output",
     copyOutput: "Copy output",
     copied: "Copied",

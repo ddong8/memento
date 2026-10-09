@@ -343,7 +343,19 @@ const UserBubble = memo(function UserBubble({
             ))}
           </div>
         )}
-        {content && <div>{content}</div>}
+        {content && (
+          <div
+            className="prose prose-sm max-w-none"
+            style={{
+              fontSize: 14,
+              lineHeight: 1.55,
+              whiteSpace: "normal",
+              color: "var(--aurora-fg1)",
+            }}
+          >
+            <MarkdownViewer content={content} compactText={true} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -518,6 +530,7 @@ function AskPageContent() {
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastPasteTimeRef = useRef<number>(0);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -534,7 +547,11 @@ function AskPageContent() {
       }
     }
     if (newImgs.length > 0) {
-      setAttachedImages((prev) => [...prev, ...newImgs]);
+      setAttachedImages((prev) => {
+        const existingUrls = new Set(prev.map((img) => img.dataUrl));
+        const toAdd = newImgs.filter((img) => !existingUrls.has(img.dataUrl));
+        return [...prev, ...toAdd];
+      });
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
@@ -546,38 +563,74 @@ function AskPageContent() {
   const handlePaste = useCallback(async (e: React.ClipboardEvent | ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    const imageFiles: File[] = [];
+
+    // 提取所有图片 items
+    const rawImageFiles: File[] = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (item.type.startsWith("image/")) {
         const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+        if (file) rawImageFiles.push(file);
       }
     }
-    if (imageFiles.length > 0) {
+    if (rawImageFiles.length === 0) return;
+
+    // 防抖：400ms 内忽略重复触发（如 React SyntheticEvent 与原生 DOM 事件冒泡重叠）
+    const now = Date.now();
+    if (now - lastPasteTimeRef.current < 400) {
       e.preventDefault();
-      const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
-      for (const file of imageFiles) {
-        try {
-          const dataUrl = await compressImageToDataUrl(file);
-          newImgs.push({
-            id: crypto.randomUUID(),
-            name: file.name || "pasted_image.png",
-            dataUrl,
-            size: file.size,
-          });
-        } catch (err) {
-          console.error("Failed to process pasted image:", err);
-        }
+      return;
+    }
+    lastPasteTimeRef.current = now;
+    e.preventDefault();
+
+    // Windows 剪贴板常对单次截图同时生成多种格式（如 image/png 与 image/jpeg/bmp），相同字节大小视为同一张图，去重只保留首个
+    const imageFiles: File[] = [];
+    const seenSizes = new Set<number>();
+    for (const file of rawImageFiles) {
+      if (seenSizes.has(file.size)) continue;
+      seenSizes.add(file.size);
+      imageFiles.push(file);
+    }
+
+    const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
+    for (const file of imageFiles) {
+      try {
+        const dataUrl = await compressImageToDataUrl(file);
+        newImgs.push({
+          id: crypto.randomUUID(),
+          name: file.name || "pasted_image.png",
+          dataUrl,
+          size: file.size,
+        });
+      } catch (err) {
+        console.error("Failed to process pasted image:", err);
       }
-      if (newImgs.length > 0) {
-        setAttachedImages((prev) => [...prev, ...newImgs]);
-      }
+    }
+
+    if (newImgs.length > 0) {
+      setAttachedImages((prev) => {
+        const existingUrls = new Set(prev.map((img) => img.dataUrl));
+        const toAdd = newImgs.filter((img) => !existingUrls.has(img.dataUrl));
+        return [...prev, ...toAdd];
+      });
     }
   }, []);
 
   useEffect(() => {
     const onWindowPaste = (e: ClipboardEvent) => {
+      // 若焦点在输入框/文本域内，已有 GhostInput 自身的 onPaste 处理，避免冒泡至 window 二次触发
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.defaultPrevented) return;
+
       const items = e.clipboardData?.items;
       if (!items) return;
       let hasImage = false;

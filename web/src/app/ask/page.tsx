@@ -507,6 +507,12 @@ interface CachedAskState {
   scrollTop?: number;
   hasMoreTurns?: boolean;
   totalTurns?: number;
+  activeRun?: {
+    convId: string;
+    question: string;
+    startedAt: number;
+  } | null;
+  streaming?: boolean;
 }
 
 interface LocalConvSnapshot {
@@ -613,7 +619,8 @@ function AskPageContent() {
   }, [turns, syncTurnsMedia]);
 
   const [input, setInput] = useState(() => askCache?.input || "");
-  const [streaming, setStreaming] = useState(false);
+  const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
+  const lastSentQuestionRef = useRef<string>(askCache?.activeRun?.question || "");
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || initSnap?.selectedDevice || "auto");
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || initSnap?.executionMode || "ai");
@@ -813,9 +820,11 @@ function AskPageContent() {
   const activeConversationIdRef = useRef<string | null>(
     askCache?.activeConversationId || initSnap?.id || idParam || null
   );
-  const streamingRef = useRef<boolean>(false);
+  const streamingRef = useRef<boolean>(Boolean(askCache?.streaming || askCache?.activeRun));
   const isRestoringRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
+  const isUnmountedRef = useRef<boolean>(false);
+  const userCancelledRef = useRef<boolean>(false);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
@@ -895,6 +904,8 @@ function AskPageContent() {
       scrollTop: askCache?.scrollTop ?? 0,
       hasMoreTurns,
       totalTurns,
+      activeRun: askCache?.activeRun,
+      streaming,
     };
   }, [
     activeConversationId,
@@ -914,6 +925,7 @@ function AskPageContent() {
     capabilities,
     hasMoreTurns,
     totalTurns,
+    streaming,
   ]);
 
   // Snapshot exact scroll position on unmount so switching away preserves position
@@ -1493,18 +1505,38 @@ function AskPageContent() {
         }
       }
 
-      // Check server for any active runs for this user
-      let activeRunToAttach: any = null;
+      isUnmountedRef.current = false;
+      userCancelledRef.current = false;
+
+      // Check for any active runs: start with in-memory askCache.activeRun
+      let activeRunToAttach: any = askCache?.activeRun
+        ? {
+            conversation_id: askCache.activeRun.convId,
+            question: askCache.activeRun.question,
+            started_at: askCache.activeRun.startedAt,
+          }
+        : null;
+
       try {
         const runsRes = await authFetch(`${getApiBase()}/api/ask/runs`);
         if (runsRes.ok) {
           const activeRuns = await runsRes.json();
-          if (Array.isArray(activeRuns) && activeRuns.length > 0) {
-            if (resolvedTargetId) {
-              activeRunToAttach = activeRuns.find((r: any) => r.conversation_id === resolvedTargetId && !r.done);
-            }
-            // If user opened /ask with no specific id, but there is an active run, prioritize that active run!
-            if (!activeRunToAttach && !idParam && activeRuns[0] && !activeRuns[0].done) {
+          if (Array.isArray(activeRuns)) {
+            const serverMatch = resolvedTargetId
+              ? activeRuns.find((r: any) => r.conversation_id === resolvedTargetId && !r.done && !r.cancelled)
+              : null;
+            if (serverMatch) {
+              activeRunToAttach = serverMatch;
+            } else if (resolvedTargetId && activeRunToAttach && activeRunToAttach.conversation_id === resolvedTargetId) {
+              // Server confirmed this run is NO LONGER running!
+              activeRunToAttach = null;
+              streamingRef.current = false;
+              setStreaming(false);
+              if (askCache) {
+                askCache.streaming = false;
+                askCache.activeRun = null;
+              }
+            } else if (!activeRunToAttach && !idParam && activeRuns[0] && !activeRuns[0].done && !activeRuns[0].cancelled) {
               activeRunToAttach = activeRuns[0];
               resolvedTargetId = activeRunToAttach.conversation_id;
             }
@@ -1514,39 +1546,52 @@ function AskPageContent() {
         console.error("Failed to check active runs:", err);
       }
 
-      if (!resolvedTargetId || streamingRef.current) return;
+      if (!resolvedTargetId) return;
+
+      // If an active run is currently ongoing on the server: MUST reattach live stream!
+      if (activeRunToAttach) {
+        const targetConvId = activeRunToAttach.conversation_id || resolvedTargetId;
+        activeConversationIdRef.current = targetConvId;
+        setActiveConversationId(targetConvId);
+        lastRestoredIdRef.current = targetConvId;
+        initialRestoredFromSnapshotRef.current = false;
+        streamingRef.current = true;
+        setStreaming(true);
+        if (askCache) {
+          askCache.streaming = true;
+          askCache.activeRun = {
+            convId: targetConvId,
+            question: activeRunToAttach.question || "",
+            startedAt: activeRunToAttach.started_at || Date.now(),
+          };
+        }
+        if (!idParam) {
+          window.history.replaceState(null, "", `/ask?id=${targetConvId}`);
+        }
+        try {
+          localStorage.setItem("memento_last_ask_conv_id", targetConvId);
+        } catch {}
+
+        let baseTurns = (activeConversationIdRef.current === targetConvId && turns.length > 0)
+          ? turns
+          : (askCache && askCache.activeConversationId === targetConvId && askCache.turns.length > 0 ? askCache.turns : []);
+        if (baseTurns.length === 0) {
+          try {
+            const data = await api.getAskConversation(targetConvId, 40);
+            baseTurns = data.turns || [];
+          } catch {}
+        }
+        attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
+        return;
+      }
+
+      if (streamingRef.current) return;
 
       if (
         lastRestoredIdRef.current === resolvedTargetId &&
         activeConversationIdRef.current === resolvedTargetId &&
         !initialRestoredFromSnapshotRef.current
       ) {
-        return;
-      }
-
-      // If an active run is currently ongoing on the server: MUST reattach live stream!
-      if (activeRunToAttach) {
-        activeConversationIdRef.current = resolvedTargetId;
-        setActiveConversationId(resolvedTargetId);
-        lastRestoredIdRef.current = resolvedTargetId;
-        initialRestoredFromSnapshotRef.current = false;
-        if (!idParam) {
-          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
-        }
-        try {
-          localStorage.setItem("memento_last_ask_conv_id", resolvedTargetId);
-        } catch {}
-
-        let baseTurns = (activeConversationIdRef.current === resolvedTargetId && turns.length > 0)
-          ? turns
-          : [];
-        if (baseTurns.length === 0) {
-          try {
-            const data = await api.getAskConversation(resolvedTargetId, 40);
-            baseTurns = data.turns || [];
-          } catch {}
-        }
-        attachRunRef.current?.(resolvedTargetId, activeRunToAttach.question || "", baseTurns);
         return;
       }
 
@@ -1658,8 +1703,122 @@ function AskPageContent() {
     }, 80);
   }, [turns, activeConversationId, scrollConversationToBottom]);
 
-  // Abort any in-flight stream if the user navigates away mid-answer.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Abort local reader if the user navigates away mid-answer, but preserve activeRun in askCache
+  useEffect(() => {
+    return () => {
+      isUnmountedRef.current = true;
+      if (streamingRef.current && activeConversationIdRef.current) {
+        if (askCache) {
+          askCache.streaming = true;
+          askCache.activeRun = {
+            convId: activeConversationIdRef.current,
+            question: lastSentQuestionRef.current || "",
+            startedAt: Date.now(),
+          };
+        }
+      }
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  // Active Run Watchdog: continuously safeguards background task state across tabs and network drops
+  useEffect(() => {
+    let isMounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const checkServerRun = async () => {
+      const convId = activeConversationIdRef.current;
+      if (!convId || !isMounted) return;
+
+      try {
+        const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${convId}/run`);
+        if (!isMounted) return;
+
+        if (runRes.ok) {
+          const run = await runRes.json();
+          if (!isMounted) return;
+
+          if (run && !run.done && !run.cancelled) {
+            // Task is STILL running on server
+            if (!streamingRef.current) {
+              streamingRef.current = true;
+              setStreaming(true);
+              if (askCache) {
+                askCache.streaming = true;
+                askCache.activeRun = {
+                  convId,
+                  question: run.question || "",
+                  startedAt: run.started_at || Date.now(),
+                };
+              }
+            }
+
+            // If local SSE reader is dead or aborted, reattach to stream
+            if (!abortRef.current || abortRef.current.signal.aborted) {
+              attachRunRef.current?.(convId, run.question || "", turnsRef.current);
+            }
+          } else if (run && run.done) {
+            // Task has completed on server
+            if (streamingRef.current) {
+              const data = await api.getAskConversation(convId, 40).catch(() => null);
+              if (isMounted && data?.turns) {
+                turnsRef.current = data.turns;
+                setTurns(data.turns);
+              }
+              streamingRef.current = false;
+              setStreaming(false);
+              if (askCache) {
+                askCache.streaming = false;
+                askCache.activeRun = null;
+              }
+            }
+          }
+        } else if (runRes.status === 404 && streamingRef.current) {
+          // No active run on server
+          const data = await api.getAskConversation(convId, 40).catch(() => null);
+          if (isMounted && data?.turns) {
+            turnsRef.current = data.turns;
+            setTurns(data.turns);
+          }
+          streamingRef.current = false;
+          setStreaming(false);
+          if (askCache) {
+            askCache.streaming = false;
+            askCache.activeRun = null;
+          }
+        }
+      } catch {
+        // Network errors are ignored; next tick will retry
+      }
+    };
+
+    const schedule = () => {
+      if (!isMounted) return;
+      const delay = streamingRef.current ? 2500 : 8000;
+      timer = setTimeout(async () => {
+        await checkServerRun();
+        schedule();
+      }, delay);
+    };
+
+    schedule();
+
+    // Recheck immediately when window regains visibility or focus
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkServerRun();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onVisibilityChange);
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onVisibilityChange);
+    };
+  }, [activeConversationId]);
 
   // Mobile swipe down on chat area to dismiss keyboard smoothly
   const touchStartY = useRef<number | null>(null);
@@ -1914,6 +2073,14 @@ function AskPageContent() {
         try {
           localStorage.setItem("memento_last_ask_conv_id", evt.id);
         } catch {}
+        if (askCache) {
+          askCache.streaming = true;
+          askCache.activeRun = {
+            convId: evt.id,
+            question: lastSentQuestionRef.current || "",
+            startedAt: askCache.activeRun?.startedAt || Date.now(),
+          };
+        }
       } else if (evt.type === "sources") {
         patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
       } else if (evt.type === "tool_call") {
@@ -2104,21 +2271,30 @@ function AskPageContent() {
       }
     };
 
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-      frames.forEach(handleFrame);
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        frames.forEach(handleFrame);
+      }
+      if (buffer.trim()) handleFrame(buffer);
+    } catch {
+      // Reader read interrupted (network hiccup, socket drop, etc.)
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {}
     }
-    if (buffer.trim()) handleFrame(buffer);
     return sawDone;
   }, [patchLast, persistCurrentConfig, t]);
 
   // Reattach to a run from the last event seen, until it ends.
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
-    for (let attempt = 1; attempt <= 20 && !ctrl.signal.aborted; attempt++) {
+    let attempt = 1;
+    while (!ctrl.signal.aborted) {
       try {
         const res = await authFetch(
           `${getApiBase()}/api/ask/conversations/${cursor.convId}/stream?after=${cursor.lastId}`,
@@ -2130,11 +2306,42 @@ function AskPageContent() {
           turnsRef.current = data.turns || [];
           return;
         }
-        if (res.ok && res.body && (await consumeRun(res, cursor))) return;
+        if (res.ok && res.body) {
+          const finished = await consumeRun(res, cursor);
+          if (finished) return;
+        }
       } catch (err) {
-        if ((err as Error)?.name === "AbortError") return;
+        if ((err as Error)?.name === "AbortError" || ctrl.signal.aborted) return;
       }
-      await new Promise((r) => setTimeout(r, Math.min(2000 * attempt, 15000)));
+
+      if (ctrl.signal.aborted) return;
+
+      // Check server status before sleeping or retrying: is the task still active on the server?
+      try {
+        const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${cursor.convId}/run`, {
+          signal: ctrl.signal,
+        });
+        if (runRes.status === 404) {
+          const data = await api.getAskConversation(cursor.convId!);
+          turnsRef.current = data.turns || [];
+          return;
+        }
+        if (runRes.ok) {
+          const run = await runRes.json();
+          if (run.done || run.cancelled) {
+            const data = await api.getAskConversation(cursor.convId!);
+            turnsRef.current = data.turns || [];
+            return;
+          }
+          // Server confirmed task is still running: keep reconnecting!
+          if (attempt > 10) attempt = 3;
+        }
+      } catch {
+        // Network error checking status; continue reconnect loop
+      }
+
+      attempt++;
+      await new Promise((r) => setTimeout(r, Math.min(1500 * attempt, 10000)));
     }
   }, [consumeRun]);
 
@@ -2142,10 +2349,22 @@ function AskPageContent() {
     if (abortRef.current !== ctrl) return; // superseded by a newer stream
     if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
     turnsDirtyRef.current = false;
+
+    // If the component is unmounting while a task is still active and user did NOT explicitly cancel,
+    // preserve activeRun in askCache so switching back can seamlessly reattach.
+    if (isUnmountedRef.current && !userCancelledRef.current) {
+      return;
+    }
+
     const finalTurns = [...turnsRef.current];
     setTurns(finalTurns);
     streamingRef.current = false;
     setStreaming(false);
+    if (askCache) {
+      askCache.streaming = false;
+      askCache.activeRun = null;
+    }
+    userCancelledRef.current = false;
     setCompactMode(false);
     abortRef.current = null;
     loadConversations();
@@ -2180,8 +2399,10 @@ function AskPageContent() {
   // Show a run that is still going (opened from history, or after a reload).
   const attachRun = useCallback(async (convId: string, question: string, baseTurns: Turn[]) => {
     abortRef.current?.abort();
+    userCancelledRef.current = false;
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    lastSentQuestionRef.current = question;
 
     let turnsToUse = [...baseTurns];
     const len = turnsToUse.length;
@@ -2206,6 +2427,14 @@ function AskPageContent() {
     setTurns([...turnsToUse]);
     streamingRef.current = true;
     setStreaming(true);
+    if (askCache) {
+      askCache.streaming = true;
+      askCache.activeRun = {
+        convId,
+        question,
+        startedAt: askCache.activeRun?.startedAt || Date.now(),
+      };
+    }
     try {
       await followRun({ lastId: 0, convId }, ctrl);
     } finally {
@@ -2217,8 +2446,15 @@ function AskPageContent() {
   // The stop button: ends the run on the server, including its device tasks.
   // Closing or leaving the page only detaches; the run keeps going.
   const stopRun = useCallback(() => {
+    userCancelledRef.current = true;
     const convId = activeConversationIdRef.current;
     abortRef.current?.abort();
+    streamingRef.current = false;
+    setStreaming(false);
+    if (askCache) {
+      askCache.streaming = false;
+      askCache.activeRun = null;
+    }
     if (convId) {
       authFetch(`${getApiBase()}/api/ask/conversations/${convId}/cancel`, { method: "POST" }).catch(() => {});
     }
@@ -2232,6 +2468,8 @@ function AskPageContent() {
     const sendImages = options?.images || [];
     if ((!rawQuestion && sendImages.length === 0) || streamingRef.current) return;
     const question = rawQuestion || (sendImages.length > 0 ? (locale === "zh-CN" ? "请分析这张图片" : "Please analyze this image") : "");
+    lastSentQuestionRef.current = question;
+    userCancelledRef.current = false;
 
     const effectiveSessionId = options?.overrideSessionId !== undefined ? options.overrideSessionId : selectedSessionId;
     const effectiveCompact = options?.forceCompact !== undefined ? options.forceCompact : compactMode;
@@ -2275,9 +2513,15 @@ function AskPageContent() {
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    // convId is set only once this send's run announces itself, so a send that
-    // never reached the server reports an error instead of "reattaching".
-    const cursor: RunCursor = { lastId: 0, convId: null };
+    const cursor: RunCursor = { lastId: 0, convId: activeConversationId || null };
+    if (askCache) {
+      askCache.streaming = true;
+      askCache.activeRun = {
+        convId: activeConversationId || "",
+        question,
+        startedAt: Date.now(),
+      };
+    }
 
     try {
       const res = await authFetch(`${getApiBase()}/api/ask`, {
@@ -2314,7 +2558,7 @@ function AskPageContent() {
       // The run lives on the server: a dropped connection reattaches, never resends.
       if (!done && !ctrl.signal.aborted && cursor.convId) await followRun(cursor, ctrl);
     } catch (err) {
-      if ((err as Error)?.name !== "AbortError") {
+      if ((err as Error)?.name !== "AbortError" && !userCancelledRef.current) {
         if (cursor.convId && !ctrl.signal.aborted) {
           await followRun(cursor, ctrl);
         } else {
@@ -4300,6 +4544,74 @@ function AskPageContent() {
               </div>
             )}
 
+            {/* Active task running status indicator */}
+            {streaming && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  padding: "5px 12px",
+                  marginBottom: 8,
+                  borderRadius: 10,
+                  background: "rgba(99, 102, 241, 0.08)",
+                  border: "1px solid rgba(99, 102, 241, 0.25)",
+                  fontSize: 12,
+                  color: "var(--aurora-fg1)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#ef4444",
+                      boxShadow: "0 0 8px #ef4444",
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
+                    className="animate-pulse"
+                  />
+                  <span style={{ fontWeight: 600, color: "var(--aurora-accent)", whiteSpace: "nowrap" }}>
+                    {isZh ? "后台任务持续执行中" : "Task Running in Background"}
+                  </span>
+                  {askCache?.activeRun?.question && (
+                    <span
+                      style={{
+                        color: "var(--aurora-fg3)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 260,
+                      }}
+                    >
+                      {askCache.activeRun.question}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={stopRun}
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    background: "rgba(239, 68, 68, 0.15)",
+                    color: "#ef4444",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  className="hover:bg-[rgba(239,68,68,0.25)] transition-colors"
+                >
+                  {t.ask.stop}
+                </button>
+              </div>
+            )}
+
             {/* Input box and action button */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {/* Image Upload Button */}
@@ -4391,7 +4703,19 @@ function AskPageContent() {
                 <Icon name="microphone" size={15} />
               </button>
               {streaming ? (
-                <Btn onClick={stopRun} style={{ flexShrink: 0 }}>{t.ask.stop}</Btn>
+                <Btn
+                  variant="danger"
+                  icon="close"
+                  onClick={stopRun}
+                  style={{
+                    flexShrink: 0,
+                    background: "rgba(239, 68, 68, 0.18)",
+                    border: "1px solid rgba(239, 68, 68, 0.45)",
+                    color: "#ef4444",
+                  }}
+                >
+                  {t.ask.stop}
+                </Btn>
               ) : (
                 <Btn
                   onClick={send}

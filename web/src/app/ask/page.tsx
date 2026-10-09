@@ -283,7 +283,14 @@ const UserBubble = memo(function UserBubble({
   images?: string[];
 }) {
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "flex-end",
+        contentVisibility: "auto",
+        containIntrinsicSize: "auto 48px",
+      }}
+    >
       <div
         style={{
           background: "var(--aurora-accent-soft)",
@@ -382,31 +389,37 @@ const AssistantBubble = memo(function AssistantBubble({
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
 
   return (
-    <Glass padding="clamp(12px, 3vw, 20px)" radius={18} style={{ maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
-      {turn.sources && turn.sources.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
-          <button
-            type="button"
-            onClick={() => onSourcesClick(turn.sources || [])}
-            title={t.ask.sources}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 10px",
-              borderRadius: 999,
-              background: "var(--aurora-chip)",
-              border: "1px solid var(--aurora-border)",
-              color: "var(--aurora-fg2)",
-              fontSize: 12,
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <Icon name="book" size={13} style={{ color: "var(--aurora-accent)" }} />
-            <span>{t.ask.sources}</span>
-            <span
+    <div
+      style={{
+        contentVisibility: isLast && streaming ? "visible" : "auto",
+        containIntrinsicSize: "auto 120px",
+      }}
+    >
+      <Glass padding="clamp(12px, 3vw, 20px)" radius={18} style={{ maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
+        {turn.sources && turn.sources.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
+            <button
+              type="button"
+              onClick={() => onSourcesClick(turn.sources || [])}
+              title={t.ask.sources}
               style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                color: "var(--aurora-fg2)",
+                fontSize: 12,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Icon name="book" size={13} style={{ color: "var(--aurora-accent)" }} />
+              <span>{t.ask.sources}</span>
+              <span
+                style={{
                 fontSize: 10.5,
                 padding: "1px 6px",
                 borderRadius: 999,
@@ -434,7 +447,7 @@ const AssistantBubble = memo(function AssistantBubble({
       )}
       {content ? (
         <div className="prose prose-sm max-w-none" style={{ fontSize: 14, lineHeight: 1.6 }}>
-          <MarkdownViewer content={content} />
+          <MarkdownViewer content={content} isStreaming={Boolean(streaming && isLast)} />
         </div>
       ) : (
         !hasTools && !thinking && (
@@ -453,6 +466,7 @@ const AssistantBubble = memo(function AssistantBubble({
         )
       )}
     </Glass>
+  </div>
   );
 });
 
@@ -2614,6 +2628,12 @@ function AskPageContent() {
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           className="flex-1 overflow-y-auto px-4 md:px-8 py-6"
+          style={{
+            contain: "content",
+            transform: "translateZ(0)",
+            willChange: "scroll-position",
+            overscrollBehaviorY: "contain",
+          }}
         >
           <div className="w-full max-w-3xl mx-auto space-y-4">
 

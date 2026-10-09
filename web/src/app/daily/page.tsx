@@ -57,11 +57,13 @@ function buildMonthGrid(
   return cells;
 }
 
+let cachedDailyDates: DailyDate[] | null = null;
+
 export default function DailyPage() {
-  const [allDates, setAllDates] = useState<DailyDate[]>([]);
+  const [allDates, setAllDates] = useState<DailyDate[]>(() => cachedDailyDates || []);
   const [days, setDays] = useState(120);
-  // Start as true so the first render shows loading, no cascade render needed.
-  const [loading, setLoading] = useState(true);
+  // Start as true only when there is no memory cache, eliminating page switch flicker
+  const [loading, setLoading] = useState(() => !cachedDailyDates);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => monthKey(new Date()));
   const { t, locale } = useI18n();
 
@@ -69,7 +71,12 @@ export default function DailyPage() {
     let cancelled = false;
     api
       .getDailyDates(days)
-      .then((d) => { if (!cancelled) setAllDates(d); })
+      .then((d) => {
+        if (!cancelled) {
+          cachedDailyDates = d;
+          setAllDates(d);
+        }
+      })
       .catch(console.error)
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

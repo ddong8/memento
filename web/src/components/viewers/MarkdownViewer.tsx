@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   detectMediaType,
   VideoPlayer,
@@ -23,6 +23,7 @@ interface MarkdownViewerProps {
   className?: string;
   compactMedia?: boolean;
   compactText?: boolean;
+  isStreaming?: boolean;
 }
 
 export default function MarkdownViewer({
@@ -30,6 +31,7 @@ export default function MarkdownViewer({
   className = "",
   compactMedia = false,
   compactText = false,
+  isStreaming = false,
 }: MarkdownViewerProps) {
   const inspector = useMediaInspector();
   const renderedVideos = useRef<Set<string>>(new Set<string>());
@@ -37,12 +39,14 @@ export default function MarkdownViewer({
   renderedVideos.current.clear();
 
   const baseProse = compactText ? "prose-compact" : "prose";
+  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const rehypePlugins = useMemo(() => (isStreaming ? [] : [rehypeHighlight]), [isStreaming]);
 
   return (
     <div className={`${baseProse} max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={{
           img: ({ node, src, alt, ...props }: any) => {
             if (!src) return null;

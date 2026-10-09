@@ -1,7 +1,7 @@
 {
   "version": "1.0.65",
   "title": "Memento v1.0.65",
-  "release_notes": "1. 新桌面端 Memento：Windows / Linux 去掉了菜单栏下面那条黑线（菜单栏默认隐藏，按 Alt 显示）；打开时不再先闪一下深色背景\n2. 系统健康页点开不再黑屏\n3. 同一台电脑换过设备标识后留下的重复记录已自动合并，设备列表不再重复出现，文件数也合到了一起\n4. Baseline 主题的侧边栏文字看得清了，页面装饰色跟随主题",
+  "release_notes": "1. 修复 Windows 桌面端开机自启动开关状态读取不一致及回弹问题\n2. 修复 Windows 采集器因多进程误判为旧版 Flutter 导致的启动自锁问题\n3. 优化执行卡片移动端响应式布局杜绝实时输出中与徽标重叠",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.65-win-x64.zip",

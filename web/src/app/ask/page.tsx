@@ -3812,15 +3812,14 @@ function AskPageContent() {
                                 <div
                                   style={{
                                     color: "var(--aurora-fg1)",
-                                    whiteSpace: "pre-wrap",
                                     wordBreak: "break-word",
                                     lineHeight: 1.45,
-                                    maxHeight: 90,
+                                    maxHeight: 120,
                                     overflowY: "auto",
                                     fontSize: 12,
                                   }}
                                 >
-                                  {m.content?.trim() || ""}
+                                  <MarkdownViewer content={m.content?.trim() || ""} compactText={true} />
                                 </div>
                               </div>
                             );

@@ -652,9 +652,29 @@ function setupAppMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function getOpenAtLogin(): boolean {
+  if (process.platform === "win32") {
+    return app.getLoginItemSettings({
+      path: process.execPath,
+      args: [HIDDEN_ARG],
+    }).openAtLogin;
+  }
+  return app.getLoginItemSettings().openAtLogin;
+}
+
+function setOpenAtLogin(open: boolean): boolean {
+  app.setLoginItemSettings({
+    openAtLogin: open,
+    path: process.execPath,
+    args: [HIDDEN_ARG],
+  });
+  refreshTray();
+  return getOpenAtLogin();
+}
+
 function refreshTray(): void {
   if (!tray) return;
-  const openAtLogin = app.getLoginItemSettings().openAtLogin;
+  const openAtLogin = getOpenAtLogin();
   tray.setToolTip(`Memento · AI 执事 · ${modeLabel(daemon.mode)}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -690,8 +710,7 @@ function refreshTray(): void {
         type: "checkbox",
         checked: openAtLogin,
         click: (item) => {
-          app.setLoginItemSettings({ openAtLogin: item.checked, args: [HIDDEN_ARG] });
-          refreshTray();
+          setOpenAtLogin(item.checked);
         },
       },
       { label: "检查更新", enabled: app.isPackaged, click: () => void checkForUpdates(true) },
@@ -785,7 +804,7 @@ function setupIpc(): void {
   ipcMain.handle("app:info", () => ({
     version: app.getVersion(),
     platform: process.platform,
-    openAtLogin: app.getLoginItemSettings().openAtLogin,
+    openAtLogin: getOpenAtLogin(),
     packaged: app.isPackaged,
     // How AI tools start the bundled MCP server: this app's binary as Node.
     mcp: {
@@ -795,9 +814,7 @@ function setupIpc(): void {
     },
   }));
   ipcMain.handle("app:set-open-at-login", (_e, on: unknown) => {
-    app.setLoginItemSettings({ openAtLogin: on === true, args: [HIDDEN_ARG] });
-    refreshTray();
-    return app.getLoginItemSettings().openAtLogin;
+    return setOpenAtLogin(on === true);
   });
   ipcMain.handle("app:check-updates", () => checkForUpdates(true));
   ipcMain.handle("app:notify", (_e, options: unknown) => {

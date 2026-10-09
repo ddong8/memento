@@ -85,7 +85,10 @@ export function flutterAppPids(
 export async function flutterAppRunning(excludePids: number[] = []): Promise<boolean> {
   const list = await new Promise<string>((resolve) => {
     if (process.platform === "win32") {
-      execFile("tasklist", ["/FO", "CSV", "/NH"], { windowsHide: true }, (err, stdout) =>
+      // In Flutter desktop on Windows, the app process loads flutter_windows.dll.
+      // Searching only for processes loading flutter_windows.dll avoids false positives
+      // from Electron's own child processes (which are all named memento.exe).
+      execFile("tasklist", ["/M", "flutter_windows.dll", "/FO", "CSV", "/NH"], { windowsHide: true }, (err, stdout) =>
         resolve(
           err
             ? ""

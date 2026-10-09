@@ -22,7 +22,7 @@ async function run(force = false): Promise<void> {
     console.error(`另一个 Memento 采集进程已在运行 (pid ${other})，退出。`);
     process.exit(1);
   }
-  if (!force && !process.env.MEMENTO_DAEMON_FORCE && (await flutterAppRunning())) {
+  if (!force && !process.env.MEMENTO_DAEMON_FORCE && !process.env.MEMENTO_DAEMON_EMBEDDED && (await flutterAppRunning())) {
     console.error("旧版 Memento 桌面端正在运行，它自带采集；为避免重复上传不再启动。退出旧版后重试，或加 --force。");
     process.exit(3);
   }

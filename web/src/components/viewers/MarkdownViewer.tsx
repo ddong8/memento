@@ -26,6 +26,43 @@ interface MarkdownViewerProps {
   isStreaming?: boolean;
 }
 
+export function normalizeMarkdownContent(content: string): string {
+  if (!content) return "";
+
+  // 分离代码块与普通文本，避免误伤代码块内部的格式
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return parts
+    .map((part, i) => {
+      // 奇数项为代码块，保持原样
+      if (i % 2 === 1) return part;
+
+      let text = part;
+
+      // 1. 规范化 Unicode 圆点列表符 (• 或 · 或 ⁃ 或 ‣) 为标准 Markdown 列表符 (- )
+      text = text.replace(/(^|\n)[ \t]*[•·⁃‣][ \t]+/g, "$1- ");
+
+      // 2. 规范化以 1) 2) 3) 等编号开头的独立单行标题为 ### 标题
+      // 匹配以数字加括号开头，长度在 2~40 字之间，且不以标点结尾的独立单行
+      text = text.replace(
+        /(^|\n\n|\n)([0-9]+[）\)])\s*([^\n:：。！？\r]{2,40})(?=\n|$)/g,
+        (match, prefix, num, title) => {
+          if (title.trim().startsWith("#")) return match;
+          return `${prefix}\n### ${num} ${title.trim()}\n`;
+        }
+      );
+
+      // 3. 规范化执行步骤指示行 (⚡ [xxx] 或 [Checking/Verifying/Deploying xxx]) 为高亮引用块
+      text = text.replace(
+        /(^|\n)(⚡\s*\[[^\]]+\][^\n]*|\[(?:Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\][^\n]*)/gi,
+        "$1> $2"
+      );
+
+      return text;
+    })
+    .join("");
+}
+
 export default function MarkdownViewer({
   content,
   className = "",
@@ -37,6 +74,8 @@ export default function MarkdownViewer({
   const renderedVideos = useRef<Set<string>>(new Set<string>());
   // Clear rendered video tracker for this render pass
   renderedVideos.current.clear();
+
+  const formattedContent = useMemo(() => normalizeMarkdownContent(content), [content]);
 
   const baseProse = compactText ? "prose-compact" : "prose";
   const remarkPlugins = useMemo(() => [remarkGfm], []);
@@ -254,7 +293,7 @@ export default function MarkdownViewer({
           hr: (props: any) => <hr className="my-2.5 border-[var(--aurora-border)]" {...props} />,
         }}
       >
-        {content}
+        {formattedContent}
       </ReactMarkdown>
     </div>
   );

@@ -11,6 +11,10 @@ const execFileAsync = promisify(execFile);
 app.name = "Memento";
 app.setName("Memento");
 
+// Hardware accelerated rendering & smooth composite layers
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+
 import { loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";

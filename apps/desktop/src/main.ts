@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -763,10 +764,98 @@ async function checkForUpdates(manual: boolean): Promise<void> {
   }
 }
 
+async function installMacUpdate(info: any): Promise<void> {
+  const downloadedZip = info?.downloadedFile || join(app.getPath("home"), "Library/Caches/@mementodesktop-updater/update.zip");
+  if (!existsSync(downloadedZip)) {
+    autoUpdater.quitAndInstall();
+    return;
+  }
+
+  // Target app bundle path, e.g. /Applications/Memento.app
+  const targetApp = process.execPath.replace(/\/Contents\/MacOS\/[^/]+$/, "");
+
+  // Extract update.zip to a temporary directory
+  const tempExtractDir = join(app.getPath("temp"), `memento-update-${Date.now()}`);
+  mkdirSync(tempExtractDir, { recursive: true });
+
+  try {
+    execFileSync("unzip", ["-q", downloadedZip, "-d", tempExtractDir]);
+
+    let srcApp = join(tempExtractDir, "Memento.app");
+    if (!existsSync(srcApp)) {
+      const entries = readdirSync(tempExtractDir);
+      const appEntry = entries.find((e) => e.endsWith(".app"));
+      if (appEntry) srcApp = join(tempExtractDir, appEntry);
+    }
+
+    if (!existsSync(srcApp)) {
+      throw new Error(`Extracted update does not contain .app bundle: ${tempExtractDir}`);
+    }
+
+    const shPath = join(tempExtractDir, "updater.sh");
+    const shContent = `#!/bin/sh
+TARGET_PID="$1"
+SRC_APP="$2"
+TARGET_APP="$3"
+TEMP_DIR="$4"
+
+COUNT=0
+while kill -0 "$TARGET_PID" 2>/dev/null; do
+    sleep 0.5
+    COUNT=$((COUNT + 1))
+    if [ "$COUNT" -ge 20 ]; then
+        kill -9 "$TARGET_PID" 2>/dev/null
+        break
+    fi
+done
+sleep 1
+
+if [ -n "$SRC_APP" ] && [ -d "$SRC_APP" ] && [ -n "$TARGET_APP" ]; then
+    PARENT_DIR=$(dirname "$TARGET_APP")
+    if [ ! -w "$PARENT_DIR" ] || ( [ -e "$TARGET_APP" ] && [ ! -w "$TARGET_APP" ] ); then
+        osascript -e "do shell script \\"rm -rf \\\\\\"$TARGET_APP\\\\\\" && cp -R \\\\\\"$SRC_APP\\\\\\" \\\\\\"$TARGET_APP\\\\\\" && xattr -cr \\\\\\"$TARGET_APP\\\\\\"\\" with administrator privileges" 2>/dev/null || true
+    else
+        rm -rf "$TARGET_APP"
+        cp -R "$SRC_APP" "$TARGET_APP"
+        xattr -cr "$TARGET_APP" 2>/dev/null || true
+    fi
+    codesign --force --deep -s - -r='designated => identifier "com.ihasy.memento.desktop"' "$TARGET_APP" 2>/dev/null || true
+fi
+
+if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+    rm -rf "$TEMP_DIR"
+fi
+
+open "$TARGET_APP" || open -n "$TARGET_APP"
+rm -f "$0"
+`;
+    writeFileSync(shPath, shContent, { mode: 0o755 });
+
+    const child = spawn("/bin/sh", [shPath, process.pid.toString(), srcApp, targetApp, tempExtractDir], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+
+    app.exit(0);
+  } catch (err) {
+    console.error("Failed to perform in-place Mac update, falling back to quitAndInstall:", err);
+    autoUpdater.quitAndInstall();
+  }
+}
+
 function setupUpdater(): void {
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  let downloadedInfo: any = null;
+  let lastPromptedVersion: string | null = null;
+
   autoUpdater.on("update-downloaded", async (info) => {
+    downloadedInfo = info;
+    if (lastPromptedVersion === info.version) {
+      return;
+    }
+    lastPromptedVersion = info.version;
     const { response } = await dialog.showMessageBox({
       type: "info",
       buttons: ["现在重启", "稍后"],
@@ -776,9 +865,21 @@ function setupUpdater(): void {
     });
     if (response === 0) {
       quitting = true;
-      autoUpdater.quitAndInstall();
+      if (process.platform === "darwin") {
+        await installMacUpdate(info);
+      } else {
+        autoUpdater.quitAndInstall();
+      }
     }
   });
+
+  app.on("before-quit", () => {
+    if (downloadedInfo && process.platform === "darwin" && !quitting) {
+      quitting = true;
+      void installMacUpdate(downloadedInfo);
+    }
+  });
+
   void checkForUpdates(false);
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_MS);
 }

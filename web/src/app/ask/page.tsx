@@ -3,7 +3,7 @@
 import { Suspense, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, type AgentQuotasResponse } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -706,6 +706,59 @@ function AskPageContent() {
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
+  const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchQuotas = async () => {
+      try {
+        const res = await api.getAgentQuotas(selectedDevice);
+        if (!cancelled && res) {
+          setQuotasData(res);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchQuotas();
+    const interval = setInterval(fetchQuotas, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [selectedDevice]);
+
+  const getModeQuotaSummary = (mode: ExecutionMode): { label: string; percent?: number; isPro?: boolean } | null => {
+    if (!quotasData?.tools) return null;
+    if (mode === "antigravity") {
+      const agy = quotasData.tools.antigravity;
+      if (!agy || !agy.available) return null;
+      return {
+        label: agy.remaining_percent != null ? `${agy.remaining_percent}%` : (agy.plan_name || "Pro"),
+        percent: agy.remaining_percent ?? undefined,
+        isPro: true,
+      };
+    }
+    if (mode === "claude") {
+      const c = quotasData.tools.claude_code;
+      if (!c || !c.available) return null;
+      return {
+        label: c.remaining_percent != null && c.remaining_percent < 100 ? `${c.remaining_percent}%` : (c.tier || "PRO"),
+        percent: c.remaining_percent ?? 100,
+        isPro: (c.tier || "").toUpperCase().includes("PRO"),
+      };
+    }
+    if (mode === "codex") {
+      const cx = quotasData.tools.codex;
+      if (!cx || !cx.available) return null;
+      return {
+        label: cx.tier || (cx.plan_name ? cx.plan_name.replace("ChatGPT ", "") : "FREE"),
+        percent: cx.remaining_percent ?? 100,
+        isPro: (cx.tier || "").toUpperCase().includes("PRO") || (cx.tier || "").toUpperCase().includes("PLUS"),
+      };
+    }
+    return null;
+  };
 
   // Sync state continuously into in-memory cache so switching tabs/menus retains all data
   useEffect(() => {
@@ -2430,6 +2483,21 @@ function AskPageContent() {
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
                 <span className="hidden sm:inline">AI 额度</span>
+                {quotasData?.tools?.antigravity?.remaining_percent != null && (
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      padding: "1px 5px",
+                      borderRadius: 999,
+                      background: "rgba(56, 189, 248, 0.15)",
+                      color: "#38BDF8",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {quotasData.tools.antigravity.remaining_percent}%
+                  </span>
+                )}
               </span>
             </Btn>
             <Btn
@@ -2632,12 +2700,19 @@ function AskPageContent() {
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].find((m) => m.id === executionMode) || { id: "ai" as const, label: "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" };
 
+                    const modeQuota = getModeQuotaSummary(executionMode);
+
                     return (
                       <span
+                        onClick={() => {
+                          if (["antigravity", "claude", "codex"].includes(executionMode)) {
+                            setQuotaOpen(true);
+                          }
+                        }}
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
+                          gap: 5,
                           padding: "2px 8px",
                           borderRadius: 8,
                           background: "var(--aurora-accent-soft)",
@@ -2647,7 +2722,9 @@ function AskPageContent() {
                           fontWeight: 600,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
+                          cursor: ["antigravity", "claude", "codex"].includes(executionMode) ? "pointer" : "default",
                         }}
+                        title={["antigravity", "claude", "codex"].includes(executionMode) ? "点击查看 AI 订阅与额度详情" : undefined}
                       >
                         {currentMode.brandId ? (
                           <BrandMark id={currentMode.brandId} size={13} colored />
@@ -2655,6 +2732,21 @@ function AskPageContent() {
                           <Icon name={currentMode.icon || "sparkles"} size={12} style={{ color: currentMode.color }} />
                         )}
                         <span>{currentMode.label}</span>
+                        {modeQuota && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: "0 4px",
+                              borderRadius: 4,
+                              background: "rgba(0, 0, 0, 0.2)",
+                              color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {modeQuota.label}
+                          </span>
+                        )}
                       </span>
                     );
                   })()}
@@ -2874,6 +2966,7 @@ function AskPageContent() {
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].map((m) => {
                       const isSelected = executionMode === m.id;
+                      const qSummary = getModeQuotaSummary(m.id);
                       return (
                         <button
                           key={m.id}
@@ -2903,6 +2996,20 @@ function AskPageContent() {
                             <Icon name={m.icon || "sparkles"} size={13} style={{ color: isSelected ? m.color : "var(--aurora-fg3)" }} />
                           )}
                           <span>{m.label}</span>
+                          {qSummary && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: "1px 5px",
+                                borderRadius: 6,
+                                background: isSelected ? "rgba(0, 0, 0, 0.25)" : "var(--aurora-surface)",
+                                color: isSelected ? m.color : "var(--aurora-fg3)",
+                              }}
+                            >
+                              {qSummary.label}
+                            </span>
+                          )}
                         </button>
                       );
                     })}

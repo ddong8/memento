@@ -2766,7 +2766,21 @@ function AskPageContent() {
       const targetSession = sessions.find(
         (s) => (s.session_id || s.conversation_id) === sid
       );
-      if (!targetSession) return;
+      if (!targetSession) {
+        const matchedAskConv = conversations.find(
+          (c) => c.config?.session_id === sid || c.id === sid
+        );
+        if (matchedAskConv) {
+          activeConversationIdRef.current = matchedAskConv.id;
+          setActiveConversationId(matchedAskConv.id);
+          window.history.replaceState(null, "", `/ask?id=${matchedAskConv.id}`);
+          try {
+            localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
+          } catch {}
+          loadConversation(matchedAskConv.id);
+        }
+        return;
+      }
 
       // 默认保持原生接续（Raw Resume），绝不静默强制开启瘦身模式，仅在 UI 提供建议标记并由用户显式切换
       setCompactMode(false);
@@ -3584,7 +3598,15 @@ function AskPageContent() {
                         {isZh ? "续接: " : "Resuming: "}
                         {(() => {
                           const s = sessions.find((x) => (x.session_id || x.conversation_id) === selectedSessionId);
-                          const t = s?.title || selectedSessionId;
+                          const isCurrentActive = Boolean(
+                            activeConversation &&
+                            (activeConversation.config?.session_id === selectedSessionId ||
+                             activeConversation.id === selectedSessionId)
+                          );
+                          const matchedConv = isCurrentActive
+                            ? activeConversation
+                            : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
+                          const t = s?.title || matchedConv?.title || selectedSessionId;
                           return t.length > 18 ? t.slice(0, 18) + "..." : t;
                         })()}
                       </span>
@@ -4165,11 +4187,22 @@ function AskPageContent() {
                       <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                         {loadingSessions ? (isZh ? "加载会话列表中..." : "Loading sessions...") : (isZh ? "➕ 新建独立会话" : "➕ New Session")}
                       </option>
-                      {selectedSessionId && !sessions.some((s) => (s.session_id || s.conversation_id) === selectedSessionId) && (
-                        <option value={selectedSessionId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                          💬 {selectedSessionId.length > 25 ? selectedSessionId.slice(0, 25) + "..." : selectedSessionId}
-                        </option>
-                      )}
+                      {selectedSessionId && !sessions.some((s) => (s.session_id || s.conversation_id) === selectedSessionId) && (() => {
+                        const isCurrentActive = Boolean(
+                          activeConversation &&
+                          (activeConversation.config?.session_id === selectedSessionId ||
+                           activeConversation.id === selectedSessionId)
+                        );
+                        const matchedConv = isCurrentActive
+                          ? activeConversation
+                          : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
+                        const fallbackTitle = matchedConv?.title || (selectedSessionId.length > 25 ? selectedSessionId.slice(0, 25) + "..." : selectedSessionId);
+                        return (
+                          <option value={selectedSessionId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                            💬 {fallbackTitle.length > 25 ? fallbackTitle.slice(0, 25) + "..." : fallbackTitle}
+                          </option>
+                        );
+                      })()}
                       {sessions.map((s) => {
                         const sid = s.session_id || s.conversation_id;
                         const isHeavy = s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000);
@@ -4208,9 +4241,26 @@ function AskPageContent() {
             {/* Active Resume Session Banner & Historical Context Preview */}
             {selectedSessionId && (() => {
               const activeSession = sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId);
-              const msgs = activeSession?.messages || [];
+              const isCurrentActive = Boolean(
+                activeConversation &&
+                (activeConversation.config?.session_id === selectedSessionId ||
+                 activeConversation.id === selectedSessionId)
+              );
+              const matchedConv = isCurrentActive
+                ? activeConversation
+                : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
+
+              const sessionTitle = activeSession?.title || matchedConv?.title || selectedSessionId;
+
+              let msgs: Array<{ role: string; content: string; timestamp?: string; subagent_name?: string }> = activeSession?.messages || [];
+              if (msgs.length === 0 && isCurrentActive && turns.length > 0) {
+                msgs = turns.map((t) => ({
+                  role: t.role,
+                  content: t.content,
+                }));
+              }
               const previewMsgs = msgs.slice(-5);
-              const totalCount = activeSession?.message_count || msgs.length;
+              const totalCount = activeSession?.message_count || (isCurrentActive ? (totalTurns || turns.length) : msgs.length);
               const isHeavy = activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000);
 
               return (
@@ -4235,7 +4285,7 @@ function AskPageContent() {
                         {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : (isZh ? "续接历史会话:" : "Resuming session:")}
                       </span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
-                        {activeSession?.title || selectedSessionId}
+                        {sessionTitle}
                       </span>
                       <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
                         ({isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
@@ -4351,9 +4401,9 @@ function AskPageContent() {
                             </span>
                           )}
                         </div>
-                        {activeSession?.conversation_id && (
+                        {(activeSession?.conversation_id || (isCurrentActive && activeConversation?.id)) && (
                           <a
-                            href={`/conversations/${activeSession.conversation_id}`}
+                            href={activeSession?.conversation_id ? `/conversations/${activeSession.conversation_id}` : `/ask?id=${activeConversation!.id}`}
                             target="_blank"
                             rel="noreferrer"
                             style={{
@@ -4387,7 +4437,7 @@ function AskPageContent() {
                       >
                         {previewMsgs.length === 0 ? (
                           <div style={{ color: "var(--aurora-fg3)", textAlign: "center", padding: "12px 0", fontSize: 12 }}>
-                            {isZh ? "该会话暂无历史文本消息记录" : "No textual messages recorded in this session"}
+                            {isZh ? "当前会话暂无历史交互记录" : "No textual messages recorded in this session"}
                           </div>
                         ) : (
                           previewMsgs.map((m, idx) => {

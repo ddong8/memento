@@ -1291,8 +1291,16 @@ function AskPageContent() {
           try {
             const devForQuery = devToUse !== "auto" && devToUse !== "ask_only" && devToUse !== "all" ? devToUse : undefined;
             let projList = await api.listProjects(toolId, devForQuery);
-            if ((!projList || projList.length === 0) && devForQuery) {
-              projList = await api.listProjects(toolId);
+            if (!projList || projList.length === 0 || (targetProjId && !projList.some((p) => p.id === targetProjId))) {
+              const allProjs = await api.listProjects(toolId);
+              if (allProjs && allProjs.length > 0) {
+                const existingIds = new Set((projList || []).map((p) => p.id));
+                const merged = [...(projList || [])];
+                for (const p of allProjs) {
+                  if (!existingIds.has(p.id)) merged.push(p);
+                }
+                projList = merged;
+              }
             }
             const projs = projList || [];
             setProjects(projs);
@@ -2686,7 +2694,19 @@ function AskPageContent() {
       }
       try {
         const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
-        const list = await api.listProjects(toolId, devToUse);
+        let list = await api.listProjects(toolId, devToUse);
+        const curProjId = selectedProjectIdRef.current;
+        if (!list || list.length === 0 || (curProjId && !list.some((p) => p.id === curProjId))) {
+          const allProjs = await api.listProjects(toolId);
+          if (allProjs && allProjs.length > 0) {
+            const existingIds = new Set((list || []).map((p) => p.id));
+            const merged = [...(list || [])];
+            for (const p of allProjs) {
+              if (!existingIds.has(p.id)) merged.push(p);
+            }
+            list = merged;
+          }
+        }
         const projList = list || [];
         setProjects(projList);
 
@@ -3483,27 +3503,50 @@ function AskPageContent() {
                   </span>
 
                   {/* Associated Project Badge */}
-                  {selectedProjectId && (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        padding: "2px 8px",
-                        borderRadius: 8,
-                        background: "var(--aurora-surface-solid)",
-                        border: "1px solid var(--aurora-border)",
-                        color: "var(--aurora-fg2)",
-                        fontSize: 11.5,
-                        fontWeight: 500,
-                        whiteSpace: "nowrap",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
-                      <span>{projects.find((p) => p.id === selectedProjectId)?.title || selectedProjectId}</span>
-                    </span>
-                  )}
+                  {selectedProjectId && (() => {
+                    const p = projects.find((x) => x.id === selectedProjectId);
+                    let displayTitle = p?.title || p?.slug;
+                    if (!displayTitle && cwd) {
+                      const clean = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+                      const folder = clean.split("/").filter(Boolean).pop();
+                      if (folder && !folder.endsWith(".md") && !folder.endsWith(".txt")) {
+                        displayTitle = folder;
+                      } else {
+                        const segments = clean.split("/").filter(Boolean);
+                        for (let si = segments.length - 1; si >= 0; si--) {
+                          const seg = segments[si];
+                          if (!seg.startsWith(".") && !seg.endsWith(".md") && seg !== "brain" && seg !== "scratch") {
+                            displayTitle = seg;
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if (!displayTitle) {
+                      displayTitle = selectedProjectId.length > 20 ? (isZh ? "项目代码库" : "Project") : selectedProjectId;
+                    }
+                    return (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 8px",
+                          borderRadius: 8,
+                          background: "var(--aurora-surface-solid)",
+                          border: "1px solid var(--aurora-border)",
+                          color: "var(--aurora-fg2)",
+                          fontSize: 11.5,
+                          fontWeight: 500,
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
+                        <span>{displayTitle}</span>
+                      </span>
+                    );
+                  })()}
 
                   {/* CWD snippet if no project but cwd is set */}
                   {!selectedProjectId && cwd && (
@@ -4137,6 +4180,26 @@ function AskPageContent() {
                     <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                       {projects.length === 0 ? (isZh ? "暂无项目" : "No projects") : (isZh ? "选择项目 (可选)..." : "Select project (optional)...")}
                     </option>
+                    {selectedProjectId && !projects.some((p) => p.id === selectedProjectId) && (() => {
+                      let fallbackTitle = "";
+                      if (cwd) {
+                        const clean = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+                        const segments = clean.split("/").filter(Boolean);
+                        for (let si = segments.length - 1; si >= 0; si--) {
+                          const seg = segments[si];
+                          if (!seg.startsWith(".") && !seg.endsWith(".md") && seg !== "brain" && seg !== "scratch") {
+                            fallbackTitle = seg;
+                            break;
+                          }
+                        }
+                      }
+                      fallbackTitle = fallbackTitle || (isZh ? "当前项目" : "Current Project");
+                      return (
+                        <option value={selectedProjectId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                          📁 {fallbackTitle}
+                        </option>
+                      );
+                    })()}
                     {projects.map((p) => (
                       <option key={p.id} value={p.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                         📁 {p.title || p.slug || p.id}

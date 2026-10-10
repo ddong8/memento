@@ -905,6 +905,16 @@ function AskPageContent() {
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const isUnmountedRef = useRef<boolean>(false);
   const userCancelledRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("memento_active_chat_change", { detail: { id: activeConversationId } })
+      );
+    }
+  }, [activeConversationId]);
+
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
@@ -2191,6 +2201,10 @@ function AskPageContent() {
         try {
           localStorage.setItem("memento_last_ask_conv_id", evt.id);
         } catch {}
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("memento_active_chat_change", { detail: { id: evt.id } }));
+          window.dispatchEvent(new CustomEvent("memento_ask_start", { detail: { conversation_id: evt.id } }));
+        }
         if (askCache) {
           askCache.streaming = true;
           askCache.activeRun = {
@@ -2384,6 +2398,13 @@ function AskPageContent() {
         patchLast((x) => ({ ...x, content: x.content + evt.text }));
       } else if (evt.type === "done") {
         sawDone = true;
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("memento_ask_done", {
+              detail: { conversation_id: cursor.convId || activeConversationIdRef.current },
+            })
+          );
+        }
       } else if (evt.type === "error") {
         patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true }));
       }
@@ -2478,6 +2499,13 @@ function AskPageContent() {
     setTurns(finalTurns);
     streamingRef.current = false;
     setStreaming(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("memento_ask_done", {
+          detail: { conversation_id: activeConversationIdRef.current },
+        })
+      );
+    }
     if (askCache) {
       askCache.streaming = false;
       askCache.activeRun = null;
@@ -2628,6 +2656,13 @@ function AskPageContent() {
     setTurns(initialTurns);
     streamingRef.current = true;
     setStreaming(true);
+    if (typeof window !== "undefined" && activeConversationId) {
+      window.dispatchEvent(
+        new CustomEvent("memento_ask_start", {
+          detail: { conversation_id: activeConversationId },
+        })
+      );
+    }
     scrollConversationToBottom(false);
 
     const ctrl = new AbortController();

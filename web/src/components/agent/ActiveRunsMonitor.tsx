@@ -11,7 +11,33 @@ export default function ActiveRunsMonitor() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const currentConvId = pathname === "/ask" ? searchParams.get("id") : null;
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("id") || localStorage.getItem("memento_last_ask_conv_id");
+  });
+
+  // 精准同步当前正在观察的会话ID，监听 URL、路由与页面内动态切换事件
+  useEffect(() => {
+    const syncCurrentId = (newId?: string | null) => {
+      if (typeof window === "undefined") return;
+      const urlId = new URLSearchParams(window.location.search).get("id");
+      const storedId = localStorage.getItem("memento_last_ask_conv_id");
+      setActiveChatId(newId || urlId || storedId || null);
+    };
+
+    const handleActiveChat = (e: any) => {
+      syncCurrentId(e?.detail?.id);
+    };
+
+    window.addEventListener("popstate", () => syncCurrentId());
+    window.addEventListener("memento_active_chat_change", handleActiveChat);
+    return () => {
+      window.removeEventListener("popstate", () => syncCurrentId());
+      window.removeEventListener("memento_active_chat_change", handleActiveChat);
+    };
+  }, [pathname, searchParams]);
+
+  const currentConvId = pathname === "/ask" ? (searchParams.get("id") || activeChatId) : null;
 
   const [runs, setRuns] = useState<AskRunSummary[]>([]);
   const [now, setNow] = useState<number>(() => Date.now());
@@ -55,11 +81,14 @@ export default function ActiveRunsMonitor() {
       // Check transitions: was active previously, now done
       data.forEach((r) => {
         if (r.done && activeIdsRef.current.has(r.conversation_id)) {
-          // Auto-dismiss completed notification after 8 seconds
-          if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
+          // 如果用户当前就在 /ask 页面且查看的就是该会话，直接静默消除通知，不弹滞后Toast
+          if (pathname === "/ask" && (currentConvId === r.conversation_id || !currentConvId)) {
+            setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
+          } else if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
+            // 其他页面自动淡出时间从 8 秒优化缩短至 3.5 秒
             const t = setTimeout(() => {
               setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
-            }, 8000);
+            }, 3500);
             completedNoticeTimerRef.current.set(r.conversation_id, t);
           }
         }
@@ -70,7 +99,44 @@ export default function ActiveRunsMonitor() {
     } catch {
       // Ignore network errors during polling
     }
-  }, [token]);
+  }, [token, pathname, currentConvId]);
+
+  // 监听任务结束与启动事件，实现零延迟即时响应，打破 1.5s~4s 纯轮询固有滞后
+  useEffect(() => {
+    const handleAskDone = (e: any) => {
+      const convId = e?.detail?.conversation_id;
+      if (convId) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.conversation_id === convId ? { ...r, done: true, finished_at: Date.now() / 1000 } : r
+          )
+        );
+        if (pathname === "/ask" && (currentConvId === convId || !currentConvId)) {
+          setDismissedNotificationIds((prev) => new Set([...prev, convId]));
+        }
+      }
+      fetchRuns();
+    };
+
+    const handleAskStart = (e: any) => {
+      const convId = e?.detail?.conversation_id;
+      if (convId) {
+        setDismissedNotificationIds((prev) => {
+          const next = new Set(prev);
+          next.delete(convId);
+          return next;
+        });
+      }
+      fetchRuns();
+    };
+
+    window.addEventListener("memento_ask_done", handleAskDone);
+    window.addEventListener("memento_ask_start", handleAskStart);
+    return () => {
+      window.removeEventListener("memento_ask_done", handleAskDone);
+      window.removeEventListener("memento_ask_start", handleAskStart);
+    };
+  }, [fetchRuns, pathname, currentConvId]);
 
   useEffect(() => {
     if (!token) return;
@@ -99,8 +165,12 @@ export default function ActiveRunsMonitor() {
     e.stopPropagation();
     try {
       setCancellingId(convId);
+      // 立即在前端标记已停止，无需等待后端与轮询回包
+      setRuns((prev) =>
+        prev.map((r) => (r.conversation_id === convId ? { ...r, done: true, cancelled: true } : r))
+      );
       await api.cancelAskRun(convId);
-      setTimeout(fetchRuns, 400);
+      setTimeout(fetchRuns, 200);
     } catch (err) {
       console.error("Failed to cancel run:", err);
     } finally {

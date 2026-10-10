@@ -183,87 +183,208 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
   }
 }
 
+async function getClaudeOAuthToken(): Promise<string | undefined> {
+  if (process.platform === "darwin") {
+    const res = await run("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], 2000);
+    if (res.code === 0 && res.stdout.trim()) {
+      try {
+        const creds = JSON.parse(res.stdout.trim());
+        return creds.claudeAiOauth?.accessToken;
+      } catch {}
+    }
+  }
+  return undefined;
+}
+
+function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | undefined> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      "https://api.anthropic.com/api/oauth/usage",
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "anthropic-client": "claude-code/2.1.283",
+        },
+        timeout: 4000,
+      },
+      (res) => {
+        let buf = "";
+        res.on("data", (c) => (buf += c));
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(buf));
+          } catch {
+            resolve(undefined);
+          }
+        });
+      },
+    );
+    req.on("error", () => resolve(undefined));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(undefined);
+    });
+    req.end();
+  });
+}
+
 /** Probe Claude Code for active subscription & account info with real usage utilization. */
 export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaInfo> {
   try {
     const cJsonPath = join(home, ".claude.json");
+    let d: Record<string, any> = {};
     if (existsSync(cJsonPath)) {
       try {
-        const raw = await readFile(cJsonPath, "utf8");
-        const d = JSON.parse(raw);
-        const oauth = d.oauthAccount || {};
-        const usage = d.cachedUsageUtilization || {};
-        const ut = usage.utilization || {};
-        const limits: any[] = ut.limits || [];
+        d = JSON.parse(await readFile(cJsonPath, "utf8"));
+      } catch {}
+    }
 
-        const sevenDayUtil = typeof ut.seven_day?.utilization === "number" ? ut.seven_day.utilization : null;
-        const fiveHourUtil = typeof ut.five_hour?.utilization === "number" ? ut.five_hour.utilization : null;
-        const weeklyLimit = limits.find((l: any) => l.group === "weekly" || l.kind === "weekly_all");
-        const sessionLimit = limits.find((l: any) => l.group === "session" || l.kind === "session");
+    const oauth = d.oauthAccount || {};
+    const token = await getClaudeOAuthToken();
 
-        // 真实剩余额度计算：依据最严格的滑动窗口用量（如7天消耗97%，则剩余3%）
-        let remainingPercent: number | null = null;
-        if (sevenDayUtil != null) {
-          remainingPercent = Math.max(0, Math.min(100, Math.round((100 - sevenDayUtil) * 10) / 10));
-        } else if (fiveHourUtil != null) {
-          remainingPercent = Math.max(0, Math.min(100, Math.round((100 - fiveHourUtil) * 10) / 10));
-        }
+    // 1. 优先尝试直接调用 Anthropic 官方实时 /api/oauth/usage 端点获取 100% 鲜活数据
+    let liveUsage: Record<string, any> | undefined;
+    if (token) {
+      liveUsage = await fetchAnthropicLiveUsage(token);
+    }
 
-        const resetTime = weeklyLimit?.resets_at || ut.seven_day?.resets_at || sessionLimit?.resets_at || null;
-        const planName =
-          oauth.organizationType === "claude_pro"
-            ? "Claude Pro"
-            : oauth.organizationType
-              ? `Claude ${oauth.organizationType}`
-              : "Claude 订阅";
-        const tier = (oauth.organizationRateLimitTier || "PRO").toUpperCase();
+    let ut: Record<string, any> = {};
+    let isStaleCache = false;
 
-        const fraction = remainingPercent != null ? remainingPercent / 100 : 1;
-        const models: QuotaModelItem[] = [
-          {
-            label: "Claude Sonnet 4.6 (Thinking)",
-            model_id: "claude-sonnet-4-6",
-            remaining_fraction: fraction,
-            remaining_percent: remainingPercent != null ? remainingPercent : 100,
-            reset_time: resetTime,
-          },
-          {
-            label: "Claude Opus 4.6",
-            model_id: "claude-opus-4-6",
-            remaining_fraction: fraction,
-            remaining_percent: remainingPercent != null ? remainingPercent : 100,
-            reset_time: resetTime,
-          },
-          {
-            label: "Claude Haiku 4.5",
-            model_id: "claude-haiku-4-5",
-            remaining_fraction: 1,
-            remaining_percent: 100,
-          },
-        ];
-
-        return {
-          tool: "claude_code",
-          name: "Claude Code",
-          available: true,
-          logged_in: Boolean(oauth.accountUuid || d.userID),
-          account_email: oauth.emailAddress || "",
-          account_name: oauth.displayName || oauth.fullName || oauth.organizationName || "",
-          plan_name: planName,
-          tier,
-          remaining_percent: remainingPercent,
-          reset_time: resetTime,
-          models,
-          details: {
-            seven_day_utilization: sevenDayUtil,
-            five_hour_utilization: fiveHourUtil,
-            severity: weeklyLimit?.severity || "normal",
-            has_available_subscription: d.hasAvailableSubscription,
-          },
-        };
-      } catch (err: any) {
-        // fallback to CLI probe
+    if (liveUsage && (liveUsage.seven_day || liveUsage.five_hour)) {
+      ut = liveUsage;
+    } else {
+      // 2. 官方接口不可用时，降级读取 ~/.claude.json 中的缓存，但做严密的过期检查
+      const cachedUsage = d.cachedUsageUtilization || {};
+      ut = cachedUsage.utilization || {};
+      const weeklyResetsAt = ut.seven_day?.resets_at;
+      // 若缓存的重置时间已过当前时间，说明滑动窗口早已自动重置刷新，不可再使用过期的残余指标
+      if (weeklyResetsAt && new Date(weeklyResetsAt).getTime() <= Date.now()) {
+        isStaleCache = true;
       }
+    }
+
+    const limits: any[] = ut.limits || [];
+    const rawSevenDayUtil = typeof ut.seven_day?.utilization === "number" ? ut.seven_day.utilization : null;
+    const rawFiveHourUtil = typeof ut.five_hour?.utilization === "number" ? ut.five_hour.utilization : null;
+    const weeklyLimit = limits.find((l: any) => l.group === "weekly" || l.kind === "weekly_all");
+    const sessionLimit = limits.find((l: any) => l.group === "session" || l.kind === "session");
+
+    let sevenDayUtil = rawSevenDayUtil;
+    let fiveHourUtil = rawFiveHourUtil;
+    let severity = weeklyLimit?.severity || "normal";
+
+    if (isStaleCache) {
+      // 历史缓存已过期且已过重置时间：归零已重置，避免显示历史高占用
+      sevenDayUtil = 0;
+      fiveHourUtil = 0;
+      severity = "normal";
+    }
+
+    // 实时可用额度计算：根据 7 天与 5 小时滑动窗口取最严格瓶颈（如 7天已用 55%，则剩余 45%）
+    let remainingPercent: number | null = null;
+    if (sevenDayUtil != null && fiveHourUtil != null) {
+      const remSeven = Math.max(0, 100 - sevenDayUtil);
+      const remFive = Math.max(0, 100 - fiveHourUtil);
+      remainingPercent = Math.min(remSeven, remFive);
+    } else if (sevenDayUtil != null) {
+      remainingPercent = Math.max(0, 100 - sevenDayUtil);
+    } else if (fiveHourUtil != null) {
+      remainingPercent = Math.max(0, 100 - fiveHourUtil);
+    }
+
+    if (remainingPercent != null) {
+      remainingPercent = Math.round(remainingPercent * 10) / 10;
+    }
+
+    // 确定重置时间：优先取当前瓶颈窗口的重置时间
+    let resetTime: string | null = null;
+    if (isStaleCache) {
+      resetTime = null;
+    } else {
+      resetTime = weeklyLimit?.resets_at || ut.seven_day?.resets_at || sessionLimit?.resets_at || ut.five_hour?.resets_at || null;
+    }
+
+    const planName =
+      oauth.organizationType === "claude_pro"
+        ? "Claude Pro"
+        : oauth.organizationType
+          ? `Claude ${oauth.organizationType}`
+          : "Claude 订阅";
+    const tier = (oauth.organizationRateLimitTier || "PRO").toUpperCase();
+    const remainingFraction = remainingPercent != null ? remainingPercent / 100 : 1;
+
+    // 真实的 Claude Code 模型体系（全模型共享同一订阅配额）
+    const models: QuotaModelItem[] = [
+      {
+        label: "Claude 3.7 Sonnet (Hybrid Reasoning)",
+        model_id: "claude-3-7-sonnet",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Sonnet 4.6 (Thinking)",
+        model_id: "claude-sonnet-4-6",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Opus 4.6 (Thinking)",
+        model_id: "claude-opus-4-6",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Haiku 4.5",
+        model_id: "claude-haiku-4-5",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        reset_time: resetTime || undefined,
+      },
+    ];
+
+    if (Array.isArray(d.additionalModelOptionsCache)) {
+      for (const opt of d.additionalModelOptionsCache) {
+        if (opt?.label && opt?.value) {
+          models.push({
+            label: opt.label.includes("Fable") ? "Claude Fable 5.1 (Long-horizon)" : opt.label,
+            model_id: opt.value,
+            remaining_fraction: remainingFraction,
+            remaining_percent: remainingPercent != null ? remainingPercent : 100,
+            reset_time: resetTime || undefined,
+          });
+        }
+      }
+    }
+
+    if (oauth.accountUuid || d.userID || token) {
+      return {
+        tool: "claude_code",
+        name: "Claude Code",
+        available: true,
+        logged_in: true,
+        account_email: oauth.emailAddress || "",
+        account_name: oauth.displayName || oauth.fullName || oauth.organizationName || "",
+        plan_name: planName,
+        tier,
+        remaining_percent: remainingPercent,
+        reset_time: resetTime,
+        models,
+        details: {
+          seven_day_utilization: sevenDayUtil,
+          seven_day_resets_at: ut.seven_day?.resets_at,
+          five_hour_utilization: fiveHourUtil,
+          five_hour_resets_at: ut.five_hour?.resets_at,
+          severity,
+          is_live_api: Boolean(liveUsage),
+          shared_quota: true,
+        },
+      };
     }
 
     const claudeBin = await findExecutable(["claude", "claude-code"]);

@@ -564,29 +564,54 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       gap: 8,
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.12)",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: "rgba(0, 0, 0, 0.14)",
                     }}
                   >
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口已用</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg2)" }}>
-                        {sevenDay != null ? `${sevenDay}%` : "-"}
-                      </span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口 (周额度)</span>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
+                          {sevenDay != null ? `已用 ${sevenDay}%` : "-"}
+                        </span>
+                        {sevenDay != null && (
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                            (剩 {Math.max(0, 100 - sevenDay)}%)
+                          </span>
+                        )}
+                      </div>
+                      {claude.details?.seven_day_resets_at && (
+                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                          ⏳ {formatRelativeReset(claude.details.seven_day_resets_at)}
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口已用</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
-                        {fiveHour != null ? `${fiveHour}%` : "-"}
-                      </span>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口 (速率)</span>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: fiveHour != null && fiveHour > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
+                          {fiveHour != null ? `已用 ${fiveHour}%` : "-"}
+                        </span>
+                        {fiveHour != null && (
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                            (剩 {Math.max(0, 100 - fiveHour)}%)
+                          </span>
+                        )}
+                      </div>
+                      {claude.details?.five_hour_resets_at && (
+                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                          ⏳ {formatRelativeReset(claude.details.five_hour_resets_at)}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {/* Remaining bar */}
                   <div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: "var(--aurora-fg3)" }}>综合剩余可用额度</span>
+                      <span style={{ color: "var(--aurora-fg3)" }}>综合当前可用额度 (全模型共享)</span>
                       <span style={{ fontWeight: 600, color: quotaColor.text }}>
                         {claude.remaining_percent}% 剩余
                       </span>
@@ -609,11 +634,6 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                         }}
                       />
                     </div>
-                    {claude.reset_time && (
-                      <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
-                        ⏳ {formatRelativeReset(claude.reset_time)}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -637,7 +657,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     gap: 4,
                   }}
                 >
-                  <span>{expandedClaude ? "收起模型列表" : `查看支持模型 (${claude.models.length})`}</span>
+                  <span>{expandedClaude ? "收起可用模型" : `查看支持模型 (${claude.models.length} 个，共享订阅额度)`}</span>
                   <Icon name={expandedClaude ? "chevron_up" : "chevron_down"} size={12} />
                 </button>
 
@@ -655,6 +675,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       overflowY: "auto",
                     }}
                   >
+                    <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", paddingBottom: 4, borderBottom: "1px dashed var(--aurora-border)" }}>
+                      所有模型均共享 Pro 账号滑动窗口额度
+                    </div>
                     {claude.models.map((m, idx) => {
                       const mc = getQuotaColor(m.remaining_percent);
                       return (

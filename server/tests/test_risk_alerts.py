@@ -177,6 +177,15 @@ class TestTaskAlerts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[2], "✅ 任务完成")
         self.assertEqual(args[3], "Mac-mini：修复登录 bug（期间 1 次危险操作）")
 
+    async def test_unwatched_agent_task_pushes_still_running(self):
+        task = DeviceTask(action="agent", payload={"prompt": "编译大型模块"}, alerts=[],
+                          user_id=uuid.uuid4())
+        push = await self._finish(watched=False, status="still_running", task=task)
+        args = push.await_args.args
+        self.assertEqual(args[1], "task_running")
+        self.assertEqual(args[2], "⏳ 任务已转入后台运行")
+        self.assertIn("后台任务正在执行中", args[3])
+
     async def test_watched_cancelled_or_shell_tasks_do_not_push(self):
         agent = DeviceTask(action="agent", payload={"prompt": "x"}, user_id=uuid.uuid4())
         self.assertFalse((await self._finish(watched=True, status="succeeded", task=agent)).await_count)

@@ -114,8 +114,9 @@ export default function ExecutionCard({
     (cleanStderr && cleanStderr.includes("Prompt is too long"))
   );
 
-  const isSuccess = result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error);
-  const isFailed = !isExit1NoMatch && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
+  const isStillRunning = result?.status === "still_running";
+  const isSuccess = !isStillRunning && (result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error));
+  const isFailed = !isExit1NoMatch && !isStillRunning && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
 
   const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
 
@@ -340,6 +341,27 @@ export default function ExecutionCard({
               }}
             >
               ○ 无匹配 (exit 1)
+            </span>
+          )}
+
+          {isStillRunning && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 9999,
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.25)",
+                color: "#d97706",
+                flexShrink: 0,
+                whiteSpace: "nowrap",
+              }}
+            >
+              ⏳ {t.ask.statusStillRunning || "后台执行中"}
             </span>
           )}
 

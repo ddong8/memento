@@ -19,6 +19,8 @@ const RUNNER_MARKERS = [
   "--timeout",
   "ANTIGRAVITY_SOURCE_METADATA",
   "last_error_message",
+  "active_background_tasks",
+  "STATUS_STILL_RUNNING",
   'if __name__ == "__main__":',
 ];
 

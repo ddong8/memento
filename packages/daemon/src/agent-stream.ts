@@ -41,6 +41,10 @@ export abstract class AgentStreamParser {
   sessionId: string | undefined;
   /** Error text reported inside the stream (not on stderr), for retry decisions. */
   errors = "";
+  /** Whether the agent spawned background tasks or processes that are still actively running. */
+  isStillRunning = false;
+  /** Active background task or process IDs detected in the stream. */
+  activeBackgroundTasks = new Set<string>();
 
   /** The agent's final answer, once known. */
   abstract get finalText(): string | undefined;
@@ -95,11 +99,15 @@ export class ClaudeStreamParser extends AgentStreamParser {
               events.push({ kind: "text", text });
             } else if (block.type === "tool_use") {
               const name = str(block.name) ?? "tool";
+              const input = isObject(block.input) ? block.input : {};
+              if (name === "Bash" && input.run_in_background === true) {
+                this.isStillRunning = true;
+              }
               events.push({
                 kind: "tool",
                 id: str(block.id),
                 name,
-                detail: claudeToolDetail(str(block.name) ?? "", isObject(block.input) ? block.input : {}),
+                detail: claudeToolDetail(name, input),
                 status: "running",
               });
             }
@@ -112,11 +120,19 @@ export class ClaudeStreamParser extends AgentStreamParser {
         if (Array.isArray(content)) {
           for (const block of content.filter(isObject)) {
             if (block.type !== "tool_result") continue;
+            const resText = toolResultText(block.content);
+            const bgMatch =
+              /Command running in background with ID:\s*([^\s\n\r]+)/i.exec(resText) ??
+              /Task running in background with ID:\s*([^\s\n\r]+)/i.exec(resText);
+            if (bgMatch) {
+              this.activeBackgroundTasks.add(bgMatch[1]);
+              this.isStillRunning = true;
+            }
             events.push({
               kind: "tool",
               id: str(block.tool_use_id),
               status: block.is_error === true ? "failed" : "done",
-              output: clip(toolResultText(block.content), 400),
+              output: clip(resText, 400),
             });
           }
         }
@@ -127,6 +143,9 @@ export class ClaudeStreamParser extends AgentStreamParser {
         this.queuedTurns = num(d.queued_turn_count) ?? 0;
         if (d.session_id != null) this.sessionId = String(d.session_id);
         if (typeof d.result === "string") this.result = d.result;
+        if (this.activeBackgroundTasks.size > 0) {
+          this.isStillRunning = true;
+        }
         if (d.is_error === true) {
           const message = String(d.result ?? d.subtype ?? "error");
           this.addError(message);
@@ -242,13 +261,18 @@ export class CodexStreamParser extends AgentStreamParser {
             break;
           case "command_execution": {
             const exit = num(item.exit_code);
+            const cmd = str(item.command) ?? "";
+            const outText = str(item.aggregated_output) ?? "";
+            if (/\b(?:nohup|screen|tmux|daemon)\b|&\s*$/i.test(cmd) || /(?:started in background|running in background)/i.test(outText)) {
+              this.isStillRunning = true;
+            }
             events.push({
               kind: "tool",
               id: str(item.id),
               name: "Shell",
-              detail: clip(firstLine(codexCommand(str(item.command) ?? "")), 200),
+              detail: clip(firstLine(codexCommand(cmd)), 200),
               status: running(exit !== undefined && exit !== 0),
-              ...(done ? { output: clip(str(item.aggregated_output) ?? "", 400) } : {}),
+              ...(done ? { output: clip(outText, 400) } : {}),
             });
             break;
           }

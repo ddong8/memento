@@ -585,14 +585,16 @@ async def device_websocket_endpoint(
                                 select(DeviceTask).where(DeviceTask.id == tid_uuid)
                             )).scalar_one_or_none()
                             if t and t.status != "cancelled":
-                                t.status = data.get("status", "succeeded")
+                                new_status = data.get("status", "succeeded")
+                                t.status = new_status
                                 t.exit_code = data.get("exit_code")
                                 t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
                                 t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
                                 t.error = data.get("error")
                                 if isinstance(data.get("events"), list):
                                     t.events = data["events"][:400]
-                                t.finished_at = datetime.now(timezone.utc)
+                                if new_status != "still_running":
+                                    t.finished_at = datetime.now(timezone.utc)
                                 await db.commit()
                     except Exception as e:
                         logger.exception("Error saving WS finished task %s: %s", tid_str, e)

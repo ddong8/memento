@@ -116,6 +116,73 @@ export function isSessionNotFound(text: string): boolean {
   );
 }
 
+/**
+ * Checks whether an agent or process exited while its background subtasks or
+ * daemons are still actively running.
+ */
+export function detectStillRunning(
+  stdout: string,
+  stderr: string,
+  parser: AgentStreamParser | undefined,
+  exitCode: number,
+): boolean {
+  if (parser?.isStillRunning) return true;
+  if (stdout.includes("STATUS_STILL_RUNNING") || stderr.includes("STATUS_STILL_RUNNING")) return true;
+
+  if (exitCode !== 0) return false;
+
+  const combined = `${stdout}\n${stderr}`;
+
+  const bgPatterns = [
+    /Tool is running as a background task/i,
+    /The command was sent to the background as a task/i,
+    /running as a background task with task id/i,
+    /Command running in background with ID:/i,
+    /Task running in background with ID:/i,
+    /⏳\s*\[(?:等待后台任务|后台任务启动|后台任务运行中)/i,
+    /(?:已转入|仍在|正在|已置于|提交至)后台(?:运行|执行|持续执行)/i,
+    /(?:后台任务|后台进程)(?:已启动|正在执行|仍在运行|未完成)/i,
+    /(?:is |still )running in the background/i,
+    /background task (?:started|is running|in progress)/i,
+    /Agent \S+ running in background/i,
+    /Subagent \S+ is running in the background/i,
+  ];
+
+  let hasBg = false;
+  let lastBgIdx = -1;
+  for (const re of bgPatterns) {
+    const matches = Array.from(combined.matchAll(new RegExp(re, "gi")));
+    for (const m of matches) {
+      hasBg = true;
+      if (m.index !== undefined && m.index > lastBgIdx) {
+        lastBgIdx = m.index;
+      }
+    }
+  }
+
+  if (!hasBg) return false;
+
+  const completionPatterns = [
+    /后台任务已(?:执行完毕|完成|结束)/i,
+    /background task (?:completed|finished|exited)/i,
+    /✅\s*\[后台任务 \S+ 执行完毕/i,
+  ];
+
+  let lastCompIdx = -1;
+  for (const re of completionPatterns) {
+    const matches = Array.from(combined.matchAll(new RegExp(re, "gi")));
+    for (const m of matches) {
+      if (m.index !== undefined && m.index > lastCompIdx) {
+        lastCompIdx = m.index;
+      }
+    }
+  }
+
+  if (lastCompIdx > lastBgIdx) return false;
+
+  return true;
+}
+
 const isDir = (p: string) => {
   try {
     return statSync(p).isDirectory();
@@ -522,6 +589,7 @@ export class TaskRunner {
       if (answer) fullOut = answer;
       const streamErrors = parser?.errors.trim() ?? "";
       const timedOut = exitCode === TIMED_OUT;
+      const isStillRunning = !timedOut && detectStillRunning(out.stdout, fullErr, parser, exitCode);
       const promptTooLong = errScan().includes("Prompt is too long") || fullOut.includes("Prompt is too long");
 
       const sid =
@@ -540,7 +608,7 @@ export class TaskRunner {
       this.send(
         taskFinishedMessage({
           taskId,
-          status: timedOut ? "timeout" : exitCode === 0 ? "succeeded" : "failed",
+          status: timedOut ? "timeout" : isStillRunning ? "still_running" : exitCode === 0 ? "succeeded" : "failed",
           exitCode,
           stdout: fullOut,
           stderr: fullErr,

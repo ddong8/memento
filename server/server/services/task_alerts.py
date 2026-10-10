@@ -107,6 +107,14 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             )).scalar_one_or_none()
         if task is None or task.action != "agent":
             return
+        if status == "still_running":
+            title = "⏳ 任务已转入后台运行"
+            body = f"{display_device_name(device_name)}：{_task_summary(task)}（后台任务正在执行中）"
+            await notify_service.notify_user(
+                task.user_id, "task_running", title, body, url=notify_service.task_link(task_id),
+            )
+            return
+
         title = {"succeeded": "✅ 任务完成", "timeout": "⏱️ 任务超时"}.get(status or "", "❌ 任务失败")
         body = f"{display_device_name(device_name)}：{_task_summary(task)}"
         if task.alerts:

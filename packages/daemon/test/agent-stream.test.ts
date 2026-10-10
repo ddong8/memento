@@ -113,3 +113,24 @@ it("event log keeps one row per tool and caps its size", () => {
   expect(log.events).toHaveLength(2);
   expect(log.events[0]).toMatchObject({ name: "Bash", status: "done" });
 });
+
+describe("Background task detection", () => {
+  it("Claude detects background bash command", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed('{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm run build","run_in_background":true}}]}}');
+    expect(parser.isStillRunning).toBe(true);
+
+    parser.feed('{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: bg-998"}]}}');
+    expect(parser.activeBackgroundTasks.has("bg-998")).toBe(true);
+
+    parser.feed('{"type":"result","result":"已在后台启动构建任务"}');
+    expect(parser.isStillRunning).toBe(true);
+  });
+
+  it("Codex detects background nohup execution", () => {
+    const parser = new CodexStreamParser();
+    parser.feed('{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"nohup python train.py &","aggregated_output":"[1] 12345","exit_code":0,"status":"completed"}}');
+    expect(parser.isStillRunning).toBe(true);
+  });
+});
+

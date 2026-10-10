@@ -1983,10 +1983,13 @@ async def _direct_agent_stream(
                     summary_text = f"{stdout}\n\n> 💡 *[阶段工具排查已完成，正在生成结论。如未显示完整回复，请发送“继续”]*"
                 else:
                     summary_text = stdout
+            elif status == "still_running":
+                if stdout:
+                    summary_text = f"{stdout}\n\n> ⏳ *[原始工具后台任务仍在持续执行中，请稍候]*"
+                else:
+                    summary_text = "⏳ 任务已转入后台持续执行中。"
             elif status == "succeeded" or exit_code == 0:
                 summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
-            elif status == "still_running":
-                summary_text = "⏳ 任务仍在后台运行中。"
             else:
                 summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
         else:

@@ -279,15 +279,27 @@ def main():
     idle_count = 0
     completed = False
     last_error_message = ""
+    active_background_tasks = set()
+    tasks_dir = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id / ".system_generated" / "tasks"
+
     with open(transcript_file, "r", encoding="utf-8") as f:
         if start_pos > 0:
             f.seek(start_pos)
 
         while True:
             if time.time() - start_time > args.timeout:
-                sys.stderr.write(f"\n[Agent timeout: 任务执行已达到安全上限（{args.timeout}s）]\n")
-                sys.stderr.flush()
-                sys.exit(124)
+                if active_background_tasks:
+                    tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
+                    sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
+                    sys.stderr.write(f"\n⏳ [任务在后台持续执行中（{tid_names}），达到单次等待上限（{args.timeout}s），保持后台运行]\n")
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    completed = True
+                    break
+                else:
+                    sys.stderr.write(f"\n[Agent timeout: 任务执行已达到安全上限（{args.timeout}s）]\n")
+                    sys.stderr.flush()
+                    sys.exit(124)
 
             line = f.readline()
             if not line:
@@ -298,9 +310,12 @@ def main():
                     sys.stderr.flush()
                     sys.exit(1)
                 if idle_count > 1200:  # 4 minutes idle timeout
-                    sys.stderr.write("\n[Agent timeout: 任务空闲超过 240s 无响应]\n")
-                    sys.stderr.flush()
-                    sys.exit(124)
+                    if active_background_tasks:
+                        idle_count = 0
+                    else:
+                        sys.stderr.write("\n[Agent timeout: 任务空闲超过 240s 无响应]\n")
+                        sys.stderr.flush()
+                        sys.exit(124)
                 continue
 
             idle_count = 0
@@ -317,6 +332,42 @@ def main():
             step_type = data.get("type")
             content = data.get("content") or ""
             tool_calls = data.get("tool_calls") or []
+
+            # Check if any background task was spawned
+            m_bg = re.search(r"Tool is running as a background task with task id:\s*([^\s\n\r]+)", content)
+            if m_bg:
+                bg_tid = m_bg.group(1).strip()
+                active_background_tasks.add(bg_tid)
+                tid_clean = bg_tid.split("/")[-1]
+                sys.stdout.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
+                sys.stdout.flush()
+                idle_count = 0
+
+            # Check if any active background task finished
+            for bg_tid in list(active_background_tasks):
+                tid_clean = bg_tid.split("/")[-1]
+                if (tid_clean in content or bg_tid in content) and any(kw in content for kw in (
+                    "finished with result", "The command exited with code", "Timer fired", "Status: DONE"
+                )):
+                    active_background_tasks.discard(bg_tid)
+                    sys.stdout.write(f"\n✅ [后台任务 {tid_clean} 执行完毕，已接收运行结果]\n\n")
+                    sys.stdout.flush()
+                    idle_count = 0
+                elif tasks_dir.exists():
+                    log_path = tasks_dir / f"{tid_clean}.log"
+                    if log_path.exists():
+                        try:
+                            if log_path.stat().st_size > 0:
+                                with open(log_path, "rb") as lf:
+                                    lf.seek(max(0, log_path.stat().st_size - 1024))
+                                    tail_bytes = lf.read().decode("utf-8", errors="ignore")
+                                    if any(kw in tail_bytes for kw in ("The command exited with code", "Timer fired")):
+                                        active_background_tasks.discard(bg_tid)
+                                        sys.stdout.write(f"\n✅ [后台任务 {tid_clean} 执行完毕，已接收运行结果]\n\n")
+                                        sys.stdout.flush()
+                                        idle_count = 0
+                        except Exception:
+                            pass
 
             # Filter out non-model steps and internal tool output dumps
             if step_type in ("USER_INPUT", "CHECKPOINT", "GENERIC", "SYSTEM_MESSAGE"):
@@ -358,9 +409,15 @@ def main():
                     sys.stdout.flush()
 
                     if not tool_calls:
-                        # Final response produced, turn completed!
-                        completed = True
-                        break
+                        if not active_background_tasks:
+                            # Final response produced and no active background task, turn completed!
+                            completed = True
+                            break
+                        else:
+                            tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
+                            sys.stdout.write(f"\n⏳ [等待后台任务 {tid_names} 完成...]\n\n")
+                            sys.stdout.flush()
+                            idle_count = 0
 
     if not completed:
         sys.exit(124)
@@ -368,3 +425,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

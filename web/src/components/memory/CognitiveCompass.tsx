@@ -78,7 +78,7 @@ export default function CognitiveCompass({ currentTab, variant = "full", summary
               >
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: p.color }} />
                 <span>{p.title}</span>
-                <span className="text-[10px] text-[var(--aurora-fg4)] font-mono hidden sm:inline">
+                <span className="text-[10px] text-[var(--aurora-fg4)] font-normal hidden sm:inline">
                   · {p.tagline}
                 </span>
               </Link>
@@ -86,7 +86,7 @@ export default function CognitiveCompass({ currentTab, variant = "full", summary
           })}
         </div>
 
-        <div className="hidden lg:flex items-center gap-2 text-[10px] font-mono text-[var(--aurora-fg4)] shrink-0">
+        <div className="hidden lg:flex items-center gap-2 text-[10px] font-medium text-[var(--aurora-fg4)] shrink-0">
           <span>记忆输入</span>
           <span className="opacity-40">→</span>
           <span>提炼</span>

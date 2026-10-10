@@ -71,7 +71,7 @@ function createTextSprite(text: string, colorHex: string): THREE.Sprite {
 
     // High contrast crisp text
     ctx.fillStyle = "#FFFFFF";
-    ctx.font = "bold 20px ui-sans-serif, system-ui, sans-serif";
+    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     const truncated = text.length > 12 ? text.slice(0, 11) + "…" : text;
@@ -685,7 +685,7 @@ export default function MemoryGalaxy3D({
         <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
           <div className="flex items-center gap-1.5 bg-black/65 backdrop-blur-xl px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-white/10 shadow-lg pointer-events-auto shrink-0">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-[#38BDF8] animate-ping" />
-            <span className="text-[11px] sm:text-xs font-bold text-white font-mono tracking-wide">
+            <span className="text-[11px] sm:text-xs font-bold text-white tracking-wide">
               <span className="sm:hidden">🌌 </span>
               <span className="hidden sm:inline">3D 认知星云 · </span>
               {activeNodes.length}
@@ -709,7 +709,7 @@ export default function MemoryGalaxy3D({
                     borderColor: filterType === f.id ? f.color : "transparent",
                     color: filterType === f.id ? "#FFFFFF" : "rgba(255,255,255,0.7)",
                   }}
-                  className="px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-mono border transition-all hover:text-white shrink-0 whitespace-nowrap"
+                  className="px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-medium border transition-all hover:text-white shrink-0 whitespace-nowrap"
                 >
                   {f.label}
                 </button>
@@ -722,7 +722,7 @@ export default function MemoryGalaxy3D({
         <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
           <button
             onClick={() => setIsRotating((v) => !v)}
-            className={`px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium transition-all backdrop-blur-md border flex items-center gap-1 ${
+            className={`px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium transition-all backdrop-blur-md border flex items-center gap-1 ${
               isRotating
                 ? "bg-[#8B5CF6]/30 text-[#C084FC] border-[#8B5CF6]/50 shadow-xs"
                 : "bg-black/50 text-white/70 border-white/10 hover:text-white"
@@ -740,7 +740,7 @@ export default function MemoryGalaxy3D({
               }
               resetCameraRef.current?.();
             }}
-            className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-medium backdrop-blur-md border bg-black/50 text-white/70 border-white/10 hover:text-white flex items-center gap-1"
+            className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-medium backdrop-blur-md border bg-black/50 text-white/70 border-white/10 hover:text-white flex items-center gap-1"
             title="重置视角对焦"
           >
             <span className="text-xs">🎯</span>
@@ -750,7 +750,7 @@ export default function MemoryGalaxy3D({
           {onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
-              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-mono font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-black/65 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center gap-1 shadow-md transition-all active:scale-95"
               title={isPanelCollapsed ? "打开侧边面板" : "让 3D 认知星云铺满整屏"}
             >
               <span className="text-xs">{isPanelCollapsed ? "⧉" : "⛶"}</span>
@@ -806,7 +806,7 @@ export default function MemoryGalaxy3D({
 
       {/* Bottom Floating Legend Dock */}
       <div className="relative z-10 pb-3 px-3 flex justify-center pointer-events-auto">
-        <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[10px] font-mono">
+        <div className="bg-black/65 backdrop-blur-xl border border-white/10 rounded-2xl p-1 shadow-2xl flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[10px] font-medium">
           <span className="text-white/40 px-2">图例:</span>
           {Object.entries(TYPE_COLOR_HEX).map(([k, hex]) => (
             <div

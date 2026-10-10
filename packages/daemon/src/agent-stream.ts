@@ -124,7 +124,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
             const bgMatch =
               /Command running in background with ID:\s*([^\s\n\r]+)/i.exec(resText) ??
               /Task running in background with ID:\s*([^\s\n\r]+)/i.exec(resText);
-            if (bgMatch) {
+            if (bgMatch && bgMatch[1]) {
               this.activeBackgroundTasks.add(bgMatch[1]);
               this.isStillRunning = true;
             }

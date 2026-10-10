@@ -27,7 +27,7 @@ export function parseTaskDispatch(json: Record<string, unknown>): TaskDispatch {
 
 export interface TaskFinished {
   taskId: string;
-  status: "succeeded" | "failed" | "timeout";
+  status: "succeeded" | "failed" | "timeout" | "still_running";
   exitCode?: number;
   stdout?: string;
   stderr?: string;

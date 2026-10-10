@@ -20,6 +20,8 @@ export interface CollectorConfig {
   extraWatchDirs: string[];
   /** Where the web app is when it isn't on the server's own origin (self-hosted: :3001 next to the API on :8001). */
   webUrl?: string;
+  /** Last visited route in the client (e.g. /app, /ask, /inbox) to restore on relaunch. */
+  lastRoute?: string;
 }
 
 export const DEFAULT_SERVER_URL = "https://mem.ihasy.com";

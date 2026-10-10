@@ -1593,7 +1593,15 @@ function AskPageContent() {
   loadConversationsRef.current = loadConversations;
 
   useEffect(() => {
-    loadConversationsRef.current();
+    // If not currently on the /ask route (e.g. view is kept alive in background),
+    // do NOT trigger checkAndRestore or re-fetch conversations!
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/ask")) {
+      return;
+    }
+
+    if (conversations.length === 0) {
+      loadConversationsRef.current();
+    }
 
     const checkAndRestore = async () => {
       // Determine target conversation ID:

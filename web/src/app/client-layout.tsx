@@ -63,6 +63,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 }
 
 import { SidebarProvider, useSidebar } from "@/lib/sidebar-context";
+import RouteKeepAlive from "@/components/layout/RouteKeepAlive";
 
 function AppShellInner({
   sidebarOpen,
@@ -80,7 +81,9 @@ function AppShellInner({
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className={`transition-all duration-200 ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} />
-        <main className="pt-16 px-2 pb-2 sm:pt-20 sm:px-4 sm:pb-4 md:px-6 md:pb-6">{children}</main>
+        <main className="pt-16 px-2 pb-2 sm:pt-20 sm:px-4 sm:pb-4 md:px-6 md:pb-6">
+          <RouteKeepAlive>{children}</RouteKeepAlive>
+        </main>
       </div>
     </div>
   );

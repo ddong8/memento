@@ -26,8 +26,15 @@ export default function HandoffPage() {
     const next = params.get("next");
     // Only allow same-origin relative paths — reject "//host" and "/\host"
     // (browsers normalize backslash to slash, making it protocol-relative).
-    const dest =
-      next && next.startsWith("/") && !/^\/[/\\]/.test(next) ? next : "/ask";
+    let savedLastRoute: string | null = null;
+    try {
+      savedLastRoute = localStorage.getItem("memento_last_route");
+    } catch {}
+
+    const hasExplicitNext = next && next !== "/" && next.startsWith("/") && !/^\/[/\\]/.test(next);
+    const dest = hasExplicitNext
+      ? next
+      : (savedLastRoute && savedLastRoute.startsWith("/") && !/^\/[/\\]/.test(savedLastRoute) ? savedLastRoute : "/ask");
 
     if (!token) {
       setFailed(true);

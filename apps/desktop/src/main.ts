@@ -103,9 +103,22 @@ async function adoptWebLogin(): Promise<void> {
   }
 }
 
-async function loadApp(target = "/ask"): Promise<void> {
+async function adoptWebLoginAndRoute(): Promise<void> {
+  await adoptWebLogin();
+  if (!win || win.isDestroyed()) return;
+  try {
+    const route = (await win.webContents.executeJavaScript('localStorage.getItem("memento_last_route")', true)) as string | null;
+    if (route && route !== config.lastRoute && route.startsWith("/") && !route.startsWith("/auth/")) {
+      config = { ...config, lastRoute: route };
+      void saveConfig(config);
+    }
+  } catch {}
+}
+
+async function loadApp(target?: string): Promise<void> {
   if (!win) return;
-  const url = (await handoffUrl(target)) ?? `${serverOrigin()}${target}`;
+  const route = target || config.lastRoute || "/";
+  const url = (await handoffUrl(route)) ?? `${serverOrigin()}${route}`;
   try {
     await win.loadURL(url);
   } catch {
@@ -149,8 +162,8 @@ function createWindow(show: boolean): void {
     event.preventDefault();
     void shell.openExternal(url);
   });
-  win.webContents.on("did-navigate-in-page", () => void adoptWebLogin());
-  win.webContents.on("did-finish-load", () => void adoptWebLogin());
+  win.webContents.on("did-navigate-in-page", () => void adoptWebLoginAndRoute());
+  win.webContents.on("did-finish-load", () => void adoptWebLoginAndRoute());
   win.webContents.on("did-fail-load", (_e, code, _desc, url, isMainFrame) => {
     if (isMainFrame && code !== -3 && url.startsWith(serverOrigin())) {
       void win?.loadFile(join(__dirname, "static", "offline.html"), { query: { server: serverOrigin() } });
@@ -168,10 +181,11 @@ function createWindow(show: boolean): void {
   void loadApp();
 }
 
-async function navigateApp(path = "/ask"): Promise<void> {
+async function navigateApp(path?: string): Promise<void> {
+  const targetPath = path || config.lastRoute || "/";
   if (!win || win.isDestroyed()) {
     createWindow(true);
-    await loadApp(path);
+    await loadApp(targetPath);
     return;
   }
   win.show();
@@ -181,7 +195,7 @@ async function navigateApp(path = "/ask"): Promise<void> {
     if (cur.startsWith(serverOrigin())) {
       const script = `(() => {
         if (typeof window.__memento_client_push === "function") {
-          window.__memento_client_push(${JSON.stringify(path)});
+          window.__memento_client_push(${JSON.stringify(targetPath)});
           return true;
         }
         return false;
@@ -192,11 +206,21 @@ async function navigateApp(path = "/ask"): Promise<void> {
   } catch {
     // fallback to loadApp
   }
-  await loadApp(path);
+  await loadApp(targetPath);
 }
 
 function showWindow(path?: string): void {
-  void navigateApp(path || "/ask");
+  if (path) {
+    void navigateApp(path);
+  } else {
+    // Restore window while preserving user's current view
+    if (!win || win.isDestroyed()) {
+      createWindow(true);
+      return;
+    }
+    win.show();
+    win.focus();
+  }
 }
 
 function toggleButlerWindow(): void {

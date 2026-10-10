@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import ssl from "node:tls";
 import https from "node:https";
 
 import { homeDir } from "./config.js";
@@ -29,6 +28,7 @@ export interface ToolQuotaInfo {
   reset_time?: string | null;
   models?: QuotaModelItem[];
   error?: string;
+  details?: Record<string, unknown>;
 }
 
 export interface DeviceQuotasReport {
@@ -72,7 +72,7 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
         tool: "antigravity",
         name: "Google Antigravity",
         available: false,
-        error: "Antigravity 服务未运行",
+        error: "Antigravity 本地服务未运行",
       };
     }
 
@@ -125,17 +125,24 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
         for (const m of rawModels) {
           const qi = m.quotaInfo;
           if (qi && typeof qi.remainingFraction === "number") {
+            const fraction = Math.max(0, Math.min(1, qi.remainingFraction));
             models.push({
               label: m.label || m.modelId || "Model",
               model_id: m.modelId || "",
-              remaining_fraction: qi.remainingFraction,
-              remaining_percent: Math.round(qi.remainingFraction * 1000) / 10,
+              remaining_fraction: fraction,
+              remaining_percent: Math.round(fraction * 1000) / 10,
               reset_time: qi.resetTime,
             });
           }
         }
 
-        const primary = models[0];
+        // 确定主力模型的真实剩余配额：优先选择推荐模型或最常用的 Flash/Pro 模型
+        let primary = models.find((m) => m.label.includes("3.8 Flash") || m.label.includes("Flash (Medium)"));
+        if (!primary) primary = models[0];
+
+        const planStatus = us.planStatus || {};
+        const planInfo = planStatus.planInfo || {};
+
         return {
           tool: "antigravity",
           name: "Google Antigravity",
@@ -143,11 +150,17 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
           logged_in: true,
           account_name: us.name || "Google 用户",
           account_email: us.email || "",
-          plan_name: us.userTier?.name || us.planStatus?.planInfo?.planName || "Google AI Pro",
-          tier: us.planStatus?.planInfo?.teamsTier || "PRO",
-          remaining_percent: primary ? primary.remaining_percent : 100,
+          plan_name: us.userTier?.name || planInfo.planName || "Google AI Pro",
+          tier: planInfo.teamsTier || "PRO",
+          remaining_percent: primary ? primary.remaining_percent : null,
           reset_time: primary ? primary.reset_time : null,
           models,
+          details: {
+            available_prompt_credits: planStatus.availablePromptCredits,
+            monthly_prompt_credits: planInfo.monthlyPromptCredits,
+            available_flow_credits: planStatus.availableFlowCredits,
+            monthly_flow_credits: planInfo.monthlyFlowCredits,
+          },
         };
       } catch {
         // next port
@@ -170,57 +183,111 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
   }
 }
 
-/** Probe Claude Code for active subscription & account info. */
+/** Probe Claude Code for active subscription & account info with real usage utilization. */
 export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaInfo> {
   try {
+    const cJsonPath = join(home, ".claude.json");
+    if (existsSync(cJsonPath)) {
+      try {
+        const raw = await readFile(cJsonPath, "utf8");
+        const d = JSON.parse(raw);
+        const oauth = d.oauthAccount || {};
+        const usage = d.cachedUsageUtilization || {};
+        const ut = usage.utilization || {};
+        const limits: any[] = ut.limits || [];
+
+        const sevenDayUtil = typeof ut.seven_day?.utilization === "number" ? ut.seven_day.utilization : null;
+        const fiveHourUtil = typeof ut.five_hour?.utilization === "number" ? ut.five_hour.utilization : null;
+        const weeklyLimit = limits.find((l: any) => l.group === "weekly" || l.kind === "weekly_all");
+        const sessionLimit = limits.find((l: any) => l.group === "session" || l.kind === "session");
+
+        // 真实剩余额度计算：依据最严格的滑动窗口用量（如7天消耗97%，则剩余3%）
+        let remainingPercent: number | null = null;
+        if (sevenDayUtil != null) {
+          remainingPercent = Math.max(0, Math.min(100, Math.round((100 - sevenDayUtil) * 10) / 10));
+        } else if (fiveHourUtil != null) {
+          remainingPercent = Math.max(0, Math.min(100, Math.round((100 - fiveHourUtil) * 10) / 10));
+        }
+
+        const resetTime = weeklyLimit?.resets_at || ut.seven_day?.resets_at || sessionLimit?.resets_at || null;
+        const planName =
+          oauth.organizationType === "claude_pro"
+            ? "Claude Pro"
+            : oauth.organizationType
+              ? `Claude ${oauth.organizationType}`
+              : "Claude 订阅";
+        const tier = (oauth.organizationRateLimitTier || "PRO").toUpperCase();
+
+        const fraction = remainingPercent != null ? remainingPercent / 100 : 1;
+        const models: QuotaModelItem[] = [
+          {
+            label: "Claude Sonnet 4.6 (Thinking)",
+            model_id: "claude-sonnet-4-6",
+            remaining_fraction: fraction,
+            remaining_percent: remainingPercent != null ? remainingPercent : 100,
+            reset_time: resetTime,
+          },
+          {
+            label: "Claude Opus 4.6",
+            model_id: "claude-opus-4-6",
+            remaining_fraction: fraction,
+            remaining_percent: remainingPercent != null ? remainingPercent : 100,
+            reset_time: resetTime,
+          },
+          {
+            label: "Claude Haiku 4.5",
+            model_id: "claude-haiku-4-5",
+            remaining_fraction: 1,
+            remaining_percent: 100,
+          },
+        ];
+
+        return {
+          tool: "claude_code",
+          name: "Claude Code",
+          available: true,
+          logged_in: Boolean(oauth.accountUuid || d.userID),
+          account_email: oauth.emailAddress || "",
+          account_name: oauth.displayName || oauth.fullName || oauth.organizationName || "",
+          plan_name: planName,
+          tier,
+          remaining_percent: remainingPercent,
+          reset_time: resetTime,
+          models,
+          details: {
+            seven_day_utilization: sevenDayUtil,
+            five_hour_utilization: fiveHourUtil,
+            severity: weeklyLimit?.severity || "normal",
+            has_available_subscription: d.hasAvailableSubscription,
+          },
+        };
+      } catch (err: any) {
+        // fallback to CLI probe
+      }
+    }
+
     const claudeBin = await findExecutable(["claude", "claude-code"]);
     if (claudeBin) {
       const res = await run(claudeBin, ["auth", "status"], 4000);
       if (res.code === 0 && res.stdout.includes("{")) {
-        try {
-          const parsed = JSON.parse(res.stdout);
-          const subType = (parsed.subscriptionType || "pro").toUpperCase();
-          return {
-            tool: "claude_code",
-            name: "Claude Code",
-            available: true,
-            logged_in: Boolean(parsed.loggedIn),
-            account_email: parsed.email || "",
-            account_name: parsed.orgName || parsed.email || "",
-            plan_name: `Claude ${subType}`,
-            tier: subType,
-            remaining_percent: parsed.loggedIn ? 100 : 0,
-            reset_time: null,
-            models: [
-              { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
-              { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
-              { label: "Claude Haiku 4.5", model_id: "claude-haiku-4-5", remaining_fraction: 1, remaining_percent: 100 },
-            ],
-          };
-        } catch {}
+        const parsed = JSON.parse(res.stdout);
+        const subType = (parsed.subscriptionType || "pro").toUpperCase();
+        return {
+          tool: "claude_code",
+          name: "Claude Code",
+          available: true,
+          logged_in: Boolean(parsed.loggedIn),
+          account_email: parsed.email || "",
+          account_name: parsed.orgName || parsed.email || "",
+          plan_name: `Claude ${subType}`,
+          tier: subType,
+          remaining_percent: null,
+          models: [
+            { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
+            { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
+          ],
+        };
       }
-    }
-
-    // Fallback: inspect ~/.claude.json
-    const cJsonPath = join(home, ".claude.json");
-    if (existsSync(cJsonPath)) {
-      const raw = await readFile(cJsonPath, "utf8");
-      const d = JSON.parse(raw);
-      return {
-        tool: "claude_code",
-        name: "Claude Code",
-        available: true,
-        logged_in: true,
-        account_email: d.email || "",
-        plan_name: "Claude Pro",
-        tier: "PRO",
-        remaining_percent: 100,
-        models: [
-          { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
-          { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
-          { label: "Claude Haiku 4.5", model_id: "claude-haiku-4-5", remaining_fraction: 1, remaining_percent: 100 },
-        ],
-      };
     }
 
     return {
@@ -266,22 +333,53 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         } catch {}
       }
 
+      // 从真实 models_cache.json 提取模型清单
+      const modelsCachePath = join(home, ".codex", "models_cache.json");
+      const models: QuotaModelItem[] = [];
+      if (existsSync(modelsCachePath)) {
+        try {
+          const mc = JSON.parse(await readFile(modelsCachePath, "utf8"));
+          const rawModels = mc.models || [];
+          for (const rm of rawModels) {
+            const mId = rm.slug || rm.id || "";
+            const mTitle = rm.title || rm.display_name || mId;
+            if (mId) {
+              models.push({
+                label: mTitle,
+                model_id: mId,
+                remaining_fraction: 1,
+                remaining_percent: 100,
+              });
+            }
+          }
+        } catch {}
+      }
+
       const planDisplay = planType.charAt(0).toUpperCase() + planType.slice(1);
+      const isFree = planType.toLowerCase() === "free";
+
       return {
         tool: "codex",
         name: "OpenAI Codex",
         available: true,
         logged_in: true,
         account_email: email,
-        account_name: name || email,
+        account_name: name || email || "OpenAI 用户",
         plan_name: `ChatGPT ${planDisplay}`,
         tier: planType.toUpperCase(),
-        remaining_percent: 100,
-        models: [
-          { label: "GPT-5 (Codex Reasoning)", model_id: "gpt-5-codex", remaining_fraction: 1, remaining_percent: 100 },
-          { label: "GPT-5 mini", model_id: "gpt-5-mini", remaining_fraction: 1, remaining_percent: 100 },
-          { label: "o3-mini (High Effort)", model_id: "o3-mini", remaining_fraction: 1, remaining_percent: 100 },
-        ],
+        // Free 计划按动态速率轮转，无静态百分比，标记 null 避免虚报 100%
+        remaining_percent: isFree ? null : 100,
+        reset_time: null,
+        models:
+          models.length > 0
+            ? models
+            : [
+                { label: "GPT-6 (Luna)", model_id: "gpt-6-luna", remaining_fraction: 1, remaining_percent: 100 },
+                { label: "GPT-5.6 (Terra)", model_id: "gpt-5.6-terra", remaining_fraction: 1, remaining_percent: 100 },
+              ],
+        details: {
+          is_free_tier: isFree,
+        },
       };
     }
 

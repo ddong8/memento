@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { api, type AgentQuotasResponse, type ToolQuotaInfo } from "@/lib/api-client";
-import { Glass, Btn, Chip } from "@/components/aurora/primitives";
+import { Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 
 interface AgentQuotaPopoverProps {
@@ -21,10 +21,32 @@ function formatRelativeReset(isoStr?: string | null): string {
     if (mins < 60) return `${mins} 分钟后重置`;
     const hours = Math.floor(mins / 60);
     const remMins = mins % 60;
-    return `${hours} 小时 ${remMins} 分钟后重置`;
+    if (hours < 24) return `${hours} 小时 ${remMins} 分钟后重置`;
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return `${days} 天 ${remHours} 小时后重置`;
   } catch {
     return "";
   }
+}
+
+function getQuotaColor(percent: number): { text: string; gradient: string } {
+  if (percent <= 15) {
+    return {
+      text: "#EF4444",
+      gradient: "linear-gradient(90deg, #EF4444, #DC2626)",
+    };
+  }
+  if (percent <= 35) {
+    return {
+      text: "#F59E0B",
+      gradient: "linear-gradient(90deg, #F59E0B, #D97706)",
+    };
+  }
+  return {
+    text: "var(--aurora-accent, #38BDF8)",
+    gradient: "linear-gradient(90deg, #38BDF8, #818CF8)",
+  };
 }
 
 export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopoverProps) {
@@ -32,7 +54,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedAgy, setExpandedAgy] = useState(true);
-  const [expandedClaude, setExpandedClaude] = useState(false);
+  const [expandedClaude, setExpandedClaude] = useState(true);
   const [expandedCodex, setExpandedCodex] = useState(false);
   const [, startTransition] = useTransition();
 
@@ -87,9 +109,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
         style={{
           position: "absolute",
           inset: 0,
-          background: "rgba(0, 0, 0, 0.45)",
-          backdropFilter: "blur(4px)",
-          WebkitBackdropFilter: "blur(4px)",
+          background: "rgba(0, 0, 0, 0.5)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
         }}
       />
 
@@ -100,12 +122,12 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
         style={{
           position: "relative",
           width: "100%",
-          maxWidth: "520px",
+          maxWidth: "540px",
           maxHeight: "88vh",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          boxShadow: "0 20px 48px rgba(0, 0, 0, 0.35)",
+          boxShadow: "0 24px 50px rgba(0, 0, 0, 0.45)",
           border: "1px solid var(--aurora-border)",
           background: "var(--aurora-surface)",
           zIndex: 10,
@@ -200,7 +222,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
         </div>
 
         {/* Content list */}
-        <div style={{ padding: "18px 20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ padding: "16px 20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Tool Card: Google Antigravity */}
           <div
             style={{
@@ -236,7 +258,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     Google Antigravity
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {agy?.account_email || agy?.account_name || "已关联本地服务"}
+                    {agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}
                   </div>
                 </div>
               </div>
@@ -269,47 +291,91 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
             </div>
 
+            {/* Error or Offline Alert */}
+            {!agy?.available && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#EF4444",
+                  background: "rgba(239, 68, 68, 0.08)",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+              >
+                {agy?.error || "无法连接本地 Antigravity 语言服务，请确保已启动客户端并点击刷新。"}
+              </div>
+            )}
+
             {/* Quota Progress Bar */}
-            {agy?.remaining_percent != null && (
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                  <span style={{ color: "var(--aurora-fg3)" }}>
-                    主力模型配额 ({agy?.models?.[0]?.label || "Gemini 3.8 Flash"})
-                  </span>
-                  <span style={{ fontWeight: 600, color: agy.remaining_percent > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
-                    {agy.remaining_percent}% 剩余
-                  </span>
-                </div>
-                <div
-                  style={{
-                    height: 7,
-                    borderRadius: 999,
-                    background: "rgba(255, 255, 255, 0.08)",
-                    overflow: "hidden",
-                  }}
-                >
+            {agy?.available && agy?.remaining_percent != null && (() => {
+              const quotaColor = getQuotaColor(agy.remaining_percent);
+              return (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                    <span style={{ color: "var(--aurora-fg3)" }}>
+                      主力模型配额 ({agy?.models?.[0]?.label || "Gemini 3.8 Flash"})
+                    </span>
+                    <span style={{ fontWeight: 600, color: quotaColor.text }}>
+                      {agy.remaining_percent}% 剩余
+                    </span>
+                  </div>
                   <div
                     style={{
-                      height: "100%",
-                      width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
+                      height: 7,
                       borderRadius: 999,
-                      background: agy.remaining_percent > 30
-                        ? "linear-gradient(90deg, #38BDF8, #818CF8)"
-                        : "linear-gradient(90deg, #F59E0B, #EF4444)",
-                      transition: "width 0.4s ease",
+                      background: "rgba(255, 255, 255, 0.08)",
+                      overflow: "hidden",
                     }}
-                  />
-                </div>
-                {agy.reset_time && (
-                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
-                    ⏳ {formatRelativeReset(agy.reset_time)}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
+                        borderRadius: 999,
+                        background: quotaColor.gradient,
+                        transition: "width 0.4s ease",
+                      }}
+                    />
                   </div>
-                )}
+                  {agy.reset_time && (
+                    <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
+                      ⏳ {formatRelativeReset(agy.reset_time)}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Antigravity Credits details */}
+            {agy?.available && agy?.details && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "rgba(0, 0, 0, 0.12)",
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>Prompt Credits</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                    {agy.details.available_prompt_credits ?? "-"} / {agy.details.monthly_prompt_credits ?? "-"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>Flow Credits</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                    {agy.details.available_flow_credits ?? "-"} / {agy.details.monthly_flow_credits ?? "-"}
+                  </span>
+                </div>
               </div>
             )}
 
             {/* Models Details Accordion */}
-            {agy?.models && agy.models.length > 0 && (
+            {agy?.available && agy?.models && agy.models.length > 0 && (
               <div>
                 <button
                   type="button"
@@ -344,27 +410,30 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       overflowY: "auto",
                     }}
                   >
-                    {agy.models.map((m, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          fontSize: 11.5,
-                          padding: "2px 0",
-                        }}
-                      >
-                        <span style={{ color: "var(--aurora-fg2)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
-                          {m.label}
-                        </span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontWeight: 600, color: m.remaining_percent > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
-                            {m.remaining_percent}%
+                    {agy.models.map((m, idx) => {
+                      const mc = getQuotaColor(m.remaining_percent);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: 11.5,
+                            padding: "2px 0",
+                          }}
+                        >
+                          <span style={{ color: "var(--aurora-fg2)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
+                            {m.label}
                           </span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 600, color: mc.text }}>
+                              {m.remaining_percent}%
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -380,7 +449,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               background: "var(--aurora-card)",
               display: "flex",
               flexDirection: "column",
-              gap: 10,
+              gap: 12,
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -406,7 +475,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     Claude Code
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {claude?.account_email || "Anthropic 智能体"}
+                    {claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}
                   </div>
                 </div>
               </div>
@@ -439,21 +508,175 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
             </div>
 
-            <div style={{ fontSize: 12, color: "var(--aurora-fg3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>订阅等级：{claude?.tier || "PRO"} 计划</span>
-              <span style={{ color: "var(--aurora-fg4)" }}>5小时滑动窗口活跃</span>
-            </div>
+            {/* Error or Offline Alert */}
+            {!claude?.available && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#EF4444",
+                  background: "rgba(239, 68, 68, 0.08)",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+              >
+                {claude?.error || "未找到 Claude Code 登录凭据，请确认 CLI 已登录。"}
+              </div>
+            )}
 
-            {claude?.models && claude.models.length > 0 && (
-              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 8, marginTop: 2 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {claude.models.map((m, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5 }}>
-                      <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+            {/* Claude Code Sliding Window & Progress */}
+            {claude?.available && claude?.remaining_percent != null && (() => {
+              const quotaColor = getQuotaColor(claude.remaining_percent);
+              const sevenDay = claude.details?.seven_day_utilization;
+              const fiveHour = claude.details?.five_hour_utilization;
+              const isCritical = claude.details?.severity === "critical" || (sevenDay != null && sevenDay >= 95);
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Critical badge */}
+                  {isCritical && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "#EF4444",
+                        background: "rgba(239, 68, 68, 0.12)",
+                        border: "1px solid rgba(239, 68, 68, 0.3)",
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontWeight: 500,
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      <span>7天滑动窗口用量已达极限 (已消耗 {sevenDay ?? 97}%)，面临速率限制</span>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Dual Sliding Windows */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 8,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(0, 0, 0, 0.12)",
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口已用</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg2)" }}>
+                        {sevenDay != null ? `${sevenDay}%` : "-"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口已用</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                        {fiveHour != null ? `${fiveHour}%` : "-"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Remaining bar */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                      <span style={{ color: "var(--aurora-fg3)" }}>综合剩余可用额度</span>
+                      <span style={{ fontWeight: 600, color: quotaColor.text }}>
+                        {claude.remaining_percent}% 剩余
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 7,
+                        borderRadius: 999,
+                        background: "rgba(255, 255, 255, 0.08)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(100, Math.max(0, claude.remaining_percent))}%`,
+                          borderRadius: 999,
+                          background: quotaColor.gradient,
+                          transition: "width 0.4s ease",
+                        }}
+                      />
+                    </div>
+                    {claude.reset_time && (
+                      <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 5, textAlign: "right" }}>
+                        ⏳ {formatRelativeReset(claude.reset_time)}
+                      </div>
+                    )}
+                  </div>
                 </div>
+              );
+            })()}
+
+            {/* Models Details Accordion */}
+            {claude?.available && claude?.models && claude.models.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedClaude(!expandedClaude)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    fontSize: 11.5,
+                    color: "var(--aurora-accent)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span>{expandedClaude ? "收起模型列表" : `查看支持模型 (${claude.models.length})`}</span>
+                  <Icon name={expandedClaude ? "chevron_up" : "chevron_down"} size={12} />
+                </button>
+
+                {expandedClaude && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(0, 0, 0, 0.15)",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {claude.models.map((m, idx) => {
+                      const mc = getQuotaColor(m.remaining_percent);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: 11.5,
+                            padding: "2px 0",
+                          }}
+                        >
+                          <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                          <span style={{ fontWeight: 600, color: mc.text }}>
+                            {m.remaining_percent}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -467,7 +690,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               background: "var(--aurora-card)",
               display: "flex",
               flexDirection: "column",
-              gap: 10,
+              gap: 12,
             }}
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -493,7 +716,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     OpenAI Codex
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : "Codex 智能体"}
+                    {codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}
                   </div>
                 </div>
               </div>
@@ -526,21 +749,101 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
             </div>
 
-            <div style={{ fontSize: 12, color: "var(--aurora-fg3)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span>授权模式：OAuth ChatGPT Token</span>
-              <span style={{ color: "var(--aurora-fg4)" }}>实时轮转正常</span>
-            </div>
+            {/* Error or Offline Alert */}
+            {!codex?.available && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#EF4444",
+                  background: "rgba(239, 68, 68, 0.08)",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+              >
+                {codex?.error || "未找到 OpenAI Codex 凭据，请确认 CLI 已登录。"}
+              </div>
+            )}
 
-            {codex?.models && codex.models.length > 0 && (
-              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 8, marginTop: 2 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {codex.models.map((m, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5 }}>
-                      <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
-                    </div>
-                  ))}
+            {/* Codex Free or Pro Rate Details */}
+            {codex?.available && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  background: "rgba(0, 0, 0, 0.12)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: "var(--aurora-fg3)" }}>配额计费模式</span>
+                  <span style={{ fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                    {codex.remaining_percent != null ? `${codex.remaining_percent}% (固定额度)` : "动态速率限制 (Free)"}
+                  </span>
                 </div>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
+                  {codex.remaining_percent != null
+                    ? "按订阅周期固定分配算力配额。"
+                    : "ChatGPT Free 订阅依据官方动态队列与滑动速率轮转，无静态百分比限制。"}
+                </div>
+              </div>
+            )}
+
+            {/* Models Details Accordion */}
+            {codex?.available && codex?.models && codex.models.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedCodex(!expandedCodex)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    fontSize: 11.5,
+                    color: "var(--aurora-accent)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span>{expandedCodex ? "收起可用模型" : `查看可用模型 (${codex.models.length})`}</span>
+                  <Icon name={expandedCodex ? "chevron_up" : "chevron_down"} size={12} />
+                </button>
+
+                {expandedCodex && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(0, 0, 0, 0.15)",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {codex.models.map((m, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: 11.5,
+                          padding: "2px 0",
+                        }}
+                      >
+                        <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>{m.model_id}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -559,7 +862,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
             color: "var(--aurora-fg4)",
           }}
         >
-          <span>数据来源：被控设备驻留服务与原生语言服务通道</span>
+          <span>数据来源：设备驻留探测进程与语言服务实时接口</span>
           <span>{data?.updated_at ? `更新于 ${new Date(data.updated_at).toLocaleTimeString()}` : ""}</span>
         </div>
       </Glass>

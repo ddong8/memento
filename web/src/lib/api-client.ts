@@ -1006,6 +1006,7 @@ export interface ToolQuotaInfo {
   reset_time?: string | null;
   models?: QuotaModelItem[];
   error?: string;
+  details?: Record<string, any>;
 }
 
 export interface AgentQuotasResponse {

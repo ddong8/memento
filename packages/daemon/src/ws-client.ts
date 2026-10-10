@@ -200,7 +200,10 @@ export class WsTaskClient {
     this.pingTimer = setInterval(() => {
       if (!this.connected) return;
       this.sendJson({ type: "ping" });
-      if (++count % P2P_EVERY_PINGS === 0) void this.reportP2pInfo();
+      if (++count % P2P_EVERY_PINGS === 0) {
+        void this.reportP2pInfo();
+        void this.reportQuotas();
+      }
     }, PING_MS);
   }
 

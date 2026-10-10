@@ -307,7 +307,7 @@ def main():
                 time.sleep(0.2)
                 idle_count += 1
 
-                # 若存在后台任务，检查其 log 产出以判断是否仍在活跃运行
+                # 若存在后台任务，检查其 log 产出以判断是否仍在活跃运行或定时器是否已触发/提前终止
                 if active_background_tasks and tasks_dir.exists():
                     has_log_growth = False
                     for bg_t in list(active_background_tasks):
@@ -320,13 +320,22 @@ def main():
                                 if sz > prev_sz:
                                     task_log_sizes[tc] = sz
                                     has_log_growth = True
+                                if sz > 0:
+                                    with open(lp, "rb") as lf:
+                                        lf.seek(max(0, sz - 512))
+                                        tail_txt = lf.read().decode("utf-8", errors="ignore")
+                                    if "] Timer fired." in tail_txt or "] Timer cancelled:" in tail_txt:
+                                        active_background_tasks.discard(bg_t)
+                                        sys.stdout.write(f"\n✅ [后台任务 {tc} 执行完毕/已结束]\n\n")
+                                        sys.stdout.flush()
+                                        idle_count = 0
                             except Exception:
                                 pass
                     if has_log_growth:
                         idle_count = 0  # 任务日志在持续写入，说明后台进程活跃，重置空闲计时
 
                     # 处于等待期时，每 25 秒（125 次循环）向客户端输出一次保活心跳
-                    if idle_count > 0 and idle_count % 125 == 0:
+                    if active_background_tasks and idle_count > 0 and idle_count % 125 == 0:
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
                         sys.stdout.write(f"⏳ [后台任务 {tid_names} 执行中，请稍候...]\n")
                         sys.stdout.flush()
@@ -362,31 +371,47 @@ def main():
 
             source = data.get("source")
             step_type = data.get("type")
+            step_status = data.get("status")
             content = data.get("content") or ""
             tool_calls = data.get("tool_calls") or []
 
-            # Check if any background task was spawned
-            m_bg = re.search(r"(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*([^\s\n\r]+)", content, flags=re.IGNORECASE)
-            if m_bg:
-                bg_tid = m_bg.group(1).strip(" \"'.,:;\n\r")
-                active_background_tasks.add(bg_tid)
-                tid_clean = bg_tid.split("/")[-1]
-                sys.stdout.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
-                sys.stdout.flush()
-                idle_count = 0
+            # 仅在真实异步工具启动步骤（type=GENERIC, status=RUNNING）中提取 task-<数字> ID，
+            # 彻底杜绝 view_file 查看源码或 grep 搜索日志时把代码文本误识别为后台任务
+            if step_type == "GENERIC" and step_status == "RUNNING" and content.startswith("Created At:"):
+                m_bg = re.search(
+                    r"(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+/)?task-\d+)",
+                    content,
+                    flags=re.IGNORECASE,
+                )
+                if m_bg:
+                    bg_tid = m_bg.group(1).strip()
+                    active_background_tasks.add(bg_tid)
+                    tid_clean = bg_tid.split("/")[-1]
+                    sys.stdout.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
+                    sys.stdout.flush()
+                    idle_count = 0
 
             # Check if any active background task finished, failed, or was canceled
+            is_file_view = "File Path: `" in content or "The following changes were made by the " in content
             for bg_tid in list(active_background_tasks):
                 tid_clean = bg_tid.split("/")[-1]
-                matched = (tid_clean in content or bg_tid in content)
-                is_finished = matched and any(kw in content for kw in (
-                    "finished with result", "The command exited with code", "Timer fired", "Status: DONE"
-                ))
+                matched = not is_file_view and (tid_clean in content or bg_tid in content)
+                sender_matched = step_type == "SYSTEM_MESSAGE" and (
+                    f"sender={bg_tid}" in content or f"sender={tid_clean}" in content
+                )
                 is_canceled = matched and any(kw in content for kw in (
                     "was canceled", "was cancelled", "Tool execution was canceled",
                     "Tool execution was cancelled", "Status: CANCELLED", "Status: CANCELED",
-                    "Status: ERROR", "Status: FAILED", "failed with result"
+                    "Status: ERROR", "Status: FAILED", "failed with result",
+                    f'Task "{bg_tid}" cancelled', f'Task "{tid_clean}" cancelled',
                 ))
+                is_finished = (not is_canceled) and (
+                    sender_matched or (
+                        matched and any(kw in content for kw in (
+                            "finished with result", "The command exited with code", "Timer fired", "Status: DONE"
+                        ))
+                    )
+                )
                 if is_finished or is_canceled:
                     active_background_tasks.discard(bg_tid)
                     status_desc = "已取消/终止" if is_canceled else "执行完毕，已接收运行结果"
@@ -394,6 +419,22 @@ def main():
                     sys.stdout.write(f"\n{icon} [后台任务 {tid_clean} {status_desc}]\n\n")
                     sys.stdout.flush()
                     idle_count = 0
+                elif tasks_dir.exists():
+                    log_path = tasks_dir / f"{tid_clean}.log"
+                    if log_path.exists():
+                        try:
+                            sz = log_path.stat().st_size
+                            if sz > 0:
+                                with open(log_path, "rb") as lf:
+                                    lf.seek(max(0, sz - 512))
+                                    tail_bytes = lf.read().decode("utf-8", errors="ignore")
+                                if "] Timer fired." in tail_bytes or "] Timer cancelled:" in tail_bytes:
+                                    active_background_tasks.discard(bg_tid)
+                                    sys.stdout.write(f"\n✅ [后台任务 {tid_clean} 执行完毕/已结束]\n\n")
+                                    sys.stdout.flush()
+                                    idle_count = 0
+                        except Exception:
+                            pass
 
             # Filter out non-model steps and internal tool output dumps
             if step_type in ("USER_INPUT", "CHECKPOINT", "GENERIC", "SYSTEM_MESSAGE"):

@@ -136,20 +136,17 @@ export function detectStillRunning(
   // 结构化后台任务 ID 精确配对（如 Antigravity task-xxx）：
   // 若所有已启动的结构化后台任务均已收到完成/取消回执，则不受后续总结正文中的自然语言词汇干扰
   const launchedIds = new Set<string>();
-  for (const m of combined.matchAll(/(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*([^\s\n\r"'.,:;]+)/gi)) {
-    const id = m[1]?.split("/").pop();
-    if (id) launchedIds.add(id);
+  for (const m of combined.matchAll(/(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*(?:[0-9a-fA-F-]+\/)?(task-\d+)/gi)) {
+    if (m[1]) launchedIds.add(m[1]);
   }
-  for (const m of combined.matchAll(/⏳\s*\[后台任务启动:\s*([^\s\n\r，\]]+)/gi)) {
-    const id = m[1]?.split("/").pop();
-    if (id) launchedIds.add(id);
+  for (const m of combined.matchAll(/⏳\s*\[(?:后台任务启动:|等待后台任务)\s*(?:[0-9a-fA-F-]+\/)?(task-\d+)/gi)) {
+    if (m[1]) launchedIds.add(m[1]);
   }
 
   if (launchedIds.size > 0) {
     const completedIds = new Set<string>();
-    for (const m of combined.matchAll(/[✅⏹️]\s*\[后台任务\s+([^\s\n\r\]]+)\s+(?:执行完毕|已结束|已取消|已终止|已由 Agent 主动终止)/gi)) {
-      const id = m[1]?.split("/").pop();
-      if (id) completedIds.add(id);
+    for (const m of combined.matchAll(/[✅⏹️]\s*\[后台任务\s+(?:[0-9a-fA-F-]+\/)?(task-\d+)\s+(?:执行完毕|已结束|已取消|已终止|已由 Agent 主动终止)/gi)) {
+      if (m[1]) completedIds.add(m[1]);
     }
     const allFinished = Array.from(launchedIds).every((id) => completedIds.has(id));
     return !allFinished;

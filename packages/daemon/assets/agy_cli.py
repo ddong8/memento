@@ -444,15 +444,22 @@ def main():
                             break
                         else:
                             trimmed_c = content.strip()
-                            # Check whether this message is a brief transitional waiting notification
+                            # 判定是否为后台任务等待过程中的短过渡通知（如"正在执行构建..."、"稍候汇报结果"）
                             is_waiting_transition = (
-                                len(trimmed_c) < 120 and
+                                len(trimmed_c) < 250 or
                                 any(wkw in trimmed_c for wkw in (
-                                    "正在等待", "稍后", "请稍候", "持续追踪", "waiting for", "等待后台", "等待执行"
+                                    "正在", "稍后", "请稍候", "持续追踪", "waiting", "等待", "监控",
+                                    "构建", "部署", "执行", "运行", "排查", "测试", "打包", "编译",
+                                    "后台", "已启动", "已在后台", "后台运行", "后台任务", "稍候"
                                 ))
                             )
-                            if not is_waiting_transition:
-                                # Substantive final answer produced by model, turn logically completed!
+                            # 仅当模型输出了超过 250 字且明确包含结构化结论/总结的最终实质答复时，才允许在仍有守护任务时提前收尾
+                            has_structured_report = (
+                                len(trimmed_c) >= 250 and
+                                any(kw in trimmed_c for kw in ("###", "##", "根因", "修复措施", "验证结果", "总结", "发布状态", "全 Pod", "部署完成", "验证状态"))
+                            )
+                            if has_structured_report and not is_waiting_transition:
+                                # 模型确实产出了完整实质答复，剩余任务为长期独立守护进程
                                 tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
                                 sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
                                 sys.stderr.write(f"\n⏳ [本轮答复已输出，部分任务仍保持后台运行（{tid_names}）]\n")
@@ -462,7 +469,7 @@ def main():
                                 break
                             else:
                                 tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                                sys.stdout.write(f"\n⏳ [等待后台任务 {tid_names} 完成...]\n\n")
+                                sys.stdout.write(f"\n⏳ [后台任务 {tid_names} 执行中，持续追踪进度...]\n\n")
                                 sys.stdout.flush()
                                 idle_count = 0
 

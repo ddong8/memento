@@ -513,6 +513,7 @@ interface CachedAskState {
     startedAt: number;
   } | null;
   streaming?: boolean;
+  quotasData?: AgentQuotasResponse | null;
 }
 
 interface LocalConvSnapshot {
@@ -828,7 +829,7 @@ function AskPageContent() {
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
-  const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(null);
+  const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || null);
 
   useEffect(() => {
     let cancelled = false;
@@ -851,32 +852,28 @@ function AskPageContent() {
   }, [selectedDevice]);
 
   const getModeQuotaSummary = (mode: ExecutionMode): { label: string; percent?: number; isPro?: boolean } | null => {
-    if (!quotasData?.tools) return null;
     if (mode === "antigravity") {
-      const agy = quotasData.tools.antigravity;
-      if (!agy || !agy.available) return null;
+      const agy = quotasData?.tools?.antigravity;
       return {
-        label: agy.remaining_percent != null ? `${agy.remaining_percent}%` : (agy.plan_name || "Pro"),
-        percent: agy.remaining_percent ?? undefined,
+        label: agy?.remaining_percent != null ? `${Math.round(agy.remaining_percent)}%` : "100%",
+        percent: agy?.remaining_percent ?? 100,
         isPro: true,
       };
     }
     if (mode === "claude") {
-      const c = quotasData.tools.claude_code;
-      if (!c || !c.available) return null;
+      const c = quotasData?.tools?.claude_code;
       return {
-        label: c.remaining_percent != null && c.remaining_percent < 100 ? `${c.remaining_percent}%` : (c.tier || "PRO"),
-        percent: c.remaining_percent ?? 100,
-        isPro: (c.tier || "").toUpperCase().includes("PRO"),
+        label: c?.remaining_percent != null && c.remaining_percent < 100 ? `${Math.round(c.remaining_percent)}%` : (c?.tier || "PRO"),
+        percent: c?.remaining_percent ?? 100,
+        isPro: (c?.tier || "PRO").toUpperCase().includes("PRO"),
       };
     }
     if (mode === "codex") {
-      const cx = quotasData.tools.codex;
-      if (!cx || !cx.available) return null;
+      const cx = quotasData?.tools?.codex;
       return {
-        label: cx.tier || (cx.plan_name ? cx.plan_name.replace("ChatGPT ", "") : "FREE"),
-        percent: cx.remaining_percent ?? 100,
-        isPro: (cx.tier || "").toUpperCase().includes("PRO") || (cx.tier || "").toUpperCase().includes("PLUS"),
+        label: cx?.tier || (cx?.plan_name ? cx.plan_name.replace("ChatGPT ", "") : "PRO"),
+        percent: cx?.remaining_percent ?? 100,
+        isPro: (cx?.tier || "PRO").toUpperCase().includes("PRO") || (cx?.tier || "").toUpperCase().includes("PLUS"),
       };
     }
     return null;
@@ -906,6 +903,7 @@ function AskPageContent() {
       totalTurns,
       activeRun: askCache?.activeRun,
       streaming,
+      quotasData,
     };
   }, [
     activeConversationId,
@@ -3095,22 +3093,63 @@ function AskPageContent() {
             >
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                <span className="hidden sm:inline">AI 额度</span>
-                {quotasData?.tools?.antigravity?.remaining_percent != null && (
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      padding: "1px 5px",
-                      borderRadius: 999,
-                      background: "rgba(56, 189, 248, 0.15)",
-                      color: "#38BDF8",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {quotasData.tools.antigravity.remaining_percent}%
-                  </span>
-                )}
+                <span className="inline text-xs font-medium">AI 额度</span>
+                {(() => {
+                  const targetTool = executionMode === "claude"
+                    ? quotasData?.tools?.claude_code
+                    : executionMode === "codex"
+                    ? quotasData?.tools?.codex
+                    : quotasData?.tools?.antigravity;
+                  const percent = targetTool?.remaining_percent ?? quotasData?.tools?.antigravity?.remaining_percent;
+                  if (percent != null) {
+                    return (
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: 999,
+                          background: "rgba(56, 189, 248, 0.15)",
+                          color: "#38BDF8",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {Math.round(percent)}%
+                      </span>
+                    );
+                  }
+                  if (targetTool?.tier) {
+                    return (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: "1px 5px",
+                          borderRadius: 999,
+                          background: "rgba(99, 102, 241, 0.15)",
+                          color: "var(--aurora-accent)",
+                        }}
+                      >
+                        {targetTool.tier}
+                      </span>
+                    );
+                  }
+                  return (
+                    <span
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        padding: "1px 5px",
+                        borderRadius: 999,
+                        background: "rgba(56, 189, 248, 0.15)",
+                        color: "#38BDF8",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      100%
+                    </span>
+                  );
+                })()}
               </span>
             </Btn>
             <Btn

@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine, User
@@ -136,24 +136,36 @@ async def get_agent_quotas(
     machine_name = None
     target_mid = None
     if device_id and device_id not in ("auto", "ask_only", "all"):
-        m_row = (await db.execute(
-            select(Machine).where(
-                (Machine.name == device_id)
-                | (Machine.fingerprint == device_id)
-            )
-        )).scalars().first()
-        if m_row:
-            machine_name = m_row.name
-            target_mid = str(m_row.id)
+        try:
+            conditions = [
+                Machine.name == device_id,
+                Machine.collector_token_hash == device_id,
+            ]
+            try:
+                device_uuid = uuid.UUID(device_id)
+                conditions.append(Machine.id == device_uuid)
+            except (ValueError, AttributeError):
+                pass
+            m_row = (await db.execute(
+                select(Machine).where(or_(*conditions))
+            )).scalars().first()
+            if m_row:
+                machine_name = m_row.name
+                target_mid = str(m_row.id)
+        except Exception as e:
+            logger.warning("Error querying machine for quotas (%s): %s", device_id, e)
 
     # 3. If online device is connected to WebSocket, trigger an async request
-    from ..services.ws_manager import ws_manager
-    if target_mid and ws_manager.is_online(target_mid):
-        await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
-    elif ws_manager.has_online_devices():
-        # broadcast to any online device
-        for mid in ws_manager.active_connections:
-            await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+    try:
+        from ..services.ws_manager import ws_manager
+        if target_mid and ws_manager.is_online(target_mid):
+            await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
+        elif ws_manager.has_online_devices():
+            # broadcast to any online device
+            for mid in ws_manager.active_connections:
+                await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+    except Exception as e:
+        logger.warning("Error dispatching get_agent_quotas over ws: %s", e)
 
     # Return fallback or initial report
     return _make_fallback_report(device_id=device_id, device_name=machine_name)
@@ -173,21 +185,33 @@ async def refresh_agent_quotas(
 
     target_mid = None
     if device_id and device_id not in ("auto", "ask_only", "all"):
-        m_row = (await db.execute(
-            select(Machine).where(
-                (Machine.name == device_id)
-                | (Machine.fingerprint == device_id)
-            )
-        )).scalars().first()
-        if m_row:
-            target_mid = str(m_row.id)
+        try:
+            conditions = [
+                Machine.name == device_id,
+                Machine.collector_token_hash == device_id,
+            ]
+            try:
+                device_uuid = uuid.UUID(device_id)
+                conditions.append(Machine.id == device_uuid)
+            except (ValueError, AttributeError):
+                pass
+            m_row = (await db.execute(
+                select(Machine).where(or_(*conditions))
+            )).scalars().first()
+            if m_row:
+                target_mid = str(m_row.id)
+        except Exception as e:
+            logger.warning("Error querying machine for quota refresh (%s): %s", device_id, e)
 
     # Dispatch request to WS clients
-    if target_mid and ws_manager.is_online(target_mid):
-        await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
-    else:
-        for mid in ws_manager.active_connections:
-            await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+    try:
+        if target_mid and ws_manager.is_online(target_mid):
+            await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
+        else:
+            for mid in ws_manager.active_connections:
+                await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+    except Exception as e:
+        logger.warning("Error dispatching refresh_agent_quotas over ws: %s", e)
 
     # Wait up to 1.5s for response
     for _ in range(15):

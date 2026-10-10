@@ -31,7 +31,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
   const [data, setData] = useState<AgentQuotasResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedAgy, setExpandedAgy] = useState(false);
+  const [expandedAgy, setExpandedAgy] = useState(true);
+  const [expandedClaude, setExpandedClaude] = useState(false);
+  const [expandedCodex, setExpandedCodex] = useState(false);
   const [, startTransition] = useTransition();
 
   const loadQuotas = async (forceRefresh = false) => {
@@ -272,7 +274,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               <div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
                   <span style={{ color: "var(--aurora-fg3)" }}>
-                    主力模型配额 (Gemini 3.8 Flash)
+                    主力模型配额 ({agy?.models?.[0]?.label || "Gemini 3.8 Flash"})
                   </span>
                   <span style={{ fontWeight: 600, color: agy.remaining_percent > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
                     {agy.remaining_percent}% 剩余
@@ -441,6 +443,19 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               <span>订阅等级：{claude?.tier || "PRO"} 计划</span>
               <span style={{ color: "var(--aurora-fg4)" }}>5小时滑动窗口活跃</span>
             </div>
+
+            {claude?.models && claude.models.length > 0 && (
+              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 8, marginTop: 2 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {claude.models.map((m, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5 }}>
+                      <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Tool Card: OpenAI Codex */}
@@ -515,6 +530,19 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               <span>授权模式：OAuth ChatGPT Token</span>
               <span style={{ color: "var(--aurora-fg4)" }}>实时轮转正常</span>
             </div>
+
+            {codex?.models && codex.models.length > 0 && (
+              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 8, marginTop: 2 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {codex.models.map((m, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5 }}>
+                      <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                      <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

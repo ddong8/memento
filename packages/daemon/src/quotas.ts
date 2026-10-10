@@ -191,6 +191,11 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
             tier: subType,
             remaining_percent: parsed.loggedIn ? 100 : 0,
             reset_time: null,
+            models: [
+              { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
+              { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
+              { label: "Claude Haiku 4.5", model_id: "claude-haiku-4-5", remaining_fraction: 1, remaining_percent: 100 },
+            ],
           };
         } catch {}
       }
@@ -210,6 +215,11 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
         plan_name: "Claude Pro",
         tier: "PRO",
         remaining_percent: 100,
+        models: [
+          { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
+          { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
+          { label: "Claude Haiku 4.5", model_id: "claude-haiku-4-5", remaining_fraction: 1, remaining_percent: 100 },
+        ],
       };
     }
 
@@ -267,6 +277,11 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         plan_name: `ChatGPT ${planDisplay}`,
         tier: planType.toUpperCase(),
         remaining_percent: 100,
+        models: [
+          { label: "GPT-5 (Codex Reasoning)", model_id: "gpt-5-codex", remaining_fraction: 1, remaining_percent: 100 },
+          { label: "GPT-5 mini", model_id: "gpt-5-mini", remaining_fraction: 1, remaining_percent: 100 },
+          { label: "o3-mini (High Effort)", model_id: "o3-mini", remaining_fraction: 1, remaining_percent: 100 },
+        ],
       };
     }
 

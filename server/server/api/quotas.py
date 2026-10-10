@@ -55,22 +55,64 @@ def set_cached_device_quotas(
     _latest_global_quotas = report_with_meta
 
 
+DEFAULT_ANTIGRAVITY_MODELS = [
+    {"label": "Gemini 3.8 Flash (High)", "model_id": "gemini-3.8-flash-high", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.8 Flash (Medium)", "model_id": "gemini-3.8-flash-medium", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.8 Flash (Low)", "model_id": "gemini-3.8-flash-low", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.7 Flash (High)", "model_id": "gemini-3.7-flash-high", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.7 Flash (Medium)", "model_id": "gemini-3.7-flash-medium", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.7 Flash (Low)", "model_id": "gemini-3.7-flash-low", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.6 Flash (High)", "model_id": "gemini-3.6-flash-high", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.6 Flash (Medium)", "model_id": "gemini-3.6-flash-medium", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.6 Flash (Low)", "model_id": "gemini-3.6-flash-low", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.1 Pro (High)", "model_id": "gemini-pro-agent", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Gemini 3.1 Pro (Low)", "model_id": "gemini-3.1-pro-low", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Claude Sonnet 4.6 (Thinking)", "model_id": "claude-sonnet-4-6", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Claude Opus 4.6 (Thinking)", "model_id": "claude-opus-4-6-thinking", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "GPT-OSS 120B (Medium)", "model_id": "gpt-oss-120b-medium", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+]
+
+DEFAULT_CLAUDE_MODELS = [
+    {"label": "Claude Sonnet 4.6 (Thinking)", "model_id": "claude-sonnet-4-6", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Claude Opus 4.6", "model_id": "claude-opus-4-6", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "Claude Haiku 4.5", "model_id": "claude-haiku-4-5", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+]
+
+DEFAULT_CODEX_MODELS = [
+    {"label": "GPT-5 (Codex Reasoning)", "model_id": "gpt-5-codex", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "GPT-5 mini", "model_id": "gpt-5-mini", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+    {"label": "o3-mini (High Effort)", "model_id": "o3-mini", "remaining_fraction": 1.0, "remaining_percent": 100.0},
+]
+
+
+def _enrich_report_models(report: dict[str, Any]) -> dict[str, Any]:
+    tools = report.get("tools", {})
+    if isinstance(tools, dict):
+        if "antigravity" in tools and isinstance(tools["antigravity"], dict) and not tools["antigravity"].get("models"):
+            tools["antigravity"]["models"] = list(DEFAULT_ANTIGRAVITY_MODELS)
+        if "claude_code" in tools and isinstance(tools["claude_code"], dict) and not tools["claude_code"].get("models"):
+            tools["claude_code"]["models"] = list(DEFAULT_CLAUDE_MODELS)
+        if "codex" in tools and isinstance(tools["codex"], dict) and not tools["codex"].get("models"):
+            tools["codex"]["models"] = list(DEFAULT_CODEX_MODELS)
+    return report
+
+
 def get_cached_device_quotas(device_id: str | None = None) -> dict[str, Any] | None:
     """Lookup cached quotas for a specific device, or the most recent valid report."""
     if device_id and device_id not in ("auto", "ask_only", "all"):
         if device_id in _device_quotas:
-            return _device_quotas[device_id]
+            return _enrich_report_models(_device_quotas[device_id])
         for k, v in _device_quotas.items():
             if device_id.lower() in k.lower():
-                return v
+                return _enrich_report_models(v)
 
     # Fallback to latest global report
     if _latest_global_quotas:
-        return _latest_global_quotas
+        return _enrich_report_models(_latest_global_quotas)
 
     # Fallback to any active device quota
     if _device_quotas:
-        return next(iter(_device_quotas.values()))
+        return _enrich_report_models(next(iter(_device_quotas.values())))
 
     return None
 
@@ -91,7 +133,7 @@ def _make_fallback_report(device_id: str | None = None, device_name: str | None 
                 "tier": "PRO",
                 "remaining_percent": 100.0,
                 "reset_time": None,
-                "models": [],
+                "models": list(DEFAULT_ANTIGRAVITY_MODELS),
             },
             "claude_code": {
                 "tool": "claude_code",
@@ -102,6 +144,7 @@ def _make_fallback_report(device_id: str | None = None, device_name: str | None 
                 "tier": "PRO",
                 "remaining_percent": 100.0,
                 "reset_time": None,
+                "models": list(DEFAULT_CLAUDE_MODELS),
             },
             "codex": {
                 "tool": "codex",
@@ -112,6 +155,7 @@ def _make_fallback_report(device_id: str | None = None, device_name: str | None 
                 "tier": "PRO",
                 "remaining_percent": 100.0,
                 "reset_time": None,
+                "models": list(DEFAULT_CODEX_MODELS),
             },
         },
     }
@@ -158,12 +202,22 @@ async def get_agent_quotas(
     # 3. If online device is connected to WebSocket, trigger an async request
     try:
         from ..services.ws_manager import ws_manager
+        dispatched = False
         if target_mid and ws_manager.is_online(target_mid):
             await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
+            dispatched = True
         elif ws_manager.has_online_devices():
             # broadcast to any online device
             for mid in ws_manager.active_connections:
                 await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+            dispatched = True
+
+        if dispatched:
+            for _ in range(8):
+                await asyncio.sleep(0.1)
+                cached = get_cached_device_quotas(device_id)
+                if cached:
+                    return cached
     except Exception as e:
         logger.warning("Error dispatching get_agent_quotas over ws: %s", e)
 

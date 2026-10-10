@@ -29,7 +29,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
   const [data, setData] = useState<AgentQuotasResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedAgy, setExpandedAgy] = useState(false);
+  const [expandedAgy, setExpandedAgy] = useState(true);
   const [, startTransition] = useTransition();
 
   const loadQuotas = async (forceRefresh = false) => {
@@ -176,7 +176,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
           {/* Quota Progress */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5, marginBottom: 5 }}>
-              <span style={{ color: "var(--aurora-fg3)" }}>Gemini 3.8 Flash (High)</span>
+              <span style={{ color: "var(--aurora-fg3)" }}>{agy?.models?.[0]?.label || "Gemini 3.8 Flash (High)"}</span>
               <span style={{ fontWeight: 600, color: (agy?.remaining_percent ?? 100) > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
                 {agy?.remaining_percent ?? 100}% 剩余
               </span>
@@ -317,6 +317,16 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span>限流监控</span>
               <span style={{ color: "var(--aurora-fg4)" }}>5小时滑动窗口利用中</span>
             </div>
+            {claude?.models && claude.models.length > 0 && (
+              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
+                {claude.models.map((m, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
+                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -389,6 +399,16 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span>协议连接</span>
               <span style={{ color: "var(--aurora-fg4)" }}>OAuth 令牌自动续签</span>
             </div>
+            {codex?.models && codex.models.length > 0 && (
+              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
+                {codex.models.map((m, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
+                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

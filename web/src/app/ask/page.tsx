@@ -514,6 +514,78 @@ interface CachedAskState {
   } | null;
   streaming?: boolean;
   quotasData?: AgentQuotasResponse | null;
+  projectTitle?: string;
+}
+
+export function isUuidOrHash(str?: string | null): boolean {
+  if (!str) return false;
+  const s = str.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  if (/^[0-9a-f]{32,}$/i.test(s)) return true;
+  return false;
+}
+
+export function resolveSafeProjectName(options: {
+  projectId?: string;
+  projectTitle?: string;
+  projects?: ProjectSummary[];
+  cwd?: string;
+  isZh?: boolean;
+}): string {
+  const { projectId, projectTitle, projects = [], cwd, isZh = true } = options;
+
+  // 1. Explicit known projectTitle
+  if (projectTitle && !isUuidOrHash(projectTitle)) {
+    return projectTitle;
+  }
+
+  // 2. Lookup by projectId in projects list
+  if (projectId) {
+    const matched = projects.find((p) => p.id === projectId);
+    if (matched) {
+      const candidate = matched.title || matched.slug;
+      if (candidate && !isUuidOrHash(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // 3. Fallback to cwd parsing if available
+  if (cwd) {
+    const clean = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    const segments = clean.split("/").filter(Boolean);
+    const noiseNames = new Set([
+      "brain",
+      "scratch",
+      "tmp",
+      "temp",
+      "var",
+      "private",
+      "users",
+      "home",
+      "conversations",
+      "antigravity",
+      "gemini",
+      "dotgemini",
+      "walkthrough.md",
+    ]);
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const seg = segments[i];
+      if (
+        !seg.startsWith(".") &&
+        !seg.endsWith(".md") &&
+        !seg.endsWith(".txt") &&
+        !seg.endsWith(".json") &&
+        !isUuidOrHash(seg) &&
+        !noiseNames.has(seg.toLowerCase())
+      ) {
+        return seg;
+      }
+    }
+  }
+
+  // 4. Default safe fallback
+  return isZh ? "项目代码库" : "Project";
 }
 
 interface LocalConvSnapshot {
@@ -525,6 +597,7 @@ interface LocalConvSnapshot {
   cwd?: string;
   selectedDevice?: string;
   selectedProjectId?: string;
+  selectedProjectTitle?: string;
   selectedSessionId?: string;
   worktreeMode?: boolean;
   hasMoreTurns?: boolean;
@@ -576,6 +649,7 @@ function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; 
       cwd: data.cwd,
       selectedDevice: data.selectedDevice,
       selectedProjectId: data.selectedProjectId,
+      selectedProjectTitle: data.selectedProjectTitle,
       selectedSessionId: data.selectedSessionId,
       worktreeMode: data.worktreeMode,
       hasMoreTurns: data.hasMoreTurns,
@@ -638,6 +712,9 @@ function AskPageContent() {
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(() => askCache?.projects || []);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || initSnap?.selectedProjectId || "");
+  const [selectedProjectTitle, setSelectedProjectTitle] = useState<string>(
+    () => askCache?.projectTitle || initSnap?.selectedProjectTitle || ""
+  );
   const [sessions, setSessions] = useState<
     Array<{
       session_id: string;
@@ -791,6 +868,8 @@ function AskPageContent() {
   projectsRef.current = projects;
   const selectedProjectIdRef = useRef<string>("");
   selectedProjectIdRef.current = selectedProjectId;
+  const selectedProjectTitleRef = useRef<string>("");
+  selectedProjectTitleRef.current = selectedProjectTitle;
 
   useEffect(() => {
     try {
@@ -1262,6 +1341,12 @@ function AskPageContent() {
 
       setCompactMode(false);
 
+      const incomingProjTitle = data.project_title || "";
+      if (incomingProjTitle && !isUuidOrHash(incomingProjTitle)) {
+        setSelectedProjectTitle(incomingProjTitle);
+        selectedProjectTitleRef.current = incomingProjTitle;
+      }
+
       saveLocalConvSnapshot({
         id: data.id,
         turns: loadedTurns,
@@ -1271,6 +1356,7 @@ function AskPageContent() {
         cwd: targetCwd,
         selectedDevice: devToUse,
         selectedProjectId: targetProjId,
+        selectedProjectTitle: incomingProjTitle || selectedProjectTitleRef.current,
         selectedSessionId: targetSessionId,
         worktreeMode: isWorktree,
         hasMoreTurns: hasMore,
@@ -1302,6 +1388,18 @@ function AskPageContent() {
                 projList = merged;
               }
             }
+            if (targetProjId && (!projList || !projList.some((p) => p.id === targetProjId))) {
+              try {
+                const single = await api.getProject(targetProjId);
+                if (single && single.id) {
+                  projList = [...(projList || []), single];
+                  if (single.title && !isUuidOrHash(single.title)) {
+                    setSelectedProjectTitle(single.title);
+                    selectedProjectTitleRef.current = single.title;
+                  }
+                }
+              } catch {}
+            }
             const projs = projList || [];
             setProjects(projs);
 
@@ -1320,6 +1418,11 @@ function AskPageContent() {
               });
             }
 
+            if (matchedProj && matchedProj.title && !isUuidOrHash(matchedProj.title)) {
+              setSelectedProjectTitle(matchedProj.title);
+              selectedProjectTitleRef.current = matchedProj.title;
+            }
+
             const effectiveProjId = matchedProj ? matchedProj.id : targetProjId;
             if (effectiveProjId) {
               setSelectedProjectId(effectiveProjId);
@@ -1334,6 +1437,7 @@ function AskPageContent() {
                   cwd: targetCwd,
                   selectedDevice: devToUse,
                   selectedProjectId: effectiveProjId,
+                  selectedProjectTitle: selectedProjectTitleRef.current,
                   selectedSessionId: targetSessionId,
                   worktreeMode: isWorktree,
                   hasMoreTurns: hasMore,
@@ -2384,6 +2488,7 @@ function AskPageContent() {
         cwd,
         selectedDevice,
         selectedProjectId,
+        selectedProjectTitle: selectedProjectTitleRef.current,
         selectedSessionId,
         worktreeMode,
         hasMoreTurns: false,
@@ -2634,6 +2739,10 @@ function AskPageContent() {
       }
       const projs = customProjects || projectsRef.current;
       const proj = projs.find((p) => p.id === projId);
+      if (proj && proj.title && !isUuidOrHash(proj.title)) {
+        setSelectedProjectTitle(proj.title);
+        selectedProjectTitleRef.current = proj.title;
+      }
       let clean = "";
       if (proj?.source_path) {
         clean = proj.source_path.trim();
@@ -2706,6 +2815,18 @@ function AskPageContent() {
             }
             list = merged;
           }
+        }
+        if (curProjId && (!list || !list.some((p) => p.id === curProjId))) {
+          try {
+            const single = await api.getProject(curProjId);
+            if (single && single.id) {
+              list = [...(list || []), single];
+              if (single.title && !isUuidOrHash(single.title)) {
+                setSelectedProjectTitle(single.title);
+                selectedProjectTitleRef.current = single.title;
+              }
+            }
+          } catch {}
         }
         const projList = list || [];
         setProjects(projList);
@@ -3504,27 +3625,13 @@ function AskPageContent() {
 
                   {/* Associated Project Badge */}
                   {selectedProjectId && (() => {
-                    const p = projects.find((x) => x.id === selectedProjectId);
-                    let displayTitle = p?.title || p?.slug;
-                    if (!displayTitle && cwd) {
-                      const clean = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-                      const folder = clean.split("/").filter(Boolean).pop();
-                      if (folder && !folder.endsWith(".md") && !folder.endsWith(".txt")) {
-                        displayTitle = folder;
-                      } else {
-                        const segments = clean.split("/").filter(Boolean);
-                        for (let si = segments.length - 1; si >= 0; si--) {
-                          const seg = segments[si];
-                          if (!seg.startsWith(".") && !seg.endsWith(".md") && seg !== "brain" && seg !== "scratch") {
-                            displayTitle = seg;
-                            break;
-                          }
-                        }
-                      }
-                    }
-                    if (!displayTitle) {
-                      displayTitle = selectedProjectId.length > 20 ? (isZh ? "项目代码库" : "Project") : selectedProjectId;
-                    }
+                    const displayTitle = resolveSafeProjectName({
+                      projectId: selectedProjectId,
+                      projectTitle: selectedProjectTitle,
+                      projects,
+                      cwd,
+                      isZh,
+                    });
                     return (
                       <span
                         style={{
@@ -3549,30 +3656,33 @@ function AskPageContent() {
                   })()}
 
                   {/* CWD snippet if no project but cwd is set */}
-                  {!selectedProjectId && cwd && (
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        padding: "2px 8px",
-                        borderRadius: 8,
-                        background: "var(--aurora-surface-solid)",
-                        border: "1px solid var(--aurora-border)",
-                        color: "var(--aurora-fg3)",
-                        fontSize: 11,
-                        whiteSpace: "nowrap",
-                        flexShrink: 0,
-                        maxWidth: 160,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                      title={cwd}
-                    >
-                      <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)" }} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{cwd}</span>
-                    </span>
-                  )}
+                  {!selectedProjectId && cwd && (() => {
+                    const safeFolder = resolveSafeProjectName({ cwd, isZh });
+                    return (
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 8px",
+                          borderRadius: 8,
+                          background: "var(--aurora-surface-solid)",
+                          border: "1px solid var(--aurora-border)",
+                          color: "var(--aurora-fg3)",
+                          fontSize: 11,
+                          whiteSpace: "nowrap",
+                          flexShrink: 0,
+                          maxWidth: 160,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                        title={cwd}
+                      >
+                        <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)" }} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{safeFolder}</span>
+                      </span>
+                    );
+                  })()}
 
                   {/* Selected Model Badge */}
                   {selectedModel && (
@@ -4181,30 +4291,31 @@ function AskPageContent() {
                       {projects.length === 0 ? (isZh ? "暂无项目" : "No projects") : (isZh ? "选择项目 (可选)..." : "Select project (optional)...")}
                     </option>
                     {selectedProjectId && !projects.some((p) => p.id === selectedProjectId) && (() => {
-                      let fallbackTitle = "";
-                      if (cwd) {
-                        const clean = cwd.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-                        const segments = clean.split("/").filter(Boolean);
-                        for (let si = segments.length - 1; si >= 0; si--) {
-                          const seg = segments[si];
-                          if (!seg.startsWith(".") && !seg.endsWith(".md") && seg !== "brain" && seg !== "scratch") {
-                            fallbackTitle = seg;
-                            break;
-                          }
-                        }
-                      }
-                      fallbackTitle = fallbackTitle || (isZh ? "当前项目" : "Current Project");
+                      const fallbackTitle = resolveSafeProjectName({
+                        projectId: selectedProjectId,
+                        projectTitle: selectedProjectTitle,
+                        projects,
+                        cwd,
+                        isZh,
+                      });
                       return (
                         <option value={selectedProjectId} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                           📁 {fallbackTitle}
                         </option>
                       );
                     })()}
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                        📁 {p.title || p.slug || p.id}
-                      </option>
-                    ))}
+                    {projects.map((p) => {
+                      const safeOptionTitle = resolveSafeProjectName({
+                        projectId: p.id,
+                        projectTitle: p.title || p.slug,
+                        isZh,
+                      });
+                      return (
+                        <option key={p.id} value={p.id} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                          📁 {safeOptionTitle}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}

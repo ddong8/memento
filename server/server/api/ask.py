@@ -1317,6 +1317,19 @@ def _sanitize_turns_for_response(turns: list[dict]) -> list[dict]:
     return sanitized
 
 
+async def _lookup_project_title(db: AsyncSession, project_id_val: str | None) -> str | None:
+    if not project_id_val:
+        return None
+    try:
+        pid = uuid.UUID(str(project_id_val))
+        p_obj = (await db.execute(select(Project).where(Project.id == pid))).scalars().first()
+        if p_obj:
+            return p_obj.title or p_obj.slug
+    except Exception:
+        pass
+    return None
+
+
 @router.get("/conversations/{conv_id}")
 async def get_conversation(
     conv_id: str,
@@ -1397,6 +1410,9 @@ async def get_conversation(
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "private, no-cache"
 
+    proj_id_val = cfg.get("project_id", "")
+    proj_title_val = await _lookup_project_title(db, proj_id_val)
+
     return {
         "id": conv_id_str,
         "title": conv_title,
@@ -1408,7 +1424,8 @@ async def get_conversation(
         "execution_mode": cfg.get("execution_mode", "ai"),
         "model": cfg.get("model", ""),
         "effort": cfg.get("effort", ""),
-        "project_id": cfg.get("project_id", ""),
+        "project_id": proj_id_val,
+        "project_title": proj_title_val or "",
         "session_id": cfg.get("session_id", ""),
         "worktree": bool(cfg.get("worktree", False)),
         "compact_mode": bool(cfg.get("compact_mode", False)),
@@ -1456,6 +1473,8 @@ async def ensure_conversation_by_session(
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
         cfg_final, _ = _infer_conversation_config(conv)
+        proj_id_final = cfg_final.get("project_id", body.project_id or "")
+        proj_title_final = await _lookup_project_title(session, proj_id_final)
         return {
             "id": str(conv.id),
             "title": conv.title,
@@ -1465,7 +1484,8 @@ async def ensure_conversation_by_session(
             "execution_mode": cfg_final.get("execution_mode", body.execution_mode or "ai"),
             "model": cfg_final.get("model", ""),
             "effort": cfg_final.get("effort", ""),
-            "project_id": cfg_final.get("project_id", body.project_id or ""),
+            "project_id": proj_id_final,
+            "project_title": proj_title_final or "",
             "session_id": cfg_final.get("session_id", body.session_id),
             "worktree": bool(cfg_final.get("worktree", False)),
             "compact_mode": False,
@@ -1497,6 +1517,8 @@ async def get_recent_active_conversation(
                 )).scalars().first()
                 if conv:
                     cfg, _ = _infer_conversation_config(conv)
+                    pid_str = cfg.get("project_id", "")
+                    ptitle = await _lookup_project_title(session, pid_str)
                     return {
                         "id": str(conv.id),
                         "title": conv.title,
@@ -1505,7 +1527,8 @@ async def get_recent_active_conversation(
                         "cwd": conv.cwd,
                         "execution_mode": cfg.get("execution_mode", "ai"),
                         "session_id": cfg.get("session_id", ""),
-                        "project_id": cfg.get("project_id", ""),
+                        "project_id": pid_str,
+                        "project_title": ptitle or "",
                         "config": cfg,
                         "active_run": True,
                     }
@@ -1520,6 +1543,8 @@ async def get_recent_active_conversation(
 
         if recent_conv:
             cfg, _ = _infer_conversation_config(recent_conv)
+            pid_str = cfg.get("project_id", "")
+            ptitle = await _lookup_project_title(session, pid_str)
             return {
                 "id": str(recent_conv.id),
                 "title": recent_conv.title,
@@ -1528,7 +1553,8 @@ async def get_recent_active_conversation(
                 "cwd": recent_conv.cwd,
                 "execution_mode": cfg.get("execution_mode", "ai"),
                 "session_id": cfg.get("session_id", ""),
-                "project_id": cfg.get("project_id", ""),
+                "project_id": pid_str,
+                "project_title": ptitle or "",
                 "config": cfg,
                 "active_run": False,
             }

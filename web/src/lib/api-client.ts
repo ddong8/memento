@@ -905,6 +905,8 @@ export const api = {
     const q = params.toString() ? `?${params.toString()}` : "";
     return apiFetch<ProjectSummary[]>(`/api/projects${q}`);
   },
+  getProject: (projectId: string) =>
+    apiFetch<ProjectSummary>(`/api/projects/${projectId}`),
   getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc", deviceId?: string) => {
     const params = new URLSearchParams({ session_offset: String(offset), session_limit: String(limit), order });
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
@@ -1082,6 +1084,7 @@ export interface AskConversationDetail {
   model?: string;
   effort?: string;
   project_id?: string;
+  project_title?: string;
   session_id?: string;
   worktree?: boolean;
   compact_mode?: boolean;

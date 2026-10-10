@@ -95,9 +95,25 @@ function ConversationViewerContent({
       </div>
 
       <div className="space-y-4 max-w-3xl mx-auto pb-8">
-        {messages.map((msg, idx) => (
-          <ChatBubble key={`${msg.id}-${idx}`} msg={msg} locale={locale} t={t} />
-        ))}
+        {messages.map((msg, idx) => {
+          let prevUserTs: string | null = null;
+          for (let j = idx - 1; j >= 0; j--) {
+            const r = messages[j].role || messages[j].message_type;
+            if (r === "user" && !messages[j].content?.startsWith("[Result]")) {
+              prevUserTs = messages[j].timestamp || null;
+              break;
+            }
+          }
+          return (
+            <ChatBubble
+              key={`${msg.id}-${idx}`}
+              msg={msg}
+              prevUserTimestamp={prevUserTs}
+              locale={locale}
+              t={t}
+            />
+          );
+        })}
 
         {artifacts && artifacts.length > 0 && !hasMore && (
           <>
@@ -153,10 +169,12 @@ export default function ConversationViewer(props: {
 
 export const ChatBubble = memo(function ChatBubble({
   msg,
+  prevUserTimestamp,
   locale,
   t,
 }: {
   msg: ConversationMessage;
+  prevUserTimestamp?: string | null;
   locale: string;
   t: ReturnType<typeof useI18n>["t"];
 }) {
@@ -323,6 +341,20 @@ export const ChatBubble = memo(function ChatBubble({
     const isLong = msg.content.length > 500;
     const displayContent = isLong && !expanded ? msg.content.slice(0, 500) + "..." : msg.content;
     const hasSeparateThinking = Boolean(thinking && thinking !== msg.content.trim());
+    let durText: string | null = null;
+    if (prevUserTimestamp && msg.timestamp) {
+      const diffMs = new Date(msg.timestamp).getTime() - new Date(prevUserTimestamp).getTime();
+      if (Number.isFinite(diffMs) && diffMs > 0) {
+        const sec = diffMs / 1000;
+        if (sec < 60) {
+          durText = `${sec < 10 ? sec.toFixed(1) : Math.round(sec)}s`;
+        } else {
+          const m = Math.floor(sec / 60);
+          const s = Math.round(sec % 60);
+          durText = s > 0 ? `${m}m ${s}s` : `${m}m`;
+        }
+      }
+    }
 
     return (
       <div style={{ display: "flex", justifyContent: "flex-start" }}>
@@ -330,8 +362,22 @@ export const ChatBubble = memo(function ChatBubble({
           <div style={{ display: "flex", gap: 8, marginBottom: 5, alignItems: "center", padding: "0 4px" }}>
             <span style={{ fontSize: 10.5, fontWeight: 600, color: "#10B981" }}>Assistant</span>
             {msg.timestamp && (
-              <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>
+              <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>
                 {new Date(msg.timestamp).toLocaleString(locale)}
+              </span>
+            )}
+            {durText && (
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "var(--aurora-fg4)",
+                  padding: "0px 5px",
+                  borderRadius: 4,
+                  background: "var(--aurora-chip)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {locale.startsWith("zh") ? `耗时 ${durText}` : `${durText}`}
               </span>
             )}
           </div>
@@ -411,6 +457,11 @@ export const ChatBubble = memo(function ChatBubble({
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: displayInput || content ? 6 : 0 }}>
             <Icon name="terminal" size={13} style={{ color: "var(--aurora-accent)" }} />
             <span style={{ fontFamily: "ui-monospace,monospace", fontWeight: 600, fontSize: 11.5 }}>{toolName || "Tool"}</span>
+            {msg.timestamp && (
+              <span style={{ fontSize: 10, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>
+                {new Date(msg.timestamp).toLocaleString(locale)}
+              </span>
+            )}
           </div>
           {displayInput && (
             <pre

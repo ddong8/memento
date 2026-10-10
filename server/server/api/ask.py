@@ -1297,11 +1297,31 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
     return cfg, inferred
 
 
-def _sanitize_turns_for_response(turns: list[dict]) -> list[dict]:
-    """Strip bloated duplicate inlined base64 images from tool_calls args and compress oversized user images."""
+def _sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = None) -> list[dict]:
+    """Strip bloated duplicate inlined base64 images from tool_calls args, compress oversized user images, and ensure turn timestamps."""
     sanitized = []
+    prev_user_ts: str | None = None
     for t in turns:
         t_copy = dict(t)
+        if not t_copy.get("created_at") and fallback_iso:
+            t_copy["created_at"] = fallback_iso
+        role = t_copy.get("role")
+        if role == "user":
+            prev_user_ts = t_copy.get("created_at")
+        elif role == "assistant":
+            if not t_copy.get("started_at") and prev_user_ts and prev_user_ts != t_copy.get("created_at"):
+                t_copy["started_at"] = prev_user_ts
+            start_iso = t_copy.get("started_at")
+            end_iso = t_copy.get("created_at")
+            if start_iso and end_iso and t_copy.get("duration_ms") is None:
+                try:
+                    dt_s = datetime.fromisoformat(str(start_iso).replace("Z", "+00:00"))
+                    dt_e = datetime.fromisoformat(str(end_iso).replace("Z", "+00:00"))
+                    dur = int((dt_e - dt_s).total_seconds() * 1000)
+                    if dur > 0:
+                        t_copy["duration_ms"] = dur
+                except Exception:
+                    pass
         imgs = t_copy.get("images")
         if imgs and isinstance(imgs, list):
             t_copy["images"] = [_compress_b64_image_safe(img) for img in imgs]
@@ -1400,7 +1420,7 @@ async def get_conversation(
     updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
 
     # Fast ETag evaluation before full turns sanitization and slicing
-    etag_seed = f"{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
+    etag_seed = f"v2:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
     etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
     if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
@@ -1410,7 +1430,7 @@ async def get_conversation(
         if client_tag == server_tag:
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    sanitized_turns = _sanitize_turns_for_response(raw_turns)
+    sanitized_turns = _sanitize_turns_for_response(raw_turns, fallback_iso=updated_at_iso or created_at_iso)
     if limit > 0 and len(sanitized_turns) > limit:
         conv_turns = sanitized_turns[-limit:]
         has_more = True
@@ -1486,10 +1506,11 @@ async def ensure_conversation_by_session(
         cfg_final, _ = _infer_conversation_config(conv)
         proj_id_final = cfg_final.get("project_id", body.project_id or "")
         proj_title_final = await _lookup_project_title(session, proj_id_final)
+        fb_iso = (conv.updated_at or conv.created_at).isoformat() if (conv.updated_at or conv.created_at) else None
         return {
             "id": str(conv.id),
             "title": conv.title,
-            "turns": conv.turns or [],
+            "turns": _sanitize_turns_for_response(list(conv.turns or []), fallback_iso=fb_iso),
             "device_id": conv.device_id,
             "cwd": conv.cwd,
             "execution_mode": cfg_final.get("execution_mode", body.execution_mode or "ai"),
@@ -1530,10 +1551,11 @@ async def get_recent_active_conversation(
                     cfg, _ = _infer_conversation_config(conv)
                     pid_str = cfg.get("project_id", "")
                     ptitle = await _lookup_project_title(session, pid_str)
+                    fb_iso = (conv.updated_at or conv.created_at).isoformat() if (conv.updated_at or conv.created_at) else None
                     return {
                         "id": str(conv.id),
                         "title": conv.title,
-                        "turns": conv.turns or [],
+                        "turns": _sanitize_turns_for_response(list(conv.turns or []), fallback_iso=fb_iso),
                         "device_id": conv.device_id,
                         "cwd": conv.cwd,
                         "execution_mode": cfg.get("execution_mode", "ai"),
@@ -1556,10 +1578,11 @@ async def get_recent_active_conversation(
             cfg, _ = _infer_conversation_config(recent_conv)
             pid_str = cfg.get("project_id", "")
             ptitle = await _lookup_project_title(session, pid_str)
+            fb_iso = (recent_conv.updated_at or recent_conv.created_at).isoformat() if (recent_conv.updated_at or recent_conv.created_at) else None
             return {
                 "id": str(recent_conv.id),
                 "title": recent_conv.title,
-                "turns": recent_conv.turns or [],
+                "turns": _sanitize_turns_for_response(list(recent_conv.turns or []), fallback_iso=fb_iso),
                 "device_id": recent_conv.device_id,
                 "cwd": recent_conv.cwd,
                 "execution_mode": cfg.get("execution_mode", "ai"),

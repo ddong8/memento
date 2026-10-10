@@ -753,11 +753,13 @@ interface LocalConvSnapshot {
   updatedAt: number;
 }
 
-const SNAPSHOT_KEY = "memento_last_conv_snapshot";
+const SNAPSHOT_KEY = "memento_last_conv_snapshot_v2";
+const LEGACY_SNAPSHOT_KEY = "memento_last_conv_snapshot";
 
 function getLocalConvSnapshot(): LocalConvSnapshot | null {
   if (typeof window === "undefined") return null;
   try {
+    localStorage.removeItem(LEGACY_SNAPSHOT_KEY);
     const raw = localStorage.getItem(SNAPSHOT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -780,9 +782,13 @@ function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; 
       return {
         role: turn.role,
         content,
+        thinking: turn.thinking,
         sources: turn.sources,
         toolCalls: turn.toolCalls,
         error: turn.error,
+        created_at: turn.created_at,
+        started_at: turn.started_at,
+        duration_ms: turn.duration_ms,
       };
     });
 
@@ -1849,10 +1855,12 @@ function AskPageContent() {
         let baseTurns = (activeConversationIdRef.current === targetConvId && turns.length > 0)
           ? turns
           : (askCache && askCache.activeConversationId === targetConvId && askCache.turns.length > 0 ? askCache.turns : []);
-        if (baseTurns.length === 0) {
+        if (baseTurns.length === 0 || baseTurns.some((t) => !t.created_at)) {
           try {
             const data = await api.getAskConversation(targetConvId, 40);
-            baseTurns = data.turns || [];
+            if (data.turns && data.turns.length > 0) {
+              baseTurns = data.turns;
+            }
           } catch {}
         }
         attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
@@ -1864,7 +1872,8 @@ function AskPageContent() {
       if (
         lastRestoredIdRef.current === resolvedTargetId &&
         activeConversationIdRef.current === resolvedTargetId &&
-        !initialRestoredFromSnapshotRef.current
+        !initialRestoredFromSnapshotRef.current &&
+        !turns.some((t) => !t.created_at)
       ) {
         return;
       }
@@ -1874,7 +1883,8 @@ function AskPageContent() {
         askCache &&
         askCache.activeConversationId === resolvedTargetId &&
         askCache.turns.length > 0 &&
-        turns.length > 0
+        turns.length > 0 &&
+        !turns.some((t) => !t.created_at)
       ) {
         lastRestoredIdRef.current = resolvedTargetId;
         const targetScroll = askCache.scrollTop;
@@ -3270,25 +3280,30 @@ function AskPageContent() {
               args: m.tool_input ? { command: m.tool_input } : {},
             });
           }
+          const prevTurn = loadedTurns[loadedTurns.length - 1];
+          const prevUserTime = prevTurn?.role === "user" ? prevTurn.created_at : undefined;
           loadedTurns.push({
             role: "assistant",
             content: content,
             thinking: m.thinking || undefined,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             created_at: msgTime,
+            started_at: prevUserTime,
           });
         } else if (role === "tool") {
           // Attach tool call or output to the last assistant turn
           let lastTurn = loadedTurns[loadedTurns.length - 1];
           if (!lastTurn || lastTurn.role !== "assistant") {
+            const prevUserTime = lastTurn?.role === "user" ? lastTurn.created_at : undefined;
             lastTurn = {
               role: "assistant",
               content: "",
               toolCalls: [],
               created_at: msgTime,
+              started_at: prevUserTime,
             };
             loadedTurns.push(lastTurn);
-          } else if (msgTime && !lastTurn.created_at) {
+          } else if (msgTime) {
             lastTurn.created_at = msgTime;
           }
           if (!lastTurn.toolCalls) {
@@ -3341,6 +3356,13 @@ function AskPageContent() {
         window.history.replaceState(null, "", `/ask?id=${matchedAskConv.id}`);
         try {
           localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
+        } catch {}
+        try {
+          const detail = await api.getAskConversation(matchedAskConv.id, 40);
+          if (detail?.turns && detail.turns.length > 0) {
+            setTurns(detail.turns);
+            return;
+          }
         } catch {}
       } else {
         try {

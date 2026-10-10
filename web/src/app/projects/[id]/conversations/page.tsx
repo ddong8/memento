@@ -175,13 +175,32 @@ const SessionBlock = memo(function SessionBlock({
 
       {/* Messages */}
       <div className="space-y-3">
-        {session.messages.map((msg, idx) => (
-          <ChatBubble key={idx} msg={{
-            id: idx, line_number: idx, role: msg.role, content: msg.content,
-            tool_name: msg.tool_name, tool_input: msg.tool_input,
-            timestamp: msg.timestamp || null,
-          }} locale={locale} t={t} />
-        ))}
+        {session.messages.map((msg, idx) => {
+          let prevUserTs: string | null = null;
+          for (let j = idx - 1; j >= 0; j--) {
+            if (session.messages[j].role === "user" && !session.messages[j].content?.startsWith("[Result]")) {
+              prevUserTs = session.messages[j].timestamp || null;
+              break;
+            }
+          }
+          return (
+            <ChatBubble
+              key={idx}
+              msg={{
+                id: idx,
+                line_number: idx,
+                role: msg.role,
+                content: msg.content,
+                tool_name: msg.tool_name,
+                tool_input: msg.tool_input,
+                timestamp: msg.timestamp || null,
+              }}
+              prevUserTimestamp={prevUserTs}
+              locale={locale}
+              t={t}
+            />
+          );
+        })}
 
         {/* Artifacts inline */}
         {session.artifacts.length > 0 && (

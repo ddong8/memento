@@ -280,6 +280,7 @@ def main():
     completed = False
     last_error_message = ""
     active_background_tasks = set()
+    task_log_sizes = {}
     tasks_dir = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id / ".system_generated" / "tasks"
 
     with open(transcript_file, "r", encoding="utf-8") as f:
@@ -305,6 +306,31 @@ def main():
             if not line:
                 time.sleep(0.2)
                 idle_count += 1
+
+                # 若存在后台任务，检查其 log 产出以判断是否仍在活跃运行
+                if active_background_tasks and tasks_dir.exists():
+                    has_log_growth = False
+                    for bg_t in list(active_background_tasks):
+                        tc = bg_t.split("/")[-1]
+                        lp = tasks_dir / f"{tc}.log"
+                        if lp.exists():
+                            try:
+                                sz = lp.stat().st_size
+                                prev_sz = task_log_sizes.get(tc, -1)
+                                if sz > prev_sz:
+                                    task_log_sizes[tc] = sz
+                                    has_log_growth = True
+                            except Exception:
+                                pass
+                    if has_log_growth:
+                        idle_count = 0  # 任务日志在持续写入，说明后台进程活跃，重置空闲计时
+
+                    # 处于等待期时，每 25 秒（125 次循环）向客户端输出一次保活心跳
+                    if idle_count > 0 and idle_count % 125 == 0:
+                        tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
+                        sys.stdout.write(f"⏳ [后台任务 {tid_names} 执行中，请稍候...]\n")
+                        sys.stdout.flush()
+
                 if last_error_message and idle_count > 75:  # 15s idle after error
                     sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
                     sys.stderr.flush()
@@ -340,9 +366,9 @@ def main():
             tool_calls = data.get("tool_calls") or []
 
             # Check if any background task was spawned
-            m_bg = re.search(r"(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*([^\s\n\r]+)", content)
+            m_bg = re.search(r"(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*([^\s\n\r]+)", content, flags=re.IGNORECASE)
             if m_bg:
-                bg_tid = m_bg.group(1).strip()
+                bg_tid = m_bg.group(1).strip(" \"'.,:;\n\r")
                 active_background_tasks.add(bg_tid)
                 tid_clean = bg_tid.split("/")[-1]
                 sys.stdout.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
@@ -358,9 +384,8 @@ def main():
                 ))
                 is_canceled = matched and any(kw in content for kw in (
                     "was canceled", "was cancelled", "Tool execution was canceled",
-                    "Tool execution was cancelled", "cancelled", "canceled",
-                    "Status: CANCELLED", "Status: CANCELED", "Status: ERROR", "Status: FAILED",
-                    "failed with result", "terminated", "killed"
+                    "Tool execution was cancelled", "Status: CANCELLED", "Status: CANCELED",
+                    "Status: ERROR", "Status: FAILED", "failed with result"
                 ))
                 if is_finished or is_canceled:
                     active_background_tasks.discard(bg_tid)
@@ -369,24 +394,6 @@ def main():
                     sys.stdout.write(f"\n{icon} [后台任务 {tid_clean} {status_desc}]\n\n")
                     sys.stdout.flush()
                     idle_count = 0
-                elif tasks_dir.exists():
-                    log_path = tasks_dir / f"{tid_clean}.log"
-                    if log_path.exists():
-                        try:
-                            if log_path.stat().st_size > 0:
-                                with open(log_path, "rb") as lf:
-                                    lf.seek(max(0, log_path.stat().st_size - 1024))
-                                    tail_bytes = lf.read().decode("utf-8", errors="ignore")
-                                    if any(kw in tail_bytes for kw in (
-                                        "The command exited with code", "Timer fired",
-                                        "was canceled", "cancelled", "canceled", "Terminated", "Killed"
-                                    )):
-                                        active_background_tasks.discard(bg_tid)
-                                        sys.stdout.write(f"\n✅ [后台任务 {tid_clean} 执行完毕/已结束]\n\n")
-                                        sys.stdout.flush()
-                                        idle_count = 0
-                        except Exception:
-                            pass
 
             # Filter out non-model steps and internal tool output dumps
             if step_type in ("USER_INPUT", "CHECKPOINT", "GENERIC", "SYSTEM_MESSAGE"):
@@ -443,35 +450,12 @@ def main():
                             completed = True
                             break
                         else:
-                            trimmed_c = content.strip()
-                            # 判定是否为后台任务等待过程中的短过渡通知（如"正在执行构建..."、"稍候汇报结果"）
-                            is_waiting_transition = (
-                                len(trimmed_c) < 250 or
-                                any(wkw in trimmed_c for wkw in (
-                                    "正在", "稍后", "请稍候", "持续追踪", "waiting", "等待", "监控",
-                                    "构建", "部署", "执行", "运行", "排查", "测试", "打包", "编译",
-                                    "后台", "已启动", "已在后台", "后台运行", "后台任务", "稍候"
-                                ))
-                            )
-                            # 仅当模型输出了超过 250 字且明确包含结构化结论/总结的最终实质答复时，才允许在仍有守护任务时提前收尾
-                            has_structured_report = (
-                                len(trimmed_c) >= 250 and
-                                any(kw in trimmed_c for kw in ("###", "##", "根因", "修复措施", "验证结果", "总结", "发布状态", "全 Pod", "部署完成", "验证状态"))
-                            )
-                            if has_structured_report and not is_waiting_transition:
-                                # 模型确实产出了完整实质答复，剩余任务为长期独立守护进程
-                                tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                                sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
-                                sys.stderr.write(f"\n⏳ [本轮答复已输出，部分任务仍保持后台运行（{tid_names}）]\n")
-                                sys.stdout.flush()
-                                sys.stderr.flush()
-                                completed = True
-                                break
-                            else:
-                                tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                                sys.stdout.write(f"\n⏳ [后台任务 {tid_names} 执行中，持续追踪进度...]\n\n")
-                                sys.stdout.flush()
-                                idle_count = 0
+                            # 只要后台任务仍在运行（is_waiting_transition），模型输出的所有过渡提示均保持流式展示，坚决不提前退出
+                            is_waiting_transition = True
+                            tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
+                            sys.stdout.write(f"\n⏳ [后台任务 {tid_names} 持续执行中，持续追踪进度...]\n\n")
+                            sys.stdout.flush()
+                            idle_count = 0
 
     if not completed:
         sys.exit(124)

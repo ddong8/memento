@@ -68,4 +68,15 @@ Tool is running as a background task with task id: eebfe902/task-73
     const stdout = "所有文件构建完毕，dist 目录生成成功。";
     expect(detectStillRunning(stdout, "", undefined, 0)).toBe(false);
   });
+
+  it("does not misclassify completed structured task when final answer mentions background keywords", () => {
+    const stdout = `
+⚡ [Running tests]
+⏳ [后台任务启动: task-31968，持续追踪执行进度...]
+⏳ [后台任务 task-31968 持续执行中，持续追踪进度...]
+✅ [后台任务 task-31968 执行完毕，已接收运行结果]
+已彻底解决此前后台任务已启动或正在后台运行时提前退出的问题。
+`;
+    expect(detectStillRunning(stdout, "", undefined, 0)).toBe(false);
+  });
 });

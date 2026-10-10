@@ -23,6 +23,7 @@ const RUNNER_MARKERS = [
   "STATUS_STILL_RUNNING",
   "is_waiting_transition",
   "is_canceled",
+  "task_log_sizes",
   'if __name__ == "__main__":',
 ];
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -150,6 +150,28 @@ function createWindow(show: boolean): void {
   });
 
   win.webContents.session.clearCache().catch(() => {});
+
+  // Native context menu for text copying, pasting, and selection in Desktop app
+  win.webContents.on("context-menu", (_e, params) => {
+    const menu = new Menu();
+    if (params.selectionText) {
+      menu.append(new MenuItem({ label: "复制", role: "copy" }));
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+    if (params.isEditable) {
+      menu.append(new MenuItem({ label: "撤销", role: "undo" }));
+      menu.append(new MenuItem({ label: "重做", role: "redo" }));
+      menu.append(new MenuItem({ type: "separator" }));
+      menu.append(new MenuItem({ label: "剪切", role: "cut" }));
+      menu.append(new MenuItem({ label: "复制", role: "copy" }));
+      menu.append(new MenuItem({ label: "粘贴", role: "paste" }));
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+    menu.append(new MenuItem({ label: "全选", role: "selectAll" }));
+    if (menu.items.length > 0) {
+      menu.popup({ window: win });
+    }
+  });
 
   // Links to other sites open in the browser; GitHub sign-in stays in the window.
   win.webContents.setWindowOpenHandler(({ url }) => {

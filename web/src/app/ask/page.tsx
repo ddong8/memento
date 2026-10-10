@@ -283,16 +283,26 @@ const UserBubble = memo(function UserBubble({
   content: string;
   images?: string[];
 }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!content) return;
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
+
   return (
     <div
+      className="group/user relative flex justify-end"
       style={{
-        display: "flex",
-        justifyContent: "flex-end",
         contentVisibility: "auto",
         containIntrinsicSize: "auto 48px",
       }}
     >
       <div
+        className="select-text"
         style={{
           background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
@@ -307,6 +317,8 @@ const UserBubble = memo(function UserBubble({
           display: "flex",
           flexDirection: "column",
           gap: 8,
+          userSelect: "text",
+          WebkitUserSelect: "text",
         }}
       >
         {images && images.length > 0 && (
@@ -353,16 +365,28 @@ const UserBubble = memo(function UserBubble({
           </div>
         )}
         {content && (
-          <div
-            className="prose prose-sm max-w-none"
-            style={{
-              fontSize: 14,
-              lineHeight: 1.55,
-              whiteSpace: "normal",
-              color: "var(--aurora-fg1)",
-            }}
-          >
-            <MarkdownViewer content={content} compactText={true} />
+          <div className="flex items-end justify-between gap-2">
+            <div
+              className="prose prose-sm max-w-none flex-1 select-text"
+              style={{
+                fontSize: 14,
+                lineHeight: 1.55,
+                whiteSpace: "normal",
+                color: "var(--aurora-fg1)",
+                userSelect: "text",
+                WebkitUserSelect: "text",
+              }}
+            >
+              <MarkdownViewer content={content} compactText={true} />
+            </div>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="opacity-0 group-hover/user:opacity-100 transition-opacity p-1 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
+              title="复制提问"
+            >
+              <Icon name={copied ? "check" : "copy"} size={12} style={{ color: copied ? "#10b981" : undefined }} />
+            </button>
           </div>
         )}
       </div>
@@ -388,6 +412,16 @@ const AssistantBubble = memo(function AssistantBubble({
   const { thinking, content } = parseTurnContent(turn);
   const isThinkingActive = Boolean(streaming && isLast && !content);
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyContent = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!content) return;
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
 
   return (
     <div
@@ -396,7 +430,7 @@ const AssistantBubble = memo(function AssistantBubble({
         containIntrinsicSize: "auto 120px",
       }}
     >
-      <Glass padding="clamp(12px, 3vw, 20px)" radius={18} style={{ maxWidth: "100%", minWidth: 0, overflow: "hidden" }}>
+      <Glass padding="clamp(12px, 3vw, 20px)" radius={18} className="select-text" style={{ maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
         {turn.sources && turn.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
             <button
@@ -447,9 +481,24 @@ const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {content ? (
-        <div className="prose prose-sm max-w-none" style={{ fontSize: 14, lineHeight: 1.6 }}>
-          <MarkdownViewer content={content} isStreaming={Boolean(streaming && isLast)} />
-        </div>
+        <>
+          <div className="prose prose-sm max-w-none select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
+            <MarkdownViewer content={content} isStreaming={Boolean(streaming && isLast)} />
+          </div>
+          {!streaming && (
+            <div className="flex items-center justify-end gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none">
+              <button
+                type="button"
+                onClick={handleCopyContent}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                title="复制回答全文"
+              >
+                <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
+                <span>{copied ? "已复制" : "复制全文"}</span>
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         !hasTools && !thinking && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 13 }}>
@@ -3223,11 +3272,11 @@ function AskPageContent() {
   }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
 
   return (
-    <div className="w-full flex h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-5.5rem)] rounded-xl sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative select-none">
+    <div className="w-full flex h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-5.5rem)] rounded-xl sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative">
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+        <header className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             <Btn
               variant="glass"
@@ -3385,15 +3434,17 @@ function AskPageContent() {
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          className="flex-1 overflow-y-auto px-4 md:px-8 py-6"
+          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 select-text"
           style={{
             contain: "content",
             transform: "translateZ(0)",
             willChange: "scroll-position",
             overscrollBehaviorY: "contain",
+            userSelect: "text",
+            WebkitUserSelect: "text",
           }}
         >
-          <div className="w-full max-w-3xl mx-auto space-y-4">
+          <div className="w-full max-w-3xl mx-auto space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
       {turns.length === 0 && (
         <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>

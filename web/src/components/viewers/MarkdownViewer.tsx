@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   detectMediaType,
   VideoPlayer,
@@ -24,6 +24,46 @@ interface MarkdownViewerProps {
   compactMedia?: boolean;
   compactText?: boolean;
   isStreaming?: boolean;
+}
+
+function PreBlock({ children, ...props }: any) {
+  const [copied, setCopied] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const codeElement = Array.isArray(children) ? children[0] : children;
+  const langMatch = codeElement?.props?.className?.match(/language-([a-zA-Z0-9_-]+)/);
+  const lang = langMatch ? langMatch[1] : "";
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (preRef.current) {
+      const text = preRef.current.innerText || "";
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }).catch(() => {});
+    }
+  };
+
+  return (
+    <div className="not-prose relative group/code my-3 rounded-xl overflow-hidden border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-md">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-white/5 border-b border-white/5 text-[11px] text-[var(--aurora-fg3)] font-mono select-none">
+        <span>{lang ? lang.toUpperCase() : "CODE"}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10 transition-colors cursor-pointer"
+          title="复制代码"
+        >
+          {copied ? "✓ 已复制" : "复制代码"}
+        </button>
+      </div>
+      <pre ref={preRef} className="p-3.5 overflow-x-auto text-[13px] font-mono leading-relaxed select-text" {...props}>
+        {children}
+      </pre>
+    </div>
+  );
 }
 
 export function normalizeMarkdownContent(content: string): string {
@@ -87,6 +127,7 @@ export default function MarkdownViewer({
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={{
+          pre: PreBlock,
           img: ({ node, src, alt, ...props }: any) => {
             if (!src) return null;
             const type = detectMediaType(src);

@@ -88,6 +88,12 @@ export default function ActiveRunsMonitor() {
     (r) => r.done && !dismissedNotificationIds.has(r.conversation_id) && (now / 1000 - (r.finished_at || 0) < 20)
   );
 
+  // Suppress floating dock when the user is already on /ask observing the single active run
+  const isWatchingOnlyActiveRun =
+    pathname === "/ask" &&
+    (activeRuns.length === 1 || (currentConvId && activeRuns.every((r) => r.conversation_id === currentConvId)));
+  const showFloatingDock = activeRuns.length > 0 && !isWatchingOnlyActiveRun;
+
   // Handle task stop/cancel
   const handleCancel = async (e: React.MouseEvent, convId: string) => {
     e.stopPropagation();
@@ -263,7 +269,7 @@ export default function ActiveRunsMonitor() {
       )}
 
       {/* 2. Active Runs Floating Dock (右侧靠中间垂直居中，零功能冲突，单手大拇指舒适区) */}
-      {activeRuns.length > 0 && (
+      {showFloatingDock && (
         <div
           className="fixed z-50 pointer-events-none transition-all duration-300 ease-out"
           style={{

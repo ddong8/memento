@@ -21,6 +21,8 @@ const RUNNER_MARKERS = [
   "last_error_message",
   "active_background_tasks",
   "STATUS_STILL_RUNNING",
+  "is_waiting_transition",
+  "is_canceled",
   'if __name__ == "__main__":',
 ];
 

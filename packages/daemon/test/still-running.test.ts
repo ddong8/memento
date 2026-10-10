@@ -23,6 +23,26 @@ Tool is running as a background task with task id: eebfe902/task-73
     expect(detectStillRunning(stdout, "", undefined, 0)).toBe(false);
   });
 
+  it("recognizes Antigravity canceled background task", () => {
+    const stdout = `
+⚡ [Running tests]
+Tool is running as a background task with task id: eebfe902/task-73
+⏹️ [后台任务 task-73 已取消/终止]
+已确认取消无用的后台任务。
+`;
+    expect(detectStillRunning(stdout, "", undefined, 0)).toBe(false);
+  });
+
+  it("recognizes Antigravity agent killed background task", () => {
+    const stdout = `
+⚡ [Running tests]
+Tool is running as a background task with task id: eebfe902/task-73
+⏹️ [后台任务 task-73 已由 Agent 主动终止]
+已终止任务。
+`;
+    expect(detectStillRunning(stdout, "", undefined, 0)).toBe(false);
+  });
+
   it("detects STATUS_STILL_RUNNING marker", () => {
     const stdout = "一些输出...\n[STATUS_STILL_RUNNING: tasks=task-102]\n";
     expect(detectStillRunning(stdout, "", undefined, 0)).toBe(true);

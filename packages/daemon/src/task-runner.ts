@@ -163,9 +163,9 @@ export function detectStillRunning(
   if (!hasBg) return false;
 
   const completionPatterns = [
-    /后台任务已(?:执行完毕|完成|结束)/i,
-    /background task (?:completed|finished|exited)/i,
-    /✅\s*\[后台任务 \S+ 执行完毕/i,
+    /后台任务已(?:执行完毕|完成|结束|取消|终止)/i,
+    /background task (?:completed|finished|exited|canceled|cancelled|terminated)/i,
+    /[✅⏹️]\s*\[后台任务 \S+ (?:执行完毕|已结束|已取消|已终止|已由 Agent 主动终止)/i,
   ];
 
   let lastCompIdx = -1;
@@ -507,7 +507,7 @@ export class TaskRunner {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
           ...(model ? ["--model", model] : []),
-          ...(task.timeoutSeconds > 0 ? ["--timeout", String(task.timeoutSeconds)] : []),
+          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(30, task.timeoutSeconds - 15))] : []),
           "-p",
           prompt,
         ];
@@ -589,7 +589,8 @@ export class TaskRunner {
       if (answer) fullOut = answer;
       const streamErrors = parser?.errors.trim() ?? "";
       const timedOut = exitCode === TIMED_OUT;
-      const isStillRunning = !timedOut && detectStillRunning(out.stdout, fullErr, parser, exitCode);
+      const hasStillRunningTag = out.stdout.includes("STATUS_STILL_RUNNING") || fullErr.includes("STATUS_STILL_RUNNING");
+      const isStillRunning = (!timedOut || hasStillRunningTag) && detectStillRunning(out.stdout, fullErr, parser, exitCode);
       const promptTooLong = errScan().includes("Prompt is too long") || fullOut.includes("Prompt is too long");
 
       const sid =
@@ -608,7 +609,7 @@ export class TaskRunner {
       this.send(
         taskFinishedMessage({
           taskId,
-          status: timedOut ? "timeout" : isStillRunning ? "still_running" : exitCode === 0 ? "succeeded" : "failed",
+          status: timedOut && !isStillRunning ? "timeout" : isStillRunning ? "still_running" : exitCode === 0 ? "succeeded" : "failed",
           exitCode,
           stdout: fullOut,
           stderr: fullErr,

@@ -92,6 +92,9 @@ interface Turn {
   sources?: Source[];
   toolCalls?: ToolCallItem[];
   error?: boolean;
+  created_at?: string;
+  started_at?: string;
+  duration_ms?: number;
 }
 
 function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
@@ -276,14 +279,55 @@ function formatExcerpt(raw: string): string {
   return text.trim();
 }
 
+function formatTurnTimestamp(iso?: string): { short: string; full: string } | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const full = `${year}-${month}-${day} ${hms}`;
+  const now = new Date();
+  const isToday =
+    year === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const isSameYear = year === now.getFullYear();
+  const short = isToday ? hms : isSameYear ? `${month}-${day} ${hms}` : full;
+  return { short, full };
+}
+
+function formatTurnDuration(durationMs?: number, startedAtIso?: string, finishedAtIso?: string): string | null {
+  let ms = typeof durationMs === "number" && durationMs > 0 ? durationMs : 0;
+  if (!ms && startedAtIso && finishedAtIso) {
+    const t1 = new Date(startedAtIso).getTime();
+    const t2 = new Date(finishedAtIso).getTime();
+    if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
+      ms = t2 - t1;
+    }
+  }
+  if (!ms || ms <= 0) return null;
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m ${s}s`;
+}
+
 const UserBubble = memo(function UserBubble({
   content,
   images,
+  createdAt,
 }: {
   content: string;
   images?: string[];
+  createdAt?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const timeInfo = formatTurnTimestamp(createdAt);
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!content) return;
@@ -306,7 +350,7 @@ const UserBubble = memo(function UserBubble({
         style={{
           background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
-          padding: "11px 16px",
+          padding: "11px 16px 8px 16px",
           borderRadius: 16,
           maxWidth: "min(88%, 680px)",
           fontSize: 14,
@@ -316,7 +360,7 @@ const UserBubble = memo(function UserBubble({
           boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          gap: 6,
           userSelect: "text",
           WebkitUserSelect: "text",
         }}
@@ -365,28 +409,42 @@ const UserBubble = memo(function UserBubble({
           </div>
         )}
         {content && (
-          <div className="flex items-end justify-between gap-2">
-            <div
-              className="prose prose-sm max-w-none flex-1 select-text"
-              style={{
-                fontSize: 14,
-                lineHeight: 1.55,
-                whiteSpace: "normal",
-                color: "var(--aurora-fg1)",
-                userSelect: "text",
-                WebkitUserSelect: "text",
-              }}
-            >
-              <MarkdownViewer content={content} compactText={true} />
-            </div>
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="opacity-0 group-hover/user:opacity-100 transition-opacity p-1 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
-              title="复制提问"
-            >
-              <Icon name={copied ? "check" : "copy"} size={12} style={{ color: copied ? "#10b981" : undefined }} />
-            </button>
+          <div
+            className="prose prose-sm max-w-none flex-1 select-text"
+            style={{
+              fontSize: 14,
+              lineHeight: 1.55,
+              whiteSpace: "normal",
+              color: "var(--aurora-fg1)",
+              userSelect: "text",
+              WebkitUserSelect: "text",
+            }}
+          >
+            <MarkdownViewer content={content} compactText={true} />
+          </div>
+        )}
+        {(timeInfo || content) && (
+          <div className="flex items-center justify-end gap-2 pt-0.5 select-none">
+            {timeInfo && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] text-[var(--aurora-fg3)] opacity-80"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+                title={`发出提问时间: ${timeInfo.full}`}
+              >
+                <Icon name="clock" size={10.5} />
+                <span>{timeInfo.short}</span>
+              </span>
+            )}
+            {content && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="opacity-60 group-hover/user:opacity-100 transition-opacity p-0.5 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
+                title="复制提问"
+              >
+                <Icon name={copied ? "check" : "copy"} size={12} style={{ color: copied ? "#10b981" : undefined }} />
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -398,6 +456,7 @@ const AssistantBubble = memo(function AssistantBubble({
   turn,
   isLast,
   streaming,
+  prevUserCreatedAt,
   onSourcesClick,
   onSmartCompactAndRetry,
   t,
@@ -405,14 +464,20 @@ const AssistantBubble = memo(function AssistantBubble({
   turn: Turn;
   isLast: boolean;
   streaming: boolean;
+  prevUserCreatedAt?: string;
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   t: any;
 }) {
   const { thinking, content } = parseTurnContent(turn);
-  const isThinkingActive = Boolean(streaming && isLast && !content);
+  const isCurrentlyStreaming = Boolean(streaming && isLast);
+  const isThinkingActive = Boolean(isCurrentlyStreaming && !content);
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
   const [copied, setCopied] = useState(false);
+
+  const replyTime = formatTurnTimestamp(turn.created_at);
+  const startTime = formatTurnTimestamp(turn.started_at || prevUserCreatedAt);
+  const durationText = formatTurnDuration(turn.duration_ms, turn.started_at || prevUserCreatedAt, turn.created_at);
 
   const handleCopyContent = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -481,24 +546,9 @@ const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {content ? (
-        <>
-          <div className="prose prose-sm max-w-none select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
-            <MarkdownViewer content={content} isStreaming={Boolean(streaming && isLast)} />
-          </div>
-          {!streaming && (
-            <div className="flex items-center justify-end gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none">
-              <button
-                type="button"
-                onClick={handleCopyContent}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
-                title="复制回答全文"
-              >
-                <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
-                <span>{copied ? "已复制" : "复制全文"}</span>
-              </button>
-            </div>
-          )}
-        </>
+        <div className="prose prose-sm max-w-none select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
+          <MarkdownViewer content={content} isStreaming={isCurrentlyStreaming} />
+        </div>
       ) : (
         !hasTools && !thinking && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 13 }}>
@@ -514,6 +564,53 @@ const AssistantBubble = memo(function AssistantBubble({
             {t.ask.thinking}
           </div>
         )
+      )}
+      {isCurrentlyStreaming && startTime && (
+        <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/30 not-prose select-none text-[11px] text-[var(--aurora-fg3)]">
+          <span
+            className="inline-flex items-center gap-1.5 opacity-80"
+            style={{ fontVariantNumeric: "tabular-nums" }}
+            title={`开始处理时间: ${startTime.full}`}
+          >
+            <Icon name="clock" size={11} style={{ color: "var(--aurora-accent)" }} />
+            <span>开始于 {startTime.short}</span>
+          </span>
+        </div>
+      )}
+      {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
+        <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none flex-wrap">
+          <div className="flex items-center gap-2 text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {replyTime && (
+              <span
+                className="inline-flex items-center gap-1 opacity-85"
+                title={`收到回复时间: ${replyTime.full}${startTime ? ` (提问于 ${startTime.full})` : ""}`}
+              >
+                <Icon name="clock" size={11} />
+                <span>回复于 {replyTime.short}</span>
+              </span>
+            )}
+            {durationText && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)]"
+                title="本轮响应耗时"
+              >
+                <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
+                <span>耗时 {durationText}</span>
+              </span>
+            )}
+          </div>
+          {content && (
+            <button
+              type="button"
+              onClick={handleCopyContent}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer ml-auto"
+              title="复制回答全文"
+            >
+              <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
+              <span>{copied ? "已复制" : "复制全文"}</span>
+            </button>
+          )}
+        </div>
       )}
     </Glass>
   </div>
@@ -2235,6 +2332,9 @@ function AskPageContent() {
         result?: ToolCallItem["result"];
         call?: ToolCallItem;
         event?: TaskEvent;
+        user_created_at?: string;
+        assistant_created_at?: string;
+        duration_ms?: number;
       };
       try {
         evt = JSON.parse(line.slice(6));
@@ -2253,6 +2353,20 @@ function AskPageContent() {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("memento_active_chat_change", { detail: { id: evt.id } }));
           window.dispatchEvent(new CustomEvent("memento_ask_start", { detail: { conversation_id: evt.id } }));
+        }
+        if (evt.user_created_at) {
+          const cur = [...turnsRef.current];
+          if (cur.length >= 2 && cur[cur.length - 2].role === "user") {
+            cur[cur.length - 2] = {
+              ...cur[cur.length - 2],
+              created_at: cur[cur.length - 2].created_at || evt.user_created_at,
+            };
+            turnsRef.current = cur;
+          }
+          patchLast((x) => ({
+            ...x,
+            started_at: x.started_at || evt.user_created_at,
+          }));
         }
         if (askCache) {
           askCache.streaming = true;
@@ -2447,6 +2561,21 @@ function AskPageContent() {
         patchLast((x) => ({ ...x, content: x.content + evt.text }));
       } else if (evt.type === "done") {
         sawDone = true;
+        const doneIso = evt.assistant_created_at || new Date().toISOString();
+        patchLast((x) => {
+          const startIso = x.started_at;
+          const computedDur =
+            typeof evt.duration_ms === "number"
+              ? evt.duration_ms
+              : startIso
+                ? Math.max(0, new Date(doneIso).getTime() - new Date(startIso).getTime())
+                : undefined;
+          return {
+            ...x,
+            created_at: doneIso,
+            ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),
+          };
+        });
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("memento_ask_done", {
@@ -2455,7 +2584,7 @@ function AskPageContent() {
           );
         }
       } else if (evt.type === "error") {
-        patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true }));
+        patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true, created_at: x.created_at || new Date().toISOString() }));
       }
     };
 
@@ -2545,6 +2674,19 @@ function AskPageContent() {
     }
 
     const finalTurns = [...turnsRef.current];
+    if (finalTurns.length > 0) {
+      const last = finalTurns[finalTurns.length - 1];
+      if (last.role === "assistant" && !last.created_at) {
+        const finIso = new Date().toISOString();
+        const dur = last.started_at ? Math.max(0, new Date(finIso).getTime() - new Date(last.started_at).getTime()) : undefined;
+        finalTurns[finalTurns.length - 1] = {
+          ...last,
+          created_at: finIso,
+          ...(dur !== undefined && !last.duration_ms ? { duration_ms: dur } : {}),
+        };
+        turnsRef.current = finalTurns;
+      }
+    }
     setTurns(finalTurns);
     streamingRef.current = false;
     setStreaming(false);
@@ -2604,18 +2746,24 @@ function AskPageContent() {
     const len = turnsToUse.length;
     const last = len > 0 ? turnsToUse[len - 1] : null;
     const secondLast = len > 1 ? turnsToUse[len - 2] : null;
+    const runStartedIso = askCache?.activeRun?.startedAt
+      ? new Date(askCache.activeRun.startedAt).toISOString()
+      : new Date().toISOString();
 
     if (last?.role === "assistant" && secondLast?.role === "user" && secondLast.content === question) {
       // Already ends with user question and assistant placeholder, reset assistant content and toolCalls for clean replay
-      turnsToUse = [...turnsToUse.slice(0, -1), { role: "assistant", content: "", toolCalls: [] }];
+      turnsToUse = [
+        ...turnsToUse.slice(0, -1),
+        { role: "assistant", content: "", toolCalls: [], started_at: last.started_at || secondLast.created_at || runStartedIso },
+      ];
     } else if (last?.role === "user" && last.content === question) {
       // Ends with user question, append assistant placeholder
-      turnsToUse.push({ role: "assistant", content: "", toolCalls: [] });
+      turnsToUse.push({ role: "assistant", content: "", toolCalls: [], started_at: last.created_at || runStartedIso });
     } else {
       // Normal case: append both user and assistant
       turnsToUse.push(
-        { role: "user", content: question },
-        { role: "assistant", content: "", toolCalls: [] }
+        { role: "user", content: question, created_at: runStartedIso },
+        { role: "assistant", content: "", toolCalls: [], started_at: runStartedIso }
       );
     }
 
@@ -2677,6 +2825,9 @@ function AskPageContent() {
         role: x.role,
         content: x.content,
         images: x.images,
+        created_at: x.created_at,
+        started_at: x.started_at,
+        duration_ms: x.duration_ms,
         tool_calls: x.toolCalls?.map((tc) => ({
           name: tc.name,
           args: tc.args,
@@ -2696,10 +2847,11 @@ function AskPageContent() {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setIsConfigCollapsed(true);
     }
+    const nowIso = new Date().toISOString();
     const initialTurns: Turn[] = [
       ...turns.filter((x) => !x.error),
-      { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined },
-      { role: "assistant", content: "", toolCalls: [] },
+      { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined, created_at: nowIso },
+      { role: "assistant", content: "", toolCalls: [], started_at: nowIso },
     ];
     turnsRef.current = initialTurns;
     setTurns(initialTurns);
@@ -3026,6 +3178,7 @@ function AskPageContent() {
         tool_name?: string;
         tool_input?: string;
         raw_type?: string;
+        timestamp?: string;
       }> = (targetSession.messages || []) as any;
 
       if (targetSession.conversation_id) {
@@ -3040,6 +3193,7 @@ function AskPageContent() {
               tool_name: m.tool_name || undefined,
               tool_input: m.tool_input || undefined,
               raw_type: m.raw_type || undefined,
+              timestamp: m.timestamp || m.created_at || undefined,
             }));
           }
         } catch (err) {
@@ -3073,6 +3227,7 @@ function AskPageContent() {
         let role = m.role || "user";
         let content = m.content || "";
         const rawType = m.raw_type || "";
+        const msgTime = m.timestamp || (m as any).created_at || undefined;
 
         // Detect legacy [Result] on user role -> treat as tool output
         if (role === "user" && content.startsWith("[Result]")) {
@@ -3100,6 +3255,7 @@ function AskPageContent() {
             role: "user",
             content: content,
             images: m.images || undefined,
+            created_at: msgTime,
           });
         } else if (role === "assistant") {
           const toolCalls: ToolCallItem[] = [];
@@ -3119,6 +3275,7 @@ function AskPageContent() {
             content: content,
             thinking: m.thinking || undefined,
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            created_at: msgTime,
           });
         } else if (role === "tool") {
           // Attach tool call or output to the last assistant turn
@@ -3128,8 +3285,11 @@ function AskPageContent() {
               role: "assistant",
               content: "",
               toolCalls: [],
+              created_at: msgTime,
             };
             loadedTurns.push(lastTurn);
+          } else if (msgTime && !lastTurn.created_at) {
+            lastTurn.created_at = msgTime;
           }
           if (!lastTurn.toolCalls) {
             lastTurn.toolCalls = [];
@@ -3251,16 +3411,21 @@ function AskPageContent() {
             contentVisibility: "auto",
             containIntrinsicSize: turn.role === "user" ? "0 80px" : "0 140px",
           };
+      const prevUserCreatedAt =
+        turn.role === "assistant" && i > 0 && turns[i - 1]?.role === "user"
+          ? turns[i - 1].created_at
+          : undefined;
 
       return (
         <div key={i} style={contentVisibilityStyle}>
           {turn.role === "user" ? (
-            <UserBubble content={turn.content} images={turn.images} />
+            <UserBubble content={turn.content} images={turn.images} createdAt={turn.created_at} />
           ) : (
             <AssistantBubble
               turn={turn}
               isLast={i === turns.length - 1}
               streaming={streaming}
+              prevUserCreatedAt={prevUserCreatedAt}
               onSourcesClick={handleSourcesClick}
               onSmartCompactAndRetry={handleSmartCompactAndRetry}
               t={t}

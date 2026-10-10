@@ -1072,10 +1072,13 @@ export interface AskConversationDetail {
   turns: Array<{
     role: "user" | "assistant";
     content: string;
+    images?: string[];
     thinking?: string;
     sources?: any[];
     toolCalls?: any[];
     created_at?: string;
+    started_at?: string;
+    duration_ms?: number;
   }>;
   total_turns?: number;
   has_more?: boolean;

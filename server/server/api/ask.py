@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -873,7 +874,9 @@ async def _get_or_create_conversation(
                     "content": t.get("content", ""),
                     "toolCalls": t.get("tool_calls") or t.get("toolCalls") or [],
                     "thinking": t.get("thinking"),
-                    "created_at": now_iso,
+                    "created_at": t.get("created_at") or now_iso,
+                    **({"started_at": t["started_at"]} if t.get("started_at") else {}),
+                    **({"duration_ms": t["duration_ms"]} if t.get("duration_ms") is not None else {}),
                 }
                 for t in history
                 if t.get("content")
@@ -970,6 +973,9 @@ async def _append_conversation_turns(
     images: list[str] | None = None,
     attachments: list[dict] | None = None,
     config: dict | None = None,
+    user_created_at: str | None = None,
+    assistant_created_at: str | None = None,
+    duration_ms: int | None = None,
 ):
     """Persist user and assistant turns into the conversation row."""
     try:
@@ -982,10 +988,12 @@ async def _append_conversation_turns(
 
             turns = list(conv.turns or [])
             now_iso = datetime.now(timezone.utc).isoformat()
+            u_iso = user_created_at or now_iso
+            a_iso = assistant_created_at or now_iso
             user_turn: dict = {
                 "role": "user",
                 "content": user_content,
-                "created_at": now_iso,
+                "created_at": u_iso,
             }
             if images:
                 user_turn["images"] = [_compress_b64_image_safe(img) for img in images]
@@ -995,8 +1003,11 @@ async def _append_conversation_turns(
             asst_turn: dict = {
                 "role": "assistant",
                 "content": assistant_content,
-                "created_at": now_iso,
+                "created_at": a_iso,
+                "started_at": u_iso,
             }
+            if duration_ms is not None:
+                asst_turn["duration_ms"] = duration_ms
             if thinking:
                 asst_turn["thinking"] = thinking
             if sources:
@@ -1726,7 +1737,10 @@ async def _direct_agent_stream(
     """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
     from ..services.orchestrator import _tool_run_on_device, is_likely_long_running_task
 
-    yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
+    user_created_at = datetime.now(timezone.utc).isoformat()
+    req_start_mono = time.monotonic()
+
+    yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
     yield f"data: {json.dumps({'type': 'sources', 'sources': []}, ensure_ascii=False)}\n\n"
 
     action = "shell" if execution_mode == "shell" else "agent"
@@ -1880,12 +1894,16 @@ async def _direct_agent_stream(
     result_dict = None
     summary_text = ""
     saved = False
+    assistant_created_at_final: str | None = None
+    duration_ms_final: int | None = None
 
     async def _persist():
-        nonlocal saved
+        nonlocal saved, assistant_created_at_final, duration_ms_final
         if saved:
             return
         saved = True
+        assistant_created_at_final = datetime.now(timezone.utc).isoformat()
+        duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
         tool_calls_to_save = []
         if tool_call_item:
             saved_call = dict(tool_call_item)
@@ -1930,6 +1948,9 @@ async def _direct_agent_stream(
                 "worktree": bool(worktree),
                 "compact_mode": False,  # 瘦身完成后复位，后续在当前对话中默认以正常会话无缝续接
             },
+            user_created_at=user_created_at,
+            assistant_created_at=assistant_created_at_final,
+            duration_ms=duration_ms_final,
         )
 
     try:
@@ -1999,7 +2020,7 @@ async def _direct_agent_stream(
     finally:
         await _persist()
 
-    yield "data: {\"type\": \"done\"}\n\n"
+    yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
     await asyncio.sleep(0.05)
 
 
@@ -2302,18 +2323,24 @@ async def ask(
         agent_messages = [{"role": "system", "content": system_content}] + messages[1:]
 
         async def agent_stream(run_db: AsyncSession, run_user: User):
-            yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
+            user_created_at = datetime.now(timezone.utc).isoformat()
+            req_start_mono = time.monotonic()
+            yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
             yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
             accumulated_text: list[str] = []
             accumulated_thinking: list[str] = []
             tool_calls_map: dict[str, dict] = {}
             saved = False
+            assistant_created_at_final: str | None = None
+            duration_ms_final: int | None = None
 
             async def _persist():
-                nonlocal saved
+                nonlocal saved, assistant_created_at_final, duration_ms_final
                 if saved:
                     return
                 saved = True
+                assistant_created_at_final = datetime.now(timezone.utc).isoformat()
+                duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
                 await _append_conversation_turns(
                     conv_id,
                     question,
@@ -2326,6 +2353,9 @@ async def ask(
                     images=body.images,
                     attachments=body.attachments,
                     config=req_config,
+                    user_created_at=user_created_at,
+                    assistant_created_at=assistant_created_at_final,
+                    duration_ms=duration_ms_final,
                 )
 
             try:
@@ -2362,7 +2392,7 @@ async def ask(
             finally:
                 await _persist()
 
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
             await asyncio.sleep(0.05)
 
         return _run_response(
@@ -2378,17 +2408,23 @@ async def ask(
         )
 
     async def stream(run_user: User = _user):
-        yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title}, ensure_ascii=False)}\n\n"
+        user_created_at = datetime.now(timezone.utc).isoformat()
+        req_start_mono = time.monotonic()
+        yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources}, ensure_ascii=False)}\n\n"
         accumulated_text: list[str] = []
         accumulated_thinking: list[str] = []
         saved = False
+        assistant_created_at_final: str | None = None
+        duration_ms_final: int | None = None
 
         async def _persist():
-            nonlocal saved
+            nonlocal saved, assistant_created_at_final, duration_ms_final
             if saved:
                 return
             saved = True
+            assistant_created_at_final = datetime.now(timezone.utc).isoformat()
+            duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
             await _append_conversation_turns(
                 conv_id,
                 question,
@@ -2401,6 +2437,9 @@ async def ask(
                 images=body.images,
                 attachments=body.attachments,
                 config=req_config,
+                user_created_at=user_created_at,
+                assistant_created_at=assistant_created_at_final,
+                duration_ms=duration_ms_final,
             )
 
         if not sources and not body.images and not body.attachments:
@@ -2408,7 +2447,7 @@ async def ask(
             accumulated_text.append(empty_msg)
             yield f"data: {json.dumps({'type': 'delta', 'text': empty_msg}, ensure_ascii=False)}\n\n"
             await _persist()
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
             await asyncio.sleep(0.05)
             return
 
@@ -2433,7 +2472,7 @@ async def ask(
         finally:
             await _persist()
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
         await asyncio.sleep(0.05)
 
     # Plain answers need no database session of their own.

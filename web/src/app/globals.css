@@ -420,6 +420,7 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
   box-shadow: 0 0 0 4px var(--aurora-accent-soft);
 }
 .aurora-input input,
+.aurora-input textarea,
 .aurora-input select {
   flex: 1;
   min-width: 0;
@@ -431,6 +432,7 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
   font-size: 14px;
   font-family: inherit;
   letter-spacing: -0.01em;
+  resize: none;
 }
 
 /* =========================================================================

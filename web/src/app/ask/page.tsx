@@ -1216,7 +1216,7 @@ function AskPageContent() {
     setHistoryOpen(false);
   }, []);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
     if (askCache) {
@@ -2166,7 +2166,21 @@ function AskPageContent() {
   const [speechHint, setSpeechHint] = useState<string | null>(null);
   const speechHintTimer = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<any>(null);
-  const inputElRef = useRef<HTMLInputElement>(null);
+  const inputElRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = inputElRef.current;
+    if (!el) return;
+    if (!input) {
+      el.style.height = "20px";
+      el.style.overflowY = "hidden";
+      return;
+    }
+    el.style.height = "20px";
+    const nextHeight = Math.min(Math.max(el.scrollHeight, 20), 160);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
+  }, [input]);
 
   const toggleVoiceInput = useCallback(() => {
     // 1. Instant tactile feedback
@@ -3016,10 +3030,14 @@ function AskPageContent() {
     }
   }, [qParam, streaming, sendWithText]);
 
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
+      const isMobileViewport = typeof window !== "undefined" && window.innerWidth < 768;
+      if (!isMobileViewport) {
+        e.preventDefault();
+        send();
+      }
     }
   }, [send]);
 
@@ -5136,7 +5154,7 @@ function AskPageContent() {
             )}
 
             {/* Input box and action button */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", width: "100%", minWidth: 0, boxSizing: "border-box" }}>
               {/* Image Upload Button */}
               <button
                 type="button"
@@ -5170,37 +5188,65 @@ function AskPageContent() {
                 onChange={handleFileChange}
               />
 
-              <GhostInput
-                inputRef={inputElRef}
-                type="text"
-                value={input}
-                onChange={handleInputChange}
-                onPaste={handlePaste}
-                onFocus={() => {
-                  setTimeout(() => {
-                    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-                  }, 120);
-                }}
-                onKeyDown={onKeyDown}
-                placeholder={placeholderText}
-                icon={
-                  executionMode === "shell"
-                    ? "terminal"
-                    : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
-                    ? "code"
-                    : selectedDevice === "ask_only"
-                    ? "sparkles"
-                    : "brain"
-                }
-                wrapStyle={{
+              <label
+                className="aurora-input"
+                style={{
                   flex: 1,
                   minWidth: 0,
                   background: "var(--aurora-chip)",
                   border: "1px solid var(--aurora-border)",
                   boxSizing: "border-box",
+                  alignItems: "flex-start",
+                  padding: "8px 12px",
+                  minHeight: 38,
                 }}
-                disabled={streaming}
-              />
+              >
+                <Icon
+                  name={
+                    executionMode === "shell"
+                      ? "terminal"
+                      : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
+                      ? "code"
+                      : selectedDevice === "ask_only"
+                      ? "sparkles"
+                      : "brain"
+                  }
+                  size={15}
+                  style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}
+                />
+                <textarea
+                  ref={inputElRef}
+                  rows={1}
+                  value={input}
+                  onChange={handleInputChange}
+                  onPaste={handlePaste}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                    }, 120);
+                  }}
+                  onKeyDown={onKeyDown}
+                  placeholder={placeholderText}
+                  disabled={streaming}
+                  style={{
+                    minWidth: 0,
+                    width: "100%",
+                    height: 20,
+                    maxHeight: 160,
+                    lineHeight: "20px",
+                    padding: 0,
+                    margin: 0,
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    color: "var(--aurora-fg1)",
+                    resize: "none",
+                    overflowY: "hidden",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                />
+              </label>
               {/* Voice Input Button */}
               <button
                 type="button"

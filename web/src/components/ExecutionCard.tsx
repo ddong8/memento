@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { Icon } from "./aurora/Icon";
 import { BrandMark } from "./aurora/BrandMark";
 import MarkdownViewer from "./viewers/MarkdownViewer";
@@ -38,7 +38,7 @@ interface ExecutionCardProps {
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
-export default function ExecutionCard({
+const ExecutionCard = memo(function ExecutionCard({
   call,
   isVisible = true,
   parentContent,
@@ -648,7 +648,7 @@ export default function ExecutionCard({
                     </div>
                   </div>
                 ) : (
-                  <MarkdownViewer content={result.stdout} compactMedia={true} />
+                  <MarkdownViewer content={result.stdout} compactMedia={true} isStreaming={isRunning} />
                 )
               ) : null}
 
@@ -826,6 +826,7 @@ export default function ExecutionCard({
       )}
     </div>
   );
-}
+});
 
+export default ExecutionCard;
 export { default as ExecutionTabs } from "./ExecutionTabs";

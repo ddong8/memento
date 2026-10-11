@@ -168,6 +168,9 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       return ret;
     };
   };
+  history.pushState = wrapHistory("pushState");
+  history.replaceState = wrapHistory("replaceState");
+  window.addEventListener("popstate", postRoute);
   // 8. Robust Alert Fallback Bridge: never let alert() get silently swallowed
   window.alert = function(msg) {
     try {

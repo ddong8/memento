@@ -220,7 +220,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
           }}
         >
           <div className="prose prose-sm max-w-full text-xs" style={{ opacity: 0.9 }}>
-            <MarkdownViewer content={thinking || "..."} />
+            <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
           </div>
         </div>
       )}
@@ -3672,7 +3672,7 @@ function AskPageContent() {
             <AssistantBubble
               turn={turn}
               isLast={i === turns.length - 1}
-              streaming={streaming}
+              streaming={i === turns.length - 1 ? streaming : false}
               prevUserCreatedAt={prevUserCreatedAt}
               onSourcesClick={handleSourcesClick}
               onSmartCompactAndRetry={handleSmartCompactAndRetry}

@@ -207,6 +207,8 @@ async def fetch_new_corrections(
 ) -> tuple[list[Said], int | None]:
     """User messages synced after `after_id` that read like pushback, oldest first,
     and the highest message id looked at (the next cursor)."""
+    from ..db.models import AskConversation
+
     machines = select(Machine.id).where(Machine.user_id == user.id)
     query = (
         select(ConversationMessage.id, ConversationMessage.content, ConversationMessage.timestamp,
@@ -230,10 +232,49 @@ async def fetch_new_corrections(
         query = query.where(ConversationMessage.id > after_id)
     rows = (await db.execute(query)).all()
     found: list[Said] = []
+    seen_texts: set[str] = set()
     for message_id, content, said_at, project, machine in rows:
         text = clean_user_voice(content)
         if text and looks_like_pushback(text):
+            seen_texts.add(text)
             found.append(Said(message_id, text, said_at, project, clean_device_name(machine) if machine else None))
+
+    # Also scan recent AskConversation turns (last 24h) so client chats in any mode
+    # or before local daemon JSONL sync are immediately captured without lag.
+    ask_convs = (await db.execute(
+        select(AskConversation)
+        .where(
+            AskConversation.user_id == user.id,
+            AskConversation.updated_at >= now - timedelta(hours=24),
+        )
+        .order_by(AskConversation.updated_at.desc())
+        .limit(30)
+    )).scalars().all()
+    recent_quotes = set((await db.execute(
+        select(CorrectionEvent.quote).where(
+            CorrectionEvent.user_id == user.id,
+            CorrectionEvent.said_at >= now - timedelta(hours=24),
+        )
+    )).scalars().all())
+    for conv in ask_convs:
+        cfg = conv.config or {}
+        proj_name = cfg.get("project_id") or None
+        for idx, turn in enumerate(conv.turns or []):
+            if not isinstance(turn, dict) or turn.get("role") != "user":
+                continue
+            text = clean_user_voice(str(turn.get("content") or ""))
+            if not text or text in seen_texts or text in recent_quotes or not looks_like_pushback(text):
+                continue
+            ts_raw = turn.get("created_at")
+            try:
+                said_at = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00")) if ts_raw else (conv.updated_at or now)
+            except ValueError:
+                said_at = conv.updated_at or now
+            if said_at < now - timedelta(hours=24):
+                continue
+            seen_texts.add(text)
+            found.append(Said(-1 - idx, text, said_at, proj_name, None))
+
     found.sort(key=lambda s: s.said_at)
     return found, (rows[-1][0] if rows else after_id)
 
@@ -347,7 +388,12 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
             item = items[n]
             fp = fingerprint(s)
             if (await db.execute(select(CorrectionEvent.id).where(
-                CorrectionEvent.user_id == user.id, CorrectionEvent.fingerprint == fp,
+                CorrectionEvent.user_id == user.id,
+                (CorrectionEvent.fingerprint == fp) | (
+                    (CorrectionEvent.quote == s.text) &
+                    (CorrectionEvent.said_at >= s.said_at - timedelta(minutes=30)) &
+                    (CorrectionEvent.said_at <= s.said_at + timedelta(minutes=30))
+                ),
             ))).first():
                 continue
             target = resolved.get(n) or refs.get(item["match"] or "")

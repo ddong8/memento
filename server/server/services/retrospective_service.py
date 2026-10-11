@@ -40,13 +40,14 @@ from .todo_service import add_todo, clean_title, close_todo, open_todos, parse_d
 
 logger = logging.getLogger("server.retrospective")
 
-SETTLE = timedelta(hours=2)  # a session quiet this long is considered finished
+SETTLE = timedelta(minutes=20)  # a session quiet this long is ready for review
 WINDOW = timedelta(days=3)
 BACKFILL = timedelta(days=14)
 MIN_MESSAGES = 12
 MIN_TOOL_CALLS = 3
 MAX_SESSIONS = 12
 REGROW = 1.25  # re-review a session that grew by a quarter since its review
+REGROW_MIN_NEW_MSGS = 30  # or added at least 30 new messages (for long-lived continued sessions)
 MESSAGE_CAP = 700
 TRANSCRIPT_CHARS = 14000
 KNOWN_SKILLS = 60
@@ -127,6 +128,7 @@ class Candidate:
     messages: int
     tool_calls: int
     last_at: datetime
+    prev_messages: int = 0
 
 
 async def pick_sessions(db: AsyncSession, user: User, since: datetime, now: datetime) -> list[Candidate]:
@@ -157,23 +159,28 @@ async def pick_sessions(db: AsyncSession, user: User, since: datetime, now: date
         if (tools or 0) < MIN_TOOL_CALLS:
             continue
         before = reviewed.get(doc_id)
+        prev_count = 0
         if before is not None:
             count, outcome, result = before
+            prev_count = count or 0
             if outcome == "error":
                 if int(result.get("errors") or 0) >= MAX_ERRORS:
                     continue
-            elif n < count * REGROW:
+            elif n < count * REGROW and (n - count) < REGROW_MIN_NEW_MSGS:
                 continue
-        out.append(Candidate(doc_id, title or "", tool_id, project, slug, n, tools or 0, last))
+        out.append(Candidate(doc_id, title or "", tool_id, project, slug, n, tools or 0, last, prev_messages=prev_count))
     out.sort(key=lambda c: (c.tool_calls, c.messages), reverse=True)
     return out[:MAX_SESSIONS]
 
 
-async def load_transcript(db: AsyncSession, doc_id: uuid.UUID) -> str:
-    total = (await db.execute(
-        select(func.count()).select_from(ConversationMessage).where(ConversationMessage.document_id == doc_id)
-    )).scalar() or 0
+async def load_transcript(db: AsyncSession, doc_id: uuid.UUID, prev_messages: int = 0) -> str:
     base = select(ConversationMessage.role, ConversationMessage.content).where(ConversationMessage.document_id == doc_id)
+    if prev_messages > 0:
+        start_line = max(0, prev_messages - 20)
+        base = base.where(ConversationMessage.line_number >= start_line)
+    total = (await db.execute(
+        select(func.count()).select_from(base.subquery())
+    )).scalar() or 0
     if total <= MESSAGE_CAP:
         rows = (await db.execute(base.order_by(ConversationMessage.line_number))).all()
     else:
@@ -315,7 +322,7 @@ async def save_pitfall(
 
 
 async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[str, Any]:
-    transcript = await load_transcript(db, cand.doc_id)
+    transcript = await load_transcript(db, cand.doc_id, prev_messages=cand.prev_messages)
     known = await load_known(db, user, cand.project)
     skills_text, pitfalls_text, todos_text = known.render()
     await db.commit()  # let go of the connection while the model reads

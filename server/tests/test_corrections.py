@@ -112,6 +112,18 @@ class PrefilterTests(unittest.TestCase):
         for text in ["帮我看看这个接口的性能", "部署吧", "发布版本"]:
             self.assertFalse(looks_like_pushback(text), text)
 
+    def test_clean_user_voice_strips_client_injected_prefixes(self) -> None:
+        from server.services.dreaming_service import clean_user_voice
+        raw = (
+            "【用户上传了图片 #1】\n"
+            "本地文件路径: /tmp/memento_images/4475/image_1.jpg\n"
+            "提示: 你可以使用视觉工具直接读取该路径的图片内容，切勿使用占位符或臆测图片内容。\n\n"
+            "客户端里怎么没有变化"
+        )
+        self.assertEqual(clean_user_voice(raw), "客户端里怎么没有变化")
+        raw2 = "[本轮答复已输出，部分任务仍保持后台运行（task-31876）]\n\n还是有部分后台任务没有跟踪到"
+        self.assertEqual(clean_user_voice(raw2), "还是有部分后台任务没有跟踪到")
+
 
 class ClassifyTests(unittest.IsolatedAsyncioTestCase):
     async def test_parses_and_filters_model_output(self) -> None:

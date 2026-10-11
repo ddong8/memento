@@ -1049,21 +1049,133 @@ async def _append_conversation_turns(
                 conv.config = cfg
             await session.commit()
 
-            # Fast-path self-evolution: if the user's message contains pushback or correction signals,
-            # immediately trigger a background scan to absorb rules without waiting for nightly runs.
+            # Sync non-CLI AskConversation turns (ai, agent, shell, rag, or sessions without a local daemon JSONL file)
+            # into Document + ConversationMessage so RAG retrieval, daily digest, and session reviews all include them.
+            cfg_now = dict(conv.config or {})
+            exec_mode_now = (cfg_now.get("execution_mode") or "ai").lower()
+            has_cli_session = bool(cfg_now.get("session_id")) and exec_mode_now in ("claude", "codex", "antigravity")
+            if not has_cli_session and conv.user_id:
+                try:
+                    import hashlib
+                    from ..db.models import ConversationMessage, Tool
+
+                    tool_row = await session.get(Tool, "memento")
+                    if not tool_row:
+                        session.add(Tool(id="memento", display_name="Memento"))
+                        await session.flush()
+
+                    mach_id = None
+                    if conv.device_id:
+                        m = (await session.execute(
+                            select(Machine.id).where(
+                                (Machine.collector_token_hash == conv.device_id) | (Machine.name == conv.device_id)
+                            ).limit(1)
+                        )).scalar_one_or_none()
+                        mach_id = m
+                    if not mach_id:
+                        mach_id = (await session.execute(
+                            select(Machine.id).where(Machine.user_id == conv.user_id)
+                            .order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
+                        )).scalar_one_or_none()
+
+                    if mach_id:
+                        rel_path = f"ask-conversations/{conv.id}.jsonl"
+                        doc = (await session.execute(
+                            select(Document).where(
+                                Document.machine_id == mach_id,
+                                Document.tool_id == "memento",
+                                Document.relative_path == rel_path,
+                            )
+                        )).scalar_one_or_none()
+                        full_text = "\n".join(
+                            f"{t.get('role')}: {t.get('content', '')}" for t in turns if isinstance(t, dict)
+                        )
+                        content_hash = hashlib.sha256(full_text.encode("utf-8", errors="ignore")).hexdigest()
+                        now_dt = datetime.now(timezone.utc)
+                        if not doc:
+                            doc = Document(
+                                tool_id="memento",
+                                machine_id=mach_id,
+                                relative_path=rel_path,
+                                category="conversation",
+                                content_type="jsonl",
+                                title=conv.title or "客户端对话",
+                                content=full_text[:200000],
+                                content_hash=content_hash,
+                                file_size_bytes=len(full_text.encode("utf-8", errors="ignore")),
+                                synced_at=now_dt,
+                                source_modified_at=now_dt,
+                            )
+                            session.add(doc)
+                            await session.flush()
+                        else:
+                            doc.title = conv.title or doc.title
+                            doc.content = full_text[:200000]
+                            doc.content_hash = content_hash
+                            doc.file_size_bytes = len(full_text.encode("utf-8", errors="ignore"))
+                            doc.synced_at = now_dt
+                            doc.source_modified_at = now_dt
+
+                        u_dt = datetime.fromisoformat(u_iso.replace("Z", "+00:00"))
+                        a_dt = datetime.fromisoformat(a_iso.replace("Z", "+00:00"))
+                        line_base = max(1, len(turns) - 1)
+                        existing_lines = set((await session.execute(
+                            select(ConversationMessage.line_number).where(
+                                ConversationMessage.document_id == doc.id,
+                                ConversationMessage.line_number.in_([line_base, line_base + 1]),
+                            )
+                        )).scalars().all())
+                        if line_base not in existing_lines:
+                            session.add(ConversationMessage(
+                                document_id=doc.id,
+                                line_number=line_base,
+                                message_type="user",
+                                role="user",
+                                content=user_content,
+                                timestamp=u_dt,
+                            ))
+                        if (line_base + 1) not in existing_lines:
+                            tc_suffix = ""
+                            if tool_calls:
+                                tc_lines = [
+                                    f"[Tool: {tc.get('name', 'tool')}]\n{json.dumps(tc.get('args') or {}, ensure_ascii=False)}"
+                                    for tc in tool_calls if isinstance(tc, dict)
+                                ]
+                                if tc_lines:
+                                    tc_suffix = "\n" + "\n".join(tc_lines)
+                            session.add(ConversationMessage(
+                                document_id=doc.id,
+                                line_number=line_base + 1,
+                                message_type="assistant",
+                                role="assistant",
+                                content=(assistant_content or "") + tc_suffix,
+                                timestamp=a_dt,
+                            ))
+                        await session.commit()
+                except Exception as sync_ex:
+                    logger.debug("Non-CLI AskConversation mirror to Document skipped: %s", sync_ex)
+
+            # Fast-path self-evolution: immediately trigger background correction and todo learning
             user_id_val = conv.user_id
             from ..services.correction_service import looks_like_pushback, learn_from_corrections
+            from ..services.todo_service import looks_like_later, looks_like_close, learn_todos
             from ..services.notify_service import spawn
 
-            if looks_like_pushback(user_content):
+            need_corr = looks_like_pushback(user_content)
+            need_todo = looks_like_later(user_content) or looks_like_close(user_content)
+            if (need_corr or need_todo) and user_id_val:
                 async def _bg_instant_learn():
                     try:
                         async with async_session_factory() as sdb:
                             u = await sdb.get(User, user_id_val)
-                            if u:
+                            if not u:
+                                return
+                            if need_corr:
                                 await learn_from_corrections(sdb, u)
+                            if need_todo:
+                                await learn_todos(sdb, u)
                     except Exception as ex:
-                        logger.debug("Background instant correction scan skipped: %s", ex)
+                        logger.debug("Background instant learning scan skipped: %s", ex)
 
                 spawn(_bg_instant_learn())
     except Exception as e:

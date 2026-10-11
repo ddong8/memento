@@ -100,12 +100,17 @@ USER_VOICE_MAX_BATCHES = 6      # bounds cost on very busy windows
 USER_VOICE_FETCH_LIMIT = 4000
 
 
+_CLIENT_INJECTED_BLOCK_RE = re.compile(
+    r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
+)
+
+
 def clean_user_voice(content: str | None) -> str | None:
     """Return the part of a role="user" message the user actually typed, or None."""
     if not content:
         return None
-    text = content.strip()
-    if text.startswith(_NON_USER_PREFIXES):
+    text = _CLIENT_INJECTED_BLOCK_RE.sub("", content).strip()
+    if not text or text.startswith(_NON_USER_PREFIXES):
         return None
     text = _EMBEDDED_CONTEXT_RE.sub("", text)
     text = re.sub(r"\s+", " ", sanitize_transient_text(text)).strip()

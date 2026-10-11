@@ -183,6 +183,8 @@ _TODO_PROMPT = """下面是用户在各个 AI 工具里亲手打的话，每条�
 async def fetch_new_messages(
     db: AsyncSession, user: User, after_id: int | None, now: datetime, has_open: bool,
 ) -> tuple[list[Said], int | None]:
+    from ..db.models import AskConversation
+
     machines = select(Machine.id).where(Machine.user_id == user.id)
     query = (
         select(
@@ -207,10 +209,49 @@ async def fetch_new_messages(
         query = query.where(ConversationMessage.id > after_id)
     rows = (await db.execute(query)).all()
     found: list[Said] = []
+    seen_texts: set[str] = set()
     for message_id, content, said_at, doc_id, project in rows:
         text = clean_user_voice(content)
         if text and (looks_like_later(text) or (has_open and looks_like_close(text))):
+            seen_texts.add(text)
             found.append(Said(message_id, text, said_at, doc_id, project))
+
+    # Also scan recent AskConversation user turns (last 24h) not yet in ConversationMessage
+    ask_cursor_key = f"todos_ask_cursor:{user.id}"
+    ask_cursor_iso = await ai_health.get_json(ask_cursor_key)
+    ask_since = datetime.fromisoformat(ask_cursor_iso) if isinstance(ask_cursor_iso, str) else (now - timedelta(hours=24))
+    ask_convs = (await db.execute(
+        select(AskConversation)
+        .where(
+            AskConversation.user_id == user.id,
+            AskConversation.updated_at > ask_since,
+        )
+        .order_by(AskConversation.updated_at.asc())
+        .limit(30)
+    )).scalars().all()
+    latest_ask_ts = ask_since
+    for conv in ask_convs:
+        if conv.updated_at and conv.updated_at > latest_ask_ts:
+            latest_ask_ts = conv.updated_at
+        cfg = conv.config or {}
+        proj_name = cfg.get("project_id") or None
+        for idx, turn in enumerate(conv.turns or []):
+            if not isinstance(turn, dict) or turn.get("role") != "user":
+                continue
+            ts_raw = turn.get("created_at")
+            try:
+                said_at = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00")) if ts_raw else (conv.updated_at or now)
+            except ValueError:
+                said_at = conv.updated_at or now
+            if said_at <= ask_since:
+                continue
+            text = clean_user_voice(str(turn.get("content") or ""))
+            if text and text not in seen_texts and (looks_like_later(text) or (has_open and looks_like_close(text))):
+                seen_texts.add(text)
+                found.append(Said(-1 - idx, text, said_at, None, proj_name))
+    if latest_ask_ts > ask_since:
+        await ai_health.put_json(ask_cursor_key, latest_ask_ts.isoformat(), ttl_seconds=90 * 24 * 3600)
+
     found.sort(key=lambda s: s.said_at)
     return found, (rows[-1][0] if rows else after_id)
 

@@ -30,7 +30,7 @@ logger = logging.getLogger("server.ask_runs")
 RETAIN_AFTER_DONE = 600          # seconds a finished run stays attachable
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 KEEPALIVE_SECONDS = 8.0
-NOTIFY_MIN_SECONDS = 15          # quick answers don't need a "finished" push
+NOTIFY_MIN_SECONDS = 2           # notify on any task taking >= 2s
 
 GeneratorFactory = Callable[[AsyncSession, User], AsyncGenerator[str, None]]
 
@@ -338,7 +338,7 @@ class AskRunRegistry:
                 await run.append(_frame({"type": "done"}))
             await run.finish()
             asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
-            if run.readers == 0 and not run.cancelled and run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS:
+            if not run.cancelled and (run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS):
                 notify_service.spawn(self._notify_finished(run))
 
     def _drop(self, run: AskRun) -> None:
@@ -346,15 +346,17 @@ class AskRunRegistry:
             del self._runs[run.conversation_id]
 
     async def _notify_finished(self, run: AskRun) -> None:
+        from .task_alerts import display_device_name
         first = (run.question.strip().splitlines() or ["（无描述）"])[0]
         first = first if len(first) <= 60 else first[:59] + "…"
+        body = f"{display_device_name(run.device_name)}：{first}" if run.device_name else first
         base = (notify_service.settings.public_url or "").rstrip("/")
         conv_url = f"{base}/ask?id={run.conversation_id}" if base else f"/ask?id={run.conversation_id}"
         await notify_service.notify_user(
             run.user_id,
             "task_done",
             "❌ 任务出错" if run.failed else "✅ 任务完成",
-            first,
+            body,
             url=conv_url,
         )
 

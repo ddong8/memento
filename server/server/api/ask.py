@@ -1390,10 +1390,10 @@ async def _recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversati
     """If deploy/api restarted while a DeviceTask was running, recover completed turns that were not persisted to conv.turns."""
     try:
         from ..db.models import DeviceTask
-        from ..services.ask_runs import ask_run_registry
+        from ..services.ask_runs import ask_runs
 
         conv_id_str = str(conv.id)
-        active_run = ask_run_registry.get_active_for_conv(conv_id_str)
+        active_run = ask_runs.get(conv_id_str, conv.user_id) if conv.user_id else None
         if active_run and not active_run.done:
             return None
 

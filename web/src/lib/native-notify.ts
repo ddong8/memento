@@ -250,13 +250,6 @@ const _seenIds = new Set<string>();
 
 export function startNotificationFeedPoller(): () => void {
   if (typeof window === "undefined") return () => {};
-  // 在移动端 App (ReactNativeWebView) 与桌面端 (mementoDesktop) 中由原生层主进程直接管理后台通知拉取与系统弹窗，Web 层无需重复轮询
-  if (
-    (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView ||
-    (window as unknown as { mementoDesktop?: unknown }).mementoDesktop
-  ) {
-    return () => {};
-  }
   if (_pollerTimer) return () => {};
 
   const poll = async () => {
@@ -270,7 +263,13 @@ export function startNotificationFeedPoller(): () => void {
           if (item.created_at && item.created_at > _lastSeenTime) {
             _lastSeenTime = item.created_at;
           }
-          await sendLocalNotification(item.title, item.body, item.url);
+          const hasDesktopMainPoller = Boolean((window as unknown as { mementoDesktop?: unknown }).mementoDesktop);
+          if (hasDesktopMainPoller) {
+            // Electron main.ts already triggers the native OS banner; show in-app toast if not already viewing the exact conversation
+            showInAppToast(item.title, item.body, item.url);
+          } else {
+            await sendLocalNotification(item.title, item.body, item.url);
+          }
         }
       }
     } catch {

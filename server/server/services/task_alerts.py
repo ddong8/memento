@@ -90,15 +90,19 @@ async def handle_agent_tool_use(machine_id: uuid.UUID, device_name: str | None, 
 
 def _task_summary(task: DeviceTask) -> str:
     payload = task.payload or {}
-    text = str(payload.get("prompt") or payload.get("command") or "").strip()
+    text = str(payload.get("user_question") or payload.get("prompt") or payload.get("command") or "").strip()
+    if "【当前用户指令】\n" in text:
+        text = text.split("【当前用户指令】\n", 1)[1].strip()
+    elif "进行图像分析与代码实现。" in text:
+        text = text.split("进行图像分析与代码实现。")[-1].strip() or text
     first = text.splitlines()[0] if text else "（无描述）"
     return first if len(first) <= 60 else first[:59] + "…"
 
 
 async def handle_task_finished(task_id: str, status: str | None, device_name: str | None, watched: bool) -> None:
-    """Push a finished agent task to the phone if nobody was watching it finish."""
+    """Push a finished agent task notification (deduplicated with AskRun notifications by notify_service)."""
     notify_service.forget_task(task_id)
-    if watched or status == "cancelled":
+    if status == "cancelled":
         return
     try:
         async with async_session_factory() as db:
@@ -107,11 +111,19 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             )).scalar_one_or_none()
         if task is None or task.action != "agent":
             return
+        pl = task.payload or {}
+        conv_id = str(pl.get("conversation_id") or "").strip()
+        base = (notify_service.settings.public_url or "").rstrip("/")
+        target_url = (
+            (f"{base}/ask?id={conv_id}" if base else f"/ask?id={conv_id}")
+            if conv_id
+            else notify_service.task_link(task_id)
+        )
         if status == "still_running":
             title = "⏳ 任务已转入后台运行"
             body = f"{display_device_name(device_name)}：{_task_summary(task)}（后台任务正在执行中）"
             await notify_service.notify_user(
-                task.user_id, "task_running", title, body, url=notify_service.task_link(task_id),
+                task.user_id, "task_running", title, body, url=target_url,
             )
             return
 
@@ -120,7 +132,7 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
         if task.alerts:
             body += f"（期间 {len(task.alerts)} 次危险操作）"
         await notify_service.notify_user(
-            task.user_id, "task_done", title, body, url=notify_service.task_link(task_id),
+            task.user_id, "task_done", title, body, url=target_url,
         )
     except Exception:
         logger.exception("Failed to notify task finished %s", task_id)

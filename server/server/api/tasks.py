@@ -610,13 +610,13 @@ async def device_websocket_endpoint(
                                             except Exception:
                                                 pass
                                         if not conv_obj and pl_sess:
-                                            conv_obj = (await db.execute(
+                                            cand_convs = (await db.execute(
                                                 select(AskConversation)
                                                 .where(AskConversation.user_id == t.user_id)
                                                 .order_by(AskConversation.updated_at.desc())
                                                 .limit(20)
                                             )).scalars().all()
-                                            conv_obj = next((c for c in conv_obj if (c.config or {}).get("session_id") == pl_sess), None)
+                                            conv_obj = next((c for c in cand_convs if _infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
                                         if conv_obj:
                                             cfg_c, _ = _infer_conversation_config(conv_obj)
                                             await _recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)

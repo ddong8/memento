@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type AskRunSummary } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { useAuth } from "@/lib/auth-context";
+import { sendLocalNotification } from "@/lib/native-notify";
 
 export default function ActiveRunsMonitor() {
   const { token } = useAuth();
@@ -89,15 +90,29 @@ export default function ActiveRunsMonitor() {
       // Check transitions: was active previously, now done
       data.forEach((r) => {
         if (r.done && activeIdsRef.current.has(r.conversation_id)) {
-          // 如果用户当前就在 /ask 页面且查看的就是该会话，直接静默消除通知，不弹滞后Toast
-          if (pathname === "/ask" && (currentConvId === r.conversation_id || !currentConvId)) {
+          const isActivelyWatching =
+            pathname === "/ask" &&
+            (currentConvId === r.conversation_id || !currentConvId) &&
+            typeof document !== "undefined" &&
+            document.visibilityState === "visible" &&
+            (typeof document.hasFocus !== "function" || document.hasFocus());
+          // 如果用户当前就在 /ask 页面、窗口处于前台且查看的就是该会话，直接静默消除通知
+          if (isActivelyWatching) {
             setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
-          } else if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
-            // 其他页面自动淡出时间从 8 秒优化缩短至 3.5 秒
-            const t = setTimeout(() => {
-              setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
-            }, 3500);
-            completedNoticeTimerRef.current.set(r.conversation_id, t);
+          } else {
+            const summaryText = (r.question || r.title || "任务执行完成").trim().slice(0, 60);
+            const bodyText = r.device_name ? `${r.device_name}：${summaryText}` : summaryText;
+            void sendLocalNotification(
+              r.failed ? "❌ 任务出错" : "✅ 任务完成",
+              bodyText,
+              `/ask?id=${r.conversation_id}`
+            );
+            if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
+              const t = setTimeout(() => {
+                setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
+              }, 6000);
+              completedNoticeTimerRef.current.set(r.conversation_id, t);
+            }
           }
         }
       });
@@ -114,12 +129,28 @@ export default function ActiveRunsMonitor() {
     const handleAskDone = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
-        setRuns((prev) =>
-          prev.map((r) =>
+        const isActivelyWatching =
+          pathname === "/ask" &&
+          (currentConvId === convId || !currentConvId) &&
+          typeof document !== "undefined" &&
+          document.visibilityState === "visible" &&
+          (typeof document.hasFocus !== "function" || document.hasFocus());
+        setRuns((prev) => {
+          const target = prev.find((r) => r.conversation_id === convId);
+          if (target && !isActivelyWatching) {
+            const summaryText = (target.question || target.title || "任务执行完成").trim().slice(0, 60);
+            const bodyText = target.device_name ? `${target.device_name}：${summaryText}` : summaryText;
+            void sendLocalNotification(
+              target.failed ? "❌ 任务出错" : "✅ 任务完成",
+              bodyText,
+              `/ask?id=${convId}`
+            );
+          }
+          return prev.map((r) =>
             r.conversation_id === convId ? { ...r, done: true, finished_at: Date.now() / 1000 } : r
-          )
-        );
-        if (pathname === "/ask" && (currentConvId === convId || !currentConvId)) {
+          );
+        });
+        if (isActivelyWatching) {
           setDismissedNotificationIds((prev) => new Set([...prev, convId]));
         }
       }

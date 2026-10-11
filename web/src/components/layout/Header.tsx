@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { useDevice } from "@/lib/device-context";
 import { useI18n, locales, type Locale } from "@/lib/i18n";
-import { Icon, PlatformGlyph } from "@/components/aurora/Icon";
+import { Icon } from "@/components/aurora/Icon";
 import { SkinPicker, ThemeToggle } from "@/components/aurora/primitives";
 
 import { useEffect, useState } from "react";
@@ -14,9 +13,7 @@ import { useSidebar } from "@/lib/sidebar-context";
 export default function Header({ onMenuToggle }: { onMenuToggle: () => void }) {
   const { user } = useAuth();
   const { t, locale, setLocale } = useI18n();
-  const { devices, selectedDeviceId, setSelectedDeviceId } = useDevice();
   const { collapsed, toggleCollapsed } = useSidebar();
-  const selectedDevice = devices.find((d) => d.device_id === selectedDeviceId);
   const [isMacDesktop, setIsMacDesktop] = useState(false);
 
   useEffect(() => {
@@ -57,53 +54,6 @@ export default function Header({ onMenuToggle }: { onMenuToggle: () => void }) {
           >
             <Icon name="sidebar" size={17} />
           </button>
-        )}
-
-        {/* Device selector */}
-        {devices.length > 0 && (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "5px 10px 5px 6px",
-              background: "var(--aurora-surface)",
-              border: "1px solid var(--aurora-border)",
-              borderRadius: 10,
-              boxShadow: "0 1px 0 rgba(255,255,255,0.5) inset",
-              maxWidth: 220,
-              minWidth: 0,
-            }}
-          >
-            {selectedDevice ? (
-              <PlatformGlyph name={selectedDevice.name} size={20} />
-            ) : (
-              <Icon name="devices" size={14} style={{ color: "var(--aurora-fg3)" }} />
-            )}
-            <select
-              value={selectedDeviceId || "all"}
-              onChange={(e) => setSelectedDeviceId(e.target.value === "all" ? null : e.target.value)}
-              className="bg-transparent text-xs outline-none min-w-0 truncate"
-              style={{
-                color: "var(--aurora-fg1)",
-                appearance: "none",
-                border: 0,
-                maxWidth: 160,
-                cursor: "pointer",
-              }}
-            >
-              <option value="all">{t.all} ({devices.length})</option>
-              {devices.map((d) => {
-                const shortName = d.name.replace(/ \(\w+\)$/, "");
-                return (
-                  <option key={d.device_id} value={d.device_id}>
-                    {shortName}
-                  </option>
-                );
-              })}
-            </select>
-            <Icon name="chevron_down" size={12} style={{ color: "var(--aurora-fg4)" }} />
-          </div>
         )}
 
         {/* Language switcher */}

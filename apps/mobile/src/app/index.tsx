@@ -267,18 +267,18 @@ export default function WebShell() {
       if (response) {
         const c = response.notification.request.content;
         markAsNotified(c.title, c.body, response.notification.request.identifier);
+        const target = (c.data?.url || (c as any)?.url) as string | undefined;
+        handleUrl(target);
       }
-      const target = response?.notification.request.content.data?.url as string | undefined;
-      handleUrl(target);
     });
 
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       if (response) {
         const c = response.notification.request.content;
         markAsNotified(c.title, c.body, response.notification.request.identifier);
+        const target = (c.data?.url || (c as any)?.url) as string | undefined;
+        handleUrl(target);
       }
-      const target = response.notification.request.content.data?.url as string | undefined;
-      handleUrl(target);
     });
 
     return () => sub.remove();
@@ -463,7 +463,9 @@ export default function WebShell() {
           allowsInlineMediaPlayback={true}
           mediaCapturePermissionGrantType="grant"
           webviewDebuggingEnabled={__DEV__}
-          onLoadEnd={() => {
+          onLoadEnd={(e) => {
+            const loadedUrl = e.nativeEvent?.url || "";
+            if (loadedUrl.includes("/auth/handoff")) return;
             setInitialLoaded(true);
             if (pendingUrlRef.current && web.current) {
               const fullUrl = pendingUrlRef.current;

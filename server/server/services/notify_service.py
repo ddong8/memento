@@ -249,6 +249,8 @@ async def send_apns_push(
         payload["aps"]["interruption-level"] = "time-sensitive"
     if url:
         payload["url"] = url
+        payload["body"] = {"url": url}
+        payload["data"] = {"url": url}
 
     headers = {
         "authorization": f"bearer {jwt_token}",

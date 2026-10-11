@@ -66,12 +66,23 @@ async def raise_alert(
     if stream_to_watchers:
         ws_manager.push_alert(task_id, alert)
     if notify_service.allow_risky_push(task_id):
+        target_url = notify_service.task_link(task_id)
+        try:
+            async with async_session_factory() as db:
+                t_row = (await db.execute(select(DeviceTask).where(DeviceTask.id == uuid.UUID(task_id)))).scalar_one_or_none()
+                if t_row and isinstance(t_row.payload, dict):
+                    c_id = str(t_row.payload.get("conversation_id") or "").strip()
+                    if c_id:
+                        base = (notify_service.settings.public_url or "").rstrip("/")
+                        target_url = f"{base}/ask?id={c_id}&scroll=bottom" if base else f"/ask?id={c_id}&scroll=bottom"
+        except Exception:
+            pass
         await notify_service.notify_user(
             user_id or owner,
             "risky",
             f"⚠️ {finding.label}",
             f"{display_device_name(device_name)}：{finding.detail}",
-            url=notify_service.task_link(task_id),
+            url=target_url,
         )
     return alert
 
@@ -113,9 +124,23 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             return
         pl = task.payload or {}
         conv_id = str(pl.get("conversation_id") or "").strip()
+        if not conv_id and task.user_id:
+            try:
+                from ..db.models import AskConversation
+                async with async_session_factory() as db:
+                    recent_conv = (await db.execute(
+                        select(AskConversation.id)
+                        .where(AskConversation.user_id == task.user_id)
+                        .order_by(AskConversation.updated_at.desc())
+                        .limit(1)
+                    )).scalar_one_or_none()
+                    if recent_conv:
+                        conv_id = str(recent_conv)
+            except Exception:
+                pass
         base = (notify_service.settings.public_url or "").rstrip("/")
         target_url = (
-            (f"{base}/ask?id={conv_id}" if base else f"/ask?id={conv_id}")
+            (f"{base}/ask?id={conv_id}&scroll=bottom" if base else f"/ask?id={conv_id}&scroll=bottom")
             if conv_id
             else notify_service.task_link(task_id)
         )
@@ -127,6 +152,12 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             await notify_service.notify_user(
                 task.user_id, "task_running", title, body, url=target_url,
             )
+            return
+
+        # When watched is True, AskRun is actively consuming this task and will
+        # persist the completed turn to AskConversation before firing _notify_finished.
+        # Deferring to AskRun prevents premature notifications before DB commit or LLM synthesis.
+        if watched and conv_id:
             return
 
         title = {"succeeded": "✅ 任务完成", "timeout": "⏱️ 任务超时"}.get(status or "", "❌ 任务失败")

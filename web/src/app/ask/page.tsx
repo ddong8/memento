@@ -3,7 +3,7 @@
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -1256,14 +1256,19 @@ function AskPageContent() {
     scrollSettleTimersRef.current = [];
 
     const doScroll = () => {
-      if (chatScrollRef.current) {
+      if (chatScrollRef.current && chatScrollRef.current.scrollHeight > 0) {
         chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        if (askCache) {
+          askCache.scrollTop = chatScrollRef.current.scrollTop;
+        }
       }
       if (bottomRef.current) {
-        bottomRef.current.scrollIntoView({
-          behavior: instant ? "auto" : "smooth",
-          block: "end",
-        });
+        try {
+          bottomRef.current.scrollIntoView({
+            behavior: instant ? "auto" : "smooth",
+            block: "end",
+          });
+        } catch {}
       }
     };
 
@@ -1282,7 +1287,7 @@ function AskPageContent() {
     requestAnimationFrame(rafStep);
 
     // 阶段3：阶梯定时器持续校准（对抗 Markdown AST 解析与布局动态展开）
-    const delays = [30, 80, 160, 300, 500, 800];
+    const delays = [30, 80, 160, 300, 500, 800, 1200];
     delays.forEach((ms) => {
       const timer = setTimeout(() => {
         doScroll();
@@ -1467,13 +1472,38 @@ function AskPageContent() {
   }, []);
 
   // Load single conversation
-  const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean }) => {
-    if (!id || streamingRef.current) return;
+  const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean; force?: boolean }) => {
+    if (!id || (streamingRef.current && !options?.force)) return;
     const limitToUse = options?.limit !== undefined ? options.limit : 40;
     const preserveScroll = options?.preserveScroll ?? false;
     isRestoringRef.current = true;
     lastRestoredIdRef.current = id;
     try {
+      if (options?.force) {
+        invalidateApiCache(`/api/ask/conversations/${id}`);
+        if (streamingRef.current) {
+          try {
+            const runCheck = await authFetch(`${getApiBase()}/api/ask/conversations/${id}/run`);
+            const runInfo = runCheck.ok ? await runCheck.json() : null;
+            if (!runInfo || runInfo.done || runInfo.cancelled) {
+              abortRef.current?.abort();
+              abortRef.current = null;
+              streamingRef.current = false;
+              setStreaming(false);
+              if (askCache) {
+                askCache.streaming = false;
+                askCache.activeRun = null;
+              }
+            }
+          } catch {
+            abortRef.current?.abort();
+            abortRef.current = null;
+            streamingRef.current = false;
+            setStreaming(false);
+          }
+        }
+      }
+
       const data = await api.getAskConversation(id, limitToUse);
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
@@ -1491,9 +1521,10 @@ function AskPageContent() {
       setHasMoreTurns(hasMore);
       setTotalTurns(total);
 
-      if (askCache && askCache.activeConversationId !== data.id) {
+      if (askCache && (askCache.activeConversationId !== data.id || !preserveScroll)) {
         delete askCache.scrollTop;
       }
+      turnsRef.current = loadedTurns;
       setTurns(loadedTurns);
       if (!preserveScroll) {
         pendingScrollToBottomRef.current = true;
@@ -1914,6 +1945,28 @@ function AskPageContent() {
           } catch {}
         }
         attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
+        pendingScrollToBottomRef.current = true;
+        scrollConversationToBottom(true);
+        return;
+      }
+
+      let forceJumpToBottom = false;
+      try {
+        const pendingJump = localStorage.getItem("memento_pending_jump_conv_id");
+        if (pendingJump && pendingJump === resolvedTargetId) {
+          forceJumpToBottom = true;
+          localStorage.removeItem("memento_pending_jump_conv_id");
+        }
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get("scroll") === "bottom") {
+          forceJumpToBottom = true;
+          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+        }
+      } catch {}
+
+      if (forceJumpToBottom) {
+        initialRestoredFromSnapshotRef.current = false;
+        loadConversationRef.current(resolvedTargetId, { limit: 40, preserveScroll: false, force: true });
         return;
       }
 
@@ -1956,7 +2009,7 @@ function AskPageContent() {
     };
 
     checkAndRestore();
-  }, [idParam, qParam]);
+  }, [idParam, qParam, scrollConversationToBottom]);
 
   // Support instantaneous chat navigation / switching via notifications or banners
   useEffect(() => {
@@ -1965,13 +2018,27 @@ function AskPageContent() {
       const targetId = detail?.id;
       if (targetId) {
         lastRestoredIdRef.current = null;
-        loadConversation(targetId);
+        loadConversation(targetId, {
+          force: true,
+          preserveScroll: detail?.scrollToBottom === false ? true : false,
+        });
       }
     };
     window.addEventListener("memento_switch_chat", handleSwitchChat);
     (window as any).__memento_open_chat = (id: string) => {
+      try {
+        localStorage.setItem("memento_last_ask_conv_id", id);
+      } catch {}
       lastRestoredIdRef.current = null;
-      loadConversation(id);
+      if (!window.location.pathname.startsWith("/ask")) {
+        const pushFn = (window as any).__memento_client_push;
+        if (typeof pushFn === "function") {
+          pushFn(`/ask?id=${encodeURIComponent(id)}&scroll=bottom`);
+        }
+      } else {
+        window.history.pushState(null, "", `/ask?id=${encodeURIComponent(id)}`);
+      }
+      loadConversation(id, { force: true, preserveScroll: false });
     };
     (window as any).__memento_navigate = (url: string) => {
       if (url.includes("/ask")) {
@@ -1979,19 +2046,35 @@ function AskPageContent() {
           const parsed = new URL(url, window.location.origin);
           const id = parsed.searchParams.get("id");
           if (id) {
-            window.history.pushState(null, "", `/ask?id=${id}`);
+            try {
+              localStorage.setItem("memento_last_ask_conv_id", id);
+            } catch {}
             lastRestoredIdRef.current = null;
-            loadConversation(id);
+            if (!window.location.pathname.startsWith("/ask")) {
+              const pushFn = (window as any).__memento_client_push;
+              if (typeof pushFn === "function") {
+                pushFn(`/ask?id=${encodeURIComponent(id)}&scroll=bottom`);
+              } else {
+                window.location.href = url;
+                return;
+              }
+            } else {
+              window.history.pushState(null, "", `/ask?id=${encodeURIComponent(id)}`);
+            }
+            loadConversation(id, { force: true, preserveScroll: false });
             return;
           }
         } catch {}
+      }
+      const pushFn = (window as any).__memento_client_push;
+      if (typeof pushFn === "function" && url.startsWith(window.location.origin)) {
+        pushFn(url.slice(window.location.origin.length) || "/");
+        return;
       }
       window.location.href = url;
     };
     return () => {
       window.removeEventListener("memento_switch_chat", handleSwitchChat);
-      delete (window as any).__memento_open_chat;
-      delete (window as any).__memento_navigate;
     };
   }, [loadConversation]);
 
@@ -2060,12 +2143,13 @@ function AskPageContent() {
     let isMounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const checkServerRun = async () => {
+    const checkServerRun = async (forceRefreshWhenIdle = false) => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
       // When /ask is kept alive in background (user is on another menu route) and not streaming,
       // skip redundant per-conversation /run polling since ActiveRunsMonitor already polls globally.
       if (
+        !forceRefreshWhenIdle &&
         typeof window !== "undefined" &&
         !window.location.pathname.startsWith("/ask") &&
         !streamingRef.current
@@ -2099,14 +2183,29 @@ function AskPageContent() {
             // If local SSE reader is dead or aborted, reattach to stream
             if (!abortRef.current || abortRef.current.signal.aborted) {
               attachRunRef.current?.(convId, run.question || "", turnsRef.current);
+              pendingScrollToBottomRef.current = true;
+              scrollConversationToBottom(true);
             }
           } else if (run && run.done) {
             // Task has completed on server
-            if (streamingRef.current) {
+            if (streamingRef.current || forceRefreshWhenIdle) {
+              const wasStreaming = streamingRef.current;
+              invalidateApiCache(`/api/ask/conversations/${convId}`);
               const data = await api.getAskConversation(convId, 40).catch(() => null);
               if (isMounted && data?.turns) {
+                const prevLast = turnsRef.current[turnsRef.current.length - 1];
+                const nextLast = data.turns[data.turns.length - 1];
+                const changed =
+                  wasStreaming ||
+                  data.turns.length !== turnsRef.current.length ||
+                  (nextLast?.content || "") !== (prevLast?.content || "") ||
+                  Boolean(nextLast?.created_at) !== Boolean(prevLast?.created_at);
                 turnsRef.current = data.turns;
                 setTurns(data.turns);
+                if (changed) {
+                  pendingScrollToBottomRef.current = true;
+                  scrollConversationToBottom(true);
+                }
               }
               streamingRef.current = false;
               setStreaming(false);
@@ -2116,12 +2215,25 @@ function AskPageContent() {
               }
             }
           }
-        } else if (runRes.status === 404 && streamingRef.current) {
+        } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
           // No active run on server
+          const wasStreaming = streamingRef.current;
+          invalidateApiCache(`/api/ask/conversations/${convId}`);
           const data = await api.getAskConversation(convId, 40).catch(() => null);
           if (isMounted && data?.turns) {
+            const prevLast = turnsRef.current[turnsRef.current.length - 1];
+            const nextLast = data.turns[data.turns.length - 1];
+            const changed =
+              wasStreaming ||
+              data.turns.length !== turnsRef.current.length ||
+              (nextLast?.content || "") !== (prevLast?.content || "") ||
+              Boolean(nextLast?.created_at) !== Boolean(prevLast?.created_at);
             turnsRef.current = data.turns;
             setTurns(data.turns);
+            if (changed) {
+              pendingScrollToBottomRef.current = true;
+              scrollConversationToBottom(true);
+            }
           }
           streamingRef.current = false;
           setStreaming(false);
@@ -2139,7 +2251,7 @@ function AskPageContent() {
       if (!isMounted) return;
       const delay = streamingRef.current ? 2500 : 8000;
       timer = setTimeout(async () => {
-        await checkServerRun();
+        await checkServerRun(false);
         schedule();
       }, delay);
     };
@@ -2149,7 +2261,7 @@ function AskPageContent() {
     // Recheck immediately when window regains visibility or focus
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        checkServerRun();
+        checkServerRun(true);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -2161,7 +2273,7 @@ function AskPageContent() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onVisibilityChange);
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, scrollConversationToBottom]);
 
   // Mobile swipe down on chat area to dismiss keyboard smoothly
   const touchStartY = useRef<number | null>(null);
@@ -2767,6 +2879,10 @@ function AskPageContent() {
       }
     }
     setTurns(finalTurns);
+    if (!userCancelledRef.current) {
+      pendingScrollToBottomRef.current = true;
+      scrollConversationToBottom(true);
+    }
     streamingRef.current = false;
     setStreaming(false);
     if (typeof window !== "undefined") {
@@ -2803,6 +2919,7 @@ function AskPageContent() {
     }
   }, [
     loadConversations,
+    scrollConversationToBottom,
     executionMode,
     selectedModel,
     selectedEffort,
@@ -3516,9 +3633,10 @@ function AskPageContent() {
   })();
 
   const renderedTurns = useMemo(() => {
+    const eagerThreshold = Math.max(0, turns.length - 4);
     return turns.map((turn, i) => {
-      const isLastAndStreaming = i === turns.length - 1 && streaming;
-      const contentVisibilityStyle: React.CSSProperties = isLastAndStreaming
+      const isRecentOrStreaming = i >= eagerThreshold || (i === turns.length - 1 && streaming);
+      const contentVisibilityStyle: React.CSSProperties = isRecentOrStreaming
         ? {}
         : {
             contentVisibility: "auto",

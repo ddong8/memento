@@ -39,12 +39,22 @@ export default function TaskPage() {
   const load = useCallback(async () => {
     invalidateApiCache(`${getApiBase()}/api/tasks/${taskId}`);
     try {
-      setTask(await api.getDeviceTask(taskId));
+      const loaded = await api.getDeviceTask(taskId);
+      const convId = String((loaded?.payload as Record<string, unknown> | undefined)?.conversation_id || "").trim();
+      if (convId) {
+        if (typeof window !== "undefined" && typeof (window as any).__memento_navigate === "function") {
+          (window as any).__memento_navigate(`/ask?id=${encodeURIComponent(convId)}&scroll=bottom`);
+        } else {
+          router.replace(`/ask?id=${encodeURIComponent(convId)}&scroll=bottom`);
+        }
+        return;
+      }
+      setTask(loaded);
       setError(null);
     } catch (e) {
       setError((e as Error).message.includes("404") ? "任务不存在，或不属于当前账号" : (e as Error).message);
     }
-  }, [taskId]);
+  }, [taskId, router]);
 
   useEffect(() => {
     // Opened from a push on a phone that isn't signed in yet: come back here after login.

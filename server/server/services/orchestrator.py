@@ -521,6 +521,10 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 }
                 return
             payload["command"] = args["command"]
+            if args.get("conversation_id"):
+                payload["conversation_id"] = args["conversation_id"]
+            if args.get("user_question"):
+                payload["user_question"] = args["user_question"]
         else:
             if not (args.get("prompt") or "").strip():
                 yield {
@@ -962,7 +966,7 @@ async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict):
 
 
 async def run_agent_loop(
-    db: AsyncSession, user: User, messages: list[dict]
+    db: AsyncSession, user: User, messages: list[dict], conv_id: str | None = None
 ):
     """Run the tool-calling loop, yielding SSE-shaped events.
 
@@ -1068,6 +1072,8 @@ async def run_agent_loop(
                 args = {}
             if not isinstance(args, dict):
                 args = {}
+            if name == "run_on_device" and conv_id and not args.get("conversation_id"):
+                args["conversation_id"] = str(conv_id)
 
             call_evt = {"type": "tool_call", "id": call_id, "tool_call_id": call_id, "name": name, "args": args}
             if name == "run_on_device":

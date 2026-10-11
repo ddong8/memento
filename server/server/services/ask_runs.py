@@ -338,7 +338,7 @@ class AskRunRegistry:
                 await run.append(_frame({"type": "done"}))
             await run.finish()
             asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
-            if not run.cancelled and (run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS):
+            if not run.cancelled and (run.finished_at - run.started_at >= 0.5):
                 notify_service.spawn(self._notify_finished(run))
 
     def _drop(self, run: AskRun) -> None:
@@ -351,7 +351,7 @@ class AskRunRegistry:
         first = first if len(first) <= 60 else first[:59] + "…"
         body = f"{display_device_name(run.device_name)}：{first}" if run.device_name else first
         base = (notify_service.settings.public_url or "").rstrip("/")
-        conv_url = f"{base}/ask?id={run.conversation_id}" if base else f"/ask?id={run.conversation_id}"
+        conv_url = f"{base}/ask?id={run.conversation_id}&scroll=bottom" if base else f"/ask?id={run.conversation_id}&scroll=bottom"
         await notify_service.notify_user(
             run.user_id,
             "task_done",

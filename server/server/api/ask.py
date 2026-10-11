@@ -2652,7 +2652,7 @@ async def ask(
                 )
 
             try:
-                async for evt in run_agent_loop(run_db, run_user, agent_messages):
+                async for evt in run_agent_loop(run_db, run_user, agent_messages, conv_id=str(conv_id)):
                     if evt.get("type") == "ping":
                         yield ": ping\n\n"
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"

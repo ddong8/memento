@@ -58,6 +58,7 @@ export default function ActiveRunsMonitor() {
   // Keep track of previously active conversation IDs so we know when one transitions to done
   const activeIdsRef = useRef<Set<string>>(new Set());
   const notifiedConvIdsRef = useRef<Set<string>>(new Set());
+  const seenFinishedWhileVisibleRef = useRef<Set<string>>(new Set());
   const completedNoticeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const hasActiveRuns = runs.some((r) => !r.done);
@@ -104,6 +105,7 @@ export default function ActiveRunsMonitor() {
             (typeof document.hasFocus !== "function" || document.hasFocus());
           // 如果用户当前就在 /ask 页面、窗口处于前台且查看的就是该会话，直接静默消除通知
           if (isActivelyWatching) {
+            seenFinishedWhileVisibleRef.current.add(r.conversation_id);
             setDismissedNotificationIds((prev) => new Set([...prev, r.conversation_id]));
           } else {
             const summaryText = (r.question || r.title || "任务执行完成").trim().slice(0, 60);
@@ -111,7 +113,7 @@ export default function ActiveRunsMonitor() {
             void sendLocalNotification(
               r.failed ? "❌ 任务出错" : "✅ 任务完成",
               bodyText,
-              `/ask?id=${r.conversation_id}`,
+              `/ask?id=${r.conversation_id}&scroll=bottom`,
               { skipInAppToast: true, serverBacked: true }
             );
             if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
@@ -153,7 +155,7 @@ export default function ActiveRunsMonitor() {
             void sendLocalNotification(
               target.failed ? "❌ 任务出错" : "✅ 任务完成",
               bodyText,
-              `/ask?id=${convId}`,
+              `/ask?id=${convId}&scroll=bottom`,
               { skipInAppToast: true, serverBacked: true }
             );
           }
@@ -162,6 +164,7 @@ export default function ActiveRunsMonitor() {
           );
         });
         if (isActivelyWatching) {
+          seenFinishedWhileVisibleRef.current.add(convId);
           setDismissedNotificationIds((prev) => new Set([...prev, convId]));
         }
       }
@@ -172,6 +175,7 @@ export default function ActiveRunsMonitor() {
       const convId = e?.detail?.conversation_id;
       if (convId) {
         notifiedConvIdsRef.current.delete(convId);
+        seenFinishedWhileVisibleRef.current.delete(convId);
         setDismissedNotificationIds((prev) => {
           const next = new Set(prev);
           next.delete(convId);
@@ -198,6 +202,74 @@ export default function ActiveRunsMonitor() {
     const interval = setInterval(fetchRuns, intervalTime);
     return () => clearInterval(interval);
   }, [token, fetchRuns, hasActiveRuns]);
+
+  const lastHiddenAtRef = useRef<number>(0);
+  const autoJumpedKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!token || typeof document === "undefined") return;
+
+    const syncAfterResume = async (fromVisibilityChange: boolean) => {
+      if (document.visibilityState === "hidden") {
+        lastHiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenSince =
+        lastHiddenAtRef.current > 0
+          ? lastHiddenAtRef.current
+          : fromVisibilityChange
+            ? Date.now() - 180_000
+            : 0;
+      lastHiddenAtRef.current = 0;
+      try {
+        const recent = await api.listAskRuns(300);
+        if (!Array.isArray(recent)) return;
+        setRuns(recent);
+        const finishedWhileHidden = recent.find((r) => {
+          if (!r.done || r.cancelled || !r.conversation_id) return false;
+          if (seenFinishedWhileVisibleRef.current.has(r.conversation_id)) return false;
+          const finMs = (r.finished_at || 0) * 1000;
+          const key = `${r.conversation_id}:${Math.round(r.finished_at || 0)}`;
+          if (autoJumpedKeysRef.current.has(key)) return false;
+          if (hiddenSince > 0 && finMs >= hiddenSince - 5000) return true;
+          if (activeIdsRef.current.has(r.conversation_id)) return true;
+          return false;
+        });
+        if (finishedWhileHidden) {
+          const key = `${finishedWhileHidden.conversation_id}:${Math.round(finishedWhileHidden.finished_at || 0)}`;
+          autoJumpedKeysRef.current.add(key);
+          seenFinishedWhileVisibleRef.current.add(finishedWhileHidden.conversation_id);
+          setDismissedNotificationIds((prev) => new Set([...prev, finishedWhileHidden.conversation_id]));
+          if (typeof (window as any).__memento_open_chat === "function") {
+            (window as any).__memento_open_chat(finishedWhileHidden.conversation_id);
+          }
+        }
+      } catch {}
+    };
+
+    const onVisibilityChange = () => {
+      void syncAfterResume(true);
+    };
+    const onFocus = () => {
+      if (lastHiddenAtRef.current > 0) {
+        void syncAfterResume(false);
+      }
+    };
+    const onBlur = () => {
+      if (lastHiddenAtRef.current === 0) {
+        lastHiddenAtRef.current = Date.now();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [token]);
 
   const activeRuns = runs.filter((r) => !r.done);
   const recentFinishedRuns = runs.filter(
@@ -237,14 +309,22 @@ export default function ActiveRunsMonitor() {
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem("memento_last_ask_conv_id", convId);
+        localStorage.setItem("memento_pending_jump_conv_id", convId);
       } catch {}
       if (typeof (window as any).__memento_open_chat === "function") {
         (window as any).__memento_open_chat(convId);
-      } else if (window.location.pathname === "/ask") {
-        window.history.pushState(null, "", `/ask?id=${convId}`);
-        window.dispatchEvent(new CustomEvent("memento_switch_chat", { detail: { id: convId, forceReload: true } }));
       } else {
-        router.push(`/ask?id=${convId}`);
+        const targetUrl = `/ask?id=${encodeURIComponent(convId)}&scroll=bottom`;
+        if (!window.location.pathname.startsWith("/ask")) {
+          router.push(targetUrl);
+        } else {
+          window.history.pushState(null, "", targetUrl);
+        }
+        window.dispatchEvent(
+          new CustomEvent("memento_switch_chat", {
+            detail: { id: convId, forceReload: true, scrollToBottom: true },
+          })
+        );
       }
     }
   };

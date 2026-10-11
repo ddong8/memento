@@ -142,7 +142,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         args = self.notify.await_args.args
         self.assertEqual(args[1:4], ("task_done", "✅ 任务完成", "修复登录 bug"))
 
-    async def test_watched_or_short_runs_do_not_push(self):
+    async def test_watched_long_run_pushes_while_short_runs_do_not_push(self):
         release = asyncio.Event()
 
         async def gen(db, user):
@@ -157,12 +157,14 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             await run.task
             await consume
-        self.notify.assert_not_awaited()
+            await asyncio.sleep(0)
+        self.notify.assert_awaited_once()
+        self.notify.reset_mock()
 
         async def quick(db, user):
             yield frame({"type": "done"})
 
-        run = self.registry.start("c8", self.user.id, "q", quick)  # NOTIFY_MIN_SECONDS back to 15
+        run = self.registry.start("c8", self.user.id, "q", quick)  # NOTIFY_MIN_SECONDS back to 8
         await run.task
         self.notify.assert_not_awaited()
 

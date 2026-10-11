@@ -16,8 +16,8 @@ class QuotasCoordinatorTests(unittest.TestCase):
         self.assertIn("antigravity", report["tools"])
         self.assertIn("claude_code", report["tools"])
         self.assertIn("codex", report["tools"])
-        self.assertTrue(report["tools"]["antigravity"]["available"])
-        self.assertEqual(report["tools"]["antigravity"]["plan_name"], "Google AI Pro")
+        self.assertFalse(report["tools"]["antigravity"]["available"])
+        self.assertIsNone(report["tools"]["antigravity"]["remaining_percent"])
 
     def test_cache_and_lookup(self) -> None:
         sample_report = {

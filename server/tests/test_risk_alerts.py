@@ -188,7 +188,8 @@ class TestTaskAlerts(unittest.IsolatedAsyncioTestCase):
 
     async def test_watched_cancelled_or_shell_tasks_do_not_push(self):
         agent = DeviceTask(action="agent", payload={"prompt": "x"}, user_id=uuid.uuid4())
-        self.assertFalse((await self._finish(watched=True, status="succeeded", task=agent)).await_count)
+        self.assertTrue((await self._finish(watched=True, status="succeeded", task=agent)).await_count)
+        self.assertFalse((await self._finish(watched=True, status="still_running", task=agent)).await_count)
         self.assertFalse((await self._finish(watched=False, status="cancelled", task=agent)).await_count)
         shell = DeviceTask(action="shell", payload={"command": "ls"}, user_id=uuid.uuid4())
         self.assertFalse((await self._finish(watched=False, status="succeeded", task=shell)).await_count)

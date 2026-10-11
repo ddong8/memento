@@ -3531,7 +3531,7 @@ function AskPageContent() {
   }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
 
   return (
-    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100vh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden sm:shadow-2xl relative">
+    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden sm:shadow-2xl relative">
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
@@ -3710,7 +3710,7 @@ function AskPageContent() {
             WebkitUserSelect: "text",
           }}
         >
-          <div className="w-full max-w-3xl mx-auto space-y-3 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
+          <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-3 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
       {turns.length === 0 && (
         <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
@@ -3840,12 +3840,12 @@ function AskPageContent() {
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
   <footer
-    className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
+    className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
     style={{
       paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0.5rem))",
     }}
   >
-    <div className="max-w-3xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
+    <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
       <div
         className="p-2.5 sm:px-3.5 sm:py-2.5"
         style={{
@@ -3956,6 +3956,7 @@ function AskPageContent() {
 
                   {/* Target Device Badge */}
                   <span
+                    className="max-w-[168px] sm:max-w-[260px]"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -3970,7 +3971,6 @@ function AskPageContent() {
                       whiteSpace: "nowrap",
                       flexShrink: 1,
                       minWidth: 0,
-                      maxWidth: 168,
                     }}
                   >
                     <span
@@ -4028,6 +4028,7 @@ function AskPageContent() {
                     const safeFolder = resolveSafeProjectName({ cwd, isZh });
                     return (
                       <span
+                        className="max-w-[160px] sm:max-w-[240px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -4040,7 +4041,6 @@ function AskPageContent() {
                           fontSize: 11,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
-                          maxWidth: 160,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                         }}

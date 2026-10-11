@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { api } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
@@ -102,6 +103,8 @@ function SkillEditor({
 
 export default function SkillsPage() {
   const { t } = useI18n();
+  const pathname = usePathname();
+  const isRouteActive = pathname === "/skills";
   const s = t.skills;
   const [data, setData] = useState<Obj | null>(() => cachedSkillsData?.data ?? null);
   const [reviews, setReviews] = useState<Obj>(() => cachedSkillsData?.reviews ?? {});
@@ -554,7 +557,7 @@ export default function SkillsPage() {
             isPanelCollapsed={isPanelCollapsed}
             onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
             onToggleFullscreen={togglePhysicalFullscreen}
-            isPaused={!isPanelCollapsed}
+            isPaused={!isRouteActive}
             className="w-full h-full"
           />
 

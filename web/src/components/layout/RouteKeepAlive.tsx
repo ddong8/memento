@@ -65,20 +65,17 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
   const pathname = usePathname();
   const currentKey = getRouteKeepAliveKey(pathname);
 
-  // Store rendered views keyed by route key
-  const [cachedViews, setCachedViews] = useState<Record<string, React.ReactNode>>(() => {
-    if (currentKey) {
-      return { [currentKey]: children };
-    }
-    return {};
-  });
+  // Store rendered views keyed by route key synchronously during render (zero double-render lag)
+  const cachedViewsRef = useRef<Record<string, React.ReactNode>>({});
+  if (currentKey && !cachedViewsRef.current[currentKey]) {
+    cachedViewsRef.current[currentKey] = children;
+  }
 
   // Track window-level scroll position across route switches
   const scrollMapRef = useRef<Record<string, number>>({});
   const activeKeyRef = useRef<string | null>(currentKey);
 
   useEffect(() => {
-    // 1. Save scroll position of previous route
     const prevKey = activeKeyRef.current;
     if (prevKey && typeof window !== "undefined") {
       scrollMapRef.current[prevKey] = window.scrollY;
@@ -86,28 +83,17 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
 
     activeKeyRef.current = currentKey;
 
-    // 2. Cache new route view if not yet cached
-    if (currentKey) {
-      setCachedViews((prev) => {
-        if (!prev[currentKey]) {
-          return { ...prev, [currentKey]: children };
-        }
-        return prev;
+    if (currentKey && typeof window !== "undefined") {
+      const savedScroll = scrollMapRef.current[currentKey] ?? 0;
+      requestAnimationFrame(() => {
+        window.scrollTo(0, savedScroll);
       });
-
-      // 3. Restore window scroll position for current route
-      if (typeof window !== "undefined") {
-        const savedScroll = scrollMapRef.current[currentKey] ?? 0;
-        requestAnimationFrame(() => {
-          window.scrollTo(0, savedScroll);
-        });
-      }
     }
-  }, [currentKey, pathname, children]);
+  }, [currentKey]);
 
   return (
     <>
-      {Object.entries(cachedViews).map(([key, view]) => {
+      {Object.entries(cachedViewsRef.current).map(([key, view]) => {
         const isCurrent = key === currentKey;
         return (
           <div

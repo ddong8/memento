@@ -34,50 +34,61 @@ const TERMINAL_TARGETS = [
   { id: "hermes", label: "Hermes", color: 0xec4899, colorHex: "#EC4899" },
 ];
 
+// 模块级 2D Canvas 纹理缓存池，避免技能列表刷新时重复绘制 Canvas 与上传 GPU 纹理
+const skillTextTextureCache = new Map<string, THREE.CanvasTexture>();
+const terminalLabelTextureCache = new Map<string, THREE.CanvasTexture>();
+
 /** Create crisp 3D text billboard sprite for skill cores */
 function createSkillTextSprite(title: string, version: number, isPublished: boolean): THREE.Sprite {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.scale(2, 2);
-    ctx.clearRect(0, 0, 256, 64);
+  const displayTitle = title.length > 10 ? title.slice(0, 9) + "…" : title;
+  const cacheKey = `${displayTitle}|${version}|${isPublished ? 1 : 0}`;
+  let texture = skillTextTextureCache.get(cacheKey);
 
-    // Rich dark glass pill with status accent
-    const grad = ctx.createLinearGradient(8, 10, 248, 54);
-    grad.addColorStop(0, "rgba(12, 17, 32, 0.9)");
-    grad.addColorStop(1, "rgba(7, 10, 22, 0.94)");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.roundRect(8, 10, 240, 44, 22);
-    ctx.fill();
+  if (!texture) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, 256, 64);
 
-    const accentHex = isPublished ? "#10B981" : "#F59E0B";
-    ctx.strokeStyle = accentHex;
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
+      // Rich dark glass pill with status accent
+      const grad = ctx.createLinearGradient(8, 10, 248, 54);
+      grad.addColorStop(0, "rgba(12, 17, 32, 0.9)");
+      grad.addColorStop(1, "rgba(7, 10, 22, 0.94)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(8, 10, 240, 44, 22);
+      ctx.fill();
 
-    // Status glowing dot
-    ctx.fillStyle = accentHex;
-    ctx.beginPath();
-    ctx.arc(25, 32, 4.5, 0, Math.PI * 2);
-    ctx.fill();
+      const accentHex = isPublished ? "#10B981" : "#F59E0B";
+      ctx.strokeStyle = accentHex;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
 
-    // Text content
-    ctx.fillStyle = "#F8FAFC";
-    ctx.font =
-      'bold 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+      // Status glowing dot
+      ctx.fillStyle = accentHex;
+      ctx.beginPath();
+      ctx.arc(25, 32, 4.5, 0, Math.PI * 2);
+      ctx.fill();
 
-    const displayTitle = title.length > 10 ? title.slice(0, 9) + "…" : title;
-    ctx.fillText(`${displayTitle} · v${version}`, 134, 32);
+      // Text content
+      ctx.fillStyle = "#F8FAFC";
+      ctx.font =
+        'bold 16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.fillText(`${displayTitle} · v${version}`, 134, 32);
+    }
+
+    texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    skillTextTextureCache.set(cacheKey, texture);
   }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
   const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
@@ -90,39 +101,46 @@ function createSkillTextSprite(title: string, version: number, isPublished: bool
 
 /** Create 3D floating nameplate sprite for the 5 terminal altars */
 function createTerminalLabelSprite(label: string, colorHex: string): THREE.Sprite {
-  const canvas = document.createElement("canvas");
-  canvas.width = 384;
-  canvas.height = 96;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    ctx.scale(2, 2);
-    ctx.clearRect(0, 0, 192, 48);
+  const cacheKey = `${label}|${colorHex}`;
+  let texture = terminalLabelTextureCache.get(cacheKey);
 
-    ctx.fillStyle = "rgba(8, 11, 24, 0.85)";
-    ctx.beginPath();
-    ctx.roundRect(10, 8, 172, 32, 16);
-    ctx.fill();
+  if (!texture) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 192;
+    canvas.height = 48;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, 192, 48);
 
-    ctx.strokeStyle = colorHex;
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
+      ctx.fillStyle = "rgba(8, 11, 24, 0.85)";
+      ctx.beginPath();
+      ctx.roundRect(10, 8, 172, 32, 16);
+      ctx.fill();
 
-    ctx.fillStyle = colorHex;
-    ctx.beginPath();
-    ctx.arc(24, 24, 3.8, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.strokeStyle = colorHex;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
 
-    ctx.fillStyle = "#E2E8F0";
-    ctx.font =
-      'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, 102, 24);
+      ctx.fillStyle = colorHex;
+      ctx.beginPath();
+      ctx.arc(24, 24, 3.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#E2E8F0";
+      ctx.font =
+        'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, 102, 24);
+    }
+
+    texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    terminalLabelTextureCache.set(cacheKey, texture);
   }
 
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true;
   const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
@@ -131,6 +149,19 @@ function createTerminalLabelSprite(label: string, colorHex: string): THREE.Sprit
   const sprite = new THREE.Sprite(spriteMat);
   sprite.scale.set(1.22, 0.31, 1);
   return sprite;
+}
+
+interface SkillSceneContext {
+  skillRoot: THREE.Group;
+  skillMeshMap: Map<string, THREE.Mesh>;
+  skillShellMap: Map<string, THREE.Mesh>;
+  skillMeshList: THREE.Mesh[];
+  sharedGeos: {
+    oct: THREE.OctahedronGeometry;
+    dodec: THREE.DodecahedronGeometry;
+    icosa: THREE.IcosahedronGeometry;
+    cage: THREE.IcosahedronGeometry;
+  };
 }
 
 export default function SkillMatrix3D({
@@ -162,7 +193,17 @@ export default function SkillMatrix3D({
   selectedSlugRef.current = selectedSlug;
 
   const resetCameraRef = useRef<() => void>(() => {});
+  const ensureLoopRunningRef = useRef<() => void>(() => {});
+  const sceneCtxRef = useRef<SkillSceneContext | null>(null);
 
+  // 当从后台切换回当前路由（isPaused 变为 false）时，立即唤醒渲染循环
+  useEffect(() => {
+    if (!isPaused) {
+      ensureLoopRunningRef.current();
+    }
+  }, [isPaused]);
+
+  // 1. 仅在组件挂载时创建一次 WebGLRenderer 与基础星盘底座，绝不随 skills 数据变化销毁重建
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -210,12 +251,11 @@ export default function SkillMatrix3D({
     warmRimLight.position.set(-5, 6, -5);
     scene.add(warmRimLight);
 
-    // 3. Radial Holographic Astrolabe Floor (replacing boxy GridHelper)
+    // 3. Radial Holographic Astrolabe Floor
     const astrolabeGroup = new THREE.Group();
     astrolabeGroup.position.y = -0.04;
     scene.add(astrolabeGroup);
 
-    // Subtle dark reflective base disc
     const baseDiscGeo = new THREE.CircleGeometry(4.8, 64);
     const baseDiscMat = new THREE.MeshBasicMaterial({
       color: 0x0b1024,
@@ -227,7 +267,6 @@ export default function SkillMatrix3D({
     baseDisc.rotation.x = -Math.PI / 2;
     astrolabeGroup.add(baseDisc);
 
-    // Concentric Holographic Rings
     const outerRingGeo = new THREE.RingGeometry(4.16, 4.24, 96);
     const outerRingMat = new THREE.MeshBasicMaterial({
       color: 0x8b5cf6,
@@ -286,7 +325,7 @@ export default function SkillMatrix3D({
     const dustPoints = new THREE.Points(dustGeo, dustMat);
     scene.add(dustPoints);
 
-    // 4. 5 Terminal Energy Altars (环状 5 智能体全息底座 + 能量光柱 + 悬浮铭牌)
+    // 4. 5 Terminal Energy Altars
     const terminalAltarGroup = new THREE.Group();
     scene.add(terminalAltarGroup);
 
@@ -296,37 +335,35 @@ export default function SkillMatrix3D({
     const railPoints: number[] = [];
     const railColors: number[] = [];
 
+    const sharedAltarGeo = new THREE.CylinderGeometry(0.56, 0.68, 0.24, 32);
+    const sharedRimGeo = new THREE.TorusGeometry(0.57, 0.028, 16, 48);
+    const sharedPillarGeo = new THREE.CylinderGeometry(0.38, 0.5, 1.35, 24, 1, true);
+    const sharedBeaconGeo = new THREE.OctahedronGeometry(0.18, 0);
+
     TERMINAL_TARGETS.forEach((target, idx) => {
       const angle = (idx / TERMINAL_TARGETS.length) * Math.PI * 2;
       const radius = 4.2;
       const pos = new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
       altarPositions.push(pos);
 
-      // Radial floor energy rail from center hub to this altar
       railPoints.push(0, 0.01, 0, pos.x, 0.01, pos.z);
       const tc = new THREE.Color(target.color);
       railColors.push(0.55, 0.36, 0.96, tc.r, tc.g, tc.b);
 
-      // Altar Stepped Cylinder Base
-      const altarGeo = new THREE.CylinderGeometry(0.56, 0.68, 0.24, 32);
       const altarMat = new THREE.MeshStandardMaterial({
         color: 0x0f172a,
         roughness: 0.3,
         metalness: 0.85,
       });
-      const altarMesh = new THREE.Mesh(altarGeo, altarMat);
+      const altarMesh = new THREE.Mesh(sharedAltarGeo, altarMat);
       altarMesh.position.copy(pos);
 
-      // Glowing Rim on Altar
-      const rimGeo = new THREE.TorusGeometry(0.57, 0.028, 16, 48);
       const rimMat = new THREE.MeshBasicMaterial({ color: target.color });
-      const rimMesh = new THREE.Mesh(rimGeo, rimMat);
+      const rimMesh = new THREE.Mesh(sharedRimGeo, rimMat);
       rimMesh.rotation.x = Math.PI / 2;
       rimMesh.position.y = 0.13;
       altarMesh.add(rimMesh);
 
-      // Soft Vertical Holographic Energy Pillar
-      const pillarGeo = new THREE.CylinderGeometry(0.38, 0.5, 1.35, 24, 1, true);
       const pillarMat = new THREE.MeshBasicMaterial({
         color: target.color,
         transparent: true,
@@ -335,13 +372,11 @@ export default function SkillMatrix3D({
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
-      const pillarMesh = new THREE.Mesh(pillarGeo, pillarMat);
+      const pillarMesh = new THREE.Mesh(sharedPillarGeo, pillarMat);
       pillarMesh.position.y = 0.78;
       altarMesh.add(pillarMesh);
       altarPillars.push(pillarMat);
 
-      // Floating Crystal Beacon above each Altar
-      const beaconGeo = new THREE.OctahedronGeometry(0.18, 0);
       const beaconMat = new THREE.MeshStandardMaterial({
         color: target.color,
         emissive: target.color,
@@ -349,12 +384,11 @@ export default function SkillMatrix3D({
         roughness: 0.2,
         metalness: 0.8,
       });
-      const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+      const beaconMesh = new THREE.Mesh(sharedBeaconGeo, beaconMat);
       beaconMesh.position.y = 0.48;
       altarMesh.add(beaconMesh);
       altarBeacons.push(beaconMesh);
 
-      // 3D Floating Terminal Nameplate Sprite
       const labelSprite = createTerminalLabelSprite(target.label, target.colorHex);
       labelSprite.position.set(0, 0.92, 0);
       altarMesh.add(labelSprite);
@@ -362,7 +396,6 @@ export default function SkillMatrix3D({
       terminalAltarGroup.add(altarMesh);
     });
 
-    // Add the 5 radial floor rails
     const railGeo = new THREE.BufferGeometry();
     railGeo.setAttribute("position", new THREE.Float32BufferAttribute(railPoints, 3));
     railGeo.setAttribute("color", new THREE.Float32BufferAttribute(railColors, 3));
@@ -375,85 +408,28 @@ export default function SkillMatrix3D({
     const railLines = new THREE.LineSegments(railGeo, railMat);
     astrolabeGroup.add(railLines);
 
-    // 5. Build 3D Skill Polyhedral Cores Matrix
+    // 5. Skill Polyhedral Cores Root Group & Shared Geometries
     const skillRoot = new THREE.Group();
     scene.add(skillRoot);
+
+    const sharedGeos = {
+      oct: new THREE.OctahedronGeometry(0.4),
+      dodec: new THREE.DodecahedronGeometry(0.37),
+      icosa: new THREE.IcosahedronGeometry(0.35),
+      cage: new THREE.IcosahedronGeometry(0.5, 1),
+    };
 
     const skillMeshMap = new Map<string, THREE.Mesh>();
     const skillShellMap = new Map<string, THREE.Mesh>();
     const skillMeshList: THREE.Mesh[] = [];
-    const skillList =
-      skills.length > 0
-        ? skills
-        : [
-            { slug: "auto-update", title: "三位一体发版校验", version: 2, status: "published" },
-            { slug: "code-review", title: "代码规范自检", version: 1, status: "published" },
-            { slug: "health-monitor", title: "容器集群健康侦测", version: 1, status: "published" },
-            { slug: "rag-sync", title: "跨会话上下文同步", version: 1, status: "draft" },
-          ];
 
-    const M = skillList.length;
-    skillList.forEach((skill, idx) => {
-      const angle = (idx / M) * Math.PI * 2;
-      const radius = 2.2;
-      const yOffset = 1.45 + Math.sin(idx * 1.5) * 0.38;
-      const pos = new THREE.Vector3(Math.cos(angle) * radius, yOffset, Math.sin(angle) * radius);
-
-      const isPub = skill.status === "published";
-      const coreColor = isPub ? 0x10b981 : 0xf59e0b;
-
-      // Unique polyhedral geometries for skill cores
-      let geo: THREE.BufferGeometry;
-      if (idx % 3 === 0) {
-        geo = new THREE.OctahedronGeometry(0.4);
-      } else if (idx % 3 === 1) {
-        geo = new THREE.DodecahedronGeometry(0.37);
-      } else {
-        geo = new THREE.IcosahedronGeometry(0.35);
-      }
-
-      const mat = new THREE.MeshStandardMaterial({
-        color: coreColor,
-        emissive: coreColor,
-        emissiveIntensity: 0.6,
-        roughness: 0.22,
-        metalness: 0.78,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(pos);
-      mesh.userData = { skill, initialY: yOffset };
-
-      // Outer Wireframe Energy Cage around each Skill Core
-      const cageGeo = new THREE.IcosahedronGeometry(0.5, 1);
-      const cageMat = new THREE.MeshBasicMaterial({
-        color: coreColor,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.28,
-        blending: THREE.AdditiveBlending,
-      });
-      const cageMesh = new THREE.Mesh(cageGeo, cageMat);
-      mesh.add(cageMesh);
-      if (skill.slug) {
-        skillShellMap.set(skill.slug, cageMesh);
-      }
-
-      // Sprite Label
-      const sprite = createSkillTextSprite(
-        skill.title || skill.slug || "未命名技能",
-        skill.version || 1,
-        isPub
-      );
-      sprite.position.set(0, 0.62, 0);
-      mesh.add(sprite);
-
-      skillRoot.add(mesh);
-      skillMeshList.push(mesh);
-      if (skill.slug) {
-        skillMeshMap.set(skill.slug, mesh);
-      }
-    });
+    sceneCtxRef.current = {
+      skillRoot,
+      skillMeshMap,
+      skillShellMap,
+      skillMeshList,
+      sharedGeos,
+    };
 
     // 6. Injection Energy Beams & Flowing Photon Stream to 5 Terminals
     const beamGeo = new THREE.BufferGeometry();
@@ -468,7 +444,6 @@ export default function SkillMatrix3D({
     const beamLines = new THREE.LineSegments(beamGeo, beamMat);
     scene.add(beamLines);
 
-    // 3 flowing energy pulse particles per terminal (15 total)
     const pulsesPerTerminal = 3;
     const streamParticleCount = TERMINAL_TARGETS.length * pulsesPerTerminal;
     const streamGeo = new THREE.BufferGeometry();
@@ -537,7 +512,6 @@ export default function SkillMatrix3D({
 
     updateCameraFromSpherical();
 
-    // 绑定重置视角回调，供顶部按钮触发
     resetCameraRef.current = () => {
       userHasManuallyZoomed = false;
       targetCameraTarget.set(0, DEFAULT_TARGET_Y, 0);
@@ -564,6 +538,7 @@ export default function SkillMatrix3D({
 
     const handlePointerMove = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       isMouseActive = true;
@@ -604,7 +579,6 @@ export default function SkillMatrix3D({
       }
     };
 
-    // Touch Event Handlers for Mobile Devices
     const handleTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 1) {
         isDragging = true;
@@ -613,8 +587,10 @@ export default function SkillMatrix3D({
         pointerDownPos = { x: touch.clientX, y: touch.clientY };
 
         const rect = container.getBoundingClientRect();
-        mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+        if (rect.width > 0 && rect.height > 0) {
+          mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+        }
       } else if (e.touches.length === 2) {
         isDragging = false;
         initialPinchDist = Math.hypot(
@@ -636,8 +612,10 @@ export default function SkillMatrix3D({
         targetSpherical.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.05, targetSpherical.phi - dy * 0.008));
 
         const rect = container.getBoundingClientRect();
-        mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+        if (rect.width > 0 && rect.height > 0) {
+          mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+        }
       } else if (e.touches.length === 2 && initialPinchDist > 0) {
         const currentDist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -658,6 +636,7 @@ export default function SkillMatrix3D({
           const dist = Math.hypot(touch.clientX - pointerDownPos.x, touch.clientY - pointerDownPos.y);
           if (dist < 8) {
             const rect = container.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
             mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
 
@@ -700,46 +679,33 @@ export default function SkillMatrix3D({
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
 
-    // 8. Render Animation Loop (with Battery-Friendly Pause on Inactivity / Background / Offscreen)
+    // 8. 零空转渲染循环：当页面隐藏或切走时彻底停止 requestAnimationFrame，切回时瞬时唤醒
     let animId = 0;
+    let isLoopRunning = false;
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
     let isElementIntersecting = true;
 
-    const handleVisibilityChange = () => {
-      isPageVisible = !document.hidden;
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let intersectionObserver: IntersectionObserver | null = null;
-    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
-      intersectionObserver = new IntersectionObserver(
-        ([entry]) => {
-          isElementIntersecting = entry.isIntersecting;
-        },
-        { threshold: 0.05 }
-      );
-      intersectionObserver.observe(container);
-    }
-
     const tempWorldOrigin = new THREE.Vector3(0, 1.4, 0);
 
     const animate = () => {
-      animId = requestAnimationFrame(animate);
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) {
+        isLoopRunning = false;
+        animId = 0;
+        return;
+      }
 
-      // Stop GPU work when tab is in background, offscreen, or parent page asks to pause
-      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return;
+      isLoopRunning = true;
+      animId = requestAnimationFrame(animate);
 
       const elapsed = clock.getElapsedTime();
 
-      // Smooth Camera Damping
       currentCameraTarget.lerp(targetCameraTarget, 0.08);
       currentSpherical.theta = THREE.MathUtils.lerp(currentSpherical.theta, targetSpherical.theta, 0.14);
       currentSpherical.phi = THREE.MathUtils.lerp(currentSpherical.phi, targetSpherical.phi, 0.14);
       currentSpherical.radius = THREE.MathUtils.lerp(currentSpherical.radius, targetSpherical.radius, 0.12);
       updateCameraFromSpherical();
 
-      // Slow Scene Rotation via isRotatingRef (no WebGL teardown on toggle)
       if (isRotatingRef.current && !isDragging) {
         skillRoot.rotation.y += 0.0022;
         platformRing.rotation.z += 0.004;
@@ -747,7 +713,6 @@ export default function SkillMatrix3D({
         dustPoints.rotation.y += 0.0008;
       }
 
-      // Spin 5 Terminal Crystal Beacons & Pulse Pillars
       const hasSelected = Boolean(selectedSlugRef.current);
       altarBeacons.forEach((beacon, idx) => {
         beacon.rotation.y = elapsed * 1.8 + idx;
@@ -760,10 +725,8 @@ export default function SkillMatrix3D({
           : 0.1 + Math.sin(elapsed * 2.2 + idx) * 0.03;
       });
 
-      // Default energy source is the center of the skill matrix; if a skill is selected/hovered, use its world position
       tempWorldOrigin.set(0, 1.4 + Math.sin(elapsed * 2) * 0.08, 0);
 
-      // Skill Cores Floating & Self-Spin
       skillMeshMap.forEach((mesh, slug) => {
         mesh.rotation.x += 0.012;
         mesh.rotation.y += 0.018;
@@ -789,7 +752,6 @@ export default function SkillMatrix3D({
         }
       });
 
-      // Update Laser Beams & Flowing Energy Stream Particles to 5 Terminals
       const beamPosAttr = beamGeo.getAttribute("position") as THREE.BufferAttribute;
       const streamPosAttr = streamGeo.getAttribute("position") as THREE.BufferAttribute;
       const streamSpeed = hasSelected ? 0.85 : 0.38;
@@ -801,7 +763,6 @@ export default function SkillMatrix3D({
         for (let k = 0; k < pulsesPerTerminal; k++) {
           const pIdx = aIdx * pulsesPerTerminal + k;
           const t = (elapsed * streamSpeed + k / pulsesPerTerminal + aIdx * 0.15) % 1;
-          // Parabolic arc slightly lifting in the middle
           const arcLift = Math.sin(t * Math.PI) * 0.35;
           streamPosAttr.setXYZ(
             pIdx,
@@ -819,7 +780,6 @@ export default function SkillMatrix3D({
           ? 0.65 + Math.sin(elapsed * 8) * 0.22
           : 0.16;
 
-      // Hover Raycasting (Desktop only & only on active mouse movement, saving mobile GPU)
       if (!isMobile && isMouseActive) {
         raycaster.setFromCamera(mouse, camera);
         const intersects = raycaster.intersectObjects(skillMeshList, false);
@@ -841,12 +801,45 @@ export default function SkillMatrix3D({
       renderer.render(scene, camera);
     };
 
-    animate();
+    const ensureLoopRunning = () => {
+      if (!isLoopRunning && isPageVisible && isElementIntersecting && !isPausedRef.current) {
+        isLoopRunning = true;
+        clock.getDelta();
+        animId = requestAnimationFrame(animate);
+      }
+    };
+    ensureLoopRunningRef.current = ensureLoopRunning;
 
+    const handleVisibilityChange = () => {
+      isPageVisible = !document.hidden;
+      ensureLoopRunning();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
+      intersectionObserver = new IntersectionObserver(
+        ([entry]) => {
+          isElementIntersecting = entry.isIntersecting;
+          ensureLoopRunning();
+        },
+        { threshold: 0.05 }
+      );
+      intersectionObserver.observe(container);
+    }
+
+    ensureLoopRunning();
+
+    // 关键防护：当被 RouteKeepAlive 设为 display:none 时宽高为 0，绝不能调用 renderer.setSize(0, 0) 销毁帧缓冲！
+    let lastW = width;
+    let lastH = height;
     const handleResize = () => {
       if (!container) return;
       const newW = container.clientWidth;
       const newH = container.clientHeight;
+      if (newW <= 0 || newH <= 0 || (newW === lastW && newH === lastH)) return;
+      lastW = newW;
+      lastH = newH;
       camera.aspect = newW / newH;
       camera.updateProjectionMatrix();
       if (!userHasManuallyZoomed && !selectedSlugRef.current) {
@@ -860,7 +853,9 @@ export default function SkillMatrix3D({
     resizeObserver.observe(container);
 
     return () => {
-      cancelAnimationFrame(animId);
+      if (animId) cancelAnimationFrame(animId);
+      isLoopRunning = false;
+      sceneCtxRef.current = null;
       resizeObserver.disconnect();
       intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -877,29 +872,112 @@ export default function SkillMatrix3D({
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
-      // Deep dispose geometries, materials and CanvasTextures to prevent WebGL memory leak
       scene.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) {
           (obj as THREE.Mesh).geometry.dispose();
         }
         const mat = (obj as THREE.Mesh | THREE.Sprite).material;
         if (mat) {
-          const disposeMat = (m: THREE.Material) => {
-            const anyMat = m as THREE.Material & { map?: THREE.Texture | null };
-            if (anyMat.map) {
-              anyMat.map.dispose();
-            }
-            m.dispose();
-          };
           if (Array.isArray(mat)) {
-            mat.forEach(disposeMat);
+            mat.forEach((m) => m.dispose());
           } else {
-            disposeMat(mat);
+            mat.dispose();
           }
         }
       });
+      sharedGeos.oct.dispose();
+      sharedGeos.dodec.dispose();
+      sharedGeos.icosa.dispose();
+      sharedGeos.cage.dispose();
       renderer.dispose();
     };
+  }, []);
+
+  // 2. 轻量级技能核数据同步：仅更新 skillRoot 内的多面体节点，不触碰 WebGLRenderer
+  useEffect(() => {
+    const ctx = sceneCtxRef.current;
+    if (!ctx) return;
+
+    const { skillRoot, skillMeshMap, skillShellMap, skillMeshList, sharedGeos } = ctx;
+
+    // 清理旧技能核材质（几何体与缓存贴图均共享复用）
+    while (skillRoot.children.length > 0) {
+      const child = skillRoot.children[0];
+      skillRoot.remove(child);
+      child.traverse((obj) => {
+        const mat = (obj as THREE.Mesh | THREE.Sprite).material;
+        if (mat) {
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else mat.dispose();
+        }
+      });
+    }
+    skillMeshMap.clear();
+    skillShellMap.clear();
+    skillMeshList.length = 0;
+
+    const skillList =
+      skills.length > 0
+        ? skills
+        : [
+            { slug: "auto-update", title: "三位一体发版校验", version: 2, status: "published" },
+            { slug: "code-review", title: "代码规范自检", version: 1, status: "published" },
+            { slug: "health-monitor", title: "容器集群健康侦测", version: 1, status: "published" },
+            { slug: "rag-sync", title: "跨会话上下文同步", version: 1, status: "draft" },
+          ];
+
+    const M = skillList.length;
+    skillList.forEach((skill, idx) => {
+      const angle = (idx / M) * Math.PI * 2;
+      const radius = 2.2;
+      const yOffset = 1.45 + Math.sin(idx * 1.5) * 0.38;
+      const pos = new THREE.Vector3(Math.cos(angle) * radius, yOffset, Math.sin(angle) * radius);
+
+      const isPub = skill.status === "published";
+      const coreColor = isPub ? 0x10b981 : 0xf59e0b;
+
+      const geo =
+        idx % 3 === 0 ? sharedGeos.oct : idx % 3 === 1 ? sharedGeos.dodec : sharedGeos.icosa;
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: coreColor,
+        emissive: coreColor,
+        emissiveIntensity: 0.6,
+        roughness: 0.22,
+        metalness: 0.78,
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pos);
+      mesh.userData = { skill, initialY: yOffset };
+
+      const cageMat = new THREE.MeshBasicMaterial({
+        color: coreColor,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.28,
+        blending: THREE.AdditiveBlending,
+      });
+      const cageMesh = new THREE.Mesh(sharedGeos.cage, cageMat);
+      mesh.add(cageMesh);
+      if (skill.slug) {
+        skillShellMap.set(skill.slug, cageMesh);
+      }
+
+      const sprite = createSkillTextSprite(
+        skill.title || skill.slug || "未命名技能",
+        skill.version || 1,
+        isPub
+      );
+      sprite.position.set(0, 0.62, 0);
+      mesh.add(sprite);
+
+      skillRoot.add(mesh);
+      skillMeshList.push(mesh);
+      if (skill.slug) {
+        skillMeshMap.set(skill.slug, mesh);
+      }
+    });
   }, [skills]);
 
   return (

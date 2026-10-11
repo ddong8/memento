@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, AvatarSettings, DailyDate, ProfileDevice, ProfileState } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
@@ -382,6 +383,8 @@ type ChapterTab =
 
 export default function PersonaPage() {
   const { t } = useI18n();
+  const pathname = usePathname();
+  const isRouteActive = pathname === "/memory/persona";
   const [state, setState] = useState<ProfileState | null>(() => cachedPersonaData?.state ?? null);
   const [pending, setPending] = useState<Record<string, unknown>[]>(() => cachedPersonaData?.pending ?? []);
   const [dailyHistory, setDailyHistory] = useState<DailyDate[]>(() => cachedPersonaData?.dailyHistory ?? []);
@@ -901,7 +904,7 @@ export default function PersonaPage() {
             isPanelCollapsed={isPanelCollapsed}
             onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
             onToggleFullscreen={togglePhysicalFullscreen}
-            isPaused={!isPanelCollapsed}
+            isPaused={!isRouteActive}
             avatarSettings={avatarSettings}
             onOpenAvatarCustomizer={() => {
               setIsAvatarFirstTime(false);

@@ -14,6 +14,31 @@ interface CachedAvatarModel {
   animations: THREE.AnimationClip[];
 }
 const gltfAvatarCache = new Map<string, CachedAvatarModel>();
+const gltfPreloadInflight = new Set<string>();
+
+export function preloadAvatarModel(gender: string = "male") {
+  if (typeof window === "undefined") return;
+  let modelUrl = "/models/avatar_male.glb";
+  if (gender === "female") modelUrl = "/models/avatar_female.glb";
+  else if (gender === "agent") modelUrl = "/models/avatar_agent.glb";
+  if (gltfAvatarCache.has(modelUrl) || gltfPreloadInflight.has(modelUrl)) return;
+  gltfPreloadInflight.add(modelUrl);
+  const loader = new GLTFLoader();
+  loader.load(
+    modelUrl,
+    (gltf) => {
+      gltfPreloadInflight.delete(modelUrl);
+      gltfAvatarCache.set(modelUrl, {
+        scene: gltf.scene,
+        animations: gltf.animations || [],
+      });
+    },
+    undefined,
+    () => {
+      gltfPreloadInflight.delete(modelUrl);
+    }
+  );
+}
 
 export type PersonaDimension =
   | "brain"
@@ -194,6 +219,14 @@ export default function DigitalTwinAvatar3D({
 
   const isRotatingRef = useRef(isRotating);
   isRotatingRef.current = isRotating;
+
+  const ensureLoopRunningRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    if (!isPaused) {
+      ensureLoopRunningRef.current();
+    }
+  }, [isPaused]);
 
   // References for live 3D mutations without React re-renders
   const avatarGroupRef = useRef<THREE.Group | null>(null);
@@ -898,27 +931,12 @@ export default function DigitalTwinAvatar3D({
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
 
-    // 7. 60fps Trait-Driven Gesture & Physics Loop
-    let animId: number;
+    // 7. 60fps Trait-Driven Gesture & Physics Loop (零空转：后台隐藏时完全停止 rAF，切回时瞬时唤醒)
+    let animId = 0;
+    let isLoopRunning = false;
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
     let isElementIntersecting = true;
-
-    const handleVisibilityChange = () => {
-      isPageVisible = !document.hidden;
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    let intersectionObserver: IntersectionObserver | null = null;
-    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
-      intersectionObserver = new IntersectionObserver(
-        ([entry]) => {
-          isElementIntersecting = entry.isIntersecting;
-        },
-        { threshold: 0.05 }
-      );
-      intersectionObserver.observe(container);
-    }
 
     const currentColor = new THREE.Color(0xef4444);
     const targetColor = new THREE.Color(0xef4444);
@@ -934,12 +952,18 @@ export default function DigitalTwinAvatar3D({
     };
 
     const animate = () => {
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) {
+        isLoopRunning = false;
+        animId = 0;
+        return;
+      }
+
+      isLoopRunning = true;
       animId = requestAnimationFrame(animate);
 
-      // Stop GPU work when tab is in background, element is offscreen, or parent page asks to pause
-      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return;
-
-      const elapsed = clock.getElapsedTime();
+      // 钳制单帧最大 delta，防止从后台切回时骨骼动画跳变
+      const delta = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.elapsedTime;
 
       // Lifelike Micro-Gaze Saccades (每 3 秒极微小的视线生理颤动，告别木讷)
       const saccade = Math.sin(elapsed * 4.5) * 0.008 * Math.cos(elapsed * 2.1);
@@ -1019,7 +1043,6 @@ export default function DigitalTwinAvatar3D({
       currentPose.leftForeArm.z = THREE.MathUtils.lerp(currentPose.leftForeArm.z, targetPose.leftForeArm.z, lerpSpeed);
 
       // Update Animation Mixer for models with native glTF animations (Mixamo male & Robot)
-      const delta = clock.getDelta();
       if (activeMixerRef.current) {
         activeMixerRef.current.update(delta);
       }
@@ -1137,12 +1160,45 @@ export default function DigitalTwinAvatar3D({
       renderer.render(scene, camera);
     };
 
-    animate();
+    const ensureLoopRunning = () => {
+      if (!isLoopRunning && isPageVisible && isElementIntersecting && !isPausedRef.current) {
+        isLoopRunning = true;
+        clock.getDelta();
+        animId = requestAnimationFrame(animate);
+      }
+    };
+    ensureLoopRunningRef.current = ensureLoopRunning;
 
+    const handleVisibilityChange = () => {
+      isPageVisible = !document.hidden;
+      ensureLoopRunning();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let intersectionObserver: IntersectionObserver | null = null;
+    if (typeof window !== "undefined" && "IntersectionObserver" in window) {
+      intersectionObserver = new IntersectionObserver(
+        ([entry]) => {
+          isElementIntersecting = entry.isIntersecting;
+          ensureLoopRunning();
+        },
+        { threshold: 0.05 }
+      );
+      intersectionObserver.observe(container);
+    }
+
+    ensureLoopRunning();
+
+    // 关键防护：当被 RouteKeepAlive 设为 display:none 时宽高为 0，绝不能调用 renderer.setSize(0, 0) 销毁帧缓冲！
+    let lastW = width;
+    let lastH = height;
     const handleResize = () => {
       if (!container || !renderer || !camera) return;
       const newW = container.clientWidth;
       const newH = container.clientHeight;
+      if (newW <= 0 || newH <= 0 || (newW === lastW && newH === lastH)) return;
+      lastW = newW;
+      lastH = newH;
       const cfg = getCameraConfig(newW, newH, currentCamMode);
       camera.aspect = newW / newH;
       camera.fov = cfg.fov;
@@ -1158,10 +1214,15 @@ export default function DigitalTwinAvatar3D({
     resizeObserver.observe(container);
 
     return () => {
-      cancelAnimationFrame(animId);
+      if (animId) cancelAnimationFrame(animId);
+      isLoopRunning = false;
       if (activeMixerRef.current) {
         activeMixerRef.current.stopAllAction();
         activeMixerRef.current = null;
+      }
+      if (currentModelRef.current) {
+        avatarGroup.remove(currentModelRef.current);
+        currentModelRef.current = null;
       }
       window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
       window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
@@ -1179,24 +1240,16 @@ export default function DigitalTwinAvatar3D({
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
-      // Deep dispose geometries and materials to prevent WebGL memory leak
       scene.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) {
           (obj as THREE.Mesh).geometry.dispose();
         }
         const mat = (obj as THREE.Mesh).material;
         if (mat) {
-          const disposeMat = (m: THREE.Material) => {
-            const anyMat = m as THREE.Material & { map?: THREE.Texture | null };
-            if (anyMat.map) {
-              anyMat.map.dispose();
-            }
-            m.dispose();
-          };
           if (Array.isArray(mat)) {
-            mat.forEach(disposeMat);
+            mat.forEach((m) => m.dispose());
           } else {
-            disposeMat(mat);
+            mat.dispose();
           }
         }
       });

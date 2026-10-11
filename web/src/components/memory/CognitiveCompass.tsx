@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/aurora/Icon";
 import { Chip } from "@/components/aurora/primitives";
+
+let hasScheduled3DPreload = false;
 
 interface CognitiveCompassProps {
   currentTab: "memory" | "persona" | "skills";
@@ -16,6 +19,27 @@ interface CognitiveCompassProps {
 }
 
 export default function CognitiveCompass({ currentTab, variant = "full", summaryStats }: CognitiveCompassProps) {
+  useEffect(() => {
+    if (hasScheduled3DPreload || typeof window === "undefined") return;
+    hasScheduled3DPreload = true;
+    const warmUp = () => {
+      import("@/components/memory/MemoryGalaxy3D").catch(() => {});
+      import("@/components/skills/SkillMatrix3D").catch(() => {});
+      import("@/components/persona/DigitalTwinAvatar3D")
+        .then((mod) => {
+          mod.preloadAvatarModel?.("male");
+        })
+        .catch(() => {});
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof w.requestIdleCallback === "function") {
+      w.requestIdleCallback(warmUp, { timeout: 1500 });
+    } else {
+      setTimeout(warmUp, 400);
+    }
+  }, []);
   const pillars = [
     {
       id: "memory" as const,

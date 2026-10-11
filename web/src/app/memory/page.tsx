@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { getApiBase, authFetch, api, type ProfileState } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
@@ -92,6 +93,8 @@ interface SearchResult {
 
 export default function MemoryPage() {
   const { t } = useI18n();
+  const pathname = usePathname();
+  const isRouteActive = pathname === "/memory";
 
   // Navigation tab for Right Wing
   const [activeTab, setActiveTab] = useState<"tree" | "entity" | "dreaming" | "search" | "markdown">("tree");
@@ -519,7 +522,7 @@ export default function MemoryPage() {
             isPanelCollapsed={isPanelCollapsed}
             onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
             onToggleFullscreen={togglePhysicalFullscreen}
-            isPaused={!isPanelCollapsed}
+            isPaused={!isRouteActive}
             className="w-full h-full"
           />
 

@@ -500,7 +500,26 @@ const AssistantBubble = memo(function AssistantBubble({
   onSmartCompactAndRetry: (sid?: string) => void;
   t: any;
 }) {
-  const { thinking, content } = parseTurnContent(turn);
+  const liveAgentStdout = useMemo(() => {
+    if (turn.content && turn.content.trim().length > 0) return "";
+    if (!turn.toolCalls || turn.toolCalls.length === 0) return "";
+    const parts: string[] = [];
+    for (const c of turn.toolCalls) {
+      const act = c.result?.action || (c.args?.action as string) || (c.name === "run_on_device" ? "shell" : c.name);
+      const bin = ((c.args?.binary as string) || (c as any).binary || (c.result as any)?.binary || "").toLowerCase();
+      const isAgentCall = act === "agent" || bin.length > 0;
+      if (isAgentCall && c.result?.stdout?.trim()) {
+        parts.push(c.result.stdout);
+      }
+    }
+    return parts.join("\n\n");
+  }, [turn.content, turn.toolCalls]);
+
+  const effectiveTurn = useMemo(
+    () => (turn.content ? turn : liveAgentStdout ? { ...turn, content: liveAgentStdout } : turn),
+    [turn, liveAgentStdout]
+  );
+  const { thinking, content } = parseTurnContent(effectiveTurn);
   const isCurrentlyStreaming = Boolean(streaming && isLast);
   const isThinkingActive = Boolean(isCurrentlyStreaming && !content);
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
@@ -577,7 +596,7 @@ const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {content ? (
-        <div className="prose prose-sm max-w-none select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
+        <div className="prose prose-sm max-w-none w-full select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
           <MarkdownViewer content={content} isStreaming={isCurrentlyStreaming} />
         </div>
       ) : (

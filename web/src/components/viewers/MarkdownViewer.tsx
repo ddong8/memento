@@ -257,7 +257,7 @@ export default function MarkdownViewer({
           },
           blockquote: ({ node, children, ...props }: any) => (
             <blockquote
-              className="my-3 border-l-4 border-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] px-4 py-2 rounded-r-lg text-[var(--aurora-fg2)]"
+              className="w-full box-border my-2.5 border-l-4 border-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] px-3.5 py-2 rounded-r-lg text-[var(--aurora-fg2)]"
               {...props}
             >
               {children}

@@ -119,12 +119,35 @@ export default function ExecutionCard({
   const isFailed = !isExit1NoMatch && !isStillRunning && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
 
   const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
+  const hasStructuredEvents = Boolean(result?.events && result.events.length > 0);
 
-  // 当任务已成功完成且外部已有正文回复时，默认折叠为紧凑状态条，突出正文回复与媒体产物；未完成或无正文时保持展开
+  // 严格比对：当父级主回复已包含或实时呈现卡片 stdout 时，避免在卡片内重复渲染窄框
+  const isOutputInParentContent = Boolean(
+    hasParentContent &&
+    result?.stdout &&
+    result.stdout.trim().length > 0 &&
+    (
+      isAgent ||
+      parentContent!.trim() === result.stdout.trim() ||
+      (parentContent!.length >= result.stdout.length * 0.85 && parentContent!.includes(result.stdout.trim()))
+    )
+  );
+
+  // Agent 流式/完成输出已在主回复区全宽渲染时，默认折叠为单行状态条，消除框套框与宽度收缩
+  const [userToggled, setUserToggled] = useState<boolean>(false);
   const [expanded, setExpanded] = useState<boolean>(() => {
-    if (isSuccess && hasParentContent) return false;
+    if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
+      return false;
+    }
     return true;
   });
+
+  useEffect(() => {
+    if (userToggled) return;
+    if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
+      setExpanded(false);
+    }
+  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, hasStructuredEvents]);
 
   // Agent (Claude Code / Codex / Antigravity) 的输出是 Markdown 富文本，默认必须保持 markdown 视图，杜绝以原始 monospace 打印；shell 默认 terminal 视图
   const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
@@ -138,17 +161,6 @@ export default function ExecutionCard({
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
   }, [result?.stdout, cleanStderr, isRunning, isVisible]);
-
-  // 严格比对：仅当父级主回复确实已完整包含卡片 stdout 时才提示已同步呈现，避免父级仅有一句打招呼或部分流式文字就导致卡片隐藏内容
-  const isOutputInParentContent = Boolean(
-    hasParentContent &&
-    result?.stdout &&
-    result.stdout.trim().length > 0 &&
-    (
-      parentContent!.trim() === result.stdout.trim() ||
-      (parentContent!.length >= result.stdout.length * 0.85 && parentContent!.includes(result.stdout.trim()))
-    )
-  );
 
   const copyText = () => {
     const parts: string[] = [];
@@ -178,7 +190,10 @@ export default function ExecutionCard({
     >
       {/* Header bar */}
       <div
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          setUserToggled(true);
+          setExpanded(!expanded);
+        }}
         style={{
           display: "flex",
           alignItems: "center",
@@ -438,7 +453,7 @@ export default function ExecutionCard({
 
       {/* Terminal Content Box */}
       {expanded && (
-        <div style={{ padding: 12 }}>
+        <div style={{ padding: "10px 12px" }}>
           {/* Sub-bar: cwd & format toggle & copy */}
           <div
             style={{
@@ -555,18 +570,10 @@ export default function ExecutionCard({
           {/* Conditional Content: Markdown or Terminal Console */}
           {viewMode === "markdown" ? (
             <div
-              className="prose-compact"
+              className="prose prose-sm max-w-none w-full"
               style={{
-                padding: "14px 16px",
-                borderRadius: 10,
-                background: "var(--aurora-surface-solid)",
-                border: "1px solid var(--aurora-border)",
                 color: "var(--aurora-fg1)",
-                fontSize: 12,
-                maxHeight: "min(380px, 45vh)",
-                overflowY: "auto",
-                overscrollBehavior: "contain",
-                WebkitOverflowScrolling: "touch",
+                fontSize: 13.5,
               }}
             >
               {command && (
@@ -634,14 +641,14 @@ export default function ExecutionCard({
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 2 }}>
                       <Icon name="check" size={13} style={{ color: "#10b981" }} />
-                      <span>执行产物与回复已在正文主回复中完整呈现</span>
+                      <span>执行产物与回复已在下方主回复区全宽呈现</span>
                     </div>
                     <div style={{ color: "var(--aurora-fg3)", fontSize: 11.5 }}>
-                      为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“终端”模式查验底层输出与命令日志。
+                      为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“Terminal”模式查验底层输出与命令日志。
                     </div>
                   </div>
                 ) : (
-                  <MarkdownViewer content={result.stdout} compactMedia={true} compactText={true} />
+                  <MarkdownViewer content={result.stdout} compactMedia={true} />
                 )
               ) : null}
 

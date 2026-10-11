@@ -190,8 +190,8 @@ export async function sendLocalNotification(title: string, body: string, url?: s
     }
   }
 
-  // 3. Web Notification API (Chrome / Safari / Edge on Mac & PC)
-  if ("Notification" in window) {
+  // 3. Web Notification API (Chrome / Safari / Edge on Mac & PC, only if not already delivered by native bridge)
+  if (!delivered && "Notification" in window) {
     const handleNotificationClick = () => {
       window.focus();
       if (url) {
@@ -250,8 +250,11 @@ const _seenIds = new Set<string>();
 
 export function startNotificationFeedPoller(): () => void {
   if (typeof window === "undefined") return () => {};
-  // 在移动端 App (ReactNativeWebView) 中由客户端原生层直接管理通知拉取与弹窗，Web 层无需重复轮询
-  if ((window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView) {
+  // 在移动端 App (ReactNativeWebView) 与桌面端 (mementoDesktop) 中由原生层主进程直接管理后台通知拉取与系统弹窗，Web 层无需重复轮询
+  if (
+    (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView ||
+    (window as unknown as { mementoDesktop?: unknown }).mementoDesktop
+  ) {
     return () => {};
   }
   if (_pollerTimer) return () => {};

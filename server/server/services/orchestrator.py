@@ -546,6 +546,10 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["system_prompt_append"] = args["system_prompt_append"]
             if args.get("worktree"):
                 payload["worktree"] = True
+            if args.get("conversation_id"):
+                payload["conversation_id"] = args["conversation_id"]
+            if args.get("user_question"):
+                payload["user_question"] = args["user_question"]
         raw_cwd = (args.get("cwd") or "").strip()
         proj_id_val = args.get("project_id") or payload.get("project_id")
         resolved_cwd = raw_cwd
@@ -673,11 +677,51 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 break
 
         if target_ws_id:
+            if action == "agent" and args.get("images") and isinstance(args["images"], list):
+                conv_folder = str(payload.get("conversation_id") or task_id_str)
+                img_cmds: list[str] = [f"mkdir -p /tmp/memento_images/{conv_folder}"]
+                for idx, img_str in enumerate(args["images"]):
+                    if isinstance(img_str, str) and img_str.startswith("data:image/") and "," in img_str:
+                        hdr, b64_part = img_str.split(",", 1)
+                        mime_part = hdr.split(";")[0].split(":")[1] if ":" in hdr else "image/png"
+                        ext_part = mime_part.split("/")[1] if "/" in mime_part else "png"
+                        if ext_part == "jpeg":
+                            ext_part = "jpg"
+                        safe_b64 = b64_part.strip().replace("'", "")
+                        target_file = f"/tmp/memento_images/{conv_folder}/image_{idx + 1}.{ext_part}"
+                        img_cmds.append(
+                            f"python3 -c \"import base64; open('{target_file}','wb').write(base64.b64decode('{safe_b64}'))\""
+                        )
+                if len(img_cmds) > 1:
+                    sync_tid = str(uuid.uuid4())
+                    sync_q = ws_manager.subscribe_task(sync_tid)
+                    try:
+                        sent_sync = await ws_manager.send_task(target_ws_id, {
+                            "id": sync_tid,
+                            "action": "shell",
+                            "payload": {"command": " && ".join(img_cmds)},
+                            "timeout_seconds": 10,
+                        })
+                        if sent_sync:
+                            sync_deadline = asyncio.get_event_loop().time() + 4.0
+                            while True:
+                                rem = sync_deadline - asyncio.get_event_loop().time()
+                                if rem <= 0:
+                                    break
+                                s_evt = await asyncio.wait_for(sync_q.get(), timeout=rem)
+                                if s_evt.get("type") == "_task_finished_ws":
+                                    break
+                    except Exception as sync_err:
+                        logger.debug("Pre-sync images to device %s finished/skipped: %s", target_ws_id, sync_err)
+                    finally:
+                        ws_manager.unsubscribe_task(sync_tid)
+
             task_q = ws_manager.subscribe_task(task_id_str)
+            ws_payload = {**payload, "images": args["images"]} if args.get("images") else payload
             dispatched_ws = await ws_manager.send_task(target_ws_id, {
                 "id": task_id_str,
                 "action": action,
-                "payload": payload,
+                "payload": ws_payload,
                 "timeout_seconds": device_timeout,
             })
             if dispatched_ws:

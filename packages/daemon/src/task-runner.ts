@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
@@ -458,6 +459,35 @@ export class TaskRunner {
     const model = text("model");
     const effort = text("effort");
     const sysAppend = text("system_prompt_append");
+
+    // Materialize uploaded base64 images on the local device so local Agent CLI can view them
+    if (Array.isArray(payload.images) && payload.images.length > 0) {
+      const convId =
+        text("conversation_id") ||
+        prompt.match(/\/tmp\/memento_images\/([a-zA-Z0-9_-]+)\//)?.[1] ||
+        taskId;
+      const imgDir = join("/tmp/memento_images", convId);
+      try {
+        mkdirSync(imgDir, { recursive: true });
+        for (let idx = 0; idx < payload.images.length; idx++) {
+          const img = String(payload.images[idx] ?? "");
+          if (img.startsWith("data:image/")) {
+            const commaIdx = img.indexOf(",");
+            if (commaIdx > 0) {
+              const header = img.slice(0, commaIdx);
+              const b64data = img.slice(commaIdx + 1);
+              const mime = header.split(";")[0]?.split(":")[1] ?? "image/png";
+              let ext = mime.split("/")[1] ?? "png";
+              if (ext === "jpeg") ext = "jpg";
+              const imgPath = join(imgDir, `image_${idx + 1}.${ext}`);
+              writeFileSync(imgPath, Buffer.from(b64data, "base64"));
+            }
+          }
+        }
+      } catch (err) {
+        this.log(`Failed to materialize local image attachments: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     if (action === "shell") {
       const command = text("command");

@@ -28,11 +28,12 @@ export default function ActiveRunsMonitor() {
     const handleActiveChat = (e: any) => {
       syncCurrentId(e?.detail?.id);
     };
+    const handlePopState = () => syncCurrentId();
 
-    window.addEventListener("popstate", () => syncCurrentId());
+    window.addEventListener("popstate", handlePopState);
     window.addEventListener("memento_active_chat_change", handleActiveChat);
     return () => {
-      window.removeEventListener("popstate", () => syncCurrentId());
+      window.removeEventListener("popstate", handlePopState);
       window.removeEventListener("memento_active_chat_change", handleActiveChat);
     };
   }, [pathname, searchParams]);
@@ -57,13 +58,20 @@ export default function ActiveRunsMonitor() {
   const activeIdsRef = useRef<Set<string>>(new Set());
   const completedNoticeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  // Local ticker every 1000ms for smooth elapsed seconds updates
+  const hasActiveRuns = runs.some((r) => !r.done);
+  const hasVisibleNotifications = runs.some(
+    (r) => r.done && !dismissedNotificationIds.has(r.conversation_id)
+  );
+
+  // Local ticker every 1000ms for smooth elapsed seconds updates (only active when needed)
   useEffect(() => {
+    if (!hasActiveRuns && !hasVisibleNotifications) return;
+    setNow(Date.now());
     const timer = setInterval(() => {
       setNow(Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [hasActiveRuns, hasVisibleNotifications]);
 
   // Poll server for active and recently finished runs
   const fetchRuns = useCallback(async () => {
@@ -142,12 +150,11 @@ export default function ActiveRunsMonitor() {
     if (!token) return;
     fetchRuns();
 
-    const activeCount = runs.filter((r) => !r.done).length;
     // Faster poll (1500ms) when agent is active, slower (4000ms) when idle
-    const intervalTime = activeCount > 0 ? 1500 : 4000;
+    const intervalTime = hasActiveRuns ? 1500 : 4000;
     const interval = setInterval(fetchRuns, intervalTime);
     return () => clearInterval(interval);
-  }, [token, fetchRuns, runs]);
+  }, [token, fetchRuns, hasActiveRuns]);
 
   const activeRuns = runs.filter((r) => !r.done);
   const recentFinishedRuns = runs.filter(

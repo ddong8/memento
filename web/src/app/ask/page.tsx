@@ -279,9 +279,37 @@ function formatExcerpt(raw: string): string {
   return text.trim();
 }
 
+function normalizeEpochMs(val?: number | string | null): number {
+  if (typeof val === "number" && Number.isFinite(val) && val > 0) {
+    return val < 1e11 ? Math.round(val * 1000) : val;
+  }
+  if (typeof val === "string" && val.trim()) {
+    const num = Number(val);
+    if (Number.isFinite(num) && num > 0) {
+      return num < 1e11 ? Math.round(num * 1000) : num;
+    }
+    const parsed = new Date(val).getTime();
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed < 1e11 && parsed > 1_000_000_000 ? parsed * 1000 : parsed;
+    }
+  }
+  return Date.now();
+}
+
+function normalizeIsoTimestamp(iso?: string): string | undefined {
+  if (!iso) return undefined;
+  let d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return undefined;
+  if (d.getFullYear() < 2000 && d.getTime() > 1_000_000_000) {
+    d = new Date(d.getTime() * 1000);
+  }
+  return d.toISOString();
+}
+
 function formatTurnTimestamp(iso?: string): { short: string; full: string } | null {
-  if (!iso) return null;
-  const d = new Date(iso);
+  const normalized = normalizeIsoTimestamp(iso);
+  if (!normalized) return null;
+  const d = new Date(normalized);
   if (Number.isNaN(d.getTime())) return null;
   const pad = (n: number) => String(n).padStart(2, "0");
   const year = d.getFullYear();
@@ -302,13 +330,15 @@ function formatTurnTimestamp(iso?: string): { short: string; full: string } | nu
 function formatTurnDuration(durationMs?: number, startedAtIso?: string, finishedAtIso?: string): string | null {
   let ms = typeof durationMs === "number" && durationMs > 0 ? durationMs : 0;
   if (!ms && startedAtIso && finishedAtIso) {
-    const t1 = new Date(startedAtIso).getTime();
-    const t2 = new Date(finishedAtIso).getTime();
+    const sNorm = normalizeIsoTimestamp(startedAtIso);
+    const fNorm = normalizeIsoTimestamp(finishedAtIso);
+    const t1 = sNorm ? new Date(sNorm).getTime() : NaN;
+    const t2 = fNorm ? new Date(fNorm).getTime() : NaN;
     if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
       ms = t2 - t1;
     }
   }
-  if (!ms || ms <= 0) return null;
+  if (!ms || ms <= 0 || ms > 7 * 24 * 3600 * 1000) return null;
   if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
   const sec = ms / 1000;
   if (sec < 60) return `${sec.toFixed(1)}s`;
@@ -1842,7 +1872,7 @@ function AskPageContent() {
           askCache.activeRun = {
             convId: targetConvId,
             question: activeRunToAttach.question || "",
-            startedAt: activeRunToAttach.started_at || Date.now(),
+            startedAt: normalizeEpochMs(activeRunToAttach.started_at),
           };
         }
         if (!idParam) {
@@ -1997,7 +2027,7 @@ function AskPageContent() {
           askCache.activeRun = {
             convId: activeConversationIdRef.current,
             question: lastSentQuestionRef.current || "",
-            startedAt: Date.now(),
+            startedAt: normalizeEpochMs(askCache.activeRun?.startedAt),
           };
         }
       }
@@ -2013,6 +2043,15 @@ function AskPageContent() {
     const checkServerRun = async () => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
+      // When /ask is kept alive in background (user is on another menu route) and not streaming,
+      // skip redundant per-conversation /run polling since ActiveRunsMonitor already polls globally.
+      if (
+        typeof window !== "undefined" &&
+        !window.location.pathname.startsWith("/ask") &&
+        !streamingRef.current
+      ) {
+        return;
+      }
 
       try {
         const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${convId}/run`);
@@ -2032,7 +2071,7 @@ function AskPageContent() {
                 askCache.activeRun = {
                   convId,
                   question: run.question || "",
-                  startedAt: run.started_at || Date.now(),
+                  startedAt: normalizeEpochMs(run.started_at),
                 };
               }
             }
@@ -2369,13 +2408,13 @@ function AskPageContent() {
           if (cur.length >= 2 && cur[cur.length - 2].role === "user") {
             cur[cur.length - 2] = {
               ...cur[cur.length - 2],
-              created_at: cur[cur.length - 2].created_at || evt.user_created_at,
+              created_at: evt.user_created_at || normalizeIsoTimestamp(cur[cur.length - 2].created_at),
             };
             turnsRef.current = cur;
           }
           patchLast((x) => ({
             ...x,
-            started_at: x.started_at || evt.user_created_at,
+            started_at: evt.user_created_at || normalizeIsoTimestamp(x.started_at),
           }));
         }
         if (askCache) {
@@ -2383,7 +2422,7 @@ function AskPageContent() {
           askCache.activeRun = {
             convId: evt.id,
             question: lastSentQuestionRef.current || "",
-            startedAt: askCache.activeRun?.startedAt || Date.now(),
+            startedAt: normalizeEpochMs(askCache.activeRun?.startedAt),
           };
         }
       } else if (evt.type === "sources") {
@@ -2573,7 +2612,7 @@ function AskPageContent() {
         sawDone = true;
         const doneIso = evt.assistant_created_at || new Date().toISOString();
         patchLast((x) => {
-          const startIso = x.started_at;
+          const startIso = normalizeIsoTimestamp(x.started_at);
           const computedDur =
             typeof evt.duration_ms === "number"
               ? evt.duration_ms
@@ -2582,6 +2621,7 @@ function AskPageContent() {
                 : undefined;
           return {
             ...x,
+            started_at: startIso || x.started_at,
             created_at: doneIso,
             ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),
           };
@@ -2629,7 +2669,7 @@ function AskPageContent() {
         );
         if (res.status === 404) {
           // Finished and no longer held by the server: the saved conversation has it all.
-          const data = await api.getAskConversation(cursor.convId!);
+          const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
           return;
         }
@@ -2649,14 +2689,14 @@ function AskPageContent() {
           signal: ctrl.signal,
         });
         if (runRes.status === 404) {
-          const data = await api.getAskConversation(cursor.convId!);
+          const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
           return;
         }
         if (runRes.ok) {
           const run = await runRes.json();
           if (run.done || run.cancelled) {
-            const data = await api.getAskConversation(cursor.convId!);
+            const data = await api.getAskConversation(cursor.convId!, 40);
             turnsRef.current = data.turns || [];
             return;
           }
@@ -2688,9 +2728,11 @@ function AskPageContent() {
       const last = finalTurns[finalTurns.length - 1];
       if (last.role === "assistant" && !last.created_at) {
         const finIso = new Date().toISOString();
-        const dur = last.started_at ? Math.max(0, new Date(finIso).getTime() - new Date(last.started_at).getTime()) : undefined;
+        const normStart = normalizeIsoTimestamp(last.started_at);
+        const dur = normStart ? Math.max(0, new Date(finIso).getTime() - new Date(normStart).getTime()) : undefined;
         finalTurns[finalTurns.length - 1] = {
           ...last,
+          started_at: normStart || last.started_at,
           created_at: finIso,
           ...(dur !== undefined && !last.duration_ms ? { duration_ms: dur } : {}),
         };
@@ -2757,18 +2799,23 @@ function AskPageContent() {
     const last = len > 0 ? turnsToUse[len - 1] : null;
     const secondLast = len > 1 ? turnsToUse[len - 2] : null;
     const runStartedIso = askCache?.activeRun?.startedAt
-      ? new Date(askCache.activeRun.startedAt).toISOString()
+      ? new Date(normalizeEpochMs(askCache.activeRun.startedAt)).toISOString()
       : new Date().toISOString();
 
     if (last?.role === "assistant" && secondLast?.role === "user" && secondLast.content === question) {
       // Already ends with user question and assistant placeholder, reset assistant content and toolCalls for clean replay
+      const normUserCreated = normalizeIsoTimestamp(secondLast.created_at) || runStartedIso;
+      const normAsstStarted = normalizeIsoTimestamp(last.started_at) || normUserCreated;
       turnsToUse = [
-        ...turnsToUse.slice(0, -1),
-        { role: "assistant", content: "", toolCalls: [], started_at: last.started_at || secondLast.created_at || runStartedIso },
+        ...turnsToUse.slice(0, -2),
+        { ...secondLast, created_at: normUserCreated },
+        { role: "assistant", content: "", toolCalls: [], started_at: normAsstStarted },
       ];
     } else if (last?.role === "user" && last.content === question) {
       // Ends with user question, append assistant placeholder
-      turnsToUse.push({ role: "assistant", content: "", toolCalls: [], started_at: last.created_at || runStartedIso });
+      const normUserCreated = normalizeIsoTimestamp(last.created_at) || runStartedIso;
+      turnsToUse[turnsToUse.length - 1] = { ...last, created_at: normUserCreated };
+      turnsToUse.push({ role: "assistant", content: "", toolCalls: [], started_at: normUserCreated });
     } else {
       // Normal case: append both user and assistant
       turnsToUse.push(
@@ -2786,7 +2833,7 @@ function AskPageContent() {
       askCache.activeRun = {
         convId,
         question,
-        startedAt: askCache.activeRun?.startedAt || Date.now(),
+        startedAt: normalizeEpochMs(askCache.activeRun?.startedAt),
       };
     }
     try {

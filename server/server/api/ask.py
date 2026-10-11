@@ -1297,14 +1297,39 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
     return cfg, inferred
 
 
+def _fix_iso_timestamp(val: Any) -> str | None:
+    if not val:
+        return None
+    if isinstance(val, (int, float)):
+        sec = val / 1000.0 if val >= 1e11 else float(val)
+        return datetime.fromtimestamp(sec, tz=timezone.utc).isoformat()
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.year < 2000:
+            ts = dt.timestamp()
+            if ts > 1_000_000:
+                return datetime.fromtimestamp(ts * 1000.0, tz=timezone.utc).isoformat()
+    except Exception:
+        pass
+    return s
+
+
 def _sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = None) -> list[dict]:
     """Strip bloated duplicate inlined base64 images from tool_calls args, compress oversized user images, and ensure turn timestamps."""
     sanitized = []
     prev_user_ts: str | None = None
+    fixed_fallback = _fix_iso_timestamp(fallback_iso)
     for t in turns:
         t_copy = dict(t)
-        if not t_copy.get("created_at") and fallback_iso:
-            t_copy["created_at"] = fallback_iso
+        if t_copy.get("created_at"):
+            t_copy["created_at"] = _fix_iso_timestamp(t_copy.get("created_at"))
+        elif fixed_fallback:
+            t_copy["created_at"] = fixed_fallback
+        if t_copy.get("started_at"):
+            t_copy["started_at"] = _fix_iso_timestamp(t_copy.get("started_at"))
         role = t_copy.get("role")
         if role == "user":
             prev_user_ts = t_copy.get("created_at")
@@ -1361,6 +1386,126 @@ async def _lookup_project_title(db: AsyncSession, project_id_val: str | None) ->
     return None
 
 
+async def _recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversation, cfg: dict) -> list[dict] | None:
+    """If deploy/api restarted while a DeviceTask was running, recover completed turns that were not persisted to conv.turns."""
+    try:
+        from ..db.models import DeviceTask
+        from ..services.ask_runs import ask_run_registry
+
+        conv_id_str = str(conv.id)
+        active_run = ask_run_registry.get_active_for_conv(conv_id_str)
+        if active_run and not active_run.done:
+            return None
+
+        raw_turns = list(conv.turns or [])
+        recorded_task_ids: set[str] = set()
+        last_turn_dt: datetime | None = None
+        for t in raw_turns:
+            ts_str = t.get("created_at")
+            if ts_str:
+                try:
+                    dt = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+                    if dt.year >= 2000 and (last_turn_dt is None or dt > last_turn_dt):
+                        last_turn_dt = dt
+                except Exception:
+                    pass
+            for tc in (t.get("toolCalls") or t.get("tool_calls") or []):
+                if isinstance(tc, dict):
+                    res = tc.get("result")
+                    if isinstance(res, dict) and res.get("task_id"):
+                        recorded_task_ids.add(str(res["task_id"]))
+                    if tc.get("task_id"):
+                        recorded_task_ids.add(str(tc["task_id"]))
+
+        sess_id = str(cfg.get("session_id") or "").strip()
+        q = (
+            select(DeviceTask)
+            .where(
+                DeviceTask.user_id == conv.user_id,
+                DeviceTask.status.in_(["succeeded", "failed", "timeout"]),
+            )
+            .order_by(DeviceTask.created_at.desc())
+            .limit(8)
+        )
+        recent_tasks = (await db.execute(q)).scalars().all()
+        to_recover: list[DeviceTask] = []
+        for dt_row in reversed(recent_tasks):
+            tid = str(dt_row.id)
+            if tid in recorded_task_ids:
+                continue
+            pl = dt_row.payload or {}
+            pl_conv = str(pl.get("conversation_id") or "").strip()
+            pl_sess = str(pl.get("session_id") or "").strip()
+            matched = (pl_conv == conv_id_str) or (not pl_conv and sess_id and pl_sess == sess_id)
+            if not matched:
+                continue
+            fin_dt = dt_row.finished_at or dt_row.created_at
+            if last_turn_dt and fin_dt and fin_dt <= last_turn_dt:
+                continue
+            to_recover.append(dt_row)
+
+        if not to_recover:
+            return None
+
+        for dt_row in to_recover:
+            pl = dt_row.payload or {}
+            user_q = str(pl.get("user_question") or "").strip()
+            if not user_q:
+                raw_prompt = str(pl.get("prompt") or "").strip()
+                if "【当前用户指令】\n" in raw_prompt:
+                    user_q = raw_prompt.split("【当前用户指令】\n", 1)[1].strip()
+                elif "提示: 你可以使用视觉/文件查看工具" in raw_prompt:
+                    parts = raw_prompt.split("进行图像分析与代码实现。")
+                    user_q = parts[-1].strip() or raw_prompt
+                else:
+                    user_q = raw_prompt
+            ans = (dt_row.stdout or "").strip() or (dt_row.stderr or "").strip() or (dt_row.error or "任务执行完成")
+            start_dt = dt_row.dispatched_at or dt_row.created_at or datetime.now(timezone.utc)
+            end_dt = dt_row.finished_at or datetime.now(timezone.utc)
+            dur_ms = max(0, int((end_dt - start_dt).total_seconds() * 1000))
+            call_id = f"direct_{str(dt_row.id).replace('-', '')[:8]}"
+            clean_pl = {k: v for k, v in pl.items() if k != "images"}
+            tc_entry = {
+                "id": call_id,
+                "tool_call_id": call_id,
+                "name": "run_on_device",
+                "device_name": dt_row.device_id or "auto",
+                "args": clean_pl,
+                "action": dt_row.action,
+                "binary": pl.get("binary"),
+                "status": "executed" if dt_row.status == "succeeded" else "failed",
+                "result": {
+                    "task_id": str(dt_row.id),
+                    "status": dt_row.status,
+                    "exit_code": dt_row.exit_code,
+                    "stdout": dt_row.stdout,
+                    "stderr": dt_row.stderr,
+                    "error": dt_row.error,
+                    "events": dt_row.events or [],
+                },
+            }
+            raw_turns.append({
+                "role": "user",
+                "content": user_q,
+                "created_at": start_dt.isoformat(),
+            })
+            raw_turns.append({
+                "role": "assistant",
+                "content": ans,
+                "started_at": start_dt.isoformat(),
+                "created_at": end_dt.isoformat(),
+                "duration_ms": dur_ms,
+                "toolCalls": [tc_entry],
+            })
+        conv.turns = raw_turns
+        conv.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return raw_turns
+    except Exception as e:
+        logger.warning("Failed to recover orphaned device tasks for conv %s: %s", conv.id, e)
+        return None
+
+
 @router.get("/conversations/{conv_id}")
 async def get_conversation(
     conv_id: str,
@@ -1384,12 +1529,13 @@ async def get_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     cfg, inferred = _infer_conversation_config(conv)
+    recovered_turns = await _recover_orphaned_tasks_for_conv(db, conv, cfg)
 
     # Extract all model attributes into locals BEFORE any db.commit() to prevent
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
     conv_id_str = str(conv.id)
     conv_title = conv.title
-    raw_turns = list(conv.turns or [])
+    raw_turns = recovered_turns if recovered_turns is not None else list(conv.turns or [])
     total_turns = len(raw_turns)
 
     conv_dev = conv.device_id or cfg.get("device_id")
@@ -1420,7 +1566,7 @@ async def get_conversation(
     updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
 
     # Fast ETag evaluation before full turns sanitization and slicing
-    etag_seed = f"v2:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
+    etag_seed = f"v3:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
     etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
     if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
@@ -1781,6 +1927,8 @@ async def _direct_agent_stream(
         "device_id": device_id or "",
         "cwd": cwd or "",
         "timeout_seconds": effective_timeout,
+        "conversation_id": str(conv_id),
+        "user_question": question,
     }
     if model:
         args["model"] = model

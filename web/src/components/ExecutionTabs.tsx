@@ -150,7 +150,7 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
           gap: 4,
           padding: "4px",
           background: "var(--aurora-chip, rgba(15, 15, 30, 0.05))",
-          backdropFilter: "blur(12px)",
+          backdropFilter: "var(--aurora-blur)",
           borderRadius: 12,
           border: "1px solid var(--aurora-border)",
           marginBottom: 10,

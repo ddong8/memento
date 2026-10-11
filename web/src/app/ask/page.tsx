@@ -2321,8 +2321,12 @@ function AskPageContent() {
     const el = inputElRef.current;
     if (!el) return;
     if (!input) {
-      el.style.height = "20px";
-      el.style.overflowY = "hidden";
+      if (el.style.height !== "20px") el.style.height = "20px";
+      if (el.style.overflowY !== "hidden") el.style.overflowY = "hidden";
+      return;
+    }
+    // Fast path: short single-line input without newline never wraps, avoiding synchronous scrollHeight layout thrashing on every keystroke
+    if (!input.includes("\n") && input.length < 22 && el.style.height === "20px") {
       return;
     }
     el.style.height = "20px";
@@ -3634,8 +3638,11 @@ function AskPageContent() {
     placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问...` : `Run task or question on ${currentDev.name}...`;
   }
 
-  const activeConversation = conversations.find((c) => c.id === activeConversationId);
-  const displayConvTitle = (() => {
+  const activeConversation = useMemo(
+    () => conversations.find((c) => c.id === activeConversationId),
+    [conversations, activeConversationId]
+  );
+  const displayConvTitle = useMemo(() => {
     const raw = activeConversation?.title?.trim();
     if (raw && raw.toLowerCase() !== "start" && raw !== t.ask.title) return raw;
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -3647,7 +3654,7 @@ function AskPageContent() {
       }
     }
     return raw || t.ask.title;
-  })();
+  }, [activeConversation?.title, turns, t.ask.title]);
 
   const renderedTurns = useMemo(() => {
     const eagerThreshold = Math.max(0, turns.length - 4);

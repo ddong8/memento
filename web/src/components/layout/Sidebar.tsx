@@ -145,8 +145,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         ].join(" ")}
         style={{
           background: "var(--aurora-sidebar)",
-          backdropFilter: "blur(24px) saturate(180%)",
-          WebkitBackdropFilter: "blur(24px) saturate(180%)",
+          backdropFilter: "var(--aurora-blur)",
+          WebkitBackdropFilter: "var(--aurora-blur)",
           borderRight: "1px solid var(--aurora-border)",
           color: "var(--aurora-fg2)",
         }}

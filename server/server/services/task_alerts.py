@@ -120,6 +120,8 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             else notify_service.task_link(task_id)
         )
         if status == "still_running":
+            if watched:
+                return
             title = "⏳ 任务已转入后台运行"
             body = f"{display_device_name(device_name)}：{_task_summary(task)}（后台任务正在执行中）"
             await notify_service.notify_user(

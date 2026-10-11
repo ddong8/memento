@@ -154,44 +154,103 @@ export function showInAppToast(title: string, body: string, url?: string): void 
   }, 5000);
 }
 
-export async function sendLocalNotification(title: string, body: string, url?: string): Promise<boolean> {
-  if (typeof window === "undefined") return false;
+const DEDUP_WINDOW_MS = 120_000;
+const _recentLocalNotifications = new Map<string, number>();
 
-  const dedupKey = `${title}:${body}`;
-  if (_recentLocalNotifications.has(dedupKey)) {
+function extractCoreBody(body: string): string {
+  let core = (body || "").trim();
+  const colonIdx = core.indexOf("：");
+  if (colonIdx !== -1) {
+    core = core.slice(colonIdx + 1).trim();
+  }
+  const alertIdx = core.indexOf("（期间 ");
+  if (alertIdx !== -1) {
+    core = core.slice(0, alertIdx).trim();
+  }
+  return core;
+}
+
+function isDuplicateLocalNotification(title: string, body: string, url?: string): boolean {
+  const now = Date.now();
+  for (const [k, ts] of _recentLocalNotifications.entries()) {
+    if (now - ts > DEDUP_WINDOW_MS) {
+      _recentLocalNotifications.delete(k);
+    }
+  }
+  const cleanTitle = (title || "").trim();
+  const cleanBody = (body || "").trim();
+  const coreBody = extractCoreBody(cleanBody);
+  const fullKey = `${cleanTitle}:${cleanBody}`;
+  const coreKey = `${cleanTitle}:${coreBody}`;
+  const urlKey = url ? `${cleanTitle}:url:${url}` : "";
+
+  if (
+    _recentLocalNotifications.has(fullKey) ||
+    (coreBody && _recentLocalNotifications.has(coreKey)) ||
+    (urlKey && _recentLocalNotifications.has(urlKey))
+  ) {
     return true;
   }
-  _recentLocalNotifications.add(dedupKey);
-  setTimeout(() => {
-    _recentLocalNotifications.delete(dedupKey);
-  }, 4000);
+
+  _recentLocalNotifications.set(fullKey, now);
+  if (coreBody) _recentLocalNotifications.set(coreKey, now);
+  if (urlKey) _recentLocalNotifications.set(urlKey, now);
+  return false;
+}
+
+export interface LocalNotificationOptions {
+  skipInAppToast?: boolean;
+  serverBacked?: boolean;
+}
+
+export async function sendLocalNotification(
+  title: string,
+  body: string,
+  url?: string,
+  options?: LocalNotificationOptions
+): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  if (isDuplicateLocalNotification(title, body, url)) {
+    return true;
+  }
 
   let delivered = false;
-
-  // 1. Electron Desktop App
   const desktop = (window as unknown as { mementoDesktop?: { notify?: (opts: { title: string; body: string; url?: string }) => Promise<boolean> | void } }).mementoDesktop;
-  if (desktop && typeof desktop.notify === "function") {
-    try {
-      await desktop.notify({ title, body, url });
-      delivered = true;
-    } catch (e) {
-      console.warn("Electron native notify failed:", e);
-    }
-  }
-
-  // 2. Mobile App (iOS / Android) WebView Bridge
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
-  if (bridge && typeof bridge.postMessage === "function") {
-    try {
-      bridge.postMessage(JSON.stringify({ type: "notify", title, body, url, data: { url } }));
+
+  // When serverBacked is true (e.g. task_done), Electron main.ts and Mobile native shell
+  // already receive the notification via their native /api/notify/feed poller or APNs.
+  // Calling desktop.notify or bridge.postMessage here as well would trigger a duplicate native popup.
+  if (desktop && typeof desktop.notify === "function") {
+    if (options?.serverBacked) {
       delivered = true;
-    } catch (e) {
-      console.warn("ReactNative WebView bridge notify failed:", e);
+    } else {
+      try {
+        await desktop.notify({ title, body, url });
+        delivered = true;
+      } catch (e) {
+        console.warn("Electron native notify failed:", e);
+      }
     }
   }
 
-  // 3. Web Notification API (Chrome / Safari / Edge on Mac & PC, only if not already delivered by native bridge)
+  if (!delivered && bridge && typeof bridge.postMessage === "function") {
+    if (options?.serverBacked) {
+      delivered = true;
+    } else {
+      try {
+        bridge.postMessage(JSON.stringify({ type: "notify", title, body, url, data: { url } }));
+        delivered = true;
+      } catch (e) {
+        console.warn("ReactNative WebView bridge notify failed:", e);
+      }
+    }
+  }
+
+  // 3. Web Notification API (Chrome / Safari / Edge on Mac & PC, only if not already handled by native bridge)
   if (!delivered && "Notification" in window) {
+    const notifTag = url ? `memento-${url}` : `memento-${extractCoreBody(body) || Date.now()}`;
     const handleNotificationClick = () => {
       window.focus();
       if (url) {
@@ -211,7 +270,7 @@ export async function sendLocalNotification(title: string, body: string, url?: s
           body,
           icon: "/favicon.png",
           badge: "/favicon.png",
-          tag: `memento-${Date.now()}`,
+          tag: notifTag,
         });
         notif.onclick = handleNotificationClick;
         delivered = true;
@@ -219,14 +278,13 @@ export async function sendLocalNotification(title: string, body: string, url?: s
         console.warn("Web Notification instantiation failed:", e);
       }
     } else if (Notification.permission === "default") {
-      // Auto-prompt permission if user just clicked an action
       try {
         const perm = await Notification.requestPermission();
         if (perm === "granted") {
           const notif = new Notification(title, {
             body,
             icon: "/favicon.png",
-            tag: `memento-${Date.now()}`,
+            tag: notifTag,
           });
           notif.onclick = handleNotificationClick;
           delivered = true;
@@ -237,19 +295,27 @@ export async function sendLocalNotification(title: string, body: string, url?: s
     }
   }
 
-  // Always show in-app toast for visual confirmation and instant mobile tapping
-  showInAppToast(title, body, url);
+  // Only show fallback in-app toast if neither native notification was delivered nor caller suppressed it
+  if (!delivered && !options?.skipInAppToast) {
+    showInAppToast(title, body, url);
+  }
 
   return delivered;
 }
 
-const _recentLocalNotifications = new Set<string>();
 let _pollerTimer: ReturnType<typeof setInterval> | null = null;
 let _lastSeenTime = new Date().toISOString();
 const _seenIds = new Set<string>();
 
 export function startNotificationFeedPoller(): () => void {
   if (typeof window === "undefined") return () => {};
+  // Both Electron desktop (main.ts) and Mobile app (index.tsx) already run their own native
+  // /api/notify/feed pollers + APNs. Do not run a redundant poller inside their embedded WebView.
+  const hasDesktopMainPoller = Boolean((window as unknown as { mementoDesktop?: unknown }).mementoDesktop);
+  const hasMobileNativePoller = Boolean((window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView);
+  if (hasDesktopMainPoller || hasMobileNativePoller) {
+    return () => {};
+  }
   if (_pollerTimer) return () => {};
 
   const poll = async () => {
@@ -263,13 +329,20 @@ export function startNotificationFeedPoller(): () => void {
           if (item.created_at && item.created_at > _lastSeenTime) {
             _lastSeenTime = item.created_at;
           }
-          const hasDesktopMainPoller = Boolean((window as unknown as { mementoDesktop?: unknown }).mementoDesktop);
-          if (hasDesktopMainPoller) {
-            // Electron main.ts already triggers the native OS banner; show in-app toast if not already viewing the exact conversation
-            showInAppToast(item.title, item.body, item.url);
-          } else {
-            await sendLocalNotification(item.title, item.body, item.url);
+          // If the user is actively viewing /ask in the foreground, suppress task_done popups
+          const isWatchingAsk =
+            window.location.pathname === "/ask" &&
+            typeof document !== "undefined" &&
+            document.visibilityState === "visible" &&
+            (typeof document.hasFocus !== "function" || document.hasFocus());
+          if (isWatchingAsk && (item.kind === "task_done" || item.title.includes("任务完成"))) {
+            isDuplicateLocalNotification(item.title, item.body, item.url);
+            continue;
           }
+          await sendLocalNotification(item.title, item.body, item.url, {
+            skipInAppToast: true,
+            serverBacked: true,
+          });
         }
       }
     } catch {

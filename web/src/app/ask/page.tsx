@@ -2640,13 +2640,6 @@ function AskPageContent() {
             ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),
           };
         });
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("memento_ask_done", {
-              detail: { conversation_id: cursor.convId || activeConversationIdRef.current },
-            })
-          );
-        }
       } else if (evt.type === "error") {
         patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true, created_at: x.created_at || new Date().toISOString() }));
       }

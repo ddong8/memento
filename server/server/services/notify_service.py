@@ -334,9 +334,19 @@ async def send_expo_push(
         return False
 
 
-# Server-side sliding-window deduplication (30 seconds)
+# Server-side sliding-window deduplication (120 seconds)
 _recent_pushes: dict[str, float] = {}
-DEDUP_WINDOW_SECONDS = 30.0
+DEDUP_WINDOW_SECONDS = 120.0
+
+
+def _extract_core_body(body: str) -> str:
+    """Strip leading device name prefix ('device：') and trailing alert count ('（期间 N 次危险操作）')."""
+    core = (body or "").strip()
+    if "：" in core:
+        core = core.split("：", 1)[1].strip()
+    if "（期间 " in core:
+        core = core.split("（期间 ", 1)[0].strip()
+    return core
 
 
 def _is_duplicate_push(user_id: str | uuid.UUID, title: str, body: str) -> bool:
@@ -348,11 +358,20 @@ def _is_duplicate_push(user_id: str | uuid.UUID, title: str, body: str) -> bool:
 
     clean_title = (title or "").strip()
     clean_body = (body or "").strip()
-    key = f"{str(user_id)}:{clean_title}:{clean_body}"
+    uid = str(user_id)
+    key = f"{uid}:{clean_title}:{clean_body}"
+    core_body = _extract_core_body(clean_body)
+    core_key = f"{uid}:{clean_title}:{core_body}" if core_body else key
+
     last_ts = _recent_pushes.get(key)
     if last_ts is not None and (now - last_ts) < DEDUP_WINDOW_SECONDS:
         return True
+    core_ts = _recent_pushes.get(core_key)
+    if core_ts is not None and (now - core_ts) < DEDUP_WINDOW_SECONDS:
+        return True
+
     _recent_pushes[key] = now
+    _recent_pushes[core_key] = now
     return False
 
 

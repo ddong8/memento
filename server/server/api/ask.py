@@ -2339,6 +2339,16 @@ async def ask(
             title="Claude Code Agent Task",
         )
 
+    resolved_device_name: str | None = None
+    if device_id and device_id not in ("auto", "ask_only"):
+        from ..services.task_alerts import display_device_name
+        mach_lookup = (await db.execute(
+            select(Machine).where(
+                (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+            ).order_by(Machine.last_heartbeat.desc().nulls_last())
+        )).scalars().first()
+        resolved_device_name = display_device_name(mach_lookup.name if mach_lookup else device_id)
+
     exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "shell"):
         effective_session_id = body.session_id or effective_cfg.get("session_id") or None
@@ -2375,7 +2385,7 @@ async def ask(
             ),
             execution_mode=exec_mode,
             model=effective_model,
-            device_name=device_id or None,
+            device_name=resolved_device_name,
             title=conv_title,
         )
 
@@ -2574,7 +2584,7 @@ async def ask(
             agent_stream,
             execution_mode="agent",
             model=body.model,
-            device_name=device_id or None,
+            device_name=resolved_device_name,
             title=conv_title,
         )
 

@@ -57,6 +57,7 @@ export default function ActiveRunsMonitor() {
 
   // Keep track of previously active conversation IDs so we know when one transitions to done
   const activeIdsRef = useRef<Set<string>>(new Set());
+  const notifiedConvIdsRef = useRef<Set<string>>(new Set());
   const completedNoticeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const hasActiveRuns = runs.some((r) => !r.done);
@@ -89,7 +90,12 @@ export default function ActiveRunsMonitor() {
 
       // Check transitions: was active previously, now done
       data.forEach((r) => {
-        if (r.done && activeIdsRef.current.has(r.conversation_id)) {
+        if (
+          r.done &&
+          activeIdsRef.current.has(r.conversation_id) &&
+          !notifiedConvIdsRef.current.has(r.conversation_id)
+        ) {
+          notifiedConvIdsRef.current.add(r.conversation_id);
           const isActivelyWatching =
             pathname === "/ask" &&
             (currentConvId === r.conversation_id || !currentConvId) &&
@@ -105,7 +111,8 @@ export default function ActiveRunsMonitor() {
             void sendLocalNotification(
               r.failed ? "❌ 任务出错" : "✅ 任务完成",
               bodyText,
-              `/ask?id=${r.conversation_id}`
+              `/ask?id=${r.conversation_id}`,
+              { skipInAppToast: true, serverBacked: true }
             );
             if (!completedNoticeTimerRef.current.has(r.conversation_id)) {
               const t = setTimeout(() => {
@@ -129,6 +136,9 @@ export default function ActiveRunsMonitor() {
     const handleAskDone = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
+        activeIdsRef.current.delete(convId);
+        const alreadyNotified = notifiedConvIdsRef.current.has(convId);
+        notifiedConvIdsRef.current.add(convId);
         const isActivelyWatching =
           pathname === "/ask" &&
           (currentConvId === convId || !currentConvId) &&
@@ -137,13 +147,14 @@ export default function ActiveRunsMonitor() {
           (typeof document.hasFocus !== "function" || document.hasFocus());
         setRuns((prev) => {
           const target = prev.find((r) => r.conversation_id === convId);
-          if (target && !isActivelyWatching) {
+          if (target && !isActivelyWatching && !alreadyNotified) {
             const summaryText = (target.question || target.title || "任务执行完成").trim().slice(0, 60);
             const bodyText = target.device_name ? `${target.device_name}：${summaryText}` : summaryText;
             void sendLocalNotification(
               target.failed ? "❌ 任务出错" : "✅ 任务完成",
               bodyText,
-              `/ask?id=${convId}`
+              `/ask?id=${convId}`,
+              { skipInAppToast: true, serverBacked: true }
             );
           }
           return prev.map((r) =>
@@ -160,6 +171,7 @@ export default function ActiveRunsMonitor() {
     const handleAskStart = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
+        notifiedConvIdsRef.current.delete(convId);
         setDismissedNotificationIds((prev) => {
           const next = new Set(prev);
           next.delete(convId);

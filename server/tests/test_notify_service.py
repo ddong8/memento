@@ -32,6 +32,11 @@ class NotifyServiceTests(unittest.IsolatedAsyncioTestCase):
         # Different user should not be treated as duplicate
         self.assertFalse(_is_duplicate_push(str(uuid.uuid4()), title, body))
 
+        # Same task summary with different device name prefix or alert count suffix should be deduplicated
+        self.assertFalse(_is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿"))
+        self.assertTrue(_is_duplicate_push(uid, "✅ 任务完成", "memento-65b88d53c382f-8eb4ed13：修复3D动画卡顿"))
+        self.assertTrue(_is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿（期间 2 次危险操作）"))
+
     @patch("server.services.notify_service.send_apns_push", new_callable=AsyncMock)
     @patch("server.services.notify_service.send_expo_push", new_callable=AsyncMock)
     @patch("server.services.notify_service.async_session_factory")

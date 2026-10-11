@@ -266,8 +266,52 @@ function toggleButlerWindow(): void {
   }
 }
 
+const recentDesktopNotifs = new Map<string, number>();
+
+function isDuplicateDesktopNotification(title: string, body: string): boolean {
+  const now = Date.now();
+  for (const [k, ts] of recentDesktopNotifs.entries()) {
+    if (now - ts > 120_000) recentDesktopNotifs.delete(k);
+  }
+  const cleanTitle = (title || "").trim();
+  const cleanBody = (body || "").trim();
+  const colonIdx = cleanBody.indexOf("：");
+  const coreBody = colonIdx !== -1 ? cleanBody.slice(colonIdx + 1).trim() : cleanBody;
+  const fullKey = `${cleanTitle}:${cleanBody}`;
+  const coreKey = `${cleanTitle}:${coreBody}`;
+  if (recentDesktopNotifs.has(fullKey) || (coreBody && recentDesktopNotifs.has(coreKey))) {
+    return true;
+  }
+  recentDesktopNotifs.set(fullKey, now);
+  if (coreBody) recentDesktopNotifs.set(coreKey, now);
+  return false;
+}
+
 function showNotification(title: string, body: string, targetUrl?: string): void {
-  // On macOS (Darwin), use osascript fail-safe to guarantee system banner popup
+  if (isDuplicateDesktopNotification(title, body)) return;
+
+  if (Notification.isSupported()) {
+    try {
+      const iconPath = join(__dirname, "static", "tray.png");
+      let icon = nativeImage.createFromPath(iconPath);
+      if (icon.isEmpty()) {
+        icon = nativeImage.createFromPath(join(__dirname, "static", "trayTemplate.png"));
+      }
+      const notification = new Notification({
+        title: title || "Memento · AI 执事",
+        body,
+        icon: icon.isEmpty() ? undefined : icon,
+      });
+      notification.on("click", () => {
+        void navigateApp(targetUrl || "/ask");
+      });
+      notification.show();
+      return;
+    } catch {
+      // fall through to platform CLI fallback
+    }
+  }
+
   if (process.platform === "darwin") {
     try {
       const { exec } = require("node:child_process");
@@ -287,30 +331,10 @@ function showNotification(title: string, body: string, targetUrl?: string): void
       // ignore
     }
   }
-
-  if (!Notification.isSupported()) return;
-  try {
-    const iconPath = join(__dirname, "static", "tray.png");
-    let icon = nativeImage.createFromPath(iconPath);
-    if (icon.isEmpty()) {
-      icon = nativeImage.createFromPath(join(__dirname, "static", "trayTemplate.png"));
-    }
-    const notification = new Notification({
-      title: title || "Memento · AI 执事",
-      body,
-      icon: icon.isEmpty() ? undefined : icon,
-    });
-    notification.on("click", () => {
-      void navigateApp(targetUrl || "/ask");
-    });
-    notification.show();
-  } catch {
-    // ignore
-  }
 }
 
 let notifyPollTimer: NodeJS.Timeout | null = null;
-let lastSeenNotifyTime = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+let lastSeenNotifyTime = new Date().toISOString();
 const notifiedDesktopIds = new Set<string>();
 
 async function startNotificationFeedPoller(): Promise<void> {

@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.min.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   detectMediaType,
   VideoPlayer,
@@ -103,7 +103,7 @@ export function normalizeMarkdownContent(content: string): string {
     .join("");
 }
 
-export default function MarkdownViewer({
+const MarkdownViewer = memo(function MarkdownViewer({
   content,
   className = "",
   compactMedia = false,
@@ -338,4 +338,6 @@ export default function MarkdownViewer({
       </ReactMarkdown>
     </div>
   );
-}
+});
+
+export default MarkdownViewer;

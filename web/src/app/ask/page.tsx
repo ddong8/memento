@@ -890,13 +890,14 @@ function AskPageContent() {
   const syncTurnsMedia = inspector?.syncTurnsMedia;
   const [turns, setTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
 
-  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（使用稳定方法引用，防止循环渲染卡死）
-  useEffect(() => {
-    syncTurnsMedia?.(turns);
-  }, [turns, syncTurnsMedia]);
-
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
+
+  // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（流式输出期间跳过逐帧全量正则扫描，流式结束或会话加载时立即同步）
+  useEffect(() => {
+    if (streaming) return;
+    syncTurnsMedia?.(turns);
+  }, [turns, streaming, syncTurnsMedia]);
   const lastSentQuestionRef = useRef<string>(askCache?.activeRun?.question || "");
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || initSnap?.selectedDevice || "auto");
@@ -2494,7 +2495,7 @@ function AskPageContent() {
     };
   }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
 
-  // RAF-batched patchLast: mutate ref immediately, schedule single flush per frame
+  // Throttled patchLast (~45ms / 22fps): mutate ref immediately, coalesce React Markdown re-renders to avoid 60-120Hz CPU spikes
   const patchLast = useCallback((fn: (turn: Turn) => Turn) => {
     const arr = turnsRef.current;
     const i = arr.length - 1;
@@ -2505,10 +2506,10 @@ function AskPageContent() {
     }
     if (!turnsDirtyRef.current) {
       turnsDirtyRef.current = true;
-      rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = window.setTimeout(() => {
         turnsDirtyRef.current = false;
         setTurns([...turnsRef.current]);
-      });
+      }, 45);
     }
   }, []);
 
@@ -2869,7 +2870,7 @@ function AskPageContent() {
 
   const finishStream = useCallback((ctrl: AbortController) => {
     if (abortRef.current !== ctrl) return; // superseded by a newer stream
-    if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    if (rafIdRef.current) window.clearTimeout(rafIdRef.current);
     turnsDirtyRef.current = false;
 
     // If the component is unmounting while a task is still active and user did NOT explicitly cancel,

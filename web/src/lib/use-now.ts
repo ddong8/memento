@@ -13,8 +13,21 @@ import { useEffect, useState } from "react";
 export function useNow(intervalMs = 30_000): number {
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      setNow(Date.now());
+    };
+    const onVisible = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        setNow(Date.now());
+      }
+    };
+    const id = setInterval(tick, intervalMs);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [intervalMs]);
   return now;
 }

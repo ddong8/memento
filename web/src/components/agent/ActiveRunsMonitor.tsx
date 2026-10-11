@@ -66,11 +66,12 @@ export default function ActiveRunsMonitor() {
     (r) => r.done && !dismissedNotificationIds.has(r.conversation_id)
   );
 
-  // Local ticker every 1000ms for smooth elapsed seconds updates (only active when needed)
+  // Local ticker every 1000ms for smooth elapsed seconds updates (only active when needed and visible)
   useEffect(() => {
     if (!hasActiveRuns && !hasVisibleNotifications) return;
     setNow(Date.now());
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       setNow(Date.now());
     }, 1000);
     return () => clearInterval(timer);

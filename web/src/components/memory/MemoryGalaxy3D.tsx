@@ -51,7 +51,7 @@ const TYPE_COLOR_HEX: Record<string, string> = {
   default: "#94A3B8",
 };
 
-/** Create text canvas sprite for crisp 3D labels */
+/** Create text canvas sprite for crisp 3D labels with neon type dot & glass pill */
 function createTextSprite(text: string, colorHex: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -60,22 +60,35 @@ function createTextSprite(text: string, colorHex: string): THREE.Sprite {
   if (ctx) {
     ctx.scale(2, 2);
     ctx.clearRect(0, 0, 256, 64);
-    // Soft glowing text background pill
-    ctx.fillStyle = "rgba(10, 13, 20, 0.75)";
+
+    // Rich gradient glass pill background
+    const grad = ctx.createLinearGradient(12, 10, 244, 54);
+    grad.addColorStop(0, "rgba(13, 18, 34, 0.88)");
+    grad.addColorStop(1, "rgba(7, 10, 22, 0.92)");
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.roundRect(16, 12, 224, 40, 20);
+    ctx.roundRect(12, 12, 232, 40, 20);
     ctx.fill();
+
+    // Glowing border stroke
     ctx.strokeStyle = colorHex;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.8;
     ctx.stroke();
 
+    // Left neon indicator dot
+    ctx.fillStyle = colorHex;
+    ctx.beginPath();
+    ctx.arc(28, 32, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
     // High contrast crisp text
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = 'bold 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = "#F8FAFC";
+    ctx.font =
+      'bold 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const truncated = text.length > 12 ? text.slice(0, 11) + "…" : text;
-    ctx.fillText(truncated, 128, 32);
+    const truncated = text.length > 11 ? text.slice(0, 10) + "…" : text;
+    ctx.fillText(truncated, 134, 32);
   }
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -87,7 +100,7 @@ function createTextSprite(text: string, colorHex: string): THREE.Sprite {
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(spriteMat);
-  sprite.scale.set(1.4, 0.35, 1);
+  sprite.scale.set(1.48, 0.37, 1);
   return sprite;
 }
 
@@ -112,6 +125,11 @@ export default function MemoryGalaxy3D({
 
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
+
+  const isRotatingRef = useRef(isRotating);
+  isRotatingRef.current = isRotating;
+
+  const hoveredNodeIdRef = useRef<string | null>(null);
 
   // Filtered nodes
   const activeNodes = useMemo(() => {
@@ -151,7 +169,7 @@ export default function MemoryGalaxy3D({
 
     // 1. Scene, Camera, Renderer
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x04060f, 0.035);
+    scene.fog = new THREE.FogExp2(0x04060f, 0.032);
 
     const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
     camera.position.set(0, 4.5, 11);
@@ -164,37 +182,41 @@ export default function MemoryGalaxy3D({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.25;
+    renderer.toneMappingExposure = 1.3;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
     // 2. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.78);
     scene.add(ambientLight);
 
-    const centerPointLight = new THREE.PointLight(0x8b5cf6, 3.5, 25);
+    const centerPointLight = new THREE.PointLight(0x8b5cf6, 4.2, 28);
     centerPointLight.position.set(0, 0, 0);
     scene.add(centerPointLight);
 
-    const topLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+    const topLight = new THREE.DirectionalLight(0x38bdf8, 1.35);
     topLight.position.set(5, 12, 8);
     scene.add(topLight);
 
+    const rimLight = new THREE.DirectionalLight(0xec4899, 0.85);
+    rimLight.position.set(-6, -8, -5);
+    scene.add(rimLight);
+
     // 3. Cosmic Dust & Starfield Particles
-    const starCount = 350;
+    const starCount = isMobile ? 260 : 420;
     const starGeometry = new THREE.BufferGeometry();
     const starPositions = new Float32Array(starCount * 3);
     const starColors = new Float32Array(starCount * 3);
 
     for (let i = 0; i < starCount; i++) {
-      const radius = 6 + Math.random() * 12;
+      const radius = 5.8 + Math.random() * 13;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
       starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
       starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
       starPositions[i * 3 + 2] = radius * Math.cos(phi);
 
-      const c = new THREE.Color().setHSL(0.58 + Math.random() * 0.25, 0.7, 0.8);
+      const c = new THREE.Color().setHSL(0.56 + Math.random() * 0.28, 0.78, 0.82);
       starColors[i * 3] = c.r;
       starColors[i * 3 + 1] = c.g;
       starColors[i * 3 + 2] = c.b;
@@ -202,45 +224,64 @@ export default function MemoryGalaxy3D({
     starGeometry.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
     starGeometry.setAttribute("color", new THREE.BufferAttribute(starColors, 3));
     const starMaterial = new THREE.PointsMaterial({
-      size: 0.12,
+      size: 0.11,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.82,
+      blending: THREE.AdditiveBlending,
     });
     const starField = new THREE.Points(starGeometry, starMaterial);
     scene.add(starField);
 
-    // 4. Central Cognitive Core (外脑记忆母星)
+    // 4. Central Cognitive Core (多层全息外脑记忆母星)
     const coreGroup = new THREE.Group();
-    const coreGeo = new THREE.IcosahedronGeometry(0.85, 2);
+    const coreGeo = new THREE.IcosahedronGeometry(0.86, 2);
     const coreMat = new THREE.MeshStandardMaterial({
       color: 0x8b5cf6,
-      emissive: 0x4c1d95,
-      emissiveIntensity: 0.8,
-      roughness: 0.2,
-      metalness: 0.8,
+      emissive: 0x6d28d9,
+      emissiveIntensity: 0.95,
+      roughness: 0.18,
+      metalness: 0.85,
       wireframe: true,
     });
     const coreMesh = new THREE.Mesh(coreGeo, coreMat);
     coreGroup.add(coreMesh);
 
     // Glowing Inner Nucleus
-    const innerGeo = new THREE.SphereGeometry(0.55, 24, 24);
-    const innerMat = new THREE.MeshBasicMaterial({ color: 0xc084fc });
+    const innerGeo = new THREE.SphereGeometry(0.54, 28, 28);
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: 0xd8b4fe,
+      transparent: true,
+      opacity: 0.92,
+    });
     const innerNucleus = new THREE.Mesh(innerGeo, innerMat);
     coreGroup.add(innerNucleus);
 
-    // Pulsing Halo Ring
-    const haloGeo = new THREE.RingGeometry(1.05, 1.15, 48);
+    // Primary Equatorial Halo Ring
+    const haloGeo = new THREE.RingGeometry(1.06, 1.14, 64);
     const haloMat = new THREE.MeshBasicMaterial({
       color: 0xa855f7,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
     });
     const haloRing = new THREE.Mesh(haloGeo, haloMat);
     haloRing.rotation.x = Math.PI / 2;
     coreGroup.add(haloRing);
+
+    // Secondary Counter-Rotating Tilted Astrolabe Ring
+    const tiltedOrbitGeo = new THREE.TorusGeometry(1.32, 0.014, 16, 80);
+    const tiltedOrbitMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+    });
+    const tiltedOrbitRing = new THREE.Mesh(tiltedOrbitGeo, tiltedOrbitMat);
+    tiltedOrbitRing.rotation.set(Math.PI / 3, Math.PI / 6, 0);
+    coreGroup.add(tiltedOrbitRing);
+
     scene.add(coreGroup);
 
     // 5. Build 3D Entities Layout (Orbital Constellation Sphere Layout)
@@ -248,14 +289,17 @@ export default function MemoryGalaxy3D({
     scene.add(galaxyRoot);
 
     const nodeMeshMap = new Map<string, THREE.Mesh>();
+    const nodeShellMap = new Map<string, THREE.Mesh>();
     const nodeMeshList: THREE.Mesh[] = [];
     const nodePositionMap = new Map<string, THREE.Vector3>();
+    const adjacencyMap = new Map<string, Set<string>>();
 
     // Compute 3D Fibonacci Sphere positions for nice organic balance
     const N = Math.max(activeNodes.length, 1);
     const phiAngle = Math.PI * (3 - Math.sqrt(5)); // Golden ratio angle
 
     activeNodes.forEach((node, idx) => {
+      adjacencyMap.set(node.id, new Set());
       const y = 1 - (idx / (N - 1 || 1)) * 2; // y goes from 1 to -1
       const radiusAtY = Math.sqrt(1 - y * y);
       const theta = phiAngle * idx;
@@ -283,28 +327,46 @@ export default function MemoryGalaxy3D({
       if (node.type === "project") {
         geo = new THREE.DodecahedronGeometry(0.32);
       } else if (node.type === "rule") {
-        geo = new THREE.OctahedronGeometry(0.28);
+        geo = new THREE.OctahedronGeometry(0.29);
       } else if (node.type === "technology") {
-        geo = new THREE.IcosahedronGeometry(0.26);
+        geo = new THREE.IcosahedronGeometry(0.27);
       } else {
-        geo = new THREE.SphereGeometry(0.24, 16, 16);
+        geo = new THREE.SphereGeometry(0.24, 20, 20);
       }
 
       const mat = new THREE.MeshStandardMaterial({
         color: colorVal,
         emissive: colorVal,
-        emissiveIntensity: 0.45,
-        roughness: 0.3,
-        metalness: 0.7,
+        emissiveIntensity: 0.52,
+        roughness: 0.22,
+        metalness: 0.78,
       });
 
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(pos);
-      mesh.userData = { node };
+      mesh.userData = { node, baseY: pos.y, phase: idx * 0.7 };
+
+      // Subtle holographic orbital ring around each node
+      const shellGeo = new THREE.TorusGeometry(
+        node.type === "project" ? 0.44 : 0.36,
+        0.01,
+        12,
+        36
+      );
+      const shellMat = new THREE.MeshBasicMaterial({
+        color: colorVal,
+        transparent: true,
+        opacity: 0.35,
+        blending: THREE.AdditiveBlending,
+      });
+      const shellMesh = new THREE.Mesh(shellGeo, shellMat);
+      shellMesh.rotation.x = Math.PI / 2.3;
+      mesh.add(shellMesh);
+      nodeShellMap.set(node.id, shellMesh);
 
       // Sprite Label
       const sprite = createTextSprite(node.name, colorHex);
-      sprite.position.set(0, 0.45, 0);
+      sprite.position.set(0, 0.48, 0);
       mesh.add(sprite);
 
       galaxyRoot.add(mesh);
@@ -312,20 +374,54 @@ export default function MemoryGalaxy3D({
       nodeMeshList.push(mesh);
     });
 
-    // 6. Draw 3D Synaptic Connections (Neural Fiber Lines)
+    // 6. Draw 3D Synaptic Connections (Neural Fiber Lines + Flowing Photon Pulses)
     const linePositions: number[] = [];
     const lineColors: number[] = [];
+    const validEdgePairs: { p1: THREE.Vector3; p2: THREE.Vector3; c: THREE.Color; speed: number; phase: number }[] = [];
 
-    activeEdges.forEach((edge) => {
+    activeEdges.forEach((edge, idx) => {
       const p1 = nodePositionMap.get(edge.source);
       const p2 = nodePositionMap.get(edge.target);
       if (p1 && p2) {
+        adjacencyMap.get(edge.source)?.add(edge.target);
+        adjacencyMap.get(edge.target)?.add(edge.source);
+
         linePositions.push(p1.x, p1.y, p1.z);
         linePositions.push(p2.x, p2.y, p2.z);
 
-        const c = new THREE.Color(0x38bdf8);
-        lineColors.push(c.r, c.g, c.b);
-        lineColors.push(c.r, c.g, c.b);
+        const c1 = new THREE.Color(0x38bdf8);
+        const c2 = new THREE.Color(0xa855f7);
+        lineColors.push(c1.r, c1.g, c1.b);
+        lineColors.push(c2.r, c2.g, c2.b);
+
+        validEdgePairs.push({
+          p1,
+          p2,
+          c: idx % 2 === 0 ? c1 : c2,
+          speed: 0.35 + (idx % 5) * 0.08,
+          phase: (idx * 0.23) % 1,
+        });
+      }
+    });
+
+    // Also add subtle core filaments from central mother core (0,0,0) to project/rule nodes
+    const coreOrigin = new THREE.Vector3(0, 0, 0);
+    activeNodes.forEach((node, idx) => {
+      if (node.type === "project" || node.type === "rule") {
+        const p = nodePositionMap.get(node.id);
+        if (p) {
+          linePositions.push(0, 0, 0, p.x, p.y, p.z);
+          const cCore = new THREE.Color(0x8b5cf6);
+          const cNode = new THREE.Color(TYPE_COLORS[node.type] || 0x38bdf8);
+          lineColors.push(cCore.r, cCore.g, cCore.b, cNode.r, cNode.g, cNode.b);
+          validEdgePairs.push({
+            p1: coreOrigin,
+            p2: p,
+            c: cNode,
+            speed: 0.42 + (idx % 4) * 0.07,
+            phase: (idx * 0.31) % 1,
+          });
+        }
       }
     });
 
@@ -335,21 +431,42 @@ export default function MemoryGalaxy3D({
     const linesMat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.38,
       blending: THREE.AdditiveBlending,
     });
     const linesMesh = new THREE.LineSegments(linesGeo, linesMat);
     galaxyRoot.add(linesMesh);
 
-    // 7. Interactive Controls & Responsive Spherical Camera
+    // Synaptic Signal Pulse Particles travelling along edges
+    const pulseCount = validEdgePairs.length;
+    const pulseGeo = new THREE.BufferGeometry();
+    const pulsePositions = new Float32Array(pulseCount * 3);
+    const pulseColors = new Float32Array(pulseCount * 3);
+    validEdgePairs.forEach((pair, idx) => {
+      pulseColors[idx * 3] = pair.c.r;
+      pulseColors[idx * 3 + 1] = pair.c.g;
+      pulseColors[idx * 3 + 2] = pair.c.b;
+    });
+    pulseGeo.setAttribute("position", new THREE.BufferAttribute(pulsePositions, 3));
+    pulseGeo.setAttribute("color", new THREE.BufferAttribute(pulseColors, 3));
+    const pulseMat = new THREE.PointsMaterial({
+      size: 0.16,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const pulsePoints = new THREE.Points(pulseGeo, pulseMat);
+    galaxyRoot.add(pulsePoints);
+
+    // 7. Interactive Controls & Responsive Spherical Camera with Smooth Damping
     const getOptimalRadius = (w: number, h: number) => {
       const aspect = w / h;
       const baseRadius = 11;
       if (aspect >= 1.25) {
         return baseRadius;
       }
-      // 竖屏与窄屏自适应：确保星云外围节点与文字标签 100% 完整容纳在视口内
-      // 最外层节点半径 4.2 + 标签与光晕缓冲，半视野取 5.2
       const fovRad = (50 * Math.PI) / 360;
       const requiredRadius = (5.2 * 1.15) / (Math.tan(fovRad) * Math.max(aspect, 0.32));
       return Math.max(baseRadius, Math.min(28, requiredRadius));
@@ -361,19 +478,21 @@ export default function MemoryGalaxy3D({
     let isMouseActive = false;
     let prevMousePos = { x: 0, y: 0 };
     let userHasManuallyZoomed = false;
-    let spherical = { radius: getOptimalRadius(width, height), theta: 0, phi: Math.PI / 2.8 };
-    let targetCameraTarget = new THREE.Vector3(0, 0, 0);
+    const initialRadius = getOptimalRadius(width, height);
+    const targetSpherical = { radius: initialRadius, theta: 0, phi: Math.PI / 2.8 };
+    const currentSpherical = { radius: initialRadius, theta: 0, phi: Math.PI / 2.8 };
+    const targetCameraTarget = new THREE.Vector3(0, 0, 0);
     const currentCameraTarget = new THREE.Vector3(0, 0, 0);
 
     const updateCameraFromSpherical = () => {
       camera.position.x =
         currentCameraTarget.x +
-        spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta);
+        currentSpherical.radius * Math.sin(currentSpherical.phi) * Math.sin(currentSpherical.theta);
       camera.position.y =
-        currentCameraTarget.y + spherical.radius * Math.cos(spherical.phi);
+        currentCameraTarget.y + currentSpherical.radius * Math.cos(currentSpherical.phi);
       camera.position.z =
         currentCameraTarget.z +
-        spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta);
+        currentSpherical.radius * Math.sin(currentSpherical.phi) * Math.cos(currentSpherical.theta);
       camera.lookAt(currentCameraTarget);
     };
 
@@ -383,8 +502,8 @@ export default function MemoryGalaxy3D({
     resetCameraRef.current = () => {
       userHasManuallyZoomed = false;
       targetCameraTarget.set(0, 0, 0);
-      spherical.radius = getOptimalRadius(container.clientWidth || width, container.clientHeight || height);
-      updateCameraFromSpherical();
+      targetSpherical.radius = getOptimalRadius(container.clientWidth || width, container.clientHeight || height);
+      targetSpherical.phi = Math.PI / 2.8;
     };
 
     container.style.touchAction = "none";
@@ -414,22 +533,20 @@ export default function MemoryGalaxy3D({
         const dy = e.clientY - prevMousePos.y;
         prevMousePos = { x: e.clientX, y: e.clientY };
 
-        spherical.theta -= dx * 0.007;
-        spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - dy * 0.007));
-        updateCameraFromSpherical();
+        targetSpherical.theta -= dx * 0.007;
+        targetSpherical.phi = Math.max(0.12, Math.min(Math.PI - 0.12, targetSpherical.phi - dy * 0.007));
       }
     };
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       userHasManuallyZoomed = true;
-      spherical.radius = Math.max(4.5, Math.min(32, spherical.radius + e.deltaY * 0.015));
-      updateCameraFromSpherical();
+      targetSpherical.radius = Math.max(4.5, Math.min(32, targetSpherical.radius + e.deltaY * 0.015));
     };
 
     const handleClick = (e: MouseEvent) => {
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-      if (dist > 6) return; // 过滤拖拽旋转视角操作
+      if (dist > 6) return;
 
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(nodeMeshList, false);
@@ -439,8 +556,10 @@ export default function MemoryGalaxy3D({
         const node = hit.userData.node as GalaxyNode;
         if (node && onSelectNodeRef.current) {
           onSelectNodeRef.current(node);
-          targetCameraTarget.copy(hit.position);
-          spherical.radius = 7.5;
+          const worldPos = new THREE.Vector3();
+          hit.getWorldPosition(worldPos);
+          targetCameraTarget.copy(worldPos);
+          targetSpherical.radius = 7.2;
         }
       }
     };
@@ -462,7 +581,7 @@ export default function MemoryGalaxy3D({
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        initialPinchRadius = spherical.radius;
+        initialPinchRadius = targetSpherical.radius;
       }
     };
 
@@ -473,9 +592,8 @@ export default function MemoryGalaxy3D({
         const dy = touch.clientY - prevMousePos.y;
         prevMousePos = { x: touch.clientX, y: touch.clientY };
 
-        spherical.theta -= dx * 0.008;
-        spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - dy * 0.008));
-        updateCameraFromSpherical();
+        targetSpherical.theta -= dx * 0.008;
+        targetSpherical.phi = Math.max(0.12, Math.min(Math.PI - 0.12, targetSpherical.phi - dy * 0.008));
 
         const rect = container.getBoundingClientRect();
         mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
@@ -487,8 +605,7 @@ export default function MemoryGalaxy3D({
         );
         const factor = initialPinchDist / (currentDist || 1);
         userHasManuallyZoomed = true;
-        spherical.radius = Math.max(4.5, Math.min(32, initialPinchRadius * factor));
-        updateCameraFromSpherical();
+        targetSpherical.radius = Math.max(4.5, Math.min(32, initialPinchRadius * factor));
       }
     };
 
@@ -511,8 +628,10 @@ export default function MemoryGalaxy3D({
               const node = hit.userData.node as GalaxyNode;
               if (node && onSelectNodeRef.current) {
                 onSelectNodeRef.current(node);
-                targetCameraTarget.copy(hit.position);
-                spherical.radius = 7.5;
+                const worldPos = new THREE.Vector3();
+                hit.getWorldPosition(worldPos);
+                targetCameraTarget.copy(worldPos);
+                targetSpherical.radius = 7.2;
               }
             }
           }
@@ -563,22 +682,44 @@ export default function MemoryGalaxy3D({
 
       const elapsed = clock.getElapsedTime();
 
-      // Smooth Camera Target Lerp (Fly-to Node)
-      currentCameraTarget.lerp(targetCameraTarget, 0.05);
+      // Smooth Camera Damping & Fly-to Lerp
+      currentCameraTarget.lerp(targetCameraTarget, 0.08);
+      currentSpherical.theta = THREE.MathUtils.lerp(currentSpherical.theta, targetSpherical.theta, 0.14);
+      currentSpherical.phi = THREE.MathUtils.lerp(currentSpherical.phi, targetSpherical.phi, 0.14);
+      currentSpherical.radius = THREE.MathUtils.lerp(currentSpherical.radius, targetSpherical.radius, 0.12);
       updateCameraFromSpherical();
 
-      // Slow Galaxy Rotation
-      if (isRotating && !isDragging) {
+      // Slow Galaxy Rotation (Seamless toggle via isRotatingRef without rebuilding scene)
+      if (isRotatingRef.current && !isDragging) {
         galaxyRoot.rotation.y += 0.0018;
-        coreGroup.rotation.y -= 0.003;
+        coreGroup.rotation.y -= 0.0035;
         starField.rotation.y += 0.0006;
       }
 
-      // Mother Core Breathing Glow
+      // Mother Core Breathing Glow & Dual Orbit Rings
       const pulseSpeed = dreamingActiveRef.current ? 4.5 : 1.8;
       const coreScale = 1 + Math.sin(elapsed * pulseSpeed) * (dreamingActiveRef.current ? 0.22 : 0.08);
       coreGroup.scale.setScalar(coreScale);
-      haloRing.rotation.z += 0.01;
+      haloRing.rotation.z += 0.012;
+      tiltedOrbitRing.rotation.z -= 0.018;
+      tiltedOrbitRing.rotation.y += 0.008;
+
+      // Animate Synaptic Signal Pulses along Neural Edges
+      if (pulseCount > 0) {
+        const posAttr = pulseGeo.getAttribute("position") as THREE.BufferAttribute;
+        const speedBoost = dreamingActiveRef.current ? 2.4 : 1.0;
+        for (let i = 0; i < pulseCount; i++) {
+          const pair = validEdgePairs[i];
+          const t = (elapsed * pair.speed * speedBoost + pair.phase) % 1;
+          posAttr.setXYZ(
+            i,
+            pair.p1.x + (pair.p2.x - pair.p1.x) * t,
+            pair.p1.y + (pair.p2.y - pair.p1.y) * t,
+            pair.p1.z + (pair.p2.z - pair.p1.z) * t
+          );
+        }
+        posAttr.needsUpdate = true;
+      }
 
       // Dreaming Convergence Particle Drift
       if (dreamingActiveRef.current) {
@@ -593,25 +734,43 @@ export default function MemoryGalaxy3D({
         if (intersects.length > 0) {
           const hit = intersects[0].object as THREE.Mesh;
           const node = hit.userData.node as GalaxyNode;
+          hoveredNodeIdRef.current = node.id;
           setHoveredNode(node);
           document.body.style.cursor = "pointer";
         } else {
+          hoveredNodeIdRef.current = null;
           setHoveredNode(null);
           document.body.style.cursor = "default";
         }
         isMouseActive = false;
       }
 
-      // Highlight Selected Node with Radiant Pulsing
+      // Highlight Selected / Hovered Node & 1-Hop Connected Neighbors
+      const focusId = hoveredNodeIdRef.current || selectedNodeIdRef.current || null;
+      const connectedSet = focusId ? adjacencyMap.get(focusId) : null;
+
       nodeMeshMap.forEach((mesh, id) => {
-        const isSelected = selectedNodeIdRef.current === id;
+        const isPrimary = selectedNodeIdRef.current === id || hoveredNodeIdRef.current === id;
+        const isNeighbor = connectedSet ? connectedSet.has(id) : false;
         const mat = mesh.material as THREE.MeshStandardMaterial;
-        if (isSelected) {
-          mesh.scale.setScalar(1.4 + Math.sin(elapsed * 4) * 0.15);
-          mat.emissiveIntensity = 1.2;
+        const shell = nodeShellMap.get(id);
+
+        if (shell) {
+          shell.rotation.z = elapsed * 1.4 + (mesh.userData.phase || 0);
+        }
+
+        if (isPrimary) {
+          mesh.scale.setScalar(1.38 + Math.sin(elapsed * 4.5) * 0.14);
+          mat.emissiveIntensity = 1.35;
+        } else if (isNeighbor) {
+          mesh.scale.setScalar(1.14 + Math.sin(elapsed * 3.2) * 0.06);
+          mat.emissiveIntensity = 0.85;
+        } else if (focusId) {
+          mesh.scale.setScalar(0.92);
+          mat.emissiveIntensity = 0.28;
         } else {
           mesh.scale.setScalar(1.0);
-          mat.emissiveIntensity = 0.45;
+          mat.emissiveIntensity = 0.52;
         }
       });
 
@@ -627,8 +786,7 @@ export default function MemoryGalaxy3D({
       camera.aspect = newW / newH;
       camera.updateProjectionMatrix();
       if (!userHasManuallyZoomed && !selectedNodeIdRef.current) {
-        spherical.radius = getOptimalRadius(newW, newH);
-        updateCameraFromSpherical();
+        targetSpherical.radius = getOptimalRadius(newW, newH);
       }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(newW, newH);
@@ -654,23 +812,30 @@ export default function MemoryGalaxy3D({
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
-      // Deep dispose geometries and materials to prevent WebGL memory leak
+      // Deep dispose geometries, materials and CanvasTextures to prevent WebGL memory leak
       scene.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) {
           (obj as THREE.Mesh).geometry.dispose();
         }
-        if ((obj as THREE.Mesh).material) {
-          const mat = (obj as THREE.Mesh).material;
+        const mat = (obj as THREE.Mesh | THREE.Sprite).material;
+        if (mat) {
+          const disposeMat = (m: THREE.Material) => {
+            const anyMat = m as THREE.Material & { map?: THREE.Texture | null };
+            if (anyMat.map) {
+              anyMat.map.dispose();
+            }
+            m.dispose();
+          };
           if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
+            mat.forEach(disposeMat);
           } else {
-            mat.dispose();
+            disposeMat(mat);
           }
         }
       });
       renderer.dispose();
     };
-  }, [activeNodes, activeEdges, isRotating]);
+  }, [activeNodes, activeEdges]);
 
   return (
     <div

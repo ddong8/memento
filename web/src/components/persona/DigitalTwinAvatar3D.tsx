@@ -192,6 +192,9 @@ export default function DigitalTwinAvatar3D({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  const isRotatingRef = useRef(isRotating);
+  isRotatingRef.current = isRotating;
+
   // References for live 3D mutations without React re-renders
   const avatarGroupRef = useRef<THREE.Group | null>(null);
   const solidMannequinRef = useRef<THREE.Group | null>(null);
@@ -385,25 +388,94 @@ export default function DigitalTwinAvatar3D({
     avatarGroupRef.current = avatarGroup;
     scene.add(avatarGroup);
 
-    // Stand Pedestal
+    // Stand Pedestal (Multi-Layer Holographic Cybernetic Stage)
     const pedestal = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.75, 0.85, 0.04, 48),
+      new THREE.CylinderGeometry(0.76, 0.88, 0.045, 64),
       new THREE.MeshStandardMaterial({
-        color: 0x141524,
-        metalness: 0.85,
-        roughness: 0.2,
+        color: 0x121426,
+        metalness: 0.88,
+        roughness: 0.18,
       })
     );
     pedestal.position.set(0, 0.02, 0);
     avatarGroup.add(pedestal);
 
+    const pedestalRingMat = new THREE.MeshBasicMaterial({
+      color: 0x8b5cf6,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+    });
     const pedestalRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 0.74, 48),
-      new THREE.MeshBasicMaterial({ color: 0x8b5cf6, side: THREE.DoubleSide })
+      new THREE.RingGeometry(0.7, 0.745, 64),
+      pedestalRingMat
     );
     pedestalRing.rotation.x = -Math.PI / 2;
-    pedestalRing.position.set(0, 0.042, 0);
+    pedestalRing.position.set(0, 0.044, 0);
     avatarGroup.add(pedestalRing);
+
+    const innerRuneRingMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+    });
+    const innerRuneRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.46, 0.49, 32),
+      innerRuneRingMat
+    );
+    innerRuneRing.rotation.x = -Math.PI / 2;
+    innerRuneRing.position.set(0, 0.045, 0);
+    avatarGroup.add(innerRuneRing);
+
+    // Subtle upward stage energy veil from pedestal rim
+    const stageVeilMat = new THREE.MeshBasicMaterial({
+      color: 0x8b5cf6,
+      transparent: true,
+      opacity: 0.09,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const stageVeil = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.76, 0.74, 0.42, 48, 1, true),
+      stageVeilMat
+    );
+    stageVeil.position.set(0, 0.24, 0);
+    avatarGroup.add(stageVeil);
+
+    // Ascending Mind Stardust Particles around Avatar
+    const mindParticleCount = isMobile ? 28 : 48;
+    const mindParticleGeo = new THREE.BufferGeometry();
+    const mindParticlePos = new Float32Array(mindParticleCount * 3);
+    const mindParticleData: { radius: number; angle: number; speed: number; yOffset: number }[] = [];
+    for (let i = 0; i < mindParticleCount; i++) {
+      const r = 0.48 + Math.random() * 0.65;
+      const a = Math.random() * Math.PI * 2;
+      const y = Math.random() * 1.9;
+      mindParticlePos[i * 3] = Math.cos(a) * r;
+      mindParticlePos[i * 3 + 1] = y;
+      mindParticlePos[i * 3 + 2] = Math.sin(a) * r;
+      mindParticleData.push({
+        radius: r,
+        angle: a,
+        speed: 0.22 + Math.random() * 0.25,
+        yOffset: y,
+      });
+    }
+    mindParticleGeo.setAttribute("position", new THREE.BufferAttribute(mindParticlePos, 3));
+    const mindParticleMat = new THREE.PointsMaterial({
+      color: 0xa855f7,
+      size: 0.036,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const mindParticles = new THREE.Points(mindParticleGeo, mindParticleMat);
+    avatarGroup.add(mindParticles);
 
     // ── Zero-Second Solid Sculpted Humanoid Figure ──
     const solidMannequin = new THREE.Group();
@@ -699,10 +771,11 @@ export default function DigitalTwinAvatar3D({
     // 初始载入用户形象设定性别模型
     loadAvatarModel(avatarSettings?.gender || "male");
 
-    // 6. Interactive Drag, Parallax Look-At & Zoom Controls
+    // 6. Interactive Drag, Parallax Look-At & Zoom Controls with Smooth Damping
     const mouse = new THREE.Vector2();
     let isDragging = false;
     let prevMouseX = 0;
+    let targetRotationY = 0;
     let initialPinchDist = 0;
     let initialCamZ = camera.position.z;
 
@@ -722,7 +795,7 @@ export default function DigitalTwinAvatar3D({
 
       if (isDragging) {
         const deltaX = e.clientX - prevMouseX;
-        avatarGroup.rotation.y += deltaX * 0.008;
+        targetRotationY += deltaX * 0.0085;
         prevMouseX = e.clientX;
       }
     };
@@ -789,7 +862,7 @@ export default function DigitalTwinAvatar3D({
     const handleTouchMove = (e: TouchEvent) => {
       if (isDragging && e.touches.length === 1) {
         const deltaX = e.touches[0].clientX - prevMouseX;
-        avatarGroup.rotation.y += deltaX * 0.008;
+        targetRotationY += deltaX * 0.0085;
         prevMouseX = e.touches[0].clientX;
         const rect = container.getBoundingClientRect();
         mouse.x = ((e.touches[0].clientX - rect.left) / rect.width) * 2 - 1;
@@ -892,6 +965,29 @@ export default function DigitalTwinAvatar3D({
       if (haloMat) haloMat.color.copy(currentColor);
       if (chestMat) chestMat.color.copy(currentColor);
       if (spotlightRef.current) spotlightRef.current.color.copy(currentColor);
+      pedestalRingMat.color.copy(currentColor);
+      stageVeilMat.color.copy(currentColor);
+      mindParticleMat.color.copy(currentColor);
+
+      // Animate Pedestal Rings & Ascending Mind Particles
+      pedestalRing.rotation.z = elapsed * 0.35;
+      innerRuneRing.rotation.z = -elapsed * 0.55;
+      stageVeilMat.opacity = 0.07 + Math.sin(elapsed * 2.2) * 0.03;
+
+      const mindPosAttr = mindParticleGeo.getAttribute("position") as THREE.BufferAttribute;
+      const boost = pulseIntensityRef.current;
+      for (let i = 0; i < mindParticleCount; i++) {
+        const d = mindParticleData[i];
+        const y = (d.yOffset + elapsed * d.speed * boost) % 1.95;
+        const spiralAngle = d.angle + elapsed * 0.45;
+        mindPosAttr.setXYZ(
+          i,
+          Math.cos(spiralAngle) * d.radius,
+          y,
+          Math.sin(spiralAngle) * d.radius
+        );
+      }
+      mindPosAttr.needsUpdate = true;
 
       // Select Target Pose (Support Intercept Stance if flagged)
       const targetPose = isInterceptRef.current
@@ -1016,9 +1112,10 @@ export default function DigitalTwinAvatar3D({
       chestCore.rotation.y = elapsed * (activeDim === "tech" ? 4.0 : 1.6);
       chestCore.scale.setScalar(pulseIntensityRef.current * (activeDim === "tech" ? 1.3 : 1.0));
 
-      if (isRotating) {
-        avatarGroup.rotation.y += 0.005;
+      if (isRotatingRef.current && !isDragging) {
+        targetRotationY += 0.005;
       }
+      avatarGroup.rotation.y = THREE.MathUtils.lerp(avatarGroup.rotation.y, targetRotationY, 0.14);
 
       if (camTransition.active) {
         camera.position.z = THREE.MathUtils.lerp(camera.position.z, camTransition.targetZ, 0.12);
@@ -1087,18 +1184,25 @@ export default function DigitalTwinAvatar3D({
         if ((obj as THREE.Mesh).geometry) {
           (obj as THREE.Mesh).geometry.dispose();
         }
-        if ((obj as THREE.Mesh).material) {
-          const mat = (obj as THREE.Mesh).material;
+        const mat = (obj as THREE.Mesh).material;
+        if (mat) {
+          const disposeMat = (m: THREE.Material) => {
+            const anyMat = m as THREE.Material & { map?: THREE.Texture | null };
+            if (anyMat.map) {
+              anyMat.map.dispose();
+            }
+            m.dispose();
+          };
           if (Array.isArray(mat)) {
-            mat.forEach((m) => m.dispose());
+            mat.forEach(disposeMat);
           } else {
-            mat.dispose();
+            disposeMat(mat);
           }
         }
       });
       renderer.dispose();
     };
-  }, [isRotating]);
+  }, []);
 
   const DIMENSIONS_CONFIG = [
     {

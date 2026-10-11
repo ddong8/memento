@@ -148,6 +148,7 @@ function parseTurnContent(turn: Turn): { thinking: string; content: string } {
       content = content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
     }
   }
+  content = content.replace(/^(?:✅\s*)?\[后台任务\s+[^\]]+执行完毕，已接收运行结果\]\s*\n*/g, "");
   return { thinking, content };
 }
 
@@ -3467,20 +3468,33 @@ function AskPageContent() {
     : true;
   let placeholderText = t.ask.placeholderAgent;
   if (executionMode === "claude") {
-    placeholderText = t.ask.placeholderClaude || (isZh ? "向 Claude Code 派发编码任务..." : "Dispatch coding task to Claude Code...");
+    placeholderText = isZh ? "向 Claude Code 派发任务或提问..." : (t.ask.placeholderClaude || "Dispatch task to Claude Code...");
   } else if (executionMode === "codex") {
-    placeholderText = t.ask.placeholderCodex || (isZh ? "向 OpenAI Codex 派发任务..." : "Dispatch task to OpenAI Codex...");
+    placeholderText = isZh ? "向 Codex 派发任务或提问..." : (t.ask.placeholderCodex || "Dispatch task to OpenAI Codex...");
   } else if (executionMode === "antigravity") {
-    placeholderText = t.ask.placeholderAntigravity || (isZh ? "向 Google Antigravity 派发任务..." : "Dispatch task to Google Antigravity...");
+    placeholderText = isZh ? "向 Antigravity 派发任务或提问..." : (t.ask.placeholderAntigravity || "Dispatch task to Antigravity...");
   } else if (executionMode === "shell") {
-    placeholderText = t.ask.placeholderShell || (isZh ? "在目标电脑上直接执行 Shell 命令..." : "Execute Shell command on target device...");
+    placeholderText = isZh ? "输入要在目标机执行的 Shell 命令..." : (t.ask.placeholderShell || "Execute Shell command on target device...");
   } else if (selectedDevice === "ask_only") {
     placeholderText = t.ask.placeholderAskOnly;
   } else if (currentDev) {
-    placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问，例如：「检查 git 状态」...` : `Run task or question on ${currentDev.name}...`;
+    placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问...` : `Run task or question on ${currentDev.name}...`;
   }
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId);
+  const displayConvTitle = (() => {
+    const raw = activeConversation?.title?.trim();
+    if (raw && raw.toLowerCase() !== "start" && raw !== t.ask.title) return raw;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role === "user" && turns[i].content?.trim()) {
+        const cleaned = turns[i].content
+          .replace(/^【用户上传了图片[\s\S]*?提示:[^\n]*\n*/g, "")
+          .trim();
+        if (cleaned) return cleaned;
+      }
+    }
+    return raw || t.ask.title;
+  })();
 
   const renderedTurns = useMemo(() => {
     return turns.map((turn, i) => {
@@ -3517,11 +3531,11 @@ function AskPageContent() {
   }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
 
   return (
-    <div className="w-full flex h-[calc(100dvh-4.5rem)] sm:h-[calc(100vh-5.5rem)] rounded-xl sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden shadow-2xl relative">
+    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100vh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden sm:shadow-2xl relative">
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-3 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/70 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
+        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/75 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             <Btn
               variant="glass"
@@ -3536,11 +3550,12 @@ function AskPageContent() {
                 <span
                   style={{
                     fontSize: 11,
-                    padding: "1px 6px",
+                    padding: "1px 5px",
                     borderRadius: 999,
                     background: "var(--aurora-chip)",
                     color: "var(--aurora-fg3)",
-                    marginLeft: 4,
+                    marginLeft: 2,
+                    fontVariantNumeric: "tabular-nums",
                   }}
                 >
                   {conversations.length}
@@ -3548,13 +3563,16 @@ function AskPageContent() {
               )}
             </Btn>
             <div className="min-w-0 flex-1">
-              <h1 className="text-xs sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate max-w-[120px] sm:max-w-xs md:max-w-sm">
-                {activeConversation?.title || t.ask.title}
+              <h1
+                className="text-[13px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
+                title={displayConvTitle}
+              >
+                {displayConvTitle}
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* 媒体视窗快捷开关 (若对话中有视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
@@ -3583,9 +3601,9 @@ function AskPageContent() {
               title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex)" : "View AI Subscriptions & Quotas"}
               className="shrink-0"
             >
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                <span className="inline text-xs font-medium">AI 额度</span>
+              <span className="flex items-center gap-1">
+                <span className="hidden sm:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                <span className="hidden sm:inline text-xs font-medium">AI 额度</span>
                 {(() => {
                   const targetTool = executionMode === "claude"
                     ? quotasData?.tools?.claude_code
@@ -3649,6 +3667,7 @@ function AskPageContent() {
               size="sm"
               icon="plus"
               onClick={startNewChat}
+              title={t.ask.newChat}
               className="shrink-0"
             >
               <span className="hidden sm:inline">{t.ask.newChat}</span>
@@ -3657,13 +3676,15 @@ function AskPageContent() {
               <Btn
                 variant="ghost"
                 size="sm"
+                icon="trash"
+                title={t.ask.clear}
                 onClick={() => {
                   abortRef.current?.abort();
                   setTurns([]);
                 }}
                 className="shrink-0"
               >
-                {t.ask.clear}
+                <span className="hidden sm:inline">{t.ask.clear}</span>
               </Btn>
             )}
           </div>
@@ -3679,7 +3700,7 @@ function AskPageContent() {
           }}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          className="flex-1 overflow-y-auto px-4 md:px-8 py-6 select-text"
+          className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
           style={{
             contain: "content",
             transform: "translateZ(0)",
@@ -3689,7 +3710,7 @@ function AskPageContent() {
             WebkitUserSelect: "text",
           }}
         >
-          <div className="w-full max-w-3xl mx-auto space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
+          <div className="w-full max-w-3xl mx-auto space-y-3 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
       {turns.length === 0 && (
         <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
@@ -3819,18 +3840,18 @@ function AskPageContent() {
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
   <footer
-    className="shrink-0 px-3 pt-2.5 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
+    className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-4 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
     style={{
-      paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))",
+      paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0.5rem))",
     }}
   >
     <div className="max-w-3xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
       <div
+        className="p-2.5 sm:px-3.5 sm:py-2.5"
         style={{
           background: "var(--aurora-surface-solid)",
           border: "1px solid var(--aurora-border-strong)",
-          borderRadius: 18,
-          padding: "10px 14px",
+          borderRadius: 16,
           boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
           backdropFilter: "blur(20px)",
           maxWidth: "100%",
@@ -3847,12 +3868,10 @@ function AskPageContent() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 8,
-                  marginBottom: 8,
-                  padding: "5px 10px",
-                  background: "var(--aurora-chip)",
-                  border: "1px solid var(--aurora-border)",
-                  borderRadius: 12,
+                  gap: 6,
+                  marginBottom: 7,
+                  padding: "0 0 6px 0",
+                  borderBottom: "1px solid var(--aurora-border)",
                   cursor: "pointer",
                   transition: "all 0.15s ease",
                   userSelect: "none",
@@ -3871,7 +3890,6 @@ function AskPageContent() {
                     scrollbarWidth: "none",
                     minWidth: 0,
                     flex: 1,
-                    maxWidth: "calc(100% - 75px)",
                   }}
                 >
                   {/* Current Mode Badge */}
@@ -3888,8 +3906,9 @@ function AskPageContent() {
 
                     return (
                       <span
-                        onClick={() => {
+                        onClick={(e) => {
                           if (["antigravity", "claude", "codex"].includes(executionMode)) {
+                            e.stopPropagation();
                             setQuotaOpen(true);
                           }
                         }}
@@ -3923,7 +3942,7 @@ function AskPageContent() {
                               fontWeight: 700,
                               padding: "0 4px",
                               borderRadius: 4,
-                              background: "rgba(0, 0, 0, 0.2)",
+                              background: "rgba(0, 0, 0, 0.16)",
                               color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
                               fontVariantNumeric: "tabular-nums",
                             }}
@@ -3943,22 +3962,32 @@ function AskPageContent() {
                       gap: 4,
                       padding: "2px 8px",
                       borderRadius: 8,
-                      background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.12)" : "var(--aurora-surface-solid)",
+                      background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.12)" : "var(--aurora-chip)",
                       border: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--aurora-border)",
                       color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-fg2)",
                       fontSize: 11.5,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
-                      flexShrink: 0,
+                      flexShrink: 1,
+                      minWidth: 0,
+                      maxWidth: 168,
                     }}
                   >
-                    <Icon name="devices" size={12} style={{ color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-accent)" }} />
-                    <span>
+                    <span
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 999,
+                        background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "#10B981",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {selectedDevice === "auto"
                         ? t.ask.autoDispatch
                         : selectedDevice === "ask_only"
                         ? t.ask.askOnly
-                        : `${isCurrentDevOnline ? "🟢" : "🔴"} ${currentDev?.name || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice)} (${isCurrentDevOnline ? (isZh ? "在线" : "Online") : (isZh ? "离线" : "Offline")})`}
+                        : `${currentDev?.name?.replace(/ \(\w+\)$/, "") || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice)}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`}
                     </span>
                   </span>
 
@@ -3979,7 +4008,7 @@ function AskPageContent() {
                           gap: 4,
                           padding: "2px 8px",
                           borderRadius: 8,
-                          background: "var(--aurora-surface-solid)",
+                          background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg2)",
                           fontSize: 11.5,
@@ -4005,7 +4034,7 @@ function AskPageContent() {
                           gap: 4,
                           padding: "2px 8px",
                           borderRadius: 8,
-                          background: "var(--aurora-surface-solid)",
+                          background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg3)",
                           fontSize: 11,
@@ -4032,7 +4061,7 @@ function AskPageContent() {
                         gap: 4,
                         padding: "2px 8px",
                         borderRadius: 8,
-                        background: "var(--aurora-surface-solid)",
+                        background: "var(--aurora-chip)",
                         border: "1px solid var(--aurora-border)",
                         color: "var(--aurora-fg3)",
                         fontSize: 11,
@@ -4054,7 +4083,7 @@ function AskPageContent() {
                         gap: 3,
                         padding: "2px 6px",
                         borderRadius: 8,
-                        background: "var(--aurora-surface-solid)",
+                        background: "var(--aurora-chip)",
                         border: "1px solid var(--aurora-border)",
                         color: "var(--aurora-fg3)",
                         fontSize: 11,
@@ -4116,21 +4145,22 @@ function AskPageContent() {
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 4,
+                    gap: 3,
                     background: "var(--aurora-accent-soft)",
                     border: "1px solid var(--aurora-accent)",
                     borderRadius: 8,
-                    padding: "3px 8px",
+                    padding: "2px 7px",
                     color: "var(--aurora-accent)",
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
                     flexShrink: 0,
                   }}
                   title={isZh ? "展开完整配置面板" : "Expand configuration panel"}
                 >
-                  <Icon name="chevron_down" size={12} />
-                  <span>{isZh ? "展开配置" : "Expand"}</span>
+                  <Icon name="chevron_down" size={11} />
+                  <span className="sm:hidden">{isZh ? "配置" : "Config"}</span>
+                  <span className="hidden sm:inline">{isZh ? "展开配置" : "Expand"}</span>
                 </button>
               </div>
             ) : (
@@ -5147,16 +5177,14 @@ function AskPageContent() {
             )}
 
             {/* Input box and action button */}
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", width: "100%", minWidth: 0, boxSizing: "border-box" }}>
+            <div className="flex items-end gap-1.5 sm:gap-2 w-full min-w-0 box-border">
               {/* Image Upload Button */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
+                  borderRadius: 11,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -5168,7 +5196,7 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)]"
+                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)]"
               >
                 <Icon name="image" size={16} />
               </button>
@@ -5182,7 +5210,7 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input"
+                className="aurora-input !px-2.5 sm:!px-3 !py-1.5 sm:!py-2 !min-h-[36px] sm:!min-h-[38px]"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -5190,23 +5218,23 @@ function AskPageContent() {
                   border: "1px solid var(--aurora-border)",
                   boxSizing: "border-box",
                   alignItems: "flex-start",
-                  padding: "8px 12px",
-                  minHeight: 38,
+                  borderRadius: 11,
                 }}
               >
-                <Icon
-                  name={
-                    executionMode === "shell"
-                      ? "terminal"
-                      : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
-                      ? "code"
-                      : selectedDevice === "ask_only"
-                      ? "sparkles"
-                      : "brain"
-                  }
-                  size={15}
-                  style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}
-                />
+                <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
+                  <Icon
+                    name={
+                      executionMode === "shell"
+                        ? "terminal"
+                        : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
+                        ? "code"
+                        : selectedDevice === "ask_only"
+                        ? "sparkles"
+                        : "brain"
+                    }
+                    size={15}
+                  />
+                </span>
                 <textarea
                   ref={inputElRef}
                   rows={1}
@@ -5237,6 +5265,7 @@ function AskPageContent() {
                     overflowY: "hidden",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
+                    fontSize: 13.5,
                   }}
                 />
               </label>
@@ -5246,9 +5275,7 @@ function AskPageContent() {
                 onClick={toggleVoiceInput}
                 title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
                 style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
+                  borderRadius: 11,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -5260,7 +5287,7 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}
+                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
                 <Icon name="microphone" size={15} />
               </button>
@@ -5271,6 +5298,9 @@ function AskPageContent() {
                   onClick={stopRun}
                   style={{
                     flexShrink: 0,
+                    height: 36,
+                    padding: "0 12px",
+                    borderRadius: 11,
                     background: "rgba(239, 68, 68, 0.18)",
                     border: "1px solid rgba(239, 68, 68, 0.45)",
                     color: "#ef4444",
@@ -5283,7 +5313,7 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  style={{ flexShrink: 0 }}
+                  style={{ flexShrink: 0, height: 36, padding: "0 12px", borderRadius: 11 }}
                 >
                   {t.ask.send}
                 </Btn>

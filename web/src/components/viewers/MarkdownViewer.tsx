@@ -274,7 +274,7 @@ export default function MarkdownViewer({
             }
             return (
               <code
-                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-all"
+                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-words [overflow-wrap:anywhere]"
                 {...props}
               >
                 {children}

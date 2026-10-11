@@ -1124,7 +1124,9 @@ function AskPageContent() {
 
   useEffect(() => {
     let cancelled = false;
-    const fetchQuotas = async () => {
+    const fetchQuotas = async (force = false) => {
+      if (!force && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!force && typeof window !== "undefined" && !window.location.pathname.startsWith("/ask")) return;
       try {
         const res = await api.getAgentQuotas(selectedDevice);
         if (!cancelled && res) {
@@ -1134,8 +1136,8 @@ function AskPageContent() {
         // ignore
       }
     };
-    fetchQuotas();
-    const interval = setInterval(fetchQuotas, 30_000);
+    void fetchQuotas(true);
+    const interval = setInterval(() => void fetchQuotas(false), 60_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -2143,9 +2145,14 @@ function AskPageContent() {
     let isMounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
+    let wasHidden = false;
+
     const checkServerRun = async (forceRefreshWhenIdle = false) => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
+      if (!forceRefreshWhenIdle && typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       // When /ask is kept alive in background (user is on another menu route) and not streaming,
       // skip redundant per-conversation /run polling since ActiveRunsMonitor already polls globally.
       if (
@@ -2249,7 +2256,7 @@ function AskPageContent() {
 
     const schedule = () => {
       if (!isMounted) return;
-      const delay = streamingRef.current ? 2500 : 8000;
+      const delay = streamingRef.current ? 3000 : 15000;
       timer = setTimeout(async () => {
         await checkServerRun(false);
         schedule();
@@ -2258,20 +2265,29 @@ function AskPageContent() {
 
     schedule();
 
-    // Recheck immediately when window regains visibility or focus
+    // Recheck immediately when window regains visibility from background
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        checkServerRun(true);
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+      } else if (document.visibilityState === "visible") {
+        wasHidden = false;
+        void checkServerRun(true);
+      }
+    };
+    const onFocus = () => {
+      if (wasHidden) {
+        wasHidden = false;
+        void checkServerRun(true);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("focus", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
 
     return () => {
       isMounted = false;
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
     };
   }, [activeConversationId, scrollConversationToBottom]);
 
@@ -3668,11 +3684,11 @@ function AskPageContent() {
   }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
 
   return (
-    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-surface-solid)]/40 backdrop-blur-2xl overflow-hidden sm:shadow-2xl relative">
+    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/75 backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
+        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
             <Btn
               variant="glass"
@@ -3977,7 +3993,7 @@ function AskPageContent() {
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
   <footer
-    className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 backdrop-blur-xl"
+    className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
     style={{
       paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0.5rem))",
     }}
@@ -3990,7 +4006,6 @@ function AskPageContent() {
           border: "1px solid var(--aurora-border-strong)",
           borderRadius: 16,
           boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
-          backdropFilter: "blur(20px)",
           maxWidth: "100%",
           width: "100%",
           minWidth: 0,

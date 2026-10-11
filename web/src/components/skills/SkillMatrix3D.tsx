@@ -178,8 +178,12 @@ export default function SkillMatrix3D({
   const [hoveredSkill, setHoveredSkill] = useState<SkillItem | null>(null);
   const [isRotating, setIsRotating] = useState(true);
 
-  const isPausedRef = useRef(isPaused);
-  isPausedRef.current = isPaused;
+  // 移动端展开管理抽屉遮挡 3D 舞台时，自动暂停背后不可见的 WebGL 渲染
+  const effectivePaused =
+    isPaused || (!isPanelCollapsed && typeof window !== "undefined" && window.innerWidth < 1024);
+
+  const isPausedRef = useRef(effectivePaused);
+  isPausedRef.current = effectivePaused;
 
   const isRotatingRef = useRef(isRotating);
   isRotatingRef.current = isRotating;
@@ -194,14 +198,16 @@ export default function SkillMatrix3D({
 
   const resetCameraRef = useRef<() => void>(() => {});
   const ensureLoopRunningRef = useRef<() => void>(() => {});
+  const lastInteractionTimeRef = useRef<number>(Date.now());
   const sceneCtxRef = useRef<SkillSceneContext | null>(null);
 
-  // 当从后台切换回当前路由（isPaused 变为 false）时，立即唤醒渲染循环
+  // 当从后台切换回当前路由或收起移动端抽屉（effectivePaused 变为 false）时，立即唤醒渲染循环
   useEffect(() => {
-    if (!isPaused) {
+    if (!effectivePaused) {
+      lastInteractionTimeRef.current = Date.now();
       ensureLoopRunningRef.current();
     }
-  }, [isPaused]);
+  }, [effectivePaused, skills, selectedSlug, isRotating]);
 
   // 1. 仅在组件挂载时创建一次 WebGLRenderer 与基础星盘底座，绝不随 skills 数据变化销毁重建
   useEffect(() => {
@@ -224,12 +230,12 @@ export default function SkillMatrix3D({
     camera.position.set(0, 5.0, 11.0);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobile,
       alpha: true,
-      powerPreference: "high-performance",
+      powerPreference: isMobile ? "low-power" : "default",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.3;
     container.innerHTML = "";
@@ -580,6 +586,8 @@ export default function SkillMatrix3D({
     };
 
     const handleTouchStart = (e: TouchEvent) => {
+      lastInteractionTimeRef.current = Date.now();
+      ensureLoopRunningRef.current();
       if (e.touches.length === 1) {
         isDragging = true;
         const touch = e.touches[0];
@@ -602,6 +610,7 @@ export default function SkillMatrix3D({
     };
 
     const handleTouchMove = (e: TouchEvent) => {
+      lastInteractionTimeRef.current = Date.now();
       if (e.touches.length === 1 && isDragging) {
         const touch = e.touches[0];
         const dx = touch.clientX - prevMousePos.x;
@@ -685,11 +694,19 @@ export default function SkillMatrix3D({
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
     let isElementIntersecting = true;
+    let lastFrameTime = 0;
 
     const tempWorldOrigin = new THREE.Vector3(0, 1.4, 0);
 
-    const animate = () => {
+    const animate = (now?: number) => {
       if (!isPageVisible || !isElementIntersecting || isPausedRef.current) {
+        isLoopRunning = false;
+        animId = 0;
+        return;
+      }
+
+      // 移动端无交互超过 20 秒时自动进入静默休眠，防止长时亮屏导致手机 GPU 持续发热；任意触摸即刻 0ms 唤醒
+      if (isMobile && !isDragging && Date.now() - lastInteractionTimeRef.current > 20000) {
         isLoopRunning = false;
         animId = 0;
         return;
@@ -697,6 +714,13 @@ export default function SkillMatrix3D({
 
       isLoopRunning = true;
       animId = requestAnimationFrame(animate);
+
+      // 移动端非拖拽状态下限制为 ~30fps，显著降低 GPU 功耗
+      const ts = now ?? performance.now();
+      if (isMobile && !isDragging && ts - lastFrameTime < 32) {
+        return;
+      }
+      lastFrameTime = ts;
 
       const elapsed = clock.getElapsedTime();
 
@@ -812,6 +836,9 @@ export default function SkillMatrix3D({
 
     const handleVisibilityChange = () => {
       isPageVisible = !document.hidden;
+      if (isPageVisible) {
+        lastInteractionTimeRef.current = Date.now();
+      }
       ensureLoopRunning();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -845,7 +872,7 @@ export default function SkillMatrix3D({
       if (!userHasManuallyZoomed && !selectedSlugRef.current) {
         targetSpherical.radius = getOptimalRadius(newW, newH);
       }
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
       renderer.setSize(newW, newH);
     };
 

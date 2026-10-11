@@ -217,6 +217,9 @@ export default function DigitalTwinAvatar3D({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  const isPanelCollapsedRef = useRef(isPanelCollapsed);
+  isPanelCollapsedRef.current = isPanelCollapsed;
+
   const isRotatingRef = useRef(isRotating);
   isRotatingRef.current = isRotating;
 
@@ -226,7 +229,7 @@ export default function DigitalTwinAvatar3D({
     if (!isPaused) {
       ensureLoopRunningRef.current();
     }
-  }, [isPaused]);
+  }, [isPaused, isPanelCollapsed, activeDimension, activeSynapse, avatarSettings]);
 
   // References for live 3D mutations without React re-renders
   const avatarGroupRef = useRef<THREE.Group | null>(null);
@@ -380,14 +383,14 @@ export default function DigitalTwinAvatar3D({
     const cameraTarget = new THREE.Vector3(0, initialConfig.targetY, 0);
     camera.lookAt(cameraTarget);
 
-    // 2. High-Performance WebGL Renderer
+    // 2. Adaptive Power WebGL Renderer
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobile,
       alpha: true,
-      powerPreference: "high-performance",
+      powerPreference: isMobile ? "low-power" : "default",
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.38;
     container.appendChild(renderer.domElement);
@@ -951,8 +954,29 @@ export default function DigitalTwinAvatar3D({
       rightForeArm: { x: 0, y: -0.22, z: 0 },
     };
 
+    let lastActiveMs = performance.now();
+    let lastRenderMs = 0;
+
+    const markActive = () => {
+      lastActiveMs = performance.now();
+      ensureLoopRunning();
+    };
+    container.addEventListener("pointerdown", markActive, { passive: true });
+    container.addEventListener("touchstart", markActive, { passive: true });
+
+    const shouldRun = () => {
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return false;
+      if (!isPanelCollapsedRef.current && typeof window !== "undefined" && window.innerWidth < 1024) {
+        return false;
+      }
+      if (isMobile && !isDragging && performance.now() - lastActiveMs > 20_000) {
+        return false;
+      }
+      return true;
+    };
+
     const animate = () => {
-      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) {
+      if (!shouldRun()) {
         isLoopRunning = false;
         animId = 0;
         return;
@@ -960,6 +984,12 @@ export default function DigitalTwinAvatar3D({
 
       isLoopRunning = true;
       animId = requestAnimationFrame(animate);
+
+      const nowMs = performance.now();
+      if (isMobile && !isDragging && nowMs - lastRenderMs < 30) {
+        return;
+      }
+      lastRenderMs = nowMs;
 
       // 钳制单帧最大 delta，防止从后台切回时骨骼动画跳变
       const delta = Math.min(clock.getDelta(), 0.1);
@@ -1161,7 +1191,8 @@ export default function DigitalTwinAvatar3D({
     };
 
     const ensureLoopRunning = () => {
-      if (!isLoopRunning && isPageVisible && isElementIntersecting && !isPausedRef.current) {
+      lastActiveMs = performance.now();
+      if (!isLoopRunning && shouldRun()) {
         isLoopRunning = true;
         clock.getDelta();
         animId = requestAnimationFrame(animate);

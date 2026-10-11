@@ -79,6 +79,7 @@ export default function ActiveRunsMonitor() {
   // Poll server for active and recently finished runs
   const fetchRuns = useCallback(async () => {
     if (!token) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     try {
       // Ask for runs active or finished in the last 20 seconds
       const data = await api.listAskRuns(20);
@@ -127,7 +128,23 @@ export default function ActiveRunsMonitor() {
       });
 
       activeIdsRef.current = currentActiveIds;
-      setRuns(data);
+      setRuns((prev) => {
+        if (prev.length === 0 && data.length === 0) return prev;
+        if (
+          prev.length === data.length &&
+          prev.every(
+            (p, idx) =>
+              p.conversation_id === data[idx].conversation_id &&
+              p.done === data[idx].done &&
+              p.cancelled === data[idx].cancelled &&
+              p.failed === data[idx].failed &&
+              p.finished_at === data[idx].finished_at
+          )
+        ) {
+          return prev;
+        }
+        return data;
+      });
     } catch {
       // Ignore network errors during polling
     }
@@ -197,8 +214,8 @@ export default function ActiveRunsMonitor() {
     if (!token) return;
     fetchRuns();
 
-    // Faster poll (1500ms) when agent is active, slower (4000ms) when idle
-    const intervalTime = hasActiveRuns ? 1500 : 4000;
+    // Faster poll (2000ms) when agent is active, slower (10000ms) when idle
+    const intervalTime = hasActiveRuns ? 2000 : 10000;
     const interval = setInterval(fetchRuns, intervalTime);
     return () => clearInterval(interval);
   }, [token, fetchRuns, hasActiveRuns]);

@@ -43,8 +43,8 @@ export default function Header({ onMenuToggle }: { onMenuToggle: () => void }) {
       className={`h-11 sm:h-14 flex items-center justify-between px-3 sm:px-4 md:px-6 fixed top-0 left-0 ${collapsed ? "lg:left-[68px]" : "lg:left-60"} right-0 z-20 transition-all duration-200 ${isMacDesktop ? "app-region-drag" : ""}`}
       style={{
         background: "var(--aurora-surface)",
-        backdropFilter: "blur(20px) saturate(180%)",
-        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        backdropFilter: "var(--aurora-blur)",
+        WebkitBackdropFilter: "var(--aurora-blur)",
         borderBottom: "1px solid var(--aurora-border)",
       }}
     >

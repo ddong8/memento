@@ -3,9 +3,10 @@
 import { useTheme } from "@/lib/theme-context";
 
 /**
- * Aurora skin background: 4 independent floating gradient blobs
- * (violet / pink / cyan / amber) + subtle fractal-noise grain.
- * Null unless skin="aurora".
+ * Aurora skin background: static multi-origin radial gradient aura.
+ * Renders in a single composited layer with zero Gaussian blur filters,
+ * zero SVG feTurbulence shaders, and zero infinite keyframe animations
+ * so mobile and desktop GPUs stay completely idle (0% GPU usage at rest).
  */
 export function AuroraBackdrop() {
   const { skin, theme } = useTheme();
@@ -14,75 +15,29 @@ export function AuroraBackdrop() {
   const dark = theme === "dark";
 
   return (
-    <>
-      <div
-        aria-hidden
-        style={{
-          position: "fixed", inset: 0, pointerEvents: "none",
-          zIndex: -2, background: "var(--aurora-bg)",
-        }}
-      />
-      <div
-        aria-hidden
-        style={{
-          position: "fixed", inset: 0, pointerEvents: "none",
-          zIndex: -1, overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            position: "absolute", top: "-12%", left: "-12%",
-            width: "62%", height: "62%",
-            background: "radial-gradient(closest-side, var(--aurora-glow1), transparent 70%)",
-            opacity: dark ? 0.28 : 0.20,
-            filter: "blur(54px)",
-            animation: "aurFloat1 26s cubic-bezier(.45,.05,.55,.95) infinite",
-            willChange: "transform",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute", top: "8%", right: "-18%",
-            width: "58%", height: "58%",
-            background: "radial-gradient(closest-side, var(--aurora-glow2), transparent 70%)",
-            opacity: dark ? 0.24 : 0.18,
-            filter: "blur(56px)",
-            animation: "aurFloat2 32s cubic-bezier(.45,.05,.55,.95) infinite",
-            willChange: "transform",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute", bottom: "-22%", left: "18%",
-            width: "72%", height: "68%",
-            background: "radial-gradient(closest-side, var(--aurora-glow3), transparent 70%)",
-            opacity: dark ? 0.24 : 0.18,
-            filter: "blur(64px)",
-            animation: "aurFloat3 38s cubic-bezier(.45,.05,.55,.95) infinite",
-            willChange: "transform",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute", top: "30%", left: "35%",
-            width: "40%", height: "40%",
-            background: "radial-gradient(closest-side, var(--aurora-glow4), transparent 70%)",
-            opacity: dark ? 0.18 : 0.14,
-            filter: "blur(52px)",
-            animation: "aurFloat4 24s ease-in-out infinite",
-            willChange: "transform, opacity",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute", inset: 0,
-            opacity: dark ? 0.22 : 0.32,
-            mixBlendMode: "overlay",
-            backgroundImage:
-              "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.35 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
-          }}
-        />
-      </div>
-    </>
+    <div
+      aria-hidden
+      style={{
+        position: "fixed",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: -2,
+        backgroundColor: "var(--aurora-bg)",
+        backgroundImage: dark
+          ? [
+              "radial-gradient(circle at 14% 16%, rgba(124, 58, 237, 0.22) 0%, transparent 52%)",
+              "radial-gradient(circle at 86% 24%, rgba(219, 39, 119, 0.17) 0%, transparent 48%)",
+              "radial-gradient(circle at 48% 88%, rgba(8, 145, 178, 0.18) 0%, transparent 56%)",
+              "radial-gradient(circle at 52% 46%, rgba(245, 158, 11, 0.10) 0%, transparent 42%)",
+            ].join(", ")
+          : [
+              "radial-gradient(circle at 14% 16%, rgba(167, 139, 250, 0.18) 0%, transparent 52%)",
+              "radial-gradient(circle at 86% 24%, rgba(251, 165, 201, 0.16) 0%, transparent 48%)",
+              "radial-gradient(circle at 48% 88%, rgba(125, 211, 252, 0.16) 0%, transparent 56%)",
+              "radial-gradient(circle at 52% 46%, rgba(253, 230, 138, 0.12) 0%, transparent 42%)",
+            ].join(", "),
+      }}
+    />
   );
 }
+

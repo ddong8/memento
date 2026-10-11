@@ -42,7 +42,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
     if (!token) return;
 
-    const fetchDevices = () => {
+    const fetchDevices = (force = false) => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!force && typeof window !== "undefined" && window.innerWidth < 1024 && !open) return;
       authFetch(`${getApiBase()}/api/devices`)
         .then((r) => r.json())
         .then((devs) => {
@@ -59,17 +61,19 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         .catch(() => {});
     };
 
-    fetchDevices();
-    const timer = setInterval(fetchDevices, 30_000);
+    fetchDevices(true);
+    const timer = setInterval(() => fetchDevices(false), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [open]);
 
   // Fetch uncompleted todos for badge
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
     if (!token) return;
 
-    const fetchTodos = async () => {
+    const fetchTodos = async (force = false) => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!force && typeof window !== "undefined" && window.innerWidth < 1024 && !open) return;
       try {
         const { api } = await import("@/lib/api-client");
         const data = await api.getTodos();
@@ -78,10 +82,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       } catch {}
     };
 
-    fetchTodos();
-    const timer = setInterval(fetchTodos, 25_000);
+    void fetchTodos(true);
+    const timer = setInterval(() => void fetchTodos(false), 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [open]);
 
   // Check update version
   useEffect(() => {

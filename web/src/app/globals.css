@@ -748,8 +748,9 @@ aside input,
 }
 
 /* =========================================================================
-   Mobile Viewport & Keyboard Containment
-   Prevents iOS WebKit keyboard focus from auto-zooming and overflowing screen
+   Mobile Viewport & Keyboard Containment + Thermal / GPU Optimization
+   Prevents iOS WebKit keyboard focus from auto-zooming and eliminates
+   nested CABackdropLayer Gaussian blur passes on mobile GPUs.
    ========================================================================= */
 html, body {
   overflow-x: hidden !important;
@@ -759,6 +760,24 @@ html, body {
 }
 
 @media screen and (max-width: 768px) {
+  :root,
+  :root[data-skin="aurora"][data-theme="light"] {
+    --aurora-surface: rgba(255, 255, 255, 0.94);
+    --aurora-blur: none;
+    --aurora-blur-heavy: none;
+  }
+  :root[data-skin="aurora"][data-theme="dark"] {
+    --aurora-surface: rgba(21, 21, 31, 0.94);
+    --aurora-blur: none;
+    --aurora-blur-heavy: none;
+  }
+  .aurora-glass,
+  .aurora-glass-panel,
+  .aurora-btn-glass,
+  .aurora-input {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
   .aurora-input input,
   .aurora-input select,
   input[type="text"],
@@ -770,3 +789,4 @@ html, body {
     font-size: 16px !important; /* Critical: iOS WebKit auto-zooms if < 16px */
   }
 }
+

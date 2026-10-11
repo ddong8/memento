@@ -42,6 +42,8 @@ const TABS: Array<{ id: TabId; label: string; icon: IconName; path: string }> = 
 // fluid momentum scrolling, and custom micro-interactions to deliver a true native feel.
 const INJECTED_CLIENT_HELPERS = `(() => {
   document.documentElement.classList.add("memento-native-shell");
+  if (window.__memento_native_helpers_installed) return;
+  window.__memento_native_helpers_installed = true;
 
   // 1. Theme tracking
   const postTheme = () => {
@@ -358,16 +360,30 @@ export default function WebShell() {
       }
     };
 
-    void fetchFeed();
-    timer = setInterval(() => {
-      if (!cancelled) void fetchFeed();
-    }, 4000);
+    const startTimer = () => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => {
+        if (!cancelled && AppState.currentState === "active") {
+          void fetchFeed();
+        }
+      }, 15_000);
+    };
+
+    if (AppState.currentState === "active") {
+      void fetchFeed();
+      startTimer();
+    }
 
     const appStateSub = AppState.addEventListener("change", (state: AppStateStatus) => {
-      if (state === "active" && !cancelled) {
+      if (cancelled) return;
+      if (state === "active") {
         // App entered active foreground: advance lastSeen so notifications delivered by APNs while backgrounded aren't replayed
         lastSeen = new Date().toISOString();
         void fetchFeed();
+        startTimer();
+      } else if (timer) {
+        clearInterval(timer);
+        timer = null;
       }
     });
 

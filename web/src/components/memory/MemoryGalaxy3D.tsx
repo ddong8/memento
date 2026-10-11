@@ -153,6 +153,9 @@ export default function MemoryGalaxy3D({
   const isPausedRef = useRef(isPaused);
   isPausedRef.current = isPaused;
 
+  const isPanelCollapsedRef = useRef(isPanelCollapsed);
+  isPanelCollapsedRef.current = isPanelCollapsed;
+
   const isRotatingRef = useRef(isRotating);
   isRotatingRef.current = isRotating;
 
@@ -191,12 +194,12 @@ export default function MemoryGalaxy3D({
   const dreamingActiveRef = useRef(dreamingActive);
   dreamingActiveRef.current = dreamingActive;
 
-  // Wake up render loop immediately when unpaused (e.g. tab switch in RouteKeepAlive)
+  // Wake up render loop immediately when unpaused or interacted (e.g. tab switch in RouteKeepAlive)
   useEffect(() => {
     if (!isPaused) {
       ensureLoopRunningRef.current?.();
     }
-  }, [isPaused]);
+  }, [isPaused, isPanelCollapsed, selectedNodeId, filterType, dreamingActive, nodes.length]);
 
   // Effect 1: Initialize WebGLRenderer, Scene, Camera, Lights & Controls ONCE on mount
   useEffect(() => {
@@ -219,12 +222,12 @@ export default function MemoryGalaxy3D({
     camera.position.set(0, 4.5, 11);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobile,
       alpha: true,
-      powerPreference: "high-performance",
+      powerPreference: isMobile ? "low-power" : "default",
     });
     renderer.setSize(lastW, lastH);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.3;
     container.innerHTML = "";
@@ -534,14 +537,32 @@ export default function MemoryGalaxy3D({
     container.addEventListener("touchmove", handleTouchMove, { passive: false });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
 
-    // 7. True Zero-Overhead Render Loop (completely stops rAF when paused or hidden)
+    // 7. True Zero-Overhead Render Loop (completely stops rAF when paused, occluded, or idle on mobile)
     let animId = 0;
     let isLoopRunning = false;
     const clock = new THREE.Clock();
     let isPageVisible = !document.hidden;
     let isElementIntersecting = true;
+    let lastActiveMs = performance.now();
+    let lastRenderMs = 0;
 
-    const shouldRun = () => isPageVisible && isElementIntersecting && !isPausedRef.current;
+    const markActive = () => {
+      lastActiveMs = performance.now();
+      ensureLoopRunning();
+    };
+    container.addEventListener("pointerdown", markActive, { passive: true });
+    container.addEventListener("touchstart", markActive, { passive: true });
+
+    const shouldRun = () => {
+      if (!isPageVisible || !isElementIntersecting || isPausedRef.current) return false;
+      if (!isPanelCollapsedRef.current && typeof window !== "undefined" && window.innerWidth < 1024) {
+        return false;
+      }
+      if (isMobile && !isDragging && !dreamingActiveRef.current && performance.now() - lastActiveMs > 20_000) {
+        return false;
+      }
+      return true;
+    };
 
     const animate = () => {
       if (!shouldRun()) {
@@ -551,6 +572,12 @@ export default function MemoryGalaxy3D({
       }
 
       animId = requestAnimationFrame(animate);
+
+      const nowMs = performance.now();
+      if (isMobile && !isDragging && nowMs - lastRenderMs < 30) {
+        return;
+      }
+      lastRenderMs = nowMs;
 
       const elapsed = clock.getElapsedTime();
 
@@ -659,6 +686,7 @@ export default function MemoryGalaxy3D({
     };
 
     const ensureLoopRunning = () => {
+      lastActiveMs = performance.now();
       if (!isLoopRunning && shouldRun()) {
         isLoopRunning = true;
         clock.getDelta();

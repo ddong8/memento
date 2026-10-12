@@ -530,6 +530,20 @@ async def ingest_file(
             if mach_uuid and not existing_doc.machine_id:
                 existing_doc.machine_id = mach_uuid
                 await db.flush()
+            incoming_hash = metadata.get("project_hash")
+            if not incoming_hash and metadata.get("project_path"):
+                cand_path = str(metadata.get("project_path")).replace("\\", "/").rstrip("/")
+                incoming_hash = cand_path.split("/")[-1]
+            if incoming_hash and not _is_invalid_project_name(incoming_hash):
+                clean_h = _prettify_project_name(incoming_hash).strip("-\"'` ")
+                if clean_h and not _is_invalid_project_name(clean_h):
+                    target_slug = f"{tool_id}/{clean_h}"
+                    p_row = (await db.execute(select(Project).where(Project.slug == target_slug))).scalar_one_or_none()
+                    if p_row and existing_doc.project_id != p_row.id:
+                        existing_doc.project_id = p_row.id
+                        md = existing_doc.metadata_ if isinstance(existing_doc.metadata_, dict) else {}
+                        existing_doc.metadata_ = {**md, "project_hash": clean_h, **({"project_path": metadata.get("project_path")} if metadata.get("project_path") else {})}
+                        await db.flush()
             new_title = metadata.get("title")
             if new_title:
                 new_title = str(new_title).strip()

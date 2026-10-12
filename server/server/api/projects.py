@@ -152,6 +152,10 @@ async def list_projects(
                 continue
             p_cand = doc_item.metadata_.get("project_hash")
             if not p_cand:
+                p_path = doc_item.metadata_.get("project_path")
+                if p_path and isinstance(p_path, str):
+                    p_cand = p_path.replace("\\", "/").rstrip("/").split("/")[-1]
+            if not p_cand:
                 continue
             prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
             if not prettified or _is_invalid_project_name(prettified):
@@ -789,14 +793,10 @@ async def _reconcile_project_documents(
             ])
             if tool_id == "antigravity":
                 doc_conds.extend([
-                    Document.content.ilike(f"%/{ct}\"%"),
-                    Document.content.ilike(f"%/{ct}/%"),
-                    Document.content.ilike(f"%/{ct}\\n%"),
-                    Document.content.ilike(f"%/{ct}%"),
-                    Document.content.ilike(f"%\\{ct}\"%"),
-                    Document.content.ilike(f"%\\{ct}\\%"),
-                    Document.content.ilike(f"%\\\\{ct}\"%"),
-                    Document.content.ilike(f"%\\\\{ct}\\\\%"),
+                    Document.content.ilike(f"%Active Workspaces:%/{ct}%"),
+                    Document.content.ilike(f"%Command Working Directory:%/{ct}%"),
+                    Document.content.ilike(f"%\"cwd\"%/{ct}%"),
+                    Document.content.ilike(f"%\"Cwd\"%/{ct}%"),
                 ])
         adopt_cond = or_(*doc_conds)
         if frag_ids:
@@ -807,8 +807,8 @@ async def _reconcile_project_documents(
             Document.category == "conversation",
             or_(
                 Document.project_id.is_(None),
-                Document.project_id != target_project.id,
-            ),
+                Document.project_id.in_(frag_ids),
+            ) if frag_ids else Document.project_id.is_(None),
             adopt_cond,
         )
         if target_mid is not None:

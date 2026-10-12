@@ -70,8 +70,8 @@ export class LocalApi {
   }
 
   async stop(): Promise<void> {
-    await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server?.closeAllConnections();
+    await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server = undefined;
     const info = await readLocalApiInfo(this.home);
     if (info?.pid === process.pid) await rm(localApiFile(this.home), { force: true });

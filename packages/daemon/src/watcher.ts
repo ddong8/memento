@@ -70,9 +70,11 @@ export function isWatchedFile(filePath: string, toolId: string): boolean {
       // transcript_full.jsonl repeats the conversation with raw base64 images.
       return name === "transcript.jsonl";
     case "claude_code":
-    case "workbuddy":
       if (!name.endsWith(".jsonl") && !name.endsWith(".meta.json") && !name.endsWith(".md")) return false;
       return !name.includes("lease") && !name.includes("storage") && !name.includes("prefs");
+    case "workbuddy":
+      if (normalized.includes("/subagents/")) return false;
+      return name.endsWith(".jsonl") && !name.includes("lease") && !name.includes("storage") && !name.includes("prefs");
     case "codex":
     case "cursor":
       return name.endsWith(".jsonl") || name.endsWith(".json");
@@ -199,6 +201,19 @@ export function sessionMetadata(
       if (!title && line.includes('"summary"')) {
         const s = /"summary"\s*:\s*"([^"]+)"/.exec(line)?.[1]?.trim();
         if (s) title = s;
+      }
+    }
+    if (!title && toolId === "workbuddy") {
+      for (const line of lines) {
+        if (!line.includes("<user_query>")) continue;
+        const m = /<user_query>([\s\S]*?)<\/user_query>/.exec(line);
+        if (m?.[1]) {
+          const firstLine = m[1].replace(/\\n/g, "\n").trim().split("\n")[0]?.trim();
+          if (firstLine) {
+            title = firstLine.slice(0, 60);
+            break;
+          }
+        }
       }
     }
   }
@@ -353,12 +368,13 @@ export class FileWatcher {
       while (this.queue.length && !this.disposed) {
         const [file, toolId] = this.queue.shift()!;
         this.queued.delete(file);
+        let uploaded = false;
         try {
-          await this.syncFile(file, toolId);
+          uploaded = await this.syncFile(file, toolId);
         } catch (e) {
           this.log(`Error syncing ${file}: ${e instanceof Error ? e.message : e}`);
         }
-        if (this.queue.length) await sleep(100);
+        if (uploaded && this.queue.length) await sleep(100);
       }
     } finally {
       this.processing = false;
@@ -366,14 +382,14 @@ export class FileWatcher {
   }
 
   /** Sync one file now (also used by tests). */
-  async syncFile(file: string, toolId: string): Promise<void> {
-    if (!existsSync(file)) return;
+  async syncFile(file: string, toolId: string): Promise<boolean> {
+    if (!existsSync(file)) return false;
     const relPath = relativePathFor(file, toolId, this.config.extraWatchDirs);
-    if (extname(file).toLowerCase() === ".jsonl") await this.syncJsonl(file, toolId, relPath);
-    else await this.syncWhole(file, toolId, relPath);
+    if (extname(file).toLowerCase() === ".jsonl") return this.syncJsonl(file, toolId, relPath);
+    return this.syncWhole(file, toolId, relPath);
   }
 
-  private async syncJsonl(file: string, toolId: string, relPath: string): Promise<void> {
+  private async syncJsonl(file: string, toolId: string, relPath: string): Promise<boolean> {
     let offset = this.offsets.get(file) ?? 0;
     const size0 = (await stat(file)).size;
     if (size0 < offset) {
@@ -381,8 +397,9 @@ export class FileWatcher {
       offset = 0;
       this.offsets.set(file, 0);
     }
-    if (size0 === offset) return;
+    if (size0 === offset) return false;
 
+    let uploaded = false;
     const handle = await open(file, "r");
     try {
       while (!this.disposed) {
@@ -426,6 +443,7 @@ export class FileWatcher {
           await sleep(500);
           ok = await this.ingest.ingestDocument(doc);
         }
+        uploaded = true;
         if (ok) {
           this.failures.delete(file);
           offset += slice.length;
@@ -443,14 +461,15 @@ export class FileWatcher {
     } finally {
       await handle.close();
     }
+    return uploaded;
   }
 
-  private async syncWhole(file: string, toolId: string, relPath: string): Promise<void> {
+  private async syncWhole(file: string, toolId: string, relPath: string): Promise<boolean> {
     const s = await stat(file);
-    if (this.mtimes.get(file) === s.mtimeMs) return;
+    if (this.mtimes.get(file) === s.mtimeMs) return false;
     if (s.size > 20 * 1024 * 1024) {
       this.log(`Skipping ${file}: larger than 20MB (${s.size} bytes)`);
-      return;
+      return false;
     }
     const content = await readFile(file, "utf8");
     this.log(`Syncing updated file: ${relPath} (${toolId})`);
@@ -466,6 +485,7 @@ export class FileWatcher {
       offset: 0,
     });
     if (ok) this.mtimes.set(file, s.mtimeMs);
+    return true;
   }
 
   private async loadOffsets(): Promise<void> {

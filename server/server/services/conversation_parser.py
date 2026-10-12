@@ -173,12 +173,14 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
             role = obj.get("role") or (obj.get("message", {}) if isinstance(obj.get("message"), dict) else {}).get("role") or "user"
             raw_content = obj.get("content") if "content" in obj else (obj.get("message", {}) if isinstance(obj.get("message"), dict) else {}).get("content", "")
             text = _strip_system_tags(_extract_codex_content(raw_content))
-            if not text.strip():
+            if text:
+                text = text.replace("<user_query>", "").replace("</user_query>", "").strip()
+            if not text:
                 return None
             if role in ("user", "assistant"):
                 return NormalizedMessage(
                     role=role,
-                    content=text.strip(),
+                    content=text,
                     timestamp=timestamp,
                     raw_type=msg_type,
                 )

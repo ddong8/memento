@@ -194,7 +194,7 @@ public struct MementoTaskLiveActivity: Widget {
       MementoLockScreenView(context: context)
         .activityBackgroundTint(Color(red: 0.05, green: 0.05, blue: 0.09))
         .activitySystemActionForegroundColor(.white)
-        .widgetURL(URL(string: "memento://ask?id=\\(context.attributes.conversationId)&scroll=bottom"))
+        .widgetURL(URL(string: "memento:///?target=%2Fask%3Fid%3D\\(context.attributes.conversationId)%26scroll%3Dbottom"))
     } dynamicIsland: { context in
       let theme = MementoStatusTheme(status: context.state.status)
       let startDate = Date(timeIntervalSince1970: context.attributes.startedAtEpoch)
@@ -297,7 +297,7 @@ public struct MementoTaskLiveActivity: Widget {
           .font(.system(size: 12, weight: .bold))
           .foregroundColor(theme.accentColor)
       }
-      .widgetURL(URL(string: "memento://ask?id=\\(context.attributes.conversationId)&scroll=bottom"))
+      .widgetURL(URL(string: "memento:///?target=%2Fask%3Fid%3D\\(context.attributes.conversationId)%26scroll%3Dbottom"))
       .keylineTint(theme.accentColor)
     }
   }

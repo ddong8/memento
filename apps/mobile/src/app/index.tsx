@@ -25,6 +25,7 @@ import { WebView, type WebViewMessageEvent, type WebViewNavigation, type WebView
 
 import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
+import { normalizeDeepLinkTarget, subscribeDeepLinkTarget } from "../lib/deeplink";
 import { isRecentlyNotified, markAsNotified, triggerLocalNotification } from "../lib/notifications";
 import { useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
@@ -248,11 +249,7 @@ export default function WebShell() {
   // Open destination URL when a native push notification or Dynamic Island deep link is tapped
   useEffect(() => {
     const handleUrl = (rawTarget?: string | null) => {
-      if (!rawTarget) return;
-      let target = rawTarget.trim();
-      if (/^(?:memento|com\.ihasy\.memento):\/\//i.test(target)) {
-        target = target.replace(/^(?:memento|com\.ihasy\.memento):\/+/i, "/");
-      }
+      const target = normalizeDeepLinkTarget(rawTarget);
       if (!target || target === "/") return;
       const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
       const path = target.startsWith("http") ? new URL(target).pathname : target.split("?")[0];
@@ -273,6 +270,10 @@ export default function WebShell() {
         pendingUrlRef.current = fullUrl;
       }
     };
+
+    const unsubDeepLink = subscribeDeepLinkTarget((targetPath) => {
+      handleUrl(targetPath);
+    });
 
     void Linking.getInitialURL().then((initialUrl) => {
       if (initialUrl) handleUrl(initialUrl);
@@ -301,6 +302,7 @@ export default function WebShell() {
     });
 
     return () => {
+      unsubDeepLink();
       linkSub.remove();
       sub.remove();
     };

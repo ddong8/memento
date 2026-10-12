@@ -1498,6 +1498,8 @@ async def _resolve_concrete_device_for_conv(
                     pass
             if doc_mid:
                 mach = await db.get(Machine, doc_mid)
+                if mach and mach.merged_into:
+                    mach = await db.get(Machine, mach.merged_into) or mach
                 if mach:
                     candidate = mach.collector_token_hash or mach.name
         except Exception:
@@ -1541,6 +1543,8 @@ async def _resolve_concrete_device_for_conv(
             )).scalar_one_or_none()
             if doc_mid:
                 mach = await db.get(Machine, doc_mid)
+                if mach and mach.merged_into:
+                    mach = await db.get(Machine, mach.merged_into) or mach
                 if mach:
                     candidate = mach.collector_token_hash or mach.name
         except Exception:
@@ -1549,18 +1553,29 @@ async def _resolve_concrete_device_for_conv(
     if not candidate:
         return conv.device_id or cfg.get("device_id")
 
-    # Normalize candidate (which might be a machine name like 'haixingdeMac-mini') to collector_token_hash
+    # Normalize candidate (which might be a machine name like 'haixingdeMac-mini' or a merged machine's old hash) to active collector_token_hash
     try:
-        clean_name = re.sub(r"\s*\([^)]*\)\s*$", "", candidate).strip()
+        clean_name = re.sub(
+            r"\.local$",
+            "",
+            re.sub(r"\s*\([^)]*\)\s*$", "", candidate),
+            flags=re.IGNORECASE,
+        ).strip()
         mach = (await db.execute(
             select(Machine).where(
-                Machine.merged_into.is_(None),
                 (Machine.collector_token_hash == candidate)
                 | (Machine.name == candidate)
                 | (Machine.name == clean_name)
-                | (func.lower(Machine.name) == clean_name.lower()),
-            ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
+                | (func.lower(Machine.name) == clean_name.lower())
+                | (Machine.name.ilike(f"{clean_name}.local%"))
+                | (Machine.name.ilike(f"{clean_name} (%")),
+            ).order_by(
+                Machine.merged_into.is_(None).desc(),
+                Machine.last_heartbeat.desc().nulls_last(),
+            ).limit(1)
         )).scalars().first()
+        if mach and mach.merged_into:
+            mach = await db.get(Machine, mach.merged_into) or mach
         if mach and mach.collector_token_hash:
             return mach.collector_token_hash
     except Exception:

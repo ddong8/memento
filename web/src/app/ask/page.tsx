@@ -814,6 +814,32 @@ function getLocalConvSnapshot(): LocalConvSnapshot | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.id === "string" && Array.isArray(parsed.turns)) {
+      if (!parsed.selectedDevice || parsed.selectedDevice === "auto") {
+        const detailDev = parsed.convDetail?.device_id || parsed.convDetail?.config?.device_id;
+        if (detailDev && detailDev !== "auto") {
+          parsed.selectedDevice = detailDev;
+        } else {
+          for (let i = parsed.turns.length - 1; i >= 0; i--) {
+            const calls = parsed.turns[i]?.toolCalls || parsed.turns[i]?.tool_calls || [];
+            let foundDev = "";
+            for (let j = calls.length - 1; j >= 0; j--) {
+              const c = calls[j];
+              if (!c) continue;
+              const resObj = typeof c.result === "object" && c.result ? c.result : {};
+              const argsObj = typeof c.args === "object" && c.args ? c.args : {};
+              const cand = resObj.device_id || resObj.device_name || c.device_name || argsObj.device_id;
+              if (typeof cand === "string" && cand.trim() && !["auto", "ask_only", "all"].includes(cand.trim().toLowerCase())) {
+                foundDev = cand.trim();
+                break;
+              }
+            }
+            if (foundDev) {
+              parsed.selectedDevice = foundDev;
+              break;
+            }
+          }
+        }
+      }
       return parsed;
     }
   } catch {}
@@ -1345,14 +1371,21 @@ function AskPageContent() {
   const normalizeDeviceId = useCallback(
     (devStr?: string | null) => {
       if (!devStr || devStr === "auto" || devStr === "ask_only" || devStr === "all") return devStr || "auto";
-      const clean = devStr.trim().replace(/\s*\([^)]*\)\s*$/, "").toLowerCase();
+      const clean = devStr
+        .trim()
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .replace(/\.local$/i, "")
+        .toLowerCase();
       const found = devices.find(
         (d) =>
           d.device_id === devStr ||
           d.id === devStr ||
           d.name === devStr ||
           d.name?.toLowerCase() === clean ||
-          d.name?.replace(/\s*\([^)]*\)\s*$/, "").toLowerCase() === clean
+          d.name
+            ?.replace(/\s*\([^)]*\)\s*$/, "")
+            .replace(/\.local$/i, "")
+            .toLowerCase() === clean
       );
       return found ? found.device_id : devStr;
     },
@@ -2012,14 +2045,34 @@ function AskPageContent() {
         let baseTurns = (activeConversationIdRef.current === targetConvId && turns.length > 0)
           ? turns
           : (askCache && askCache.activeConversationId === targetConvId && askCache.turns.length > 0 ? askCache.turns : []);
-        if (baseTurns.length === 0 || baseTurns.some((t) => !t.created_at)) {
-          try {
-            const data = await api.getAskConversation(targetConvId, 40);
-            if (data.turns && data.turns.length > 0) {
-              baseTurns = data.turns;
-            }
-          } catch {}
-        }
+        try {
+          const data = await api.getAskConversation(targetConvId, 40);
+          if (data.turns && data.turns.length > 0 && (baseTurns.length === 0 || baseTurns.some((t) => !t.created_at))) {
+            baseTurns = data.turns;
+          }
+          const incomingDev = data.device_id || data.config?.device_id;
+          if (incomingDev && incomingDev !== "auto") {
+            setSelectedDevice(normalizeDeviceId(incomingDev));
+          }
+          const incomingCwd = data.cwd || data.config?.cwd;
+          if (incomingCwd) {
+            setCwd(incomingCwd);
+            setShowCwd(true);
+          }
+          const incomingMode = (data.execution_mode || data.config?.execution_mode) as ExecutionMode | undefined;
+          if (incomingMode) setExecutionMode(incomingMode);
+          const incomingModel = data.model || data.config?.model;
+          if (incomingModel) setSelectedModel(incomingModel);
+          const incomingEffort = data.effort || data.config?.effort;
+          if (incomingEffort) setSelectedEffort(incomingEffort);
+          const incomingProj = data.project_id || data.config?.project_id;
+          if (incomingProj) {
+            setSelectedProjectId(incomingProj);
+            selectedProjectIdRef.current = incomingProj;
+          }
+          const incomingSess = data.session_id || data.config?.session_id;
+          if (incomingSess) setSelectedSessionId(incomingSess);
+        } catch {}
         attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
         pendingScrollToBottomRef.current = true;
         scrollConversationToBottom(true);
@@ -2057,8 +2110,9 @@ function AskPageContent() {
         return;
       }
 
-      // If already cached in memory with complete turns and no active background run: keep in-memory state!
+      // If already cached in memory (and not just hydrated from localStorage snapshot) with complete turns and no active background run: keep in-memory state!
       if (
+        !initialRestoredFromSnapshotRef.current &&
         askCache &&
         askCache.activeConversationId === resolvedTargetId &&
         askCache.turns.length > 0 &&

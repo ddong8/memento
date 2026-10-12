@@ -234,8 +234,10 @@ export function sessionMetadata(
       // not JSON
     }
     if (cwd === undefined && toolId === "antigravity") {
-      const top = lines.slice(0, 35).join("\n");
-      const user = /<user_information>[\s\S]*?((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.-]+(?:[/\\][a-zA-Z0-9_.-]+)*)\s*->/.exec(top);
+      const top = lines.slice(0, 50).join("\n");
+      const user = /Active Workspaces:\s*\n\s*-\s*((?:[a-zA-Z]:[/\\]|\/)[^\r\n]+)/.exec(top)
+        ?? /Command Working Directory:\s*((?:[a-zA-Z]:[/\\]|\/)[^\r\n]+)/.exec(top)
+        ?? /<user_information>[\s\S]*?((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.-]+(?:[/\\][a-zA-Z0-9_.-]+)*)\s*->/.exec(top);
       if (user) setProject(cleanPath(user[1]!));
       if (cwd === undefined) {
         const m = /"(?:[Cc]wd|DirectoryPath|AbsolutePath)"\s*:\s*"?\\?"?((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.-]+(?:[/\\][a-zA-Z0-9_.-]+)*)/.exec(top);

@@ -15,6 +15,20 @@ def test_extract_from_antigravity_user_information():
     assert path == "/Users/haixingdong/dev/memento"
 
 
+def test_extract_from_antigravity_active_workspaces():
+    content = (
+        "<user_information>\n"
+        "The USER's OS version is mac.\n"
+        "Active Workspaces:\n"
+        "- /Users/donghaixing/Desktop/dev/memento\n"
+        "Command Working Directory: /Users/donghaixing/Desktop/dev/memento\n"
+        "</user_information>"
+    )
+    name, path = _extract_workspace_from_content(content)
+    assert name == "memento"
+    assert path == "/Users/donghaixing/Desktop/dev/memento"
+
+
 def test_extract_from_tool_call_cwd():
     content = (
         "{\"tool_calls\": [{\"name\": \"run_command\", \"args\": {\"CommandLine\": \"git status\", "

@@ -219,23 +219,30 @@ _IGNORE_PROJECT_NAMES = {
 def _extract_workspace_from_content(content: str) -> tuple[str | None, str | None]:
     """Extract (project_name, full_path) from brain file content."""
     # 1. Antigravity system prompt <user_information> block:
-    # /Users/haixingdong/dev/memento -> ddong8/memento or d:\dev\2026\0914\memento -> ddong8/memento
-    user_info_match = re.search(
-        r"<user_information>[\s\S]*?((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:[/\\][^\s\r\n->]+)\s*->",
-        content,
-    )
-    if user_info_match:
-        raw_path = user_info_match.group(1)
-        ws_path = _clean_source_path(raw_path) or raw_path.replace("\\", "/").rstrip("/")
-        ws_name = ws_path.split("/")[-1]
-        if (
-            ws_name
-            and not ws_name.isdigit()
-            and not _is_invalid_project_name(ws_name)
-            and "/antigravity/" not in ws_path
-            and "/.gemini/" not in ws_path
-        ):
-            return ws_name, ws_path
+    # Handles:
+    #   Active Workspaces:\n- /Users/donghaixing/Desktop/dev/memento
+    #   Command Working Directory: /Users/donghaixing/Desktop/dev/memento
+    #   Legacy: /Users/haixingdong/dev/memento -> ddong8/memento
+    user_info_block = re.search(r"<user_information>([\s\S]*?)</user_information>", content)
+    if user_info_block:
+        ui_text = user_info_block.group(1)
+        ws_m = re.search(r"Active Workspaces:\s*\n\s*-\s*([^\r\n]+)", ui_text)
+        if not ws_m:
+            ws_m = re.search(r"Command Working Directory:\s*([^\r\n]+)", ui_text)
+        if not ws_m:
+            ws_m = re.search(r"((?:/[a-zA-Z0-9_.\-]+)+|[a-zA-Z]:[/\\][^\s\r\n->]+)\s*->", ui_text)
+        if ws_m:
+            raw_path = ws_m.group(1).strip()
+            ws_path = _clean_source_path(raw_path) or raw_path.replace("\\", "/").rstrip("/")
+            ws_name = ws_path.split("/")[-1]
+            if (
+                ws_name
+                and not ws_name.isdigit()
+                and not _is_invalid_project_name(ws_name)
+                and "/antigravity/" not in ws_path
+                and "/.gemini/" not in ws_path
+            ):
+                return ws_name, ws_path
 
     # 2. Tool call Cwd argument:
     # "Cwd":"\"/Users/haixingdong/dev/memento\"" or "Cwd": "d:\\dev\\2026\\0914\\memento"

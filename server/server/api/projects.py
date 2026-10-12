@@ -138,6 +138,33 @@ async def list_projects(
                         od.project_id = canon.id
                         has_changes = True
 
+        # Auto-heal misassigned conversation documents where metadata project_hash points to a different valid project
+        misassigned_docs = (await db.execute(
+            select(Document, Project)
+            .join(Project, Document.project_id == Project.id)
+            .where(
+                Document.category == "conversation",
+                Document.metadata_.isnot(None),
+            )
+        )).all()
+        for doc_item, cur_proj in misassigned_docs:
+            if not isinstance(doc_item.metadata_, dict):
+                continue
+            p_cand = doc_item.metadata_.get("project_hash")
+            if not p_cand:
+                continue
+            prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
+            if not prettified or _is_invalid_project_name(prettified):
+                continue
+            cur_slug_name = cur_proj.slug.split("/")[-1].lower()
+            cand_lower = prettified.lower()
+            if cand_lower != cur_proj.title.lower() and cand_lower != cur_slug_name:
+                correct_slug = f"{doc_item.tool_id}/{prettified}"
+                correct_p = (await db.execute(select(Project).where(Project.slug == correct_slug))).scalar_one_or_none()
+                if correct_p and correct_p.id != cur_proj.id:
+                    doc_item.project_id = correct_p.id
+                    has_changes = True
+
         # Auto-heal machine_id on documents where machine_id is NULL
         all_machines = (await db.execute(select(Machine))).scalars().all()
         mac_mini_m = next((m for m in all_machines if "mac-mini" in (m.name or "").lower() or "mini" in (m.name or "").lower()), None)
@@ -240,20 +267,28 @@ async def list_projects(
     result = await db.execute(query)
     rows = result.all()
 
-    items = [
-        {
+    items = []
+    for p, count, local_path in rows:
+        valid_local_path = None
+        if target_mid is not None and local_path:
+            lp_clean = _clean_source_path(local_path)
+            if lp_clean:
+                lp_leaf = lp_clean.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower()
+                p_leaf = p.slug.split("/")[-1].strip("-\"'` ").lower()
+                p_title = (p.title or "").strip("-\"'` ").lower()
+                if lp_leaf == p_leaf or lp_leaf == p_title or (p_leaf and p_leaf in lp_leaf):
+                    valid_local_path = lp_clean
+        items.append({
             "id": str(p.id),
             "slug": p.slug,
             "title": p.title,
             "tool_id": p.tool_id,
-            "source_path": _clean_source_path(local_path if (target_mid is not None and local_path) else p.source_path),
+            "source_path": _clean_source_path(valid_local_path if valid_local_path else p.source_path),
             "visibility": p.visibility,
             "document_count": count or 0,
             "created_at": p.created_at.isoformat(),
             "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-        }
-        for p, count, local_path in rows
-    ]
+        })
 
     # Incorporate discovered projects for target machine or all user machines
     target_docs = []
@@ -1450,11 +1485,17 @@ async def get_project_conversations(
 
     dev_source_path = None
     if target_mid is not None:
+        p_leaf = project.slug.split("/")[-1].strip("-\"'` ").lower()
+        p_title = (project.title or "").strip("-\"'` ").lower()
         for d in all_convs:
             sp = (d.metadata_ or {}).get("project_path")
             if sp and len(sp) > 3 and not sp.isdigit() and sp.lower() not in ("...", "dev", "desktop", "tmp", "temp"):
-                dev_source_path = sp
-                break
+                sp_clean = _clean_source_path(sp)
+                if sp_clean:
+                    sp_leaf = sp_clean.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower()
+                    if sp_leaf == p_leaf or sp_leaf == p_title or (p_leaf and p_leaf in sp_leaf):
+                        dev_source_path = sp_clean
+                        break
 
     payload = {
         "project": {

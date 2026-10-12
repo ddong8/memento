@@ -293,10 +293,38 @@ async function vscTool(
   const hasStorage = storage !== undefined && existsSync(storage);
   if (!hasRoot && !hasStorage) return null;
   const projects: DiscoveredProject[] = [];
+  const seenPaths = new Set<string>();
+
+  const addProject = (rawPath: string) => {
+    const cleaned = cleanPath(rawPath, env.platform);
+    if (!cleaned || !isVolumeMounted(cleaned, env.platform) || seenPaths.has(cleaned)) return;
+    try {
+      if (!statSync(cleaned).isDirectory()) return;
+    } catch {
+      return;
+    }
+    const projName = basename(cleaned);
+    if (isInvalidProjectName(projName)) return;
+    seenPaths.add(cleaned);
+    projects.push({ name: projName, path: cleaned });
+  };
+
   if (hasStorage) {
     for (const path of await extractVscWorkspaces(storage!, env.platform)) {
-      const projName = basename(path);
-      if (!isInvalidProjectName(projName)) projects.push({ name: projName, path });
+      addProject(path);
+    }
+  }
+  if (id === "antigravity" && hasRoot) {
+    try {
+      const dbPath = join(homeRoot, "conversation_summaries.db");
+      if (existsSync(dbPath)) {
+        const raw = (await readFile(dbPath)).toString("utf8");
+        for (const m of raw.matchAll(/\["file:\/\/\/([^"]+)"\]/g)) {
+          if (m[1]) addProject(`file:///${m[1]}`);
+        }
+      }
+    } catch {
+      // db unreadable
     }
   }
   return { id, name, root: hasRoot ? homeRoot : dirname(storage!), projects };

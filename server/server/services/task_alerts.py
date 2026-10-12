@@ -123,7 +123,8 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
         if task is None or task.action != "agent":
             return
         pl = task.payload or {}
-        conv_id = str(pl.get("conversation_id") or "").strip()
+        explicit_conv_id = str(pl.get("conversation_id") or "").strip()
+        conv_id = explicit_conv_id
         if not conv_id and task.user_id:
             try:
                 from ..db.models import AskConversation
@@ -134,7 +135,7 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
                         .order_by(AskConversation.updated_at.desc())
                         .limit(1)
                     )).scalar_one_or_none()
-                    if recent_conv:
+                    if isinstance(recent_conv, uuid.UUID):
                         conv_id = str(recent_conv)
             except Exception:
                 pass
@@ -154,10 +155,9 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             )
             return
 
-        # When watched is True, AskRun is actively consuming this task and will
-        # persist the completed turn to AskConversation before firing _notify_finished.
-        # Deferring to AskRun prevents premature notifications before DB commit or LLM synthesis.
-        if watched and conv_id:
+        # When watched is True and the task belongs to an AskRun conversation, AskRun is actively
+        # consuming this task and will persist the completed turn before firing _notify_finished.
+        if watched and explicit_conv_id:
             return
 
         title = {"succeeded": "✅ 任务完成", "timeout": "⏱️ 任务超时"}.get(status or "", "❌ 任务失败")

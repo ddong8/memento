@@ -31,6 +31,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(ar, "async_session_factory", factory),
             patch.object(ar, "RETAIN_AFTER_DONE", 0.05),
             patch.object(ar.notify_service, "notify_user", AsyncMock(return_value=True)),
+            patch.object(ar.notify_service, "push_live_activity_event", AsyncMock(return_value=True)),
         ]
         for p in self.patches:
             p.start()
@@ -241,7 +242,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["device_name"], "work-laptop")
         self.assertEqual(summary["title"], "Git Status Conversation")
         self.assertIn("run_command", summary["current_step"])
-        self.assertEqual(summary["step_type"], "tool_call")
+        self.assertEqual(summary["step_type"], "tool")
 
         release.set()
         await run.task

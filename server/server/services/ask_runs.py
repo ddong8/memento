@@ -30,7 +30,7 @@ logger = logging.getLogger("server.ask_runs")
 RETAIN_AFTER_DONE = 600          # seconds a finished run stays attachable
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 KEEPALIVE_SECONDS = 8.0
-NOTIFY_MIN_SECONDS = 2           # notify on any task taking >= 2s
+NOTIFY_MIN_SECONDS = 0.5         # notify on any task taking >= 0.5s
 
 GeneratorFactory = Callable[[AsyncSession, User], AsyncGenerator[str, None]]
 
@@ -423,7 +423,7 @@ class AskRunRegistry:
                     engine=run.engine_label(),
                 )
             )
-            if not run.cancelled and (run.finished_at - run.started_at >= 0.5):
+            if not run.cancelled and (run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS):
                 notify_service.spawn(self._notify_finished(run))
 
     def _drop(self, run: AskRun) -> None:

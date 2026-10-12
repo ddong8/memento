@@ -2557,6 +2557,14 @@ async def list_active_runs(
     return [r.summary() for r in ask_runs.active_for_user(_user.id, include_recent_seconds=float(recent))]
 
 
+@router.get("/runs/active")
+async def list_active_runs_wrapped(
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Wrapped active runs endpoint consumed by iOS MementoLiveActivityManager."""
+    return {"runs": [r.summary() for r in ask_runs.active_for_user(_user.id)]}
+
+
 @router.get("/conversations/{conv_id}/run")
 async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
     run = ask_runs.get(conv_id, _user.id)

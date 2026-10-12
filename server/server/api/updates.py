@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ GITHUB_CACHE_TTL = int(os.environ.get("MEMENTO_UPDATE_CACHE_TTL", "300"))  # 5 m
 
 # In-memory cache for latest GitHub release metadata: (cached_at_timestamp, release_dict)
 _RELEASE_CACHE: dict[str, Any] = {"time": 0.0, "data": None}
+_YAML_CACHE: dict[tuple[str, str], tuple[float, bytes]] = {}
 
 
 class UpdateCheckResponse(BaseModel):
@@ -301,17 +302,20 @@ async def check_update(
                     asset_name = matched.get("name")
                 gh_asset = matched
 
-    upstream_url = None
-    if gh_asset and gh_ver == latest_ver:
-        upstream_url = gh_asset.get("browser_download_url")
-    elif latest_ver and asset_name:
-        tag_prefix = latest_ver if latest_ver.startswith("v") else f"v{latest_ver}"
-        upstream_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag_prefix}/{asset_name}"
-
     download_url = None
     if asset_name:
         v_param = f"&version={latest_ver}" if latest_ver else ""
         download_url = f"/api/system/update/download?file={asset_name}{v_param}"
+
+    github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    upstream_url = None
+    if github_token and download_url:
+        upstream_url = download_url
+    elif gh_asset and gh_ver == latest_ver:
+        upstream_url = gh_asset.get("browser_download_url")
+    elif latest_ver and asset_name:
+        tag_prefix = latest_ver if latest_ver.startswith("v") else f"v{latest_ver}"
+        upstream_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag_prefix}/{asset_name}"
 
     return UpdateCheckResponse(
         has_update=has_update,
@@ -328,6 +332,34 @@ async def check_update(
     )
 
 
+def _synthesize_fallback_yaml(safe_name: str) -> bytes | None:
+    """Synthesize electron-updater channel YAML from local version.json when GitHub API is unreachable."""
+    version_file = _UPDATES_DIR / "version.json"
+    if not version_file.exists():
+        return None
+    try:
+        with open(version_file, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        ver = str(meta.get("version", "")).strip().lstrip("vV")
+        if not ver:
+            return None
+        plat_key = "macos" if "mac" in safe_name.lower() else ("linux" if "linux" in safe_name.lower() else "windows")
+        plat_meta = meta.get("platforms", {}).get(plat_key, {})
+        asset_name = plat_meta.get("asset_name") or f"Memento-{ver}-win-x64.exe"
+        size = plat_meta.get("size") or 0
+        yaml_str = (
+            f"version: {ver}\n"
+            f"files:\n"
+            f"  - url: {asset_name}\n"
+            f"    size: {size}\n"
+            f"path: {asset_name}\n"
+            f"releaseDate: '{meta.get('published_at') or '2026-10-09T00:00:00.000Z'}'\n"
+        )
+        return yaml_str.encode("utf-8")
+    except Exception:
+        return None
+
+
 @router.get("/download")
 async def download_update(
     file: str = Query(..., description="Asset filename to download"),
@@ -336,8 +368,8 @@ async def download_update(
     """Download update asset file with directory traversal protection.
     
     If hosted locally on the server filesystem, serves it immediately via FileResponse.
-    If not cached locally, instantly 302 redirects to upstream GitHub Release URL,
-    avoiding blocking the server async event loop with heavy binary proxying.
+    If not cached locally, resolves GitHub Release Asset API pre-signed URL (supporting private repos)
+    or redirects to upstream GitHub Release URL.
     """
     # Sanitize filename: only allow safe alphanumeric, dots, dashes, underscores
     safe_name = os.path.basename(file)
@@ -346,21 +378,23 @@ async def download_update(
 
     file_path = _UPDATES_DIR / safe_name
     if file_path.exists() and file_path.is_file():
+        media_type = "text/yaml; charset=utf-8" if safe_name.endswith(".yml") else "application/octet-stream"
         return FileResponse(
             file_path,
             filename=safe_name,
-            media_type="application/octet-stream",
+            media_type=media_type,
             headers={
-                "Cache-Control": "public, max-age=600",
+                "Cache-Control": "no-cache" if safe_name.endswith(".yml") else "public, max-age=600",
                 "Content-Disposition": f'attachment; filename="{safe_name}"',
             },
         )
 
-    # Asset is not present in local filesystem: redirect (302) to upstream GitHub Releases
+    # Asset is not present in local filesystem: resolve tag and check GitHub Release assets
     tag = ""
     if version:
         tag = version.strip()
 
+    gh_release = await _fetch_latest_github_release()
     if not tag:
         version_file = _UPDATES_DIR / "version.json"
         local_ver = ""
@@ -373,7 +407,6 @@ async def download_update(
                 pass
 
         gh_ver = ""
-        gh_release = _RELEASE_CACHE.get("data")
         if gh_release and "tag_name" in gh_release:
             gh_ver = str(gh_release["tag_name"]).strip().lstrip("vV")
 
@@ -389,9 +422,85 @@ async def download_update(
         if m:
             tag = m.group(1)
 
-    tag_name = tag if tag.startswith("v") else (f"v{tag}" if tag else "v1.0.35")
+    tag_name = tag if tag.startswith("v") else (f"v{tag}" if tag else "v1.0.66")
+
+    # Check if we can serve/redirect via GitHub Release Asset API (required when repo is private)
+    github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    matched_asset: dict[str, Any] | None = None
+    if gh_release and isinstance(gh_release.get("assets"), list):
+        for a in gh_release["assets"]:
+            if a.get("name") == safe_name:
+                matched_asset = a
+                break
+
+    if safe_name.endswith(".yml"):
+        now = time.time()
+        cache_key = (tag_name, safe_name)
+        cached = _YAML_CACHE.get(cache_key)
+        if cached and (now - cached[0] < GITHUB_CACHE_TTL):
+            return Response(
+                content=cached[1],
+                media_type="text/yaml; charset=utf-8",
+                headers={"Cache-Control": "no-cache"},
+            )
+        if matched_asset and matched_asset.get("url"):
+            try:
+                import httpx
+                headers = {
+                    "Accept": "application/octet-stream",
+                    "User-Agent": "Memento-Server-Updater/1.0",
+                }
+                if github_token:
+                    headers["Authorization"] = f"Bearer {github_token}"
+                async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
+                    resp = await client.get(matched_asset["url"], headers=headers)
+                    if resp.status_code == 200 and resp.content:
+                        _YAML_CACHE[cache_key] = (now, resp.content)
+                        return Response(
+                            content=resp.content,
+                            media_type="text/yaml; charset=utf-8",
+                            headers={"Cache-Control": "no-cache"},
+                        )
+            except Exception as e:
+                logger.warning("Failed to fetch YAML asset %s from GitHub API: %s", safe_name, e)
+
+        fallback_yaml = _synthesize_fallback_yaml(safe_name)
+        if fallback_yaml:
+            return Response(
+                content=fallback_yaml,
+                media_type="text/yaml; charset=utf-8",
+                headers={"Cache-Control": "no-cache"},
+            )
+
+    if matched_asset and matched_asset.get("url") and github_token:
+        try:
+            import httpx
+            headers = {
+                "Accept": "application/octet-stream",
+                "Authorization": f"Bearer {github_token}",
+                "User-Agent": "Memento-Server-Updater/1.0",
+            }
+            async with httpx.AsyncClient(follow_redirects=False, timeout=8.0) as client:
+                resp = await client.get(matched_asset["url"], headers=headers)
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    presigned_url = resp.headers.get("location")
+                    if presigned_url:
+                        return RedirectResponse(url=presigned_url, status_code=302)
+        except Exception as e:
+            logger.warning("Failed to resolve pre-signed GitHub asset URL for %s: %s", safe_name, e)
+
     target_url = f"https://github.com/{GITHUB_REPO}/releases/download/{tag_name}/{safe_name}"
     logger.info("Local update asset '%s' not found on server disk, redirecting 302 to upstream: %s", safe_name, target_url)
     return RedirectResponse(url=target_url, status_code=302)
+
+
+@router.get("/{filename}")
+async def generic_updater_file(
+    filename: str,
+    version: str | None = Query(None, description="Optional target release version"),
+):
+    """Serve electron-updater generic provider requests (e.g. latest.yml, latest-mac.yml, latest-linux.yml, and binary/blockmap files)."""
+    return await download_update(file=filename, version=version)
+
 
 

@@ -14,9 +14,8 @@ asarUnpack:
   - dist/mcp.mjs
   - assets/**
 publish:
-  provider: github
-  owner: ddong8
-  repo: memento
+  provider: generic
+  url: https://mem.ihasy.com/api/system/update
 mac:
   category: public.app-category.developer-tools
   target:

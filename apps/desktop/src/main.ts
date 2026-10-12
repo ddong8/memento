@@ -825,6 +825,11 @@ function createTray(): void {
 async function checkForUpdates(manual: boolean): Promise<void> {
   if (!app.isPackaged) return;
   try {
+    const baseUrl = (config?.serverUrl || "https://mem.ihasy.com").replace(/\/+$/, "");
+    autoUpdater.setFeedURL({
+      provider: "generic",
+      url: `${baseUrl}/api/system/update`,
+    });
     const result = await autoUpdater.checkForUpdates();
     if (manual && !result?.isUpdateAvailable) {
       void dialog.showMessageBox({ message: "已是最新版本", detail: `Memento ${app.getVersion()}` });

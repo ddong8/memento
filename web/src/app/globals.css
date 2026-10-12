@@ -733,17 +733,16 @@ aside input,
 @keyframes breathingGlow {
   0%, 100% {
     transform: scale(1);
-    opacity: 0.85;
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+    opacity: 0.75;
   }
   50% {
-    transform: scale(1.08);
+    transform: scale(1.12);
     opacity: 1;
-    box-shadow: 0 0 10px 3px rgba(16, 185, 129, 0.6);
   }
 }
 
 .breathing-glow-emerald {
+  box-shadow: 0 0 6px 1px rgba(16, 185, 129, 0.45);
   animation: breathingGlow 2.5s infinite ease-in-out;
 }
 
@@ -780,6 +779,11 @@ html, body {
   [class*="backdrop-blur"] {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+  }
+  /* 移动端关闭常驻装饰性无限动画，释放 iPhone ProMotion / Android LTPO 屏幕在静置时降频至 1Hz */
+  .breathing-glow-emerald,
+  .animate-ping {
+    animation: none !important;
   }
   .aurora-input input,
   .aurora-input select,

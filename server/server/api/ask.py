@@ -1218,17 +1218,23 @@ async def list_conversations(
     from ..services.ingest_service import _is_junk_or_uuid_title
 
     out_items = []
+    dirty_repaired = False
     for r in rows:
         cfg = dict(r.config or {})
         display_title = r.title or "新对话"
+        bad_title = _is_junk_or_uuid_title(display_title, cfg.get("session_id"))
 
         need_turns = (
-            not cfg.get("session_id")
-            or not cfg.get("execution_mode")
-            or cfg.get("execution_mode") == "ai"
-            or _is_junk_or_uuid_title(display_title, cfg.get("session_id"))
-        )
+            not cfg.get("_meta_scanned")
+            and (
+                not cfg.get("session_id")
+                or not cfg.get("execution_mode")
+                or cfg.get("execution_mode") == "ai"
+                or bad_title
+            )
+        ) or bad_title
 
+        conv_obj = None
         turns_list = None
         if need_turns:
             conv_obj = await db.get(AskConversation, r.id)
@@ -1268,6 +1274,13 @@ async def list_conversations(
                         display_title = c_text[:50]
                         break
 
+        if conv_obj is not None:
+            cfg["_meta_scanned"] = True
+            conv_obj.config = dict(cfg)
+            if display_title != (conv_obj.title or ""):
+                conv_obj.title = display_title
+            dirty_repaired = True
+
         out_items.append({
             "id": str(r.id),
             "title": display_title,
@@ -1278,6 +1291,12 @@ async def list_conversations(
             "config": cfg,
             "message_count": r.message_count or 0,
         })
+
+    if dirty_repaired:
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
     return out_items
 
 
@@ -1688,13 +1707,13 @@ async def get_conversation(
         if client_tag == server_tag:
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    sanitized_turns = _sanitize_turns_for_response(raw_turns, fallback_iso=updated_at_iso or created_at_iso)
-    if limit > 0 and len(sanitized_turns) > limit:
-        conv_turns = sanitized_turns[-limit:]
+    if limit > 0 and len(raw_turns) > limit:
+        sliced_raw = raw_turns[-limit:]
         has_more = True
     else:
-        conv_turns = sanitized_turns
+        sliced_raw = raw_turns
         has_more = False
+    conv_turns = _sanitize_turns_for_response(sliced_raw, fallback_iso=updated_at_iso or created_at_iso)
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "private, no-cache"

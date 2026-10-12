@@ -3745,7 +3745,7 @@ function AskPageContent() {
                 className="shrink-0"
               >
                 <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   <span className="hidden sm:inline">媒体视窗</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
@@ -3864,8 +3864,6 @@ function AskPageContent() {
           className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
           style={{
             contain: "content",
-            transform: "translateZ(0)",
-            willChange: "scroll-position",
             overscrollBehaviorY: "contain",
             userSelect: "text",
             WebkitUserSelect: "text",

@@ -38,7 +38,7 @@ win:
       arch: [x64]
     - target: zip
       arch: [x64]
-  icon: build/icon.png
+  icon: build/icon.ico
 nsis:
   oneClick: true
   perMachine: false

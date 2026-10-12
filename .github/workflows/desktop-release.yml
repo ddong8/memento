@@ -140,7 +140,9 @@ jobs:
 
       - name: Gradle assembleRelease
         working-directory: apps/mobile/android
-        run: ./gradlew app:assembleRelease --no-daemon
+        run: |
+          GRADLE_OPTS="-Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000"
+          ./gradlew app:assembleRelease --no-daemon $GRADLE_OPTS || ./gradlew app:assembleRelease --no-daemon $GRADLE_OPTS
 
       - name: Collect APK
         run: |
@@ -158,6 +160,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release & Update Version Metadata
     needs: [build-electron, build-android]
+    if: always() && needs.build-electron.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo for version metadata update

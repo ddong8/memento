@@ -126,6 +126,15 @@ async function loadApp(target?: string): Promise<void> {
   }
 }
 
+function getWindowIcon(): Electron.NativeImage | undefined {
+  if (process.platform === "darwin") return undefined;
+  const preferred = join(__dirname, "static", process.platform === "win32" ? "icon.ico" : "icon.png");
+  const img = nativeImage.createFromPath(preferred);
+  if (!img.isEmpty()) return img;
+  const fallback = nativeImage.createFromPath(join(__dirname, "static", "icon.png"));
+  return fallback.isEmpty() ? undefined : fallback;
+}
+
 function createWindow(show: boolean): void {
   win = new BrowserWindow({
     width: 1280,
@@ -134,6 +143,7 @@ function createWindow(show: boolean): void {
     minHeight: 520,
     show,
     title: "Memento",
+    icon: getWindowIcon(),
     // Matches the page while it loads, so there's no dark flash in light mode.
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0b12" : "#f6f5fb",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
@@ -292,10 +302,21 @@ function showNotification(title: string, body: string, targetUrl?: string): void
 
   if (Notification.isSupported()) {
     try {
-      const iconPath = join(__dirname, "static", "tray.png");
-      let icon = nativeImage.createFromPath(iconPath);
-      if (icon.isEmpty()) {
-        icon = nativeImage.createFromPath(join(__dirname, "static", "trayTemplate.png"));
+      const iconCandidates = [
+        join(__dirname, "static", "icon@2x.png"),
+        join(__dirname, "static", "icon.png"),
+        join(__dirname, "static", "tray@2x.png"),
+        join(__dirname, "static", "tray.png"),
+      ];
+      let icon = nativeImage.createEmpty();
+      for (const candidate of iconCandidates) {
+        if (existsSync(candidate)) {
+          const loaded = nativeImage.createFromPath(candidate);
+          if (!loaded.isEmpty()) {
+            icon = loaded;
+            break;
+          }
+        }
       }
       const notification = new Notification({
         title: title || "Memento · AI 执事",
@@ -803,9 +824,10 @@ function refreshTray(): void {
 
 function createTray(): void {
   const isMac = process.platform === "darwin";
+  const isWin = process.platform === "win32";
   // macOS menu bar standard: native 16x16 pt Template image (*Template.png).
-  // Windows/Linux system tray: 16x16 colored brand icon (tray.png).
-  const name = isMac ? "trayTemplate.png" : "tray.png";
+  // Windows system tray: multi-DPI .ico; Linux: high-DPI colored brand icon.
+  const name = isMac ? "trayTemplate.png" : isWin ? "icon.ico" : "icon.png";
   const iconPath = join(__dirname, "static", name);
   let icon = nativeImage.createFromPath(iconPath);
   if (icon.isEmpty()) {
@@ -814,8 +836,8 @@ function createTray(): void {
   if (isMac && !icon.isEmpty()) {
     icon = icon.resize({ width: 16, height: 16 });
     icon.setTemplateImage(true);
-  } else if (!icon.isEmpty()) {
-    icon = icon.resize({ width: 16, height: 16 });
+  } else if (!isMac && !isWin && !icon.isEmpty()) {
+    icon = icon.resize({ width: 32, height: 32, quality: "best" });
   }
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.on("click", () => showWindow());

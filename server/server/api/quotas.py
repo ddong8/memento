@@ -65,10 +65,11 @@ def get_cached_device_quotas(device_id: str | None = None) -> dict[str, Any] | N
         if device_id in _device_quotas:
             return _device_quotas[device_id]
         for k, v in _device_quotas.items():
-            if device_id.lower() in k.lower():
+            if device_id.lower() in k.lower() or k.lower() in device_id.lower():
                 return v
+        return None
 
-    # Fallback to latest global report
+    # Fallback to latest global report (only when no specific device is requested)
     if _latest_global_quotas:
         return _latest_global_quotas
 
@@ -137,7 +138,8 @@ async def get_agent_quotas(
     # 2. Try to query online machine
     machine_name = None
     target_mid = None
-    if device_id and device_id not in ("auto", "ask_only", "all"):
+    is_specific = bool(device_id and device_id not in ("auto", "ask_only", "all"))
+    if is_specific:
         try:
             conditions = [
                 Machine.name == device_id,
@@ -154,6 +156,13 @@ async def get_agent_quotas(
             if m_row:
                 machine_name = m_row.name
                 target_mid = str(m_row.id)
+                cached = (
+                    get_cached_device_quotas(m_row.collector_token_hash)
+                    or (get_cached_device_quotas(m_row.name) if m_row.name else None)
+                    or get_cached_device_quotas(str(m_row.id))
+                )
+                if cached:
+                    return cached
         except Exception as e:
             logger.warning("Error querying machine for quotas (%s): %s", device_id, e)
 
@@ -161,19 +170,29 @@ async def get_agent_quotas(
     try:
         from ..services.ws_manager import ws_manager
         dispatched = False
-        if target_mid and ws_manager.is_online(target_mid):
-            await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
-            dispatched = True
+        if is_specific:
+            target_key = None
+            if target_mid and ws_manager.is_online(target_mid):
+                target_key = target_mid
+            elif device_id and ws_manager.is_online(device_id):
+                target_key = device_id
+            if target_key:
+                await ws_manager.send_json(target_key, {"type": "get_agent_quotas"})
+                dispatched = True
         elif ws_manager.has_online_devices():
-            # broadcast to any online device
+            # broadcast to any online device when no specific device is targeted
             for mid in ws_manager.active_connections:
                 await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
             dispatched = True
 
         if dispatched:
-            for _ in range(8):
+            for _ in range(10):
                 await asyncio.sleep(0.1)
                 cached = get_cached_device_quotas(device_id)
+                if not cached and target_mid:
+                    cached = get_cached_device_quotas(target_mid)
+                if not cached and machine_name:
+                    cached = get_cached_device_quotas(machine_name)
                 if cached:
                     return cached
     except Exception as e:
@@ -195,8 +214,10 @@ async def refresh_agent_quotas(
     """Instruct online devices to immediately re-probe AI subscription quotas and return fresh report."""
     from ..services.ws_manager import ws_manager
 
+    machine_name = None
     target_mid = None
-    if device_id and device_id not in ("auto", "ask_only", "all"):
+    is_specific = bool(device_id and device_id not in ("auto", "ask_only", "all"))
+    if is_specific:
         try:
             conditions = [
                 Machine.name == device_id,
@@ -211,25 +232,45 @@ async def refresh_agent_quotas(
                 select(Machine).where(or_(*conditions))
             )).scalars().first()
             if m_row:
+                machine_name = m_row.name
                 target_mid = str(m_row.id)
         except Exception as e:
             logger.warning("Error querying machine for quota refresh (%s): %s", device_id, e)
 
     # Dispatch request to WS clients
+    dispatched = False
     try:
-        if target_mid and ws_manager.is_online(target_mid):
-            await ws_manager.send_json(target_mid, {"type": "get_agent_quotas"})
+        if is_specific:
+            target_key = None
+            if target_mid and ws_manager.is_online(target_mid):
+                target_key = target_mid
+            elif device_id and ws_manager.is_online(device_id):
+                target_key = device_id
+            if target_key:
+                await ws_manager.send_json(target_key, {"type": "get_agent_quotas"})
+                dispatched = True
         else:
             for mid in ws_manager.active_connections:
                 await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+            dispatched = True
     except Exception as e:
         logger.warning("Error dispatching refresh_agent_quotas over ws: %s", e)
 
     # Wait up to 1.5s for response
-    for _ in range(15):
-        await asyncio.sleep(0.1)
-        cached = get_cached_device_quotas(device_id)
-        if cached:
-            return cached
+    if dispatched:
+        for _ in range(15):
+            await asyncio.sleep(0.1)
+            cached = get_cached_device_quotas(device_id)
+            if not cached and target_mid:
+                cached = get_cached_device_quotas(target_mid)
+            if not cached and machine_name:
+                cached = get_cached_device_quotas(machine_name)
+            if cached:
+                return cached
 
-    return get_cached_device_quotas(device_id) or _make_fallback_report(device_id=device_id)
+    res = get_cached_device_quotas(device_id)
+    if not res and target_mid:
+        res = get_cached_device_quotas(target_mid)
+    if not res and machine_name:
+        res = get_cached_device_quotas(machine_name)
+    return res or _make_fallback_report(device_id=device_id, device_name=machine_name)

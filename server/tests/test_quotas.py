@@ -48,6 +48,14 @@ class QuotasCoordinatorTests(unittest.TestCase):
         self.assertIsNotNone(res3)
         self.assertEqual(res3["device_id"], "mac-uuid-1")
 
+        res_auto = get_cached_device_quotas("auto")
+        self.assertIsNotNone(res_auto)
+        self.assertEqual(res_auto["device_id"], "mac-uuid-1")
+
+        # Test lookup by unknown/non-matching device_id MUST return None
+        res_unknown = get_cached_device_quotas("non-existent-device-id")
+        self.assertIsNone(res_unknown)
+
     def test_ws_manager_online_helpers(self) -> None:
         from server.services.ws_manager import DeviceConnectionManager
         mgr = DeviceConnectionManager()

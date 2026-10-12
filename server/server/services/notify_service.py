@@ -287,6 +287,178 @@ async def send_apns_push(
     return delivered > 0
 
 
+async def send_apns_live_activity(
+    tokens: list[str],
+    event: str,
+    content_state: dict,
+    *,
+    attributes: dict | None = None,
+    alert: dict | None = None,
+    dismissal_date: int | None = None,
+    priority: str = "10",
+) -> bool:
+    """Send iOS ActivityKit / Dynamic Island liveactivity push via Apple APNs HTTP/2 gateway.
+
+    event: "start" | "update" | "end"
+    """
+    if not tokens:
+        return False
+
+    jwt_token = _get_apns_jwt()
+    if not jwt_token:
+        return False
+
+    valid_tokens = [
+        tok.strip()
+        for tok in tokens
+        if tok and len(tok.strip()) >= 32 and all(c in "0123456789abcdefABCDEF" for c in tok.strip())
+    ]
+    valid_tokens = list(dict.fromkeys(valid_tokens))
+    if not valid_tokens:
+        return False
+
+    bundle_id = getattr(settings, "apns_bundle_id", "com.ihasy.memento")
+    is_prod = getattr(settings, "apns_production", True)
+    now_ts = int(time.time())
+
+    aps_dict: dict = {
+        "timestamp": now_ts,
+        "event": event,
+        "content-state": content_state,
+    }
+    if event == "start" and attributes:
+        aps_dict["attributes-type"] = "MementoTaskAttributes"
+        aps_dict["attributes"] = attributes
+    if alert:
+        aps_dict["alert"] = alert
+    if dismissal_date is not None:
+        aps_dict["dismissal-date"] = dismissal_date
+
+    payload = {"aps": aps_dict}
+    headers = {
+        "authorization": f"bearer {jwt_token}",
+        "apns-topic": f"{bundle_id}.push-type.liveactivity",
+        "apns-push-type": "liveactivity",
+        "apns-priority": priority,
+        "apns-expiration": str(now_ts + 3600),
+    }
+
+    delivered = 0
+    hosts = ["api.push.apple.com", "api.sandbox.push.apple.com"] if is_prod else ["api.sandbox.push.apple.com", "api.push.apple.com"]
+
+    try:
+        async with httpx.AsyncClient(http2=True, timeout=8.0) as client:
+            for tok in valid_tokens:
+                for host in hosts:
+                    endpoint = f"https://{host}/3/device/{tok}"
+                    try:
+                        resp = await client.post(endpoint, json=payload, headers=headers)
+                        if resp.status_code == 200:
+                            delivered += 1
+                            break
+                        elif resp.status_code == 400 and "BadDeviceToken" in resp.text:
+                            continue
+                        else:
+                            logger.debug("APNs liveactivity (%s) to %s HTTP %s: %s", event, host, resp.status_code, resp.text[:160])
+                    except Exception as e:
+                        logger.debug("APNs liveactivity request error to %s: %s", host, e)
+    except Exception as e:
+        logger.debug("APNs liveactivity HTTP/2 client error: %s", e)
+
+    return delivered > 0
+
+
+async def push_live_activity_event(
+    user_id: uuid.UUID | str | None,
+    conversation_id: str,
+    event: str,
+    *,
+    status: str,
+    current_step: str,
+    step_count: int = 1,
+    tool_name: str | None = None,
+    elapsed_seconds: int = 0,
+    title: str = "",
+    engine: str = "AI",
+    device_name: str = "云端",
+    started_at_epoch: float | None = None,
+) -> bool:
+    """Dispatch start / update / end Live Activity push for a background task."""
+    if not user_id or not conversation_id:
+        return False
+    try:
+        async with async_session_factory() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            return False
+        prefs = user.notify_settings or {}
+        act_map: dict = prefs.get("live_activity_tokens") or {}
+        start_tokens: list = prefs.get("live_activity_start_tokens") or []
+
+        content_state = {
+            "status": status,
+            "currentStep": current_step[:90],
+            "stepCount": max(1, int(step_count)),
+            "toolName": tool_name,
+            "elapsedSeconds": max(0, int(elapsed_seconds)),
+        }
+
+        if event == "start":
+            # If the mobile device already registered a specific activity token for this conversation,
+            # update it instead of starting a duplicate activity via push-to-start.
+            act_tok = act_map.get(conversation_id)
+            if act_tok:
+                return await send_apns_live_activity(
+                    [act_tok],
+                    "update",
+                    content_state,
+                    priority="10",
+                )
+            if not start_tokens:
+                return False
+            attributes = {
+                "conversationId": conversation_id,
+                "title": (title or "后台任务")[:50],
+                "engine": engine or "AI",
+                "deviceName": device_name or "云端",
+                "startedAtEpoch": float(started_at_epoch or time.time()),
+            }
+            return await send_apns_live_activity(
+                start_tokens,
+                "start",
+                content_state,
+                attributes=attributes,
+                alert={
+                    "title": f"Memento · {engine or 'AI'} 任务已启动",
+                    "body": (title or current_step)[:60],
+                },
+                priority="10",
+            )
+
+        act_tok = act_map.get(conversation_id)
+        if not act_tok:
+            return False
+
+        if event == "end":
+            return await send_apns_live_activity(
+                [act_tok],
+                "end",
+                content_state,
+                dismissal_date=int(time.time()) + 180,
+                priority="10",
+            )
+
+        return await send_apns_live_activity(
+            [act_tok],
+            "update",
+            content_state,
+            priority="5" if status == "generating" else "10",
+        )
+    except Exception as e:
+        logger.debug("push_live_activity_event failed: %s", e)
+        return False
+
+
 async def send_expo_push(
     tokens: list[str],
     title: str,

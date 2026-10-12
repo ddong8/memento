@@ -146,6 +146,53 @@ async def unregister_device_token(
     return {"status": "ok", "unregistered": True}
 
 
+class LiveActivityTokenBody(BaseModel):
+    push_to_start_token: str | None = None
+    activity_push_token: str | None = None
+    conversation_id: str | None = None
+
+
+@router.post("/live-activity-token")
+async def register_live_activity_token(
+    body: LiveActivityTokenBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Register iOS ActivityKit pushToStartToken or per-conversation activity pushToken for Dynamic Island."""
+    prefs = dict(user.notify_settings or {})
+    changed = False
+
+    if body.push_to_start_token:
+        pts_tok = body.push_to_start_token.strip()
+        if pts_tok:
+            pts_list: list[str] = list(prefs.get("live_activity_start_tokens") or [])
+            if pts_tok not in pts_list:
+                pts_list.insert(0, pts_tok)
+                prefs["live_activity_start_tokens"] = pts_list[:5]
+                changed = True
+
+    if body.activity_push_token and body.conversation_id:
+        act_tok = body.activity_push_token.strip()
+        cid = body.conversation_id.strip()
+        if act_tok and cid:
+            act_map: dict[str, str] = dict(prefs.get("live_activity_tokens") or {})
+            act_map[cid] = act_tok
+            # Keep at most 20 recent conversation activity tokens
+            if len(act_map) > 20:
+                keys = list(act_map.keys())
+                for k in keys[:-20]:
+                    act_map.pop(k, None)
+            prefs["live_activity_tokens"] = act_map
+            changed = True
+
+    if changed:
+        user.notify_settings = prefs
+        await db.commit()
+
+    return {"status": "ok", "registered": changed}
+
+
+
 @router.get("/feed")
 async def get_notification_feed(
     request: Request,

@@ -13,6 +13,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  Settings,
   StyleSheet,
   Text,
   View,
@@ -244,10 +245,15 @@ export default function WebShell() {
     return () => sub.remove();
   }, []);
 
-  // Open destination URL when a native push notification is tapped
+  // Open destination URL when a native push notification or Dynamic Island deep link is tapped
   useEffect(() => {
-    const handleUrl = (target?: string) => {
-      if (!target) return;
+    const handleUrl = (rawTarget?: string | null) => {
+      if (!rawTarget) return;
+      let target = rawTarget.trim();
+      if (/^(?:memento|com\.ihasy\.memento):\/\//i.test(target)) {
+        target = target.replace(/^(?:memento|com\.ihasy\.memento):\/+/i, "/");
+      }
+      if (!target || target === "/") return;
       const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
       const path = target.startsWith("http") ? new URL(target).pathname : target.split("?")[0];
       const matched = TABS.find((tab) => path === tab.path || path.startsWith(tab.path + "/"));
@@ -268,6 +274,14 @@ export default function WebShell() {
       }
     };
 
+    void Linking.getInitialURL().then((initialUrl) => {
+      if (initialUrl) handleUrl(initialUrl);
+    });
+
+    const linkSub = Linking.addEventListener("url", (event) => {
+      if (event?.url) handleUrl(event.url);
+    });
+
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) {
         const c = response.notification.request.content;
@@ -286,7 +300,10 @@ export default function WebShell() {
       }
     });
 
-    return () => sub.remove();
+    return () => {
+      linkSub.remove();
+      sub.remove();
+    };
   }, [origin, initialLoaded]);
 
   const onNavigation = useCallback(
@@ -436,6 +453,15 @@ export default function WebShell() {
           const notifData = { url: (msg as any).url, ...((msg as any).data || {}) };
           void triggerLocalNotification(msg.title, msg.body || "", notifData);
         }
+      } else if (msg.type === "live_activity" && Platform.OS === "ios") {
+        try {
+          Settings.set({
+            memento_live_activity_cmd: JSON.stringify({
+              ...msg,
+              ts: Date.now(),
+            }),
+          });
+        } catch {}
       }
     } catch {
       // not ours

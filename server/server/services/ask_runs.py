@@ -75,12 +75,27 @@ class AskRun:
         self.current_step = "正在启动任务..."
         self.step_type = "init"
         self.tool_name: str | None = None
+        self.step_count = 1
+        self._last_la_push_at = 0.0
+        self._last_la_step = ""
         self.task: asyncio.Task | None = None
         # Clients from before background runs stop a task by dropping the
         # connection, and they never send a request id. Keep that meaning for them.
         self.cancel_on_disconnect = request_id is None
         self._bytes = 0
         self._cond = asyncio.Condition()
+
+    def engine_label(self) -> str:
+        m = (self.execution_mode or "").lower()
+        if "claude" in m:
+            return "Claude"
+        if "antigravity" in m or "agy" in m:
+            return "AGY"
+        if "codex" in m:
+            return "Codex"
+        if "shell" in m:
+            return "Shell"
+        return "AI"
 
     def summary(self) -> dict:
         elapsed = round((self.finished_at or time.time()) - self.started_at, 1)
@@ -100,6 +115,7 @@ class AskRun:
             "current_step": self.current_step,
             "step_type": self.step_type,
             "tool_name": self.tool_name,
+            "step_count": self.step_count,
             "events": len(self.frames),
         }
 
@@ -108,6 +124,7 @@ class AskRun:
         if not frame.startswith("data:") or '"type": "ping"' in frame:
             return
 
+        should_push_la = False
         try:
             payload = json.loads(frame[5:].strip())
             evt_type = payload.get("type")
@@ -117,7 +134,8 @@ class AskRun:
                 if t:
                     self.title = t
             elif evt_type == "tool_call":
-                self.step_type = "tool_call"
+                self.step_type = "tool"
+                self.step_count += 1
                 name = payload.get("name") or "tool"
                 self.tool_name = name
                 args = payload.get("args") or {}
@@ -132,35 +150,63 @@ class AskRun:
                         self.current_step = f"调用工具: {name}"
                 else:
                     self.current_step = f"调用工具: {name}"
+                should_push_la = True
             elif evt_type == "task_progress":
-                self.step_type = "task_progress"
+                self.step_type = "executing"
                 status = payload.get("status") or ""
                 if status:
                     self.current_step = f"执行进度: {status}"
+                    should_push_la = True
             elif evt_type == "task_chunk":
                 self.step_type = "executing"
                 if not self.current_step.startswith("正在执行"):
                     self.current_step = f"正在执行工具任务 ({self.tool_name or 'device'})..."
+                    should_push_la = True
             elif evt_type == "tool_result":
                 self.step_type = "tool_result"
                 self.current_step = f"工具 {self.tool_name or ''} 执行完毕，整理输出..."
+                should_push_la = True
             elif evt_type == "thinking":
-                self.step_type = "thinking"
-                self.current_step = "正在深度思考与推演..."
+                if self.step_type != "thinking":
+                    self.step_type = "thinking"
+                    self.current_step = "正在深度思考与推演..."
+                    should_push_la = True
             elif evt_type == "delta":
-                self.step_type = "generating"
-                if self.current_step != "正在生成回复...":
+                if self.step_type != "generating":
+                    self.step_type = "generating"
                     self.current_step = "正在生成回复..."
+                    should_push_la = True
             elif evt_type == "error":
                 self.step_type = "error"
                 self.failed = True
                 msg = payload.get("message") or "出错了"
                 self.current_step = f"发生错误: {msg[:40]}"
+                should_push_la = True
             elif evt_type == "done":
                 self.step_type = "done"
                 self.current_step = "任务完成"
         except Exception:
             pass
+
+        if should_push_la and self.current_step != self._last_la_step:
+            now_ts = time.time()
+            if (now_ts - self._last_la_push_at >= 1.8) or self.step_type in ("tool", "error"):
+                self._last_la_push_at = now_ts
+                self._last_la_step = self.current_step
+                notify_service.spawn(
+                    notify_service.push_live_activity_event(
+                        self.user_id,
+                        self.conversation_id,
+                        "update",
+                        status=self.step_type,
+                        current_step=self.current_step,
+                        step_count=self.step_count,
+                        tool_name=self.tool_name,
+                        elapsed_seconds=int(now_ts - self.started_at),
+                        title=self.title or (self.question[:40] if self.question else "后台任务"),
+                        engine=self.engine_label(),
+                    )
+                )
 
         if '"type": "error"' in frame:
             self.failed = True
@@ -276,7 +322,32 @@ class AskRunRegistry:
         self._runs[conversation_id] = run
         run.task = asyncio.create_task(self._pump(run, factory))
         run.task.add_done_callback(lambda _: self._ensure_finished(run))
+        notify_service.spawn(self._notify_live_activity_start(run))
         return run
+
+    async def _notify_live_activity_start(self, run: AskRun) -> None:
+        # Wait 1.0s so if the mobile WebView started the Live Activity locally and registered its
+        # per-conversation activity token, we update it instead of push-to-starting a duplicate.
+        await asyncio.sleep(1.0)
+        if run.done:
+            return
+        from .task_alerts import display_device_name
+        dev_label = display_device_name(run.device_name) if run.device_name else "云端"
+        title_str = run.title or (run.question.strip().splitlines() or ["后台任务"])[0][:45]
+        await notify_service.push_live_activity_event(
+            run.user_id,
+            run.conversation_id,
+            "start",
+            status=run.step_type if run.step_type != "init" else "running",
+            current_step=run.current_step,
+            step_count=run.step_count,
+            tool_name=run.tool_name,
+            elapsed_seconds=int(time.time() - run.started_at),
+            title=title_str,
+            engine=run.engine_label(),
+            device_name=dev_label,
+            started_at_epoch=run.started_at,
+        )
 
     def _ensure_finished(self, run: AskRun) -> None:
         """A task cancelled before its first step never enters _pump's try block,
@@ -338,6 +409,20 @@ class AskRunRegistry:
                 await run.append(_frame({"type": "done"}))
             await run.finish()
             asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
+            notify_service.spawn(
+                notify_service.push_live_activity_event(
+                    run.user_id,
+                    run.conversation_id,
+                    "end",
+                    status="error" if run.failed else ("cancelled" if run.cancelled else "done"),
+                    current_step=run.current_step,
+                    step_count=run.step_count,
+                    tool_name=run.tool_name,
+                    elapsed_seconds=int((run.finished_at or time.time()) - run.started_at),
+                    title=run.title or (run.question[:40] if run.question else "后台任务"),
+                    engine=run.engine_label(),
+                )
+            )
             if not run.cancelled and (run.finished_at - run.started_at >= 0.5):
                 notify_service.spawn(self._notify_finished(run))
 

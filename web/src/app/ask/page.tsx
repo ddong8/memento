@@ -2523,6 +2523,53 @@ function AskPageContent() {
     const decoder = new TextDecoder();
     let buffer = "";
     let sawDone = false;
+    let laStepCount = 1;
+    let laLastStatus = "";
+    let laStartedSent = false;
+    const laStartEpoch = Math.floor(Date.now() / 1000);
+
+    const postLiveActivity = (
+      action: "start" | "update" | "end",
+      patch: {
+        conversationId?: string;
+        status: string;
+        currentStep: string;
+        toolName?: string | null;
+      },
+    ) => {
+      try {
+        const w = typeof window !== "undefined" ? (window as any) : null;
+        if (!w?.ReactNativeWebView?.postMessage) return;
+        const cid = patch.conversationId || cursor.convId || activeConversationIdRef.current;
+        if (!cid) return;
+        const eng =
+          executionMode === "claude"
+            ? "Claude"
+            : executionMode === "antigravity"
+            ? "AGY"
+            : executionMode === "codex"
+            ? "Codex"
+            : executionMode === "shell"
+            ? "Shell"
+            : "AI";
+        const qTitle = (lastSentQuestionRef.current || "后台任务").replace(/\s+/g, " ").trim().slice(0, 45);
+        w.ReactNativeWebView.postMessage(
+          JSON.stringify({
+            type: "live_activity",
+            action,
+            conversationId: cid,
+            title: qTitle || "后台任务",
+            engine: eng,
+            deviceName: selectedDevice ? "远程设备" : "云端",
+            status: patch.status,
+            currentStep: patch.currentStep.slice(0, 85),
+            stepCount: laStepCount,
+            toolName: patch.toolName || null,
+            startedAtEpoch: laStartEpoch,
+          }),
+        );
+      } catch {}
+    };
 
     const handleFrame = (frame: string) => {
       const lines = frame.split("\n");
@@ -2533,6 +2580,7 @@ function AskPageContent() {
       let evt: {
         type: string;
         id?: string;
+        conversation_id?: string;
         tool_call_id?: string;
         text?: string;
         sources?: Source[];
@@ -2558,7 +2606,17 @@ function AskPageContent() {
         return;
       }
 
-      if (evt.type === "conversation_id" && evt.id) {
+      if (evt.type === "run_started" && evt.conversation_id) {
+        cursor.convId = evt.conversation_id;
+        if (!laStartedSent) {
+          laStartedSent = true;
+          postLiveActivity("start", {
+            conversationId: evt.conversation_id,
+            status: "running",
+            currentStep: "正在启动任务...",
+          });
+        }
+      } else if (evt.type === "conversation_id" && evt.id) {
         cursor.convId = evt.id;
         activeConversationIdRef.current = evt.id;
         setActiveConversationId(evt.id);
@@ -2569,6 +2627,14 @@ function AskPageContent() {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("memento_active_chat_change", { detail: { id: evt.id } }));
           window.dispatchEvent(new CustomEvent("memento_ask_start", { detail: { conversation_id: evt.id } }));
+        }
+        if (!laStartedSent) {
+          laStartedSent = true;
+          postLiveActivity("start", {
+            conversationId: evt.id,
+            status: "running",
+            currentStep: "正在启动任务...",
+          });
         }
         if (evt.user_created_at) {
           const cur = [...turnsRef.current];
@@ -2595,9 +2661,20 @@ function AskPageContent() {
       } else if (evt.type === "sources") {
         patchLast((x) => ({ ...x, sources: evt.sources ?? [] }));
       } else if (evt.type === "tool_call") {
+        laStepCount += 1;
+        laLastStatus = "tool";
+        const callObj = evt.call || ({} as any);
+        const tName = evt.name || callObj.name || "tool";
+        const tArgs = (evt.args || callObj.args || {}) as Record<string, unknown>;
+        const cmdRaw = String(tArgs.command || tArgs.prompt || tArgs.code || "").replace(/\s+/g, " ").trim();
+        const stepDesc = cmdRaw ? `调用工具: ${tName} (${cmdRaw.slice(0, 36)})` : `调用工具: ${tName}`;
+        postLiveActivity("update", {
+          status: "tool",
+          currentStep: stepDesc,
+          toolName: tName,
+        });
         patchLast((x) => {
           const calls = [...(x.toolCalls || [])];
-          const callObj = evt.call || ({} as any);
           const callId = evt.id || evt.tool_call_id || callObj.id || `call_${Date.now()}`;
           if (!calls.some((c) => c.id === callId)) {
             calls.push({
@@ -2610,6 +2687,13 @@ function AskPageContent() {
           return { ...x, toolCalls: calls };
         });
       } else if (evt.type === "task_progress") {
+        if (evt.status) {
+          laLastStatus = "executing";
+          postLiveActivity("update", {
+            status: "executing",
+            currentStep: `执行进度: ${evt.status}`,
+          });
+        }
         patchLast((x) => {
           const calls = [...(x.toolCalls || [])];
           let idx = -1;
@@ -2772,11 +2856,29 @@ function AskPageContent() {
           return { ...x, toolCalls: calls };
         });
       } else if (evt.type === "thinking" && evt.text) {
+        if (laLastStatus !== "thinking") {
+          laLastStatus = "thinking";
+          postLiveActivity("update", {
+            status: "thinking",
+            currentStep: "正在深度思考与推演...",
+          });
+        }
         patchLast((x) => ({ ...x, thinking: (x.thinking || "") + evt.text }));
       } else if (evt.type === "delta" && evt.text) {
+        if (laLastStatus !== "generating") {
+          laLastStatus = "generating";
+          postLiveActivity("update", {
+            status: "generating",
+            currentStep: "正在生成回复...",
+          });
+        }
         patchLast((x) => ({ ...x, content: x.content + evt.text }));
       } else if (evt.type === "done") {
         sawDone = true;
+        postLiveActivity("end", {
+          status: "done",
+          currentStep: "任务完成",
+        });
         const doneIso = evt.assistant_created_at || new Date().toISOString();
         patchLast((x) => {
           const startIso = normalizeIsoTimestamp(x.started_at);
@@ -2794,6 +2896,10 @@ function AskPageContent() {
           };
         });
       } else if (evt.type === "error") {
+        postLiveActivity("end", {
+          status: "error",
+          currentStep: `发生错误: ${(evt.message || t.ask.error || "").slice(0, 36)}`,
+        });
         patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true, created_at: x.created_at || new Date().toISOString() }));
       }
     };
@@ -2816,7 +2922,7 @@ function AskPageContent() {
       } catch {}
     }
     return sawDone;
-  }, [patchLast, persistCurrentConfig, t]);
+  }, [patchLast, persistCurrentConfig, t, executionMode, selectedDevice]);
 
   // Reattach to a run from the last event seen, until it ends.
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {

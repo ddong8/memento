@@ -16,6 +16,8 @@
         "NSPhotoLibraryUsageDescription": "Memento 需要访问相册以选取照片生成专属卡通数字孪生形象或更换头像。",
         "NSCameraUsageDescription": "Memento 需要使用相机以拍摄照片生成专属卡通数字孪生形象或头像。",
         "NSPhotoLibraryAddUsageDescription": "Memento 需要保存生成的数字孪生形象卡片或导出的知识图谱至相册。",
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -67,7 +69,8 @@
             "backgroundColor": "#0B0B12"
           }
         }
-      ]
+      ],
+      "./plugins/withLiveActivity.js"
     ],
     "scheme": "memento",
     "experiments": {

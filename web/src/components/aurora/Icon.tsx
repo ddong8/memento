@@ -112,6 +112,7 @@ export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
   openclaw:    { h: 0,   bg: "linear-gradient(135deg,#FF5E5E,#DC2626)" },
   codex:       { h: 160, bg: "linear-gradient(135deg,#34D399,#10A37F)" },
   antigravity: { h: 220, bg: "linear-gradient(135deg,#1E293B,#0F172A)" },
+  workbuddy:   { h: 165, bg: "linear-gradient(135deg,#0EC7A8,#00C885)" },
   obsidian:    { h: 260, bg: "linear-gradient(135deg,#A78BFA,#7C3AED)" },
   cursor:      { h: 220, bg: "linear-gradient(135deg,#1E293B,#090D16)" },
   windsurf:    { h: 170, bg: "linear-gradient(135deg,#2DD4BF,#0D9488)" },
@@ -121,7 +122,7 @@ export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
 
 export const TOOL_ICON_NAME: Record<string, IconName> = {
   claude_code: "sparkles", openclaw: "octopus", codex: "box",
-  antigravity: "rocket", obsidian: "diamond", cursor: "lightning",
+  antigravity: "rocket", workbuddy: "sparkles", obsidian: "diamond", cursor: "lightning",
   windsurf: "surf", vscode: "code", hermes: "zap",
 };
 

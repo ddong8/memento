@@ -6,6 +6,7 @@ import https from "node:https";
 
 import { homeDir } from "./config.js";
 import { findExecutable } from "./exec-env.js";
+import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 
 export interface QuotaModelItem {
   label: string;
@@ -16,7 +17,7 @@ export interface QuotaModelItem {
 }
 
 export interface ToolQuotaInfo {
-  tool: "antigravity" | "claude_code" | "codex";
+  tool: "antigravity" | "claude_code" | "codex" | "workbuddy";
   name: string;
   available: boolean;
   logged_in?: boolean;
@@ -39,6 +40,7 @@ export interface DeviceQuotasReport {
     antigravity?: ToolQuotaInfo;
     claude_code?: ToolQuotaInfo;
     codex?: ToolQuotaInfo;
+    workbuddy?: ToolQuotaInfo;
   };
 }
 
@@ -520,12 +522,109 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
   }
 }
 
-/** Aggregates quotas for all three AI tools on this device. */
+/** Probe Tencent WorkBuddy for active account & local gateway info. */
+export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaInfo> {
+  try {
+    if (!isWorkbuddyInstalled(home)) {
+      return {
+        tool: "workbuddy",
+        name: "WorkBuddy",
+        available: false,
+        error: "未安装 WorkBuddy",
+      };
+    }
+
+    let nickname = "";
+    let uid = "";
+    let editionType = "free";
+    let isPro = false;
+
+    const snapPath = join(home, ".workbuddy", "storage", "skeleton", "account-snapshot.json");
+    if (existsSync(snapPath)) {
+      try {
+        const snap = JSON.parse(await readFile(snapPath, "utf8"));
+        const primary = snap?.primary || {};
+        nickname = String(primary.nickname || "").trim();
+        uid = String(primary.uid || "").trim();
+        editionType = String(primary.editionType || "free").trim();
+        isPro = Boolean(primary.isPro);
+      } catch {}
+    }
+
+    const gateway = await discoverWorkbuddyGateway(home);
+    const models: QuotaModelItem[] = [];
+    const modelsConfigPath = join(home, ".workbuddy", "models.json");
+    if (existsSync(modelsConfigPath)) {
+      try {
+        const mc = JSON.parse(await readFile(modelsConfigPath, "utf8"));
+        for (const m of mc?.models || []) {
+          if (m?.id) {
+            models.push({
+              label: `${m.name || m.id} (${m.vendor || "自定义"})`,
+              model_id: m.id.startsWith("custom-local:") ? m.id : `custom-local:${m.id}`,
+              remaining_fraction: 1,
+              remaining_percent: 100,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    models.push(
+      { label: "极致 (Deep Model)", model_id: "deep-model", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "均衡 (Balanced Model)", model_id: "balanced-model", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "快速 (Fast Model)", model_id: "fast-model", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "Tencent HY 4.0 Preview", model_id: "hy4-preview", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "DeepSeek V4 Pro", model_id: "deepseek-v4-pro", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "GLM-5.3", model_id: "glm-5.3", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "Kimi-K3.1", model_id: "kimi-k3-1", remaining_fraction: 1, remaining_percent: 100 },
+    );
+
+    if (!gateway && !uid && !nickname) {
+      return {
+        tool: "workbuddy",
+        name: "WorkBuddy",
+        available: false,
+        error: "WorkBuddy 本地服务未运行",
+      };
+    }
+
+    return {
+      tool: "workbuddy",
+      name: "WorkBuddy",
+      available: true,
+      logged_in: Boolean(uid || nickname || gateway),
+      account_name: nickname || "WorkBuddy 用户",
+      account_email: uid ? `UID: ${uid.slice(0, 8)}...` : "",
+      plan_name: isPro ? "WorkBuddy Pro" : "WorkBuddy 个人版",
+      tier: (isPro ? "PRO" : editionType || "FREE").toUpperCase(),
+      remaining_percent: isPro ? 100 : null,
+      reset_time: null,
+      models,
+      details: {
+        gateway_online: Boolean(gateway),
+        gateway_endpoint: gateway?.endpoint,
+        gateway_version: gateway?.version,
+        is_free_tier: !isPro,
+      },
+    };
+  } catch (err: any) {
+    return {
+      tool: "workbuddy",
+      name: "WorkBuddy",
+      available: false,
+      error: err.message,
+    };
+  }
+}
+
+/** Aggregates quotas for all AI tools on this device. */
 export async function probeAllQuotas(home = homeDir()): Promise<DeviceQuotasReport> {
-  const [agy, claude, codex] = await Promise.all([
+  const [agy, claude, codex, wb] = await Promise.all([
     probeAntigravityQuota(),
     probeClaudeCodeQuota(home),
     probeCodexQuota(home),
+    probeWorkbuddyQuota(home),
   ]);
 
   return {
@@ -534,6 +633,7 @@ export async function probeAllQuotas(home = homeDir()): Promise<DeviceQuotasRepo
       antigravity: agy,
       claude_code: claude,
       codex: codex,
+      workbuddy: wb,
     },
   };
 }

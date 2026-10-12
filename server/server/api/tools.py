@@ -92,8 +92,8 @@ async def list_tools(
 
 TOOL_DISPLAY_NAMES = {
     "claude_code": "Claude Code", "openclaw": "OpenClaw", "codex": "Codex",
-    "antigravity": "Antigravity", "obsidian": "Obsidian", "cursor": "Cursor",
-    "windsurf": "Windsurf", "vscode": "VS Code", "hermes": "Hermes",
+    "antigravity": "Antigravity", "workbuddy": "WorkBuddy", "obsidian": "Obsidian",
+    "cursor": "Cursor", "windsurf": "Windsurf", "vscode": "VS Code", "hermes": "Hermes",
 }
 
 

@@ -432,6 +432,7 @@ function normalizeDesktopAppName(raw: string): string {
 
   if (lower.includes("cursor")) return "Cursor";
   if (lower.includes("antigravity")) return "Antigravity";
+  if (lower.includes("workbuddy")) return "WorkBuddy";
   if (lower === "code" || lower === "vscode" || lower.includes("visual studio code")) return "VS Code";
   if (lower.includes("chrome")) return "Google Chrome";
   if (lower.includes("edge")) return "Microsoft Edge";
@@ -473,6 +474,7 @@ async function getFrontmostAppName(): Promise<string | null> {
       const [rawName, bundleId] = trimmed.split(":::");
       let name = (rawName || "").trim();
       if (bundleId === "com.google.antigravity" || name === "Antigravity") name = "Antigravity";
+      else if (bundleId?.includes("workbuddy") || name.toLowerCase().includes("workbuddy")) name = "WorkBuddy";
       else if (bundleId === "com.microsoft.VSCode" || name === "Code") name = "VS Code";
       else if (bundleId === "com.google.Chrome") name = "Google Chrome";
       else if (bundleId === "com.tencent.xinWeChat") name = "微信";

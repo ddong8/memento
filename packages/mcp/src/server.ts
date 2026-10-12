@@ -124,7 +124,7 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       inputSchema: {
         query: z.string().describe("Natural language search query"),
         limit: z.number().int().optional().describe("Max results to return (default 5)"),
-        tool_filter: z.string().optional().describe("Optional tool filter (claude_code, codex, cursor, antigravity, openclaw, obsidian)"),
+        tool_filter: z.string().optional().describe("Optional tool filter (claude_code, codex, cursor, antigravity, workbuddy, openclaw, obsidian)"),
         days: z.number().int().optional().describe("Optional time filter — only search last N days"),
       },
     },

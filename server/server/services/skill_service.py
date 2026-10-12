@@ -29,7 +29,7 @@ _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 # Which skills folder each profile target implies. Codex and Gemini CLI both read
 # ~/.agents/skills; Claude Code reads ~/.claude/skills.
-SKILL_DIR_FOR_TARGET = {"claude_code": "claude", "codex": "agents", "antigravity": "agents"}
+SKILL_DIR_FOR_TARGET = {"claude_code": "claude", "codex": "agents", "antigravity": "agents", "workbuddy": "workbuddy"}
 
 
 def is_valid_slug(slug: str) -> bool:

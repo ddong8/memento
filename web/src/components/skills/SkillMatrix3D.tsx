@@ -30,6 +30,7 @@ const TERMINAL_TARGETS = [
   { id: "claude_code", label: "Claude Code", color: 0xd97706, colorHex: "#D97706" },
   { id: "antigravity", label: "Antigravity", color: 0x3b82f6, colorHex: "#3B82F6" },
   { id: "codex", label: "Codex", color: 0x10b981, colorHex: "#10B981" },
+  { id: "workbuddy", label: "WorkBuddy", color: 0x0ec7a8, colorHex: "#0EC7A8" },
   { id: "openclaw", label: "OpenClaw", color: 0x8b5cf6, colorHex: "#8B5CF6" },
   { id: "hermes", label: "Hermes", color: 0xec4899, colorHex: "#EC4899" },
 ];

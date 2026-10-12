@@ -56,6 +56,7 @@ const TARGET_META: Record<string, { label: string; file: string; desc: string }>
   claude_code: { label: "Claude Code", file: "~/.claude/CLAUDE.md", desc: "Anthropic 官方终端 Agent" },
   antigravity: { label: "Antigravity / Gemini", file: "~/.gemini/GEMINI.md", desc: "Google DeepMind 编码助手" },
   codex: { label: "Codex", file: "~/.codex/AGENTS.md", desc: "OpenAI 智能体规范" },
+  workbuddy: { label: "WorkBuddy", file: "~/.workbuddy/MEMORY.md", desc: "腾讯全场景智能体工作台" },
   openclaw: { label: "OpenClaw", file: "~/.openclaw/workspace/USER.md", desc: "开源智能体工作区" },
   hermes: { label: "Hermes", file: "~/.hermes/SOUL.md", desc: "多代理自进化中枢" },
 };

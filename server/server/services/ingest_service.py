@@ -51,6 +51,7 @@ TOOL_DISPLAY_NAMES = {
     "openclaw": "OpenClaw",
     "codex": "Codex",
     "antigravity": "Antigravity",
+    "workbuddy": "WorkBuddy",
     "obsidian": "Obsidian",
     "cursor": "Cursor",
     "hermes": "Hermes",
@@ -577,7 +578,7 @@ async def ingest_file(
                     new_title = f"审核: {parent_title}" if tool_id == "codex" else parent_title
                     is_valid_new_title = True
 
-            if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code", "codex")) and existing_doc.title != new_title:
+            if is_valid_new_title and (is_title_junk or tool_id in ("antigravity", "claude_code", "codex", "workbuddy")) and existing_doc.title != new_title:
                 existing_doc.title = new_title
                 await db.flush()
 

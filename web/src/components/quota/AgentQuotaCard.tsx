@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { api, type AgentQuotasResponse } from "@/lib/api-client";
 import { Glass, Btn } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { BrandMark } from "@/components/aurora/BrandMark";
 
 interface AgentQuotaCardProps {
   deviceId?: string;
@@ -60,6 +61,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
   const agy = tools.antigravity;
   const claude = tools.claude_code;
   const codex = tools.codex;
+  const workbuddy = tools.workbuddy;
 
   return (
     <Glass className="p-6">
@@ -405,6 +407,88 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                   <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
                     <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
                     <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* WorkBuddy Card */}
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: 14,
+            border: "1px solid var(--aurora-border)",
+            background: "var(--aurora-card)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: "rgba(14, 199, 168, 0.12)",
+                  color: "#0EC7A8",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <BrandMark id="workbuddy" size={18} colored />
+              </div>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                  WorkBuddy
+                </div>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                  {workbuddy?.account_name
+                    ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
+                    : "腾讯全场景智能体工作台"}
+                </div>
+              </div>
+            </div>
+
+            <span
+              style={{
+                fontSize: 10.5,
+                padding: "2px 7px",
+                borderRadius: 999,
+                background: "rgba(14, 199, 168, 0.15)",
+                color: "#0EC7A8",
+                fontWeight: 600,
+              }}
+            >
+              {workbuddy?.plan_name || "WorkBuddy"}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11.5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+              <span>授权状态</span>
+              <span style={{ color: workbuddy?.available ? "#22C55E" : "var(--aurora-fg4)", fontWeight: 500 }}>
+                {workbuddy?.available ? "✓ 正常登录授权" : "未检测到凭证"}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+              <span>订阅计划</span>
+              <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{workbuddy?.tier || "CN"}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+              <span>协议连接</span>
+              <span style={{ color: "var(--aurora-fg4)" }}>Local Gateway ACP</span>
+            </div>
+            {workbuddy?.models && workbuddy.models.length > 0 && (
+              <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
+                {workbuddy.models.map((m, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
+                    <span style={{ fontWeight: 600, color: "#0EC7A8" }}>{m.remaining_percent}%</span>
                   </div>
                 ))}
               </div>

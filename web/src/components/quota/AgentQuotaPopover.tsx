@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { api, type AgentQuotasResponse, type ToolQuotaInfo } from "@/lib/api-client";
 import { Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { BrandMark } from "@/components/aurora/BrandMark";
 
 interface AgentQuotaPopoverProps {
   deviceId?: string;
@@ -56,6 +57,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
   const [expandedAgy, setExpandedAgy] = useState(true);
   const [expandedClaude, setExpandedClaude] = useState(true);
   const [expandedCodex, setExpandedCodex] = useState(false);
+  const [expandedWorkbuddy, setExpandedWorkbuddy] = useState(false);
   const [, startTransition] = useTransition();
 
   const loadQuotas = async (forceRefresh = false) => {
@@ -90,6 +92,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
   const agy = tools.antigravity;
   const claude = tools.claude_code;
   const codex = tools.codex;
+  const workbuddy = tools.workbuddy;
 
   return (
     <div
@@ -851,6 +854,168 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     }}
                   >
                     {codex.models.map((m, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          fontSize: 11.5,
+                          padding: "2px 0",
+                        }}
+                      >
+                        <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>{m.model_id}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Tool Card: WorkBuddy */}
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: 14,
+              border: "1px solid var(--aurora-border)",
+              background: "var(--aurora-card)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    background: "rgba(14, 199, 168, 0.12)",
+                    color: "#0EC7A8",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <BrandMark id="workbuddy" size={18} colored />
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                    WorkBuddy
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
+                    {workbuddy?.account_name
+                      ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
+                      : (workbuddy?.available ? "腾讯全场景智能体工作台" : "未检测到本地凭据")}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background: "rgba(14, 199, 168, 0.15)",
+                    color: "#0EC7A8",
+                    fontWeight: 600,
+                  }}
+                >
+                  {workbuddy?.plan_name || "WorkBuddy"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    background: workbuddy?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                    color: workbuddy?.available ? "#22C55E" : "#EF4444",
+                    fontWeight: 500,
+                  }}
+                >
+                  {workbuddy?.available ? "已连接" : "未运行"}
+                </span>
+              </div>
+            </div>
+
+            {!workbuddy?.available && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#EF4444",
+                  background: "rgba(239, 68, 68, 0.08)",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                }}
+              >
+                {workbuddy?.error || "未检测到 WorkBuddy 账号快照或本地网关。"}
+              </div>
+            )}
+
+            {workbuddy?.available && (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  background: "rgba(0, 0, 0, 0.12)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: "var(--aurora-fg3)" }}>本地网关状态</span>
+                  <span style={{ fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                    {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 守护进程在线" : "账号已授权 (按需唤醒)"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
+                  支持 GLM-5.1、DeepSeek V3.2、Kimi K2.5、Hunyuan 2.0 及自定义 BYOK 模型直连。
+                </div>
+              </div>
+            )}
+
+            {workbuddy?.available && workbuddy?.models && workbuddy.models.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedWorkbuddy(!expandedWorkbuddy)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    fontSize: 11.5,
+                    color: "var(--aurora-accent)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <span>{expandedWorkbuddy ? "收起可用模型" : `查看可用模型 (${workbuddy.models.length})`}</span>
+                  <Icon name={expandedWorkbuddy ? "chevron_up" : "chevron_down"} size={12} />
+                </button>
+
+                {expandedWorkbuddy && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(0, 0, 0, 0.15)",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {workbuddy.models.map((m, idx) => (
                       <div
                         key={idx}
                         style={{

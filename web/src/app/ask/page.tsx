@@ -16,7 +16,7 @@ import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 import { AgentQuotaPopover } from "@/components/quota/AgentQuotaPopover";
 
-export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "shell";
+export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "shell";
 
 import type { AgentCapabilities, AgentModelOption, AgentEffortOption } from "@/lib/api-client";
 
@@ -65,6 +65,22 @@ export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: str
     { id: "flash", name: "Gemini Flash (快速推荐)", desc: "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)" },
     { id: "pro", name: "Gemini Pro (强力推理)", desc: "标准 Pro 阶梯 (自动映射最新 Gemini 3.1 Pro / Claude)" },
     { id: "flash_lite", name: "Gemini Flash-Lite (超轻量)", desc: "超轻量阶梯 (自动映射 Gemini 3.6 Flash)" },
+  ],
+  workbuddy: [
+    { id: "", name: "⚡ 默认模型 (Auto: 自动匹配最优模型)", desc: "使用 WorkBuddy 智能路由与本地默认模型" },
+    { id: "auto-chat", name: "Auto (智能路由自动选择)", desc: "WorkBuddy 官方智能路由模型" },
+    { id: "glm-5.1", name: "GLM-5.1 (智谱最新旗舰)", desc: "智谱 GLM-5.1 200K 上下文深度推理与工具调用" },
+    { id: "deepseek-v3.2", name: "DeepSeek V3.2 (深度求索旗舰)", desc: "DeepSeek V3.2 深度思考与全栈编码模型" },
+    { id: "kimi-k2.5", name: "Kimi K2.5 (月之暗面多模态旗舰)", desc: "Kimi K2.5 256K 超长上下文与视觉推理" },
+    { id: "minimax-m2.7", name: "MiniMax M2.7 (高阶推理)", desc: "MiniMax M2.7 200K 深度推理与工具调用" },
+    { id: "hunyuan-2.0-instruct", name: "Tencent HY 2.0 Instruct (腾讯混元旗舰)", desc: "腾讯混元 2.0 128K 指令与工程模型" },
+    { id: "hunyuan-2.0-thinking", name: "Tencent HY 2.0 Thinking (腾讯混元深度思考)", desc: "腾讯混元 2.0 深度思维链推理模型" },
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (WorkBuddy 内置)", desc: "Anthropic Claude Sonnet 4.6" },
+    { id: "claude-opus-4-6", name: "Claude Opus 4.6 (WorkBuddy 内置)", desc: "Anthropic Claude Opus 4.6" },
+    { id: "gpt-5.4", name: "GPT-5.4 (WorkBuddy 内置)", desc: "OpenAI GPT-5.4 400K 上下文旗舰" },
+    { id: "gpt-5.3-codex", name: "GPT-5.3 Codex (WorkBuddy 内置)", desc: "OpenAI GPT-5.3 Codex 编程专精" },
+    { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (WorkBuddy 内置)", desc: "Google Gemini 3.1 Pro 1M 上下文" },
+    { id: "gemini-3.0-flash", name: "Gemini 3.0 Flash (WorkBuddy 内置)", desc: "Google Gemini 3.0 Flash 极速多模态" },
   ],
 };
 
@@ -1196,6 +1212,14 @@ function AskPageContent() {
         isPro: (cx?.tier || "PRO").toUpperCase().includes("PRO") || (cx?.tier || "").toUpperCase().includes("PLUS"),
       };
     }
+    if (mode === "workbuddy") {
+      const wb = quotasData?.tools?.workbuddy;
+      return {
+        label: wb?.tier || "CN",
+        percent: wb?.remaining_percent ?? 100,
+        isPro: true,
+      };
+    }
     return null;
   };
 
@@ -1461,6 +1485,8 @@ function AskPageContent() {
           detectedMode = "codex";
         } else if (binary.includes("agy") || binary.includes("antigravity") || name === "antigravity" || cmd.includes("[antigravity") || cmd.includes("[agy")) {
           detectedMode = "antigravity";
+        } else if (binary.includes("workbuddy") || name === "workbuddy" || cmd.includes("[workbuddy")) {
+          detectedMode = "workbuddy";
         } else if (action === "shell" || ["bash", "sh", "zsh"].includes(binary) || cmd.includes("[shell")) {
           detectedMode = "shell";
         }
@@ -1678,11 +1704,12 @@ function AskPageContent() {
       });
 
       // 3. Project and Session restoration
-      if (["codex", "claude", "antigravity"].includes(targetMode)) {
+      if (["codex", "claude", "antigravity", "workbuddy"].includes(targetMode)) {
         const toolMap: Record<string, string> = {
           codex: "codex",
           claude: "claude_code",
           antigravity: "antigravity",
+          workbuddy: "workbuddy",
         };
         const toolId = toolMap[targetMode];
         if (toolId) {
@@ -2594,7 +2621,7 @@ function AskPageContent() {
   }, [deviceParam]);
 
   useEffect(() => {
-    if (modeParam && ["ai", "claude", "codex", "antigravity", "shell"].includes(modeParam)) {
+    if (modeParam && ["ai", "claude", "codex", "antigravity", "workbuddy", "shell"].includes(modeParam)) {
       setExecutionMode(modeParam);
     }
   }, [modeParam]);
@@ -2676,6 +2703,8 @@ function AskPageContent() {
             ? "AGY"
             : executionMode === "codex"
             ? "Codex"
+            : executionMode === "workbuddy"
+            ? "WB"
             : executionMode === "shell"
             ? "Shell"
             : "AI";
@@ -3369,7 +3398,7 @@ function AskPageContent() {
           session_id: effectiveSessionId || undefined,
           compact_mode: effectiveCompact || undefined,
           project_id: selectedProjectId || undefined,
-          worktree: worktreeMode && ["codex", "claude", "antigravity"].includes(executionMode) ? true : undefined,
+          worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
         }),
         signal: ctrl.signal,
       });
@@ -3508,6 +3537,7 @@ function AskPageContent() {
         codex: "codex",
         claude: "claude_code",
         antigravity: "antigravity",
+        workbuddy: "workbuddy",
       };
       const toolId = toolMap[mode];
       if (!toolId) {
@@ -3591,7 +3621,7 @@ function AskPageContent() {
     selectedProjectIdRef.current = "";
     setSelectedSessionId("");
     setSessions([]);
-    if (["codex", "claude", "antigravity"].includes(executionMode)) {
+    if (["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
       loadProjectsForMode(executionMode, newDev, prevTitle);
     }
   };
@@ -3867,7 +3897,7 @@ function AskPageContent() {
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
   useEffect(() => {
-    if (!activeConversationId && !isRestoringRef.current && ["codex", "claude", "antigravity"].includes(executionMode)) {
+    if (!activeConversationId && !isRestoringRef.current && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
       if (projects.length === 0) {
         loadProjectsForMode(executionMode);
       }
@@ -3891,6 +3921,8 @@ function AskPageContent() {
     placeholderText = isZh ? "向 Codex 派发任务或提问..." : (t.ask.placeholderCodex || "Dispatch task to OpenAI Codex...");
   } else if (executionMode === "antigravity") {
     placeholderText = isZh ? "向 Antigravity 派发任务或提问..." : (t.ask.placeholderAntigravity || "Dispatch task to Antigravity...");
+  } else if (executionMode === "workbuddy") {
+    placeholderText = isZh ? "向 WorkBuddy 派发任务或提问..." : "Dispatch task to WorkBuddy...";
   } else if (executionMode === "shell") {
     placeholderText = isZh ? "输入要在目标机执行的 Shell 命令..." : (t.ask.placeholderShell || "Execute Shell command on target device...");
   } else if (selectedDevice === "ask_only") {
@@ -4020,7 +4052,7 @@ function AskPageContent() {
               size="sm"
               icon="activity"
               onClick={() => setQuotaOpen(true)}
-              title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex)" : "View AI Subscriptions & Quotas"}
+              title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
               className="shrink-0"
             >
               <span className="flex items-center gap-1">
@@ -4031,6 +4063,8 @@ function AskPageContent() {
                     ? quotasData?.tools?.claude_code
                     : executionMode === "codex"
                     ? quotasData?.tools?.codex
+                    : executionMode === "workbuddy"
+                    ? quotasData?.tools?.workbuddy
                     : quotasData?.tools?.antigravity;
                   const percent = targetTool?.remaining_percent ?? quotasData?.tools?.antigravity?.remaining_percent;
                   if (percent != null) {
@@ -4318,6 +4352,7 @@ function AskPageContent() {
                       { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code" as const, color: "#D97757" },
                       { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex" as const, color: "#10A37F" },
                       { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity" as const, color: "#3186FF" },
+                      { id: "workbuddy" as const, label: "WorkBuddy", brandId: "workbuddy" as const, color: "#0EC7A8" },
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].find((m) => m.id === executionMode) || { id: "ai" as const, label: "AI 编排", icon: "brain" as const, color: "var(--aurora-accent)" };
 
@@ -4326,7 +4361,7 @@ function AskPageContent() {
                     return (
                       <span
                         onClick={(e) => {
-                          if (["antigravity", "claude", "codex"].includes(executionMode)) {
+                          if (["antigravity", "claude", "codex", "workbuddy"].includes(executionMode)) {
                             e.stopPropagation();
                             setQuotaOpen(true);
                           }
@@ -4344,9 +4379,9 @@ function AskPageContent() {
                           fontWeight: 600,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
-                          cursor: ["antigravity", "claude", "codex"].includes(executionMode) ? "pointer" : "default",
+                          cursor: ["antigravity", "claude", "codex", "workbuddy"].includes(executionMode) ? "pointer" : "default",
                         }}
-                        title={["antigravity", "claude", "codex"].includes(executionMode) ? "点击查看 AI 订阅与额度详情" : undefined}
+                        title={["antigravity", "claude", "codex", "workbuddy"].includes(executionMode) ? "点击查看 AI 订阅与额度详情" : undefined}
                       >
                         {currentMode.brandId ? (
                           <BrandMark id={currentMode.brandId} size={13} colored />
@@ -4616,6 +4651,7 @@ function AskPageContent() {
                       { id: "claude" as const, label: t.ask.modeClaude || "Claude Code", brandId: "claude_code", color: "#D97757" },
                       { id: "codex" as const, label: t.ask.modeCodex || "Codex", brandId: "codex", color: "#10A37F" },
                       { id: "antigravity" as const, label: t.ask.modeAntigravity || "Antigravity", brandId: "antigravity", color: "#3186FF" },
+                      { id: "workbuddy" as const, label: "WorkBuddy", brandId: "workbuddy", color: "#0EC7A8" },
                       { id: "shell" as const, label: t.ask.modeShell || "Shell 终端", icon: "terminal" as const, color: "#38BDF8" },
                     ].map((m) => {
                       const isSelected = executionMode === m.id;
@@ -4842,7 +4878,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Model selector */}
-              {["codex", "claude", "antigravity"].includes(executionMode) && (
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
                 isCustomModel ? (
                   <div
                     style={{
@@ -4954,7 +4990,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Reasoning Effort selector (Low / Medium / High) */}
-              {["codex", "claude", "antigravity"].includes(executionMode) && (capabilities?.supports_effort || executionMode === "codex") && (
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (capabilities?.supports_effort || executionMode === "codex" || executionMode === "workbuddy") && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -5010,7 +5046,7 @@ function AskPageContent() {
               )}
 
               {/* Own worktree and branch for the agent */}
-              {["codex", "claude", "antigravity"].includes(executionMode) && (
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -5041,7 +5077,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Project selector */}
-              {["codex", "claude", "antigravity"].includes(executionMode) && (
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
                 <div
                   style={{
                     display: "inline-flex",
@@ -5109,7 +5145,7 @@ function AskPageContent() {
               )}
 
               {/* Agent Historical Session selector */}
-              {["codex", "claude", "antigravity"].includes(executionMode) && (
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && (
                 selectedProjectId ? (
                   <div
                     style={{
@@ -5423,7 +5459,7 @@ function AskPageContent() {
                                       ? (isZh ? "👤 用户提问" : "👤 User")
                                       : (m.subagent_name
                                           ? `🔀 ${m.subagent_name}`
-                                          : `🤖 ${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : "Assistant"}`)}
+                                          : `🤖 ${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : executionMode === "workbuddy" ? "WorkBuddy" : "Assistant"}`)}
                                   </span>
                                   {m.timestamp && (
                                     <span style={{ color: "var(--aurora-fg3)", fontSize: 10 }}>
@@ -5645,7 +5681,7 @@ function AskPageContent() {
                     name={
                       executionMode === "shell"
                         ? "terminal"
-                        : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity"
+                        : executionMode === "claude" || executionMode === "codex" || executionMode === "antigravity" || executionMode === "workbuddy"
                         ? "code"
                         : selectedDevice === "ask_only"
                         ? "sparkles"

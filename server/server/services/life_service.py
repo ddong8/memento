@@ -32,6 +32,7 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
     "iterm2": "iTerm2",
     "chatgpt": "ChatGPT",
     "codex": "Codex",
+    "workbuddy": "WorkBuddy",
     "pycharm": "PyCharm",
     "intellij": "IntelliJ IDEA",
 }
@@ -51,6 +52,7 @@ APP_CATEGORIES: dict[str, str] = {
     "pycharm": "work",
     "intellij idea": "work",
     "antigravity": "work",
+    "workbuddy": "work",
     "terminal": "work",
     "iterm2": "work",
     "notion": "work",

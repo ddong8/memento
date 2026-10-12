@@ -23,11 +23,26 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
+async function isZombieProcess(pid: number): Promise<boolean> {
+  if (process.platform === "win32") return false;
+  return new Promise((resolve) => {
+    execFile("ps", ["-o", "state=", "-p", String(pid)], { timeout: 1500 }, (err, stdout) => {
+      if (err) {
+        resolve(false);
+        return;
+      }
+      resolve(stdout.trim().toUpperCase().startsWith("Z"));
+    });
+  });
+}
+
 /** The pid of a collector already running on this device, if any. */
 export async function runningCollectorPid(home = homeDir()): Promise<number | undefined> {
   try {
     const pid = Number.parseInt((await readFile(pidFile(home), "utf8")).trim(), 10);
-    return pid !== process.pid && isProcessAlive(pid) ? pid : undefined;
+    if (pid === process.pid || !isProcessAlive(pid)) return undefined;
+    if (await isZombieProcess(pid)) return undefined;
+    return pid;
   } catch {
     return undefined;
   }

@@ -8,6 +8,7 @@ import { discoverAntigravityEnv, ensureAgyCliInstalled } from "./antigravity.js"
 import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
+import { ensureWorkbuddyCliInstalled } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -500,10 +501,13 @@ export class TaskRunner {
       }
     } else {
       isAntigravity = binary.includes("agy") || binary.includes("antigravity");
+      const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
       if (isAntigravity) await ensureAgyCliInstalled();
+      if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
       const candidates = [binary];
       if (binary === "agy") candidates.push("agy_cli.py", "agentapi");
       else if (binary === "antigravity") candidates.push("agy", "agy_cli.py", "agentapi");
+      else if (binary === "workbuddy") candidates.push("workbuddy_cli.mjs", "codebuddy");
       const resolved = await findExecutable(candidates);
       if (!resolved) {
         let tip = "";
@@ -512,6 +516,8 @@ export class TaskRunner {
             process.platform === "win32"
               ? "\n💡 Antigravity CLI 未安装，请在 PowerShell 中执行以下命令进行安装：\nirm https://antigravity.google/cli/install.ps1 | iex"
               : "\n💡 Antigravity CLI 未安装，请在终端中执行以下命令进行安装：\ncurl -fsSL https://antigravity.google/cli/install.sh | bash";
+        } else if (isWorkbuddy) {
+          tip = "\n💡 请先安装并启动腾讯 WorkBuddy 客户端应用（https://www.codebuddy.cn/workbuddy）";
         } else if (binary.includes("claude")) {
           tip = "\n💡 请运行 npm install -g @anthropic-ai/claude-code 安装 Claude Code CLI";
         } else if (binary.includes("codex")) {
@@ -552,6 +558,16 @@ export class TaskRunner {
       } else if (binary.includes("codex")) {
         args = codexArgs({ workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
         parser = new CodexStreamParser();
+      } else if (isWorkbuddy) {
+        args = [
+          ...(sessionId ? ["--resume", sessionId] : []),
+          ...(model ? ["--model", model] : []),
+          ...(effort ? ["--effort", effort] : []),
+          ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(30, task.timeoutSeconds - 15))] : []),
+          "-p",
+          prompt,
+        ];
       } else {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
@@ -618,6 +634,17 @@ export class TaskRunner {
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ workDir, effort, model, prompt }), parser });
+        } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
+          parser = undefined;
+          exitCode = await run({
+            args: [
+              ...(model ? ["--model", model] : []),
+              ...(effort ? ["--effort", effort] : []),
+              ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+              "-p",
+              prompt,
+            ],
+          });
         } else {
           parser = undefined;
           exitCode = await run({ args: [...(model ? ["--model", model] : []), "-p", prompt] });

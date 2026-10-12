@@ -11,5 +11,6 @@ export * from "./profile-inject.js";
 export * from "./quotas.js";
 export * from "./skill-inject.js";
 export * from "./task-runner.js";
+export * from "./workbuddy.js";
 export * from "./worktree.js";
 export * from "./ws-client.js";

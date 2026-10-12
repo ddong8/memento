@@ -95,6 +95,7 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
       `${home}/.asdf/shims`,
       `${home}/.gemini/antigravity/bin`,
       `${home}/.antigravity/antigravity/bin`,
+      `${home}/.workbuddy/bin`,
       "/Applications/ChatGPT.app/Contents/Resources",
     ];
     for (const base of [`${home}/.nvm/versions/node`, `${home}/.asdf/installs/nodejs`]) {
@@ -113,10 +114,13 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
       "C:\\Program Files (x86)\\nodejs",
       `${home}\\AppData\\Local\\Programs\\node`,
       `${home}\\AppData\\Local\\agy\\bin`,
+      `${home}\\AppData\\Local\\workbuddy\\bin`,
       `${home}\\AppData\\Local\\Programs\\Antigravity`,
+      `${home}\\AppData\\Local\\Programs\\WorkBuddy`,
       `${home}\\AppData\\Local\\Programs`,
       `${home}\\.gemini\\antigravity\\bin`,
       `${home}\\.antigravity\\bin`,
+      `${home}\\.workbuddy\\bin`,
       `${home}\\.cargo\\bin`,
       `${home}\\go\\bin`,
       `${home}\\.local\\bin`,
@@ -196,6 +200,8 @@ export async function prepareCommand(
       }
       const py = /python(?:\.exe)?\s+["']?([^"\r\n']+\.py)["']?/.exec(content);
       if (py && exists(py[1]!)) return { executable: "python", args: [py[1]!, ...args] };
+      const mjs = /node(?:\.exe)?\s+["']?([^"\r\n']+\.m?js)["']?/.exec(content);
+      if (mjs && exists(mjs[1]!)) return { executable: "node", args: [mjs[1]!, ...args] };
     }
   } catch {
     // fall through to cmd

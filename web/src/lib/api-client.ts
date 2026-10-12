@@ -994,7 +994,7 @@ export interface QuotaModelItem {
 }
 
 export interface ToolQuotaInfo {
-  tool: "antigravity" | "claude_code" | "codex";
+  tool: "antigravity" | "claude_code" | "codex" | "workbuddy";
   name: string;
   available: boolean;
   logged_in?: boolean;
@@ -1018,6 +1018,7 @@ export interface AgentQuotasResponse {
     antigravity?: ToolQuotaInfo;
     claude_code?: ToolQuotaInfo;
     codex?: ToolQuotaInfo;
+    workbuddy?: ToolQuotaInfo;
   };
 }
 

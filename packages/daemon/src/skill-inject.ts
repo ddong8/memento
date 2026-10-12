@@ -29,6 +29,7 @@ export function defaultSkillDirs(home = homeDir(), env: NodeJS.ProcessEnv = proc
   return {
     claude: { toolHomes: [join(home, ".claude")], dir: join(home, ".claude", "skills") },
     agents: { toolHomes: [codexHome, join(home, ".gemini"), join(home, ".agents")], dir: join(home, ".agents", "skills") },
+    workbuddy: { toolHomes: [join(home, ".workbuddy")], dir: join(home, ".workbuddy", "skills") },
   };
 }
 

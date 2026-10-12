@@ -1080,7 +1080,7 @@ async def _append_conversation_turns(
             # into Document + ConversationMessage so RAG retrieval, daily digest, and session reviews all include them.
             cfg_now = dict(conv.config or {})
             exec_mode_now = (cfg_now.get("execution_mode") or "ai").lower()
-            has_cli_session = bool(cfg_now.get("session_id")) and exec_mode_now in ("claude", "codex", "antigravity")
+            has_cli_session = bool(cfg_now.get("session_id")) and exec_mode_now in ("claude", "codex", "antigravity", "workbuddy")
             if not has_cli_session and conv.user_id:
                 try:
                     import hashlib
@@ -1282,6 +1282,8 @@ async def list_conversations(
                     bin_name = str(tc_args.get("binary") or tc.get("binary") or "").lower()
                     if "agy" in bin_name or "antigravity" in bin_name:
                         cfg["execution_mode"] = "antigravity"
+                    elif "workbuddy" in bin_name or "codebuddy" in bin_name:
+                        cfg["execution_mode"] = "workbuddy"
                     elif "claude" in bin_name:
                         cfg["execution_mode"] = "claude"
                     elif "codex" in bin_name:
@@ -1397,6 +1399,8 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
                 detected_mode = "codex"
             elif "agy" in binary or "antigravity" in binary or name == "antigravity" or "[antigravity" in cmd.lower() or "[agy" in cmd.lower():
                 detected_mode = "antigravity"
+            elif "workbuddy" in binary or "codebuddy" in binary or name == "workbuddy" or "[workbuddy" in cmd.lower() or "[workbuddy" in (tc.get("command") or "").lower():
+                detected_mode = "workbuddy"
             elif action == "shell" or binary in ("bash", "sh", "zsh") or "[shell" in cmd.lower():
                 detected_mode = "shell"
 
@@ -2312,6 +2316,7 @@ async def _direct_agent_stream(
             "claude": "claude",
             "codex": "codex",
             "antigravity": "agy",
+            "workbuddy": "workbuddy",
         }
         binary = binary_map.get(execution_mode, execution_mode)
 
@@ -2672,7 +2677,7 @@ async def ask(
         resolved_device_name = display_device_name(mach_lookup.name if mach_lookup else device_id)
 
     exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
-    if exec_mode in ("claude", "codex", "antigravity", "shell"):
+    if exec_mode in ("claude", "codex", "antigravity", "workbuddy", "shell"):
         effective_session_id = body.session_id or effective_cfg.get("session_id") or None
         effective_project_id = body.project_id or effective_cfg.get("project_id") or None
         effective_model = body.model or effective_cfg.get("model") or None
@@ -3073,6 +3078,42 @@ FALLBACK_AGENT_CAPABILITIES = {
         "supports_effort": False,
         "default_effort": "",
         "effort_options": [],
+    },
+    "workbuddy": {
+        "tool": "workbuddy",
+        "models": [
+            {"id": "", "name": "⚡ 默认模型 (跟随 WorkBuddy 配置)", "desc": "使用当前 WorkBuddy 客户端配置的默认模型", "is_default": True},
+            {"id": "deep-model", "name": "极致 (Deep Model)", "desc": "旗舰模型组合，专为复杂决策与高难度任务打造"},
+            {"id": "balanced-model", "name": "均衡 (Balanced Model)", "desc": "性能与成本兼顾，稳定应对日常工作"},
+            {"id": "fast-model", "name": "快速 (Fast Model)", "desc": "低成本极速响应，适合轻量高频操作"},
+            {"id": "hy4-preview", "name": "Tencent HY 4.0 Preview", "desc": "腾讯混元旗舰大模型 4.0 预览版"},
+            {"id": "hy3-x", "name": "Tencent HY 3.0-X", "desc": "腾讯混元 3.0 增强推理模型"},
+            {"id": "hy3", "name": "Tencent HY 3.0", "desc": "腾讯混元 3.0 主力大模型"},
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "desc": "DeepSeek V4 旗舰深度推理模型"},
+            {"id": "deepseek-v4.1-flash", "name": "DeepSeek V4.1 Flash", "desc": "DeepSeek V4.1 高速响应模型"},
+            {"id": "glm-5.3", "name": "GLM-5.3", "desc": "智谱旗舰编码与 Agent 模型"},
+            {"id": "glm-5.3-flash", "name": "GLM-5.3-Flash", "desc": "智谱高速轻量模型"},
+            {"id": "glm-5.2", "name": "GLM-5.2", "desc": "智谱主力通用大模型"},
+            {"id": "glm-5.1", "name": "GLM-5.1", "desc": "智谱稳定编码模型"},
+            {"id": "glm-5v-turbo", "name": "GLM-5V-Turbo", "desc": "智谱多模态视觉极速模型"},
+            {"id": "minimax-m3", "name": "MiniMax-M3", "desc": "MiniMax M3 原生智能体模型"},
+            {"id": "kimi-k3-1", "name": "Kimi-K3.1", "desc": "月之暗面 Kimi K3.1 旗舰长上下文模型"},
+            {"id": "kimi-k2.8-preview", "name": "Kimi-K2.8-Preview", "desc": "月之暗面 Kimi K2.8 预览版"},
+            {"id": "kimi-k2.7", "name": "Kimi-K2.7", "desc": "月之暗面 Kimi K2.7 模型"},
+            {"id": "kimi-k2.6", "name": "Kimi-K2.6", "desc": "月之暗面 Kimi K2.6 模型"},
+        ],
+        "default_model": "",
+        "supports_effort": True,
+        "default_effort": "medium",
+        "effort_options": [
+            {"id": "", "name": "⚡ 默认思考量 (跟随 WorkBuddy 配置)", "desc": "使用当前模型默认思考深度"},
+            {"id": "minimal", "name": "Minimal (极简思考)", "desc": "最低思考开销，极速直出"},
+            {"id": "low", "name": "Low (低思考量)", "desc": "轻量思考，快速响应"},
+            {"id": "medium", "name": "Medium (中等思考量)", "desc": "平衡推理速度与深度"},
+            {"id": "high", "name": "High (高思考量)", "desc": "深入推理，适合复杂编码"},
+            {"id": "xhigh", "name": "XHigh (超高思考量)", "desc": "高强度多步逻辑推演"},
+            {"id": "max", "name": "Max (最大思考量)", "desc": "全量深度思维链探索"},
+        ],
     },
 }
 

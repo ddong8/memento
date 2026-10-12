@@ -89,7 +89,7 @@ export interface AskRequest {
   device_id?: string;
   cwd?: string;
   agent_mode?: boolean;
-  execution_mode?: "ai" | "claude" | "codex" | "antigravity" | "shell";
+  execution_mode?: "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "shell";
   model?: string;
   effort?: string;
   project_id?: string;

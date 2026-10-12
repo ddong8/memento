@@ -107,8 +107,8 @@ const prettify = (name: string) => stripQuotes(stripQuotes(name).replace(/^\d{4}
 export function decodeClaudeDir(dirName: string, exists: (p: string) => boolean = existsSync): [string, string] {
   let raw = dirName.trim();
   if (raw === "-" || !raw.replace(/^[_-]+|[_-]+$/g, "")) return ["", ""];
-  if (raw.startsWith("-")) {
-    raw = raw.slice(1);
+  if (raw.startsWith("-") || raw.startsWith("Users-") || raw.startsWith("home-")) {
+    if (raw.startsWith("-")) raw = raw.slice(1);
     const decoded = `/${raw.replace(/-/g, "/")}`;
     const name = prettify(basename(decoded));
     return name === "-" || isInvalidProjectName(name) ? ["", ""] : [name, decoded];
@@ -340,12 +340,43 @@ export async function discoverObsidian(env = defaultEnv()): Promise<DiscoveredTo
   return { id: "obsidian", name: "Obsidian", root: dir, projects };
 }
 
+export async function discoverWorkbuddy(env = defaultEnv()): Promise<DiscoveredTool | null> {
+  const root = join(env.home, ".workbuddy");
+  if (!existsSync(root)) return null;
+  const projects: DiscoveredProject[] = [];
+  const seen = new Set<string>();
+  const projectsDir = join(root, "projects");
+  let dirs: string[] = [];
+  try {
+    dirs = (await readdir(projectsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    // no projects yet
+  }
+  for (const dirName of dirs) {
+    let name = "";
+    let realPath = (await firstCwd(join(projectsDir, dirName))) ?? "";
+    if (realPath) name = prettify(basename(realPath));
+    if (!name || !realPath) [name, realPath] = decodeClaudeDir(dirName);
+    let clean = cleanPath(realPath, env.platform);
+    if (/[/\\]WorkBuddy[/\\]\d{4}[-_]?\d{2}/i.test(clean)) {
+      clean = dirname(clean);
+      name = "WorkBuddy";
+    }
+    if (clean && isVolumeMounted(clean, env.platform) && !seen.has(clean)) {
+      seen.add(clean);
+      if (!isInvalidProjectName(name)) projects.push({ name, path: clean, metadata: { hash: dirName } });
+    }
+  }
+  return { id: "workbuddy", name: "WorkBuddy", root, projects };
+}
+
 /** Every supported tool installed on this machine, by id. */
 export async function discoverAll(env = defaultEnv()): Promise<Record<string, DiscoveredTool>> {
   const found = await Promise.all([
     discoverClaudeCode(env),
     discoverCodex(env),
     discoverAntigravity(env),
+    discoverWorkbuddy(env),
     discoverCursor(env),
     discoverWindsurf(env),
     discoverCline(env),

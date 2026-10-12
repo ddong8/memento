@@ -536,7 +536,7 @@ const MANAGER_CODE = `
         if !isDone && !isFailed && !isCancelled {
           activeConvIds.insert(cid)
           let mode = ((r["execution_mode"] as? String) ?? "").lowercased()
-          let eng = mode.contains("claude") ? "Claude" : mode.contains("agy") || mode.contains("antigravity") ? "AGY" : mode.contains("codex") ? "Codex" : "AI"
+          let eng = mode.contains("claude") ? "Claude" : mode.contains("agy") || mode.contains("antigravity") ? "AGY" : mode.contains("codex") ? "Codex" : mode.contains("workbuddy") ? "WB" : "AI"
           self.handleCommand([
             "action": "start",
             "conversationId": cid,

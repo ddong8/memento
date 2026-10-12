@@ -78,6 +78,10 @@ const ExecutionCard = memo(function ExecutionCard({
       agentLabel = "Antigravity";
       agentBrandId = "antigravity";
       agentColor = "#3186FF";
+    } else if (binary.includes("workbuddy")) {
+      agentLabel = "WorkBuddy";
+      agentBrandId = "workbuddy";
+      agentColor = "#0EC7A8";
     } else {
       agentLabel = "Agent";
       agentColor = "#9D67EF";

@@ -108,6 +108,13 @@ def _make_fallback_report(device_id: str | None = None, device_name: str | None 
                 "remaining_percent": None,
                 "error": "未接收到设备实时额度上报，请确认本地服务运行并刷新",
             },
+            "workbuddy": {
+                "tool": "workbuddy",
+                "name": "WorkBuddy",
+                "available": False,
+                "remaining_percent": None,
+                "error": "未接收到设备实时额度上报，请确认本地服务运行并刷新",
+            },
         },
     }
 

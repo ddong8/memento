@@ -36,7 +36,13 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
         return None
 
     msg_type = obj.get("type", "")
-    timestamp = obj.get("timestamp", "")
+    raw_ts = obj.get("timestamp", "")
+    if isinstance(raw_ts, (int, float)) and raw_ts > 0:
+        from datetime import datetime, timezone
+        ts_sec = raw_ts / 1000.0 if raw_ts > 1e11 else float(raw_ts)
+        timestamp = datetime.fromtimestamp(ts_sec, tz=timezone.utc).isoformat()
+    else:
+        timestamp = str(raw_ts or "")
 
     # --- Claude Code format ---
     if tool_id == "claude_code":
@@ -156,6 +162,79 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
             return NormalizedMessage(role="system", content=content, timestamp=timestamp, raw_type=msg_type)
 
         # Skip: file-history-snapshot, queue-operation, etc.
+        return None
+
+    # --- WorkBuddy format ---
+    if tool_id == "workbuddy":
+        if obj.get("isMeta"):
+            return None
+
+        if msg_type == "message":
+            role = obj.get("role") or (obj.get("message", {}) if isinstance(obj.get("message"), dict) else {}).get("role") or "user"
+            raw_content = obj.get("content") if "content" in obj else (obj.get("message", {}) if isinstance(obj.get("message"), dict) else {}).get("content", "")
+            text = _strip_system_tags(_extract_codex_content(raw_content))
+            if not text.strip():
+                return None
+            if role in ("user", "assistant"):
+                return NormalizedMessage(
+                    role=role,
+                    content=text.strip(),
+                    timestamp=timestamp,
+                    raw_type=msg_type,
+                )
+            return None
+
+        if msg_type == "reasoning":
+            raw_rc = obj.get("rawContent") or obj.get("content") or []
+            thinking_text = _extract_codex_content(raw_rc).strip()
+            if thinking_text:
+                return NormalizedMessage(
+                    role="assistant",
+                    content="[AI 思考过程]",
+                    thinking=thinking_text,
+                    timestamp=timestamp,
+                    raw_type="reasoning",
+                )
+            return None
+
+        if msg_type == "function_call":
+            name = str(obj.get("name") or "tool")
+            inp = obj.get("arguments") or obj.get("input") or ""
+            if isinstance(inp, dict):
+                tool_input = json.dumps(inp, ensure_ascii=False)
+            else:
+                tool_input = str(inp)
+            return NormalizedMessage(
+                role="tool",
+                content=f"[{name}]",
+                tool_name=name,
+                tool_input=tool_input[:2000],
+                timestamp=timestamp,
+                raw_type="tool_call",
+            )
+
+        if msg_type == "function_call_result":
+            name = str(obj.get("name") or "tool")
+            raw_out = obj.get("output", "")
+            if isinstance(raw_out, dict):
+                out_text = str(raw_out.get("text") or json.dumps(raw_out, ensure_ascii=False))
+            elif isinstance(raw_out, list):
+                out_text = _extract_codex_content(raw_out)
+            else:
+                out_text = str(raw_out)
+            display = out_text.strip()
+            if len(display) > 5000:
+                display = display[:5000] + "\n…(truncated)"
+            if display:
+                return NormalizedMessage(
+                    role="tool",
+                    content=display,
+                    tool_name=name,
+                    timestamp=timestamp,
+                    raw_type="tool_result",
+                )
+            return None
+
         return None
 
     # --- Codex format ---

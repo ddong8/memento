@@ -93,6 +93,8 @@ class AskRun:
             return "AGY"
         if "codex" in m:
             return "Codex"
+        if "workbuddy" in m:
+            return "WorkBuddy"
         if "shell" in m:
             return "Shell"
         return "AI"

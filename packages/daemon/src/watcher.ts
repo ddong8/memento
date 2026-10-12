@@ -30,6 +30,9 @@ export function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: s
       case "antigravity":
         add(join(tool.root, "brain"), "antigravity");
         break;
+      case "workbuddy":
+        add(join(tool.root, "projects"), "workbuddy");
+        break;
       case "cursor":
         add(join(tool.root, "projects"), "cursor");
         break;
@@ -67,6 +70,7 @@ export function isWatchedFile(filePath: string, toolId: string): boolean {
       // transcript_full.jsonl repeats the conversation with raw base64 images.
       return name === "transcript.jsonl";
     case "claude_code":
+    case "workbuddy":
       if (!name.endsWith(".jsonl") && !name.endsWith(".meta.json") && !name.endsWith(".md")) return false;
       return !name.includes("lease") && !name.includes("storage") && !name.includes("prefs");
     case "codex":
@@ -85,7 +89,7 @@ export function relativePathFor(filePath: string, toolId: string, extraDirs: str
   if (toolId === "antigravity") {
     const m = /\/brain\/([^/]+)\//.exec(normalized);
     if (m) return `antigravity/brain/${m[1]}/transcript.jsonl`;
-  } else if (toolId === "claude_code") {
+  } else if (toolId === "claude_code" || toolId === "workbuddy") {
     for (const seg of ["/projects/", "/plans/"]) {
       const i = normalized.indexOf(seg);
       if (i !== -1) return normalized.slice(i + 1);
@@ -160,20 +164,41 @@ export function sessionMetadata(
     }
   }
 
-  if (toolId === "claude_code") {
+  if (toolId === "claude_code" || toolId === "workbuddy") {
     const parts = relPath.split("/");
     if (parts.length >= 2 && parts[0] === "projects") {
       const [name, realPath] = decodeClaudeDir(parts[1]!);
       cwd = cleanPath(realPath);
       if (!isInvalidProjectName(name)) project = name;
     }
+    for (const line of lines.slice(0, 10)) {
+      if (!line.includes('"cwd"')) continue;
+      try {
+        const obj = JSON.parse(line) as { cwd?: unknown };
+        if (typeof obj.cwd === "string" && obj.cwd.trim()) {
+          setProject(cleanPath(obj.cwd));
+          break;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (toolId === "workbuddy" && cwd && /[/\\]WorkBuddy[/\\]\d{4}[-_]?\d{2}/i.test(cwd)) {
+      cwd = dirname(cwd);
+      project = "WorkBuddy";
+    }
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i]!;
-      if (!line.includes('"aiTitle"')) continue;
-      const t = /"aiTitle"\s*:\s*"([^"]+)"/.exec(line)?.[1]?.trim();
-      if (t) {
-        title = t;
-        break;
+      if (line.includes('"aiTitle"')) {
+        const t = /"aiTitle"\s*:\s*"([^"]+)"/.exec(line)?.[1]?.trim();
+        if (t) {
+          title = t;
+          break;
+        }
+      }
+      if (!title && line.includes('"summary"')) {
+        const s = /"summary"\s*:\s*"([^"]+)"/.exec(line)?.[1]?.trim();
+        if (s) title = s;
       }
     }
   }

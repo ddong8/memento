@@ -39,6 +39,7 @@ export function defaultProfileTargets(home = homeDir(), env: NodeJS.ProcessEnv =
     claude_code: { toolHome: join(home, ".claude"), file: join(home, ".claude", "CLAUDE.md") },
     codex: { toolHome: codexHome, file: join(codexHome, "AGENTS.md") },
     antigravity: { toolHome: geminiRoot, file: join(geminiRoot, "GEMINI.md") },
+    workbuddy: { toolHome: join(home, ".workbuddy"), file: join(home, ".workbuddy", "MEMORY.md") },
     openclaw: { toolHome: openclaw, file: join(openclaw, "USER.md") },
     hermes: { toolHome: join(home, ".hermes"), file: join(home, ".hermes", "SOUL.md") },
   };

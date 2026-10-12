@@ -1345,8 +1345,14 @@ function AskPageContent() {
   const normalizeDeviceId = useCallback(
     (devStr?: string | null) => {
       if (!devStr || devStr === "auto" || devStr === "ask_only" || devStr === "all") return devStr || "auto";
+      const clean = devStr.trim().replace(/\s*\([^)]*\)\s*$/, "").toLowerCase();
       const found = devices.find(
-        (d) => d.device_id === devStr || d.id === devStr || d.name === devStr || d.name?.toLowerCase() === devStr.toLowerCase()
+        (d) =>
+          d.device_id === devStr ||
+          d.id === devStr ||
+          d.name === devStr ||
+          d.name?.toLowerCase() === clean ||
+          d.name?.replace(/\s*\([^)]*\)\s*$/, "").toLowerCase() === clean
       );
       return found ? found.device_id : devStr;
     },
@@ -1455,18 +1461,24 @@ function AskPageContent() {
           res.cwd = String(tcCwd);
         }
 
-        const dev = (
-          (resObj.device_name as string) ||
-          call.device_name ||
-          (args.device_id as string) ||
-          (resObj.device_id as string) ||
-          (callObj.device_name as string)
-        );
-        if (dev && !res.deviceId) {
-          res.deviceId = String(dev);
+        const devCandidates = [
+          resObj.device_id as string,
+          resObj.device_name as string,
+          call.device_name,
+          args.device_id as string,
+          callObj.device_name as string,
+        ];
+        for (const cand of devCandidates) {
+          const trimmed = typeof cand === "string" ? cand.trim() : "";
+          if (trimmed && !["auto", "ask_only", "all"].includes(trimmed.toLowerCase())) {
+            if (!res.deviceId) {
+              res.deviceId = trimmed;
+            }
+            break;
+          }
         }
 
-        if (res.executionMode && res.sessionId && res.projectId) {
+        if (res.executionMode && res.sessionId && res.projectId && res.deviceId) {
           return res;
         }
       }
@@ -1516,8 +1528,8 @@ function AskPageContent() {
       } catch {}
 
       // 1. Device, cwd, and turns
-      let targetDev = data.device_id || "";
-      let targetCwd = data.cwd || "";
+      let targetDev = data.device_id || data.config?.device_id || "";
+      let targetCwd = data.cwd || data.config?.cwd || "";
       const loadedTurns = data.turns || [];
       const hasMore = Boolean(data.has_more);
       const total = data.total_turns ?? loadedTurns.length;
@@ -1543,19 +1555,40 @@ function AskPageContent() {
       let targetProjId = data.project_id || data.config?.project_id || "";
       let targetSessionId = data.session_id || data.config?.session_id || "";
 
-      // Defensive infer if returned mode was generic "ai"
-      if (targetMode === "ai" || !targetMode) {
+      // Defensive infer if returned mode was generic "ai" or deviceId/cwd/sessionId was missing/'auto'
+      const needsInfer =
+        targetMode === "ai" ||
+        !targetMode ||
+        !targetDev ||
+        targetDev === "auto" ||
+        !targetProjId ||
+        !targetSessionId ||
+        !targetCwd;
+      if (needsInfer) {
         const inferred = inferConfigFromTurns(loadedTurns);
-        if (inferred.executionMode) targetMode = inferred.executionMode;
+        const prevMode = targetMode;
+        const prevDev = targetDev;
+        if ((targetMode === "ai" || !targetMode) && inferred.executionMode) targetMode = inferred.executionMode;
         if (!targetProjId && inferred.projectId) targetProjId = inferred.projectId;
         if (!targetSessionId && inferred.sessionId) targetSessionId = inferred.sessionId;
         if (!targetModel && inferred.model) targetModel = inferred.model;
         if (!targetEffort && inferred.effort) targetEffort = inferred.effort;
         if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
-        if (!targetDev && inferred.deviceId) targetDev = inferred.deviceId;
+        if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
 
-        // Persist inferred configuration back to server DB
-        if (targetMode !== "ai") {
+        if ((!targetDev || targetDev === "auto") && targetCwd && devices.length > 0) {
+          const lowerCwd = targetCwd.toLowerCase();
+          if (lowerCwd.includes("/users/haixingdong")) {
+            const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
+            if (macMini) targetDev = macMini.device_id;
+          } else if (lowerCwd.includes("/users/donghaixing")) {
+            const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
+            if (macBook) targetDev = macBook.device_id;
+          }
+        }
+
+        // Persist inferred configuration back to server DB if repaired
+        if (targetMode !== prevMode || (targetDev && targetDev !== "auto" && targetDev !== prevDev)) {
           api.updateAskConversation(data.id, {
             execution_mode: targetMode,
             project_id: targetProjId,
@@ -1826,6 +1859,46 @@ function AskPageContent() {
       })
       .catch(() => setDevices([]));
   }, []);
+
+  // Automatically normalize selectedDevice once devices load, or infer concrete device from turns/cwd when stuck on 'auto'
+  useEffect(() => {
+    if (selectedDevice && !["auto", "ask_only", "all"].includes(selectedDevice)) {
+      const norm = normalizeDeviceId(selectedDevice);
+      if (norm && norm !== selectedDevice) {
+        setSelectedDevice(norm);
+      }
+      return;
+    }
+    if (selectedDevice === "auto") {
+      if (turns.length > 0) {
+        const inferred = inferConfigFromTurns(turns);
+        if (inferred.deviceId) {
+          const norm = normalizeDeviceId(inferred.deviceId);
+          if (norm && norm !== "auto") {
+            setSelectedDevice(norm);
+            persistCurrentConfig({ device_id: norm });
+            return;
+          }
+        }
+      }
+      if (cwd && devices.length > 0) {
+        const lowerCwd = cwd.toLowerCase();
+        if (lowerCwd.includes("/users/haixingdong")) {
+          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
+          if (macMini) {
+            setSelectedDevice(macMini.device_id);
+            persistCurrentConfig({ device_id: macMini.device_id });
+          }
+        } else if (lowerCwd.includes("/users/donghaixing")) {
+          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
+          if (macBook) {
+            setSelectedDevice(macBook.device_id);
+            persistCurrentConfig({ device_id: macBook.device_id });
+          }
+        }
+      }
+    }
+  }, [devices, turns, cwd, selectedDevice, normalizeDeviceId, inferConfigFromTurns, persistCurrentConfig]);
 
   // Check URL params (?id=... or ?q=...)
   const qParam = searchParams.get("q");
@@ -2694,6 +2767,13 @@ function AskPageContent() {
             currentStep: `执行进度: ${evt.status}`,
           });
         }
+        const progDev = evt.device_id || evt.device_name;
+        if (progDev && !["auto", "ask_only", "all"].includes(progDev.toLowerCase()) && (!selectedDevice || selectedDevice === "auto")) {
+          const normProgDev = normalizeDeviceId(progDev);
+          if (normProgDev && normProgDev !== "auto") {
+            setSelectedDevice(normProgDev);
+          }
+        }
         patchLast((x) => {
           const calls = [...(x.toolCalls || [])];
           let idx = -1;
@@ -2832,14 +2912,23 @@ function AskPageContent() {
           return { ...x, toolCalls: calls };
         });
 
-        // 智能瘦身或新会话生成时，无缝同步最新的底层 session_id 并复位瘦身模式，使后续继续在同一会话内推进
+        // 智能瘦身或新会话生成时，无缝同步最新的底层 session_id 与实际执行设备，并复位瘦身模式
         const newSid = (evt.result as any)?.session_id;
+        const resDevRaw = (evt.result as any)?.device_id || (evt.result as any)?.device_name;
+        const patchCfg: Record<string, any> = { compact_mode: false };
         if (newSid && typeof newSid === "string") {
           setSelectedSessionId(newSid);
-          persistCurrentConfig({ session_id: newSid, compact_mode: false });
+          patchCfg.session_id = newSid;
+        }
+        if (resDevRaw && typeof resDevRaw === "string" && !["auto", "ask_only", "all"].includes(resDevRaw.toLowerCase())) {
+          const normResDev = normalizeDeviceId(resDevRaw);
+          if (normResDev && normResDev !== "auto" && (!selectedDevice || selectedDevice === "auto")) {
+            setSelectedDevice(normResDev);
+            patchCfg.device_id = normResDev;
+          }
         }
         setCompactMode(false);
-        persistCurrentConfig({ compact_mode: false });
+        persistCurrentConfig(patchCfg);
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
         patchLast((x) => {
@@ -2922,7 +3011,7 @@ function AskPageContent() {
       } catch {}
     }
     return sawDone;
-  }, [patchLast, persistCurrentConfig, t, executionMode, selectedDevice]);
+  }, [patchLast, persistCurrentConfig, t, executionMode, selectedDevice, normalizeDeviceId]);
 
   // Reattach to a run from the last event seen, until it ends.
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
@@ -3681,6 +3770,9 @@ function AskPageContent() {
         } catch {}
         try {
           const detail = await api.getAskConversation(matchedAskConv.id, 40);
+          if (detail?.device_id && detail.device_id !== "auto") {
+            setSelectedDevice(normalizeDeviceId(detail.device_id));
+          }
           if (detail?.turns && detail.turns.length > 0) {
             setTurns(detail.turns);
             return;
@@ -3702,6 +3794,9 @@ function AskPageContent() {
             try {
               localStorage.setItem("memento_last_ask_conv_id", ensured.id);
             } catch {}
+            if (ensured.device_id && ensured.device_id !== "auto") {
+              setSelectedDevice(normalizeDeviceId(ensured.device_id));
+            }
             if (ensured.turns && ensured.turns.length > 0) {
               setTurns(ensured.turns);
               return;
@@ -3713,7 +3808,7 @@ function AskPageContent() {
       }
       setTurns(loadedTurns);
     },
-    [conversations, cwd, executionMode, selectedDevice, selectedProjectId, sessions, startNewChat]
+    [conversations, cwd, executionMode, normalizeDeviceId, selectedDevice, selectedProjectId, sessions, startNewChat]
   );
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
@@ -3725,7 +3820,13 @@ function AskPageContent() {
     }
   }, [executionMode, activeConversationId, projects.length, loadProjectsForMode]);
 
-  const currentDev = devices.find((d) => d.device_id === selectedDevice);
+  const currentDev = devices.find(
+    (d) =>
+      d.device_id === selectedDevice ||
+      d.id === selectedDevice ||
+      d.name === selectedDevice ||
+      d.name?.toLowerCase() === selectedDevice?.toLowerCase()
+  );
   const isCurrentDevOnline = currentDev
     ? (currentDev.online ?? (currentDev.last_heartbeat ? (Date.now() - new Date(currentDev.last_heartbeat).getTime()) < 180_000 : false))
     : true;

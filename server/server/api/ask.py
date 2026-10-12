@@ -733,6 +733,8 @@ async def _get_or_create_conversation(
                             if v is not None and v != "":
                                 if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                     continue
+                                if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
+                                    continue
                                 if k == "compact_mode":
                                     continue
                                 cfg[k] = v
@@ -745,8 +747,9 @@ async def _get_or_create_conversation(
                         updated = True
 
                     if device_id and conv.device_id != device_id:
-                        conv.device_id = device_id
-                        updated = True
+                        if device_id != "auto" or not conv.device_id:
+                            conv.device_id = device_id
+                            updated = True
                     if cwd and conv.cwd != cwd:
                         conv.cwd = cwd
                         updated = True
@@ -801,6 +804,8 @@ async def _get_or_create_conversation(
                             if v is not None and v != "":
                                 if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                     continue
+                                if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
+                                    continue
                                 if k == "compact_mode":
                                     continue
                                 cfg[k] = v
@@ -808,8 +813,9 @@ async def _get_or_create_conversation(
                     cfg["session_id"] = effective_sess_id
                     sess_conv.config = cfg
                     if device_id and sess_conv.device_id != device_id:
-                        sess_conv.device_id = device_id
-                        updated = True
+                        if device_id != "auto" or not sess_conv.device_id:
+                            sess_conv.device_id = device_id
+                            updated = True
                     if cwd and sess_conv.cwd != cwd:
                         sess_conv.cwd = cwd
                         updated = True
@@ -891,6 +897,10 @@ async def _get_or_create_conversation(
                     ).limit(1)
                 )).scalars().first()
                 if doc_target:
+                    if (not device_id or device_id == "auto") and doc_target.machine_id:
+                        doc_mach = await session.get(Machine, doc_target.machine_id)
+                        if doc_mach:
+                            device_id = doc_mach.collector_token_hash or doc_mach.name
                     msgs = (await session.execute(
                         select(ConversationMessage).where(ConversationMessage.document_id == doc_target.id)
                         .order_by(ConversationMessage.line_number.asc())
@@ -909,6 +919,8 @@ async def _get_or_create_conversation(
         conv_cfg["compact_mode"] = False
         if session_id:
             conv_cfg["session_id"] = session_id
+        if device_id and device_id != "auto":
+            conv_cfg["device_id"] = device_id
 
         conv = AskConversation(
             user_id=user.id,
@@ -1012,11 +1024,18 @@ async def _append_conversation_turns(
                 asst_turn["thinking"] = thinking
             if sources:
                 asst_turn["sources"] = sources
+            inferred_tc_dev = None
             if tool_calls:
                 clean_tool_calls = []
                 for tc in tool_calls:
                     if isinstance(tc, dict):
                         tc_copy = dict(tc)
+                        res_d = tc_copy.get("result") if isinstance(tc_copy.get("result"), dict) else {}
+                        args_d = tc_copy.get("args") if isinstance(tc_copy.get("args"), dict) else {}
+                        for d_cand in (res_d.get("device_id"), res_d.get("device_name"), tc_copy.get("device_name"), args_d.get("device_id")):
+                            if d_cand and str(d_cand).strip() not in ("", "auto", "ask_only", "all"):
+                                inferred_tc_dev = str(d_cand).strip()
+                                break
                         args = tc_copy.get("args")
                         if isinstance(args, dict) and "images" in args:
                             clean_args = dict(args)
@@ -1035,17 +1054,25 @@ async def _append_conversation_turns(
             conv.turns = turns
             flag_modified(conv, "turns")
             conv.updated_at = datetime.now(timezone.utc)
-            if device_id:
-                conv.device_id = device_id
+            effective_dev = device_id
+            if (not effective_dev or effective_dev == "auto") and inferred_tc_dev:
+                effective_dev = inferred_tc_dev
+            if effective_dev and (effective_dev != "auto" or not conv.device_id):
+                conv.device_id = effective_dev
             if cwd:
                 conv.cwd = cwd
-            if config:
+            if config or (effective_dev and effective_dev != "auto"):
                 cfg = dict(conv.config or {})
-                for k, v in config.items():
-                    if v is not None and v != "":
-                        if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
-                            continue
-                        cfg[k] = v
+                if config:
+                    for k, v in config.items():
+                        if v is not None and v != "":
+                            if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                                continue
+                            if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
+                                continue
+                            cfg[k] = v
+                if effective_dev and effective_dev != "auto":
+                    cfg["device_id"] = effective_dev
                 conv.config = cfg
             await session.commit()
 
@@ -1400,32 +1427,146 @@ def _infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
             if tc_cwd and "cwd" not in inferred:
                 inferred["cwd"] = str(tc_cwd)
 
-            dev = (
-                res_dict.get("device_name")
-                or tc.get("device_name")
-                or args.get("device_id")
-                or res_dict.get("device_id")
-                or call_dict.get("device_name")
-            )
-            if dev and "device_id" not in inferred:
-                inferred["device_id"] = str(dev)
+            for cand_dev in (
+                res_dict.get("device_id"),
+                res_dict.get("device_name"),
+                tc.get("device_name"),
+                args.get("device_id"),
+                call_dict.get("device_name"),
+            ):
+                if cand_dev and str(cand_dev).strip() not in ("", "auto", "ask_only", "all"):
+                    if "device_id" not in inferred:
+                        inferred["device_id"] = str(cand_dev).strip()
+                    break
 
-            if detected_mode and inferred.get("session_id") and inferred.get("project_id"):
+            if detected_mode and inferred.get("session_id") and inferred.get("project_id") and inferred.get("device_id"):
                 break
-        if inferred.get("execution_mode") and inferred.get("session_id") and inferred.get("project_id"):
+        if inferred.get("execution_mode") and inferred.get("session_id") and inferred.get("project_id") and inferred.get("device_id"):
             break
 
-    if conv.device_id and not cfg.get("device_id"):
+    if conv.device_id and conv.device_id not in ("auto", "ask_only", "all") and (not cfg.get("device_id") or cfg.get("device_id") == "auto"):
         cfg["device_id"] = conv.device_id
 
     if mode_needed and inferred.get("execution_mode"):
         cfg["execution_mode"] = inferred["execution_mode"]
 
     for k in ("project_id", "session_id", "model", "effort", "cwd", "device_id"):
-        if not cfg.get(k) and inferred.get(k):
+        cur_val = cfg.get(k)
+        if (not cur_val or (k == "device_id" and cur_val == "auto")) and inferred.get(k):
             cfg[k] = inferred[k]
 
     return cfg, inferred
+
+
+async def _resolve_concrete_device_for_conv(
+    db: AsyncSession,
+    conv: AskConversation,
+    cfg: dict,
+    inferred: dict,
+) -> str | None:
+    """Resolve the concrete execution device (collector_token_hash or name) for a conversation
+    when device_id is missing, 'auto', or a display name rather than collector_token_hash."""
+    candidate: str | None = None
+    for raw_cand in (
+        inferred.get("device_id"),
+        conv.device_id,
+        cfg.get("device_id"),
+    ):
+        s = str(raw_cand or "").strip()
+        if s and s not in ("auto", "ask_only", "all"):
+            candidate = s
+            break
+
+    # 1. If still no concrete device, check underlying session Document -> Machine
+    sess_id = str(cfg.get("session_id") or "").strip()
+    if not candidate and sess_id:
+        try:
+            doc_mid = (await db.execute(
+                select(Document.machine_id).where(
+                    Document.machine_id.is_not(None),
+                    (Document.metadata_.op("->>")("session_id") == sess_id)
+                    | (Document.metadata_.op("->>")("cascade_id") == sess_id),
+                ).limit(1)
+            )).scalar_one_or_none()
+            if not doc_mid:
+                try:
+                    doc_uuid = uuid.UUID(sess_id)
+                    doc_mid = (await db.execute(
+                        select(Document.machine_id).where(Document.id == doc_uuid)
+                    )).scalar_one_or_none()
+                except Exception:
+                    pass
+            if doc_mid:
+                mach = await db.get(Machine, doc_mid)
+                if mach:
+                    candidate = mach.collector_token_hash or mach.name
+        except Exception:
+            pass
+
+    # 2. If still no concrete device, infer from cwd path signature
+    cwd_val = str(conv.cwd or cfg.get("cwd") or inferred.get("cwd") or "").strip().lower()
+    if not candidate and cwd_val:
+        try:
+            if "/users/haixingdong" in cwd_val:
+                mach = (await db.execute(
+                    select(Machine).where(
+                        Machine.merged_into.is_(None),
+                        Machine.name.ilike("%mac-mini%"),
+                    ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
+                )).scalars().first()
+                if mach:
+                    candidate = mach.collector_token_hash or mach.name
+            elif "/users/donghaixing" in cwd_val:
+                mach = (await db.execute(
+                    select(Machine).where(
+                        Machine.merged_into.is_(None),
+                        Machine.name.ilike("%macbook%"),
+                    ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
+                )).scalars().first()
+                if mach:
+                    candidate = mach.collector_token_hash or mach.name
+        except Exception:
+            pass
+
+    # 3. If still no concrete device, infer from project's most recent Document -> Machine
+    proj_id_str = str(cfg.get("project_id") or "").strip()
+    if not candidate and proj_id_str:
+        try:
+            pid = uuid.UUID(proj_id_str)
+            doc_mid = (await db.execute(
+                select(Document.machine_id).where(
+                    Document.project_id == pid,
+                    Document.machine_id.is_not(None),
+                ).order_by(Document.synced_at.desc().nulls_last()).limit(1)
+            )).scalar_one_or_none()
+            if doc_mid:
+                mach = await db.get(Machine, doc_mid)
+                if mach:
+                    candidate = mach.collector_token_hash or mach.name
+        except Exception:
+            pass
+
+    if not candidate:
+        return conv.device_id or cfg.get("device_id")
+
+    # Normalize candidate (which might be a machine name like 'haixingdeMac-mini') to collector_token_hash
+    try:
+        clean_name = re.sub(r"\s*\([^)]*\)\s*$", "", candidate).strip()
+        mach = (await db.execute(
+            select(Machine).where(
+                Machine.merged_into.is_(None),
+                (Machine.collector_token_hash == candidate)
+                | (Machine.name == candidate)
+                | (Machine.name == clean_name)
+                | (func.lower(Machine.name) == clean_name.lower()),
+            ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
+        )).scalars().first()
+        if mach and mach.collector_token_hash:
+            return mach.collector_token_hash
+    except Exception:
+        pass
+
+    return candidate
 
 
 def _fix_iso_timestamp(val: Any) -> str | None:
@@ -1661,6 +1802,7 @@ async def get_conversation(
 
     cfg, inferred = _infer_conversation_config(conv)
     recovered_turns = await _recover_orphaned_tasks_for_conv(db, conv, cfg)
+    resolved_dev = await _resolve_concrete_device_for_conv(db, conv, cfg, inferred)
 
     # Extract all model attributes into locals BEFORE any db.commit() to prevent
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
@@ -1669,8 +1811,11 @@ async def get_conversation(
     raw_turns = recovered_turns if recovered_turns is not None else list(conv.turns or [])
     total_turns = len(raw_turns)
 
-    conv_dev = conv.device_id or cfg.get("device_id")
+    conv_dev = resolved_dev or conv.device_id or cfg.get("device_id")
     conv_cwd = conv.cwd or cfg.get("cwd")
+
+    if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
+        cfg["device_id"] = resolved_dev
 
     need_commit = False
     if conv.config != cfg:
@@ -1680,9 +1825,9 @@ async def get_conversation(
         conv.cwd = inferred["cwd"]
         conv_cwd = inferred["cwd"]
         need_commit = True
-    if not conv.device_id and inferred.get("device_id"):
-        conv.device_id = inferred["device_id"]
-        conv_dev = inferred["device_id"]
+    if resolved_dev and resolved_dev not in ("auto", "ask_only", "all") and conv.device_id != resolved_dev:
+        conv.device_id = resolved_dev
+        conv_dev = resolved_dev
         need_commit = True
 
     if need_commit:
@@ -1697,7 +1842,7 @@ async def get_conversation(
     updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
 
     # Fast ETag evaluation before full turns sanitization and slicing
-    etag_seed = f"v3:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}"
+    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
     etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
     if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
@@ -1780,7 +1925,17 @@ async def ensure_conversation_by_session(
         )).scalars().first()
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        cfg_final, _ = _infer_conversation_config(conv)
+        cfg_final, inferred = _infer_conversation_config(conv)
+        resolved_dev = await _resolve_concrete_device_for_conv(session, conv, cfg_final, inferred)
+        if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
+            cfg_final["device_id"] = resolved_dev
+            if conv.device_id != resolved_dev:
+                conv.device_id = resolved_dev
+                conv.config = cfg_final
+                try:
+                    await session.commit()
+                except Exception:
+                    pass
         proj_id_final = cfg_final.get("project_id", body.project_id or "")
         proj_title_final = await _lookup_project_title(session, proj_id_final)
         fb_iso = (conv.updated_at or conv.created_at).isoformat() if (conv.updated_at or conv.created_at) else None
@@ -1788,7 +1943,7 @@ async def ensure_conversation_by_session(
             "id": str(conv.id),
             "title": conv.title,
             "turns": _sanitize_turns_for_response(list(conv.turns or []), fallback_iso=fb_iso),
-            "device_id": conv.device_id,
+            "device_id": resolved_dev or conv.device_id,
             "cwd": conv.cwd,
             "execution_mode": cfg_final.get("execution_mode", body.execution_mode or "ai"),
             "model": cfg_final.get("model", ""),
@@ -1825,7 +1980,10 @@ async def get_recent_active_conversation(
                     )
                 )).scalars().first()
                 if conv:
-                    cfg, _ = _infer_conversation_config(conv)
+                    cfg, inferred = _infer_conversation_config(conv)
+                    resolved_dev = await _resolve_concrete_device_for_conv(session, conv, cfg, inferred)
+                    if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
+                        cfg["device_id"] = resolved_dev
                     pid_str = cfg.get("project_id", "")
                     ptitle = await _lookup_project_title(session, pid_str)
                     fb_iso = (conv.updated_at or conv.created_at).isoformat() if (conv.updated_at or conv.created_at) else None
@@ -1833,7 +1991,7 @@ async def get_recent_active_conversation(
                         "id": str(conv.id),
                         "title": conv.title,
                         "turns": _sanitize_turns_for_response(list(conv.turns or []), fallback_iso=fb_iso),
-                        "device_id": conv.device_id,
+                        "device_id": resolved_dev or conv.device_id,
                         "cwd": conv.cwd,
                         "execution_mode": cfg.get("execution_mode", "ai"),
                         "session_id": cfg.get("session_id", ""),
@@ -1852,7 +2010,10 @@ async def get_recent_active_conversation(
         )).scalars().first()
 
         if recent_conv:
-            cfg, _ = _infer_conversation_config(recent_conv)
+            cfg, inferred = _infer_conversation_config(recent_conv)
+            resolved_dev = await _resolve_concrete_device_for_conv(session, recent_conv, cfg, inferred)
+            if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
+                cfg["device_id"] = resolved_dev
             pid_str = cfg.get("project_id", "")
             ptitle = await _lookup_project_title(session, pid_str)
             fb_iso = (recent_conv.updated_at or recent_conv.created_at).isoformat() if (recent_conv.updated_at or recent_conv.created_at) else None
@@ -1860,7 +2021,7 @@ async def get_recent_active_conversation(
                 "id": str(recent_conv.id),
                 "title": recent_conv.title,
                 "turns": _sanitize_turns_for_response(list(recent_conv.turns or []), fallback_iso=fb_iso),
-                "device_id": recent_conv.device_id,
+                "device_id": resolved_dev or recent_conv.device_id,
                 "cwd": recent_conv.cwd,
                 "execution_mode": cfg.get("execution_mode", "ai"),
                 "session_id": cfg.get("session_id", ""),
@@ -2230,6 +2391,12 @@ async def _direct_agent_stream(
         elif orig_session_id:
             persisted_session_id = str(orig_session_id)
 
+        persisted_dev_id = (
+            (result_dict.get("device_id") or result_dict.get("device_name"))
+            if (result_dict and (not device_id or device_id == "auto"))
+            else device_id
+        )
+
         await _append_conversation_turns(
             conv_id=conv_id,
             user_content=question,
@@ -2237,7 +2404,7 @@ async def _direct_agent_stream(
             sources=None,
             tool_calls=tool_calls_to_save,
             thinking=None,
-            device_id=device_id or (result_dict.get("device_id") if result_dict else None),
+            device_id=persisted_dev_id,
             cwd=cwd,
             images=images,
             attachments=attachments,
@@ -2247,6 +2414,7 @@ async def _direct_agent_stream(
                 "effort": effort or "",
                 "project_id": project_id or "",
                 "session_id": persisted_session_id,
+                "device_id": persisted_dev_id or "",
                 "worktree": bool(worktree),
                 "compact_mode": False,  # 瘦身完成后复位，后续在当前对话中默认以正常会话无缝续接
             },

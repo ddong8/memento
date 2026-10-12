@@ -40,12 +40,27 @@ async def find_machine_by_id_or_hash(
 
     from sqlalchemy import or_
 
+    base_name = normalize_device_name(device_id)
+    name_candidates = {device_id}
+    if base_name:
+        name_candidates.update({
+            base_name,
+            f"{base_name} (Darwin)",
+            f"{base_name} (Windows)",
+            f"{base_name} (Linux)",
+        })
+
     # Try matching collector_token_hash or name
-    stmt = select(Machine).where(
-        or_(
-            Machine.collector_token_hash == device_id,
-            Machine.name == device_id,
-        )
+    conditions = [
+        Machine.collector_token_hash == device_id,
+        Machine.name.in_(name_candidates),
+    ]
+    if base_name:
+        conditions.append(Machine.name.ilike(f"{base_name}%"))
+
+    stmt = select(Machine).where(or_(*conditions)).order_by(
+        Machine.merged_into.is_(None).desc(),
+        Machine.last_heartbeat.desc().nullslast(),
     )
     if user and user.role not in ("admin", "owner"):
         stmt = stmt.where(Machine.user_id == user.id)

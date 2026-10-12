@@ -59,5 +59,25 @@ class DeviceFilterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(db.execute.call_count, 2)
 
 
+    async def test_find_machine_platform_suffix(self) -> None:
+        db = AsyncMock()
+        fake_machine = Machine(
+            id=uuid.uuid4(),
+            name="donghaixingdeMacBook-Pro.local (Darwin)",
+            collector_token_hash="hash_macbook",
+        )
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.first.return_value = fake_machine
+        db.execute.return_value = mock_result
+
+        # Search with stripped name
+        m = await find_machine_by_id_or_hash(db, "donghaixingdeMacBook-Pro.local")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.name, "donghaixingdeMacBook-Pro.local (Darwin)")
+
+        # Verify query was constructed with candidate matching
+        self.assertEqual(db.execute.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

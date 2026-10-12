@@ -1,22 +1,22 @@
 {
-  "version": "1.0.66",
-  "title": "Memento v1.0.66",
-  "release_notes": "1. 彻底根治任务完成通知重复发送与多端重复弹窗问题\n2. 打通客户端全模式对话入库与实时纠错、待办、复盘及日报处理全链路\n3. 移除顶栏冗余的全局设备筛选框并优化三大3D全息动画渲染与页面切换流畅度\n4. 恢复对话文本自由选择复制功能，新增代码块与回答一键复制和桌面端右键复制菜单",
+  "version": "1.0.68",
+  "title": "Memento v1.0.68",
+  "release_notes": "1. 修复 Windows 通知中心大图与系统托盘图标模糊问题，升级为 512x512 超清通知图标与多尺寸高清 ICO\n2. 修复 iOS 灵动岛点击返回 App 报 Unmatched Route 问题并无缝跳转至对应对话底部",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.66-win-x64.zip",
-      "size": 154381226,
-      "sha256": "2a40f52fb95c52d6e1f0dc62ec454ebfc40771d0f445958514703d0ecc0d01ac"
+      "asset_name": "Memento-1.0.68-win-x64.zip",
+      "size": 154566866,
+      "sha256": "6b5c2e7bb0b02311e61108f5596958f42b0f240812cefa6969e74017d7ceb155"
     },
     "macos": {
-      "asset_name": "Memento-1.0.66-mac-arm64.zip",
-      "size": 128239403,
-      "sha256": "78f4ebc4e2370e5370f1a971ff6f1afc497ddcabdf608434710d6534295ec574"
+      "asset_name": "Memento-1.0.68-mac-arm64.zip",
+      "size": 128410335,
+      "sha256": "6e4f1ced6619758be8379ecee479c9131a3c95c65c007e3ff6ddcb494e625aca"
     },
     "linux": {
-      "asset_name": "Memento-1.0.66-linux-x64.tar.gz",
-      "size": 120275443,
-      "sha256": "ca1232256c0d01d367e48621d42bc36fa225202d6d70b40ec9312635cd31c959"
+      "asset_name": "Memento-1.0.68-linux-x64.tar.gz",
+      "size": 120443735,
+      "sha256": "3141f7a2148f97c9f70f7f9986927b36625816c75339da73da4025f373a0bb00"
     }
   }
 }

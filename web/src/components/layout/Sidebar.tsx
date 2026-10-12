@@ -26,6 +26,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const [todoCount, setTodoCount] = useState<number>(0);
   const [isMacDesktop, setIsMacDesktop] = useState(false);
   const [appVersion, setAppVersion] = useState(WEB_VERSION);
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
 
   useEffect(() => {
     const d = desktop();
@@ -34,6 +35,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         typeof navigator !== "undefined" &&
         (/Mac/i.test(navigator.userAgent) || /Mac/i.test((navigator as { platform?: string }).platform || ""));
       if (isMac) setIsMacDesktop(true);
+
+      d.info()
+        .then((info) => {
+          if (info?.version) {
+            setAppVersion(info.version.startsWith("v") ? info.version : `v${info.version}`);
+          }
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -89,15 +98,27 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
   // Check update version
   useEffect(() => {
-    authFetch(`${getApiBase()}/api/system/update/check`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.latest_version) {
-          const v = d.latest_version.startsWith("v") ? d.latest_version : `v${d.latest_version}`;
-          setAppVersion(v);
+    const d = desktop();
+    const check = async () => {
+      let plat = "web";
+      let currentVer = WEB_VERSION.replace(/^v/, "");
+      if (d) {
+        try {
+          const info = await d.info();
+          if (info?.platform) plat = info.platform;
+          if (info?.version) currentVer = info.version.replace(/^v/, "");
+        } catch {}
+      }
+      try {
+        const r = await authFetch(`${getApiBase()}/api/system/update/check?platform=${encodeURIComponent(plat)}&version=${encodeURIComponent(currentVer)}`);
+        const data = await r.json();
+        if (data?.has_update && data.latest_version) {
+          const lv = data.latest_version.startsWith("v") ? data.latest_version : `v${data.latest_version}`;
+          setUpdateAvailable(lv);
         }
-      })
-      .catch(() => {});
+      } catch {}
+    };
+    void check();
   }, []);
 
   const handleNavClick = () => {
@@ -443,9 +464,47 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                 paddingTop: 6,
                 fontFamily: "var(--font-mono, ui-monospace, monospace)",
                 letterSpacing: "0.03em",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 5,
               }}
             >
-              {appVersion}
+              <span>{appVersion}</span>
+              {updateAvailable && (
+                <button
+                  type="button"
+                  title={`发现新版本 ${updateAvailable}，点击检查更新`}
+                  onClick={() => {
+                    const d = desktop();
+                    if (d?.checkForUpdates) {
+                      void d.checkForUpdates();
+                    }
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 2,
+                    padding: "1px 5px",
+                    borderRadius: 9999,
+                    fontSize: 9,
+                    background: "rgba(124, 58, 237, 0.15)",
+                    color: "var(--aurora-accent, #7C3AED)",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: "50%",
+                      backgroundColor: "var(--aurora-accent, #7C3AED)",
+                    }}
+                  />
+                  <span>↑</span>
+                </button>
+              )}
             </div>
           )}
         </div>

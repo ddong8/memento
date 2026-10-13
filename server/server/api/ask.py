@@ -855,23 +855,34 @@ async def _get_or_create_conversation(
             except Exception:
                 pass
 
+        def _clean_smart_conversation_title(raw_text: str) -> str | None:
+            if not raw_text:
+                return None
+            c = raw_text.strip()
+            c = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", c)
+            c = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", c)
+            if "进行图像分析与代码实现。" in c:
+                c = c.split("进行图像分析与代码实现。", 1)[-1].strip()
+            c = re.sub(r"【用户上传了图片[\s\S]*?】", "", c).strip()
+            c = re.sub(r"【用户附加文件[\s\S]*?】", "", c).strip()
+            c = re.sub(r"^(请问下|请问|请帮我|帮我看下|帮我查看|能不能帮我|麻烦帮我|你好[，, ]*|您好[，, ]*|请[，, ]*)", "", c).strip()
+            c = " ".join(c.split())
+            if c and not _is_junk_or_uuid_title(c, session_id):
+                return c[:36]
+            return None
+
         if not title and history:
             for h in history:
                 if h.get("role") == "user" and h.get("content"):
-                    cleaned = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", h["content"])
-                    cleaned = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", cleaned).strip()
-                    if cleaned and not _is_junk_or_uuid_title(cleaned, session_id):
-                        title = cleaned[:50]
+                    t_cand = _clean_smart_conversation_title(h["content"])
+                    if t_cand:
+                        title = t_cand
                         break
 
         if not title and question:
-            clean_q = question.strip()
-            # 剥离前序核心快照及注入的系统包裹提示
-            clean_q = re.sub(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*", "", clean_q)
-            clean_q = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q)
-            clean_q = clean_q.strip().replace("\n", " ")
-            if clean_q and not _is_junk_or_uuid_title(clean_q, session_id):
-                title = clean_q[:50]
+            t_cand = _clean_smart_conversation_title(question)
+            if t_cand:
+                title = t_cand
 
         if not title:
             title = f"会话 {session_id[:8]}" if session_id else "新对话"

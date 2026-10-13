@@ -1939,6 +1939,75 @@ function AskPageContent() {
     setSourcesOpen(false);
   }, []);
 
+  const [exportingMd, setExportingMd] = useState(false);
+
+  const handleExportMarkdown = useCallback(() => {
+    if (!turns || turns.length === 0) return;
+    setExportingMd(true);
+
+    const activeConv = conversations.find((c) => c.id === activeConversationIdRef.current);
+    const title = activeConv?.title || (turns[0]?.content ? turns[0].content.trim().slice(0, 30) : "Memento 执行研报");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const lines: string[] = [
+      `# ${title}`,
+      `> 导出时间: ${new Date().toLocaleString()} | 模式: ${executionMode} | 设备: ${selectedDevice || "auto"} | 总轮次: ${turns.length}`,
+      "",
+      "---",
+      "",
+    ];
+
+    turns.forEach((t, i) => {
+      if (t.role === "user") {
+        lines.push(`### 👤 用户提问 #${Math.floor(i / 2) + 1}`);
+        lines.push("");
+        lines.push(t.content || "");
+        lines.push("");
+      } else {
+        lines.push(`### 🤖 AI 执事回复 #${Math.floor(i / 2) + 1}`);
+        lines.push("");
+        if (t.toolCalls && t.toolCalls.length > 0) {
+          lines.push("#### 🛠️ 设备执行记录");
+          t.toolCalls.forEach((call, cidx) => {
+            const cmd = (call.args?.command as string) || (call.args?.prompt as string) || call.name;
+            lines.push(`- **步骤 ${cidx + 1}**: \`${call.name}\` (${call.device_name || "auto"})`);
+            if (cmd) {
+              lines.push("  ```bash");
+              lines.push(`  ${cmd}`);
+              lines.push("  ```");
+            }
+            if (call.result?.stdout) {
+              lines.push("  <details><summary>点击查看终端输出</summary>\n");
+              lines.push("  ```text");
+              lines.push(call.result.stdout.slice(0, 4000));
+              lines.push("  ```\n  </details>");
+            }
+          });
+          lines.push("");
+        }
+        lines.push("#### 📋 总结与分析");
+        lines.push("");
+        lines.push(t.content || "任务执行完成。");
+        lines.push("");
+        lines.push("---");
+        lines.push("");
+      }
+    });
+
+    const mdContent = lines.join("\n");
+    const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const cleanFileName = title.replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 40) || "memento-export";
+    a.download = `${cleanFileName}-${dateStr}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setTimeout(() => setExportingMd(false), 1200);
+  }, [turns, conversations, executionMode, selectedDevice]);
+
   // Delete conversation
   const deleteConversation = useCallback(
     async (e: React.MouseEvent, id: string) => {
@@ -4848,6 +4917,33 @@ function AskPageContent() {
                       );
                     })}
                   </div>
+
+                  {/* Export Markdown button */}
+                  {turns.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExportMarkdown}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        background: "var(--aurora-chip)",
+                        border: "1px solid var(--aurora-border)",
+                        borderRadius: 8,
+                        padding: "3px 8px",
+                        color: exportingMd ? "#10b981" : "var(--aurora-fg3)",
+                        fontSize: 11.5,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                        transition: "all 0.15s ease",
+                      }}
+                      title={isZh ? "将当前对话与执行结果导出为 Markdown 研报" : "Export conversation to Markdown report"}
+                    >
+                      <Icon name={exportingMd ? "check" : "download"} size={12} style={{ color: exportingMd ? "#10b981" : undefined }} />
+                      <span>{exportingMd ? (isZh ? "已导出" : "Exported") : (isZh ? "导出研报" : "Export")}</span>
+                    </button>
+                  )}
 
                   {/* Collapse button */}
                   <button

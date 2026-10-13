@@ -128,6 +128,19 @@ def _auto_discover_antigravity_ls():
         pass
 
 
+def _is_antigravity_ls_alive():
+    """Probe if Antigravity language_server HTTP probe responds."""
+    addr = os.environ.get("ANTIGRAVITY_LS_ADDRESS")
+    if not addr:
+        return False
+    try:
+        req = urllib.request.Request(f"http://{addr}/", headers={"User-Agent": "Antigravity-Probe"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Antigravity CLI Runner")
     parser.add_argument("-p", "--prompt", dest="prompt_flag", help="Prompt to send to Antigravity")
@@ -264,12 +277,19 @@ def main():
 
     import threading
 
+    state = {
+        "waiting_user_input": False,
+        "in_flight_tools": [],
+        "tool_start_time": None,
+    }
+
     def _listen_stdin(cid, agentapi_bin):
         try:
             for line in sys.stdin:
                 ans = line.strip()
                 if not ans:
                     continue
+                state["waiting_user_input"] = False
                 cmd_send = [str(agentapi_bin), "send-message", cid, ans]
                 try:
                     subprocess.run(cmd_send, capture_output=True, text=True, env=dict(os.environ))
@@ -300,6 +320,7 @@ def main():
     last_error_message = ""
     active_background_tasks = set()
     task_log_sizes = {}
+    ls_dead_checks = 0
     tasks_dir = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id / ".system_generated" / "tasks"
 
     with open(transcript_file, "r", encoding="utf-8") as f:
@@ -353,18 +374,59 @@ def main():
                     if has_log_growth:
                         idle_count = 0  # 任务日志在持续写入，说明后台进程活跃，重置空闲计时
 
-                    # 处于等待期时，每 25 秒（125 次循环）向客户端输出一次保活心跳
-                    if active_background_tasks and idle_count > 0 and idle_count % 125 == 0:
+                # 周期性保活心跳与状态提示
+                if idle_count > 0 and idle_count % 125 == 0:  # 每 25 秒输出一次心跳
+                    if state.get("waiting_user_input"):
+                        sys.stdout.write("⏳ [等待用户选择或回复中...]\n")
+                        sys.stdout.flush()
+                    elif state.get("in_flight_tools"):
+                        tool_names = ", ".join(state["in_flight_tools"])
+                        el_sec = int(time.time() - state["tool_start_time"]) if state.get("tool_start_time") else int(idle_count * 0.2)
+                        sys.stdout.write(f"⏳ [工具 {tool_names} 持续执行中（已运行 {el_sec}s），请稍候...]\n")
+                        sys.stdout.flush()
+                    elif active_background_tasks:
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
                         sys.stdout.write(f"⏳ [后台任务 {tid_names} 执行中，请稍候...]\n")
                         sys.stdout.flush()
+                    else:
+                        el_sec = int(idle_count * 0.2)
+                        sys.stdout.write(f"⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n")
+                        sys.stdout.flush()
+
+                # 静默超过 20 秒后，每 10 秒探测 Antigravity 语言服务器存活状态
+                if idle_count > 100 and idle_count % 50 == 0:
+                    if not _is_antigravity_ls_alive():
+                        ls_dead_checks += 1
+                        if ls_dead_checks >= 3:  # 连续 3 次（30s）无响应判定为语言服务器断开
+                            sys.stderr.write("\n[Agent error: Antigravity 语言服务器已断开连接]\n")
+                            sys.stderr.flush()
+                            sys.exit(1)
+                    else:
+                        ls_dead_checks = 0
 
                 if last_error_message and idle_count > 75:  # 15s idle after error
                     sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
                     sys.stderr.flush()
                     sys.exit(1)
-                if idle_count > 900:  # 180s (3 minutes) idle timeout
-                    if active_background_tasks:
+
+                # 超时判定分支状态机：
+                # 1. 处于等待用户输入时：不触发空闲超时（受全局 args.timeout 约束）
+                if state.get("waiting_user_input"):
+                    continue
+
+                # 2. 处于工具在途执行期：工具执行单次最长允许 min(1200, args.timeout) 秒，杜绝 180s 误杀
+                if state.get("in_flight_tools"):
+                    tool_timeout = min(1200, args.timeout)
+                    if state.get("tool_start_time") and (time.time() - state["tool_start_time"] > tool_timeout):
+                        tool_names = ", ".join(state["in_flight_tools"])
+                        sys.stderr.write(f"\n[Tool timeout: 工具 {tool_names} 执行超时（超过 {tool_timeout}s）]\n")
+                        sys.stderr.flush()
+                        sys.exit(124)
+                    continue
+
+                # 3. 处于后台任务轮询期：空闲 180s 后平滑转入后台监控
+                if active_background_tasks:
+                    if idle_count > 900:  # 180s
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
                         sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
                         sys.stderr.write(f"\n⏳ [后台任务（{tid_names}）持续运行中，达到单次轮询等待上限（180s），已安全转入后台监控]\n")
@@ -372,10 +434,13 @@ def main():
                         sys.stderr.flush()
                         completed = True
                         break
-                    else:
-                        sys.stderr.write("\n[Agent timeout: 任务空闲超过 180s 无响应]\n")
-                        sys.stderr.flush()
-                        sys.exit(124)
+                    continue
+
+                # 4. 处于纯模型推理/无在途动作状态：放宽至 600s（10分钟）空闲超时
+                if idle_count > 3000:  # 600s (10 minutes)
+                    sys.stderr.write("\n[Agent timeout: 模型思考超过 600s 无响应]\n")
+                    sys.stderr.flush()
+                    sys.exit(124)
                 continue
 
             idle_count = 0
@@ -455,11 +520,25 @@ def main():
                         except Exception:
                             pass
 
+            # 工具/系统/用户结果到达时更新在途状态
+            if step_type in ("GENERIC", "SYSTEM_MESSAGE"):
+                if state.get("in_flight_tools"):
+                    state["in_flight_tools"].pop(0)
+                if not state.get("in_flight_tools"):
+                    state["tool_start_time"] = None
+
+            if step_type == "USER_INPUT":
+                state["waiting_user_input"] = False
+                state["in_flight_tools"] = []
+                state["tool_start_time"] = None
+
             # Filter out non-model steps and internal tool output dumps
             if step_type in ("USER_INPUT", "CHECKPOINT", "GENERIC", "SYSTEM_MESSAGE"):
                 continue
 
             if step_type == "ERROR_MESSAGE":
+                state["in_flight_tools"] = []
+                state["tool_start_time"] = None
                 err_msg = data.get("error") or data.get("message") or data.get("content") or ""
                 # Filter out transient API retry messages (e.g. attempt 1 failure) where Antigravity retries upstream
                 is_transient = any(kw in err_msg.lower() for kw in (
@@ -473,8 +552,21 @@ def main():
 
             if source == "MODEL" and step_type == "PLANNER_RESPONSE":
                 last_error_message = ""
+                state["in_flight_tools"] = []
+                state["tool_start_time"] = None
+
                 # Render tool action badges if any tools were invoked
                 if tool_calls:
+                    t_names = [tc.get("name", "tool") for tc in tool_calls]
+                    has_ask = any(tc.get("name") == "ask_question" for tc in tool_calls)
+                    if has_ask:
+                        state["waiting_user_input"] = True
+                        state["in_flight_tools"] = []
+                        state["tool_start_time"] = None
+                    else:
+                        state["in_flight_tools"] = t_names
+                        state["tool_start_time"] = time.time()
+
                     for tc in tool_calls:
                         tc_name = tc.get("name", "tool")
                         tc_args = tc.get("args") or {}
@@ -534,11 +626,11 @@ def main():
                     sys.stdout.flush()
 
                     if not tool_calls:
-                        if not active_background_tasks:
+                        if not active_background_tasks and not state.get("waiting_user_input"):
                             # Final response produced and no active background task, turn completed!
                             completed = True
                             break
-                        else:
+                        elif active_background_tasks:
                             # 只要后台任务仍在运行（is_waiting_transition），模型输出的所有过渡提示均保持流式展示，坚决不提前退出
                             is_waiting_transition = True
                             tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)

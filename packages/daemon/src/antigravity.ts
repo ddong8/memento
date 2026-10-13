@@ -104,6 +104,8 @@ const runnerAsset = () => process.env.MEMENTO_AGY_RUNNER || fileURLToPath(new UR
 /** A runner older than these features gets rewritten. */
 const RUNNER_MARKERS = [
   "_auto_discover_antigravity_ls",
+  "_is_antigravity_ls_alive",
+  "in_flight_tools",
   "gemini-3.8-flash",
   "--timeout",
   "ANTIGRAVITY_SOURCE_METADATA",

@@ -1,5 +1,6 @@
 import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import { join } from "node:path";
 
 import { ensureAgyCliInstalled } from "./antigravity.js";
@@ -392,6 +393,47 @@ async function workbuddyCapabilities(wbPath: string, home: string): Promise<Reco
   };
 }
 
+export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Record<string, unknown>> {
+  const [gitExe, pyExe, dockerExe, cargoExe, pnpmExe] = await Promise.all([
+    findExecutable(["git"]),
+    findExecutable(["python3", "python"]),
+    findExecutable(["docker"]),
+    findExecutable(["cargo"]),
+    findExecutable(["pnpm"]),
+  ]);
+
+  const devDirs = ["Desktop/dev", "dev", "projects", "code", "workspace", "src"]
+    .map((sub) => join(home, sub))
+    .filter((dir) => existsSync(dir));
+
+  let username = "";
+  try {
+    username = os.userInfo().username;
+  } catch {
+    username = process.env.USER || process.env.USERNAME || "";
+  }
+
+  return {
+    platform: os.platform(),
+    arch: os.arch(),
+    release: os.release(),
+    hostname: os.hostname(),
+    username,
+    home,
+    shell: process.env.SHELL || process.env.ComSpec || (os.platform() === "win32" ? "powershell.exe" : "/bin/bash"),
+    tools: {
+      git: gitExe ? "available" : undefined,
+      node: process.version,
+      python: pyExe ? "available" : undefined,
+      docker: dockerExe ? "available" : undefined,
+      cargo: cargoExe ? "available" : undefined,
+      pnpm: pnpmExe ? "available" : undefined,
+    },
+    workspaces: devDirs,
+    probed_at: new Date().toISOString(),
+  };
+}
+
 export async function probeCapabilities(home = homeDir()): Promise<Capabilities> {
   const caps: Capabilities = {};
   const claude = await findExecutable(["claude", "claude-code"]);
@@ -422,6 +464,11 @@ export async function probeCapabilities(home = homeDir()): Promise<Capabilities>
   const wb = await findExecutable(["workbuddy", "workbuddy_cli.mjs", "codebuddy"]);
   if (wb && isWorkbuddyInstalled(home)) {
     caps.workbuddy = await workbuddyCapabilities(wb, home);
+  }
+  try {
+    caps.environment = await probeEnvironmentFingerprint(home);
+  } catch {
+    // Ignore environment probing failures
   }
   return caps;
 }

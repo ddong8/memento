@@ -63,6 +63,62 @@ MAX_TASK_EVENTS = 400  # step events kept per task (tool calls, file changes, us
 # so the model can pick a different machine instead of waiting on a dead one.
 OFFLINE_AFTER_SECONDS = 180
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+_ERROR_LINE_RE = re.compile(
+    r"(?i)\b(error|exception|fail(?:ed|ure)?|fatal|traceback|syntaxerror|panic|err!|errno|cannot\s+find|not\s+found)\b"
+)
+
+
+def compact_tool_output(text: str, max_chars: int = MAX_TOOL_OUTPUT) -> str:
+    """Intelligently clean and compact tool output for LLM context.
+
+    1. Strips ANSI color and cursor codes, handles repeated carriage returns (\r).
+    2. If within budget, returns clean text.
+    3. If over budget:
+       - Preserves head context (~25% budget)
+       - Extracts critical error/exception lines from the middle (up to 8 lines)
+       - Preserves tail context (~60% budget) where tracebacks, test outcomes and exit codes reside.
+    """
+    if not text:
+        return ""
+    clean = _ANSI_ESCAPE_RE.sub("", text)
+    lines: list[str] = []
+    for raw_line in clean.splitlines():
+        if "\r" in raw_line:
+            segments = [seg for seg in raw_line.split("\r") if seg.strip()]
+            line = segments[-1] if segments else ""
+        else:
+            line = raw_line
+        lines.append(line)
+    clean = "\n".join(lines).strip()
+
+    if len(clean) <= max_chars:
+        return clean
+
+    head_budget = max(400, int(max_chars * 0.25))
+    tail_budget = max(800, int(max_chars * 0.60))
+
+    head_part = clean[:head_budget]
+    tail_part = clean[-tail_budget:]
+    middle_text = clean[head_budget:-tail_budget]
+
+    mid_errors: list[str] = []
+    for line in middle_text.splitlines():
+        trimmed = line.strip()
+        if trimmed and _ERROR_LINE_RE.search(trimmed):
+            mid_errors.append(trimmed[:200])
+            if len(mid_errors) >= 8:
+                break
+
+    omitted_chars = len(middle_text)
+    sep = f"\n\n... [智能精炼：已省略中间 {omitted_chars} 字符日志，保留启动与尾部输出"
+    if mid_errors:
+        sep += "；中间关键线索：\n  > " + "\n  > ".join(mid_errors) + "\n] ...\n\n"
+    else:
+        sep += "] ...\n\n"
+
+    return head_part + sep + tail_part
+
 
 def is_likely_long_running_task(text: str) -> bool:
     """Detect if a command/prompt involves heavy I/O, network migration, or compilation."""
@@ -792,8 +848,8 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                     "action": action,
                     "status": done_ws.get("status", "succeeded"),
                     "exit_code": done_ws.get("exit_code"),
-                    "stdout": ws_out[:MAX_TOOL_OUTPUT],
-                    "stderr": ws_err[:MAX_TOOL_OUTPUT],
+                    "stdout": compact_tool_output(ws_out),
+                    "stderr": compact_tool_output(ws_err),
                     "error": done_ws.get("error"),
                     "session_id": ext_sid,
                     "alerts": await _load_alerts(task_id_str),
@@ -835,8 +891,8 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 "action": action,
                 "status": done_task.status,
                 "exit_code": done_task.exit_code,
-                "stdout": task_out[:MAX_TOOL_OUTPUT],
-                "stderr": task_err[:MAX_TOOL_OUTPUT],
+                "stdout": compact_tool_output(task_out),
+                "stderr": compact_tool_output(task_err),
                 "error": done_task.error,
                 "session_id": task_sid,
                 "alerts": done_task.alerts or [],

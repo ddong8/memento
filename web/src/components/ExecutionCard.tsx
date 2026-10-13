@@ -28,6 +28,7 @@ export interface ToolCallItem {
     /** Steps of a structured agent run (Claude Code / Codex), live and after it ends. */
     events?: TaskEvent[];
     session_id?: string;
+    alerts?: Array<{ label: string; detail?: string; tool?: string; level?: string }>;
   };
 }
 
@@ -189,6 +190,17 @@ const ExecutionCard = memo(function ExecutionCard({
   });
 
   const [copied, setCopied] = useState(false);
+  const [showAllLogs, setShowAllLogs] = useState(false);
+
+  const rawStdout = result?.stdout || "";
+  const stdoutLines = useMemo(() => {
+    return rawStdout ? rawStdout.split("\n") : [];
+  }, [rawStdout]);
+  const hasTooManyLines = stdoutLines.length > 400;
+  const displayedStdout = useMemo(() => {
+    if (!hasTooManyLines || showAllLogs) return rawStdout;
+    return stdoutLines.slice(-400).join("\n");
+  }, [rawStdout, stdoutLines, hasTooManyLines, showAllLogs]);
 
   useEffect(() => {
     if (isVisible && isRunning && terminalRef.current) {
@@ -500,6 +512,47 @@ const ExecutionCard = memo(function ExecutionCard({
       {/* Terminal Content Box */}
       {expanded && (
         <div style={{ padding: "10px 12px" }}>
+          {/* Safety Alerts Banner */}
+          {result?.alerts && result.alerts.length > 0 && (
+            <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              {result.alerts.map((alt: any, idx: number) => {
+                const isCrit = alt.level === "critical";
+                const isDanger = alt.level === "danger" || !alt.level;
+                const bg = isCrit ? "rgba(239, 68, 68, 0.12)" : isDanger ? "rgba(249, 115, 22, 0.12)" : "rgba(245, 158, 11, 0.12)";
+                const border = isCrit ? "#ef4444" : isDanger ? "#f97316" : "#f59e0b";
+                const fg = isCrit ? "#ef4444" : isDanger ? "#f97316" : "#d97706";
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      background: bg,
+                      border: `1px solid ${border}`,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>{isCrit ? "🛑" : isDanger ? "⚠️" : "ℹ️"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: fg }}>
+                        {isCrit ? "【核心高危指令】" : isDanger ? "【高危操作风险】" : "【操作提醒】"} {alt.label}
+                      </div>
+                      {alt.detail && (
+                        <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--aurora-fg2)", wordBreak: "break-all", marginTop: 2 }}>
+                          {alt.detail}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {/* Sub-bar: cwd & format toggle & copy */}
           <div
             style={{
@@ -773,8 +826,48 @@ const ExecutionCard = memo(function ExecutionCard({
               </div>
             )}
 
-            {result?.stdout && (
-              <div>{result.stdout}</div>
+            {hasTooManyLines && !showAllLogs && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "6px 12px",
+                  marginBottom: 8,
+                  borderRadius: 6,
+                  background: "rgba(56, 189, 248, 0.1)",
+                  border: "1px solid rgba(56, 189, 248, 0.25)",
+                  color: "#38bdf8",
+                  fontSize: 11,
+                }}
+              >
+                <span>
+                  ⚡ 已折叠前序 {stdoutLines.length - 400} 行历史日志，保持界面流畅（当前展示最新 400 行）
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAllLogs(true);
+                  }}
+                  style={{
+                    background: "rgba(56, 189, 248, 0.15)",
+                    border: "1px solid #38bdf8",
+                    color: "#38bdf8",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  展开全部
+                </button>
+              </div>
+            )}
+
+            {displayedStdout && (
+              <div>{displayedStdout}</div>
             )}
 
             {cleanStderr && (

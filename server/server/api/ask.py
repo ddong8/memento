@@ -615,6 +615,12 @@ def _build_messages(
         )
         system_prompt += f"\n\n【用户长期核心记忆与工程规范 (MEMORY.md)】\n{core_snippets}"
 
+    # 4. Device Environment Fingerprint
+    from .tasks import get_device_environment_summary
+    env_summary = get_device_environment_summary(device_id)
+    if env_summary:
+        system_prompt += f"\n\n【目标设备就绪环境指纹画像】\n{env_summary}"
+
     messages = [{"role": "system", "content": system_prompt}]
     for turn in (history or [])[-MAX_HISTORY_TURNS:]:
         role = turn.get("role")
@@ -2370,6 +2376,12 @@ async def _direct_agent_stream(
         if "prompt" not in args:
             args["prompt"] = final_prompt
         args["binary"] = binary
+
+        from .tasks import get_device_environment_summary
+        env_summary = get_device_environment_summary(device_id)
+        if env_summary and not orig_session_id:
+            curr_spa = args.get("system_prompt_append") or ""
+            args["system_prompt_append"] = f"{curr_spa}\n\n【目标设备就绪环境指纹画像】\n{env_summary}".strip()
         if orig_session_id:
             tag = "compact" if compact_mode else ("fork" if fork else "resume")
             resume_tag = f" [{tag}:{orig_session_id[:8]}]"

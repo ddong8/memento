@@ -129,6 +129,35 @@ def get_cached_device_capabilities(device_id: str | None = None, tool: str | Non
     return caps
 
 
+def get_device_environment_summary(device_id: str | None = None) -> str | None:
+    """Format a compact environment profile string for system prompts and tool contexts."""
+    caps = get_cached_device_capabilities(device_id)
+    if not caps or not isinstance(caps, dict):
+        return None
+    env = caps.get("environment")
+    if not env or not isinstance(env, dict):
+        return None
+
+    plat = env.get("platform") or ""
+    arch = env.get("arch") or ""
+    shell = env.get("shell") or ""
+    user = env.get("username") or ""
+    tools_dict = env.get("tools") or {}
+    active_tools = [f"{k}: {v}" for k, v in tools_dict.items() if v]
+
+    lines = [
+        f"系统平台: {plat} ({arch}) | 默认 Shell: {shell} | 当前用户: {user}",
+    ]
+    if active_tools:
+        lines.append(f"已就绪工具链: {', '.join(active_tools)}")
+    workspaces = env.get("workspaces") or []
+    if workspaces:
+        lines.append(f"常用工作区路径: {', '.join(workspaces[:3])}")
+    lines.append("提示: 目标设备已就绪上述环境与工具，执行命令时直接调用对应环境，无需重复运行 which/--version 探查。")
+    return "\n".join(lines)
+
+
+
 class CreateTask(BaseModel):
     action: str
     payload: dict | None = None

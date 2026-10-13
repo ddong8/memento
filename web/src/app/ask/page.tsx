@@ -113,6 +113,43 @@ interface Turn {
   duration_ms?: number;
 }
 
+function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    let timer: any = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener("abort", onDone);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("focus", onDone);
+        window.removeEventListener("memento_wake_stream", onDone);
+        window.removeEventListener("memento_app_active", onDone);
+        document.removeEventListener("visibilitychange", onVisChange);
+      }
+    };
+    const onDone = () => {
+      cleanup();
+      resolve();
+    };
+    const onVisChange = () => {
+      if (document.visibilityState === "visible") {
+        onDone();
+      }
+    };
+    timer = setTimeout(onDone, ms);
+    signal?.addEventListener("abort", onDone);
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", onDone);
+      window.addEventListener("memento_wake_stream", onDone);
+      window.addEventListener("memento_app_active", onDone);
+      document.addEventListener("visibilitychange", onVisChange);
+    }
+  });
+}
+
 function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1303,6 +1340,7 @@ function AskPageContent() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
   const pendingScrollToBottomRef = useRef<boolean>(false);
+  const lastStreamActivityRef = useRef<number>(Date.now());
 
   const scrollConversationToBottom = useCallback((instant = true) => {
     scrollSettleTimersRef.current.forEach(clearTimeout);
@@ -1555,30 +1593,26 @@ function AskPageContent() {
     try {
       if (options?.force) {
         invalidateApiCache(`/api/ask/conversations/${id}`);
-        if (streamingRef.current) {
-          try {
-            const runCheck = await authFetch(`${getApiBase()}/api/ask/conversations/${id}/run`);
-            const runInfo = runCheck.ok ? await runCheck.json() : null;
-            if (!runInfo || runInfo.done || runInfo.cancelled) {
-              abortRef.current?.abort();
-              abortRef.current = null;
-              streamingRef.current = false;
-              setStreaming(false);
-              if (askCache) {
-                askCache.streaming = false;
-                askCache.activeRun = null;
-              }
-            }
-          } catch {
-            abortRef.current?.abort();
-            abortRef.current = null;
-            streamingRef.current = false;
-            setStreaming(false);
-          }
+        abortRef.current?.abort();
+        abortRef.current = null;
+        streamingRef.current = false;
+        setStreaming(false);
+        if (askCache) {
+          askCache.streaming = false;
+          askCache.activeRun = null;
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("memento_wake_stream"));
         }
       }
 
-      const data = await api.getAskConversation(id, limitToUse);
+      // Concurrently query active run status and conversation turns for instant presentation
+      const [runInfo, data] = await Promise.all([
+        authFetch(`${getApiBase()}/api/ask/conversations/${id}/run`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        api.getAskConversation(id, limitToUse),
+      ]);
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       window.history.replaceState(null, "", `/ask?id=${data.id}`);
@@ -1606,6 +1640,18 @@ function AskPageContent() {
       }
       setHistoryOpen(false);
       setSourcesOpen(false);
+
+      // Instantly attach live stream if task is still running on server
+      if (runInfo && !runInfo.done && !runInfo.cancelled) {
+        attachRunRef.current?.(data.id, runInfo.question || "", loadedTurns);
+      } else {
+        streamingRef.current = false;
+        setStreaming(false);
+        if (askCache) {
+          askCache.streaming = false;
+          askCache.activeRun = null;
+        }
+      }
 
       // 2. Execution mode, model, effort, project, session
       let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
@@ -1831,13 +1877,6 @@ function AskPageContent() {
         selectedProjectIdRef.current = "";
         setSessions([]);
         setSelectedSessionId("");
-      }
-
-      // 4. Still running? Show live
-      const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${data.id}/run`);
-      if (runRes.ok) {
-        const run = await runRes.json();
-        if (!run.done) attachRunRef.current?.(data.id, run.question || "", data.turns || []);
       }
     } catch (e) {
       console.error("Failed to load conversation:", e);
@@ -2375,8 +2414,14 @@ function AskPageContent() {
               }
             }
 
-            // If local SSE reader is dead or aborted, reattach to stream
-            if (!abortRef.current || abortRef.current.signal.aborted) {
+            // If local SSE reader is dead or aborted, or was zombie in background (> 5s no activity on resume), reattach to stream
+            const isStreamZombie = forceRefreshWhenIdle && (Date.now() - lastStreamActivityRef.current > 5000);
+            if (!abortRef.current || abortRef.current.signal.aborted || isStreamZombie) {
+              if (isStreamZombie && abortRef.current) {
+                try {
+                  abortRef.current.abort();
+                } catch {}
+              }
               attachRunRef.current?.(convId, run.question || "", turnsRef.current);
               pendingScrollToBottomRef.current = true;
               scrollConversationToBottom(true);
@@ -2384,6 +2429,11 @@ function AskPageContent() {
           } else if (run && run.done) {
             // Task has completed on server
             if (streamingRef.current || forceRefreshWhenIdle) {
+              if (abortRef.current) {
+                try {
+                  abortRef.current.abort();
+                } catch {}
+              }
               const wasStreaming = streamingRef.current;
               invalidateApiCache(`/api/ask/conversations/${convId}`);
               const data = await api.getAskConversation(convId, 40).catch(() => null);
@@ -2412,6 +2462,11 @@ function AskPageContent() {
           }
         } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
           // No active run on server
+          if (abortRef.current) {
+            try {
+              abortRef.current.abort();
+            } catch {}
+          }
           const wasStreaming = streamingRef.current;
           invalidateApiCache(`/api/ask/conversations/${convId}`);
           const data = await api.getAskConversation(convId, 40).catch(() => null);
@@ -2453,29 +2508,27 @@ function AskPageContent() {
 
     schedule();
 
-    // Recheck immediately when window regains visibility from background
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        wasHidden = true;
-      } else if (document.visibilityState === "visible") {
-        wasHidden = false;
-        void checkServerRun(true);
-      }
+    // Recheck immediately when window regains visibility from background or wakes
+    const onWake = () => {
+      void checkServerRun(true);
     };
-    const onFocus = () => {
-      if (wasHidden) {
-        wasHidden = false;
-        void checkServerRun(true);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        onWake();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("focus", onFocus);
+    window.addEventListener("focus", onWake);
+    window.addEventListener("memento_wake_stream", onWake);
+    window.addEventListener("memento_app_active", onWake);
 
     return () => {
       isMounted = false;
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("focus", onWake);
+      window.removeEventListener("memento_wake_stream", onWake);
+      window.removeEventListener("memento_app_active", onWake);
     };
   }, [activeConversationId, scrollConversationToBottom]);
 
@@ -2761,6 +2814,7 @@ function AskPageContent() {
     };
 
     const handleFrame = (frame: string) => {
+      lastStreamActivityRef.current = Date.now();
       const lines = frame.split("\n");
       const idLine = lines.find((l) => l.startsWith("id: "));
       if (idLine) cursor.lastId = Number(idLine.slice(4)) || cursor.lastId;
@@ -3142,6 +3196,8 @@ function AskPageContent() {
           // Finished and no longer held by the server: the saved conversation has it all.
           const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
+          setTurns(data.turns || []);
+          scrollConversationToBottom(true);
           return;
         }
         if (res.ok && res.body) {
@@ -3162,6 +3218,8 @@ function AskPageContent() {
         if (runRes.status === 404) {
           const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
+          setTurns(data.turns || []);
+          scrollConversationToBottom(true);
           return;
         }
         if (runRes.ok) {
@@ -3169,6 +3227,8 @@ function AskPageContent() {
           if (run.done || run.cancelled) {
             const data = await api.getAskConversation(cursor.convId!, 40);
             turnsRef.current = data.turns || [];
+            setTurns(data.turns || []);
+            scrollConversationToBottom(true);
             return;
           }
           // Server confirmed task is still running: keep reconnecting!
@@ -3179,9 +3239,12 @@ function AskPageContent() {
       }
 
       attempt++;
-      await new Promise((r) => setTimeout(r, Math.min(1500 * attempt, 10000)));
+      const isVisible = typeof document !== "undefined" && document.visibilityState === "visible";
+      const maxDelay = isVisible ? 1500 : 10000;
+      const sleepTime = Math.min(600 * attempt, maxDelay);
+      await interruptibleSleep(sleepTime, ctrl.signal);
     }
-  }, [consumeRun]);
+  }, [consumeRun, scrollConversationToBottom]);
 
   const finishStream = useCallback((ctrl: AbortController) => {
     if (abortRef.current !== ctrl) return; // superseded by a newer stream

@@ -246,9 +246,8 @@ export default function WebShell() {
     return () => sub.remove();
   }, []);
 
-  // Open destination URL when a native push notification or Dynamic Island deep link is tapped
-  useEffect(() => {
-    const handleUrl = (rawTarget?: string | null) => {
+  const handleUrl = useCallback(
+    (rawTarget?: string | null) => {
       const target = normalizeDeepLinkTarget(rawTarget);
       if (!target || target === "/") return;
       const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;
@@ -266,10 +265,27 @@ export default function WebShell() {
           true;
         `;
         web.current.injectJavaScript(js);
+        try {
+          web.current.postMessage(JSON.stringify({ type: "deep_link", url: fullUrl, timestamp: Date.now() }));
+        } catch {}
+        setTimeout(() => {
+          web.current?.injectJavaScript(js);
+          try {
+            web.current?.postMessage(JSON.stringify({ type: "deep_link", url: fullUrl, timestamp: Date.now() }));
+          } catch {}
+        }, 120);
+        setTimeout(() => {
+          web.current?.injectJavaScript(js);
+        }, 360);
       } else {
         pendingUrlRef.current = fullUrl;
       }
-    };
+    },
+    [origin, initialLoaded],
+  );
+
+  // Open destination URL when a native push notification or Dynamic Island deep link is tapped
+  useEffect(() => {
 
     const unsubDeepLink = subscribeDeepLinkTarget((targetPath) => {
       handleUrl(targetPath);
@@ -306,7 +322,7 @@ export default function WebShell() {
       linkSub.remove();
       sub.remove();
     };
-  }, [origin, initialLoaded]);
+  }, [handleUrl]);
 
   const onNavigation = useCallback(
     (nav: WebViewNavigation) => {
@@ -403,6 +419,13 @@ export default function WebShell() {
         lastSeen = new Date().toISOString();
         void fetchFeed();
         startTimer();
+        // Immediately wake any sleeping streams or background polling in WebView
+        web.current?.injectJavaScript("window.dispatchEvent(new Event('memento_app_active')); window.dispatchEvent(new Event('memento_wake_stream')); true;");
+        if (pendingUrlRef.current) {
+          const u = pendingUrlRef.current;
+          pendingUrlRef.current = null;
+          handleUrl(u);
+        }
       } else if (timer) {
         clearInterval(timer);
         timer = null;
@@ -414,7 +437,7 @@ export default function WebShell() {
       if (timer) clearInterval(timer);
       appStateSub.remove();
     };
-  }, [ready, token, origin]);
+  }, [ready, token, origin, handleUrl]);
 
   const onMessage = useCallback((e: WebViewMessageEvent) => {
     try {

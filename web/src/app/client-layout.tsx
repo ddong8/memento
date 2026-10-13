@@ -155,12 +155,23 @@ function AppShell({ children }: { children: React.ReactNode }) {
         } catch {}
         window.location.href = url;
       };
+
+      const handleNativeMessage = (event: MessageEvent) => {
+        try {
+          const raw = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+          if (raw && raw.type === "deep_link" && raw.url) {
+            (window as unknown as { __memento_navigate?: (url: string) => void }).__memento_navigate?.(raw.url);
+          }
+        } catch {}
+      };
+      window.addEventListener("message", handleNativeMessage);
+      return () => {
+        window.removeEventListener("message", handleNativeMessage);
+        if (typeof window !== "undefined") {
+          delete (window as unknown as { __memento_client_push?: unknown }).__memento_client_push;
+        }
+      };
     }
-    return () => {
-      if (typeof window !== "undefined") {
-        delete (window as unknown as { __memento_client_push?: unknown }).__memento_client_push;
-      }
-    };
   }, [router]);
 
   // Save current route for seamless session restoration on reopening

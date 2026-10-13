@@ -279,13 +279,21 @@ export default function ActiveRunsMonitor() {
       }
     };
 
+    const onWake = () => {
+      void syncAfterResume(true);
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
+    window.addEventListener("memento_app_active", onWake);
+    window.addEventListener("memento_wake_stream", onWake);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
+      window.removeEventListener("memento_app_active", onWake);
+      window.removeEventListener("memento_wake_stream", onWake);
     };
   }, [token]);
 

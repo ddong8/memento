@@ -299,7 +299,7 @@ export interface DeviceTask {
   dispatched_at: string | null;
   finished_at: string | null;
   /** Risky operations the agent performed (pushed to the phone). */
-  alerts?: { label: string; detail: string; tool: string; at?: string }[];
+  alerts?: { label: string; detail: string; tool: string; at?: string; level?: "critical" | "danger" | "warn" }[];
 }
 
 export interface DeviceSummary {

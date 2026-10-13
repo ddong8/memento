@@ -129,21 +129,54 @@ export default function TaskPage() {
           </Glass>
 
           {alerts.length > 0 && (
-            <Glass padding="clamp(14px, 3vw, 20px)" radius={16} style={{ border: "1px solid rgba(245,158,11,0.45)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#D97706", marginBottom: 8, fontSize: 14 }}>
-                <Icon name="lock" size={14} /> 危险操作（{alerts.length}）
+            <Glass padding="clamp(14px, 3vw, 20px)" radius={16} style={{ border: "1px solid rgba(245,158,11,0.35)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 10, fontSize: 14 }}>
+                <Icon name="lock" size={14} style={{ color: "#F59E0B" }} /> 高危与敏感操作提示（{alerts.length}）
               </div>
-              {alerts.map((a, i) => (
-                <div key={i} style={{ padding: "6px 0", borderTop: i ? "1px solid var(--aurora-border)" : "none", fontSize: 13 }}>
-                  <div style={{ fontWeight: 600, color: "var(--aurora-fg1)" }}>
-                    {a.label}
-                    {a.at && <span style={{ fontWeight: 400, color: "var(--aurora-fg4)", marginLeft: 8, fontSize: 12 }}>{formatTime(a.at)}</span>}
-                  </div>
-                  <code style={{ display: "block", marginTop: 2, color: "var(--aurora-fg2)", fontSize: 12, wordBreak: "break-all" }}>
-                    {a.detail}
-                  </code>
-                </div>
-              ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {alerts.map((a, i) => {
+                  const isCritical = a.level === "critical";
+                  const isWarn = a.level === "warn";
+                  const toneColor = isCritical ? "#EF4444" : isWarn ? "#38BDF8" : "#F59E0B";
+                  const bgTone = isCritical ? "rgba(239, 68, 68, 0.08)" : isWarn ? "rgba(56, 189, 248, 0.08)" : "rgba(245, 158, 11, 0.08)";
+                  const borderTone = isCritical ? "rgba(239, 68, 68, 0.28)" : isWarn ? "rgba(56, 189, 248, 0.28)" : "rgba(245, 158, 11, 0.28)";
+                  const levelTag = isCritical ? "高危阻断" : isWarn ? "关注提示" : "风险操作";
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        background: bgTone,
+                        border: `1px solid ${borderTone}`,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: toneColor,
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              background: "rgba(0,0,0,0.12)",
+                            }}
+                          >
+                            {levelTag}
+                          </span>
+                          <span style={{ fontWeight: 600, color: "var(--aurora-fg1)" }}>{a.label}</span>
+                        </div>
+                        {a.at && <span style={{ color: "var(--aurora-fg4)", fontSize: 11.5 }}>{formatTime(a.at)}</span>}
+                      </div>
+                      <code style={{ display: "block", marginTop: 4, color: "var(--aurora-fg2)", fontSize: 11.5, wordBreak: "break-all", fontFamily: "monospace" }}>
+                        {a.detail}
+                      </code>
+                    </div>
+                  );
+                })}
+              </div>
             </Glass>
           )}
 

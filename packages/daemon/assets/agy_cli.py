@@ -147,7 +147,7 @@ def main():
     parser.add_argument("--resume", dest="resume_id", default="", help="Resume an existing conversation by ID")
     parser.add_argument("--model", dest="model", default="", help="Model tier: flash_lite, flash, or pro")
     parser.add_argument("--title", dest="title", default="", help="Conversation title")
-    parser.add_argument("--timeout", type=int, default=1800, help="Timeout in seconds")
+    parser.add_argument("--timeout", type=int, default=0, help="Timeout in seconds (0 = unlimited)")
     parser.add_argument("prompt_pos", nargs="*", help="Positional prompt words")
 
     args, unknown = parser.parse_known_args()
@@ -328,7 +328,7 @@ def main():
             f.seek(start_pos)
 
         while True:
-            if time.time() - start_time > args.timeout:
+            if args.timeout > 0 and (time.time() - start_time > args.timeout):
                 if active_background_tasks:
                     tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
                     sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
@@ -414,9 +414,9 @@ def main():
                 if state.get("waiting_user_input"):
                     continue
 
-                # 2. 处于工具在途执行期：工具执行单次最长允许 min(1200, args.timeout) 秒，杜绝 180s 误杀
+                # 2. 处于工具在途执行期：工具执行单次最长允许 3600 秒（或 args.timeout），杜绝误杀
                 if state.get("in_flight_tools"):
-                    tool_timeout = min(1200, args.timeout)
+                    tool_timeout = min(3600, args.timeout) if args.timeout > 0 else 3600
                     if state.get("tool_start_time") and (time.time() - state["tool_start_time"] > tool_timeout):
                         tool_names = ", ".join(state["in_flight_tools"])
                         sys.stderr.write(f"\n[Tool timeout: 工具 {tool_names} 执行超时（超过 {tool_timeout}s）]\n")

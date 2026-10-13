@@ -721,7 +721,7 @@ export const api = {
     deviceId: string,
     action: "shell" | "agent",
     payload: Record<string, unknown>,
-    timeoutSeconds = 300
+    timeoutSeconds = 7200
   ) =>
     apiFetch<DeviceTask>(`/api/tasks/dispatch/${deviceId}`, {
       method: "POST",

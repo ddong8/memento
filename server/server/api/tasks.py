@@ -132,7 +132,7 @@ def get_cached_device_capabilities(device_id: str | None = None, tool: str | Non
 class CreateTask(BaseModel):
     action: str
     payload: dict | None = None
-    timeout_seconds: int = Field(default=300, ge=1, le=86400)
+    timeout_seconds: int = Field(default=7200, ge=0, le=86400)
 
 
 class TaskResult(BaseModel):

@@ -2227,11 +2227,12 @@ async def _direct_agent_stream(
 
     # Determine effective timeout: respect user choice; otherwise auto-expand for heavy migration/sync/build tasks
     effective_timeout = timeout_seconds
-    if not effective_timeout or effective_timeout <= 0:
+    if effective_timeout is None or effective_timeout < 0:
         if is_likely_long_running_task(question):
-            effective_timeout = 1800  # 30 minutes for migration/archive/build tasks
+            effective_timeout = 14400  # 4 hours for migration/archive/build tasks
         else:
-            effective_timeout = 1800 if action == "agent" else 45
+            effective_timeout = 7200 if action == "agent" else 60
+    # Note: effective_timeout == 0 is explicitly preserved as unlimited!
 
     args = {
         "action": action,

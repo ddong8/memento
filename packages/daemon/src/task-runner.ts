@@ -22,7 +22,7 @@ export interface TaskDispatch {
 
 export function parseTaskDispatch(json: Record<string, unknown>): TaskDispatch {
   const action = String(json.action ?? "shell");
-  const timeout = typeof json.timeout_seconds === "number" ? json.timeout_seconds : action === "agent" ? 1800 : 300;
+  const timeout = typeof json.timeout_seconds === "number" ? json.timeout_seconds : action === "agent" ? 7200 : 300;
   const payload = json.payload && typeof json.payload === "object" ? (json.payload as Record<string, unknown>) : {};
   return { id: String(json.id ?? ""), action, payload, timeoutSeconds: timeout };
 }
@@ -387,14 +387,32 @@ export class TaskRunner {
     }
 
     const stdoutDone = new Promise<void>((resolve) => proc.stdout.once("end", () => resolve()));
+
+    let timedOut = false;
+    let timer: NodeJS.Timeout | undefined;
+
+    // Activity-based watchdog: refreshed whenever process produces stdout/stderr, disabled if timeoutSeconds <= 0
+    const armTimer = () => {
+      if (timeoutSeconds > 0) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timedOut = true;
+          killProcessTree(proc);
+        }, timeoutSeconds * 1000);
+      }
+    };
+    armTimer();
+
     if (!parser) {
       proc.stdout.setEncoding("utf8");
       proc.stdout.on("data", (text: string) => {
+        armTimer();
         out.stdout += text;
         this.send(chunk(taskId, "stdout", text));
       });
     } else {
       createInterface({ input: proc.stdout, crlfDelay: Infinity }).on("line", (line) => {
+        armTimer();
         const events = parser.feed(line);
         if (events === null) {
           if (!line.trim()) return;
@@ -421,22 +439,18 @@ export class TaskRunner {
     }
     proc.stderr.setEncoding("utf8");
     proc.stderr.on("data", (text: string) => {
+      armTimer();
       out.stderr += text;
       this.send(chunk(taskId, "stderr", text));
     });
 
     return new Promise<number>((resolve, reject) => {
-      let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        killProcessTree(proc);
-      }, timeoutSeconds * 1000);
       proc.once("error", (e) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         reject(e);
       });
       proc.once("exit", (code, signal) => {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         // Let the last output drain, but don't wait on a pipe some leftover child still holds.
         void Promise.race([stdoutDone, new Promise((r) => setTimeout(r, 3000))]).then(() =>
           resolve(timedOut ? TIMED_OUT : (code ?? (signal ? -1 : 1))),
@@ -584,7 +598,7 @@ export class TaskRunner {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
           ...(model ? ["--model", model] : []),
-          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(30, task.timeoutSeconds - 15))] : []),
+          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(60, task.timeoutSeconds - 15))] : ["--timeout", "0"]),
           "-p",
           prompt,
         ];

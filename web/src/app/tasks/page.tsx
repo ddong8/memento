@@ -32,7 +32,7 @@ export default function TasksPage() {
   const [action, setAction] = useState<"shell" | "agent">("shell");
   const [command, setCommand] = useState("");
   const [cwd, setCwd] = useState("");
-  const [timeout, setTimeoutSec] = useState(300);
+  const [timeout, setTimeoutSec] = useState(7200);
   const [tasks, setTasks] = useState<DeviceTask[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -144,10 +144,11 @@ export default function TasksPage() {
             <Icon name="clock" size={15} style={{ color: "var(--aurora-fg3)" }} />
             <input
               type="number"
-              min={1}
+              min={0}
               max={86400}
               value={timeout}
-              onChange={(e) => setTimeoutSec(Number(e.target.value) || 300)}
+              placeholder="0 为不限时"
+              onChange={(e) => setTimeoutSec(Number(e.target.value) >= 0 ? Number(e.target.value) : 7200)}
               style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: "var(--aurora-fg1)" }}
             />
           </label>

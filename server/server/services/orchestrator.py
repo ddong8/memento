@@ -51,9 +51,9 @@ logger = logging.getLogger("server.orchestrator")
 # Tool-call rounds before we stop and let the model summarize. Each round is
 # one LLM call plus however long the dispatched tasks take.
 MAX_ROUNDS = int(os.environ.get("MEMENTO_MAX_ROUNDS", "8"))
-# How long to wait inline for a dispatched task: default 1800s (30 min), max 3600s (1 hour).
-TASK_WAIT_SECONDS = int(os.environ.get("MEMENTO_TASK_WAIT_SECONDS", "1800"))
-MAX_TASK_TIMEOUT = int(os.environ.get("MEMENTO_MAX_TASK_TIMEOUT", "3600"))
+# How long to wait inline for a dispatched task: default 7200s (2 hours), max 86400s (24 hours).
+TASK_WAIT_SECONDS = int(os.environ.get("MEMENTO_TASK_WAIT_SECONDS", "7200"))
+MAX_TASK_TIMEOUT = int(os.environ.get("MEMENTO_MAX_TASK_TIMEOUT", "86400"))
 TASK_POLL_INTERVAL = 1.5
 # Trim tool output before it goes back into the prompt — a 100k-char build log
 # would blow the context and bury the signal.
@@ -110,7 +110,7 @@ TOOLS = [
                         "enum": ["claude", "codex", "agy"],
                     },
                     "cwd": {"type": "string", "description": "工作目录，可选"},
-                    "timeout_seconds": {"type": "integer", "description": "执行超时时间（秒），shell 默认 45，agent 默认 600（大任务智能放宽至 1800，上限 3600）"},
+                    "timeout_seconds": {"type": "integer", "description": "执行超时时间（秒），0 表示不设上限；shell 默认 60，agent 默认 7200（大任务智能放宽至 14400）"},
                 },
                 "required": ["device_id", "action"],
             },
@@ -339,6 +339,7 @@ async def _await_task_stream(
     machine_name: str,
     deadline: float,
     task_q: asyncio.Queue | None = None,
+    server_wait: float = 0,
 ):
     """Poll the task row or receive chunks from WebSocket queue until terminal or deadline."""
     task_id = task.id
@@ -355,16 +356,20 @@ async def _await_task_stream(
         "status": last_status,
     }
 
-    while asyncio.get_event_loop().time() < deadline:
+    while deadline <= 0 or asyncio.get_event_loop().time() < deadline:
         # Check WebSocket queue for real-time chunks or completion
         if task_q is not None:
             try:
                 item = await asyncio.wait_for(task_q.get(), timeout=1.0)
                 itype = item.get("type")
                 if itype == "task_chunk":
+                    if deadline > 0 and server_wait > 0:
+                        deadline = max(deadline, asyncio.get_event_loop().time() + server_wait)
                     yield item
                     continue
                 elif itype in ("task_progress", "task_alert", "task_event"):
+                    if deadline > 0 and server_wait > 0:
+                        deadline = max(deadline, asyncio.get_event_loop().time() + server_wait)
                     yield item
                     continue
                 elif itype == "task_finished":
@@ -605,25 +610,32 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
         if resolved_cwd:
             payload["cwd"] = resolved_cwd
 
-        # Determine timeout: shell defaults to 45s, agent defaults to TASK_WAIT_SECONDS (600s)
-        # If the task prompt/command involves long-running operations (migration/archive/sync/build), auto-expand to 1800s (30m)
+        # Determine timeout: shell defaults to 60s (or 300s if long), agent defaults to TASK_WAIT_SECONDS (7200s, or 14400s if long)
         cmd_or_prompt = args.get("command") or args.get("prompt") or payload.get("prompt") or ""
         is_long = is_likely_long_running_task(cmd_or_prompt)
 
         if action == "shell":
-            default_timeout = 180 if is_long else 45
+            default_timeout = 300 if is_long else 60
         else:
-            default_timeout = 1800 if is_long else TASK_WAIT_SECONDS
+            default_timeout = 14400 if is_long else TASK_WAIT_SECONDS
 
         req_timeout = args.get("timeout_seconds")
-        if req_timeout and isinstance(req_timeout, int) and req_timeout > 0:
-            device_timeout = min(req_timeout, MAX_TASK_TIMEOUT)
+        if req_timeout is not None and isinstance(req_timeout, int):
+            if req_timeout == 0:
+                device_timeout = 0  # 0 indicates unlimited execution
+            else:
+                device_timeout = min(req_timeout, MAX_TASK_TIMEOUT)
         else:
             device_timeout = default_timeout
 
         # Server deadline adds safety margin so device-side timeout status arrives cleanly before server deadline
-        server_margin = 7 if action == "shell" else 10
-        server_wait = device_timeout + server_margin
+        if device_timeout == 0:
+            server_wait = 0
+            deadline = 0.0
+        else:
+            server_margin = 10 if action == "shell" else 30
+            server_wait = device_timeout + server_margin
+            deadline = asyncio.get_event_loop().time() + server_wait
 
         task = DeviceTask(
             device_id=device_id,
@@ -736,12 +748,15 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 ws_manager.unsubscribe_task(task_id_str)
                 task_q = None
 
-        deadline = asyncio.get_event_loop().time() + server_wait
+        if device_timeout > 0:
+            deadline = asyncio.get_event_loop().time() + server_wait
+        else:
+            deadline = 0.0
         done_task = None
         done_ws = None
 
         try:
-            async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q):
+            async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q, server_wait=server_wait):
                 if evt["type"] == "_task_finished":
                     done_task = evt["task"]
                 elif evt["type"] == "_task_finished_ws":

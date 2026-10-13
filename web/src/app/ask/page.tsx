@@ -3504,7 +3504,7 @@ function AskPageContent() {
   }, [send]);
 
   const handleSelectProject = useCallback(
-    async (projId: string, customProjects?: ProjectSummary[]) => {
+    async (projId: string, customProjects?: ProjectSummary[], explicitDev?: string) => {
       const isSameProj = projId === selectedProjectIdRef.current;
       setSelectedProjectId(projId);
       selectedProjectIdRef.current = projId;
@@ -3537,7 +3537,7 @@ function AskPageContent() {
         setShowCwd(true);
       }
 
-      let devForQuery = selectedDevice;
+      let devForQuery = explicitDev || selectedDevice;
       if (clean && devices.length > 0) {
         const lowerCwd = clean.toLowerCase();
         if (lowerCwd.includes("/users/donghaixing")) {
@@ -3644,7 +3644,7 @@ function AskPageContent() {
             targetProj = projList[0];
           }
           if (targetProj && targetProj.id !== selectedProjectIdRef.current && !isRestoringRef.current) {
-            handleSelectProject(targetProj.id, projList);
+            handleSelectProject(targetProj.id, projList, devToUse);
           }
         } else {
           if (!isRestoringRef.current) {

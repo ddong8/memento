@@ -444,7 +444,7 @@ async def push_live_activity_event(
                 [act_tok],
                 "end",
                 content_state,
-                dismissal_date=int(time.time()) + 180,
+                dismissal_date=int(time.time()) + 4,
                 priority="10",
             )
 

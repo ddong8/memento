@@ -3223,6 +3223,20 @@ function AskPageContent() {
           detail: { conversation_id: activeConversationIdRef.current },
         })
       );
+      try {
+        const w = window as any;
+        if (w?.ReactNativeWebView?.postMessage && activeConversationIdRef.current) {
+          w.ReactNativeWebView.postMessage(
+            JSON.stringify({
+              type: "live_activity",
+              action: "end",
+              conversationId: activeConversationIdRef.current,
+              status: "done",
+              currentStep: "任务完成",
+            })
+          );
+        }
+      } catch {}
     }
     if (askCache) {
       askCache.streaming = false;

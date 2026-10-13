@@ -469,7 +469,7 @@ const MANAGER_CODE = `
       if action == "end" {
         if let act = existing {
           let content = ActivityContent(state: state, staleDate: nil)
-          await act.end(content, dismissalPolicy: .after(Date().addingTimeInterval(60)))
+          await act.end(content, dismissalPolicy: .after(Date().addingTimeInterval(3)))
         }
         return
       }
@@ -554,7 +554,7 @@ const MANAGER_CODE = `
 
       Task {
         for act in Activity<MementoTaskAttributes>.activities {
-          if !activeConvIds.contains(act.attributes.conversationId) && act.content.state.status != "done" {
+          if !activeConvIds.contains(act.attributes.conversationId) {
             let finalState = MementoTaskAttributes.ContentState(
               status: "done",
               currentStep: "任务完成",
@@ -563,7 +563,7 @@ const MANAGER_CODE = `
               elapsedSeconds: max(1, Int(Date().timeIntervalSince1970 - act.attributes.startedAtEpoch))
             )
             let content = ActivityContent(state: finalState, staleDate: nil)
-            await act.end(content, dismissalPolicy: .after(Date().addingTimeInterval(30)))
+            await act.end(content, dismissalPolicy: .immediate)
           }
         }
       }
@@ -591,7 +591,7 @@ function modifyAppDelegate(contents) {
   if (!newContents.includes("MementoLiveActivityManager.shared")) {
     newContents = newContents.replace(
       "return super.application(application, didFinishLaunchingWithOptions: launchOptions)",
-      `if #available(iOS 16.2, *) {\n      _ = MementoLiveActivityManager.shared\n    }\n    return super.application(application, didFinishLaunchingWithOptions: launchOptions)`
+      `if #available(iOS 16.2, *) {\n      _ = MementoLiveActivityManager.shared\n    }\n    return super.application(application, didFinishLaunchingWithOptions: launchOptions)\n  }\n\n  public override func applicationDidBecomeActive(_ application: UIApplication) {\n    super.applicationDidBecomeActive(application)\n    if #available(iOS 16.2, *) {\n      MementoLiveActivityManager.shared.syncWithActiveServerRuns()\n    }`
     );
   }
 

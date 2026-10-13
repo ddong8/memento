@@ -93,11 +93,22 @@ const ExecutionCard = memo(function ExecutionCard({
     agentLabel = t.ask.deviceDiscovery || "设备发现";
   }
 
+  const callStatus = (call as any).status;
+  const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
   const isTerminal =
     result?.status === "succeeded" ||
     result?.status === "failed" ||
-    result?.status === "timeout";
-  const isRunning = !result || result.status === "running" || result.status === "queued" || result.status === "still_running";
+    result?.status === "timeout" ||
+    callStatus === "executed" ||
+    callStatus === "succeeded" ||
+    callStatus === "failed";
+  const isStillRunning = result?.status === "still_running";
+
+  // If the parent turn already produced its answer (hasParentContent) and this is not an explicit still_running background task,
+  // it cannot be actively running.
+  const isRunning =
+    !isTerminal &&
+    (isStillRunning || (!hasParentContent && (!result || result.status === "running" || result.status === "queued")));
 
   // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
   const cleanStderr = useMemo(() => {
@@ -118,11 +129,19 @@ const ExecutionCard = memo(function ExecutionCard({
     (cleanStderr && cleanStderr.includes("Prompt is too long"))
   );
 
-  const isStillRunning = result?.status === "still_running";
-  const isSuccess = !isStillRunning && (result?.status === "succeeded" || (result && result.exit_code === 0 && !result.error));
-  const isFailed = !isExit1NoMatch && !isStillRunning && (result?.status === "failed" || (result && typeof result.exit_code === "number" && result.exit_code !== 0));
-
-  const hasParentContent = Boolean(parentContent && parentContent.trim().length > 0);
+  const isFailed = !isExit1NoMatch && !isStillRunning && (
+    result?.status === "failed" ||
+    callStatus === "failed" ||
+    (result && typeof result.exit_code === "number" && result.exit_code !== 0)
+  );
+  const isSuccess = !isStillRunning && !isFailed && (
+    isTerminal ||
+    result?.status === "succeeded" ||
+    callStatus === "executed" ||
+    callStatus === "succeeded" ||
+    (result && result.exit_code === 0 && !result.error) ||
+    hasParentContent
+  );
   const hasStructuredEvents = Boolean(result?.events && result.events.length > 0);
 
   // 严格比对：当父级主回复已包含或实时呈现卡片 stdout 时，避免在卡片内重复渲染窄框

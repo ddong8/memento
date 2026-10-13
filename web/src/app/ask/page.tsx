@@ -3147,8 +3147,21 @@ function AskPageContent() {
               : startIso
                 ? Math.max(0, new Date(doneIso).getTime() - new Date(startIso).getTime())
                 : undefined;
+          const calls = (x.toolCalls || []).map((c) => {
+            if (!c.result || c.result.status === "running" || c.result.status === "queued") {
+              return {
+                ...c,
+                result: {
+                  ...(c.result || {}),
+                  status: c.result?.status === "queued" ? "succeeded" : (c.result?.status || "succeeded"),
+                },
+              };
+            }
+            return c;
+          });
           return {
             ...x,
+            toolCalls: calls,
             started_at: startIso || x.started_at,
             created_at: doneIso,
             ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),

@@ -20,17 +20,26 @@ function getDeviceIcon(name: string, isSystem = false): Parameters<typeof Icon>[
   return "devices";
 }
 
-function isCallRunning(call: ToolCallItem): boolean {
-  return (
-    !call.result ||
-    call.result.status === "running" ||
-    call.result.status === "queued" ||
-    call.result.status === "still_running"
-  );
+function isCallRunning(call: ToolCallItem, hasParentContent?: boolean): boolean {
+  const callStatus = (call as any).status;
+  if (
+    call.result?.status === "succeeded" ||
+    call.result?.status === "failed" ||
+    call.result?.status === "timeout" ||
+    callStatus === "executed" ||
+    callStatus === "succeeded" ||
+    callStatus === "failed"
+  ) {
+    return false;
+  }
+  if (call.result?.status === "still_running") return true;
+  if (hasParentContent) return false;
+  return !call.result || call.result.status === "running" || call.result.status === "queued";
 }
 
 function isCallFailed(call: ToolCallItem): boolean {
-  if (isCallRunning(call)) return false;
+  const callStatus = (call as any).status;
+  if (call.result?.status === "failed" || callStatus === "failed") return true;
   const command = (call.args?.command as string) || (call.args?.prompt as string) || "";
   const isMatchFilter = Boolean(command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command));
   const isExit1NoMatch = Boolean(
@@ -38,21 +47,19 @@ function isCallFailed(call: ToolCallItem): boolean {
   );
   return Boolean(
     !isExit1NoMatch &&
-    (call.result?.status === "failed" ||
-      (call.result && typeof call.result.exit_code === "number" && call.result.exit_code !== 0))
+    (call.result && typeof call.result.exit_code === "number" && call.result.exit_code !== 0)
   );
 }
 
-function isCallSuccess(call: ToolCallItem): boolean {
-  if (isCallRunning(call)) return false;
-  const command = (call.args?.command as string) || (call.args?.prompt as string) || "";
-  const isMatchFilter = Boolean(command && /(grep|findstr|lsof|pgrep|which)\b/i.test(command));
-  const isExit1NoMatch = Boolean(
-    call.result?.exit_code === 1 && isMatchFilter && (!call.result.stderr || call.result.stderr.trim().length === 0)
-  );
+function isCallSuccess(call: ToolCallItem, hasParentContent?: boolean): boolean {
+  if (isCallRunning(call, hasParentContent)) return false;
+  if (isCallFailed(call)) return false;
+  const callStatus = (call as any).status;
   return Boolean(
     call.result?.status === "succeeded" ||
-    isExit1NoMatch ||
+    callStatus === "executed" ||
+    callStatus === "succeeded" ||
+    hasParentContent ||
     (Boolean(call.result) && call.result?.exit_code === 0 && !call.result?.error)
   );
 }
@@ -117,14 +124,15 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
     );
   }
 
+  const hasParent = Boolean(parentContent && parentContent.trim().length > 0);
   const allTab = {
     key: "all",
     name: t.ask.allDevices || "全部",
     icon: "layers" as const,
     count: calls.length,
-    isRunning: calls.some(isCallRunning),
+    isRunning: calls.some((c) => isCallRunning(c, hasParent)),
     isFailed: calls.some(isCallFailed),
-    isSuccess: calls.every(isCallSuccess),
+    isSuccess: calls.every((c) => isCallSuccess(c, hasParent)),
   };
 
   const deviceTabs = groups.map((g) => ({
@@ -132,9 +140,9 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
     name: g.name,
     icon: getDeviceIcon(g.name, g.isSystem),
     count: g.calls.length,
-    isRunning: g.calls.some(isCallRunning),
+    isRunning: g.calls.some((c) => isCallRunning(c, hasParent)),
     isFailed: g.calls.some(isCallFailed),
-    isSuccess: g.calls.every(isCallSuccess),
+    isSuccess: g.calls.every((c) => isCallSuccess(c, hasParent)),
   }));
 
   const tabs = [allTab, ...deviceTabs];

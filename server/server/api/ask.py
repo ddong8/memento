@@ -1658,6 +1658,24 @@ def _sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = N
                     else:
                         del clean_args["images"]
                     tc_copy["args"] = clean_args
+
+                # If this turn has assistant content, any hanging tool calls should be marked executed/succeeded
+                if role == "assistant" and (t_copy.get("content") or "").strip():
+                    cur_status = tc_copy.get("status")
+                    res = tc_copy.get("result")
+                    if not res or (isinstance(res, dict) and res.get("status") in ("running", "queued")):
+                        res_status = "succeeded"
+                        if isinstance(res, dict) and res.get("status") == "failed":
+                            res_status = "failed"
+                        tc_copy["status"] = "executed" if res_status == "succeeded" else "failed"
+                        tc_copy["result"] = {
+                            **(res if isinstance(res, dict) else {}),
+                            "status": res_status,
+                            "stdout": (res.get("stdout") if isinstance(res, dict) else None) or "任务执行完成",
+                        }
+                    elif cur_status in ("running", "queued"):
+                        tc_copy["status"] = "executed"
+
                 clean_tcs.append(tc_copy)
             t_copy["toolCalls"] = clean_tcs
         sanitized.append(t_copy)
@@ -2394,6 +2412,13 @@ async def _direct_agent_stream(
             if result_dict:
                 saved_call["result"] = result_dict
                 saved_call["status"] = result_dict.get("status", "executed")
+            else:
+                saved_call["status"] = "executed"
+                saved_call["result"] = {
+                    "status": "succeeded",
+                    "stdout": summary_text or "任务执行完成",
+                    "exit_code": 0,
+                }
             if isinstance(saved_call.get("args"), dict) and "images" in saved_call["args"]:
                 clean_args = dict(saved_call["args"])
                 img_val = clean_args.get("images")

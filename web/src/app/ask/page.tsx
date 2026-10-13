@@ -1635,14 +1635,26 @@ function AskPageContent() {
         if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
         if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
 
-        if ((!targetDev || targetDev === "auto") && targetCwd && devices.length > 0) {
+        if (targetCwd && devices.length > 0) {
           const lowerCwd = targetCwd.toLowerCase();
-          if (lowerCwd.includes("/users/haixingdong")) {
-            const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
-            if (macMini) targetDev = macMini.device_id;
-          } else if (lowerCwd.includes("/users/donghaixing")) {
-            const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
-            if (macBook) targetDev = macBook.device_id;
+          const curDevObj = devices.find((d) => d.device_id === targetDev);
+          const curDevName = (curDevObj?.name || "").toLowerCase();
+          let devMismatched = !targetDev || targetDev === "auto";
+          if (lowerCwd.includes("/users/donghaixing") && !curDevName.includes("macbook")) devMismatched = true;
+          else if (lowerCwd.includes("/users/haixingdong") && !(curDevName.includes("mac-mini") || curDevName.includes("mini"))) devMismatched = true;
+          else if ((lowerCwd.includes("c:") || lowerCwd.includes("d:")) && !curDevName.includes("windows") && !curDevName.includes("desktop-")) devMismatched = true;
+
+          if (devMismatched) {
+            if (lowerCwd.includes("/users/haixingdong")) {
+              const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
+              if (macMini) targetDev = macMini.device_id;
+            } else if (lowerCwd.includes("/users/donghaixing")) {
+              const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
+              if (macBook) targetDev = macBook.device_id;
+            } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
+              const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
+              if (win) targetDev = win.device_id;
+            }
           }
         }
 
@@ -1787,12 +1799,8 @@ function AskPageContent() {
               }
               setLoadingSessions(true);
               try {
-                let res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
-                let sessList = res?.sessions || [];
-                if ((!sessList || sessList.length === 0) && devForQuery) {
-                  res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc");
-                  sessList = res?.sessions || [];
-                }
+                const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
+                const sessList = res?.sessions || [];
                 setSessions(sessList);
                 setSelectedSessionId(targetSessionId);
               } catch (e) {
@@ -1926,9 +1934,50 @@ function AskPageContent() {
       const norm = normalizeDeviceId(selectedDevice);
       if (norm && norm !== selectedDevice) {
         setSelectedDevice(norm);
+        return;
       }
-      return;
     }
+
+    // Validate if current selectedDevice contradicts cwd path
+    if (cwd && devices.length > 0) {
+      const lowerCwd = cwd.toLowerCase();
+      const currentDevObj = devices.find((d) => d.device_id === selectedDevice);
+      const currentDevName = (currentDevObj?.name || "").toLowerCase();
+      let mismatched = false;
+      if (lowerCwd.includes("/users/donghaixing") && !currentDevName.includes("macbook")) {
+        mismatched = true;
+      } else if (lowerCwd.includes("/users/haixingdong") && !(currentDevName.includes("mac-mini") || currentDevName.includes("mini"))) {
+        mismatched = true;
+      } else if ((lowerCwd.includes("c:") || lowerCwd.includes("d:")) && !currentDevName.includes("windows") && !currentDevName.includes("desktop-")) {
+        mismatched = true;
+      }
+
+      if (mismatched || selectedDevice === "auto") {
+        if (lowerCwd.includes("/users/donghaixing")) {
+          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
+          if (macBook && macBook.device_id !== selectedDevice) {
+            setSelectedDevice(macBook.device_id);
+            persistCurrentConfig({ device_id: macBook.device_id });
+            return;
+          }
+        } else if (lowerCwd.includes("/users/haixingdong")) {
+          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
+          if (macMini && macMini.device_id !== selectedDevice) {
+            setSelectedDevice(macMini.device_id);
+            persistCurrentConfig({ device_id: macMini.device_id });
+            return;
+          }
+        } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
+          const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
+          if (win && win.device_id !== selectedDevice) {
+            setSelectedDevice(win.device_id);
+            persistCurrentConfig({ device_id: win.device_id });
+            return;
+          }
+        }
+      }
+    }
+
     if (selectedDevice === "auto") {
       if (turns.length > 0) {
         const inferred = inferConfigFromTurns(turns);
@@ -1938,22 +1987,6 @@ function AskPageContent() {
             setSelectedDevice(norm);
             persistCurrentConfig({ device_id: norm });
             return;
-          }
-        }
-      }
-      if (cwd && devices.length > 0) {
-        const lowerCwd = cwd.toLowerCase();
-        if (lowerCwd.includes("/users/haixingdong")) {
-          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
-          if (macMini) {
-            setSelectedDevice(macMini.device_id);
-            persistCurrentConfig({ device_id: macMini.device_id });
-          }
-        } else if (lowerCwd.includes("/users/donghaixing")) {
-          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
-          if (macBook) {
-            setSelectedDevice(macBook.device_id);
-            persistCurrentConfig({ device_id: macBook.device_id });
           }
         }
       }
@@ -3503,12 +3536,34 @@ function AskPageContent() {
         setCwd(clean);
         setShowCwd(true);
       }
+
+      let devForQuery = selectedDevice;
+      if (clean && devices.length > 0) {
+        const lowerCwd = clean.toLowerCase();
+        if (lowerCwd.includes("/users/donghaixing")) {
+          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
+          if (macBook) devForQuery = macBook.device_id;
+        } else if (lowerCwd.includes("/users/haixingdong")) {
+          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
+          if (macMini) devForQuery = macMini.device_id;
+        } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
+          const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
+          if (win) devForQuery = win.device_id;
+        }
+      }
+      const normDev = normalizeDeviceId(devForQuery);
+      if (normDev && normDev !== "auto" && normDev !== selectedDevice) {
+        setSelectedDevice(normDev);
+        persistCurrentConfig({ device_id: normDev });
+      }
+      const finalDev = normDev || selectedDevice;
+
       if (!isRestoringRef.current && !isSameProj) {
-        persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined });
+        persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined, device_id: finalDev });
       }
       setLoadingSessions(true);
       try {
-        const res = await api.getProjectConversations(projId, 0, 50, "desc", selectedDevice);
+        const res = await api.getProjectConversations(projId, 0, 50, "desc", finalDev);
         setSessions(res.sessions || []);
         if (res.project?.source_path && !clean) {
           let cleanProj = res.project.source_path.trim();
@@ -3528,7 +3583,7 @@ function AskPageContent() {
         setLoadingSessions(false);
       }
     },
-    [selectedDevice, persistCurrentConfig]
+    [selectedDevice, persistCurrentConfig, devices, normalizeDeviceId]
   );
 
   const loadProjectsForMode = useCallback(

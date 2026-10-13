@@ -908,7 +908,13 @@ export const api = {
   getProject: (projectId: string) =>
     apiFetch<ProjectSummary>(`/api/projects/${projectId}`),
   getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc", deviceId?: string) => {
-    const params = new URLSearchParams({ session_offset: String(offset), session_limit: String(limit), order });
+    const params = new URLSearchParams({
+      session_offset: String(offset),
+      session_limit: String(limit),
+      offset: String(offset),
+      limit: String(limit),
+      order,
+    });
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
       params.set("device_id", deviceId);
     }

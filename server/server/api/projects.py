@@ -934,7 +934,9 @@ async def _reconcile_project_documents(
 async def get_project_conversations(
     project_id: uuid.UUID,
     session_offset: int = Query(0, ge=0),
-    session_limit: int = Query(10, ge=1, le=50),
+    session_limit: int = Query(10, ge=1, le=100),
+    offset: int | None = Query(None, ge=0),
+    limit: int | None = Query(None, ge=1, le=100),
     max_messages_per_session: int = Query(0, ge=0, le=10000),
     order: str = Query("asc", pattern="^(asc|desc)$"),
     device_id: str | None = None,
@@ -953,6 +955,11 @@ async def get_project_conversations(
     docs to those synced and messages to those timestamped on or
     before that instant. Share-link snapshot semantics.
     """
+    if offset is not None:
+        session_offset = offset
+    if limit is not None:
+        session_limit = limit
+
     mids = await user_machine_ids(db, _user)
 
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
@@ -961,6 +968,7 @@ async def get_project_conversations(
         raise HTTPException(status_code=404)
 
     target_mid: uuid.UUID | None = None
+    target_machine: Machine | None = None
     if device_id and device_id not in ("auto", "ask_only", "all"):
         target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
         if target_machine:

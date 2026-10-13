@@ -262,6 +262,25 @@ def main():
     sys.stderr.write(f"session id: {conv_id}\n")
     sys.stderr.flush()
 
+    import threading
+
+    def _listen_stdin(cid, agentapi_bin):
+        try:
+            for line in sys.stdin:
+                ans = line.strip()
+                if not ans:
+                    continue
+                cmd_send = [str(agentapi_bin), "send-message", cid, ans]
+                try:
+                    subprocess.run(cmd_send, capture_output=True, text=True, env=dict(os.environ))
+                except Exception as ex:
+                    sys.stderr.write(f"Error forwarding answer to Antigravity: {ex}\n")
+                    sys.stderr.flush()
+        except Exception:
+            pass
+
+    threading.Thread(target=_listen_stdin, args=(conv_id, agentapi), daemon=True).start()
+
     target_log = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id / ".system_generated" / "logs" / "transcript_full.jsonl"
     fallback_log = Path.home() / ".gemini" / "antigravity" / "brain" / conv_id / ".system_generated" / "logs" / "transcript.jsonl"
 
@@ -473,6 +492,35 @@ def main():
                                     sys.stdout.write(f"\n⏹️ [后台任务 {tid_c} 已由 Agent 主动终止]\n\n")
                                     sys.stdout.flush()
                                     idle_count = 0
+
+                        if tc_name == "ask_question":
+                            # ask_question_interactive marker
+                            q_args = tc_args.get("questions") or []
+                            if q_args and isinstance(q_args, list):
+                                q_item = q_args[0]
+                                q_text = q_item.get("question") or "请选择或确认下一步操作"
+                                q_options = q_item.get("options") or []
+                                q_multi = bool(q_item.get("is_multi_select", False))
+                            else:
+                                q_text = tc_args.get("question") or "请选择或确认下一步操作"
+                                q_options = tc_args.get("options") or []
+                                q_multi = bool(tc_args.get("is_multi_select", False))
+
+                            q_id = tc.get("id") or f"agy_q_{int(time.time()*1000)}"
+                            q_event = {
+                                "type": "memento_event",
+                                "event": {
+                                    "kind": "question",
+                                    "id": q_id,
+                                    "tool": "ask_question",
+                                    "question": q_text,
+                                    "options": q_options,
+                                    "is_multi_select": q_multi,
+                                    "status": "waiting",
+                                }
+                            }
+                            sys.stdout.write(f"\n{json.dumps(q_event, ensure_ascii=False)}\n")
+                            sys.stdout.flush()
 
                         action = tc_args.get("toolAction") or tc_args.get("toolSummary") or tc_name
                         if isinstance(action, str):

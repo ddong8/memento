@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
+import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
 import { discoverAntigravityEnv, ensureAgyCliInstalled } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
@@ -309,38 +309,52 @@ export class TaskRunner {
     return true;
   }
 
-  /** A follow-up from the user: steers a running Claude task, or goes to a plain process's stdin. */
+  /** A follow-up from the user: steers a running Claude/Antigravity/WorkBuddy task or goes to process stdin. */
   input(taskId: string, text: string): void {
     const steer = this.steerInputs.get(taskId);
     if (steer) {
       if (steer.writable) {
-        steer.write(`${JSON.stringify(claudeUserMessage(text))}\n`);
+        if (this.claudeTasks.has(taskId)) {
+          steer.write(`${JSON.stringify(claudeUserMessage(text))}\n`);
+        } else {
+          steer.write(`${text}\n`);
+        }
+        // Mark any waiting question in this task's event log as answered
+        const eventLog = this.eventLogs.get(taskId);
+        if (eventLog) {
+          const waitingQ = eventLog.events.find(
+            (e) => e.kind === "question" && (e.status === "waiting" || !e.status),
+          );
+          if (waitingQ && waitingQ.id) {
+            this.emitEvent(taskId, {
+              kind: "question",
+              id: waitingQ.id,
+              status: "answered",
+              answer: text,
+            });
+          }
+        }
         this.emitEvent(taskId, { kind: "steer", text, status: "sent" });
+        const echo = `\n[输入] ${text}\n`;
+        const out = this.outputs.get(taskId);
+        if (out) out.stdout += echo;
+        this.send(chunk(taskId, "stdout", echo));
       } else {
         this.emitEvent(taskId, { kind: "steer", text, status: "late" });
       }
       return;
     }
-    if (this.claudeTasks.has(taskId)) {
-      // Its run already ended and stdin is closed.
-      this.emitEvent(taskId, { kind: "steer", text, status: "late" });
-      return;
-    }
-    if (this.eventLogs.has(taskId)) {
-      // A structured agent that can't take follow-ups (Codex).
-      this.emitEvent(taskId, { kind: "steer", text, status: "unsupported" });
-      return;
-    }
     const proc = this.running.get(taskId);
-    if (!proc?.stdin?.writable) {
-      this.log(`Task ${taskId} doesn't take input`);
+    if (proc?.stdin?.writable) {
+      proc.stdin.write(`${text}\n`);
+      this.emitEvent(taskId, { kind: "steer", text, status: "sent" });
+      const echo = `\n[输入] ${text}\n`;
+      const out = this.outputs.get(taskId);
+      if (out) out.stdout += echo;
+      this.send(chunk(taskId, "stdout", echo));
       return;
     }
-    proc.stdin.write(`${text}\n`);
-    const echo = `\n[输入] ${text}\n`;
-    const out = this.outputs.get(taskId);
-    if (out) out.stdout += echo;
-    this.send(chunk(taskId, "stdout", echo));
+    this.emitEvent(taskId, { kind: "steer", text, status: "late" });
   }
 
   dispose(): void {
@@ -367,11 +381,9 @@ export class TaskRunner {
     const { parser } = spec;
 
     proc.stdin.on("error", () => {});
+    this.steerInputs.set(taskId, proc.stdin);
     if (spec.stdinPrompt !== undefined && parser instanceof ClaudeStreamParser) {
-      this.steerInputs.set(taskId, proc.stdin);
       proc.stdin.write(`${JSON.stringify(claudeUserMessage(spec.stdinPrompt))}\n`);
-    } else {
-      proc.stdin.end();
     }
 
     const stdoutDone = new Promise<void>((resolve) => proc.stdout.once("end", () => resolve()));
@@ -567,6 +579,7 @@ export class TaskRunner {
           "-p",
           prompt,
         ];
+        parser = new UniversalStreamParser();
       } else {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
@@ -575,6 +588,7 @@ export class TaskRunner {
           "-p",
           prompt,
         ];
+        parser = new UniversalStreamParser();
       }
     }
 

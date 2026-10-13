@@ -5,6 +5,7 @@ import { steerNote, taskRunSummary, taskToolLabel, type TaskEvent } from "@memen
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Icon } from "./aurora/Icon";
+import { QuestionPrompt } from "./QuestionPrompt";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
@@ -46,7 +47,15 @@ const str = (v: unknown) => (v == null ? "" : String(v));
  * The steps of a structured agent run (Claude Code, Codex): tool calls as they
  * happen, follow-ups, the worktree it ran in, and what it cost.
  */
-export default function TaskTimeline({ events, running }: { events: readonly TaskEvent[]; running: boolean }) {
+export default function TaskTimeline({
+  events,
+  running,
+  taskId,
+}: {
+  events: readonly TaskEvent[];
+  running: boolean;
+  taskId?: string;
+}) {
   const { t } = useI18n();
   const tl = t.taskRun;
   const [showAll, setShowAll] = useState(false);
@@ -118,6 +127,15 @@ export default function TaskTimeline({ events, running }: { events: readonly Tas
         return null;
       case "error":
         return <div key={i}>{plain("close", str(ev.message) || tl.error, null, "#DC2626")}</div>;
+      case "question":
+        return (
+          <QuestionPrompt
+            key={str(ev.id) || i}
+            questionEvent={ev as any}
+            taskId={taskId}
+            disabled={!running}
+          />
+        );
       default:
         return null;
     }

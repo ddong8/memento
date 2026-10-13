@@ -27,7 +27,23 @@ export type TaskEvent = { at?: string } & (
       file_count?: number;
       reason?: string;
     }
+  | {
+      kind: "question";
+      id?: string;
+      tool?: string;
+      question: string;
+      options?: Array<TaskQuestionOption | string>;
+      is_multi_select?: boolean;
+      status?: "waiting" | "answered";
+      answer?: string;
+    }
 );
+
+export interface TaskQuestionOption {
+  label: string;
+  description?: string;
+  value?: string;
+}
 
 /** A risky operation the agent performed during a task. */
 export interface TaskAlert {

@@ -55,11 +55,11 @@ export abstract class AgentStreamParser {
    */
   abstract feed(line: string): AgentEvent[] | null;
 
-  static forBinary(binary: string): AgentStreamParser | null {
+  static forBinary(binary: string): AgentStreamParser {
     const b = binary.toLowerCase();
     if (b.includes("claude")) return new ClaudeStreamParser();
     if (b.includes("codex")) return new CodexStreamParser();
-    return null;
+    return new UniversalStreamParser();
   }
 
   protected addError(message: string): void {
@@ -70,6 +70,7 @@ export abstract class AgentStreamParser {
 export class ClaudeStreamParser extends AgentStreamParser {
   private result: string | undefined;
   private readonly texts: string[] = [];
+  private readonly activeQuestionIds = new Set<string>();
   /** Set by the result event: user messages still waiting to be read. Zero means the run is done and stdin can be closed. */
   queuedTurns: number | undefined;
   finished = false;
@@ -103,13 +104,28 @@ export class ClaudeStreamParser extends AgentStreamParser {
               if (name === "Bash" && input.run_in_background === true) {
                 this.isStillRunning = true;
               }
+              const blockId = str(block.id);
               events.push({
                 kind: "tool",
-                id: str(block.id),
+                id: blockId,
                 name,
                 detail: claudeToolDetail(name, input),
                 status: "running",
               });
+              if (name === "AskFollowupQuestion" || name === "ask_question") {
+                if (blockId) this.activeQuestionIds.add(blockId);
+                const qText = str(input.question) || str(input.prompt) || "请选择或确认下一步操作";
+                const qOptions = Array.isArray(input.options) ? input.options : undefined;
+                events.push({
+                  kind: "question",
+                  id: blockId,
+                  tool: name,
+                  question: qText,
+                  options: qOptions,
+                  is_multi_select: Boolean(input.is_multi_select),
+                  status: "waiting",
+                });
+              }
             }
           }
         }
@@ -121,6 +137,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
           for (const block of content.filter(isObject)) {
             if (block.type !== "tool_result") continue;
             const resText = toolResultText(block.content);
+            const toolUseId = str(block.tool_use_id);
             const bgMatch =
               /Command running in background with ID:\s*([^\s\n\r]+)/i.exec(resText) ??
               /Task running in background with ID:\s*([^\s\n\r]+)/i.exec(resText);
@@ -130,10 +147,19 @@ export class ClaudeStreamParser extends AgentStreamParser {
             }
             events.push({
               kind: "tool",
-              id: str(block.tool_use_id),
+              id: toolUseId,
               status: block.is_error === true ? "failed" : "done",
               output: clip(resText, 400),
             });
+            if (toolUseId && this.activeQuestionIds.has(toolUseId)) {
+              this.activeQuestionIds.delete(toolUseId);
+              events.push({
+                kind: "question",
+                id: toolUseId,
+                status: "answered",
+                answer: clip(resText, 200),
+              });
+            }
           }
         }
         break;
@@ -342,6 +368,100 @@ export class CodexStreamParser extends AgentStreamParser {
   }
 }
 
+export class UniversalStreamParser extends AgentStreamParser {
+  private lastText = "";
+  private lastToolId: string | null = null;
+  private toolSeq = 0;
+
+  get finalText(): string | undefined {
+    return this.lastText.trim() ? this.lastText : undefined;
+  }
+
+  feed(line: string): AgentEvent[] | null {
+    const raw = line.trim();
+    if (!raw) return [];
+
+    // 1. Explicit memento structured event line: {"type":"memento_event","event":{...}}
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+      try {
+        const d = JSON.parse(raw) as Json;
+        if (d.type === "memento_event" && isObject(d.event)) {
+          const ev = d.event as AgentEvent;
+          if (ev.kind === "text" && typeof ev.text === "string") {
+            this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+          }
+          return [ev];
+        }
+        if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text") {
+          const ev = d as AgentEvent;
+          if (ev.kind === "text" && typeof ev.text === "string") {
+            this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+          }
+          return [ev];
+        }
+      } catch {
+        // Not a JSON event, proceed
+      }
+    }
+
+    // 2. Action badge pattern emitted by agy_cli / workbuddy: ⚡ [action]
+    const toolMatch = /^⚡\s*\[(.*?)\]$/.exec(raw);
+    if (toolMatch && toolMatch[1]) {
+      const label = toolMatch[1].trim();
+      const events: AgentEvent[] = [];
+      if (this.lastToolId) {
+        events.push({
+          kind: "tool",
+          id: this.lastToolId,
+          status: "done",
+        });
+      }
+      this.lastToolId = `tool_${++this.toolSeq}`;
+      events.push({
+        kind: "tool",
+        id: this.lastToolId,
+        name: label,
+        detail: label,
+        status: "running",
+      });
+      return events;
+    }
+
+    // 3. Question badge: ❓ [question text]
+    const qBadge = /^❓\s*\[(.*?)\]$/.exec(raw);
+    if (qBadge && qBadge[1]) {
+      const qText = qBadge[1].trim();
+      return [
+        {
+          kind: "question",
+          id: `q_${++this.toolSeq}`,
+          tool: "prompt",
+          question: qText,
+          status: "waiting",
+        },
+      ];
+    }
+
+    // 4. Interactive CLI confirmation prompt in stdout line: e.g. [y/N], (y/n)
+    const ynMatch = /(?:^|\s)(?:\[y\/n\]|\[y\/N\]|\[Y\/n\]|\(y\/n\)|\(Y\/N\)|是否继续\?|确认执行\?)/i.exec(raw);
+    if (ynMatch) {
+      return [
+        {
+          kind: "question",
+          id: `cli_q_${++this.toolSeq}`,
+          tool: "confirm",
+          question: raw,
+          options: ["y", "n"],
+          is_multi_select: false,
+          status: "waiting",
+        },
+      ];
+    }
+
+    return null;
+  }
+}
+
 /** "/bin/zsh -lc 'printf hi > a.txt'" -> "printf hi > a.txt". */
 export function codexCommand(raw: string): string {
   let cmd = raw.trim().replace(/^(?:\/\S*\/)?(?:ba|z)?sh\s+-l?c\s+/, "");
@@ -358,6 +478,7 @@ export function codexCommand(raw: string): string {
 export class AgentEventLog {
   private readonly rows: AgentEvent[] = [];
   private readonly toolIndex = new Map<string, number>();
+  private readonly questionIndex = new Map<string, number>();
 
   constructor(private readonly limit = 400) {}
 
@@ -367,8 +488,15 @@ export class AgentEventLog {
 
   /** Adds or merges the event; returns the merged row (what to send live). */
   add(event: AgentEvent): AgentEvent {
-    const id = event.kind === "tool" && event.id != null ? String(event.id) : undefined;
-    const at = id !== undefined ? this.toolIndex.get(id) : undefined;
+    const isTool = event.kind === "tool" && event.id != null;
+    const isQuestion = event.kind === "question" && event.id != null;
+    const id = isTool || isQuestion ? String(event.id) : undefined;
+    const at = isTool
+      ? this.toolIndex.get(id!)
+      : isQuestion
+      ? this.questionIndex.get(id!)
+      : undefined;
+
     if (at !== undefined) {
       const merged = { ...this.rows[at]!, ...event };
       this.rows[at] = merged;
@@ -376,7 +504,8 @@ export class AgentEventLog {
     }
     const row = { ...event, at: new Date().toISOString() };
     if (this.rows.length < this.limit) {
-      if (id !== undefined) this.toolIndex.set(id, this.rows.length);
+      if (isTool) this.toolIndex.set(id!, this.rows.length);
+      if (isQuestion) this.questionIndex.set(id!, this.rows.length);
       this.rows.push(row);
     }
     return row;

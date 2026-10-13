@@ -341,7 +341,15 @@ async function main() {
 
   let printedText = false;
   let lastToolId = "";
-  let thoughtShown = false;
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", async (chunk) => {
+    const text = String(chunk).trim();
+    if (!text) return;
+    await rpcCall("session/prompt", {
+      sessionId,
+      prompt: [{ type: "text", text }],
+    }).catch(() => {});
+  });
 
   try {
     const res = await fetch(`${gw.endpoint}/api/v1/acp`, {
@@ -402,6 +410,23 @@ async function main() {
               const title = upd.title && upd.title !== toolName ? `${toolName}: ${upd.title}` : toolName;
               process.stdout.write(`\n⚡ [${String(title).replace(/[\r\n]+/g, " ").slice(0, 120)}]\n`);
             }
+          } else if (kind === "elicitation" || upd.elicitation) {
+            const el = upd.elicitation || upd;
+            const qText = el.prompt || el.question || el.message || "请确认下一步操作";
+            const qOptions = Array.isArray(el.options) ? el.options : undefined;
+            const qEvent = {
+              type: "memento_event",
+              event: {
+                kind: "question",
+                id: el.id || `wb_q_${Date.now()}`,
+                tool: "elicitation",
+                question: qText,
+                options: qOptions,
+                is_multi_select: Boolean(el.multiple),
+                status: "waiting",
+              },
+            };
+            process.stdout.write(`\n${JSON.stringify(qEvent)}\n`);
           } else if (kind === "agent_message_chunk") {
             const t = upd.content?.text ?? "";
             if (t) {

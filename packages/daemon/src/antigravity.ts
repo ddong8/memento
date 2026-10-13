@@ -113,6 +113,7 @@ const RUNNER_MARKERS = [
   "is_waiting_transition",
   "is_canceled",
   "task_log_sizes",
+  "ask_question_interactive",
   'if __name__ == "__main__":',
 ];
 

@@ -7,6 +7,7 @@ import {
   claudeToolDetail,
   codexCommand,
   CodexStreamParser,
+  UniversalStreamParser,
   type AgentEvent,
   type AgentStreamParser,
 } from "../src/agent-stream.js";
@@ -131,6 +132,50 @@ describe("Background task detection", () => {
     const parser = new CodexStreamParser();
     parser.feed('{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"nohup python train.py &","aggregated_output":"[1] 12345","exit_code":0,"status":"completed"}}');
     expect(parser.isStillRunning).toBe(true);
+  });
+});
+
+describe("Interactive questions", () => {
+  it("Claude AskFollowupQuestion emits question event and resolves on answer", () => {
+    const parser = new ClaudeStreamParser();
+    const qEvents = parser.feed(
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q1","name":"AskFollowupQuestion","input":{"question":"选择包管理器","options":["npm","pnpm","yarn"]}}]}}',
+    )!;
+    expect(qEvents).toHaveLength(2);
+    const q = qEvents.find((e) => e.kind === "question");
+    expect(q).toMatchObject({
+      id: "q1",
+      tool: "AskFollowupQuestion",
+      question: "选择包管理器",
+      options: ["npm", "pnpm", "yarn"],
+      status: "waiting",
+    });
+
+    const ansEvents = parser.feed(
+      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"q1","content":"pnpm"}]}}',
+    )!;
+    expect(ansEvents).toHaveLength(2);
+    const ans = ansEvents.find((e) => e.kind === "question");
+    expect(ans).toMatchObject({
+      id: "q1",
+      status: "answered",
+      answer: "pnpm",
+    });
+  });
+
+  it("UniversalStreamParser handles structured memento_event and CLI confirmation prompts", () => {
+    const parser = new UniversalStreamParser();
+    const ev1 = parser.feed('{"type":"memento_event","event":{"kind":"question","id":"agy1","question":"是否覆盖文件?","options":["是","否"],"status":"waiting"}}')!;
+    expect(ev1).toHaveLength(1);
+    expect(ev1[0]).toMatchObject({ kind: "question", id: "agy1", question: "是否覆盖文件?", status: "waiting" });
+
+    const ev2 = parser.feed("Do you want to proceed? [y/N]")!;
+    expect(ev2).toHaveLength(1);
+    expect(ev2[0]).toMatchObject({ kind: "question", status: "waiting", options: ["y", "n"] });
+
+    const ev3 = parser.feed("⚡ [创建项目数据库]")!;
+    expect(ev3).toHaveLength(1);
+    expect(ev3[0]).toMatchObject({ kind: "tool", name: "创建项目数据库", status: "running" });
   });
 });
 

@@ -44,7 +44,7 @@ const ExecutionCard = memo(function ExecutionCard({
   parentContent,
   onSmartCompactAndRetry,
 }: ExecutionCardProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const terminalRef = useRef<HTMLPreElement>(null);
 
   const { name, args, device_name, result } = call;
@@ -137,9 +137,16 @@ const ExecutionCard = memo(function ExecutionCard({
     )
   );
 
+  const waitingQuestion = useMemo(() => {
+    return result?.events?.find(
+      (e) => e.kind === "question" && (e.status === "waiting" || !e.status)
+    );
+  }, [result?.events]);
+
   // Agent 流式/完成输出已在主回复区全宽渲染时，默认折叠为单行状态条，消除框套框与宽度收缩
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [expanded, setExpanded] = useState<boolean>(() => {
+    if (waitingQuestion) return true;
     if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
       return false;
     }
@@ -147,11 +154,15 @@ const ExecutionCard = memo(function ExecutionCard({
   });
 
   useEffect(() => {
+    if (waitingQuestion) {
+      setExpanded(true);
+      return;
+    }
     if (userToggled) return;
     if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
       setExpanded(false);
     }
-  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, hasStructuredEvents]);
+  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, hasStructuredEvents, waitingQuestion]);
 
   // Agent (Claude Code / Codex / Antigravity) 的输出是 Markdown 富文本，默认必须保持 markdown 视图，杜绝以原始 monospace 打印；shell 默认 terminal 视图
   const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
@@ -308,15 +319,25 @@ const ExecutionCard = memo(function ExecutionCard({
                 flexShrink: 0,
                 whiteSpace: "nowrap",
                 background:
-                  result?.status === "queued"
+                  waitingQuestion
+                    ? "rgba(245, 158, 11, 0.18)"
+                    : result?.status === "queued"
                     ? "rgba(245, 158, 11, 0.12)"
                     : "var(--aurora-accent-soft)",
                 color:
-                  result?.status === "queued"
+                  waitingQuestion
+                    ? "#d97706"
+                    : result?.status === "queued"
                     ? "#d97706"
                     : "var(--aurora-accent)",
                 fontWeight: 600,
-                border: `1px solid ${result?.status === "queued" ? "rgba(245, 158, 11, 0.25)" : "var(--aurora-border)"}`,
+                border: `1px solid ${
+                  waitingQuestion
+                    ? "rgba(245, 158, 11, 0.4)"
+                    : result?.status === "queued"
+                    ? "rgba(245, 158, 11, 0.25)"
+                    : "var(--aurora-border)"
+                }`,
               }}
             >
               <span
@@ -325,13 +346,15 @@ const ExecutionCard = memo(function ExecutionCard({
                   height: 6,
                   borderRadius: "50%",
                   background:
-                    result?.status === "queued"
+                    waitingQuestion || result?.status === "queued"
                       ? "#d97706"
                       : "var(--aurora-accent)",
                   animation: "pulse 1.5s infinite",
                 }}
               />
-              {result?.status === "queued"
+              {waitingQuestion
+                ? (locale === "zh-CN" ? "❓ 等待回复选择..." : "Waiting for response...")
+                : result?.status === "queued"
                 ? (t.ask.statusWaitingPoll || "等待设备拉取...")
                 : (result?.stdout || result?.stderr) && isRunning
                 ? (t.ask.statusStreaming || "⚡ 实时输出中...")
@@ -565,9 +588,11 @@ const ExecutionCard = memo(function ExecutionCard({
             </button>
           </div>
 
-          {result?.events && result.events.length > 0 && <TaskTimeline events={result.events} running={isRunning} />}
-          {/* Claude reads follow-ups while it runs (stream-json input); other agents don't take them. */}
-          {isRunning && binary.includes("claude") && result?.task_id && (result.events?.length ?? 0) > 0 && (
+          {result?.events && result.events.length > 0 && (
+            <TaskTimeline events={result.events} running={isRunning} taskId={result?.task_id} />
+          )}
+          {/* Steer/Input box: any running agent with a valid task_id can take user follow-up input */}
+          {isRunning && result?.task_id && isAgent && !waitingQuestion && (
             <SteerBox taskId={result.task_id} />
           )}
 

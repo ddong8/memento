@@ -1198,9 +1198,22 @@ function AskPageContent() {
   }, [activeConversationId]);
 
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
+  const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
   const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || null);
+
+  const filteredConversations = useMemo(() => {
+    const q = historySearchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter((c) => {
+      const matchTitle = (c.title || "").toLowerCase().includes(q);
+      const matchDev = (c.device_id || "").toLowerCase().includes(q);
+      const matchId = (c.id || "").toLowerCase().includes(q);
+      return matchTitle || matchDev || matchId;
+    });
+  }, [conversations, historySearchQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4361,16 +4374,20 @@ function AskPageContent() {
         </header>
 
         {/* 中栏消息滚动列表 */}
-        <div
-          ref={chatScrollRef}
-          onScroll={(e) => {
-            if (askCache) {
-              askCache.scrollTop = e.currentTarget.scrollTop;
-            }
-          }}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          <div
+            ref={chatScrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              if (askCache) {
+                askCache.scrollTop = el.scrollTop;
+              }
+              const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+              setShowScrollBottom(dist > 350);
+            }}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
           style={{
             contain: "content",
             overscrollBehaviorY: "contain",
@@ -4504,6 +4521,26 @@ function AskPageContent() {
         <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
       </div>
     </div>
+  </div>
+    {/* 回到底部悬浮快捷键 */}
+    {showScrollBottom && turns.length > 0 && (
+      <button
+        type="button"
+        onClick={() => {
+          chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
+        }}
+        className="absolute bottom-4 right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer backdrop-blur-md"
+        style={{
+          background: "var(--aurora-surface-solid)",
+          border: "1px solid var(--aurora-border-strong)",
+          color: "var(--aurora-accent)",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+        }}
+      >
+        <Icon name="arrow_down" size={13} />
+        <span>{isZh ? "回到底部" : "Bottom"}</span>
+      </button>
+    )}
   </div>
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
@@ -6095,7 +6132,7 @@ function AskPageContent() {
                         color: "var(--aurora-fg3)",
                       }}
                     >
-                      {conversations.length}
+                      {historySearchQuery ? `${filteredConversations.length}/${conversations.length}` : conversations.length}
                     </span>
                   )}
                 </div>
@@ -6184,6 +6221,68 @@ function AskPageContent() {
                   </button>
                 </div>
               )}
+
+              {/* 会话过滤搜索框 */}
+              <div
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  width: "100%",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    pointerEvents: "none",
+                    color: "var(--aurora-fg4)",
+                  }}
+                >
+                  <Icon name="search" size={13} />
+                </div>
+                <input
+                  type="text"
+                  value={historySearchQuery}
+                  onChange={(e) => setHistorySearchQuery(e.target.value)}
+                  placeholder={isZh ? "搜索会话标题或设备 ID..." : "Search sessions or device..."}
+                  style={{
+                    width: "100%",
+                    padding: "6px 28px 6px 30px",
+                    borderRadius: 8,
+                    fontSize: 12.5,
+                    border: "1px solid var(--aurora-border)",
+                    background: "var(--aurora-chip)",
+                    color: "var(--aurora-fg1)",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                {historySearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setHistorySearchQuery("")}
+                    style={{
+                      position: "absolute",
+                      right: 8,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--aurora-fg4)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Icon name="close" size={12} />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Drawer List */}
@@ -6199,9 +6298,9 @@ function AskPageContent() {
             >
               {loadingHistory ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "var(--aurora-fg4)", fontSize: 13 }}>
-                  加载中...
+                  {isZh ? "加载中..." : "Loading..."}
                 </div>
-              ) : conversations.length === 0 ? (
+              ) : filteredConversations.length === 0 ? (
                 <div
                   style={{
                     textAlign: "center",
@@ -6210,10 +6309,10 @@ function AskPageContent() {
                     fontSize: 13,
                   }}
                 >
-                  {t.ask.noHistory}
+                  {historySearchQuery ? (isZh ? "未找到匹配的会话" : "No matching sessions found") : t.ask.noHistory}
                 </div>
               ) : (
-                conversations.map((c) => {
+                filteredConversations.map((c) => {
                   const isActive = c.id === activeConversationId;
                   const dateStr = c.updated_at
                     ? new Date(c.updated_at).toLocaleString(undefined, {

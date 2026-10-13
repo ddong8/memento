@@ -68,6 +68,8 @@ export default function ProjectsPage() {
                 <option value="claude_code">Claude Code</option>
                 <option value="openclaw">OpenClaw</option>
                 <option value="codex">Codex</option>
+                <option value="antigravity">Antigravity</option>
+                <option value="workbuddy">WorkBuddy</option>
                 <option value="obsidian">Obsidian</option>
                 <option value="cursor">Cursor</option>
               </select>

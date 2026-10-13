@@ -4,6 +4,7 @@ import { basename, dirname, extname, join } from "node:path";
 
 import { homeDir, type CollectorConfig } from "./config.js";
 import { cleanPath, decodeClaudeDir, isInvalidProjectName, type DiscoveredTool } from "./discovery.js";
+import { getAntigravitySessionInfo } from "./antigravity.js";
 import type { IngestClient } from "./ingest.js";
 import { contentHash } from "./sanitizer.js";
 
@@ -146,23 +147,36 @@ export function sessionMetadata(
   if (toolId === "antigravity") {
     const brain = /[/\\]brain[/\\]([^/\\]+)[/\\]/.exec(filePath);
     if (brain) sessionId = brain[1]!;
-    try {
-      const ann = readFileSync(join(home, ".gemini", "antigravity", "annotations", `${sessionId}.pbtxt`), "utf8");
-      const t = /title:\s*"([^"]+)"/.exec(ann)?.[1]?.trim();
-      if (t && !t.endsWith(".pbtxt")) title = t;
-    } catch {
-      // no annotation
+
+    // 1. Direct from official SQLite conversation_summaries.db
+    const summary = getAntigravitySessionInfo(sessionId, home);
+    if (summary) {
+      if (summary.title) title = summary.title;
+      if (summary.workspacePath) setProject(cleanPath(summary.workspacePath));
     }
-    try {
-      const db = readFileSync(join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`)).toString("utf8");
-      const ws = /file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/.exec(db);
-      if (ws) {
-        let raw = ws[1]!;
-        if (/^\/[a-zA-Z]:/.test(raw)) raw = raw.slice(1);
-        setProject(cleanPath(raw));
+
+    // 2. Legacy fallbacks
+    if (!title) {
+      try {
+        const ann = readFileSync(join(home, ".gemini", "antigravity", "annotations", `${sessionId}.pbtxt`), "utf8");
+        const t = /title:\s*"([^"]+)"/.exec(ann)?.[1]?.trim();
+        if (t && !t.endsWith(".pbtxt")) title = t;
+      } catch {
+        // no annotation
       }
-    } catch {
-      // no conversation db
+    }
+    if (!cwd) {
+      try {
+        const db = readFileSync(join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`)).toString("utf8");
+        const ws = /file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/.exec(db);
+        if (ws) {
+          let raw = ws[1]!;
+          if (/^\/[a-zA-Z]:/.test(raw)) raw = raw.slice(1);
+          setProject(cleanPath(raw));
+        }
+      } catch {
+        // no conversation db
+      }
     }
   }
 

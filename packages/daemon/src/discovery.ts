@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { homeDir } from "./config.js";
+import { getAntigravityWorkspaces } from "./antigravity.js";
 
 /** A project found inside an AI tool's data directory. */
 export interface DiscoveredProject {
@@ -316,12 +317,8 @@ async function vscTool(
   }
   if (id === "antigravity" && hasRoot) {
     try {
-      const dbPath = join(homeRoot, "conversation_summaries.db");
-      if (existsSync(dbPath)) {
-        const raw = (await readFile(dbPath)).toString("utf8");
-        for (const m of raw.matchAll(/\["file:\/\/\/([^"]+)"\]/g)) {
-          if (m[1]) addProject(`file:///${m[1]}`);
-        }
+      for (const ws of getAntigravityWorkspaces(env.home)) {
+        addProject(ws);
       }
     } catch {
       // db unreadable

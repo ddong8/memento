@@ -1,10 +1,99 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir } from "./config.js";
+
+export interface AntigravitySessionInfo {
+  title?: string;
+  workspacePath?: string;
+  projectName?: string;
+}
+
+let summariesCache: { map: Map<string, AntigravitySessionInfo>; at: number } | undefined;
+
+function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo> {
+  const dbPath = join(home, ".gemini", "antigravity", "conversation_summaries.db");
+  const map = new Map<string, AntigravitySessionInfo>();
+  if (!existsSync(dbPath)) return map;
+
+  const now = Date.now();
+  if (summariesCache && now - summariesCache.at < 15_000) {
+    return summariesCache.map;
+  }
+
+  try {
+    let output = "";
+    try {
+      const sqliteBin = process.platform === "darwin" ? "/usr/bin/sqlite3" : "sqlite3";
+      output = execFileSync(
+        sqliteBin,
+        [dbPath, "SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted';"],
+        { encoding: "utf8", timeout: 3000, windowsHide: true }
+      );
+    } catch {
+      const pyBin = process.platform === "win32" ? "python" : "python3";
+      const script = "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); [print(f\"{r[0]}|{r[1]}|{r[2]}\") for r in conn.execute(\"SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'\")]";
+      output = execFileSync(pyBin, ["-c", script, dbPath], { encoding: "utf8", timeout: 3000, windowsHide: true });
+    }
+
+    for (const line of output.split("\n")) {
+      const parts = line.split("|");
+      if (parts.length < 3) continue;
+      const cid = parts[0]?.trim();
+      const title = parts[1]?.trim();
+      const wsUrisRaw = parts.slice(2).join("|").trim();
+      if (!cid) continue;
+
+      let wsPath: string | undefined;
+      let pName: string | undefined;
+      if (wsUrisRaw) {
+        const m = /"file:\/\/\/([^"]+)"|"file:\/\/([^"]+)"/.exec(wsUrisRaw);
+        if (m) {
+          const rawUri = m[1] || m[2];
+          if (!rawUri) continue;
+          let cleaned = decodeURIComponent(rawUri);
+          if (process.platform === "win32") {
+            if (/^\/[a-zA-Z]:/.test(cleaned)) cleaned = cleaned.slice(1);
+          } else {
+            if (!cleaned.startsWith("/")) cleaned = "/" + cleaned;
+          }
+          wsPath = cleaned.replace(/\\/g, "/").replace(/\/+$/, "");
+          const leaf = wsPath.split("/").pop();
+          if (leaf && !["", "-", "--", "tmp", "temp", "dev", "desktop"].includes(leaf.toLowerCase())) {
+            pName = leaf;
+          }
+        }
+      }
+
+      map.set(cid, {
+        title: title || undefined,
+        workspacePath: wsPath,
+        projectName: pName,
+      });
+    }
+    summariesCache = { map, at: now };
+  } catch {
+    if (summariesCache) return summariesCache.map;
+  }
+  return map;
+}
+
+export function getAntigravitySessionInfo(sessionId: string, home = homeDir()): AntigravitySessionInfo | undefined {
+  return loadSummariesMap(home).get(sessionId);
+}
+
+export function getAntigravityWorkspaces(home = homeDir()): string[] {
+  const map = loadSummariesMap(home);
+  const seen = new Set<string>();
+  for (const s of map.values()) {
+    if (s.workspacePath) seen.add(s.workspacePath);
+  }
+  return Array.from(seen);
+}
+
 
 /**
  * Antigravity has no headless CLI of its own; tasks go through a small Python

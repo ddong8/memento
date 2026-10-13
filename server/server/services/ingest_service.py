@@ -524,7 +524,12 @@ async def ingest_file(
             Document.relative_path == relative_path,
         )
         if mach_uuid is not None:
-            doc_query = doc_query.where(Document.machine_id == mach_uuid)
+            doc_query = doc_query.where(
+                or_(
+                    Document.machine_id == mach_uuid,
+                    Document.machine_id.is_(None),
+                )
+            )
         existing_doc = (await db.execute(doc_query)).scalar_one_or_none()
         if existing_doc is not None:
             if mach_uuid and not existing_doc.machine_id:
@@ -736,7 +741,12 @@ async def ingest_file(
         Document.relative_path == relative_path,
     )
     if mach_uuid is not None:
-        doc_lookup_query = doc_lookup_query.where(Document.machine_id == mach_uuid)
+        doc_lookup_query = doc_lookup_query.where(
+            or_(
+                Document.machine_id == mach_uuid,
+                Document.machine_id.is_(None),
+            )
+        )
     result = await db.execute(doc_lookup_query)
     doc = result.scalar_one_or_none()
 

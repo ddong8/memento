@@ -183,6 +183,7 @@ async def list_projects(
                     or_(
                         Document.relative_path.ilike("%haixingdong%"),
                         Document.metadata_["project_path"].astext.ilike("%haixingdong%"),
+                        Document.content.ilike("%/Users/haixingdong%"),
                     ),
                 )
                 .values(machine_id=mac_mini_m.id)
@@ -196,6 +197,7 @@ async def list_projects(
                     or_(
                         Document.relative_path.ilike("%donghaixing%"),
                         Document.metadata_["project_path"].astext.ilike("%donghaixing%"),
+                        Document.content.ilike("%/Users/donghaixing%"),
                     ),
                 )
                 .values(machine_id=macbook_m.id)
@@ -211,6 +213,10 @@ async def list_projects(
                         Document.metadata_["project_path"].astext.ilike("%users/admin%"),
                         Document.metadata_["project_path"].astext.ilike("%d:/%"),
                         Document.metadata_["project_path"].astext.ilike("%c:/%"),
+                        Document.content.ilike("%c:/Users/Admin%"),
+                        Document.content.ilike("%C:\\\\Users\\\\Admin%"),
+                        Document.content.ilike("%d:/dev%"),
+                        Document.content.ilike("%d:\\\\dev%"),
                     ),
                 )
                 .values(machine_id=win_m.id)

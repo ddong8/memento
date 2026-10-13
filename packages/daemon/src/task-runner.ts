@@ -517,7 +517,7 @@ export class TaskRunner {
               ? "\n💡 Antigravity CLI 未安装，请在 PowerShell 中执行以下命令进行安装：\nirm https://antigravity.google/cli/install.ps1 | iex"
               : "\n💡 Antigravity CLI 未安装，请在终端中执行以下命令进行安装：\ncurl -fsSL https://antigravity.google/cli/install.sh | bash";
         } else if (isWorkbuddy) {
-          tip = "\n💡 请先安装并启动腾讯 WorkBuddy 客户端应用（https://www.codebuddy.cn/workbuddy）";
+          tip = "\n💡 未检测到 CodeBuddy/WorkBuddy 命令行工具。请运行 npm install -g @tencent-ai/codebuddy-code 进行安装，并确保腾讯 WorkBuddy 客户端保持启动。";
         } else if (binary.includes("claude")) {
           tip = "\n💡 请运行 npm install -g @anthropic-ai/claude-code 安装 Claude Code CLI";
         } else if (binary.includes("codex")) {
@@ -564,7 +564,6 @@ export class TaskRunner {
           ...(model ? ["--model", model] : []),
           ...(effort ? ["--effort", effort] : []),
           ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
-          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(30, task.timeoutSeconds - 15))] : []),
           "-p",
           prompt,
         ];

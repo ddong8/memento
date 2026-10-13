@@ -114,45 +114,55 @@ async def list_projects(
                     await db.delete(redundant_p)
                     has_changes = True
 
-        # Auto-adopt orphaned documents across all tools
+        # Auto-adopt orphaned documents across all tools (query only necessary columns)
         orphaned_docs = (await db.execute(
-            select(Document).where(
+            select(Document.id, Document.tool_id, Document.metadata_, Document.relative_path).where(
                 Document.project_id.is_(None),
                 Document.category == "conversation",
             )
-        )).scalars().all()
-        for od in orphaned_docs:
+        )).all()
+        for od_id, od_tool_id, od_metadata, od_rel_path in orphaned_docs:
             p_cand = None
-            if isinstance(od.metadata_, dict):
-                p_cand = od.metadata_.get("project_hash")
-            if not p_cand and od.relative_path and od.relative_path.startswith("projects/"):
-                parts = od.relative_path.split("/")
+            if isinstance(od_metadata, dict):
+                p_cand = od_metadata.get("project_hash")
+            if not p_cand and od_rel_path and od_rel_path.startswith("projects/"):
+                parts = od_rel_path.split("/")
                 if len(parts) >= 3:
                     p_cand = parts[1]
             if p_cand:
                 prettified = _prettify_project_name(p_cand)
                 if not _is_invalid_project_name(prettified):
-                    c_slug = f"{od.tool_id}/{prettified}"
+                    c_slug = f"{od_tool_id}/{prettified}"
                     canon = (await db.execute(select(Project).where(Project.slug == c_slug))).scalar_one_or_none()
                     if canon:
-                        od.project_id = canon.id
+                        await db.execute(
+                            update(Document).where(Document.id == od_id).values(project_id=canon.id)
+                        )
                         has_changes = True
 
-        # Auto-heal misassigned conversation documents where metadata project_hash points to a different valid project
+        # Auto-heal misassigned conversation documents (fetch only scalar IDs & metadata, never content)
         misassigned_docs = (await db.execute(
-            select(Document, Project)
+            select(
+                Document.id,
+                Document.tool_id,
+                Document.metadata_,
+                Document.project_id,
+                Project.id,
+                Project.slug,
+                Project.title,
+            )
             .join(Project, Document.project_id == Project.id)
             .where(
                 Document.category == "conversation",
                 Document.metadata_.isnot(None),
             )
         )).all()
-        for doc_item, cur_proj in misassigned_docs:
-            if not isinstance(doc_item.metadata_, dict):
+        for doc_id, doc_tool_id, doc_metadata, doc_proj_id, cur_proj_id, cur_proj_slug, cur_proj_title in misassigned_docs:
+            if not isinstance(doc_metadata, dict):
                 continue
-            p_cand = doc_item.metadata_.get("project_hash")
+            p_cand = doc_metadata.get("project_hash")
             if not p_cand:
-                p_path = doc_item.metadata_.get("project_path")
+                p_path = doc_metadata.get("project_path")
                 if p_path and isinstance(p_path, str):
                     p_cand = p_path.replace("\\", "/").rstrip("/").split("/")[-1]
             if not p_cand:
@@ -160,13 +170,15 @@ async def list_projects(
             prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
             if not prettified or _is_invalid_project_name(prettified):
                 continue
-            cur_slug_name = cur_proj.slug.split("/")[-1].lower()
+            cur_slug_name = cur_proj_slug.split("/")[-1].lower()
             cand_lower = prettified.lower()
-            if cand_lower != cur_proj.title.lower() and cand_lower != cur_slug_name:
-                correct_slug = f"{doc_item.tool_id}/{prettified}"
+            if cand_lower != cur_proj_title.lower() and cand_lower != cur_slug_name:
+                correct_slug = f"{doc_tool_id}/{prettified}"
                 correct_p = (await db.execute(select(Project).where(Project.slug == correct_slug))).scalar_one_or_none()
-                if correct_p and correct_p.id != cur_proj.id:
-                    doc_item.project_id = correct_p.id
+                if correct_p and correct_p.id != cur_proj_id:
+                    await db.execute(
+                        update(Document).where(Document.id == doc_id).values(project_id=correct_p.id)
+                    )
                     has_changes = True
 
         # Auto-heal machine_id on documents where machine_id is NULL
@@ -183,7 +195,6 @@ async def list_projects(
                     or_(
                         Document.relative_path.ilike("%haixingdong%"),
                         Document.metadata_["project_path"].astext.ilike("%haixingdong%"),
-                        Document.content.ilike("%/Users/haixingdong%"),
                     ),
                 )
                 .values(machine_id=mac_mini_m.id)
@@ -197,7 +208,6 @@ async def list_projects(
                     or_(
                         Document.relative_path.ilike("%donghaixing%"),
                         Document.metadata_["project_path"].astext.ilike("%donghaixing%"),
-                        Document.content.ilike("%/Users/donghaixing%"),
                     ),
                 )
                 .values(machine_id=macbook_m.id)
@@ -213,10 +223,6 @@ async def list_projects(
                         Document.metadata_["project_path"].astext.ilike("%users/admin%"),
                         Document.metadata_["project_path"].astext.ilike("%d:/%"),
                         Document.metadata_["project_path"].astext.ilike("%c:/%"),
-                        Document.content.ilike("%c:/Users/Admin%"),
-                        Document.content.ilike("%C:\\\\Users\\\\Admin%"),
-                        Document.content.ilike("%d:/dev%"),
-                        Document.content.ilike("%d:\\\\dev%"),
                     ),
                 )
                 .values(machine_id=win_m.id)

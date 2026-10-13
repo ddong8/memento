@@ -36,7 +36,7 @@ def _get_ingest_semaphore() -> "asyncio.Semaphore":
         _ingest_semaphore = _asyncio.Semaphore(24)
     return _ingest_semaphore
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -588,7 +588,6 @@ async def ingest_file(
                 if md.get("parent_session_id") != parent_sid:
                     existing_doc.metadata_ = {**md, "parent_session_id": parent_sid}
                     await db.flush()
-                from sqlalchemy import or_
                 parent_title = (await db.execute(
                     select(Document.title)
                     .where(
@@ -625,7 +624,6 @@ async def ingest_file(
                             if not _is_junk_or_uuid_title(cand_ann, ann_sid):
                                 ann_title = cand_ann
                 if ann_sid and ann_title:
-                    from sqlalchemy import update, or_
                     await db.execute(
                         update(Document)
                         .where(
@@ -777,7 +775,6 @@ async def ingest_file(
                 metadata["parent_session_id"] = parent_sid
                 if "is_subagent" not in metadata:
                     metadata["is_subagent"] = True
-            from sqlalchemy import or_
             parent_title = (await db.execute(
                 select(Document.title)
                 .where(
@@ -855,7 +852,6 @@ async def ingest_file(
                 if cand_ann and "\\" not in cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
                     ann_title = cand_ann
         if ann_sid and ann_title:
-            from sqlalchemy import update, or_
             await db.execute(
                 update(Document)
                 .where(
@@ -971,7 +967,6 @@ async def ingest_file(
                     if not _is_junk_or_uuid_title(cand_ann, ann_sid):
                         ann_title = cand_ann
         if ann_sid and ann_title:
-            from sqlalchemy import update, or_
             await db.execute(
                 update(Document)
                 .where(

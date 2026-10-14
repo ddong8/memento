@@ -589,6 +589,7 @@ def _build_messages(
     core_memories: list[UserMemory] | None = None,
     user_profile_content: str | None = None,
     guidance_data: dict | None = None,
+    device_id: str | None = None,
 ) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
@@ -616,10 +617,11 @@ def _build_messages(
         system_prompt += f"\n\n【用户长期核心记忆与工程规范 (MEMORY.md)】\n{core_snippets}"
 
     # 4. Device Environment Fingerprint
-    from .tasks import get_device_environment_summary
-    env_summary = get_device_environment_summary(device_id)
-    if env_summary:
-        system_prompt += f"\n\n【目标设备就绪环境指纹画像】\n{env_summary}"
+    if device_id and device_id not in ("auto", "ask_only"):
+        from .tasks import get_device_environment_summary
+        env_summary = get_device_environment_summary(device_id)
+        if env_summary:
+            system_prompt += f"\n\n【目标设备就绪环境指纹画像】\n{env_summary}"
 
     messages = [{"role": "system", "content": system_prompt}]
     for turn in (history or [])[-MAX_HISTORY_TURNS:]:
@@ -2832,6 +2834,7 @@ async def ask(
         core_memories=core_mems,
         user_profile_content=user_prof_content,
         guidance_data=guidance_data,
+        device_id=device_id or None,
     )
 
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"

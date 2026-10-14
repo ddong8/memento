@@ -1249,6 +1249,8 @@ function AskPageContent() {
   const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
   const [editingConvId, setEditingConvId] = useState<string | null>(null);
   const [editingConvTitle, setEditingConvTitle] = useState<string>("");
+  const promptHistoryIdxRef = useRef<number>(-1);
+  const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
@@ -1391,6 +1393,7 @@ function AskPageContent() {
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
+    promptHistoryIdxRef.current = -1;
     setInput(val);
     if (askCache) {
       askCache.input = val;
@@ -3711,6 +3714,8 @@ function AskPageContent() {
     if (askCache) {
       askCache.input = "";
     }
+    promptHistoryIdxRef.current = -1;
+    promptDraftRef.current = "";
     sendWithText(textToSend, { images: imgs });
   }, [streaming, input, attachedImages, sendWithText]);
 
@@ -3762,9 +3767,45 @@ function AskPageContent() {
       if (!isMobileViewport) {
         e.preventDefault();
         send();
+        return;
       }
     }
-  }, [send]);
+    // 上下方向键回溯历史提问 (Prompt History Navigation)
+    if (e.key === "ArrowUp") {
+      const textarea = e.currentTarget;
+      const isAtStart = textarea.selectionStart === 0 && textarea.selectionEnd === 0;
+      if (isAtStart || !input.trim()) {
+        const userQuestions = turns.filter((t) => t.role === "user" && t.content).map((t) => t.content);
+        if (userQuestions.length > 0) {
+          e.preventDefault();
+          if (promptHistoryIdxRef.current === -1) {
+            promptDraftRef.current = input;
+          }
+          const nextIdx = promptHistoryIdxRef.current === -1 ? userQuestions.length - 1 : Math.max(0, promptHistoryIdxRef.current - 1);
+          promptHistoryIdxRef.current = nextIdx;
+          const val = userQuestions[nextIdx];
+          setInput(val);
+          if (askCache) askCache.input = val;
+        }
+      }
+    } else if (e.key === "ArrowDown") {
+      if (promptHistoryIdxRef.current !== -1) {
+        e.preventDefault();
+        const userQuestions = turns.filter((t) => t.role === "user" && t.content).map((t) => t.content);
+        if (promptHistoryIdxRef.current < userQuestions.length - 1) {
+          promptHistoryIdxRef.current += 1;
+          const val = userQuestions[promptHistoryIdxRef.current];
+          setInput(val);
+          if (askCache) askCache.input = val;
+        } else {
+          promptHistoryIdxRef.current = -1;
+          const draft = promptDraftRef.current;
+          setInput(draft);
+          if (askCache) askCache.input = draft;
+        }
+      }
+    }
+  }, [send, input, turns]);
 
   // 全局快捷键: Cmd+K / Ctrl+K 快速聚焦输入框，Escape 关闭侧边栏或停止生成
   useEffect(() => {

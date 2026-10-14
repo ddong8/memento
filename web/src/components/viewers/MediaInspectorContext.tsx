@@ -9,6 +9,7 @@ export interface MediaItem {
   title: string;
   type: MediaType;
   localPath?: string | null;
+  content?: string | null;
 }
 
 interface MediaInspectorContextType {
@@ -16,20 +17,20 @@ interface MediaInspectorContextType {
   activeMedia: MediaItem | null;
   isOpen: boolean;
   openMedia: (item: MediaItem) => void;
-  openMediaByUrl: (url: string, title?: string) => void;
+  openMediaByUrl: (url: string, title?: string, content?: string | null) => void;
   closeInspector: () => void;
   toggleInspector: () => void;
   selectIndex: (index: number) => void;
   nextMedia: () => void;
   prevMedia: () => void;
-  registerMedia: (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string }) => void;
+  registerMedia: (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string; content?: string | null }) => void;
   syncTurnsMedia: (turns: Array<{ content?: string | null; role?: string | null }>) => void;
 }
 
 const MediaInspectorContext = createContext<MediaInspectorContextType | null>(null);
 
 /**
- * Scan Markdown string to discover media links (video, audio, image, pdf).
+ * Scan Markdown string to discover media links (video, audio, image, pdf, markdown).
  */
 export function extractMediaFromMarkdown(text: string): Array<{ url: string; title: string; type: MediaType }> {
   const list: Array<{ url: string; title: string; type: MediaType }> = [];
@@ -54,7 +55,7 @@ export function extractMediaFromMarkdown(text: string): Array<{ url: string; tit
   }
 
   // 2. Direct absolute path or file:// occurrences on a line
-  const pathRegex = /(?:^|\s)((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'>\)]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf))(?:\s|$)/gi;
+  const pathRegex = /(?:^|\s)((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'>\)]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown))(?:\s|$)/gi;
   while ((match = pathRegex.exec(text)) !== null) {
     const rawUrl = match[1]?.trim();
     if (rawUrl && !seenUrls.has(rawUrl)) {
@@ -82,7 +83,7 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   }, [mediaList, activeId]);
 
   const registerMedia = useCallback(
-    (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string }) => {
+    (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string; content?: string | null }) => {
       setMediaList((prev) => {
         const cleanUrl = safeDecodePath(item.url);
         const exists = prev.some((m) => safeDecodePath(m.url) === cleanUrl);
@@ -95,6 +96,7 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
           title: item.title || getFilenameFromUrl(item.url),
           type: item.type || detectMediaType(item.url),
           localPath: isLocalFilePath(item.url) ? safeDecodePath(item.url.replace(/^file:\/\//, "")) : null,
+          content: item.content || null,
         };
         return [...prev, newItem];
       });
@@ -118,12 +120,15 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     });
   }, []);
 
-  const openMediaByUrl = useCallback((url: string, title?: string) => {
+  const openMediaByUrl = useCallback((url: string, title?: string, content?: string | null) => {
     userManuallyClosedRef.current = false;
     const cleanUrl = safeDecodePath(url);
     setMediaList((prev) => {
       const existing = prev.find((m) => safeDecodePath(m.url) === cleanUrl);
       if (existing) {
+        if (content && !existing.content) {
+          existing.content = content;
+        }
         setActiveId(existing.id);
         setIsOpen(true);
         return prev; // 引用不变
@@ -135,6 +140,7 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
         title: title || safeDecodePath(getFilenameFromUrl(url)),
         type,
         localPath: isLocalFilePath(url) ? safeDecodePath(url.replace(/^file:\/\//, "")) : null,
+        content: content || null,
       };
       setActiveId(newItem.id);
       setIsOpen(true);

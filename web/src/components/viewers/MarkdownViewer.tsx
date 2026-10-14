@@ -275,6 +275,39 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 </div>
               );
             }
+            if (type === "markdown") {
+              const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              const cleanHref = safeDecodePath(href);
+              const isCurrentlyInspected = Boolean(
+                inspector?.isOpen &&
+                inspector?.activeMedia &&
+                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+                 inspector.activeMedia.title === label)
+              );
+
+              return (
+                <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)] shadow-sm">
+                  <span className="text-amber-400 font-semibold text-sm">📄</span>
+                  <span className="font-medium truncate max-w-[260px]" title={label}>{label}</span>
+                  {isCurrentlyInspected && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                      已在右侧视窗展示
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      inspector?.openMediaByUrl(href, label);
+                    }}
+                    className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧工作台预览 ↗"}
+                  </button>
+                </div>
+              );
+            }
 
             const isLocal = isLocalFilePath(href);
             const resolvedHref = isLocal ? resolveMediaUrl(href).downloadUrl : href;

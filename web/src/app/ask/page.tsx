@@ -4449,19 +4449,21 @@ function AskPageContent() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            {/* 媒体视窗快捷开关 (若对话中有视频或照片，高亮并提示) */}
+            {/* 工作台独立视窗快捷开关 (若对话中有文档、视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
                 variant={inspector.isOpen ? "primary" : "glass"}
                 size="sm"
                 icon="sidebar"
                 onClick={inspector.toggleInspector}
-                title={inspector.isOpen ? (isZh ? "折叠媒体独立视窗" : "Collapse media inspector") : (isZh ? "展开媒体独立视窗" : "Open media inspector")}
+                title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
                 className="shrink-0"
               >
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span className="hidden sm:inline">媒体视窗</span>
+                  <span className="hidden sm:inline">
+                    {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
+                  </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
                   </span>

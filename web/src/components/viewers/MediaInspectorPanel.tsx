@@ -20,6 +20,8 @@ import {
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl } from "./MediaPreview";
+import MarkdownViewer from "./MarkdownViewer";
+import { getApiBase, authFetch } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
 
@@ -125,6 +127,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         return <AudioPlayer key={activeMedia.url} src={activeMedia.url} title={displayTitle} />;
       case "image":
         return <ImagePreview key={activeMedia.url} src={activeMedia.url} alt={displayTitle} />;
+      case "markdown":
+        return <MarkdownDocViewer key={activeMedia.url || activeMedia.id} item={activeMedia} />;
       default:
         return <MediaAttachmentCard key={activeMedia.url} url={activeMedia.url} title={displayTitle} />;
     }
@@ -138,6 +142,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         return <FiMusic className="w-3.5 h-3.5 text-emerald-400" />;
       case "image":
         return <FiImage className="w-3.5 h-3.5 text-purple-400" />;
+      case "markdown":
+        return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
       default:
         return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
     }
@@ -371,5 +377,85 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         </div>
       </aside>
     </>
+  );
+}
+
+function MarkdownDocViewer({ item }: { item: MediaItem }) {
+  const [content, setContent] = useState<string>(item.content || "");
+  const [loading, setLoading] = useState<boolean>(!item.content);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item.content) {
+      setContent(item.content);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    const loadDoc = async () => {
+      try {
+        const url = item.url;
+        // Check if it's a document uuid route like /documents/<uuid> or /api/documents/<uuid>
+        const docMatch = url.match(/(?:\/api)?\/documents\/([0-9a-fA-F-]{36})/);
+        if (docMatch) {
+          const docId = docMatch[1];
+          const res = await authFetch(`${getApiBase()}/api/documents/${docId}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (active) {
+            setContent(data.content || data.title || "");
+            setLoading(false);
+          }
+          return;
+        }
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        if (active) {
+          setContent(text);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        if (active) {
+          setError(err?.message || "无法加载文档内容");
+          setLoading(false);
+        }
+      }
+    };
+
+    loadDoc();
+    return () => {
+      active = false;
+    };
+  }, [item.url, item.content]);
+
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-xs text-[var(--aurora-fg3)] flex flex-col items-center justify-center gap-2 min-h-[220px]">
+        <div className="w-5 h-5 border-2 border-[var(--aurora-accent)] border-t-transparent rounded-full animate-spin" />
+        <span>正在载入工作台文档预览...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center text-xs text-red-400 bg-red-500/10 rounded-xl border border-red-500/20">
+        <p className="font-semibold mb-1">文档加载异常</p>
+        <p className="opacity-80 font-mono text-[11px]">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-5 bg-[var(--aurora-surface-solid)]/95 rounded-xl border border-[var(--aurora-border)] overflow-x-hidden text-left">
+      <MarkdownViewer content={content} />
+    </div>
   );
 }

@@ -29,11 +29,12 @@ import { showInAppToast } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
 import { useMediaInspector } from "./MediaInspectorContext";
 
-export type MediaType = "video" | "audio" | "image" | "pdf" | "unknown";
+export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "unknown";
 
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "ogv", "avi", "flv"]);
 const AUDIO_EXTS = new Set(["mp3", "wav", "m4a", "aac", "ogg", "flac", "opus", "wma"]);
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
+const MARKDOWN_EXTS = new Set(["md", "markdown"]);
 
 /** Detect media type from URL or file name */
 export function detectMediaType(url: string | null | undefined): MediaType {
@@ -45,6 +46,7 @@ export function detectMediaType(url: string | null | undefined): MediaType {
     if (AUDIO_EXTS.has(ext)) return "audio";
     if (IMAGE_EXTS.has(ext)) return "image";
     if (ext === "pdf") return "pdf";
+    if (MARKDOWN_EXTS.has(ext) || clean.includes("/documents/") || clean.includes("/artifacts/")) return "markdown";
   } catch {
     // fallback
   }

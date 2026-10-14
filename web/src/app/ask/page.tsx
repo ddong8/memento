@@ -4567,8 +4567,9 @@ function AskPageContent() {
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3 shrink-0 select-none">
-          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+        {/* 对话区顶部 Bar */}
+        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none overflow-hidden">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 overflow-hidden mr-1 sm:mr-2">
             <Btn
               variant="glass"
               size="sm"
@@ -4577,7 +4578,7 @@ function AskPageContent() {
               title={isZh ? "查看历史对话" : "View history"}
               className="shrink-0"
             >
-              <span className="hidden sm:inline">{t.ask.historyTitle}</span>
+              <span className="hidden md:inline">{t.ask.historyTitle}</span>
               {conversations.length > 0 && (
                 <span
                   style={{
@@ -4594,7 +4595,7 @@ function AskPageContent() {
                 </span>
               )}
             </Btn>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <h1
                 className="text-[13px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
                 title={displayConvTitle}
@@ -4604,7 +4605,7 @@ function AskPageContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             {/* 工作台独立视窗快捷开关 (若对话中有文档、视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
@@ -4615,13 +4616,13 @@ function AskPageContent() {
                 title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
                 className="shrink-0"
               >
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="flex items-center gap-1 sm:gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                   <span className="font-medium">
-                    <span className="sm:hidden">{isZh ? "工作台" : "Desk"}</span>
-                    <span className="hidden sm:inline">
+                    <span className="hidden xl:inline">
                       {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
                     </span>
+                    <span className="xl:hidden">{isZh ? "工作台" : "Desk"}</span>
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
@@ -4639,8 +4640,8 @@ function AskPageContent() {
               className="shrink-0"
             >
               <span className="flex items-center gap-1">
-                <span className="hidden sm:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                <span className="hidden sm:inline text-xs font-medium">AI 额度</span>
+                <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                <span className="hidden 2xl:inline text-xs font-medium">AI 额度</span>
                 {(() => {
                   const targetTool = executionMode === "claude"
                     ? quotasData?.tools?.claude_code
@@ -4688,7 +4689,7 @@ function AskPageContent() {
               title={t.ask.newChat}
               className="shrink-0"
             >
-              <span className="hidden sm:inline">{t.ask.newChat}</span>
+              <span className="hidden xl:inline">{t.ask.newChat}</span>
             </Btn>
             {activeConversationId && turns.length > 0 && (
               <>
@@ -4703,7 +4704,7 @@ function AskPageContent() {
                   title={isZh ? "多选消息/问答分享" : "Select messages to share"}
                   className="shrink-0"
                 >
-                  <span className="hidden sm:inline">{isZh ? "多选消息" : "Select"}</span>
+                  <span className="hidden xl:inline">{isZh ? "多选" : "Select"}</span>
                 </Btn>
                 <Btn
                   variant="glass"
@@ -4713,7 +4714,7 @@ function AskPageContent() {
                   title={isZh ? "分享整场对话" : "Share full conversation"}
                   className="shrink-0"
                 >
-                  <span className="hidden sm:inline">{isZh ? "整场分享" : "Share All"}</span>
+                  <span className="hidden xl:inline">{isZh ? "分享" : "Share"}</span>
                 </Btn>
               </>
             )}
@@ -4729,7 +4730,7 @@ function AskPageContent() {
                 }}
                 className="shrink-0"
               >
-                <span className="hidden sm:inline">{t.ask.clear}</span>
+                <span className="hidden xl:inline">{t.ask.clear}</span>
               </Btn>
             )}
           </div>

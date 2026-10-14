@@ -156,6 +156,17 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
       clean = clean.slice(1);
     }
+    const d = desktop();
+    if (d && typeof d.toMediaUrl === "function") {
+      const mediaUrl = d.toMediaUrl(clean);
+      return {
+        playUrl: mediaUrl,
+        downloadUrl: mediaUrl,
+        localPath: clean,
+        filename,
+        isLocal: true,
+      };
+    }
     const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
     const apiBase = getApiBase();

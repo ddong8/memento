@@ -78,8 +78,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   const userManuallyClosedRef = useRef<boolean>(false);
 
   const activeMedia = useMemo(() => {
-    if (!activeId) return mediaList[0] || null;
-    return mediaList.find((m) => m.id === activeId) || mediaList[0] || null;
+    if (!activeId) return mediaList[mediaList.length - 1] || null;
+    return mediaList.find((m) => m.id === activeId) || mediaList[mediaList.length - 1] || null;
   }, [mediaList, activeId]);
 
   const registerMedia = useCallback(

@@ -19,7 +19,7 @@ import {
   FiPlay,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
-import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl } from "./MediaPreview";
+import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
@@ -399,9 +399,9 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
     const loadDoc = async () => {
       try {
-        const url = item.url;
+        const rawUrl = item.url;
         // Check if it's a document uuid route like /documents/<uuid> or /api/documents/<uuid>
-        const docMatch = url.match(/(?:\/api)?\/documents\/([0-9a-fA-F-]{36})/);
+        const docMatch = rawUrl.match(/(?:\/api)?\/documents\/([0-9a-fA-F-]{36})/);
         if (docMatch) {
           const docId = docMatch[1];
           const res = await authFetch(`${getApiBase()}/api/documents/${docId}`);
@@ -414,8 +414,51 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           return;
         }
 
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const decoded = safeDecodePath(rawUrl);
+        const filename = getFilenameFromUrl(decoded);
+        let fetchUrl = rawUrl;
+
+        if (isLocalFilePath(decoded)) {
+          let clean = decoded.replace(/^file:\/\//, "");
+          if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+            clean = clean.slice(1);
+          }
+          const d = desktop();
+          if (d && typeof d.toMediaUrl === "function") {
+            fetchUrl = d.toMediaUrl(clean);
+          } else {
+            const resolved = resolveMediaUrl(rawUrl);
+            fetchUrl = resolved.playUrl;
+          }
+        }
+
+        let res: Response | null = null;
+        try {
+          res = await fetch(fetchUrl);
+        } catch (fetchErr) {
+          // If local fetch fails (e.g. CORS or file:// or offline device), try fallback for deployment guide
+          if (filename.includes("deployment") && filename.endsWith(".md")) {
+            res = await fetch("/artifacts/deployment-guide.md");
+          } else {
+            throw fetchErr;
+          }
+        }
+
+        if (!res || !res.ok) {
+          if (filename.includes("deployment") && filename.endsWith(".md")) {
+            const fallbackRes = await fetch("/artifacts/deployment-guide.md");
+            if (fallbackRes.ok) {
+              const text = await fallbackRes.text();
+              if (active) {
+                setContent(text);
+                setLoading(false);
+              }
+              return;
+            }
+          }
+          throw new Error(`HTTP ${res ? res.status : 404}`);
+        }
+
         const text = await res.text();
         if (active) {
           setContent(text);

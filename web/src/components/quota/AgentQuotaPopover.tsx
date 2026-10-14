@@ -31,7 +31,13 @@ function formatRelativeReset(isoStr?: string | null): string {
   }
 }
 
-function getQuotaColor(percent: number): { text: string; gradient: string } {
+function getQuotaColor(percent?: number | null): { text: string; gradient: string } {
+  if (percent == null) {
+    return {
+      text: "var(--aurora-fg3)",
+      gradient: "linear-gradient(90deg, #64748B, #94A3B8)",
+    };
+  }
   if (percent <= 15) {
     return {
       text: "#EF4444",
@@ -260,8 +266,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     Google Antigravity
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}</span>
+                    {agy?.probe_source && (
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {agy.probe_source}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -313,11 +322,12 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
             {/* Quota Progress Bar */}
             {agy?.available && agy?.remaining_percent != null && (() => {
               const quotaColor = getQuotaColor(agy.remaining_percent);
+              const primaryModel = agy?.models?.find((m) => m.remaining_percent != null) || agy?.models?.[0];
               return (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
                     <span style={{ color: "var(--aurora-fg3)" }}>
-                      主力模型配额 ({agy?.models?.[0]?.label || "Gemini 3.8 Flash"})
+                      主力模型配额 ({primaryModel?.label || "Gemini 3.8 Flash"})
                     </span>
                     <span style={{ fontWeight: 600, color: quotaColor.text }}>
                       {agy.remaining_percent}% 剩余
@@ -430,9 +440,15 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                             {m.label}
                           </span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontWeight: 600, color: mc.text }}>
-                              {m.remaining_percent}%
-                            </span>
+                            {m.remaining_percent != null ? (
+                              <span style={{ fontWeight: 600, color: mc.text }}>
+                                {m.status_text || `${m.remaining_percent}%`}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>
+                                {m.status_text || "无配额限制"}
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
@@ -477,8 +493,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     Claude Code
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}</span>
+                    {claude?.probe_source && (
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {claude.probe_source}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -528,119 +547,144 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
             )}
 
             {/* Claude Code Sliding Window & Progress */}
-            {claude?.available && claude?.remaining_percent != null && (() => {
-              const quotaColor = getQuotaColor(claude.remaining_percent);
-              const sevenDay = claude.details?.seven_day_utilization;
-              const fiveHour = claude.details?.five_hour_utilization;
-              const isCritical = claude.details?.severity === "critical" || (sevenDay != null && sevenDay >= 95);
+            {claude?.available && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {claude.remaining_percent != null ? (() => {
+                  const quotaColor = getQuotaColor(claude.remaining_percent);
+                  const sevenDay = claude.details?.seven_day_utilization;
+                  const fiveHour = claude.details?.five_hour_utilization;
+                  const isCritical = claude.details?.severity === "critical" || (sevenDay != null && sevenDay >= 95);
 
-              return (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {/* Critical badge */}
-                  {isCritical && (
-                    <div
-                      style={{
-                        fontSize: 11.5,
-                        color: "#EF4444",
-                        background: "rgba(239, 68, 68, 0.12)",
-                        border: "1px solid rgba(239, 68, 68, 0.3)",
-                        padding: "6px 10px",
-                        borderRadius: 6,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontWeight: 500,
-                      }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="8" x2="12" y2="12" />
-                        <line x1="12" y1="16" x2="12.01" y2="16" />
-                      </svg>
-                      <span>7天滑动窗口用量已达极限 (已消耗 {sevenDay ?? 97}%)，面临速率限制</span>
-                    </div>
-                  )}
-
-                  {/* Dual Sliding Windows */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 8,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: "rgba(0, 0, 0, 0.14)",
-                    }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口 (周额度)</span>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
-                          {sevenDay != null ? `已用 ${sevenDay}%` : "-"}
-                        </span>
-                        {sevenDay != null && (
-                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
-                            (剩 {Math.max(0, 100 - sevenDay)}%)
-                          </span>
-                        )}
-                      </div>
-                      {claude.details?.seven_day_resets_at && (
-                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
-                          ⏳ {formatRelativeReset(claude.details.seven_day_resets_at)}
-                        </span>
+                  return (
+                    <>
+                      {/* Critical badge */}
+                      {isCritical && (
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: "#EF4444",
+                            background: "rgba(239, 68, 68, 0.12)",
+                            border: "1px solid rgba(239, 68, 68, 0.3)",
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontWeight: 500,
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="8" x2="12" y2="12" />
+                            <line x1="12" y1="16" x2="12.01" y2="16" />
+                          </svg>
+                          <span>滑动窗口用量已达瓶颈 (5小时已用 {fiveHour ?? 0}%, 7天已用 {sevenDay ?? 0}%)</span>
+                        </div>
                       )}
-                    </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口 (速率)</span>
-                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: fiveHour != null && fiveHour > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
-                          {fiveHour != null ? `已用 ${fiveHour}%` : "-"}
-                        </span>
-                        {fiveHour != null && (
-                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
-                            (剩 {Math.max(0, 100 - fiveHour)}%)
-                          </span>
-                        )}
-                      </div>
-                      {claude.details?.five_hour_resets_at && (
-                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
-                          ⏳ {formatRelativeReset(claude.details.five_hour_resets_at)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Remaining bar */}
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-                      <span style={{ color: "var(--aurora-fg3)" }}>综合当前可用额度 (全模型共享)</span>
-                      <span style={{ fontWeight: 600, color: quotaColor.text }}>
-                        {claude.remaining_percent}% 剩余
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        height: 7,
-                        borderRadius: 999,
-                        background: "rgba(255, 255, 255, 0.08)",
-                        overflow: "hidden",
-                      }}
-                    >
+                      {/* Dual Sliding Windows */}
                       <div
                         style={{
-                          height: "100%",
-                          width: `${Math.min(100, Math.max(0, claude.remaining_percent))}%`,
-                          borderRadius: 999,
-                          background: quotaColor.gradient,
-                          transition: "width 0.4s ease",
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 8,
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          background: "rgba(0, 0, 0, 0.14)",
                         }}
-                      />
+                      >
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口 (周额度)</span>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
+                              {sevenDay != null ? `已用 ${sevenDay}%` : "-"}
+                            </span>
+                            {sevenDay != null && (
+                              <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                                (剩 {Math.max(0, 100 - sevenDay)}%)
+                              </span>
+                            )}
+                          </div>
+                          {claude.details?.seven_day_resets_at && (
+                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                              ⏳ {formatRelativeReset(claude.details.seven_day_resets_at)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口 (速率)</span>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: fiveHour != null && fiveHour > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
+                              {fiveHour != null ? `已用 ${fiveHour}%` : "-"}
+                            </span>
+                            {fiveHour != null && (
+                              <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                                (剩 {Math.max(0, 100 - fiveHour)}%)
+                              </span>
+                            )}
+                          </div>
+                          {claude.details?.five_hour_resets_at && (
+                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                              ⏳ {formatRelativeReset(claude.details.five_hour_resets_at)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Remaining bar */}
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                          <span style={{ color: "var(--aurora-fg3)" }}>综合瓶颈可用额度 (全模型共享)</span>
+                          <span style={{ fontWeight: 600, color: quotaColor.text }}>
+                            {claude.remaining_percent}% 剩余
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            height: 7,
+                            borderRadius: 999,
+                            background: "rgba(255, 255, 255, 0.08)",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              width: `${Math.min(100, Math.max(0, claude.remaining_percent))}%`,
+                              borderRadius: 999,
+                              background: quotaColor.gradient,
+                              transition: "width 0.4s ease",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  );
+                })() : (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      background: "rgba(0, 0, 0, 0.12)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ color: "var(--aurora-fg3)" }}>限流机制</span>
+                      <span style={{ fontWeight: 600, color: "#22C55E" }}>
+                        {claude.quota_type === "token_payg" ? "API Key 按量计费" : "动态滑动窗口"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+                      {claude.quota_desc || "Claude 订阅根据官方动态队列与滑动速率轮转。"}
                     </div>
                   </div>
-                </div>
-              );
-            })()}
+                )}
+              </div>
+            )}
 
             {/* Models Details Accordion */}
             {claude?.available && claude?.models && claude.models.length > 0 && (
@@ -679,7 +723,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     }}
                   >
                     <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", paddingBottom: 4, borderBottom: "1px dashed var(--aurora-border)" }}>
-                      所有模型均共享 Pro 账号滑动窗口额度
+                      所有模型共享 Anthropic Pro 滑动窗口配额
                     </div>
                     {claude.models.map((m, idx) => {
                       const mc = getQuotaColor(m.remaining_percent);
@@ -695,8 +739,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                           }}
                         >
                           <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                          <span style={{ fontWeight: 600, color: mc.text }}>
-                            {m.remaining_percent}%
+                          <span style={{ fontWeight: 600, color: m.remaining_percent != null ? mc.text : "var(--aurora-fg3)" }}>
+                            {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "可用")}
                           </span>
                         </div>
                       );
@@ -741,8 +785,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     OpenAI Codex
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}</span>
+                    {codex?.probe_source && (
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {codex.probe_source}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -758,7 +805,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     fontWeight: 600,
                   }}
                 >
-                  {codex?.plan_name || "ChatGPT Free"}
+                  {codex?.plan_name || "ChatGPT Plus"}
                 </span>
                 <span
                   style={{
@@ -804,15 +851,15 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: "var(--aurora-fg3)" }}>配额计费模式</span>
-                  <span style={{ fontWeight: 600, color: "var(--aurora-fg2)" }}>
-                    {codex.remaining_percent != null ? `${codex.remaining_percent}% (固定额度)` : "动态速率限制 (Free)"}
+                  <span style={{ color: "var(--aurora-fg3)" }}>额度计算机制</span>
+                  <span style={{ fontWeight: 600, color: "#10B981" }}>
+                    {codex.quota_type === "token_payg"
+                      ? "API Key 按量扣费"
+                      : (codex.tier === "FREE" ? "动态队列 (Free)" : "Plus 动态滑动限流")}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
-                  {codex.remaining_percent != null
-                    ? "按订阅周期固定分配算力配额。"
-                    : "ChatGPT Free 订阅依据官方动态队列与滑动速率轮转，无静态百分比限制。"}
+                  {codex.quota_desc || "ChatGPT Plus 依据 3 小时滑动窗口频次动态限流，不设单一百分比电池池，全模型均受 Plus 通道保障。"}
                 </div>
               </div>
             )}
@@ -865,7 +912,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                         }}
                       >
                         <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>{m.model_id}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(16, 185, 129, 0.12)", color: "#10B981", fontWeight: 500 }}>
+                            {m.status_text || "Plus 动态保障"}
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -906,10 +957,15 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     WorkBuddy
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1 }}>
-                    {workbuddy?.account_name
-                      ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
-                      : (workbuddy?.available ? "腾讯全场景智能体工作台" : "未检测到本地凭据")}
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>
+                      {workbuddy?.account_name
+                        ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
+                        : (workbuddy?.available ? "腾讯全场景智能体工作台" : "未检测到本地凭据")}
+                    </span>
+                    {workbuddy?.probe_source && (
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {workbuddy.probe_source}</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -969,13 +1025,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: "var(--aurora-fg3)" }}>本地网关状态</span>
-                  <span style={{ fontWeight: 600, color: "var(--aurora-fg2)" }}>
-                    {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 守护进程在线" : "账号已授权 (按需唤醒)"}
+                  <span style={{ color: "var(--aurora-fg3)" }}>本地网关与额度</span>
+                  <span style={{ fontWeight: 600, color: "#0EC7A8" }}>
+                    {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 网关在线" : (workbuddy.plan_name || "WorkBuddy 个人版")}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
-                  支持 GLM-5.1、DeepSeek V3.2、Kimi K2.5、Hunyuan 2.0 及自定义 BYOK 模型直连。
+                  {workbuddy.quota_desc || "WorkBuddy 个人版支持免费动态调用，自定义模型通过本地端点直连。"}
                 </div>
               </div>
             )}
@@ -1027,7 +1083,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                         }}
                       >
                         <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                        <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>{m.model_id}</span>
+                        <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(14, 199, 168, 0.12)", color: "#0EC7A8", fontWeight: 500 }}>
+                          {m.status_text || "免费额度可用"}
+                        </span>
                       </div>
                     ))}
                   </div>

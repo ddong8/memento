@@ -995,8 +995,9 @@ export const api = {
 export interface QuotaModelItem {
   label: string;
   model_id: string;
-  remaining_fraction: number;
-  remaining_percent: number;
+  remaining_fraction?: number | null;
+  remaining_percent?: number | null;
+  status_text?: string;
   reset_time?: string;
 }
 
@@ -1009,6 +1010,9 @@ export interface ToolQuotaInfo {
   account_name?: string;
   plan_name?: string;
   tier?: string;
+  quota_type?: "percentage" | "dynamic_rate_limit" | "token_payg" | "unlimited" | "gateway";
+  quota_desc?: string;
+  probe_source?: string;
   remaining_percent?: number | null;
   reset_time?: string | null;
   models?: QuotaModelItem[];

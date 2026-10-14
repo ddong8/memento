@@ -1307,24 +1307,24 @@ function AskPageContent() {
     if (mode === "antigravity") {
       const agy = quotasData?.tools?.antigravity;
       return {
-        label: agy?.remaining_percent != null ? `${Math.round(agy.remaining_percent)}%` : "100%",
-        percent: agy?.remaining_percent ?? 100,
+        label: agy?.remaining_percent != null ? `${Math.round(agy.remaining_percent)}%` : "可用",
+        percent: agy?.remaining_percent != null ? agy.remaining_percent : undefined,
         isPro: true,
       };
     }
     if (mode === "claude") {
       const c = quotasData?.tools?.claude_code;
       return {
-        label: c?.remaining_percent != null && c.remaining_percent < 100 ? `${Math.round(c.remaining_percent)}%` : (c?.tier || "PRO"),
-        percent: c?.remaining_percent ?? 100,
+        label: c?.remaining_percent != null ? `${Math.round(c.remaining_percent)}%` : (c?.tier || "PRO"),
+        percent: c?.remaining_percent != null ? c.remaining_percent : undefined,
         isPro: (c?.tier || "PRO").toUpperCase().includes("PRO"),
       };
     }
     if (mode === "codex") {
       const cx = quotasData?.tools?.codex;
       return {
-        label: cx?.tier || (cx?.plan_name ? cx.plan_name.replace("ChatGPT ", "") : "PRO"),
-        percent: cx?.remaining_percent ?? 100,
+        label: cx?.tier || (cx?.plan_name ? cx.plan_name.replace("ChatGPT ", "") : "PLUS"),
+        percent: cx?.remaining_percent != null ? cx.remaining_percent : undefined,
         isPro: (cx?.tier || "PRO").toUpperCase().includes("PRO") || (cx?.tier || "").toUpperCase().includes("PLUS"),
       };
     }
@@ -1332,7 +1332,7 @@ function AskPageContent() {
       const wb = quotasData?.tools?.workbuddy;
       return {
         label: wb?.tier || "CN",
-        percent: wb?.remaining_percent ?? 100,
+        percent: wb?.remaining_percent != null ? wb.remaining_percent : undefined,
         isPro: true,
       };
     }
@@ -4488,7 +4488,7 @@ function AskPageContent() {
                     : executionMode === "workbuddy"
                     ? quotasData?.tools?.workbuddy
                     : quotasData?.tools?.antigravity;
-                  const percent = targetTool?.remaining_percent ?? quotasData?.tools?.antigravity?.remaining_percent;
+                  const percent = targetTool?.remaining_percent;
                   if (percent != null) {
                     return (
                       <span
@@ -4526,15 +4526,14 @@ function AskPageContent() {
                     <span
                       style={{
                         fontSize: 10.5,
-                        fontWeight: 700,
+                        fontWeight: 600,
                         padding: "1px 5px",
                         borderRadius: 999,
-                        background: "rgba(56, 189, 248, 0.15)",
-                        color: "#38BDF8",
-                        fontVariantNumeric: "tabular-nums",
+                        background: targetTool?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(255, 255, 255, 0.08)",
+                        color: targetTool?.available ? "#22C55E" : "var(--aurora-fg3)",
                       }}
                     >
-                      100%
+                      {targetTool?.available ? "可用" : "未启动"}
                     </span>
                   );
                 })()}

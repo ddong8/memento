@@ -11,8 +11,9 @@ import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 export interface QuotaModelItem {
   label: string;
   model_id: string;
-  remaining_fraction: number;
-  remaining_percent: number;
+  remaining_fraction?: number | null;
+  remaining_percent?: number | null;
+  status_text?: string;
   reset_time?: string;
 }
 
@@ -25,6 +26,9 @@ export interface ToolQuotaInfo {
   account_name?: string;
   plan_name?: string;
   tier?: string;
+  quota_type?: "percentage" | "dynamic_rate_limit" | "token_payg" | "unlimited" | "gateway";
+  quota_desc?: string;
+  probe_source?: string;
   remaining_percent?: number | null;
   reset_time?: string | null;
   models?: QuotaModelItem[];
@@ -128,12 +132,22 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
           const qi = m.quotaInfo;
           if (qi && typeof qi.remainingFraction === "number") {
             const fraction = Math.max(0, Math.min(1, qi.remainingFraction));
+            const pct = Math.round(fraction * 1000) / 10;
             models.push({
               label: m.label || m.modelId || "Model",
               model_id: m.modelId || "",
               remaining_fraction: fraction,
-              remaining_percent: Math.round(fraction * 1000) / 10,
+              remaining_percent: pct,
+              status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余`,
               reset_time: qi.resetTime,
+            });
+          } else {
+            models.push({
+              label: m.label || m.modelId || "Model",
+              model_id: m.modelId || "",
+              remaining_fraction: null,
+              remaining_percent: null,
+              status_text: "无配额限制",
             });
           }
         }
@@ -154,8 +168,11 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
           account_email: us.email || "",
           plan_name: us.userTier?.name || planInfo.planName || "Google AI Pro",
           tier: planInfo.teamsTier || "PRO",
-          remaining_percent: primary ? primary.remaining_percent : null,
-          reset_time: primary ? primary.reset_time : null,
+          quota_type: "percentage",
+          quota_desc: "Google AI Pro 阶梯算力池 (按模型计费)",
+          probe_source: "本地 Language Server RPC",
+          remaining_percent: primary?.remaining_percent ?? null,
+          reset_time: primary?.reset_time ?? null,
           models,
           details: {
             available_prompt_credits: planStatus.availablePromptCredits,
@@ -309,43 +326,55 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
       resetTime = weeklyLimit?.resets_at || ut.seven_day?.resets_at || sessionLimit?.resets_at || ut.five_hour?.resets_at || null;
     }
 
-    const planName =
-      oauth.organizationType === "claude_pro"
+    const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+    const planName = hasApiKey
+      ? "Claude (API Key 模式)"
+      : oauth.organizationType === "claude_pro"
         ? "Claude Pro"
         : oauth.organizationType
           ? `Claude ${oauth.organizationType}`
           : "Claude 订阅";
-    const tier = (oauth.organizationRateLimitTier || "PRO").toUpperCase();
-    const remainingFraction = remainingPercent != null ? remainingPercent / 100 : 1;
+    const tier = hasApiKey ? "API_KEY" : (oauth.organizationRateLimitTier || "PRO").toUpperCase();
+    const remainingFraction = remainingPercent != null ? remainingPercent / 100 : null;
 
     // 真实的 Claude Code 模型体系（全模型共享同一订阅配额）
+    const modelStatusText = hasApiKey
+      ? "Token 计费可用"
+      : remainingPercent != null
+        ? `${remainingPercent}% 共享剩余`
+        : "随账号限额 (正常可用)";
+
     const models: QuotaModelItem[] = [
       {
         label: "Claude 3.7 Sonnet (Hybrid Reasoning)",
         model_id: "claude-3-7-sonnet",
         remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
         reset_time: resetTime || undefined,
       },
       {
         label: "Claude Sonnet 4.6 (Thinking)",
         model_id: "claude-sonnet-4-6",
         remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
         reset_time: resetTime || undefined,
       },
       {
         label: "Claude Opus 4.6 (Thinking)",
         model_id: "claude-opus-4-6",
         remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
         reset_time: resetTime || undefined,
       },
       {
         label: "Claude Haiku 4.5",
         model_id: "claude-haiku-4-5",
         remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent != null ? remainingPercent : 100,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
         reset_time: resetTime || undefined,
       },
     ];
@@ -357,23 +386,33 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
             label: opt.label.includes("Fable") ? "Claude Fable 5.1 (Long-horizon)" : opt.label,
             model_id: opt.value,
             remaining_fraction: remainingFraction,
-            remaining_percent: remainingPercent != null ? remainingPercent : 100,
+            remaining_percent: remainingPercent,
+            status_text: modelStatusText,
             reset_time: resetTime || undefined,
           });
         }
       }
     }
 
-    if (oauth.accountUuid || d.userID || token) {
+    if (oauth.accountUuid || d.userID || token || hasApiKey) {
       return {
         tool: "claude_code",
         name: "Claude Code",
         available: true,
         logged_in: true,
-        account_email: oauth.emailAddress || "",
+        account_email: oauth.emailAddress || (hasApiKey ? "API_KEY 授权" : ""),
         account_name: oauth.displayName || oauth.fullName || oauth.organizationName || "",
         plan_name: planName,
         tier,
+        quota_type: hasApiKey ? "token_payg" : "dynamic_rate_limit",
+        quota_desc: hasApiKey
+          ? "API Key 授权 (按 Token 计费，不设会话窗口限制)"
+          : (remainingPercent != null
+              ? "Anthropic 5小时会话 / 7天滑动窗口"
+              : "Anthropic 滑动窗口 (根据使用频次与官方队列动态重置)"),
+        probe_source: liveUsage
+          ? "Anthropic OAuth 实时用量 API"
+          : (hasApiKey ? "环境变量 ANTHROPIC_API_KEY" : "~/.claude.json 本地授权凭据"),
         remaining_percent: remainingPercent,
         reset_time: resetTime,
         models,
@@ -385,6 +424,7 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
           severity,
           is_live_api: Boolean(liveUsage),
           shared_quota: true,
+          has_api_key_override: hasApiKey,
         },
       };
     }
@@ -404,10 +444,13 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
           account_name: parsed.orgName || parsed.email || "",
           plan_name: `Claude ${subType}`,
           tier: subType,
+          quota_type: "dynamic_rate_limit",
+          quota_desc: "Claude 会话限流动态调度",
+          probe_source: "claude CLI 运行时",
           remaining_percent: null,
           models: [
-            { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: 1, remaining_percent: 100 },
-            { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: 1, remaining_percent: 100 },
+            { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: null, remaining_percent: null, status_text: "可用" },
+            { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: null, remaining_percent: null, status_text: "可用" },
           ],
         };
       }
@@ -456,9 +499,19 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         } catch {}
       }
 
+      const hasApiKey = Boolean(d.OPENAI_API_KEY || process.env.OPENAI_API_KEY);
+      const isFree = planType.toLowerCase() === "free";
+      const planDisplay = planType.charAt(0).toUpperCase() + planType.slice(1);
+
       // 从真实 models_cache.json 提取模型清单
       const modelsCachePath = join(home, ".codex", "models_cache.json");
       const models: QuotaModelItem[] = [];
+      const modelStatus = hasApiKey
+        ? "API Key 按量计费"
+        : isFree
+          ? "免费通道排队中"
+          : "Plus 动态保障";
+
       if (existsSync(modelsCachePath)) {
         try {
           const mc = JSON.parse(await readFile(modelsCachePath, "utf8"));
@@ -470,16 +523,20 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
               models.push({
                 label: mTitle,
                 model_id: mId,
-                remaining_fraction: 1,
-                remaining_percent: 100,
+                remaining_fraction: null,
+                remaining_percent: null,
+                status_text: modelStatus,
               });
             }
           }
         } catch {}
       }
 
-      const planDisplay = planType.charAt(0).toUpperCase() + planType.slice(1);
-      const isFree = planType.toLowerCase() === "free";
+      const defaultModels: QuotaModelItem[] = [
+        { label: "GPT-6 (Luna)", model_id: "gpt-6-luna", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "GPT-5.6 (Terra)", model_id: "gpt-5.6-terra", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "GPT-5.5", model_id: "gpt-5.5", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+      ];
 
       return {
         tool: "codex",
@@ -488,20 +545,21 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         logged_in: true,
         account_email: email,
         account_name: name || email || "OpenAI 用户",
-        plan_name: `ChatGPT ${planDisplay}`,
-        tier: planType.toUpperCase(),
-        // Free 计划按动态速率轮转，无静态百分比，标记 null 避免虚报 100%
-        remaining_percent: isFree ? null : 100,
+        plan_name: hasApiKey ? "OpenAI API Key" : `ChatGPT ${planDisplay}`,
+        tier: hasApiKey ? "API_KEY" : planType.toUpperCase(),
+        quota_type: hasApiKey ? "token_payg" : "dynamic_rate_limit",
+        quota_desc: hasApiKey
+          ? "OpenAI API Key 按量计费 (按 Token 消耗实时扣费)"
+          : isFree
+            ? "ChatGPT Free 动态速率限制 (高峰期受限)"
+            : "ChatGPT Plus 动态速率限制 (3小时滑动窗口限频保障)",
+        probe_source: hasApiKey ? "OPENAI_API_KEY" : "~/.codex/auth.json (ChatGPT Plus OAuth)",
+        remaining_percent: null,
         reset_time: null,
-        models:
-          models.length > 0
-            ? models
-            : [
-                { label: "GPT-6 (Luna)", model_id: "gpt-6-luna", remaining_fraction: 1, remaining_percent: 100 },
-                { label: "GPT-5.6 (Terra)", model_id: "gpt-5.6-terra", remaining_fraction: 1, remaining_percent: 100 },
-              ],
+        models: models.length > 0 ? models : defaultModels,
         details: {
           is_free_tier: isFree,
+          has_api_key: hasApiKey,
         },
       };
     }
@@ -556,28 +614,36 @@ export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaIn
     const modelsConfigPath = join(home, ".workbuddy", "models.json");
     if (existsSync(modelsConfigPath)) {
       try {
-        const mc = JSON.parse(await readFile(modelsConfigPath, "utf8"));
-        for (const m of mc?.models || []) {
+        const parsed = JSON.parse(await readFile(modelsConfigPath, "utf8"));
+        const list = Array.isArray(parsed) ? parsed : (parsed?.models || []);
+        for (const m of list) {
           if (m?.id) {
             models.push({
-              label: `${m.name || m.id} (${m.vendor || "自定义"})`,
+              label: `${m.name || m.id}${m.vendor ? ` (${m.vendor})` : ""}`,
               model_id: m.id.startsWith("custom-local:") ? m.id : `custom-local:${m.id}`,
-              remaining_fraction: 1,
-              remaining_percent: 100,
+              remaining_fraction: null,
+              remaining_percent: null,
+              status_text: "自定义端点直连",
             });
           }
         }
       } catch {}
     }
 
+    const defaultModelStatus = gateway
+      ? "网关直连可用"
+      : isPro
+        ? "Pro 权益可用"
+        : "免费额度可用";
+
     models.push(
-      { label: "极致 (Deep Model)", model_id: "deep-model", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "均衡 (Balanced Model)", model_id: "balanced-model", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "快速 (Fast Model)", model_id: "fast-model", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "Tencent HY 4.0 Preview", model_id: "hy4-preview", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "DeepSeek V4 Pro", model_id: "deepseek-v4-pro", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "GLM-5.3", model_id: "glm-5.3", remaining_fraction: 1, remaining_percent: 100 },
-      { label: "Kimi-K3.1", model_id: "kimi-k3-1", remaining_fraction: 1, remaining_percent: 100 },
+      { label: "极致 (Deep Model)", model_id: "deep-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "均衡 (Balanced Model)", model_id: "balanced-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "快速 (Fast Model)", model_id: "fast-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "Tencent HY 4.0 Preview", model_id: "hy4-preview", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "DeepSeek V4 Pro", model_id: "deepseek-v4-pro", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "GLM-5.3", model_id: "glm-5.3", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
+      { label: "Kimi-K3.1", model_id: "kimi-k3-1", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
     );
 
     if (!gateway && !uid && !nickname) {
@@ -598,7 +664,12 @@ export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaIn
       account_email: uid ? `UID: ${uid.slice(0, 8)}...` : "",
       plan_name: isPro ? "WorkBuddy Pro" : "WorkBuddy 个人版",
       tier: (isPro ? "PRO" : editionType || "FREE").toUpperCase(),
-      remaining_percent: isPro ? 100 : null,
+      quota_type: gateway ? "gateway" : "unlimited",
+      quota_desc: gateway
+        ? "WorkBuddy 本地网关直连 (无远程配额限制)"
+        : (isPro ? "WorkBuddy Pro 尊享配额通道" : "WorkBuddy 个人版 (免费动态调用)"),
+      probe_source: gateway ? "本地网关 ACP 守护进程" : "~/.workbuddy/account-snapshot.json",
+      remaining_percent: null,
       reset_time: null,
       models,
       details: {

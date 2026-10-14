@@ -178,31 +178,35 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
           {/* Quota Progress */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11.5, marginBottom: 5 }}>
-              <span style={{ color: "var(--aurora-fg3)" }}>{agy?.models?.[0]?.label || "Gemini 3.8 Flash (High)"}</span>
-              <span style={{ fontWeight: 600, color: (agy?.remaining_percent ?? 100) > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
-                {agy?.remaining_percent ?? 100}% 剩余
+              <span style={{ color: "var(--aurora-fg3)" }}>
+                {agy?.models?.find((m) => m.remaining_percent != null)?.label || agy?.models?.[0]?.label || "Gemini 3.8 Flash"}
+              </span>
+              <span style={{ fontWeight: 600, color: (agy?.remaining_percent ?? 0) > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
+                {agy?.remaining_percent != null ? `${agy.remaining_percent}% 剩余` : "活跃中"}
               </span>
             </div>
-            <div
-              style={{
-                height: 6,
-                borderRadius: 999,
-                background: "rgba(255, 255, 255, 0.08)",
-                overflow: "hidden",
-              }}
-            >
+            {agy?.remaining_percent != null && (
               <div
                 style={{
-                  height: "100%",
-                  width: `${Math.min(100, Math.max(0, agy?.remaining_percent ?? 100))}%`,
+                  height: 6,
                   borderRadius: 999,
-                  background: (agy?.remaining_percent ?? 100) > 30
-                    ? "linear-gradient(90deg, #38BDF8, #818CF8)"
-                    : "linear-gradient(90deg, #F59E0B, #EF4444)",
-                  transition: "width 0.4s ease",
+                  background: "rgba(255, 255, 255, 0.08)",
+                  overflow: "hidden",
                 }}
-              />
-            </div>
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.min(100, Math.max(0, agy.remaining_percent))}%`,
+                    borderRadius: 999,
+                    background: agy.remaining_percent > 30
+                      ? "linear-gradient(90deg, #38BDF8, #818CF8)"
+                      : "linear-gradient(90deg, #F59E0B, #EF4444)",
+                    transition: "width 0.4s ease",
+                  }}
+                />
+              </div>
+            )}
             {agy?.reset_time && (
               <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 4, textAlign: "right" }}>
                 ⏳ {formatRelativeReset(agy.reset_time)}
@@ -239,8 +243,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                       <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {m.label}
                       </span>
-                      <span style={{ fontWeight: 600, color: m.remaining_percent > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
-                        {m.remaining_percent}%
+                      <span style={{ fontWeight: 600, color: (m.remaining_percent ?? 100) > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
+                        {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "无配额限制")}
                       </span>
                     </div>
                   ))}
@@ -315,16 +319,39 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span>订阅计划</span>
               <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{claude?.tier || "PRO"}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
-              <span>限流监控</span>
-              <span style={{ color: "var(--aurora-fg4)" }}>5小时滑动窗口利用中</span>
-            </div>
+            {claude?.remaining_percent != null ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+                  <span>滑动窗口额度</span>
+                  <span style={{ fontWeight: 600, color: claude.remaining_percent > 30 ? "var(--aurora-accent)" : "#EF4444" }}>
+                    {claude.remaining_percent}% 剩余
+                  </span>
+                </div>
+                <div style={{ height: 5, borderRadius: 999, background: "rgba(255, 255, 255, 0.08)", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.min(100, Math.max(0, claude.remaining_percent))}%`,
+                      borderRadius: 999,
+                      background: claude.remaining_percent > 30 ? "linear-gradient(90deg, #D97706, #F59E0B)" : "linear-gradient(90deg, #EF4444, #DC2626)",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+                <span>限流监控</span>
+                <span style={{ color: "var(--aurora-fg4)" }}>5小时滑动窗口利用中</span>
+              </div>
+            )}
             {claude?.models && claude.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {claude.models.map((m, idx) => (
                   <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
                     <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>
+                      {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "可用")}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -382,7 +409,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                 fontWeight: 600,
               }}
             >
-              {codex?.plan_name || "ChatGPT Free"}
+              {codex?.plan_name || "ChatGPT Plus"}
             </span>
           </div>
 
@@ -395,18 +422,22 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
               <span>订阅计划</span>
-              <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{codex?.tier || "FREE"}</span>
+              <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{codex?.tier || "PLUS"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
-              <span>协议连接</span>
-              <span style={{ color: "var(--aurora-fg4)" }}>OAuth 令牌自动续签</span>
+              <span>限额机制</span>
+              <span style={{ color: "#10B981", fontWeight: 500 }}>
+                {codex?.quota_type === "token_payg" ? "API Key 结算" : (codex?.tier === "FREE" ? "动态队列" : "Plus 动态速率")}
+              </span>
             </div>
             {codex?.models && codex.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {codex.models.map((m, idx) => (
                   <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
                     <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>{m.remaining_percent}%</span>
+                    <span style={{ fontWeight: 500, color: "#10B981" }}>
+                      {m.status_text || "Plus 动态保障"}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -480,15 +511,19 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{workbuddy?.tier || "CN"}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
-              <span>协议连接</span>
-              <span style={{ color: "var(--aurora-fg4)" }}>Local Gateway ACP</span>
+              <span>连接状态</span>
+              <span style={{ color: "#0EC7A8", fontWeight: 500 }}>
+                {workbuddy?.details?.gateway_online ? "网关在线" : "账号凭据正常"}
+              </span>
             </div>
             {workbuddy?.models && workbuddy.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {workbuddy.models.map((m, idx) => (
                   <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
                     <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 600, color: "#0EC7A8" }}>{m.remaining_percent}%</span>
+                    <span style={{ fontWeight: 500, color: "#0EC7A8" }}>
+                      {m.status_text || "免费额度可用"}
+                    </span>
                   </div>
                 ))}
               </div>

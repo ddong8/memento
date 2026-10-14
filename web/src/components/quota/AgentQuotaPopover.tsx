@@ -365,8 +365,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
                 <div
                   style={{
                     width: 30,
@@ -379,39 +379,37 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     justifyContent: "center",
                     fontWeight: 700,
                     fontSize: 14,
+                    flexShrink: 0,
                   }}
                 >
                   A
                 </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     Google Antigravity
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>{agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}</span>
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agy?.account_email || agy?.account_name || (agy?.available ? "已关联本地服务" : "未检测到本地服务")}</span>
                     {agy?.probe_source && (
-                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {agy.probe_source}</span>
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {agy.probe_source}</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="quota-badge-blue px-2 py-0.5 rounded-full text-[11px] font-semibold">
-                  {agy?.plan_name || "Google AI Pro"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                    background: agy?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                    color: agy?.available ? "#22C55E" : "#EF4444",
-                    fontWeight: 500,
-                  }}
-                >
-                  {agy?.available ? "在线" : "未启动"}
-                </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {agy?.available ? (
+                  <span className="quota-badge-blue px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="本地服务在线">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>{agy?.plan_name || "Google AI Pro"}</span>
+                    <span className="text-[10px] font-normal opacity-75 hidden sm:inline">· 在线</span>
+                  </span>
+                ) : (
+                  <span className="quota-badge-neutral px-2.5 py-0.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 text-red-500" title={agy?.error || "服务未启动"}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    未启动
+                  </span>
+                )}
               </div>
             </div>
 
@@ -585,8 +583,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
                 <div
                   style={{
                     width: 30,
@@ -599,39 +597,37 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     justifyContent: "center",
                     fontWeight: 700,
                     fontSize: 14,
+                    flexShrink: 0,
                   }}
                 >
                   C
                 </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     Claude Code
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>{claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}</span>
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{claude?.account_email || claude?.account_name || (claude?.available ? "已授权 Anthropic 智能体" : "未检测到本地凭据")}</span>
                     {claude?.probe_source && (
-                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {claude.probe_source}</span>
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {claude.probe_source}</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="quota-badge-amber px-2 py-0.5 rounded-full text-[11px] font-semibold">
-                  {claude?.plan_name || "Claude Pro"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                    background: claude?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                    color: claude?.available ? "#22C55E" : "#EF4444",
-                    fontWeight: 500,
-                  }}
-                >
-                  {claude?.available ? "已授权" : "未检测到"}
-                </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {claude?.available ? (
+                  <span className="quota-badge-amber px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="已完成授权">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>{claude?.plan_name || "Claude Pro"}</span>
+                    <span className="text-[10px] font-normal opacity-75 hidden sm:inline">· 已授权</span>
+                  </span>
+                ) : (
+                  <span className="quota-badge-neutral px-2.5 py-0.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 text-red-500" title={claude?.error || "未检测到凭证"}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    未检测到
+                  </span>
+                )}
               </div>
             </div>
 
@@ -871,8 +867,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
                 <div
                   style={{
                     width: 30,
@@ -885,39 +881,37 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     justifyContent: "center",
                     fontWeight: 700,
                     fontSize: 14,
+                    flexShrink: 0,
                   }}
                 >
                   O
                 </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     OpenAI Codex
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>{codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}</span>
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : (codex?.available ? "Codex 智能体" : "未检测到本地凭据")}</span>
                     {codex?.probe_source && (
-                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {codex.probe_source}</span>
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {codex.probe_source}</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="quota-badge-emerald px-2 py-0.5 rounded-full text-[11px] font-semibold">
-                  {codex?.plan_name || "ChatGPT Plus"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                    background: codex?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                    color: codex?.available ? "#22C55E" : "#EF4444",
-                    fontWeight: 500,
-                  }}
-                >
-                  {codex?.available ? "已授权" : "未配置"}
-                </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {codex?.available ? (
+                  <span className="quota-badge-emerald px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="已完成授权">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span>{codex?.plan_name || "ChatGPT Plus"}</span>
+                    <span className="text-[10px] font-normal opacity-75 hidden sm:inline">· 已授权</span>
+                  </span>
+                ) : (
+                  <span className="quota-badge-neutral px-2.5 py-0.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 text-red-500" title={codex?.error || "未配置凭据"}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    未配置
+                  </span>
+                )}
               </div>
             </div>
 
@@ -952,7 +946,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
                   <span style={{ color: "var(--aurora-fg3)" }}>额度计算机制</span>
-                  <span className="quota-badge-emerald px-2 py-0.5 rounded text-[11px] font-semibold">
+                  <span className="quota-badge-emerald px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap shrink-0">
                     {codex.quota_type === "token_payg"
                       ? "API Key 按量扣费"
                       : (codex.tier === "FREE" ? "动态队列 (Free)" : "Plus 动态滑动限流")}
@@ -1038,8 +1032,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
                 <div
                   style={{
                     width: 30,
@@ -1050,43 +1044,41 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    flexShrink: 0,
                   }}
                 >
                   <BrandMark id="workbuddy" size={18} colored />
                 </div>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     WorkBuddy
                   </div>
-                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>
+                  <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 1, display: "flex", alignItems: "center", gap: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {workbuddy?.account_name
                         ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
                         : (workbuddy?.available ? "腾讯全场景智能体工作台" : "未检测到本地凭据")}
                     </span>
                     {workbuddy?.probe_source && (
-                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)" }}>· 📡 {workbuddy.probe_source}</span>
+                      <span style={{ fontSize: 10, color: "var(--aurora-fg4)", flexShrink: 0 }}>· 📡 {workbuddy.probe_source}</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span className="quota-badge-teal px-2 py-0.5 rounded-full text-[11px] font-semibold">
-                  {workbuddy?.plan_name || "WorkBuddy"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                    background: workbuddy?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-                    color: workbuddy?.available ? "#22C55E" : "#EF4444",
-                    fontWeight: 500,
-                  }}
-                >
-                  {workbuddy?.available ? "已连接" : "未运行"}
-                </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {workbuddy?.available ? (
+                  <span className="quota-badge-teal px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0" title="已成功连接">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0" />
+                    <span>{workbuddy?.plan_name || "WorkBuddy 个人版"}</span>
+                    <span className="text-[10px] font-normal opacity-75 hidden sm:inline">· 已连接</span>
+                  </span>
+                ) : (
+                  <span className="quota-badge-neutral px-2.5 py-0.5 rounded-full text-[11px] font-medium inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 text-red-500" title={workbuddy?.error || "未运行"}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                    未运行
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1119,8 +1111,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
                   <span style={{ color: "var(--aurora-fg3)" }}>本地网关与额度</span>
-                  <span className="quota-badge-teal px-2 py-0.5 rounded text-[11px] font-semibold">
-                    {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 网关在线" : (workbuddy.plan_name || "WorkBuddy 个人版")}
+                  <span className="quota-badge-teal px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap shrink-0">
+                    {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 网关在线" : "动态免费调用"}
                   </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--aurora-fg2)", lineHeight: 1.5 }}>

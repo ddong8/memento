@@ -165,8 +165,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
               <div
                 style={{
                   width: 32,
@@ -179,22 +179,24 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                   justifyContent: "center",
                   fontWeight: 700,
                   fontSize: 14,
+                  flexShrink: 0,
                 }}
               >
                 A
               </div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+              <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   Google Antigravity
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {agy?.account_email || agy?.account_name || "已关联本地服务"}
                 </div>
               </div>
             </div>
 
-            <span className="quota-badge-blue px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
-              {agy?.plan_name || "Google AI Pro"}
+            <span className="quota-badge-blue px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${agy?.available ? "bg-emerald-500" : "bg-red-400"} shrink-0`} />
+              <span>{agy?.plan_name || "Google AI Pro"}</span>
             </span>
           </div>
 
@@ -290,8 +292,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
               <div
                 style={{
                   width: 32,
@@ -304,22 +306,24 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                   justifyContent: "center",
                   fontWeight: 700,
                   fontSize: 14,
+                  flexShrink: 0,
                 }}
               >
                 C
               </div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+              <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   Claude Code
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {claude?.account_email || "Anthropic 智能体"}
                 </div>
               </div>
             </div>
 
-            <span className="quota-badge-amber px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
-              {claude?.plan_name || "Claude Pro"}
+            <span className="quota-badge-amber px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${claude?.available ? "bg-emerald-500" : "bg-red-400"} shrink-0`} />
+              <span>{claude?.plan_name || "Claude Pro"}</span>
             </span>
           </div>
 
@@ -386,8 +390,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
               <div
                 style={{
                   width: 32,
@@ -400,22 +404,24 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                   justifyContent: "center",
                   fontWeight: 700,
                   fontSize: 14,
+                  flexShrink: 0,
                 }}
               >
                 O
               </div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+              <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   OpenAI Codex
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {codex?.account_email ? `${codex.account_name ? codex.account_name + " · " : ""}${codex.account_email}` : "Codex 智能体"}
                 </div>
               </div>
             </div>
 
-            <span className="quota-badge-emerald px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
-              {codex?.plan_name || "ChatGPT Plus"}
+            <span className="quota-badge-emerald px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${codex?.available ? "bg-emerald-500" : "bg-red-400"} shrink-0`} />
+              <span>{codex?.plan_name || "ChatGPT Plus"}</span>
             </span>
           </div>
 
@@ -463,8 +469,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             gap: 12,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, overflow: "hidden" }}>
               <div
                 style={{
                   width: 32,
@@ -475,15 +481,16 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
                 <BrandMark id="workbuddy" size={18} colored />
               </div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+              <div style={{ minWidth: 0, flex: 1, overflow: "hidden" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   WorkBuddy
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1 }}>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {workbuddy?.account_name
                     ? `${workbuddy.account_name}${workbuddy.account_email ? " · " + workbuddy.account_email : ""}`
                     : "腾讯全场景智能体工作台"}
@@ -491,8 +498,9 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               </div>
             </div>
 
-            <span className="quota-badge-teal px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
-              {workbuddy?.plan_name || "WorkBuddy"}
+            <span className="quota-badge-teal px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${workbuddy?.available ? "bg-teal-500" : "bg-red-400"} shrink-0`} />
+              <span>{workbuddy?.plan_name || "WorkBuddy 个人版"}</span>
             </span>
           </div>
 

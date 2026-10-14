@@ -15,6 +15,7 @@ import { MediaInspectorPanel } from "@/components/viewers/MediaInspectorPanel";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 import { AgentQuotaPopover } from "@/components/quota/AgentQuotaPopover";
+import { ShareModal } from "@/components/ShareModal";
 
 export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "shell";
 
@@ -1259,6 +1260,11 @@ function AskPageContent() {
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
   const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || null);
+  const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
+  const [shareTargetId, setShareTargetId] = useState<string>("");
+  const [shareTitle, setShareTitle] = useState<string>("");
+  const [batchSelectMode, setBatchSelectMode] = useState<boolean>(false);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
 
   const filteredConversations = useMemo(() => {
     const q = historySearchQuery.trim().toLowerCase();
@@ -1416,6 +1422,20 @@ function AskPageContent() {
 
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
+
+  const openSingleShare = useCallback((convId: string, title?: string) => {
+    setShareTargetId(convId);
+    setShareTitle(title || (isZh ? "对话分享" : "Conversation Share"));
+    setShareModalOpen(true);
+  }, [isZh]);
+
+  const openBatchShare = useCallback(() => {
+    if (selectedConvIds.size === 0) return;
+    const ids = Array.from(selectedConvIds);
+    setShareTargetId(ids.join(","));
+    setShareTitle(isZh ? `批量对话分享 (${ids.length}条)` : `Batch Conversations (${ids.length})`);
+    setShareModalOpen(true);
+  }, [selectedConvIds, isZh]);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
@@ -4534,6 +4554,18 @@ function AskPageContent() {
             >
               <span className="hidden sm:inline">{t.ask.newChat}</span>
             </Btn>
+            {activeConversationId && turns.length > 0 && (
+              <Btn
+                variant="glass"
+                size="sm"
+                icon="share"
+                onClick={() => openSingleShare(activeConversationId, displayConvTitle)}
+                title={isZh ? "分享此对话" : "Share conversation"}
+                className="shrink-0"
+              >
+                <span className="hidden sm:inline">{isZh ? "分享" : "Share"}</span>
+              </Btn>
+            )}
             {turns.length > 0 && (
               <Btn
                 variant="ghost"
@@ -6301,6 +6333,15 @@ function AskPageContent() {
         onDataChange={setQuotasData}
       />
 
+      {/* Conversation Share Modal (Single & Multiple) */}
+      <ShareModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        kind="conversation"
+        targetId={shareTargetId}
+        title={shareTitle}
+      />
+
       {/* History Drawer Overlay & Sidebar */}
       {historyOpen && (
         <div
@@ -6374,6 +6415,33 @@ function AskPageContent() {
                   )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !batchSelectMode;
+                      setBatchSelectMode(next);
+                      if (!next) setSelectedConvIds(new Set());
+                    }}
+                    title={batchSelectMode ? (isZh ? "退出多选" : "Exit selection") : (isZh ? "多选分享" : "Batch share")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      padding: "0 8px",
+                      height: 30,
+                      borderRadius: 8,
+                      background: batchSelectMode ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      border: batchSelectMode ? "1px solid var(--aurora-accent)" : "1px solid var(--aurora-border)",
+                      color: batchSelectMode ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Icon name="share" size={13} />
+                    <span>{batchSelectMode ? (isZh ? "退出" : "Cancel") : (isZh ? "多选" : "Select")}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={startNewChat}
@@ -6562,13 +6630,30 @@ function AskPageContent() {
                   return (
                     <div
                       key={c.id}
-                      onClick={() => loadConversation(c.id)}
+                      onClick={() => {
+                        if (batchSelectMode) {
+                          const next = new Set(selectedConvIds);
+                          if (next.has(c.id)) next.delete(c.id);
+                          else next.add(c.id);
+                          setSelectedConvIds(next);
+                        } else {
+                          loadConversation(c.id);
+                        }
+                      }}
                       style={{
                         padding: "11px 13px",
                         borderRadius: 10,
-                        background: isActive ? "var(--aurora-chip)" : "transparent",
+                        background: selectedConvIds.has(c.id)
+                          ? "var(--aurora-accent-soft)"
+                          : isActive
+                          ? "var(--aurora-chip)"
+                          : "transparent",
                         border: "1px solid",
-                        borderColor: isActive ? "var(--aurora-accent)" : "transparent",
+                        borderColor: selectedConvIds.has(c.id)
+                          ? "var(--aurora-accent)"
+                          : isActive
+                          ? "var(--aurora-accent)"
+                          : "transparent",
                         cursor: "pointer",
                         transition: "all 0.15s ease",
                         display: "flex",
@@ -6577,18 +6662,32 @@ function AskPageContent() {
                         gap: 10,
                       }}
                       onMouseEnter={(e) => {
-                        if (!isActive) {
+                        if (!isActive && !selectedConvIds.has(c.id)) {
                           e.currentTarget.style.background = "var(--aurora-chip)";
                           e.currentTarget.style.borderColor = "var(--aurora-border)";
                         }
                       }}
                       onMouseLeave={(e) => {
-                        if (!isActive) {
+                        if (!isActive && !selectedConvIds.has(c.id)) {
                           e.currentTarget.style.background = "transparent";
                           e.currentTarget.style.borderColor = "transparent";
                         }
                       }}
                     >
+                      {batchSelectMode && (
+                        <input
+                          type="checkbox"
+                          checked={selectedConvIds.has(c.id)}
+                          onChange={() => {}}
+                          style={{
+                            width: 16,
+                            height: 16,
+                            accentColor: "var(--aurora-accent)",
+                            cursor: "pointer",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
                       {editingConvId === c.id ? (
                         <div
                           style={{ flex: 1, display: "flex", alignItems: "center", gap: 6 }}
@@ -6753,6 +6852,37 @@ function AskPageContent() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                openSingleShare(c.id, c.title);
+                              }}
+                              title={isZh ? "分享此会话" : "Share conversation"}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--aurora-fg4)",
+                                cursor: "pointer",
+                                padding: 6,
+                                borderRadius: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                opacity: 0.6,
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "var(--aurora-accent)";
+                                e.currentTarget.style.opacity = "1";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = "var(--aurora-fg4)";
+                                e.currentTarget.style.opacity = "0.6";
+                              }}
+                            >
+                              <Icon name="share" size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setEditingConvId(c.id);
                                 setEditingConvTitle(c.title || "");
                               }}
@@ -6815,6 +6945,64 @@ function AskPageContent() {
                     </div>
                   );
                 })
+              )}
+              {batchSelectMode && (
+                <div
+                  style={{
+                    position: "sticky",
+                    bottom: 0,
+                    margin: "12px -16px -16px -16px",
+                    padding: "12px 16px",
+                    background: "var(--aurora-surface-solid)",
+                    borderTop: "1px solid var(--aurora-border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    zIndex: 10,
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: "var(--aurora-fg2)", fontWeight: 500 }}>
+                    {isZh ? "已选择 " : "Selected "}
+                    <span style={{ color: "var(--aurora-accent)", fontWeight: 700 }}>{selectedConvIds.size}</span>
+                    {isZh ? " 个对话" : " sessions"}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedConvIds.size === filteredConversations.length) {
+                          setSelectedConvIds(new Set());
+                        } else {
+                          setSelectedConvIds(new Set(filteredConversations.map((c) => c.id)));
+                        }
+                      }}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: 8,
+                        fontSize: 11.5,
+                        background: "var(--aurora-chip)",
+                        border: "1px solid var(--aurora-border)",
+                        color: "var(--aurora-fg2)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {selectedConvIds.size === filteredConversations.length
+                        ? (isZh ? "取消全选" : "Deselect")
+                        : (isZh ? "全选" : "Select all")}
+                    </button>
+                    <Btn
+                      variant="primary"
+                      size="sm"
+                      icon="share"
+                      disabled={selectedConvIds.size === 0}
+                      onClick={openBatchShare}
+                    >
+                      {isZh ? "生成多对话分享链接 ↗" : "Batch Share ↗"}
+                    </Btn>
+                  </div>
+                </div>
               )}
             </div>
           </div>

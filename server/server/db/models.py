@@ -467,7 +467,7 @@ class ShareLink(Base):
     # string YYYY-MM-DD. Keeps the table a single type; discriminator logic
     # lives in the API.
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
-    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     # When set, only this user (after login) may view the share; the public
     # /s/<token> page still works as the URL but the API requires auth and

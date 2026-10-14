@@ -6,7 +6,8 @@ import { api, ConversationMeta, ExportDiagnostics } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import ConversationViewer from "@/components/viewers/ConversationViewer";
 import { ToolGlyph } from "@/components/aurora/Icon";
-import { Chip } from "@/components/aurora/primitives";
+import { Chip, Btn } from "@/components/aurora/primitives";
+import { ShareModal } from "@/components/ShareModal";
 
 interface RelatedPlan {
   id: string;
@@ -27,6 +28,7 @@ export default function ConversationPage() {
   const params = useParams();
   const docId = params.id as string;
   const [meta, setMeta] = useState<ConversationMetaWithPlans | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const { t, locale } = useI18n();
 
   useEffect(() => { api.getConversation(docId).then(setMeta).catch(console.error); }, [docId]);
@@ -40,11 +42,21 @@ export default function ConversationPage() {
   return (
     <div className="max-w-4xl mx-auto">
       <div style={{ marginBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-          <ToolGlyph id={meta.tool_id} size={32} />
-          <h2 style={{ margin: 0, fontSize: "clamp(20px, 3vw, 26px)", fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }}>
-            {meta.title || meta.relative_path}
-          </h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <ToolGlyph id={meta.tool_id} size={32} />
+            <h2 style={{ margin: 0, fontSize: "clamp(20px, 3vw, 26px)", fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }} className="truncate">
+              {meta.title || meta.relative_path}
+            </h2>
+          </div>
+          <Btn
+            variant="glass"
+            size="sm"
+            icon="share"
+            onClick={() => setShareOpen(true)}
+          >
+            {(t.share as any)?.shareConversation || "分享"}
+          </Btn>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 12, color: "var(--aurora-fg3)" }}>
           <Chip>{meta.tool_id}</Chip>
@@ -121,6 +133,13 @@ export default function ConversationPage() {
         </div>
       )}
       <ConversationViewer documentId={docId} totalMessages={meta.message_count} artifacts={plans} />
+      <ShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        kind="conversation"
+        targetId={docId}
+        title={meta.title || meta.relative_path || "会话分享"}
+      />
     </div>
   );
 }

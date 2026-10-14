@@ -35,8 +35,8 @@ interface Recipient {
 export interface ShareModalProps {
   open: boolean;
   onClose: () => void;
-  kind: "timeline" | "daily" | "memory";
-  targetId: string;   // project UUID for timeline; YYYY-MM-DD for daily; "all" for memory
+  kind: "timeline" | "daily" | "memory" | "conversation";
+  targetId: string;   // project UUID for timeline; YYYY-MM-DD for daily; "all" for memory; conv UUID(s) for conversation
   title?: string;     // human-readable label shown in modal header
 }
 
@@ -184,6 +184,7 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
   const targetDescription =
     kind === "timeline" ? t.share.targetTimeline :
     kind === "daily" ? t.share.targetDaily :
+    kind === "conversation" ? ((t.share as any).targetConversation || "对话分享") :
     t.share.targetMemory;
 
   return (

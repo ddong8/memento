@@ -47,7 +47,7 @@ from ..services.geoip import lookup as geoip_lookup
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
-VALID_KINDS = ("timeline", "daily", "memory")
+VALID_KINDS = ("timeline", "daily", "memory", "conversation")
 
 
 def _gen_token() -> str:
@@ -72,6 +72,15 @@ def _validate_target(kind: str, target_id: str) -> None:
         # v1: only whole-memory share supported. Future: entity UUID for partial.
         if target_id != "all":
             raise HTTPException(status_code=400, detail="memory target_id must be 'all'")
+    elif kind == "conversation":
+        ids = [x.strip() for x in target_id.split(",") if x.strip()]
+        if not ids:
+            raise HTTPException(status_code=400, detail="conversation target_id must contain at least one conversation UUID")
+        for cid in ids:
+            try:
+                uuid.UUID(cid)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"invalid conversation UUID: {cid}")
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +496,108 @@ async def get_public_share_data(
                 "edges": edges,
                 "total_entities": len(nodes),
                 "total_relations": len(edges),
+            },
+        }
+
+    if link.kind == "conversation":
+        from ..db.models import AskConversation, Document, ConversationMessage
+
+        conv_ids = [uuid.UUID(x.strip()) for x in link.target_id.split(",") if x.strip()]
+        if not conv_ids:
+            raise HTTPException(status_code=404, detail="no conversations in share")
+
+        # 1. Fetch AskConversations
+        ask_stmt = (
+            select(AskConversation)
+            .where(
+                AskConversation.id.in_(conv_ids),
+                AskConversation.user_id == owner.id,
+            )
+        )
+        ask_results = (await db.execute(ask_stmt)).scalars().all()
+        ask_map = {c.id: c for c in ask_results}
+
+        # 2. Fetch Document conversations
+        remaining_ids = [cid for cid in conv_ids if cid not in ask_map]
+        doc_map = {}
+        if remaining_ids:
+            doc_stmt = (
+                select(Document)
+                .where(
+                    Document.id.in_(remaining_ids),
+                    Document.user_id == owner.id,
+                    Document.category == "conversation",
+                )
+            )
+            doc_results = (await db.execute(doc_stmt)).scalars().all()
+            doc_map = {d.id: d for d in doc_results}
+
+        conversations_data = []
+        for cid in conv_ids:
+            if cid in ask_map:
+                c = ask_map[cid]
+                raw_turns = c.turns if isinstance(c.turns, list) else []
+                turns = []
+                for t in raw_turns:
+                    if not isinstance(t, dict):
+                        continue
+                    turns.append({
+                        "role": t.get("role") or "user",
+                        "content": t.get("content") or "",
+                        "images": t.get("images") or [],
+                        "thinking": t.get("thinking"),
+                        "toolCalls": t.get("toolCalls") or [],
+                        "sources": t.get("sources") or [],
+                        "created_at": t.get("created_at"),
+                    })
+                conversations_data.append({
+                    "id": str(c.id),
+                    "title": c.title or "对话",
+                    "type": "ask",
+                    "tool_id": "ask",
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                    "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                    "message_count": len(turns),
+                    "turns": turns,
+                })
+            elif cid in doc_map:
+                d = doc_map[cid]
+                msg_stmt = (
+                    select(ConversationMessage)
+                    .where(ConversationMessage.document_id == d.id)
+                    .order_by(ConversationMessage.line_number)
+                )
+                messages = (await db.execute(msg_stmt)).scalars().all()
+                turns = [
+                    {
+                        "role": m.role or "user",
+                        "content": m.content,
+                        "thinking": m.metadata_.get("thinking") if isinstance(m.metadata_, dict) else None,
+                        "toolCalls": [
+                            {"name": m.message_type, "args": m.metadata_.get("tool_input")}
+                        ] if m.message_type and m.message_type not in ("user", "assistant", "system", "message") else [],
+                        "created_at": m.timestamp.isoformat() if m.timestamp else (m.created_at.isoformat() if m.created_at else None),
+                    }
+                    for m in messages
+                ]
+                conversations_data.append({
+                    "id": str(d.id),
+                    "title": d.title or d.relative_path or "会话",
+                    "type": "collected",
+                    "tool_id": d.tool_id,
+                    "created_at": d.created_at.isoformat() if d.created_at else None,
+                    "message_count": len(turns),
+                    "turns": turns,
+                })
+
+        if not conversations_data:
+            raise HTTPException(status_code=404, detail="shared conversations not found")
+
+        return {
+            "kind": "conversation",
+            "data": {
+                "total_conversations": len(conversations_data),
+                "conversations": conversations_data,
             },
         }
 

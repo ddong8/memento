@@ -11,7 +11,7 @@ import { ChatBubble } from "@/components/viewers/ConversationViewer";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 
 interface ShareMeta {
-  kind: "timeline" | "daily" | "memory";
+  kind: "timeline" | "daily" | "memory" | "conversation";
   target_id: string;
   title: string | null;
   owner_name: string;
@@ -21,10 +21,41 @@ interface ShareMeta {
   directed: boolean;
 }
 
+export interface SharedTurn {
+  role: string;
+  content: string;
+  images?: string[];
+  thinking?: string | null;
+  toolCalls?: Array<{
+    name?: string;
+    args?: any;
+    result?: any;
+  }>;
+  sources?: any[];
+  created_at?: string | null;
+}
+
+export interface SharedConversationItem {
+  id: string;
+  title: string;
+  type: "ask" | "collected";
+  tool_id?: string;
+  created_at: string | null;
+  updated_at?: string | null;
+  message_count?: number;
+  turns: SharedTurn[];
+}
+
+export interface ConversationShareData {
+  total_conversations: number;
+  conversations: SharedConversationItem[];
+}
+
 type ShareData =
   | { kind: "timeline"; data: TimelineData }
   | { kind: "daily"; data: DailyData }
-  | { kind: "memory"; data: MemoryData };
+  | { kind: "memory"; data: MemoryData }
+  | { kind: "conversation"; data: ConversationShareData };
 
 interface SessionMessage {
   role: string;
@@ -174,6 +205,7 @@ export default function PublicSharePage() {
   const kindLabel =
     meta.kind === "timeline" ? t.share.targetTimeline :
     meta.kind === "daily" ? t.share.targetDaily :
+    meta.kind === "conversation" ? ((t.share as any).targetConversation || "对话分享") :
     t.share.targetMemory;
 
   return (
@@ -203,6 +235,7 @@ export default function PublicSharePage() {
       {payload.kind === "timeline" && <TimelineView data={payload.data} locale={locale} t={t} />}
       {payload.kind === "daily" && <DailyView data={payload.data} />}
       {payload.kind === "memory" && <MemoryView data={payload.data} />}
+      {payload.kind === "conversation" && <ConversationShareView data={payload.data} locale={locale} t={t} />}
 
       <div style={{ marginTop: 40, textAlign: "center", fontSize: 11, color: "var(--aurora-fg4)" }}>
         Powered by Memento · <a href="/" style={{ color: "var(--aurora-accent)" }}>memento</a>
@@ -339,5 +372,243 @@ function MemoryView({ data }: { data: MemoryData }) {
         </Glass>
       ))}
     </>
+  );
+}
+
+function ConversationShareView({
+  data,
+  locale,
+  t,
+}: {
+  data: ConversationShareData;
+  locale: string;
+  t: ReturnType<typeof useI18n>["t"];
+}) {
+  const [activeIdx, setActiveIdx] = useState<number>(0);
+  const [showAll, setShowAll] = useState<boolean>(false);
+  const isMulti = data.conversations.length > 1;
+
+  return (
+    <div>
+      {/* 多会话切换栏 */}
+      {isMulti && (
+        <div className="mb-6 p-2 rounded-2xl bg-[var(--aurora-chip)] border border-[var(--aurora-border)]">
+          <div className="flex items-center justify-between px-2 pb-2 mb-2 border-b border-[var(--aurora-border)]">
+            <span className="text-xs font-semibold text-[var(--aurora-fg2)] flex items-center gap-1.5">
+              <span>📚</span>
+              <span>合并分享的对话列表 ({data.conversations.length})</span>
+            </span>
+            <div className="flex items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowAll(false)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                  !showAll
+                    ? "bg-[var(--aurora-accent)] text-slate-900 font-bold"
+                    : "text-[var(--aurora-fg3)] hover:text-white"
+                }`}
+              >
+                单篇切换
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAll(true)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                  showAll
+                    ? "bg-[var(--aurora-accent)] text-slate-900 font-bold"
+                    : "text-[var(--aurora-fg3)] hover:text-white"
+                }`}
+              >
+                展开全部
+              </button>
+            </div>
+          </div>
+
+          {!showAll && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {data.conversations.map((c, i) => {
+                const active = activeIdx === i;
+                return (
+                  <button
+                    key={c.id || i}
+                    type="button"
+                    onClick={() => setActiveIdx(i)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium shrink-0 cursor-pointer transition-all flex items-center gap-1.5 select-none ${
+                      active
+                        ? "bg-[var(--aurora-surface-solid)] border border-[var(--aurora-accent)] text-[var(--aurora-accent)] shadow-sm font-semibold"
+                        : "bg-white/5 border border-transparent text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10"
+                    }`}
+                  >
+                    <span>💬</span>
+                    <span className="truncate max-w-[150px] sm:max-w-[200px]">{c.title || `对话 ${i + 1}`}</span>
+                    <span className="text-[10.5px] opacity-70">({c.turns.length})</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 对话内容呈现 */}
+      {showAll ? (
+        <div className="flex flex-col gap-6">
+          {data.conversations.map((conv, idx) => (
+            <ConversationItemCard key={conv.id || idx} conv={conv} locale={locale} index={idx} total={data.conversations.length} />
+          ))}
+        </div>
+      ) : (
+        <ConversationItemCard
+          conv={data.conversations[activeIdx] || data.conversations[0]}
+          locale={locale}
+          index={activeIdx}
+          total={data.conversations.length}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConversationItemCard({
+  conv,
+  locale,
+  index,
+  total,
+}: {
+  conv: SharedConversationItem;
+  locale: string;
+  index: number;
+  total: number;
+}) {
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const copyContent = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  if (!conv) return null;
+
+  return (
+    <Glass padding={22} radius={20} style={{ marginBottom: 16 }}>
+      {/* 对话顶栏 */}
+      <div className="flex items-center justify-between pb-3.5 mb-5 border-b border-[var(--aurora-border)]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="text-xl shrink-0">💬</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-semibold text-[var(--aurora-fg1)] truncate">{conv.title}</h2>
+              {total > 1 && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] font-mono shrink-0">
+                  #{index + 1}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-[var(--aurora-fg3)] mt-0.5 flex-wrap">
+              {conv.tool_id && <Chip tone="accent">{conv.tool_id}</Chip>}
+              <span>{conv.turns.length} 轮消息</span>
+              {conv.created_at && (
+                <span>· {new Date(conv.created_at).toLocaleString(locale)}</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 消息流 */}
+      <div className="flex flex-col gap-4">
+        {conv.turns.map((turn, idx) => {
+          const isUser = turn.role === "user";
+          return (
+            <div
+              key={idx}
+              className={`flex gap-3 text-sm ${isUser ? "flex-row-reverse" : "flex-row"}`}
+            >
+              {/* 头像 */}
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold shadow-sm ${
+                  isUser
+                    ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white"
+                    : "bg-gradient-to-br from-cyan-400 to-blue-600 text-slate-900"
+                }`}
+              >
+                {isUser ? "你" : "AI"}
+              </div>
+
+              {/* 消息气泡 */}
+              <div
+                className={`max-w-[88%] sm:max-w-[84%] rounded-2xl p-3.5 sm:p-4 border transition-all ${
+                  isUser
+                    ? "bg-gradient-to-br from-indigo-600/20 to-purple-600/15 border-indigo-500/30 text-[var(--aurora-fg1)] shadow-sm"
+                    : "bg-[var(--aurora-surface-solid)] border-[var(--aurora-border)] text-[var(--aurora-fg1)] shadow-md"
+                }`}
+              >
+                {/* 思考过程展开块 */}
+                {turn.thinking && (
+                  <details className="mb-3 rounded-xl border border-purple-500/25 bg-purple-500/10 p-2.5 text-xs group/think">
+                    <summary className="cursor-pointer font-semibold text-purple-300 flex items-center gap-1.5 select-none">
+                      <span>💭</span>
+                      <span>深度思考过程</span>
+                      <span className="text-[10px] text-purple-400/60 font-mono">(展开)</span>
+                    </summary>
+                    <div className="mt-2 text-purple-200/80 whitespace-pre-wrap font-mono text-[11px] max-h-52 overflow-y-auto leading-relaxed border-t border-purple-500/15 pt-2">
+                      {turn.thinking}
+                    </div>
+                  </details>
+                )}
+
+                {/* 工具调用指示 */}
+                {turn.toolCalls && turn.toolCalls.length > 0 && (
+                  <div className="mb-2.5 flex flex-wrap gap-1.5">
+                    {turn.toolCalls.map((tc, tcIdx) => (
+                      <span
+                        key={tcIdx}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-[11px] font-mono text-amber-300"
+                        title={typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args)}
+                      >
+                        <span>⚡</span>
+                        <span>{tc.name || "tool"}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* 消息正文 */}
+                {isUser ? (
+                  <div className="whitespace-pre-wrap break-words leading-relaxed text-[var(--aurora-fg1)]">
+                    {turn.content}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto min-w-0">
+                    <MarkdownViewer content={turn.content} />
+                  </div>
+                )}
+
+                {/* 气泡底栏 */}
+                <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-[var(--aurora-fg4)]">
+                  <span>
+                    {turn.created_at
+                      ? new Date(turn.created_at).toLocaleTimeString(locale, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyContent(turn.content, idx)}
+                    className="hover:text-[var(--aurora-accent)] cursor-pointer transition-colors px-1"
+                    title="复制消息内容"
+                  >
+                    {copiedIndex === idx ? "✓ 已复制" : "复制"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Glass>
   );
 }

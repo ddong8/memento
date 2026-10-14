@@ -403,15 +403,17 @@ function formatTurnDuration(durationMs?: number, startedAtIso?: string, finished
 }
 
 const UserBubble = memo(function UserBubble({
+  index,
   content,
   images,
   createdAt,
   onShareTurn,
 }: {
+  index: number;
   content: string;
   images?: string[];
   createdAt?: string;
-  onShareTurn?: () => void;
+  onShareTurn?: (index: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const timeInfo = formatTurnTimestamp(createdAt);
@@ -527,7 +529,7 @@ const UserBubble = memo(function UserBubble({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onShareTurn();
+                  onShareTurn(index);
                 }}
                 className="opacity-60 group-hover/user:opacity-100 transition-opacity p-0.5 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
                 title="分享此问答"
@@ -553,6 +555,7 @@ const UserBubble = memo(function UserBubble({
 });
 
 const AssistantBubble = memo(function AssistantBubble({
+  index,
   turn,
   isLast,
   streaming,
@@ -563,6 +566,7 @@ const AssistantBubble = memo(function AssistantBubble({
   onShareTurn,
   t,
 }: {
+  index: number;
   turn: Turn;
   isLast: boolean;
   streaming: boolean;
@@ -570,7 +574,7 @@ const AssistantBubble = memo(function AssistantBubble({
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   onRetry?: () => void;
-  onShareTurn?: () => void;
+  onShareTurn?: (index: number) => void;
   t: any;
 }) {
   const liveAgentStdout = useMemo(() => {
@@ -774,7 +778,7 @@ const AssistantBubble = memo(function AssistantBubble({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onShareTurn();
+                  onShareTurn(index);
                 }}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
                 title="分享此问答"
@@ -3830,12 +3834,12 @@ function AskPageContent() {
         setSelectedSessionId(sidToUse);
       }
       setCompactMode(true);
-      const lastUserTurn = [...turns].reverse().find((t) => t.role === "user" && t.content);
+      const lastUserTurn = [...turnsRef.current].reverse().find((t) => t.role === "user" && t.content);
       if (lastUserTurn?.content) {
         sendWithText(lastUserTurn.content, { forceCompact: true, overrideSessionId: sidToUse });
       }
     },
-    [selectedSessionId, turns, sendWithText]
+    [selectedSessionId, sendWithText]
   );
 
   useEffect(() => {
@@ -4443,14 +4447,20 @@ function AskPageContent() {
     return raw || t.ask.title;
   }, [activeConversation?.title, turns, t.ask.title]);
 
+  const displayConvTitleRef = useRef(displayConvTitle);
+  useEffect(() => {
+    displayConvTitleRef.current = displayConvTitle;
+  }, [displayConvTitle]);
+
   const getTurnAbsIndex = useCallback((localIdx: number) => {
-    const t = turns[localIdx] as any;
+    const curTurns = turnsRef.current;
+    const t = curTurns[localIdx] as any;
     if (t && typeof t.index === "number") {
       return t.index;
     }
-    const baseOffset = totalTurns > turns.length ? totalTurns - turns.length : 0;
+    const baseOffset = totalTurns > curTurns.length ? totalTurns - curTurns.length : 0;
     return baseOffset + localIdx;
-  }, [turns, totalTurns]);
+  }, [totalTurns]);
 
   const toggleSelectTurn = useCallback((index: number) => {
     setSelectedTurnIndices((prev) =>
@@ -4459,47 +4469,52 @@ function AskPageContent() {
   }, []);
 
   const handleShareSelectedTurns = useCallback(() => {
-    if (!activeConversationId || selectedTurnIndices.length === 0) return;
+    const convId = activeConversationIdRef.current;
+    if (!convId || selectedTurnIndices.length === 0) return;
     const sorted = [...selectedTurnIndices].sort((a, b) => a - b);
     const absIndices = sorted.map(getTurnAbsIndex);
-    const targetId = `${activeConversationId}:${absIndices.join(",")}`;
-    const shareTitle = `${displayConvTitle} · 精选 (${sorted.length} 条消息)`;
+    const targetId = `${convId}:${absIndices.join(",")}`;
+    const shareTitle = `${displayConvTitleRef.current || "Memento"} · 精选 (${sorted.length} 条消息)`;
     setShareTargetId(targetId);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, selectedTurnIndices, displayConvTitle, getTurnAbsIndex]);
+  }, [selectedTurnIndices, getTurnAbsIndex]);
 
   const handleShareAssistantTurn = useCallback((assistantIndex: number) => {
-    if (!activeConversationId) return;
+    const convId = activeConversationIdRef.current;
+    if (!convId) return;
+    const curTurns = turnsRef.current;
     const localIndices =
-      assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
+      assistantIndex > 0 && curTurns[assistantIndex - 1]?.role === "user"
         ? [assistantIndex - 1, assistantIndex]
         : [assistantIndex];
     const turnIndices = localIndices.map(getTurnAbsIndex);
     const questionTurn =
-      assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
-        ? turns[assistantIndex - 1]
-        : turns[assistantIndex];
-    const excerpt = questionTurn.content.trim().slice(0, 36) || "问答";
-    const shareTitle = `${displayConvTitle} · 提问：${excerpt}${questionTurn.content.trim().length > 36 ? "..." : ""}`;
-    setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
+      assistantIndex > 0 && curTurns[assistantIndex - 1]?.role === "user"
+        ? curTurns[assistantIndex - 1]
+        : curTurns[assistantIndex];
+    const excerpt = questionTurn?.content?.trim().slice(0, 36) || "问答";
+    const shareTitle = `${displayConvTitleRef.current || "Memento"} · 提问：${excerpt}${questionTurn?.content?.trim().length > 36 ? "..." : ""}`;
+    setShareTargetId(`${convId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, turns, displayConvTitle, getTurnAbsIndex]);
+  }, [getTurnAbsIndex]);
 
   const handleShareUserTurn = useCallback((userIndex: number) => {
-    if (!activeConversationId) return;
+    const convId = activeConversationIdRef.current;
+    if (!convId) return;
+    const curTurns = turnsRef.current;
     const localIndices =
-      userIndex + 1 < turns.length && turns[userIndex + 1]?.role === "assistant"
+      userIndex + 1 < curTurns.length && curTurns[userIndex + 1]?.role === "assistant"
         ? [userIndex, userIndex + 1]
         : [userIndex];
     const turnIndices = localIndices.map(getTurnAbsIndex);
-    const excerpt = turns[userIndex].content.trim().slice(0, 36) || "问答";
-    const shareTitle = `${displayConvTitle} · 提问：${excerpt}${turns[userIndex].content.trim().length > 36 ? "..." : ""}`;
-    setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
+    const excerpt = curTurns[userIndex]?.content?.trim().slice(0, 36) || "问答";
+    const shareTitle = `${displayConvTitleRef.current || "Memento"} · 提问：${excerpt}${curTurns[userIndex]?.content?.trim().length > 36 ? "..." : ""}`;
+    setShareTargetId(`${convId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, turns, displayConvTitle, getTurnAbsIndex]);
+  }, [getTurnAbsIndex]);
 
   const renderedTurns = useMemo(() => {
     const eagerThreshold = Math.max(0, turns.length - 4);
@@ -4517,10 +4532,11 @@ function AskPageContent() {
           : undefined;
 
       const isSelected = selectedTurnIndices.includes(i);
+      const stableKey = (turn as any).id || (turn.created_at ? `${turn.role}-${turn.created_at}-${i}` : `turn-${i}`);
 
       return (
         <div
-          key={i}
+          key={stableKey}
           style={contentVisibilityStyle}
           className={selectTurnsMode ? "flex items-start gap-2.5 my-1.5 transition-all group/turn-row" : ""}
         >
@@ -4544,13 +4560,15 @@ function AskPageContent() {
           <div className="flex-1 min-w-0">
             {turn.role === "user" ? (
               <UserBubble
+                index={i}
                 content={turn.content}
                 images={turn.images}
                 createdAt={turn.created_at}
-                onShareTurn={() => handleShareUserTurn(i)}
+                onShareTurn={handleShareUserTurn}
               />
             ) : (
               <AssistantBubble
+                index={i}
                 turn={turn}
                 isLast={i === turns.length - 1}
                 streaming={i === turns.length - 1 ? streaming : false}
@@ -4558,7 +4576,7 @@ function AskPageContent() {
                 onSourcesClick={handleSourcesClick}
                 onSmartCompactAndRetry={handleSmartCompactAndRetry}
                 onRetry={i === turns.length - 1 ? handleRetryLastTurn : undefined}
-                onShareTurn={() => handleShareAssistantTurn(i)}
+                onShareTurn={handleShareAssistantTurn}
                 t={t}
               />
             )}

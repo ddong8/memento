@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -29,10 +31,219 @@ from ..services.ingest_service import (
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
+_last_consolidation_time: float = 0.0
+_CONSOLIDATION_INTERVAL_SECONDS: float = 600.0  # 10 minutes
+_consolidation_lock = asyncio.Lock()
+
+
+async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False) -> None:
+    """Consolidate fragmented projects, deduplicate variants, and heal orphaned docs.
+    Throttled to run at most once every 10 minutes to avoid locking tables on every read request.
+    """
+    global _last_consolidation_time
+    now = time.time()
+    if not force and (now - _last_consolidation_time < _CONSOLIDATION_INTERVAL_SECONDS):
+        return
+    if _consolidation_lock.locked():
+        return
+    async with _consolidation_lock:
+        if not force and (time.time() - _last_consolidation_time < _CONSOLIDATION_INTERVAL_SECONDS):
+            return
+        _last_consolidation_time = time.time()
+        try:
+            all_projects = (await db.execute(select(Project))).scalars().all()
+            has_changes = False
+            for p in all_projects:
+                raw_name = p.slug.split("/")[-1] if "/" in p.slug else p.slug
+                if (
+                    _is_invalid_project_name(raw_name)
+                    or _is_invalid_project_name(p.title)
+                    or p.title in _IGNORE_PROJECT_NAMES
+                    or p.title.strip("-_./\\\"'` ") == ""
+                    or raw_name.strip("-_./\\\"'` ") == ""
+                ):
+                    # Unassign orphaned documents
+                    await db.execute(
+                        update(Document).where(Document.project_id == p.id).values(project_id=None)
+                    )
+                    await db.delete(p)
+                    has_changes = True
+                    continue
+
+                clean_name = raw_name.strip("-\"'` ")
+                prettified = _prettify_project_name(clean_name).strip("-\"'` ")
+                clean_title = (p.title or "").strip("-\"'` ")
+                is_dirty = (
+                    prettified != raw_name
+                    or p.title != clean_title
+                    or '"' in (p.title or "")
+                    or "'" in (p.title or "")
+                    or '"' in p.slug
+                    or "'" in p.slug
+                )
+                if is_dirty and not _is_invalid_project_name(prettified):
+                    canonical_slug = f"{p.tool_id}/{prettified}"
+                    canonical = (await db.execute(select(Project).where(Project.slug == canonical_slug))).scalar_one_or_none()
+                    if canonical and canonical.id != p.id:
+                        await db.execute(
+                            update(Document).where(Document.project_id == p.id).values(project_id=canonical.id)
+                        )
+                        await db.delete(p)
+                        has_changes = True
+                    else:
+                        p.slug = canonical_slug
+                        p.title = prettified
+                        has_changes = True
+
+            # Deduplicate hyphen vs underscore equivalent projects (e.g. favorite_chat vs favorite-chat)
+            all_cur_projs = (await db.execute(select(Project))).scalars().all()
+            proj_by_equiv: dict[tuple[str, str], list[Project]] = {}
+            for p in all_cur_projs:
+                equiv_key = (p.tool_id, p.slug.split("/")[-1].replace("-", "_").lower())
+                proj_by_equiv.setdefault(equiv_key, []).append(p)
+            for equiv_key, plist in proj_by_equiv.items():
+                if len(plist) > 1:
+                    # Count docs for each project to pick canonical
+                    p_counts = []
+                    for p_item in plist:
+                        cnt = (await db.execute(select(func.count(Document.id)).where(Document.project_id == p_item.id))).scalar() or 0
+                        p_counts.append((cnt, p_item))
+                    p_counts.sort(key=lambda x: x[0], reverse=True)
+                    canonical_p = p_counts[0][1]
+                    for cnt, redundant_p in p_counts[1:]:
+                        await db.execute(
+                            update(Document).where(Document.project_id == redundant_p.id).values(project_id=canonical_p.id)
+                        )
+                        await db.delete(redundant_p)
+                        has_changes = True
+
+            # Auto-adopt orphaned documents across all tools (query only necessary columns)
+            orphaned_docs = (await db.execute(
+                select(Document.id, Document.tool_id, Document.metadata_, Document.relative_path).where(
+                    Document.project_id.is_(None),
+                    Document.category == "conversation",
+                )
+            )).all()
+            for od_id, od_tool_id, od_metadata, od_rel_path in orphaned_docs:
+                p_cand = None
+                if isinstance(od_metadata, dict):
+                    p_cand = od_metadata.get("project_hash")
+                if not p_cand and od_rel_path and od_rel_path.startswith("projects/"):
+                    parts = od_rel_path.split("/")
+                    if len(parts) >= 3:
+                        p_cand = parts[1]
+                if p_cand:
+                    prettified = _prettify_project_name(p_cand)
+                    if not _is_invalid_project_name(prettified):
+                        c_slug = f"{od_tool_id}/{prettified}"
+                        canon = (await db.execute(select(Project).where(Project.slug == c_slug))).scalar_one_or_none()
+                        if canon:
+                            await db.execute(
+                                update(Document).where(Document.id == od_id).values(project_id=canon.id)
+                            )
+                            has_changes = True
+
+            # Auto-heal misassigned conversation documents (fetch only scalar IDs & metadata, never content)
+            misassigned_docs = (await db.execute(
+                select(
+                    Document.id,
+                    Document.tool_id,
+                    Document.metadata_,
+                    Document.project_id,
+                    Project.id,
+                    Project.slug,
+                    Project.title,
+                )
+                .join(Project, Document.project_id == Project.id)
+                .where(
+                    Document.category == "conversation",
+                    Document.metadata_.isnot(None),
+                )
+            )).all()
+            for doc_id, doc_tool_id, doc_metadata, doc_proj_id, cur_proj_id, cur_proj_slug, cur_proj_title in misassigned_docs:
+                if not isinstance(doc_metadata, dict):
+                    continue
+                p_cand = doc_metadata.get("project_hash")
+                if not p_cand:
+                    p_path = doc_metadata.get("project_path")
+                    if p_path and isinstance(p_path, str):
+                        p_cand = p_path.replace("\\", "/").rstrip("/").split("/")[-1]
+                if not p_cand:
+                    continue
+                prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
+                if not prettified or _is_invalid_project_name(prettified):
+                    continue
+                cur_slug_name = cur_proj_slug.split("/")[-1].lower()
+                cand_lower = prettified.lower()
+                if cand_lower != cur_proj_title.lower() and cand_lower != cur_slug_name:
+                    correct_slug = f"{doc_tool_id}/{prettified}"
+                    correct_p = (await db.execute(select(Project).where(Project.slug == correct_slug))).scalar_one_or_none()
+                    if correct_p and correct_p.id != cur_proj_id:
+                        await db.execute(
+                            update(Document).where(Document.id == doc_id).values(project_id=correct_p.id)
+                        )
+                        has_changes = True
+
+            # Auto-heal machine_id on documents where machine_id is NULL
+            all_machines = (await db.execute(select(Machine))).scalars().all()
+            mac_mini_m = next((m for m in all_machines if "mac-mini" in (m.name or "").lower() or "mini" in (m.name or "").lower()), None)
+            macbook_m = next((m for m in all_machines if "macbook" in (m.name or "").lower()), None)
+            win_m = next((m for m in all_machines if "windows" in (m.name or "").lower()), None)
+
+            if mac_mini_m:
+                await db.execute(
+                    update(Document)
+                    .where(
+                        Document.machine_id.is_(None),
+                        or_(
+                            Document.relative_path.ilike("%haixingdong%"),
+                            Document.metadata_["project_path"].astext.ilike("%haixingdong%"),
+                        ),
+                    )
+                    .values(machine_id=mac_mini_m.id)
+                )
+                has_changes = True
+            if macbook_m:
+                await db.execute(
+                    update(Document)
+                    .where(
+                        Document.machine_id.is_(None),
+                        or_(
+                            Document.relative_path.ilike("%donghaixing%"),
+                            Document.metadata_["project_path"].astext.ilike("%donghaixing%"),
+                        ),
+                    )
+                    .values(machine_id=macbook_m.id)
+                )
+                has_changes = True
+            if win_m:
+                await db.execute(
+                    update(Document)
+                    .where(
+                        Document.machine_id.is_(None),
+                        or_(
+                            Document.relative_path.ilike("%users-admin%"),
+                            Document.metadata_["project_path"].astext.ilike("%users/admin%"),
+                            Document.metadata_["project_path"].astext.ilike("%d:/%"),
+                            Document.metadata_["project_path"].astext.ilike("%c:/%"),
+                        ),
+                    )
+                    .values(machine_id=win_m.id)
+                )
+                has_changes = True
+
+            if has_changes:
+                await db.commit()
+        except Exception as exc:
+            import traceback
+            print(f"[Projects API] Consolidation error: {exc}\n{traceback.format_exc()}")
+
+
 @router.get("")
 async def list_projects(
     tool_id: str | None = None,
     device_id: str | None = None,
+    sync: bool = False,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
@@ -46,194 +257,8 @@ async def list_projects(
         else:
             return []
 
-    # Auto-consolidate fragmented projects & purge invalid projects (e.g. codex/file:)
-    try:
-        all_projects = (await db.execute(select(Project))).scalars().all()
-        has_changes = False
-        for p in all_projects:
-            raw_name = p.slug.split("/")[-1] if "/" in p.slug else p.slug
-            if (
-                _is_invalid_project_name(raw_name)
-                or _is_invalid_project_name(p.title)
-                or p.title in _IGNORE_PROJECT_NAMES
-                or p.title.strip("-_./\\\"'` ") == ""
-                or raw_name.strip("-_./\\\"'` ") == ""
-            ):
-                # Unassign orphaned documents
-                await db.execute(
-                    update(Document).where(Document.project_id == p.id).values(project_id=None)
-                )
-                await db.delete(p)
-                has_changes = True
-                continue
-
-            clean_name = raw_name.strip("-\"'` ")
-            prettified = _prettify_project_name(clean_name).strip("-\"'` ")
-            clean_title = (p.title or "").strip("-\"'` ")
-            is_dirty = (
-                prettified != raw_name
-                or p.title != clean_title
-                or '"' in (p.title or "")
-                or "'" in (p.title or "")
-                or '"' in p.slug
-                or "'" in p.slug
-            )
-            if is_dirty and not _is_invalid_project_name(prettified):
-                canonical_slug = f"{p.tool_id}/{prettified}"
-                canonical = (await db.execute(select(Project).where(Project.slug == canonical_slug))).scalar_one_or_none()
-                if canonical and canonical.id != p.id:
-                    await db.execute(
-                        update(Document).where(Document.project_id == p.id).values(project_id=canonical.id)
-                    )
-                    await db.delete(p)
-                    has_changes = True
-                else:
-                    p.slug = canonical_slug
-                    p.title = prettified
-                    has_changes = True
-
-        # Deduplicate hyphen vs underscore equivalent projects (e.g. favorite_chat vs favorite-chat)
-        all_cur_projs = (await db.execute(select(Project))).scalars().all()
-        proj_by_equiv: dict[tuple[str, str], list[Project]] = {}
-        for p in all_cur_projs:
-            equiv_key = (p.tool_id, p.slug.split("/")[-1].replace("-", "_").lower())
-            proj_by_equiv.setdefault(equiv_key, []).append(p)
-        for equiv_key, plist in proj_by_equiv.items():
-            if len(plist) > 1:
-                # Count docs for each project to pick canonical
-                p_counts = []
-                for p_item in plist:
-                    cnt = (await db.execute(select(func.count(Document.id)).where(Document.project_id == p_item.id))).scalar() or 0
-                    p_counts.append((cnt, p_item))
-                p_counts.sort(key=lambda x: x[0], reverse=True)
-                canonical_p = p_counts[0][1]
-                for cnt, redundant_p in p_counts[1:]:
-                    await db.execute(
-                        update(Document).where(Document.project_id == redundant_p.id).values(project_id=canonical_p.id)
-                    )
-                    await db.delete(redundant_p)
-                    has_changes = True
-
-        # Auto-adopt orphaned documents across all tools (query only necessary columns)
-        orphaned_docs = (await db.execute(
-            select(Document.id, Document.tool_id, Document.metadata_, Document.relative_path).where(
-                Document.project_id.is_(None),
-                Document.category == "conversation",
-            )
-        )).all()
-        for od_id, od_tool_id, od_metadata, od_rel_path in orphaned_docs:
-            p_cand = None
-            if isinstance(od_metadata, dict):
-                p_cand = od_metadata.get("project_hash")
-            if not p_cand and od_rel_path and od_rel_path.startswith("projects/"):
-                parts = od_rel_path.split("/")
-                if len(parts) >= 3:
-                    p_cand = parts[1]
-            if p_cand:
-                prettified = _prettify_project_name(p_cand)
-                if not _is_invalid_project_name(prettified):
-                    c_slug = f"{od_tool_id}/{prettified}"
-                    canon = (await db.execute(select(Project).where(Project.slug == c_slug))).scalar_one_or_none()
-                    if canon:
-                        await db.execute(
-                            update(Document).where(Document.id == od_id).values(project_id=canon.id)
-                        )
-                        has_changes = True
-
-        # Auto-heal misassigned conversation documents (fetch only scalar IDs & metadata, never content)
-        misassigned_docs = (await db.execute(
-            select(
-                Document.id,
-                Document.tool_id,
-                Document.metadata_,
-                Document.project_id,
-                Project.id,
-                Project.slug,
-                Project.title,
-            )
-            .join(Project, Document.project_id == Project.id)
-            .where(
-                Document.category == "conversation",
-                Document.metadata_.isnot(None),
-            )
-        )).all()
-        for doc_id, doc_tool_id, doc_metadata, doc_proj_id, cur_proj_id, cur_proj_slug, cur_proj_title in misassigned_docs:
-            if not isinstance(doc_metadata, dict):
-                continue
-            p_cand = doc_metadata.get("project_hash")
-            if not p_cand:
-                p_path = doc_metadata.get("project_path")
-                if p_path and isinstance(p_path, str):
-                    p_cand = p_path.replace("\\", "/").rstrip("/").split("/")[-1]
-            if not p_cand:
-                continue
-            prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
-            if not prettified or _is_invalid_project_name(prettified):
-                continue
-            cur_slug_name = cur_proj_slug.split("/")[-1].lower()
-            cand_lower = prettified.lower()
-            if cand_lower != cur_proj_title.lower() and cand_lower != cur_slug_name:
-                correct_slug = f"{doc_tool_id}/{prettified}"
-                correct_p = (await db.execute(select(Project).where(Project.slug == correct_slug))).scalar_one_or_none()
-                if correct_p and correct_p.id != cur_proj_id:
-                    await db.execute(
-                        update(Document).where(Document.id == doc_id).values(project_id=correct_p.id)
-                    )
-                    has_changes = True
-
-        # Auto-heal machine_id on documents where machine_id is NULL
-        all_machines = (await db.execute(select(Machine))).scalars().all()
-        mac_mini_m = next((m for m in all_machines if "mac-mini" in (m.name or "").lower() or "mini" in (m.name or "").lower()), None)
-        macbook_m = next((m for m in all_machines if "macbook" in (m.name or "").lower()), None)
-        win_m = next((m for m in all_machines if "windows" in (m.name or "").lower()), None)
-
-        if mac_mini_m:
-            await db.execute(
-                update(Document)
-                .where(
-                    Document.machine_id.is_(None),
-                    or_(
-                        Document.relative_path.ilike("%haixingdong%"),
-                        Document.metadata_["project_path"].astext.ilike("%haixingdong%"),
-                    ),
-                )
-                .values(machine_id=mac_mini_m.id)
-            )
-            has_changes = True
-        if macbook_m:
-            await db.execute(
-                update(Document)
-                .where(
-                    Document.machine_id.is_(None),
-                    or_(
-                        Document.relative_path.ilike("%donghaixing%"),
-                        Document.metadata_["project_path"].astext.ilike("%donghaixing%"),
-                    ),
-                )
-                .values(machine_id=macbook_m.id)
-            )
-            has_changes = True
-        if win_m:
-            await db.execute(
-                update(Document)
-                .where(
-                    Document.machine_id.is_(None),
-                    or_(
-                        Document.relative_path.ilike("%users-admin%"),
-                        Document.metadata_["project_path"].astext.ilike("%users/admin%"),
-                        Document.metadata_["project_path"].astext.ilike("%d:/%"),
-                        Document.metadata_["project_path"].astext.ilike("%c:/%"),
-                    ),
-                )
-                .values(machine_id=win_m.id)
-            )
-            has_changes = True
-
-        if has_changes:
-            await db.commit()
-    except Exception as exc:
-        import traceback
-        print(f"[Projects API] Consolidation error: {exc}\n{traceback.format_exc()}")
+    # Auto-consolidate fragmented projects (throttled to at most once per 10m to keep reads fast)
+    await _consolidate_projects_if_needed(db, force=sync)
 
     # Single query: projects LEFT JOIN documents, GROUP BY, count documents
     doc_count_col = func.count(Document.id).label("doc_count")

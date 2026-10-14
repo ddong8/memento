@@ -9,6 +9,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
+  compress: true,
+  poweredByHeader: false,
+  experimental: {
+    optimizePackageImports: ["react-icons", "date-fns"],
+  },
   async redirects() {
     return [
       {

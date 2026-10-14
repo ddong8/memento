@@ -156,29 +156,71 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
     }
   };
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
+  }
+  if (typeof document !== "undefined") {
+    try {
+      const el = document.createElement("textarea");
+      el.value = text;
+      el.setAttribute("readonly", "");
+      el.style.position = "fixed";
+      el.style.left = "-9999px";
+      el.style.top = "-9999px";
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(el);
+      if (ok) return true;
+    } catch {}
+  }
+  return false;
+}
+
   const handleCopy = async () => {
     if (!publicUrl) return;
-    try {
-      await navigator.clipboard.writeText(publicUrl);
+    const ok = await copyTextToClipboard(publicUrl);
+    if (typeof window !== "undefined" && (window as any).__memento_haptic) {
+      try { (window as any).__memento_haptic("selection"); } catch {}
+    }
+    if (ok) {
       setNotice(t.share.copied);
       setTimeout(() => setNotice(""), 1500);
-    } catch {
+    } else {
       setNotice(t.share.copyFail);
     }
   };
 
   const handleSystemShare = async () => {
     if (!publicUrl) return;
-    // Native app bridge
+
+    // Trigger haptic feedback
+    if (typeof window !== "undefined" && (window as any).__memento_haptic) {
+      try { (window as any).__memento_haptic("medium"); } catch {}
+    }
+
+    // Always copy URL to clipboard as guaranteed fallback
+    await copyTextToClipboard(publicUrl);
+
+    // 1. Native app bridge
     if (typeof window !== "undefined" && (window as any).ReactNativeWebView?.postMessage) {
-      (window as any).ReactNativeWebView.postMessage(JSON.stringify({
-        type: "share",
-        url: publicUrl,
-        title: title || "Memento",
-      }));
+      try {
+        (window as any).ReactNativeWebView.postMessage(JSON.stringify({
+          type: "share",
+          url: publicUrl,
+          title: title || "Memento",
+        }));
+      } catch {}
+      setNotice((t.share as any).systemShareTriggered || "已发起分享（链接已复制到剪贴板）");
+      setTimeout(() => setNotice(""), 3000);
       return;
     }
-    // Web Share API (Safari iOS / macOS / Chrome)
+
+    // 2. Web Share API (Safari iOS / macOS / Chrome)
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
       try {
         await navigator.share({
@@ -186,12 +228,15 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
           url: publicUrl,
         });
         return;
-      } catch {
-        // User cancelled or share declined
-        return;
+      } catch (err: any) {
+        if (err && err.name === "AbortError") {
+          return;
+        }
       }
     }
-    await handleCopy();
+
+    setNotice(t.share.copied);
+    setTimeout(() => setNotice(""), 1500);
   };
 
   const canSystemShare =

@@ -22,6 +22,7 @@ const zhCN = {
     expiresHint: "0 或留空 = 永久",
     create: "生成分享链接",
     systemShare: "系统分享",
+    systemShareTriggered: "已发起分享（链接已复制到剪贴板）",
     copy: "复制链接",
     copied: "已复制",
     copyFail: "复制失败",

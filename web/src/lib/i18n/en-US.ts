@@ -23,6 +23,7 @@ const enUS: Translations = {
     expiresHint: "0 or blank = never",
     create: "Create link",
     systemShare: "Share...",
+    systemShareTriggered: "Share triggered (link copied to clipboard)",
     copy: "Copy link",
     copied: "Copied",
     copyFail: "Copy failed",

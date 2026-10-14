@@ -510,12 +510,14 @@ export default function WebShell() {
           void triggerLocalNotification(msg.title, msg.body || "", notifData);
         }
       } else if (msg.type === "share" && (msg.url || (msg as any).text)) {
+        const targetUrl = msg.url || "";
+        const targetTitle = msg.title || "Memento";
         const shareContent: { url?: string; message: string; title?: string } = {
-          title: msg.title || "Memento",
-          message: msg.url || (msg as any).text || "",
+          title: targetTitle,
+          message: Platform.OS === "ios" ? (targetTitle ? `${targetTitle}\n` : "") : (targetUrl ? `${targetTitle}\n${targetUrl}` : targetTitle),
         };
-        if (Platform.OS === "ios" && msg.url) {
-          shareContent.url = msg.url;
+        if (Platform.OS === "ios" && targetUrl) {
+          shareContent.url = targetUrl;
         }
         void Share.share(shareContent).catch(() => undefined);
       } else if (msg.type === "live_activity" && Platform.OS === "ios") {

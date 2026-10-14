@@ -104,6 +104,8 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       -webkit-touch-callout: none !important;
     }
     html, body {
+      background-color: #0b0f19 !important;
+      color: #f1f5f9 !important;
       -webkit-font-smoothing: antialiased !important;
       -moz-osx-font-smoothing: grayscale !important;
       text-rendering: optimizeLegibility !important;
@@ -125,6 +127,15 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       -webkit-user-select: text !important;
       user-select: text !important;
       -webkit-touch-callout: default !important;
+    }
+    pre {
+      background-color: #0b0f19 !important;
+      color: #f1f5f9 !important;
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      padding: 16px !important;
+      font-size: 13.5px !important;
+      line-height: 1.6 !important;
     }
     button:active:not(:disabled),
     [role="button"]:active,

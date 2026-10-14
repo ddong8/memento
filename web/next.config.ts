@@ -9,6 +9,22 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
+  async redirects() {
+    return [
+      {
+        source: "/artifacts/deployment-guide.md",
+        has: [
+          {
+            type: "header",
+            key: "accept",
+            value: "(.*text/html.*)",
+          },
+        ],
+        destination: "/artifacts/deployment-guide.html",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

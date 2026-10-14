@@ -29,6 +29,7 @@ Endpoint groups:
 from __future__ import annotations
 
 import base64
+import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -56,6 +57,70 @@ def _gen_token() -> str:
     return base64.b32encode(raw).decode("ascii").rstrip("=").lower()
 
 
+def _parse_conversation_targets(target_id: str) -> list[tuple[uuid.UUID, list[int] | None]]:
+    """Parses conversation targets from target_id string.
+
+    Supports:
+    1. JSON: '[{"id": "uuid", "turns": [0, 1]}]' or '{"id": "uuid", "turns": [0, 1]}'
+    2. Semicolon/comma separated:
+       - "uuid" -> (uuid, None) [all turns]
+       - "uuid:0,1" -> (uuid, [0, 1]) [specific turns]
+       - "uuid1:0,1;uuid2:2,3" -> [(uuid1, [0, 1]), (uuid2, [2, 3])]
+       - "uuid1,uuid2" -> [(uuid1, None), (uuid2, None)]
+    """
+    target_id = target_id.strip()
+    if not target_id:
+        return []
+
+    # JSON format
+    if target_id.startswith("[") or target_id.startswith("{"):
+        try:
+            data = json.loads(target_id)
+            if isinstance(data, dict):
+                data = [data]
+            results: list[tuple[uuid.UUID, list[int] | None]] = []
+            for item in data:
+                cid = uuid.UUID(str(item.get("id")).strip())
+                raw_turns = item.get("turns")
+                turns: list[int] | None = None
+                if raw_turns is not None and isinstance(raw_turns, list):
+                    turns = [int(x) for x in raw_turns if isinstance(x, (int, str)) and str(x).isdigit()]
+                results.append((cid, turns))
+            return results
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"invalid json conversation target_id: {e}")
+
+    # Plain text format
+    if ";" in target_id:
+        chunks = [x.strip() for x in target_id.split(";") if x.strip()]
+    elif ":" in target_id:
+        chunks = [target_id]
+    else:
+        chunks = [x.strip() for x in target_id.split(",") if x.strip()]
+
+    parsed: list[tuple[uuid.UUID, list[int] | None]] = []
+    for chunk in chunks:
+        if ":" in chunk:
+            cid_str, turns_str = chunk.split(":", 1)
+            try:
+                cid = uuid.UUID(cid_str.strip())
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"invalid conversation UUID: {cid_str}")
+            try:
+                turn_indices = [int(x.strip()) for x in turns_str.split(",") if x.strip().isdigit()]
+            except ValueError:
+                turn_indices = None
+            parsed.append((cid, turn_indices if turn_indices else None))
+        else:
+            try:
+                cid = uuid.UUID(chunk.strip())
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"invalid conversation UUID: {chunk}")
+            parsed.append((cid, None))
+
+    return parsed
+
+
 def _validate_target(kind: str, target_id: str) -> None:
     """Reject obviously-wrong target_id shapes per kind so we don't persist garbage."""
     if kind == "timeline":
@@ -73,14 +138,9 @@ def _validate_target(kind: str, target_id: str) -> None:
         if target_id != "all":
             raise HTTPException(status_code=400, detail="memory target_id must be 'all'")
     elif kind == "conversation":
-        ids = [x.strip() for x in target_id.split(",") if x.strip()]
-        if not ids:
+        targets = _parse_conversation_targets(target_id)
+        if not targets:
             raise HTTPException(status_code=400, detail="conversation target_id must contain at least one conversation UUID")
-        for cid in ids:
-            try:
-                uuid.UUID(cid)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"invalid conversation UUID: {cid}")
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +562,11 @@ async def get_public_share_data(
     if link.kind == "conversation":
         from ..db.models import AskConversation, Document, ConversationMessage
 
-        conv_ids = [uuid.UUID(x.strip()) for x in link.target_id.split(",") if x.strip()]
-        if not conv_ids:
+        parsed_targets = _parse_conversation_targets(link.target_id)
+        if not parsed_targets:
             raise HTTPException(status_code=404, detail="no conversations in share")
+
+        conv_ids = [cid for cid, _ in parsed_targets]
 
         # 1. Fetch AskConversations
         ask_stmt = (
@@ -533,15 +595,26 @@ async def get_public_share_data(
             doc_map = {d.id: d for d in doc_results}
 
         conversations_data = []
-        for cid in conv_ids:
+        for cid, turn_indices in parsed_targets:
             if cid in ask_map:
                 c = ask_map[cid]
                 raw_turns = c.turns if isinstance(c.turns, list) else []
+                # If specific turn indices are requested, filter them
+                if turn_indices is not None:
+                    indexed_raw = [
+                        (idx, t) for idx, t in enumerate(raw_turns)
+                        if idx in turn_indices and isinstance(t, dict)
+                    ]
+                else:
+                    indexed_raw = [
+                        (idx, t) for idx, t in enumerate(raw_turns)
+                        if isinstance(t, dict)
+                    ]
+
                 turns = []
-                for t in raw_turns:
-                    if not isinstance(t, dict):
-                        continue
+                for idx, t in indexed_raw:
                     turns.append({
+                        "index": idx,
                         "role": t.get("role") or "user",
                         "content": t.get("content") or "",
                         "images": t.get("images") or [],
@@ -558,6 +631,8 @@ async def get_public_share_data(
                     "created_at": c.created_at.isoformat() if c.created_at else None,
                     "updated_at": c.updated_at.isoformat() if c.updated_at else None,
                     "message_count": len(turns),
+                    "is_partial": turn_indices is not None,
+                    "total_original_messages": len(raw_turns),
                     "turns": turns,
                 })
             elif cid in doc_map:
@@ -568,8 +643,19 @@ async def get_public_share_data(
                     .order_by(ConversationMessage.line_number)
                 )
                 messages = (await db.execute(msg_stmt)).scalars().all()
+                if turn_indices is not None:
+                    indexed_messages = [
+                        (idx, m) for idx, m in enumerate(messages)
+                        if idx in turn_indices
+                    ]
+                else:
+                    indexed_messages = [
+                        (idx, m) for idx, m in enumerate(messages)
+                    ]
+
                 turns = [
                     {
+                        "index": idx,
                         "role": m.role or "user",
                         "content": m.content,
                         "thinking": m.metadata_.get("thinking") if isinstance(m.metadata_, dict) else None,
@@ -578,7 +664,7 @@ async def get_public_share_data(
                         ] if m.message_type and m.message_type not in ("user", "assistant", "system", "message") else [],
                         "created_at": m.timestamp.isoformat() if m.timestamp else (m.created_at.isoformat() if m.created_at else None),
                     }
-                    for m in messages
+                    for idx, m in indexed_messages
                 ]
                 conversations_data.append({
                     "id": str(d.id),
@@ -587,6 +673,8 @@ async def get_public_share_data(
                     "tool_id": d.tool_id,
                     "created_at": d.created_at.isoformat() if d.created_at else None,
                     "message_count": len(turns),
+                    "is_partial": turn_indices is not None,
+                    "total_original_messages": len(messages),
                     "turns": turns,
                 })
 

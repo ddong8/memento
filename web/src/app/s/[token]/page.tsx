@@ -43,6 +43,8 @@ export interface SharedConversationItem {
   created_at: string | null;
   updated_at?: string | null;
   message_count?: number;
+  is_partial?: boolean;
+  total_original_messages?: number;
   turns: SharedTurn[];
 }
 
@@ -508,6 +510,13 @@ function ConversationItemCard({
             <div className="flex items-center gap-2 text-xs text-[var(--aurora-fg3)] mt-0.5 flex-wrap">
               {conv.tool_id && <Chip tone="accent">{conv.tool_id}</Chip>}
               <span>{conv.turns.length} 轮消息</span>
+              {conv.is_partial && (
+                <Chip tone="accent">
+                  {locale.startsWith("zh")
+                    ? `精选片段 (${conv.turns.length}${conv.total_original_messages ? ` / ${conv.total_original_messages}` : ""} 条)`
+                    : `Curated (${conv.turns.length}${conv.total_original_messages ? ` / ${conv.total_original_messages}` : ""})`}
+                </Chip>
+              )}
               {conv.created_at && (
                 <span>· {new Date(conv.created_at).toLocaleString(locale)}</span>
               )}

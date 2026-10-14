@@ -406,10 +406,12 @@ const UserBubble = memo(function UserBubble({
   content,
   images,
   createdAt,
+  onShareTurn,
 }: {
   content: string;
   images?: string[];
   createdAt?: string;
+  onShareTurn?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const timeInfo = formatTurnTimestamp(createdAt);
@@ -520,6 +522,19 @@ const UserBubble = memo(function UserBubble({
                 <span>{timeInfo.short}</span>
               </span>
             )}
+            {onShareTurn && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShareTurn();
+                }}
+                className="opacity-60 group-hover/user:opacity-100 transition-opacity p-0.5 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
+                title="分享此问答"
+              >
+                <Icon name="share" size={12} />
+              </button>
+            )}
             {content && (
               <button
                 type="button"
@@ -545,6 +560,7 @@ const AssistantBubble = memo(function AssistantBubble({
   onSourcesClick,
   onSmartCompactAndRetry,
   onRetry,
+  onShareTurn,
   t,
 }: {
   turn: Turn;
@@ -554,6 +570,7 @@ const AssistantBubble = memo(function AssistantBubble({
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
   onRetry?: () => void;
+  onShareTurn?: () => void;
   t: any;
 }) {
   const liveAgentStdout = useMemo(() => {
@@ -751,17 +768,33 @@ const AssistantBubble = memo(function AssistantBubble({
               </span>
             )}
           </div>
-          {content && (
-            <button
-              type="button"
-              onClick={handleCopyContent}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer ml-auto"
-              title="复制回答全文"
-            >
-              <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
-              <span>{copied ? "已复制" : "复制全文"}</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {onShareTurn && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShareTurn();
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                title="分享此问答"
+              >
+                <Icon name="share" size={12} />
+                <span>分享</span>
+              </button>
+            )}
+            {content && (
+              <button
+                type="button"
+                onClick={handleCopyContent}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                title="复制回答全文"
+              >
+                <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
+                <span>{copied ? "已复制" : "复制全文"}</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
     </Glass>
@@ -1265,6 +1298,8 @@ function AskPageContent() {
   const [shareTitle, setShareTitle] = useState<string>("");
   const [batchSelectMode, setBatchSelectMode] = useState<boolean>(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+  const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
+  const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
 
   const filteredConversations = useMemo(() => {
     const q = historySearchQuery.trim().toLowerCase();
@@ -4390,6 +4425,52 @@ function AskPageContent() {
     return raw || t.ask.title;
   }, [activeConversation?.title, turns, t.ask.title]);
 
+  const toggleSelectTurn = useCallback((index: number) => {
+    setSelectedTurnIndices((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    );
+  }, []);
+
+  const handleShareSelectedTurns = useCallback(() => {
+    if (!activeConversationId || selectedTurnIndices.length === 0) return;
+    const sorted = [...selectedTurnIndices].sort((a, b) => a - b);
+    const targetId = `${activeConversationId}:${sorted.join(",")}`;
+    const shareTitle = `${displayConvTitle} · 精选 (${sorted.length} 条消息)`;
+    setShareTargetId(targetId);
+    setShareTitle(shareTitle);
+    setShareModalOpen(true);
+  }, [activeConversationId, selectedTurnIndices, displayConvTitle]);
+
+  const handleShareAssistantTurn = useCallback((assistantIndex: number) => {
+    if (!activeConversationId) return;
+    const turnIndices =
+      assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
+        ? [assistantIndex - 1, assistantIndex]
+        : [assistantIndex];
+    const questionTurn =
+      assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
+        ? turns[assistantIndex - 1]
+        : turns[assistantIndex];
+    const excerpt = questionTurn.content.trim().slice(0, 36) || "问答";
+    const shareTitle = `${displayConvTitle} · 提问：${excerpt}${questionTurn.content.trim().length > 36 ? "..." : ""}`;
+    setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
+    setShareTitle(shareTitle);
+    setShareModalOpen(true);
+  }, [activeConversationId, turns, displayConvTitle]);
+
+  const handleShareUserTurn = useCallback((userIndex: number) => {
+    if (!activeConversationId) return;
+    const turnIndices =
+      userIndex + 1 < turns.length && turns[userIndex + 1]?.role === "assistant"
+        ? [userIndex, userIndex + 1]
+        : [userIndex];
+    const excerpt = turns[userIndex].content.trim().slice(0, 36) || "问答";
+    const shareTitle = `${displayConvTitle} · 提问：${excerpt}${turns[userIndex].content.trim().length > 36 ? "..." : ""}`;
+    setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
+    setShareTitle(shareTitle);
+    setShareModalOpen(true);
+  }, [activeConversationId, turns, displayConvTitle]);
+
   const renderedTurns = useMemo(() => {
     const eagerThreshold = Math.max(0, turns.length - 4);
     return turns.map((turn, i) => {
@@ -4405,26 +4486,69 @@ function AskPageContent() {
           ? turns[i - 1].created_at
           : undefined;
 
+      const isSelected = selectedTurnIndices.includes(i);
+
       return (
-        <div key={i} style={contentVisibilityStyle}>
-          {turn.role === "user" ? (
-            <UserBubble content={turn.content} images={turn.images} createdAt={turn.created_at} />
-          ) : (
-            <AssistantBubble
-              turn={turn}
-              isLast={i === turns.length - 1}
-              streaming={i === turns.length - 1 ? streaming : false}
-              prevUserCreatedAt={prevUserCreatedAt}
-              onSourcesClick={handleSourcesClick}
-              onSmartCompactAndRetry={handleSmartCompactAndRetry}
-              onRetry={i === turns.length - 1 ? handleRetryLastTurn : undefined}
-              t={t}
-            />
+        <div
+          key={i}
+          style={contentVisibilityStyle}
+          className={selectTurnsMode ? "flex items-start gap-2.5 my-1.5 transition-all group/turn-row" : ""}
+        >
+          {selectTurnsMode && (
+            <div
+              onClick={() => toggleSelectTurn(i)}
+              className="pt-2 sm:pt-3 shrink-0 cursor-pointer select-none flex items-center justify-center"
+              title={isSelected ? "取消选择" : "选择此条消息"}
+            >
+              <div
+                className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                  isSelected
+                    ? "bg-[var(--aurora-accent)] border-[var(--aurora-accent)] text-slate-900 shadow-sm"
+                    : "border-[var(--aurora-border-strong)] bg-[var(--aurora-chip)] hover:border-[var(--aurora-accent)] text-transparent"
+                }`}
+              >
+                <Icon name="check" size={13} style={{ strokeWidth: 3 }} />
+              </div>
+            </div>
           )}
+          <div className="flex-1 min-w-0">
+            {turn.role === "user" ? (
+              <UserBubble
+                content={turn.content}
+                images={turn.images}
+                createdAt={turn.created_at}
+                onShareTurn={() => handleShareUserTurn(i)}
+              />
+            ) : (
+              <AssistantBubble
+                turn={turn}
+                isLast={i === turns.length - 1}
+                streaming={i === turns.length - 1 ? streaming : false}
+                prevUserCreatedAt={prevUserCreatedAt}
+                onSourcesClick={handleSourcesClick}
+                onSmartCompactAndRetry={handleSmartCompactAndRetry}
+                onRetry={i === turns.length - 1 ? handleRetryLastTurn : undefined}
+                onShareTurn={() => handleShareAssistantTurn(i)}
+                t={t}
+              />
+            )}
+          </div>
         </div>
       );
     });
-  }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, handleRetryLastTurn, t]);
+  }, [
+    turns,
+    streaming,
+    handleSourcesClick,
+    handleSmartCompactAndRetry,
+    handleRetryLastTurn,
+    selectTurnsMode,
+    selectedTurnIndices,
+    toggleSelectTurn,
+    handleShareAssistantTurn,
+    handleShareUserTurn,
+    t,
+  ]);
 
   return (
     <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
@@ -4555,16 +4679,31 @@ function AskPageContent() {
               <span className="hidden sm:inline">{t.ask.newChat}</span>
             </Btn>
             {activeConversationId && turns.length > 0 && (
-              <Btn
-                variant="glass"
-                size="sm"
-                icon="share"
-                onClick={() => openSingleShare(activeConversationId, displayConvTitle)}
-                title={isZh ? "分享此对话" : "Share conversation"}
-                className="shrink-0"
-              >
-                <span className="hidden sm:inline">{isZh ? "分享" : "Share"}</span>
-              </Btn>
+              <>
+                <Btn
+                  variant={selectTurnsMode ? "primary" : "glass"}
+                  size="sm"
+                  icon="layers"
+                  onClick={() => {
+                    setSelectTurnsMode(!selectTurnsMode);
+                    setSelectedTurnIndices([]);
+                  }}
+                  title={isZh ? "多选消息/问答分享" : "Select messages to share"}
+                  className="shrink-0"
+                >
+                  <span className="hidden sm:inline">{isZh ? "多选消息" : "Select"}</span>
+                </Btn>
+                <Btn
+                  variant="glass"
+                  size="sm"
+                  icon="share"
+                  onClick={() => openSingleShare(activeConversationId, displayConvTitle)}
+                  title={isZh ? "分享整场对话" : "Share full conversation"}
+                  className="shrink-0"
+                >
+                  <span className="hidden sm:inline">{isZh ? "整场分享" : "Share All"}</span>
+                </Btn>
+              </>
             )}
             {turns.length > 0 && (
               <Btn
@@ -4753,6 +4892,57 @@ function AskPageContent() {
       </button>
     )}
   </div>
+    {/* 多选消息分享操作栏 */}
+    {selectTurnsMode && (
+      <div className="shrink-0 px-3 sm:px-6 py-2.5 bg-[var(--aurora-surface-solid)]/95 backdrop-blur-md border-t border-[var(--aurora-accent)]/30 shadow-2xl flex items-center justify-between gap-3 z-30 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-[var(--aurora-fg1)] flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[var(--aurora-accent)]" />
+            <span>
+              {isZh
+                ? `已选择 ${selectedTurnIndices.length} 条消息`
+                : `${selectedTurnIndices.length} messages selected`}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedTurnIndices.length === turns.length) {
+                setSelectedTurnIndices([]);
+              } else {
+                setSelectedTurnIndices(turns.map((_, idx) => idx));
+              }
+            }}
+            className="text-xs text-[var(--aurora-fg3)] hover:text-white underline cursor-pointer"
+          >
+            {selectedTurnIndices.length === turns.length
+              ? (isZh ? "取消全选" : "Deselect all")
+              : (isZh ? "全选" : "Select all")}
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Btn
+            variant="primary"
+            size="sm"
+            icon="share"
+            disabled={selectedTurnIndices.length === 0}
+            onClick={handleShareSelectedTurns}
+          >
+            {isZh ? "分享所选问答 ↗" : "Share selected ↗"}
+          </Btn>
+          <Btn
+            variant="glass"
+            size="sm"
+            onClick={() => {
+              setSelectTurnsMode(false);
+              setSelectedTurnIndices([]);
+            }}
+          >
+            {isZh ? "退出多选" : "Cancel"}
+          </Btn>
+        </div>
+      </div>
+    )}
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
   <footer

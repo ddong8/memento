@@ -167,6 +167,37 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
     }
   };
 
+  const handleSystemShare = async () => {
+    if (!publicUrl) return;
+    // Native app bridge
+    if (typeof window !== "undefined" && (window as any).ReactNativeWebView?.postMessage) {
+      (window as any).ReactNativeWebView.postMessage(JSON.stringify({
+        type: "share",
+        url: publicUrl,
+        title: title || "Memento",
+      }));
+      return;
+    }
+    // Web Share API (Safari iOS / macOS / Chrome)
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: title || "Memento",
+          url: publicUrl,
+        });
+        return;
+      } catch {
+        // User cancelled or share declined
+        return;
+      }
+    }
+    await handleCopy();
+  };
+
+  const canSystemShare =
+    typeof window !== "undefined" &&
+    (!!(window as any).ReactNativeWebView?.postMessage || (typeof navigator !== "undefined" && typeof navigator.share === "function"));
+
   const handleLoadViews = async () => {
     if (!existing) return;
     setShowViews(true);
@@ -306,6 +337,11 @@ export function ShareModal({ open, onClose, kind, targetId, title }: ShareModalP
                 {publicUrl}
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {canSystemShare && (
+                  <Btn variant="primary" size="sm" icon="share" onClick={handleSystemShare}>
+                    {(t.share as any).systemShare || "系统分享"}
+                  </Btn>
+                )}
                 <Btn size="sm" icon="copy" onClick={handleCopy}>{t.share.copy}</Btn>
                 <a href={publicUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                   <Btn variant="glass" size="sm" icon="external_link">{t.share.openInTab}</Btn>

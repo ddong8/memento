@@ -22,6 +22,7 @@ const enUS: Translations = {
     days: "days",
     expiresHint: "0 or blank = never",
     create: "Create link",
+    systemShare: "Share...",
     copy: "Copy link",
     copied: "Copied",
     copyFail: "Copy failed",

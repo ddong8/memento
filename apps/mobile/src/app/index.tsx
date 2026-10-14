@@ -14,6 +14,7 @@ import {
   Platform,
   Pressable,
   Settings,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -66,6 +67,23 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       }
     } catch (e) {}
   };
+
+  // 3. Native Share Bridge
+  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+    window.navigator.share = function(data) {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "share",
+          url: (data && data.url) || "",
+          title: (data && data.title) || "",
+          text: (data && data.text) || "",
+        }));
+        return Promise.resolve();
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    };
+  }
 
   // 4. Global touch event delegation: automatically fire native haptic vibration on button / tab taps
   let touchStartX = 0;
@@ -458,6 +476,8 @@ export default function WebShell() {
         dark?: boolean;
         title?: string;
         body?: string;
+        url?: string;
+        text?: string;
         data?: Record<string, unknown>;
       };
       if (msg.type === "theme" && msg.bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(msg.bg)) {
@@ -489,6 +509,15 @@ export default function WebShell() {
           const notifData = { url: (msg as any).url, ...((msg as any).data || {}) };
           void triggerLocalNotification(msg.title, msg.body || "", notifData);
         }
+      } else if (msg.type === "share" && (msg.url || (msg as any).text)) {
+        const shareContent: { url?: string; message: string; title?: string } = {
+          title: msg.title || "Memento",
+          message: msg.url || (msg as any).text || "",
+        };
+        if (Platform.OS === "ios" && msg.url) {
+          shareContent.url = msg.url;
+        }
+        void Share.share(shareContent).catch(() => undefined);
       } else if (msg.type === "live_activity" && Platform.OS === "ios") {
         try {
           Settings.set({

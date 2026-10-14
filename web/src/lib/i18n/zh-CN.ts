@@ -21,6 +21,7 @@ const zhCN = {
     days: "天",
     expiresHint: "0 或留空 = 永久",
     create: "生成分享链接",
+    systemShare: "系统分享",
     copy: "复制链接",
     copied: "已复制",
     copyFail: "复制失败",

@@ -429,8 +429,8 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
               {t.profile.tabs?.collector || "本机采集"}
             </MenuLink>
           )}
-          <MenuLink href="/docs" icon="book" onClick={handleItemClick}>
-            {t.nav.docs || "部署与接入文档"}
+          <MenuLink href="/guide" icon="book" onClick={handleItemClick}>
+            {t.nav.guide || t.nav.docs || "部署与接入文档"}
           </MenuLink>
 
           {isAdmin && (

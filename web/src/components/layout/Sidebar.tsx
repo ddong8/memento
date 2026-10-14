@@ -151,7 +151,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const isDailyActive = pathname === "/daily" || pathname.startsWith("/daily/");
   const isProjectsActive = pathname === "/projects" || pathname.startsWith("/projects/");
   const isInboxActive = pathname === "/inbox" || pathname.startsWith("/inbox/");
-  const isDocsActive = pathname === "/docs" || pathname.startsWith("/docs/");
+  const isGuideActive = pathname === "/guide" || pathname.startsWith("/guide/") || pathname === "/docs" || pathname.startsWith("/docs/");
 
   return (
     <>
@@ -391,10 +391,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             style={{ marginTop: collapsed ? 0 : 12 }}
           />
           <NavRow
-            href="/docs"
-            label={t.nav.docs || "部署与接入"}
+            href="/guide"
+            label={t.nav.guide || t.nav.docs || "部署与接入"}
             icon="book"
-            active={isDocsActive}
+            active={isGuideActive}
             collapsed={collapsed}
             onClick={handleNavClick}
           />

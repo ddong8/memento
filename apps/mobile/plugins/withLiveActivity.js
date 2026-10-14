@@ -344,6 +344,8 @@ const WIDGET_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 const MANAGER_CODE = `
+` + ATTRIBUTES_SWIFT + `
+
 @available(iOS 16.2, *)
 @objc public class MementoLiveActivityManager: NSObject {
   @objc public static let shared = MementoLiveActivityManager()

@@ -4461,8 +4461,11 @@ function AskPageContent() {
               >
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span className="hidden sm:inline">
-                    {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
+                  <span className="font-medium">
+                    <span className="sm:hidden">{isZh ? "工作台" : "Desk"}</span>
+                    <span className="hidden sm:inline">
+                      {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
+                    </span>
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}

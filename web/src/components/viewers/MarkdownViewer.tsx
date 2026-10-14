@@ -300,25 +300,18 @@ const MarkdownViewer = memo(function MarkdownViewer({
               }
 
               return (
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     inspector?.openMediaByUrl(href, label);
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      inspector?.openMediaByUrl(href, label);
-                    }
-                  }}
-                  className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md cursor-pointer select-none group/doc"
-                  title="点击在右侧工作台独立视窗中打开预览"
+                  className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
+                  title="点击在工作台独立视窗中打开预览"
                 >
                   <span className="text-amber-400 font-semibold text-sm shrink-0">📄</span>
-                  <span className="font-semibold truncate max-w-[260px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
+                  <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
                     {label}
                   </span>
                   {isCurrentlyInspected ? (
@@ -326,11 +319,11 @@ const MarkdownViewer = memo(function MarkdownViewer({
                       已在工作台打开
                     </span>
                   ) : (
-                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5">
+                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
                       在工作台预览 ↗
                     </span>
                   )}
-                </div>
+                </button>
               );
             }
 

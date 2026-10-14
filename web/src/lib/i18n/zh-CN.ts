@@ -85,6 +85,8 @@ const zhCN = {
     sectionExecutive: "主控制台",
     sectionBrain: "认知大脑",
     sectionWorkspace: "任务与资产",
+    docs: "部署与接入",
+    sectionHelp: "帮助与文档",
     onlineCount: "{n} 台设备在线",
     noOnline: "无在线设备",
   },

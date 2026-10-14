@@ -151,6 +151,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const isDailyActive = pathname === "/daily" || pathname.startsWith("/daily/");
   const isProjectsActive = pathname === "/projects" || pathname.startsWith("/projects/");
   const isInboxActive = pathname === "/inbox" || pathname.startsWith("/inbox/");
+  const isDocsActive = pathname === "/docs" || pathname.startsWith("/docs/");
 
   return (
     <>
@@ -379,6 +380,21 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             label={t.nav.daily || "作息节律"}
             icon="calendar"
             active={isDailyActive}
+            collapsed={collapsed}
+            onClick={handleNavClick}
+          />
+
+          {/* Section 4: 知识与文档 */}
+          <SectionHeader
+            label={t.nav.sectionHelp || "帮助与文档"}
+            collapsed={collapsed}
+            style={{ marginTop: collapsed ? 0 : 12 }}
+          />
+          <NavRow
+            href="/docs"
+            label={t.nav.docs || "部署与接入"}
+            icon="book"
+            active={isDocsActive}
             collapsed={collapsed}
             onClick={handleNavClick}
           />

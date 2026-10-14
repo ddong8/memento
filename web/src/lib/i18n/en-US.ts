@@ -84,6 +84,8 @@ const enUS: Translations = {
     sectionExecutive: "Executive",
     sectionBrain: "Cognitive Brain",
     sectionWorkspace: "Workspace",
+    docs: "Docs & Setup",
+    sectionHelp: "Help & Docs",
     onlineCount: "{n} devices online",
     noOnline: "No devices online",
   },

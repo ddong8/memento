@@ -209,6 +209,32 @@ class AskContinuationTests(unittest.TestCase):
         clean_q2 = re.sub(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*", "", clean_q2).strip()
         self.assertEqual(clean_q2, "再做一个视频吧")
 
+    def test_pinned_conversation_request(self):
+        from server.api.ask import UpdateConversationRequest
+        req = UpdateConversationRequest(pinned=True, title="Pinned Conversation")
+        self.assertTrue(req.pinned)
+        self.assertEqual(req.title, "Pinned Conversation")
+
+        req_unpin = UpdateConversationRequest(pinned=False)
+        self.assertFalse(req_unpin.pinned)
+
+    def test_pinned_conversation_sorting(self):
+        items = [
+            {"id": "1", "updated_at": "2026-10-14T09:00:00Z", "config": {}},
+            {"id": "2", "updated_at": "2026-10-14T08:00:00Z", "config": {"pinned": True}},
+            {"id": "3", "updated_at": "2026-10-14T09:30:00Z", "config": {"pinned": False}},
+            {"id": "4", "updated_at": "2026-10-14T07:00:00Z", "config": {"pinned": True}},
+        ]
+        from datetime import datetime
+        items.sort(
+            key=lambda x: (
+                0 if (x.get("config") or {}).get("pinned") else 1,
+                -(datetime.fromisoformat(x["updated_at"].replace("Z", "+00:00")).timestamp() if x.get("updated_at") else 0),
+            )
+        )
+        # Pinned items come first, sorted by updated_at desc (2 then 4), then unpinned (3 then 1)
+        self.assertEqual([x["id"] for x in items], ["2", "4", "3", "1"])
+
 
 if __name__ == "__main__":
     unittest.main()

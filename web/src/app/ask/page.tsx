@@ -1075,11 +1075,11 @@ function AskPageContent() {
   const [attachedImages, setAttachedImages] = useState<
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const addFilesAsImages = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
     for (let i = 0; i < files.length; i++) {
@@ -1087,7 +1087,7 @@ function AskPageContent() {
       if (!file.type.startsWith("image/")) continue;
       try {
         const dataUrl = await compressImageToDataUrl(file);
-        newImgs.push({ id: crypto.randomUUID(), name: file.name, dataUrl, size: file.size });
+        newImgs.push({ id: crypto.randomUUID(), name: file.name || "image.png", dataUrl, size: file.size });
       } catch (err) {
         console.error("Failed to compress image:", err);
       }
@@ -1099,8 +1099,12 @@ function AskPageContent() {
         return [...prev, ...toAdd];
       });
     }
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await addFilesAsImages(e.target.files);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [addFilesAsImages]);
 
   const removeAttachedImage = useCallback((id: string) => {
     setAttachedImages((prev) => prev.filter((img) => img.id !== id));
@@ -1258,12 +1262,22 @@ function AskPageContent() {
 
   const filteredConversations = useMemo(() => {
     const q = historySearchQuery.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter((c) => {
-      const matchTitle = (c.title || "").toLowerCase().includes(q);
-      const matchDev = (c.device_id || "").toLowerCase().includes(q);
-      const matchId = (c.id || "").toLowerCase().includes(q);
-      return matchTitle || matchDev || matchId;
+    const list = !q
+      ? conversations
+      : conversations.filter((c) => {
+          const matchTitle = (c.title || "").toLowerCase().includes(q);
+          const matchDev = (c.device_id || "").toLowerCase().includes(q);
+          const matchId = (c.id || "").toLowerCase().includes(q);
+          return matchTitle || matchDev || matchId;
+        });
+
+    return [...list].sort((a, b) => {
+      const aPinned = a.config?.pinned ? 1 : 0;
+      const bPinned = b.config?.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bTime - aTime;
     });
   }, [conversations, historySearchQuery]);
 
@@ -2091,6 +2105,27 @@ function AskPageContent() {
         console.error("Failed to rename conversation:", err);
       } finally {
         setEditingConvId(null);
+      }
+    },
+    []
+  );
+
+  // Toggle pin conversation
+  const togglePinConversation = useCallback(
+    async (e: React.MouseEvent, id: string, currentPinned?: boolean) => {
+      e.stopPropagation();
+      const nextPinned = !currentPinned;
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? { ...c, config: { ...(c.config || {}), pinned: nextPinned } }
+            : c
+        )
+      );
+      try {
+        await api.updateAskConversation(id, { pinned: nextPinned });
+      } catch (err) {
+        console.error("Failed to toggle pin state:", err);
       }
     },
     []
@@ -4714,16 +4749,70 @@ function AskPageContent() {
       <div
         className="p-2.5 sm:px-3.5 sm:py-2.5"
         style={{
-          background: "var(--aurora-surface-solid)",
-          border: "1px solid var(--aurora-border-strong)",
+          background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
+          border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
           borderRadius: 16,
-          boxShadow: "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
+          boxShadow: isDraggingOver
+            ? "0 0 24px rgba(99, 102, 241, 0.25)"
+            : "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
           maxWidth: "100%",
           width: "100%",
           minWidth: 0,
           boxSizing: "border-box",
+          transition: "border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease",
+          position: "relative",
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+          if (!isDraggingOver) setIsDraggingOver(true);
+        }}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDraggingOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setIsDraggingOver(false);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDraggingOver(false);
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            void addFilesAsImages(e.dataTransfer.files);
+          }
         }}
       >
+        {/* Drag and Drop Active Overlay */}
+        {isDraggingOver && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: 15,
+              background: "rgba(99, 102, 241, 0.12)",
+              backdropFilter: "blur(3px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              zIndex: 40,
+              pointerEvents: "none",
+              color: "var(--aurora-accent)",
+              fontWeight: 600,
+              fontSize: 13.5,
+            }}
+          >
+            <Icon name="image" size={18} />
+            <span>{isZh ? "释放鼠标以附加图片至提问" : "Drop image to attach to prompt"}</span>
+          </div>
+        )}
             {isConfigCollapsed ? (
               /* Collapsed Summary Pill Bar */
               <div
@@ -6590,9 +6679,27 @@ function AskPageContent() {
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
                                 lineHeight: 1.4,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
                               }}
                             >
-                              {c.title || t.ask.title}
+                              {c.config?.pinned && (
+                                <span
+                                  title={isZh ? "已置顶会话" : "Pinned"}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    color: "#f59e0b",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Icon name="pin" size={12} />
+                                </span>
+                              )}
+                              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {c.title || t.ask.title}
+                              </span>
                             </div>
                             <div
                               style={{
@@ -6626,6 +6733,34 @@ function AskPageContent() {
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => togglePinConversation(e, c.id, c.config?.pinned)}
+                              title={c.config?.pinned ? (isZh ? "取消置顶" : "Unpin") : (isZh ? "置顶会话" : "Pin to top")}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: c.config?.pinned ? "#f59e0b" : "var(--aurora-fg4)",
+                                cursor: "pointer",
+                                padding: 6,
+                                borderRadius: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                opacity: c.config?.pinned ? 1 : 0.6,
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "#f59e0b";
+                                e.currentTarget.style.opacity = "1";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = c.config?.pinned ? "#f59e0b" : "var(--aurora-fg4)";
+                                e.currentTarget.style.opacity = c.config?.pinned ? "1" : "0.6";
+                              }}
+                            >
+                              <Icon name="pin" size={13} />
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {

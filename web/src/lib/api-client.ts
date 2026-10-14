@@ -853,6 +853,7 @@ export const api = {
       session_id: string;
       worktree: boolean;
       compact_mode: boolean;
+      pinned: boolean;
       config: Record<string, any>;
     }>
   ) => {

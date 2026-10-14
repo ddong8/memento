@@ -1340,6 +1340,14 @@ async def list_conversations(
             "message_count": r.message_count or 0,
         })
 
+    # Sort pinned conversations to the top, then newest updated first
+    out_items.sort(
+        key=lambda x: (
+            0 if (x.get("config") or {}).get("pinned") else 1,
+            -(datetime.fromisoformat(x["updated_at"]).timestamp() if x.get("updated_at") else 0),
+        )
+    )
+
     if dirty_repaired:
         try:
             await db.commit()
@@ -2101,6 +2109,7 @@ class UpdateConversationRequest(BaseModel):
     session_id: str | None = None
     worktree: bool | None = None
     compact_mode: bool | None = None
+    pinned: bool | None = None
     config: dict | None = None
 
 
@@ -2148,6 +2157,8 @@ async def update_conversation(
         cfg["worktree"] = body.worktree
     if body.compact_mode is not None:
         cfg["compact_mode"] = body.compact_mode
+    if body.pinned is not None:
+        cfg["pinned"] = body.pinned
 
     conv.config = cfg
     conv.updated_at = datetime.now(timezone.utc)

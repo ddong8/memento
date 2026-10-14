@@ -543,6 +543,7 @@ const AssistantBubble = memo(function AssistantBubble({
   prevUserCreatedAt,
   onSourcesClick,
   onSmartCompactAndRetry,
+  onRetry,
   t,
 }: {
   turn: Turn;
@@ -551,6 +552,7 @@ const AssistantBubble = memo(function AssistantBubble({
   prevUserCreatedAt?: string;
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
+  onRetry?: () => void;
   t: any;
 }) {
   const liveAgentStdout = useMemo(() => {
@@ -667,6 +669,52 @@ const AssistantBubble = memo(function AssistantBubble({
             {t.ask.thinking}
           </div>
         )
+      )}
+      {turn.error && (
+        <div
+          className="not-prose"
+          style={{
+            marginTop: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: "rgba(239, 68, 68, 0.08)",
+            border: "1px solid rgba(239, 68, 68, 0.25)",
+            fontSize: 12.5,
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#EF4444", fontWeight: 500 }}>
+            <Icon name="close" size={13} />
+            <span>{content || "回答生成中断或遇到异常"}</span>
+          </div>
+          {onRetry && !streaming && (
+            <button
+              type="button"
+              onClick={onRetry}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 10px",
+                borderRadius: 6,
+                background: "var(--aurora-surface-solid)",
+                border: "1px solid var(--aurora-border-strong)",
+                color: "var(--aurora-fg1)",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 500,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Icon name="refresh" size={12} />
+              <span>重试本轮</span>
+            </button>
+          )}
+        </div>
       )}
       {isCurrentlyStreaming && startTime && (
         <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/30 not-prose select-none text-[11px] text-[var(--aurora-fg3)]">
@@ -1199,6 +1247,8 @@ function AskPageContent() {
 
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
+  const [editingConvId, setEditingConvId] = useState<string | null>(null);
+  const [editingConvTitle, setEditingConvTitle] = useState<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
@@ -2020,6 +2070,28 @@ function AskPageContent() {
 
     setTimeout(() => setExportingMd(false), 1200);
   }, [turns, conversations, executionMode, selectedDevice]);
+
+  // Rename conversation
+  const renameConversation = useCallback(
+    async (id: string, newTitle: string) => {
+      const trimmed = newTitle.trim();
+      if (!trimmed) {
+        setEditingConvId(null);
+        return;
+      }
+      try {
+        await api.updateAskConversation(id, { title: trimmed });
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c))
+        );
+      } catch (err) {
+        console.error("Failed to rename conversation:", err);
+      } finally {
+        setEditingConvId(null);
+      }
+    },
+    []
+  );
 
   // Delete conversation
   const deleteConversation = useCallback(
@@ -3642,6 +3714,20 @@ function AskPageContent() {
     sendWithText(textToSend, { images: imgs });
   }, [streaming, input, attachedImages, sendWithText]);
 
+  const handleRetryLastTurn = useCallback(() => {
+    if (streamingRef.current) return;
+    const lastUserTurn = [...turns].reverse().find((t) => t.role === "user");
+    if (!lastUserTurn || !lastUserTurn.content) return;
+    setTurns((prev) => {
+      const idx = prev.findLastIndex((t) => t.role === "assistant" && t.error);
+      if (idx !== -1) {
+        return prev.slice(0, idx - 1 >= 0 && prev[idx - 1].role === "user" ? idx - 1 : idx);
+      }
+      return prev;
+    });
+    sendWithText(lastUserTurn.content, { images: lastUserTurn.images });
+  }, [turns, sendWithText]);
+
   const handleSmartCompactAndRetry = useCallback(
     (targetSid?: string) => {
       const sidToUse = targetSid || selectedSessionId;
@@ -3666,6 +3752,11 @@ function AskPageContent() {
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      send();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       const isMobileViewport = typeof window !== "undefined" && window.innerWidth < 768;
       if (!isMobileViewport) {
@@ -3674,6 +3765,33 @@ function AskPageContent() {
       }
     }
   }, [send]);
+
+  // 全局快捷键: Cmd+K / Ctrl+K 快速聚焦输入框，Escape 关闭侧边栏或停止生成
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputElRef.current?.focus();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (historyOpen) {
+          e.preventDefault();
+          setHistoryOpen(false);
+          return;
+        }
+        if (streaming && abortRef.current) {
+          e.preventDefault();
+          userCancelledRef.current = true;
+          abortRef.current.abort();
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [historyOpen, streaming]);
 
   const handleSelectProject = useCallback(
     async (projId: string, customProjects?: ProjectSummary[], explicitDev?: string) => {
@@ -4203,13 +4321,14 @@ function AskPageContent() {
               prevUserCreatedAt={prevUserCreatedAt}
               onSourcesClick={handleSourcesClick}
               onSmartCompactAndRetry={handleSmartCompactAndRetry}
+              onRetry={i === turns.length - 1 ? handleRetryLastTurn : undefined}
               t={t}
             />
           )}
         </div>
       );
     });
-  }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, t]);
+  }, [turns, streaming, handleSourcesClick, handleSmartCompactAndRetry, handleRetryLastTurn, t]);
 
   return (
     <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
@@ -6352,79 +6471,183 @@ function AskPageContent() {
                         }
                       }}
                     >
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      {editingConvId === c.id ? (
                         <div
-                          style={{
-                            fontSize: 13.5,
-                            fontWeight: isActive ? 600 : 500,
-                            color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg1)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            lineHeight: 1.4,
-                          }}
+                          style={{ flex: 1, display: "flex", alignItems: "center", gap: 6 }}
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {c.title || t.ask.title}
+                          <input
+                            type="text"
+                            autoFocus
+                            value={editingConvTitle}
+                            onChange={(e) => setEditingConvTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                renameConversation(c.id, editingConvTitle);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditingConvId(null);
+                              }
+                            }}
+                            style={{
+                              flex: 1,
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              fontSize: 12.5,
+                              border: "1px solid var(--aurora-accent)",
+                              background: "var(--aurora-surface-solid)",
+                              color: "var(--aurora-fg1)",
+                              outline: "none",
+                              minWidth: 0,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => renameConversation(c.id, editingConvTitle)}
+                            title="保存"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--aurora-accent)",
+                              cursor: "pointer",
+                              padding: 4,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Icon name="check" size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingConvId(null)}
+                            title="取消"
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--aurora-fg4)",
+                              cursor: "pointer",
+                              padding: 4,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Icon name="close" size={14} />
+                          </button>
                         </div>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            fontSize: 11.5,
-                            color: "var(--aurora-fg4)",
-                            marginTop: 4,
-                          }}
-                        >
-                          <span>{dateStr}</span>
-                          {c.device_id && (
-                            <>
+                      ) : (
+                        <>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 13.5,
+                                fontWeight: isActive ? 600 : 500,
+                                color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                lineHeight: 1.4,
+                              }}
+                            >
+                              {c.title || t.ask.title}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                fontSize: 11.5,
+                                color: "var(--aurora-fg4)",
+                                marginTop: 4,
+                              }}
+                            >
+                              <span>{dateStr}</span>
+                              {c.device_id && (
+                                <>
+                                  <span>·</span>
+                                  <span
+                                    style={{
+                                      padding: "1px 5px",
+                                      borderRadius: 4,
+                                      background: "var(--aurora-chip)",
+                                      fontSize: 10,
+                                      fontFamily: "monospace",
+                                    }}
+                                  >
+                                    {c.device_id.slice(0, 8)}
+                                  </span>
+                                </>
+                              )}
                               <span>·</span>
-                              <span
-                                style={{
-                                  padding: "1px 5px",
-                                  borderRadius: 4,
-                                  background: "var(--aurora-chip)",
-                                  fontSize: 10,
-                                  fontFamily: "monospace",
-                                }}
-                              >
-                                {c.device_id.slice(0, 8)}
-                              </span>
-                            </>
-                          )}
-                          <span>·</span>
-                          <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => deleteConversation(e, c.id)}
-                        title={t.ask.deleteConfirm}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: "var(--aurora-fg4)",
-                          cursor: "pointer",
-                          padding: 6,
-                          borderRadius: 6,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          opacity: 0.6,
-                          transition: "all 0.15s ease",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.color = "#ef4444";
-                          e.currentTarget.style.opacity = "1";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.color = "var(--aurora-fg4)";
-                          e.currentTarget.style.opacity = "0.6";
-                        }}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
+                              <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingConvId(c.id);
+                                setEditingConvTitle(c.title || "");
+                              }}
+                              title={isZh ? "重命名会话" : "Rename"}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--aurora-fg4)",
+                                cursor: "pointer",
+                                padding: 6,
+                                borderRadius: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                opacity: 0.6,
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "var(--aurora-accent)";
+                                e.currentTarget.style.opacity = "1";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = "var(--aurora-fg4)";
+                                e.currentTarget.style.opacity = "0.6";
+                              }}
+                            >
+                              <Icon name="edit" size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => deleteConversation(e, c.id)}
+                              title={t.ask.deleteConfirm}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "var(--aurora-fg4)",
+                                cursor: "pointer",
+                                padding: 6,
+                                borderRadius: 6,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                opacity: 0.6,
+                                transition: "all 0.15s ease",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = "#ef4444";
+                                e.currentTarget.style.opacity = "1";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = "var(--aurora-fg4)";
+                                e.currentTarget.style.opacity = "0.6";
+                              }}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })

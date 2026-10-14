@@ -797,3 +797,57 @@ html, body {
   }
 }
 
+/* =========================================================================
+   Quota Badges — high-contrast & razor-sharp in both light and dark themes
+   ========================================================================= */
+
+.quota-badge-teal {
+  background: rgba(13, 148, 136, 0.12);
+  color: #0F766E;
+  border: 1px solid rgba(13, 148, 136, 0.28);
+}
+html[data-theme="dark"] .quota-badge-teal {
+  background: rgba(45, 212, 191, 0.16);
+  color: #2DD4BF;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+}
+
+.quota-badge-emerald {
+  background: rgba(5, 150, 105, 0.12);
+  color: #047857;
+  border: 1px solid rgba(5, 150, 105, 0.28);
+}
+html[data-theme="dark"] .quota-badge-emerald {
+  background: rgba(52, 211, 153, 0.16);
+  color: #34D399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.quota-badge-amber {
+  background: rgba(217, 119, 6, 0.12);
+  color: #B45309;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+}
+html[data-theme="dark"] .quota-badge-amber {
+  background: rgba(251, 191, 36, 0.16);
+  color: #FBBF24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.quota-badge-blue {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1D4ED8;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+}
+html[data-theme="dark"] .quota-badge-blue {
+  background: rgba(96, 165, 250, 0.16);
+  color: #60A5FA;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+}
+
+.quota-badge-neutral {
+  background: var(--aurora-chip);
+  color: var(--aurora-fg2);
+  border: 1px solid var(--aurora-border-strong);
+}
+

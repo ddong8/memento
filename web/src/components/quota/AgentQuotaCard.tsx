@@ -161,16 +161,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               </div>
             </div>
 
-            <span
-              style={{
-                fontSize: 10.5,
-                padding: "2px 7px",
-                borderRadius: 999,
-                background: "rgba(59, 130, 246, 0.15)",
-                color: "#3B82F6",
-                fontWeight: 600,
-              }}
-            >
+            <span className="quota-badge-blue px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
               {agy?.plan_name || "Google AI Pro"}
             </span>
           </div>
@@ -190,7 +181,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                 style={{
                   height: 6,
                   borderRadius: 999,
-                  background: "rgba(255, 255, 255, 0.08)",
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
                   overflow: "hidden",
                 }}
               >
@@ -239,11 +231,11 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               {expandedAgy && (
                 <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4, maxHeight: "140px", overflowY: "auto" }}>
                   {agy.models.map((m, idx) => (
-                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
-                      <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                      <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>
                         {m.label}
                       </span>
-                      <span style={{ fontWeight: 600, color: (m.remaining_percent ?? 100) > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
+                      <span className="quota-badge-blue px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                         {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "无配额限制")}
                       </span>
                     </div>
@@ -294,16 +286,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               </div>
             </div>
 
-            <span
-              style={{
-                fontSize: 10.5,
-                padding: "2px 7px",
-                borderRadius: 999,
-                background: "rgba(217, 119, 6, 0.15)",
-                color: "#D97706",
-                fontWeight: 600,
-              }}
-            >
+            <span className="quota-badge-amber px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
               {claude?.plan_name || "Claude Pro"}
             </span>
           </div>
@@ -327,7 +310,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
                     {claude.remaining_percent}% 剩余
                   </span>
                 </div>
-                <div style={{ height: 5, borderRadius: 999, background: "rgba(255, 255, 255, 0.08)", overflow: "hidden" }}>
+                <div style={{ height: 5, borderRadius: 999, background: "var(--aurora-chip)", border: "1px solid var(--aurora-border)", overflow: "hidden" }}>
                   <div
                     style={{
                       height: "100%",
@@ -347,9 +330,9 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             {claude?.models && claude.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {claude.models.map((m, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
-                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 600, color: "var(--aurora-accent)" }}>
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>{m.label}</span>
+                    <span className="quota-badge-amber px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                       {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "可用")}
                     </span>
                   </div>
@@ -399,16 +382,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               </div>
             </div>
 
-            <span
-              style={{
-                fontSize: 10.5,
-                padding: "2px 7px",
-                borderRadius: 999,
-                background: "rgba(16, 185, 129, 0.15)",
-                color: "#10B981",
-                fontWeight: 600,
-              }}
-            >
+            <span className="quota-badge-emerald px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
               {codex?.plan_name || "ChatGPT Plus"}
             </span>
           </div>
@@ -424,18 +398,18 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span>订阅计划</span>
               <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{codex?.tier || "PLUS"}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: "var(--aurora-fg3)" }}>
               <span>限额机制</span>
-              <span style={{ color: "#10B981", fontWeight: 500 }}>
+              <span className="quota-badge-emerald px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                 {codex?.quota_type === "token_payg" ? "API Key 结算" : (codex?.tier === "FREE" ? "动态队列" : "Plus 动态速率")}
               </span>
             </div>
             {codex?.models && codex.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {codex.models.map((m, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
-                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 500, color: "#10B981" }}>
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>{m.label}</span>
+                    <span className="quota-badge-emerald px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                       {m.status_text || "Plus 动态保障"}
                     </span>
                   </div>
@@ -485,16 +459,7 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               </div>
             </div>
 
-            <span
-              style={{
-                fontSize: 10.5,
-                padding: "2px 7px",
-                borderRadius: 999,
-                background: "rgba(14, 199, 168, 0.15)",
-                color: "#0EC7A8",
-                fontWeight: 600,
-              }}
-            >
+            <span className="quota-badge-teal px-2 py-0.5 rounded-full text-[10.5px] font-semibold">
               {workbuddy?.plan_name || "WorkBuddy"}
             </span>
           </div>
@@ -510,18 +475,18 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
               <span>订阅计划</span>
               <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>{workbuddy?.tier || "CN"}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", color: "var(--aurora-fg3)" }}>
               <span>连接状态</span>
-              <span style={{ color: "#0EC7A8", fontWeight: 500 }}>
+              <span className="quota-badge-teal px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                 {workbuddy?.details?.gateway_online ? "网关在线" : "账号凭据正常"}
               </span>
             </div>
             {workbuddy?.models && workbuddy.models.length > 0 && (
               <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
                 {workbuddy.models.map((m, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--aurora-fg3)" }}>
-                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.label}</span>
-                    <span style={{ fontWeight: 500, color: "#0EC7A8" }}>
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
+                    <span style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>{m.label}</span>
+                    <span className="quota-badge-teal px-1.5 py-0.5 rounded text-[10.5px] font-semibold">
                       {m.status_text || "免费额度可用"}
                     </span>
                   </div>

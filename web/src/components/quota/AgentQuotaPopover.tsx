@@ -34,24 +34,24 @@ function formatRelativeReset(isoStr?: string | null): string {
 function getQuotaColor(percent?: number | null): { text: string; gradient: string } {
   if (percent == null) {
     return {
-      text: "var(--aurora-fg3)",
+      text: "var(--aurora-fg2)",
       gradient: "linear-gradient(90deg, #64748B, #94A3B8)",
     };
   }
   if (percent <= 15) {
     return {
-      text: "#EF4444",
+      text: "#DC2626",
       gradient: "linear-gradient(90deg, #EF4444, #DC2626)",
     };
   }
   if (percent <= 35) {
     return {
-      text: "#F59E0B",
+      text: "#D97706",
       gradient: "linear-gradient(90deg, #F59E0B, #D97706)",
     };
   }
   return {
-    text: "var(--aurora-accent, #38BDF8)",
+    text: "var(--aurora-accent, #6D28D9)",
     gradient: "linear-gradient(90deg, #38BDF8, #818CF8)",
   };
 }
@@ -276,16 +276,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    background: "rgba(59, 130, 246, 0.15)",
-                    color: "#3B82F6",
-                    fontWeight: 600,
-                  }}
-                >
+                <span className="quota-badge-blue px-2 py-0.5 rounded-full text-[11px] font-semibold">
                   {agy?.plan_name || "Google AI Pro"}
                 </span>
                 <span
@@ -337,7 +328,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     style={{
                       height: 7,
                       borderRadius: 999,
-                      background: "rgba(255, 255, 255, 0.08)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       overflow: "hidden",
                     }}
                   >
@@ -369,18 +361,19 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   gap: 8,
                   padding: "8px 10px",
                   borderRadius: 8,
-                  background: "rgba(0, 0, 0, 0.12)",
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>Prompt Credits</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                  <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>Prompt Credits</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     {agy.details.available_prompt_credits ?? "-"} / {agy.details.monthly_prompt_credits ?? "-"}
                   </span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>Flow Credits</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg2)" }}>
+                  <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>Flow Credits</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     {agy.details.available_flow_credits ?? "-"} / {agy.details.monthly_flow_credits ?? "-"}
                   </span>
                 </div>
@@ -418,13 +411,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       gap: 6,
                       padding: "8px 10px",
                       borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.15)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       maxHeight: "180px",
                       overflowY: "auto",
                     }}
                   >
                     {agy.models.map((m, idx) => {
-                      const mc = getQuotaColor(m.remaining_percent);
                       return (
                         <div
                           key={idx}
@@ -433,19 +426,19 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                             alignItems: "center",
                             justifyContent: "space-between",
                             fontSize: 11.5,
-                            padding: "2px 0",
+                            padding: "3px 0",
                           }}
                         >
-                          <span style={{ color: "var(--aurora-fg2)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
+                          <span style={{ color: "var(--aurora-fg1)", fontWeight: 500, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap", maxWidth: "260px" }}>
                             {m.label}
                           </span>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             {m.remaining_percent != null ? (
-                              <span style={{ fontWeight: 600, color: mc.text }}>
+                              <span className="quota-badge-blue px-2 py-0.5 rounded text-[11px] font-semibold">
                                 {m.status_text || `${m.remaining_percent}%`}
                               </span>
                             ) : (
-                              <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>
+                              <span className="quota-badge-neutral px-2 py-0.5 rounded text-[10.5px] font-medium">
                                 {m.status_text || "无配额限制"}
                               </span>
                             )}
@@ -503,16 +496,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    background: "rgba(217, 119, 6, 0.15)",
-                    color: "#D97706",
-                    fontWeight: 600,
-                  }}
-                >
+                <span className="quota-badge-amber px-2 py-0.5 rounded-full text-[11px] font-semibold">
                   {claude?.plan_name || "Claude Pro"}
                 </span>
                 <span
@@ -590,11 +574,12 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                           gap: 8,
                           padding: "10px 12px",
                           borderRadius: 10,
-                          background: "rgba(0, 0, 0, 0.14)",
+                          background: "var(--aurora-chip)",
+                          border: "1px solid var(--aurora-border)",
                         }}
                       >
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                          <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>7天滑动窗口 (周额度)</span>
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>7天滑动窗口 (周额度)</span>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                             <span style={{ fontSize: 13, fontWeight: 700, color: sevenDay != null && sevenDay > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
                               {sevenDay != null ? `已用 ${sevenDay}%` : "-"}
@@ -606,14 +591,14 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                             )}
                           </div>
                           {claude.details?.seven_day_resets_at && (
-                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
                               ⏳ {formatRelativeReset(claude.details.seven_day_resets_at)}
                             </span>
                           )}
                         </div>
 
                         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                          <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>5小时会话窗口 (速率)</span>
+                          <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>5小时会话窗口 (速率)</span>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                             <span style={{ fontSize: 13, fontWeight: 700, color: fiveHour != null && fiveHour > 85 ? "#EF4444" : "var(--aurora-fg1)" }}>
                               {fiveHour != null ? `已用 ${fiveHour}%` : "-"}
@@ -625,7 +610,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                             )}
                           </div>
                           {claude.details?.five_hour_resets_at && (
-                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+                            <span style={{ fontSize: 10.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
                               ⏳ {formatRelativeReset(claude.details.five_hour_resets_at)}
                             </span>
                           )}
@@ -644,7 +629,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                           style={{
                             height: 7,
                             borderRadius: 999,
-                            background: "rgba(255, 255, 255, 0.08)",
+                            background: "var(--aurora-chip)",
+                            border: "1px solid var(--aurora-border)",
                             overflow: "hidden",
                           }}
                         >
@@ -666,7 +652,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                     style={{
                       padding: "10px 12px",
                       borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.12)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       display: "flex",
                       flexDirection: "column",
                       gap: 4,
@@ -674,11 +661,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
                       <span style={{ color: "var(--aurora-fg3)" }}>限流机制</span>
-                      <span style={{ fontWeight: 600, color: "#22C55E" }}>
+                      <span style={{ fontWeight: 600, color: "#D97706" }}>
                         {claude.quota_type === "token_payg" ? "API Key 按量计费" : "动态滑动窗口"}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+                    <div style={{ fontSize: 11.5, color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                       {claude.quota_desc || "Claude 订阅根据官方动态队列与滑动速率轮转。"}
                     </div>
                   </div>
@@ -717,16 +704,16 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       gap: 6,
                       padding: "8px 10px",
                       borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.15)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       maxHeight: "180px",
                       overflowY: "auto",
                     }}
                   >
-                    <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)", paddingBottom: 4, borderBottom: "1px dashed var(--aurora-border)" }}>
+                    <div style={{ fontSize: 10.5, color: "var(--aurora-fg3)", paddingBottom: 4, borderBottom: "1px dashed var(--aurora-border)" }}>
                       所有模型共享 Anthropic Pro 滑动窗口配额
                     </div>
                     {claude.models.map((m, idx) => {
-                      const mc = getQuotaColor(m.remaining_percent);
                       return (
                         <div
                           key={idx}
@@ -735,11 +722,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                             alignItems: "center",
                             justifyContent: "space-between",
                             fontSize: 11.5,
-                            padding: "2px 0",
+                            padding: "3px 0",
                           }}
                         >
-                          <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                          <span style={{ fontWeight: 600, color: m.remaining_percent != null ? mc.text : "var(--aurora-fg3)" }}>
+                          <span style={{ color: "var(--aurora-fg1)", fontWeight: 500 }}>{m.label}</span>
+                          <span className="quota-badge-amber px-2 py-0.5 rounded text-[11px] font-semibold">
                             {m.status_text || (m.remaining_percent != null ? `${m.remaining_percent}%` : "可用")}
                           </span>
                         </div>
@@ -795,16 +782,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    background: "rgba(16, 185, 129, 0.15)",
-                    color: "#10B981",
-                    fontWeight: 600,
-                  }}
-                >
+                <span className="quota-badge-emerald px-2 py-0.5 rounded-full text-[11px] font-semibold">
                   {codex?.plan_name || "ChatGPT Plus"}
                 </span>
                 <span
@@ -844,7 +822,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                 style={{
                   padding: "10px 12px",
                   borderRadius: 8,
-                  background: "rgba(0, 0, 0, 0.12)",
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
                   display: "flex",
                   flexDirection: "column",
                   gap: 6,
@@ -852,13 +831,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
                   <span style={{ color: "var(--aurora-fg3)" }}>额度计算机制</span>
-                  <span style={{ fontWeight: 600, color: "#10B981" }}>
+                  <span className="quota-badge-emerald px-2 py-0.5 rounded text-[11px] font-semibold">
                     {codex.quota_type === "token_payg"
                       ? "API Key 按量扣费"
                       : (codex.tier === "FREE" ? "动态队列 (Free)" : "Plus 动态滑动限流")}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 11.5, color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                   {codex.quota_desc || "ChatGPT Plus 依据 3 小时滑动窗口频次动态限流，不设单一百分比电池池，全模型均受 Plus 通道保障。"}
                 </div>
               </div>
@@ -895,7 +874,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       gap: 6,
                       padding: "8px 10px",
                       borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.15)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       maxHeight: "180px",
                       overflowY: "auto",
                     }}
@@ -908,12 +888,12 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                           alignItems: "center",
                           justifyContent: "space-between",
                           fontSize: 11.5,
-                          padding: "2px 0",
+                          padding: "3px 0",
                         }}
                       >
-                        <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
+                        <span style={{ color: "var(--aurora-fg1)", fontWeight: 500 }}>{m.label}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(16, 185, 129, 0.12)", color: "#10B981", fontWeight: 500 }}>
+                          <span className="quota-badge-emerald px-2 py-0.5 rounded text-[11px] font-semibold">
                             {m.status_text || "Plus 动态保障"}
                           </span>
                         </div>
@@ -971,16 +951,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    background: "rgba(14, 199, 168, 0.15)",
-                    color: "#0EC7A8",
-                    fontWeight: 600,
-                  }}
-                >
+                <span className="quota-badge-teal px-2 py-0.5 rounded-full text-[11px] font-semibold">
                   {workbuddy?.plan_name || "WorkBuddy"}
                 </span>
                 <span
@@ -1018,7 +989,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                 style={{
                   padding: "10px 12px",
                   borderRadius: 8,
-                  background: "rgba(0, 0, 0, 0.12)",
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
                   display: "flex",
                   flexDirection: "column",
                   gap: 6,
@@ -1026,11 +998,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
                   <span style={{ color: "var(--aurora-fg3)" }}>本地网关与额度</span>
-                  <span style={{ fontWeight: 600, color: "#0EC7A8" }}>
+                  <span className="quota-badge-teal px-2 py-0.5 rounded text-[11px] font-semibold">
                     {(workbuddy.details?.gateway_online || workbuddy.details?.gateway_alive) ? "ACP 网关在线" : (workbuddy.plan_name || "WorkBuddy 个人版")}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--aurora-fg4)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 11.5, color: "var(--aurora-fg2)", lineHeight: 1.5 }}>
                   {workbuddy.quota_desc || "WorkBuddy 个人版支持免费动态调用，自定义模型通过本地端点直连。"}
                 </div>
               </div>
@@ -1066,7 +1038,8 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                       gap: 6,
                       padding: "8px 10px",
                       borderRadius: 8,
-                      background: "rgba(0, 0, 0, 0.15)",
+                      background: "var(--aurora-chip)",
+                      border: "1px solid var(--aurora-border)",
                       maxHeight: "180px",
                       overflowY: "auto",
                     }}
@@ -1079,11 +1052,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
                           alignItems: "center",
                           justifyContent: "space-between",
                           fontSize: 11.5,
-                          padding: "2px 0",
+                          padding: "3px 0",
                         }}
                       >
-                        <span style={{ color: "var(--aurora-fg2)" }}>{m.label}</span>
-                        <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(14, 199, 168, 0.12)", color: "#0EC7A8", fontWeight: 500 }}>
+                        <span style={{ color: "var(--aurora-fg1)", fontWeight: 500 }}>{m.label}</span>
+                        <span className="quota-badge-teal px-2 py-0.5 rounded text-[11px] font-semibold">
                           {m.status_text || "免费额度可用"}
                         </span>
                       </div>
@@ -1099,13 +1072,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
         <div
           style={{
             padding: "10px 20px",
-            background: "rgba(0, 0, 0, 0.1)",
+            background: "var(--aurora-chip)",
             borderTop: "1px solid var(--aurora-border)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             fontSize: 11,
-            color: "var(--aurora-fg4)",
+            color: "var(--aurora-fg3)",
           }}
         >
           <span>数据来源：设备驻留探测进程与语言服务实时接口</span>

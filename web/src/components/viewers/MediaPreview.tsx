@@ -111,6 +111,8 @@ export function isLocalFilePath(url: string | null | undefined): boolean {
     if (
       decoded.startsWith("/api/") ||
       decoded.startsWith("/auth/") ||
+      decoded.startsWith("/artifacts/") ||
+      decoded.startsWith("/documents/") ||
       decoded.startsWith("/models/") ||
       decoded.startsWith("/icons/") ||
       decoded.startsWith("/static/") ||
@@ -126,6 +128,7 @@ export function isLocalFilePath(url: string | null | undefined): boolean {
     const lastPart = decoded.slice(lastSlash + 1);
     if (lastSlash > 0 && /\.[a-zA-Z0-9]{2,5}$/.test(lastPart)) {
       if (
+        !decoded.startsWith("/artifacts/") &&
         !decoded.startsWith("/documents/") &&
         !decoded.startsWith("/notes/") &&
         !decoded.startsWith("/ask/") &&

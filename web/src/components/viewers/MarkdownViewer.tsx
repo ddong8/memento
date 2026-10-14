@@ -285,26 +285,51 @@ const MarkdownViewer = memo(function MarkdownViewer({
                  inspector.activeMedia.title === label)
               );
 
+              if (!inspector) {
+                return (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                    {...props}
+                  >
+                    📄 {label} ↗
+                  </a>
+                );
+              }
+
               return (
-                <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)] shadow-sm">
-                  <span className="text-amber-400 font-semibold text-sm">📄</span>
-                  <span className="font-medium truncate max-w-[260px]" title={label}>{label}</span>
-                  {isCurrentlyInspected && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
-                      已在右侧视窗展示
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    inspector?.openMediaByUrl(href, label);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      inspector?.openMediaByUrl(href, label);
+                    }
+                  }}
+                  className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md cursor-pointer select-none group/doc"
+                  title="点击在右侧工作台独立视窗中打开预览"
+                >
+                  <span className="text-amber-400 font-semibold text-sm shrink-0">📄</span>
+                  <span className="font-semibold truncate max-w-[260px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
+                    {label}
+                  </span>
+                  {isCurrentlyInspected ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
+                      已在工作台打开
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5">
+                      在工作台预览 ↗
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      inspector?.openMediaByUrl(href, label);
-                    }}
-                    className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
-                  >
-                    {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧工作台预览 ↗"}
-                  </button>
                 </div>
               );
             }

@@ -102,6 +102,50 @@ function PreBlock({ children, ...props }: any) {
   );
 }
 
+function StatusStepItem({ icon, text }: { icon: string; text: string }) {
+  let badgeStyle = "border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-[var(--aurora-fg2)]";
+  let iconStyle = "text-[var(--aurora-fg3)]";
+
+  if (icon === "⚡") {
+    badgeStyle = "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300";
+    iconStyle = "text-amber-500 dark:text-amber-400";
+  } else if (icon === "⏳") {
+    badgeStyle = "border-cyan-500/30 bg-cyan-500/10 text-cyan-900 dark:text-cyan-300";
+    iconStyle = "text-cyan-500 dark:text-cyan-400 animate-pulse";
+  } else if (icon === "✅") {
+    badgeStyle = "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
+    iconStyle = "text-emerald-500 dark:text-emerald-400";
+  } else if (icon === "⏹️") {
+    badgeStyle = "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300";
+    iconStyle = "text-slate-400";
+  } else if (icon === "❌") {
+    badgeStyle = "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300";
+    iconStyle = "text-rose-500 dark:text-rose-400";
+  }
+
+  return (
+    <div className="not-prose my-1.5 flex items-center">
+      <div
+        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-md border text-xs font-mono max-w-full ${badgeStyle} shadow-xs select-none`}
+        title={text}
+      >
+        <span className={`shrink-0 text-[13px] ${iconStyle} leading-none`}>{icon}</span>
+        <span className="truncate max-w-[620px] font-medium leading-relaxed">{text}</span>
+      </div>
+    </div>
+  );
+}
+
+function extractPlainText(children: any): string {
+  if (children == null) return "";
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(extractPlainText).join("");
+  if (typeof children === "object" && children.props?.children) {
+    return extractPlainText(children.props.children);
+  }
+  return "";
+}
+
 export function normalizeMarkdownContent(content: string): string {
   if (!content) return "";
 
@@ -128,13 +172,43 @@ export function normalizeMarkdownContent(content: string): string {
         }
       );
 
-      // 3. 规范化执行步骤指示行 (⚡ [xxx] 或 [Checking/Verifying/Deploying xxx]) 为高亮引用块
+      // 3. 剥离执行步骤行前误加的 blockquote 引用符 "> "
+      text = text.replace(/(^|\n)[ \t]*>[ \t]*(?=(?:⚡|⏳|✅|⏹️|❌)\s*\[)/g, "$1");
+
+      // 4. 将被连在同一行或紧邻的执行步骤/思考进度标记切分为独立段落（强制独立换行）
+      // 例如 "⚡ [Action] ⏳ [Thinking...]" -> 强制拆成独立段落，彻底消除横向粘连
       text = text.replace(
-        /(^|\n)(⚡\s*\[[^\]]+\][^\n]*|\[(?:Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\][^\n]*)/gi,
-        "$1> $2"
+        /((?:⚡|⏳|✅|⏹️|❌)\s*\[[^\]]+\]|\[(?:Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\])/g,
+        "\n\n$1\n\n"
       );
 
-      return text;
+      // 5. 规范化连续换行
+      text = text.replace(/\n{3,}/g, "\n\n");
+
+      // 6. 执行进度与保活心跳去重：消除连续刷屏的重复心跳（如重复的 "⏳ [后台任务 ... 执行中]"）
+      const lines = text.split("\n");
+      const filteredLines: string[] = [];
+      let lastHeartbeatTask = "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        // 匹配类似: ⏳ [后台任务 task-30627 执行中，请稍候...] 或 ⏳ [模型思考推理中（已用时 25s），请稍候...]
+        const hbMatch = trimmed.match(/^⏳\s*\[(?:后台任务\s+(\S+)\s+执行中|模型思考推理中)/);
+        if (hbMatch) {
+          const taskKey = hbMatch[1] || "thinking";
+          if (taskKey === lastHeartbeatTask) {
+            // 连续出现相同任务/思考的心跳提示，只保留最新的一条，杜绝横向或纵向刷屏
+            filteredLines[filteredLines.length - 1] = line;
+            continue;
+          }
+          lastHeartbeatTask = taskKey;
+        } else if (trimmed) {
+          lastHeartbeatTask = "";
+        }
+        filteredLines.push(line);
+      }
+
+      return filteredLines.join("\n");
     })
     .join("");
 }
@@ -342,14 +416,21 @@ const MarkdownViewer = memo(function MarkdownViewer({
               </a>
             );
           },
-          blockquote: ({ node, children, ...props }: any) => (
-            <blockquote
-              className="w-full box-border my-2.5 border-l-4 border-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] px-3.5 py-2 rounded-r-lg text-[var(--aurora-fg2)]"
-              {...props}
-            >
-              {children}
-            </blockquote>
-          ),
+          blockquote: ({ node, children, ...props }: any) => {
+            const text = extractPlainText(children).trim();
+            // 如果引用块内部实际上是执行状态或进度提示，直接展开子元素，不再嵌套大块紫色引用框
+            if (/^(?:⚡|⏳|✅|⏹️|❌)/.test(text)) {
+              return <div className="my-1">{children}</div>;
+            }
+            return (
+              <blockquote
+                className="w-full box-border my-2.5 border-l-4 border-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] px-3.5 py-2 rounded-r-lg text-[var(--aurora-fg2)]"
+                {...props}
+              >
+                {children}
+              </blockquote>
+            );
+          },
           code: ({ node, className, children, ...props }: any) => {
             const isCodeBlock = Boolean(className && (className.includes("hljs") || className.includes("language-")));
             if (isCodeBlock) {
@@ -398,11 +479,23 @@ const MarkdownViewer = memo(function MarkdownViewer({
               {children}
             </h6>
           ),
-          p: ({ node, children, ...props }: any) => (
-            <p className={compactText ? "text-[12px] leading-relaxed my-1 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]" : "text-[13.5px] leading-relaxed my-1.5 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]"} {...props}>
-              {children}
-            </p>
-          ),
+          p: ({ node, children, ...props }: any) => {
+            const textContent = extractPlainText(children).trim();
+            const statusMatch = textContent.match(/^(⚡|⏳|✅|⏹️|❌)\s*(?:\[([^\]]+)\]|(.*))$/);
+            if (statusMatch && (statusMatch[2] || statusMatch[3])) {
+              const icon = statusMatch[1];
+              const text = (statusMatch[2] || statusMatch[3]).trim();
+              if (text.length > 0 && text.length < 240) {
+                return <StatusStepItem icon={icon} text={text} />;
+              }
+            }
+
+            return (
+              <p className={compactText ? "text-[12px] leading-relaxed my-1 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]" : "text-[13.5px] leading-relaxed my-1.5 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]"} {...props}>
+                {children}
+              </p>
+            );
+          },
           ul: ({ node, children, ...props }: any) => (
             <ul className={compactText ? "list-disc pl-4 my-1 space-y-0.5 text-[12px]" : "list-disc pl-5 my-1.5 space-y-1 text-[13.5px]"} {...props}>
               {children}

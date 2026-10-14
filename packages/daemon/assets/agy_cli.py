@@ -377,20 +377,20 @@ def main():
                 # 周期性保活心跳与状态提示
                 if idle_count > 0 and idle_count % 125 == 0:  # 每 25 秒输出一次心跳
                     if state.get("waiting_user_input"):
-                        sys.stdout.write("⏳ [等待用户选择或回复中...]\n")
+                        sys.stdout.write("\n\n⏳ [等待用户选择或回复中...]\n\n")
                         sys.stdout.flush()
                     elif state.get("in_flight_tools"):
                         tool_names = ", ".join(state["in_flight_tools"])
                         el_sec = int(time.time() - state["tool_start_time"]) if state.get("tool_start_time") else int(idle_count * 0.2)
-                        sys.stdout.write(f"⏳ [工具 {tool_names} 持续执行中（已运行 {el_sec}s），请稍候...]\n")
+                        sys.stdout.write(f"\n\n⏳ [工具 {tool_names} 持续执行中（已运行 {el_sec}s），请稍候...]\n\n")
                         sys.stdout.flush()
                     elif active_background_tasks:
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                        sys.stdout.write(f"⏳ [后台任务 {tid_names} 执行中，请稍候...]\n")
+                        sys.stdout.write(f"\n\n⏳ [后台任务 {tid_names} 执行中，请稍候...]\n\n")
                         sys.stdout.flush()
                     else:
                         el_sec = int(idle_count * 0.2)
-                        sys.stdout.write(f"⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n")
+                        sys.stdout.write(f"\n\n⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n\n")
                         sys.stdout.flush()
 
                 # 静默超过 20 秒后，每 10 秒探测 Antigravity 语言服务器存活状态
@@ -617,7 +617,7 @@ def main():
                         action = tc_args.get("toolAction") or tc_args.get("toolSummary") or tc_name
                         if isinstance(action, str):
                             action = action.strip('"\'')
-                        sys.stdout.write(f"\n⚡ [{action}]\n")
+                        sys.stdout.write(f"\n\n⚡ [{action}]\n\n")
                         sys.stdout.flush()
 
                 # Render assistant content

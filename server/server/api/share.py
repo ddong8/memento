@@ -599,11 +599,26 @@ async def get_public_share_data(
             if cid in ask_map:
                 c = ask_map[cid]
                 raw_turns = c.turns if isinstance(c.turns, list) else []
+                # Fallback recovery: if link.title has a prompt excerpt and turn_indices are small relative to a long conversation,
+                # resolve to the matching turn in the conversation tail.
+                effective_indices = turn_indices
+                if turn_indices is not None and len(raw_turns) > 100 and link.title and "提问：" in link.title:
+                    target_prompt = link.title.split("提问：", 1)[1].strip().rstrip("...")[:24]
+                    if target_prompt:
+                        for s_idx in range(len(raw_turns) - 1, max(-1, len(raw_turns) - 150), -1):
+                            s_content = (raw_turns[s_idx].get("content") or "")
+                            if target_prompt in s_content:
+                                if len(turn_indices) == 2 and turn_indices[1] == turn_indices[0] + 1:
+                                    effective_indices = [s_idx, s_idx + 1]
+                                else:
+                                    effective_indices = [s_idx]
+                                break
+
                 # If specific turn indices are requested, filter them
-                if turn_indices is not None:
+                if effective_indices is not None:
                     indexed_raw = [
                         (idx, t) for idx, t in enumerate(raw_turns)
-                        if idx in turn_indices and isinstance(t, dict)
+                        if idx in effective_indices and isinstance(t, dict)
                     ]
                 else:
                     indexed_raw = [

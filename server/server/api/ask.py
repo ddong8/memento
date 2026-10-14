@@ -1635,13 +1635,14 @@ def _fix_iso_timestamp(val: Any) -> str | None:
     return s
 
 
-def _sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = None) -> list[dict]:
-    """Strip bloated duplicate inlined base64 images from tool_calls args, compress oversized user images, and ensure turn timestamps."""
+def _sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = None, start_index: int = 0) -> list[dict]:
+    """Strip bloated duplicate inlined base64 images from tool_calls args, compress oversized user images, and ensure turn timestamps and absolute indices."""
     sanitized = []
     prev_user_ts: str | None = None
     fixed_fallback = _fix_iso_timestamp(fallback_iso)
-    for t in turns:
+    for i, t in enumerate(turns):
         t_copy = dict(t)
+        t_copy["index"] = start_index + i
         if t_copy.get("created_at"):
             t_copy["created_at"] = _fix_iso_timestamp(t_copy.get("created_at"))
         elif fixed_fallback:
@@ -1917,12 +1918,14 @@ async def get_conversation(
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
     if limit > 0 and len(raw_turns) > limit:
+        offset = len(raw_turns) - limit
         sliced_raw = raw_turns[-limit:]
         has_more = True
     else:
+        offset = 0
         sliced_raw = raw_turns
         has_more = False
-    conv_turns = _sanitize_turns_for_response(sliced_raw, fallback_iso=updated_at_iso or created_at_iso)
+    conv_turns = _sanitize_turns_for_response(sliced_raw, fallback_iso=updated_at_iso or created_at_iso, start_index=offset)
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "private, no-cache"

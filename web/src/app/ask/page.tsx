@@ -4425,6 +4425,15 @@ function AskPageContent() {
     return raw || t.ask.title;
   }, [activeConversation?.title, turns, t.ask.title]);
 
+  const getTurnAbsIndex = useCallback((localIdx: number) => {
+    const t = turns[localIdx] as any;
+    if (t && typeof t.index === "number") {
+      return t.index;
+    }
+    const baseOffset = totalTurns > turns.length ? totalTurns - turns.length : 0;
+    return baseOffset + localIdx;
+  }, [turns, totalTurns]);
+
   const toggleSelectTurn = useCallback((index: number) => {
     setSelectedTurnIndices((prev) =>
       prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
@@ -4434,19 +4443,21 @@ function AskPageContent() {
   const handleShareSelectedTurns = useCallback(() => {
     if (!activeConversationId || selectedTurnIndices.length === 0) return;
     const sorted = [...selectedTurnIndices].sort((a, b) => a - b);
-    const targetId = `${activeConversationId}:${sorted.join(",")}`;
+    const absIndices = sorted.map(getTurnAbsIndex);
+    const targetId = `${activeConversationId}:${absIndices.join(",")}`;
     const shareTitle = `${displayConvTitle} · 精选 (${sorted.length} 条消息)`;
     setShareTargetId(targetId);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, selectedTurnIndices, displayConvTitle]);
+  }, [activeConversationId, selectedTurnIndices, displayConvTitle, getTurnAbsIndex]);
 
   const handleShareAssistantTurn = useCallback((assistantIndex: number) => {
     if (!activeConversationId) return;
-    const turnIndices =
+    const localIndices =
       assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
         ? [assistantIndex - 1, assistantIndex]
         : [assistantIndex];
+    const turnIndices = localIndices.map(getTurnAbsIndex);
     const questionTurn =
       assistantIndex > 0 && turns[assistantIndex - 1]?.role === "user"
         ? turns[assistantIndex - 1]
@@ -4456,20 +4467,21 @@ function AskPageContent() {
     setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, turns, displayConvTitle]);
+  }, [activeConversationId, turns, displayConvTitle, getTurnAbsIndex]);
 
   const handleShareUserTurn = useCallback((userIndex: number) => {
     if (!activeConversationId) return;
-    const turnIndices =
+    const localIndices =
       userIndex + 1 < turns.length && turns[userIndex + 1]?.role === "assistant"
         ? [userIndex, userIndex + 1]
         : [userIndex];
+    const turnIndices = localIndices.map(getTurnAbsIndex);
     const excerpt = turns[userIndex].content.trim().slice(0, 36) || "问答";
     const shareTitle = `${displayConvTitle} · 提问：${excerpt}${turns[userIndex].content.trim().length > 36 ? "..." : ""}`;
     setShareTargetId(`${activeConversationId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
     setShareModalOpen(true);
-  }, [activeConversationId, turns, displayConvTitle]);
+  }, [activeConversationId, turns, displayConvTitle, getTurnAbsIndex]);
 
   const renderedTurns = useMemo(() => {
     const eagerThreshold = Math.max(0, turns.length - 4);

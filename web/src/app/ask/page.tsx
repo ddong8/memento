@@ -4492,15 +4492,9 @@ function AskPageContent() {
                   if (percent != null) {
                     return (
                       <span
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 700,
-                          padding: "1px 5px",
-                          borderRadius: 999,
-                          background: "rgba(56, 189, 248, 0.15)",
-                          color: "#38BDF8",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
+                        className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full tabular-nums ${
+                          percent > 30 ? "quota-badge-teal" : "quota-badge-amber"
+                        }`}
                       >
                         {Math.round(percent)}%
                       </span>
@@ -4508,30 +4502,16 @@ function AskPageContent() {
                   }
                   if (targetTool?.tier) {
                     return (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: "1px 5px",
-                          borderRadius: 999,
-                          background: "rgba(99, 102, 241, 0.15)",
-                          color: "var(--aurora-accent)",
-                        }}
-                      >
+                      <span className="quota-badge-neutral text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                         {targetTool.tier}
                       </span>
                     );
                   }
                   return (
                     <span
-                      style={{
-                        fontSize: 10.5,
-                        fontWeight: 600,
-                        padding: "1px 5px",
-                        borderRadius: 999,
-                        background: targetTool?.available ? "rgba(34, 197, 94, 0.15)" : "rgba(255, 255, 255, 0.08)",
-                        color: targetTool?.available ? "#22C55E" : "var(--aurora-fg3)",
-                      }}
+                      className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${
+                        targetTool?.available ? "quota-badge-emerald" : "quota-badge-neutral"
+                      }`}
                     >
                       {targetTool?.available ? "可用" : "未启动"}
                     </span>
@@ -4893,9 +4873,10 @@ function AskPageContent() {
                             style={{
                               fontSize: 10,
                               fontWeight: 700,
-                              padding: "0 4px",
+                              padding: "0 5px",
                               borderRadius: 4,
-                              background: "rgba(0, 0, 0, 0.16)",
+                              background: "var(--aurora-chip)",
+                              border: "1px solid var(--aurora-border)",
                               color: modeQuota.percent != null && modeQuota.percent < 30 ? "#F59E0B" : "inherit",
                               fontVariantNumeric: "tabular-nums",
                             }}
@@ -5191,8 +5172,9 @@ function AskPageContent() {
                                 fontWeight: 600,
                                 padding: "1px 5px",
                                 borderRadius: 6,
-                                background: isSelected ? "rgba(0, 0, 0, 0.25)" : "var(--aurora-surface)",
-                                color: isSelected ? m.color : "var(--aurora-fg3)",
+                                background: isSelected ? "var(--aurora-card)" : "var(--aurora-surface)",
+                                border: "1px solid var(--aurora-border)",
+                                color: isSelected ? "var(--aurora-fg1)" : "var(--aurora-fg3)",
                               }}
                             >
                               {qSummary.label}
@@ -6310,6 +6292,8 @@ function AskPageContent() {
         isOpen={quotaOpen}
         onClose={() => setQuotaOpen(false)}
         deviceId={selectedDevice}
+        initialData={quotasData}
+        onDataChange={setQuotasData}
       />
 
       {/* History Drawer Overlay & Sidebar */}

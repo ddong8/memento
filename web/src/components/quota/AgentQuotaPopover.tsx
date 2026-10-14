@@ -10,6 +10,8 @@ interface AgentQuotaPopoverProps {
   deviceId?: string;
   isOpen: boolean;
   onClose: () => void;
+  initialData?: AgentQuotasResponse | null;
+  onDataChange?: (data: AgentQuotasResponse) => void;
 }
 
 function formatRelativeReset(isoStr?: string | null): string {
@@ -56,8 +58,8 @@ function getQuotaColor(percent?: number | null): { text: string; gradient: strin
   };
 }
 
-export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopoverProps) {
-  const [data, setData] = useState<AgentQuotasResponse | null>(null);
+export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDataChange }: AgentQuotaPopoverProps) {
+  const [data, setData] = useState<AgentQuotasResponse | null>(initialData || null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedAgy, setExpandedAgy] = useState(true);
@@ -66,10 +68,38 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
   const [expandedWorkbuddy, setExpandedWorkbuddy] = useState(false);
   const [, startTransition] = useTransition();
 
+  // Sync initialData if provided from parent
+  useEffect(() => {
+    if (initialData && !data) {
+      setData(initialData);
+    }
+  }, [initialData]);
+
+  // Support closing dialog via ESC key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const allExpanded = expandedAgy && expandedClaude && expandedCodex && expandedWorkbuddy;
+  const toggleAll = () => {
+    const next = !allExpanded;
+    setExpandedAgy(next);
+    setExpandedClaude(next);
+    setExpandedCodex(next);
+    setExpandedWorkbuddy(next);
+  };
+
   const loadQuotas = async (forceRefresh = false) => {
     try {
       if (forceRefresh) setRefreshing(true);
-      else setLoading(true);
+      else if (!data) setLoading(true);
 
       const res = forceRefresh
         ? await api.refreshAgentQuotas(deviceId)
@@ -77,6 +107,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
 
       startTransition(() => {
         setData(res);
+        onDataChange?.(res);
       });
     } catch (e) {
       console.error("Failed to load agent quotas:", e);
@@ -181,6 +212,28 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
               type="button"
+              onClick={toggleAll}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "6px 10px",
+                borderRadius: 8,
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                color: "var(--aurora-fg2)",
+                fontSize: 12,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+              title={allExpanded ? "收起所有模型的子配额明细" : "展开所有模型的子配额明细"}
+            >
+              <Icon name={allExpanded ? "chevron_up" : "chevron_down"} size={12} />
+              <span className="hidden sm:inline">{allExpanded ? "全部收起" : "展开全部"}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => loadQuotas(true)}
               disabled={refreshing || loading}
               style={{
@@ -230,8 +283,43 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
           </div>
         </div>
 
-        {/* Content list */}
-        <div style={{ padding: "16px 20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* Content list or Skeleton */}
+        {loading && !data ? (
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", fontSize: 12 }}>
+              <Icon name="refresh" size={13} style={{ animation: "spin 1s linear infinite", color: "var(--aurora-accent)" }} />
+              <span>正在实时探测各 AI 智能体订阅状态与本地配额...</span>
+            </div>
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                style={{
+                  padding: "16px",
+                  borderRadius: 14,
+                  border: "1px solid var(--aurora-border)",
+                  background: "var(--aurora-card)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                }}
+                className="animate-pulse"
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: "var(--aurora-chip)" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ width: 110, height: 13, borderRadius: 4, background: "var(--aurora-chip)" }} />
+                      <div style={{ width: 80, height: 10, borderRadius: 4, background: "var(--aurora-chip)" }} />
+                    </div>
+                  </div>
+                  <div style={{ width: 60, height: 18, borderRadius: 999, background: "var(--aurora-chip)" }} />
+                </div>
+                <div style={{ width: "100%", height: 7, borderRadius: 999, background: "var(--aurora-chip)" }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: "16px 20px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Tool Card: Google Antigravity */}
           <div
             style={{
@@ -1067,6 +1155,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose }: AgentQuotaPopov
             )}
           </div>
         </div>
+        )}
 
         {/* Footer info */}
         <div

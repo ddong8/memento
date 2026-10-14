@@ -119,8 +119,40 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
         </div>
       </div>
 
-      {/* Grid of Tools */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Grid of Tools or Skeleton */}
+      {loading && !data ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              style={{
+                padding: "16px",
+                borderRadius: 14,
+                border: "1px solid var(--aurora-border)",
+                background: "var(--aurora-card)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+              className="animate-pulse"
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "var(--aurora-chip)" }} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ width: 100, height: 13, borderRadius: 4, background: "var(--aurora-chip)" }} />
+                    <div style={{ width: 70, height: 10, borderRadius: 4, background: "var(--aurora-chip)" }} />
+                  </div>
+                </div>
+                <div style={{ width: 50, height: 18, borderRadius: 999, background: "var(--aurora-chip)" }} />
+              </div>
+              <div style={{ width: "100%", height: 6, borderRadius: 999, background: "var(--aurora-chip)" }} />
+              <div style={{ width: "60%", height: 10, borderRadius: 4, background: "var(--aurora-chip)" }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Antigravity Card */}
         <div
           style={{
@@ -495,7 +527,8 @@ export function AgentQuotaCard({ deviceId }: AgentQuotaCardProps) {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </Glass>
   );
 }

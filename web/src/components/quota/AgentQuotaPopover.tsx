@@ -179,12 +179,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "16px 20px",
+            padding: "14px 18px",
             borderBottom: "1px solid var(--aurora-border)",
             background: "rgba(255, 255, 255, 0.03)",
+            gap: 8,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1, paddingRight: 4 }}>
             <div
               style={{
                 width: 32,
@@ -195,21 +196,41 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                 alignItems: "center",
                 justifyContent: "center",
                 color: "var(--aurora-accent)",
+                flexShrink: 0,
               }}
             >
               <Icon name="activity" size={17} />
             </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "var(--aurora-fg1)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
                 AI 工具订阅与额度监控
               </div>
-              <div style={{ fontSize: 11.5, color: "var(--aurora-fg4)", marginTop: 2 }}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--aurora-fg4)",
+                  marginTop: 2,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+                title={data?.device_name ? `探测设备: ${data.device_name}` : "实时监控各智能体额度与滑动窗口"}
+              >
                 {data?.device_name ? `探测设备: ${data.device_name}` : "实时监控各智能体额度与滑动窗口"}
               </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <button
               type="button"
               onClick={toggleAll}
@@ -223,13 +244,17 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                 border: "1px solid var(--aurora-border)",
                 color: "var(--aurora-fg2)",
                 fontSize: 12,
+                fontWeight: 500,
                 cursor: "pointer",
                 transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+                userSelect: "none",
               }}
               title={allExpanded ? "收起所有模型的子配额明细" : "展开所有模型的子配额明细"}
             >
-              <Icon name={allExpanded ? "chevron_up" : "chevron_down"} size={12} />
-              <span className="hidden sm:inline">{allExpanded ? "全部收起" : "展开全部"}</span>
+              <Icon name={allExpanded ? "chevron_up" : "chevron_down"} size={13} style={{ flexShrink: 0 }} />
+              <span className="hidden min-[440px]:inline">{allExpanded ? "全部收起" : "展开全部"}</span>
             </button>
 
             <button
@@ -246,8 +271,13 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                 border: "1px solid var(--aurora-border)",
                 color: "var(--aurora-fg2)",
                 fontSize: 12,
+                fontWeight: 500,
                 cursor: refreshing ? "not-allowed" : "pointer",
                 transition: "all 0.15s ease",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+                userSelect: "none",
+                opacity: refreshing ? 0.8 : 1,
               }}
               title="重新探测并刷新各工具配额"
             >
@@ -257,9 +287,10 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                 style={{
                   animation: refreshing ? "spin 1s linear infinite" : "none",
                   color: refreshing ? "var(--aurora-accent)" : "inherit",
+                  flexShrink: 0,
                 }}
               />
-              <span>{refreshing ? "探测中..." : "刷新"}</span>
+              <span className="hidden min-[380px]:inline">{refreshing ? "探测中..." : "刷新"}</span>
             </button>
 
             <button
@@ -276,7 +307,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                 border: "none",
                 color: "var(--aurora-fg3)",
                 cursor: "pointer",
+                flexShrink: 0,
               }}
+              title="关闭"
             >
               <Icon name="close" size={16} />
             </button>

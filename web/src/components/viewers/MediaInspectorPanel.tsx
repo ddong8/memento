@@ -166,7 +166,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
           max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl
           ${className}`}
         style={{
-          width: isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`,
+          width: typeof window !== "undefined" && window.innerWidth < 1024 ? "100%" : isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`,
         }}
       >
         {/* Resize Handle on the left border (桌面大屏停靠模式下可见) */}

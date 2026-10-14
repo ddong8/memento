@@ -9,7 +9,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ihasy.memento",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "appleTeamId": "WHNZV34GK4",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Memento 需要使用麦克风以支持语音吩咐与实时听写功能。",
@@ -41,6 +41,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "@bacons/apple-targets",
       "expo-router",
       "expo-status-bar",
       "expo-secure-store",

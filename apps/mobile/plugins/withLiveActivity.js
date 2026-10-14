@@ -612,19 +612,6 @@ function withLiveActivityPlugin(config) {
     return config;
   });
 
-  config = withDangerousMod(config, [
-    "ios",
-    async (config) => {
-      const iosRoot = config.modRequest.platformProjectRoot;
-      const widgetDir = path.join(iosRoot, "MementoLiveActivity");
-      fs.mkdirSync(widgetDir, { recursive: true });
-      fs.writeFileSync(path.join(widgetDir, "MementoTaskAttributes.swift"), ATTRIBUTES_SWIFT, "utf8");
-      fs.writeFileSync(path.join(widgetDir, "MementoLiveActivity.swift"), WIDGET_SWIFT, "utf8");
-      fs.writeFileSync(path.join(widgetDir, "Info.plist"), WIDGET_PLIST, "utf8");
-      return config;
-    },
-  ]);
-
   return config;
 }
 

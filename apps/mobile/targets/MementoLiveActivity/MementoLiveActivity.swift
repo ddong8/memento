@@ -81,11 +81,27 @@ private struct MementoLockScreenView: View {
           .foregroundColor(theme.accentColor)
 
         if !theme.isFinished {
-          Text(timerInterval: startDate...endDate, countsDown: false)
-            .monospacedDigit()
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
-            .foregroundColor(.white)
-            .frame(width: 48, alignment: .trailing)
+          HStack(spacing: 6) {
+            Text(timerInterval: startDate...endDate, countsDown: false)
+              .monospacedDigit()
+              .font(.system(size: 12, weight: .bold, design: .monospaced))
+              .foregroundColor(.white)
+              .frame(width: 44, alignment: .trailing)
+
+            Link(destination: URL(string: "memento:///?action=cancel&id=\(context.attributes.conversationId)")!) {
+              HStack(spacing: 2) {
+                Image(systemName: "stop.fill")
+                  .font(.system(size: 7, weight: .bold))
+                Text("停止")
+                  .font(.system(size: 10, weight: .semibold))
+              }
+              .foregroundColor(Color(red: 0.98, green: 0.35, blue: 0.45))
+              .padding(.horizontal, 6)
+              .padding(.vertical, 3)
+              .background(Color(red: 0.98, green: 0.35, blue: 0.45).opacity(0.18))
+              .clipShape(Capsule())
+            }
+          }
         } else {
           Text("\(context.state.elapsedSeconds)s")
             .monospacedDigit()
@@ -163,11 +179,19 @@ public struct MementoTaskLiveActivity: Widget {
               .font(.system(size: 11, weight: .semibold))
               .foregroundColor(theme.accentColor)
             if !theme.isFinished {
-              Text(timerInterval: startDate...endDate, countsDown: false)
-                .monospacedDigit()
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundColor(.white)
-                .frame(width: 46, alignment: .trailing)
+              HStack(spacing: 5) {
+                Text(timerInterval: startDate...endDate, countsDown: false)
+                  .monospacedDigit()
+                  .font(.system(size: 12, weight: .bold, design: .monospaced))
+                  .foregroundColor(.white)
+                  .frame(width: 42, alignment: .trailing)
+
+                Link(destination: URL(string: "memento:///?action=cancel&id=\(context.attributes.conversationId)")!) {
+                  Image(systemName: "stop.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Color(red: 0.98, green: 0.35, blue: 0.45))
+                }
+              }
             }
           }
           .padding(.trailing, 4)

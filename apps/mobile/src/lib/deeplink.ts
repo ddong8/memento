@@ -41,6 +41,25 @@ export function normalizeDeepLinkTarget(rawUrl?: string | null): string | null {
   return target;
 }
 
+export interface DeepLinkAction {
+  action?: "cancel" | string;
+  conversationId?: string;
+  targetPath?: string;
+}
+
+export function parseDeepLinkAction(rawUrl?: string | null): DeepLinkAction | null {
+  if (!rawUrl) return null;
+  const str = rawUrl.trim();
+  const actionMatch = str.match(/[?&]action=([^&#]+)/i);
+  const idMatch = str.match(/[?&](?:conversationId|id)=([^&#]+)/i);
+  if (!actionMatch && !idMatch) return null;
+  return {
+    action: actionMatch?.[1]?.toLowerCase(),
+    conversationId: idMatch?.[1],
+    targetPath: normalizeDeepLinkTarget(rawUrl) || undefined,
+  };
+}
+
 export function emitDeepLinkTarget(rawUrl?: string | null): string | null {
   const normalized = normalizeDeepLinkTarget(rawUrl);
   if (!normalized || /^\/login(?:[/?#]|$)/i.test(normalized)) {

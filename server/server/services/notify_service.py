@@ -287,23 +287,47 @@ async def send_apns_push(
     return delivered > 0
 
 
+async def _prune_dead_tokens(user_id: uuid.UUID | str, dead_tokens: set[str]) -> None:
+    if not dead_tokens or not user_id:
+        return
+    try:
+        async with async_session_factory() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+            if not user or not user.notify_settings:
+                return
+            prefs = dict(user.notify_settings)
+            changed = False
+            act_map = dict(prefs.get("live_activity_tokens") or {})
+            for cid, tok in list(act_map.items()):
+                if tok in dead_tokens:
+                    del act_map[cid]
+                    changed = True
+            prefs["live_activity_tokens"] = act_map
+            start_tokens = [t for t in (prefs.get("live_activity_start_tokens") or []) if t not in dead_tokens]
+            if len(start_tokens) != len(prefs.get("live_activity_start_tokens") or []):
+                prefs["live_activity_start_tokens"] = start_tokens
+                changed = True
+            if changed:
+                user.notify_settings = prefs
+                await db.commit()
+                logger.info("Pruned %d expired APNs token(s) for user %s", len(dead_tokens), user_id)
+    except Exception as e:
+        logger.debug("Failed to prune dead APNs tokens: %s", e)
+
+
 async def send_apns_live_activity(
     tokens: list[str],
     event: str,
-    content_state: dict,
+    content_state: dict[str, Any],
     *,
-    attributes: dict | None = None,
-    alert: dict | None = None,
+    attributes: dict[str, Any] | None = None,
+    alert: dict[str, Any] | None = None,
     dismissal_date: int | None = None,
     priority: str = "10",
+    stale_date: int | None = None,
+    user_id: uuid.UUID | str | None = None,
 ) -> bool:
-    """Send iOS ActivityKit / Dynamic Island liveactivity push via Apple APNs HTTP/2 gateway.
-
-    event: "start" | "update" | "end"
-    """
-    if not tokens:
-        return False
-
+    """Send an ActivityKit push notification directly to APNs HTTP/2 endpoint."""
     jwt_token = _get_apns_jwt()
     if not jwt_token:
         return False
@@ -344,6 +368,7 @@ async def send_apns_live_activity(
     }
 
     delivered = 0
+    dead_tokens: set[str] = set()
     hosts = ["api.push.apple.com", "api.sandbox.push.apple.com"] if is_prod else ["api.sandbox.push.apple.com", "api.push.apple.com"]
 
     try:
@@ -356,7 +381,8 @@ async def send_apns_live_activity(
                         if resp.status_code == 200:
                             delivered += 1
                             break
-                        elif resp.status_code == 400 and "BadDeviceToken" in resp.text:
+                        elif resp.status_code == 410 or (resp.status_code == 400 and "BadDeviceToken" in resp.text):
+                            dead_tokens.add(tok)
                             continue
                         else:
                             logger.debug("APNs liveactivity (%s) to %s HTTP %s: %s", event, host, resp.status_code, resp.text[:160])
@@ -364,6 +390,9 @@ async def send_apns_live_activity(
                         logger.debug("APNs liveactivity request error to %s: %s", host, e)
     except Exception as e:
         logger.debug("APNs liveactivity HTTP/2 client error: %s", e)
+
+    if dead_tokens and user_id:
+        asyncio.create_task(_prune_dead_tokens(user_id, dead_tokens))
 
     return delivered > 0
 
@@ -413,6 +442,7 @@ async def push_live_activity_event(
                     "update",
                     content_state,
                     priority="10",
+                    user_id=user_id,
                 )
             if not start_tokens:
                 return False
@@ -433,6 +463,7 @@ async def push_live_activity_event(
                     "body": (title or current_step)[:60],
                 },
                 priority="10",
+                user_id=user_id,
             )
 
         act_tok = act_map.get(conversation_id)
@@ -446,6 +477,7 @@ async def push_live_activity_event(
                 content_state,
                 dismissal_date=int(time.time()) + 4,
                 priority="10",
+                user_id=user_id,
             )
 
         return await send_apns_live_activity(
@@ -453,6 +485,7 @@ async def push_live_activity_event(
             "update",
             content_state,
             priority="5" if status == "generating" else "10",
+            user_id=user_id,
         )
     except Exception as e:
         logger.debug("push_live_activity_event failed: %s", e)

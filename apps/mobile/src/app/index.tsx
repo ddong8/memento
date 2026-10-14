@@ -26,7 +26,7 @@ import { WebView, type WebViewMessageEvent, type WebViewNavigation, type WebView
 
 import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
-import { normalizeDeepLinkTarget, subscribeDeepLinkTarget } from "../lib/deeplink";
+import { normalizeDeepLinkTarget, parseDeepLinkAction, subscribeDeepLinkTarget } from "../lib/deeplink";
 import { isRecentlyNotified, markAsNotified, triggerLocalNotification } from "../lib/notifications";
 import { useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
@@ -277,6 +277,24 @@ export default function WebShell() {
 
   const handleUrl = useCallback(
     (rawTarget?: string | null) => {
+      const actionData = parseDeepLinkAction(rawTarget);
+      if (actionData?.action === "cancel" && actionData.conversationId && token) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        const base = origin.replace(/\/+$/, "");
+        fetch(`${base}/api/ask/conversations/${actionData.conversationId}/cancel`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => undefined);
+        web.current?.injectJavaScript(`
+          try {
+            if (typeof window.__memento_stop_task === 'function') {
+              window.__memento_stop_task(${JSON.stringify(actionData.conversationId)});
+            }
+          } catch(e) {}
+          true;
+        `);
+      }
+
       const target = normalizeDeepLinkTarget(rawTarget);
       if (!target || target === "/") return;
       const fullUrl = target.startsWith("http") ? target : `${origin}${target.startsWith("/") ? "" : "/"}${target}`;

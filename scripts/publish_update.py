@@ -60,8 +60,16 @@ def main():
                 rel_path = full_path.relative_to(src_dir)
                 zf.write(full_path, arcname=str(rel_path))
 
+    import hashlib
+
+    hasher = hashlib.sha256()
+    with open(target_zip, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    zip_sha256 = hasher.hexdigest()
+
     zip_size = target_zip.stat().st_size
-    print(f"Created package: {zip_filename} ({zip_size / (1024 * 1024):.2f} MB)")
+    print(f"Created package: {zip_filename} ({zip_size / (1024 * 1024):.2f} MB, sha256: {zip_sha256})")
 
     # 3. Update version.json
     version_file = updates_dir / "version.json"
@@ -82,6 +90,7 @@ def main():
     meta["platforms"][args.platform] = {
         "asset_name": zip_filename,
         "size": zip_size,
+        "sha256": zip_sha256,
     }
 
     with open(version_file, "w", encoding="utf-8") as f:

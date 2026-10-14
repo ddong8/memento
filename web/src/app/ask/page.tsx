@@ -2986,7 +2986,7 @@ function AskPageContent() {
     };
   }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
 
-  // Throttled patchLast (~45ms / 22fps): mutate ref immediately, coalesce React Markdown re-renders to avoid 60-120Hz CPU spikes
+  // Throttled patchLast aligned with requestAnimationFrame: mutate ref immediately, coalesce React Markdown re-renders to avoid CPU spikes
   const patchLast = useCallback((fn: (turn: Turn) => Turn) => {
     const arr = turnsRef.current;
     const i = arr.length - 1;
@@ -2997,10 +2997,10 @@ function AskPageContent() {
     }
     if (!turnsDirtyRef.current) {
       turnsDirtyRef.current = true;
-      rafIdRef.current = window.setTimeout(() => {
+      rafIdRef.current = window.requestAnimationFrame(() => {
         turnsDirtyRef.current = false;
         setTurns([...turnsRef.current]);
-      }, 45);
+      });
     }
   }, []);
 
@@ -3508,7 +3508,7 @@ function AskPageContent() {
 
   const finishStream = useCallback((ctrl: AbortController) => {
     if (abortRef.current !== ctrl) return; // superseded by a newer stream
-    if (rafIdRef.current) window.clearTimeout(rafIdRef.current);
+    if (rafIdRef.current) window.cancelAnimationFrame(rafIdRef.current);
     turnsDirtyRef.current = false;
 
     // If the component is unmounting while a task is still active and user did NOT explicitly cancel,
@@ -3923,6 +3923,24 @@ function AskPageContent() {
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [historyOpen, streaming]);
+
+  // Expose global task cancellation for Native App / Live Activity bridge
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as any).__memento_stop_task = (convId?: string) => {
+      const targetId = convId || activeConversationIdRef.current;
+      if (targetId) {
+        authFetch(`${getApiBase()}/api/ask/conversations/${targetId}/cancel`, { method: "POST" }).catch(() => {});
+        streamingRef.current = false;
+        setStreaming(false);
+        userCancelledRef.current = true;
+        abortRef.current?.abort();
+      }
+    };
+    return () => {
+      delete (window as any).__memento_stop_task;
+    };
+  }, []);
 
   const handleSelectProject = useCallback(
     async (projId: string, customProjects?: ProjectSummary[], explicitDev?: string) => {

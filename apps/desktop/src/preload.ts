@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   openPath: (path: string) => ipcRenderer.invoke("shell:open-path", path),
   showItemInFolder: (path: string) => ipcRenderer.invoke("shell:show-item-in-folder", path),
+  readFile: (path: string) => ipcRenderer.invoke("fs:read-file", path),
   toMediaUrl: (path: string) => `memento-media://${path.startsWith("/") ? "" : "/"}${encodeURI(path)}`,
   daemon: {
     status: () => ipcRenderer.invoke("daemon:status"),

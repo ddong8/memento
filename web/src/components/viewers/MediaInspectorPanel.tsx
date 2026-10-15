@@ -72,7 +72,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     const d = desktop();
     if (resolved.localPath && d && typeof (d as any).showItemInFolder === "function") {
       (d as any).showItemInFolder(resolved.localPath);
-      showInAppToast("已在访达中显示", displayTitle);
+      showInAppToast("已在访达/资源管理器中显示", displayTitle);
     }
   };
 
@@ -82,7 +82,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
       try {
         const err = await (d as any).openPath(resolved.localPath);
         if (!err) {
-          showInAppToast("已在系统播放器中打开", displayTitle);
+          showInAppToast(activeMedia.type === "markdown" ? "已在系统编辑器中打开" : "已在系统程序中打开", displayTitle);
           return;
         }
       } catch (e) {
@@ -236,7 +236,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               <button
                 type="button"
                 onClick={handleRevealFolder}
-                title="在访达中定位原片"
+                title={activeMedia.type === "markdown" ? "在访达/资源管理器中定位" : "在访达中定位原片"}
                 className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
               >
                 <FiFolder className="w-3.5 h-3.5" />
@@ -255,7 +255,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             <button
               type="button"
               onClick={handleExternalOpen}
-              title={resolved.localPath ? "在系统播放器中打开" : "新标签独立打开"}
+              title={resolved.localPath ? (activeMedia.type === "markdown" ? "在系统编辑器中打开" : "在系统播放器中打开") : "新标签独立打开"}
               className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
             >
               <FiExternalLink className="w-3.5 h-3.5" />
@@ -424,6 +424,25 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             clean = clean.slice(1);
           }
           const d = desktop();
+          // 1. Direct desktop IPC file read: instantaneous, bypasses network, Chromium web security & CORS
+          if (d && typeof d.readFile === "function") {
+            try {
+              const ipcRes = await d.readFile(clean);
+              if (ipcRes && typeof ipcRes.content === "string") {
+                if (active) {
+                  setContent(ipcRes.content);
+                  setLoading(false);
+                }
+                return;
+              }
+              if (ipcRes?.error) {
+                console.warn("[MarkdownDocViewer] desktop readFile returned error:", ipcRes.error);
+              }
+            } catch (ipcErr) {
+              console.warn("[MarkdownDocViewer] desktop readFile threw:", ipcErr);
+            }
+          }
+
           if (d && typeof d.toMediaUrl === "function") {
             fetchUrl = d.toMediaUrl(clean);
           } else {
@@ -434,7 +453,11 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
         let res: Response | null = null;
         try {
-          res = await fetch(fetchUrl);
+          if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://") || fetchUrl.startsWith("/")) {
+            res = await authFetch(fetchUrl);
+          } else {
+            res = await fetch(fetchUrl);
+          }
         } catch (fetchErr) {
           // If local fetch fails (e.g. CORS or file:// or offline device), try fallback for deployment guide
           if (filename.includes("deployment") && filename.endsWith(".md")) {
@@ -491,7 +514,27 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     return (
       <div className="p-6 text-center text-xs text-red-400 bg-red-500/10 rounded-xl border border-red-500/20">
         <p className="font-semibold mb-1">文档加载异常</p>
-        <p className="opacity-80 font-mono text-[11px]">{error}</p>
+        <p className="opacity-80 font-mono text-[11px] mb-3">{error}</p>
+        {item.url && (
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const d = desktop();
+                const clean = safeDecodePath(item.url).replace(/^file:\/\//, "");
+                if (d && typeof (d as any).openPath === "function") {
+                  (d as any).openPath(clean);
+                } else {
+                  window.open(item.url, "_blank");
+                }
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-[11px] font-medium transition-colors cursor-pointer"
+            >
+              <span>外部打开</span>
+              <span>↗</span>
+            </button>
+          </div>
+        )}
       </div>
     );
   }

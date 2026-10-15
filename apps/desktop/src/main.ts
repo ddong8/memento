@@ -2,8 +2,9 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, na
 import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -1044,6 +1045,39 @@ function setupIpc(): void {
       shell.showItemInFolder(filePath);
     }
   });
+  ipcMain.handle("fs:read-file", async (_e, filePath: unknown) => {
+    if (typeof filePath !== "string") {
+      return { error: "Invalid file path" };
+    }
+    let clean = filePath.trim();
+    if (clean.startsWith("file://")) {
+      try {
+        clean = fileURLToPath(clean);
+      } catch {
+        clean = clean.replace(/^file:\/\//, "");
+      }
+    } else {
+      try {
+        clean = decodeURI(clean);
+      } catch {}
+    }
+    if (process.platform === "win32" && clean.startsWith("/") && clean[2] === ":") {
+      clean = clean.slice(1);
+    }
+    try {
+      const st = await stat(clean);
+      if (st.isDirectory()) {
+        return { error: "Path is a directory" };
+      }
+      if (st.size > 10 * 1024 * 1024) {
+        return { error: "文件过大，工作台暂不支持直接预览超过 10MB 的文本文件" };
+      }
+      const content = await readFile(clean, "utf-8");
+      return { content };
+    } catch (err: any) {
+      return { error: err?.message || String(err) };
+    }
+  });
 
   const forward = (channel: string) => (payload: unknown) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -1066,6 +1100,7 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       stream: true,
       bypassCSP: true,
+      corsEnabled: true,
     },
   },
 ]);
@@ -1102,16 +1137,37 @@ if (!app.requestSingleInstanceLock()) {
   app.on("activate", () => showWindow());
 
   void app.whenReady().then(async () => {
-    // Enable local media stream handler
-    protocol.handle("memento-media", (request) => {
+    // Enable local media stream handler with full CORS support
+    protocol.handle("memento-media", async (request) => {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+          },
+        });
+      }
       try {
         let filePath = decodeURIComponent(new URL(request.url).pathname);
         if (process.platform === "win32" && filePath.startsWith("/")) {
           filePath = filePath.slice(1);
         }
-        return net.fetch(pathToFileURL(filePath).toString());
+        const fileUrl = pathToFileURL(filePath).toString();
+        const res = await net.fetch(fileUrl);
+        const headers = new Headers(res.headers);
+        headers.set("Access-Control-Allow-Origin", "*");
+        return new Response(res.body, {
+          status: res.status,
+          statusText: res.statusText,
+          headers,
+        });
       } catch {
-        return new Response("Media not found", { status: 404 });
+        return new Response("Media not found", {
+          status: 404,
+          headers: { "Access-Control-Allow-Origin": "*" },
+        });
       }
     });
 

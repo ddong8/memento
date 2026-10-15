@@ -50,6 +50,7 @@ export interface MementoDesktop {
   openExternal?(url: string): Promise<void>;
   openPath?(path: string): Promise<string>;
   showItemInFolder?(path: string): Promise<void>;
+  readFile?(path: string): Promise<{ content?: string; error?: string }>;
   toMediaUrl?(path: string): string;
   daemon: {
     status(): Promise<DaemonState>;

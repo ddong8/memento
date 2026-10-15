@@ -4,6 +4,7 @@ export type TaskToolStatus = "running" | "done" | "failed";
 export type TaskEvent = { at?: string } & (
   | { kind: "tool"; id?: string; name?: string; detail?: string; status?: TaskToolStatus; output?: string }
   | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
   | { kind: "session"; session_id: string; model?: string }
   | {
       kind: "usage";

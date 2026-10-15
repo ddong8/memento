@@ -2498,6 +2498,7 @@ async def _direct_agent_stream(
 
     result_dict = None
     summary_text = ""
+    accumulated_thinking: list[str] = []
     saved = False
     assistant_created_at_final: str | None = None
     duration_ms_final: int | None = None
@@ -2552,13 +2553,15 @@ async def _direct_agent_stream(
             else device_id
         )
 
+        persisted_thinking = "".join(accumulated_thinking).strip() or None
+
         await _append_conversation_turns(
             conv_id=conv_id,
             user_content=question,
             assistant_content=summary_text or "任务执行完成",
             sources=None,
             tool_calls=tool_calls_to_save,
-            thinking=None,
+            thinking=persisted_thinking,
             device_id=persisted_dev_id,
             cwd=cwd,
             images=images,
@@ -2591,6 +2594,11 @@ async def _direct_agent_stream(
                 elif etype == "task_alert":
                     yield f"data: {json.dumps({'type': 'task_alert', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'alert': evt.get('alert')}, ensure_ascii=False)}\n\n"
                 elif etype == "task_event":
+                    ev = evt.get("event") or {}
+                    if ev.get("kind") == "thinking" and ev.get("text"):
+                        thinking_chunk = ev.get("text")
+                        accumulated_thinking.append(thinking_chunk)
+                        yield f"data: {json.dumps({'type': 'thinking', 'text': thinking_chunk}, ensure_ascii=False)}\n\n"
                     yield f"data: {json.dumps({'type': 'task_event', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'event': evt.get('event')}, ensure_ascii=False)}\n\n"
                 elif etype == "tool_result":
                     result_dict = evt.get("result") or {}

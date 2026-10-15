@@ -84,19 +84,26 @@ export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: str
   ],
   workbuddy: [
     { id: "", name: "⚡ 默认模型 (Auto: 自动匹配最优模型)", desc: "使用 WorkBuddy 智能路由与本地默认模型" },
-    { id: "auto-chat", name: "Auto (智能路由自动选择)", desc: "WorkBuddy 官方智能路由模型" },
-    { id: "glm-5.1", name: "GLM-5.1 (智谱最新旗舰)", desc: "智谱 GLM-5.1 200K 上下文深度推理与工具调用" },
-    { id: "deepseek-v3.2", name: "DeepSeek V3.2 (深度求索旗舰)", desc: "DeepSeek V3.2 深度思考与全栈编码模型" },
-    { id: "kimi-k2.5", name: "Kimi K2.5 (月之暗面多模态旗舰)", desc: "Kimi K2.5 256K 超长上下文与视觉推理" },
-    { id: "minimax-m2.7", name: "MiniMax M2.7 (高阶推理)", desc: "MiniMax M2.7 200K 深度推理与工具调用" },
-    { id: "hunyuan-2.0-instruct", name: "Tencent HY 2.0 Instruct (腾讯混元旗舰)", desc: "腾讯混元 2.0 128K 指令与工程模型" },
-    { id: "hunyuan-2.0-thinking", name: "Tencent HY 2.0 Thinking (腾讯混元深度思考)", desc: "腾讯混元 2.0 深度思维链推理模型" },
-    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (WorkBuddy 内置)", desc: "Anthropic Claude Sonnet 4.6" },
-    { id: "claude-opus-4-6", name: "Claude Opus 4.6 (WorkBuddy 内置)", desc: "Anthropic Claude Opus 4.6" },
-    { id: "gpt-5.4", name: "GPT-5.4 (WorkBuddy 内置)", desc: "OpenAI GPT-5.4 400K 上下文旗舰" },
-    { id: "gpt-5.3-codex", name: "GPT-5.3 Codex (WorkBuddy 内置)", desc: "OpenAI GPT-5.3 Codex 编程专精" },
-    { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (WorkBuddy 内置)", desc: "Google Gemini 3.1 Pro 1M 上下文" },
-    { id: "gemini-3.0-flash", name: "Gemini 3.0 Flash (WorkBuddy 内置)", desc: "Google Gemini 3.0 Flash 极速多模态" },
+    { id: "deep-model", name: "极致 (Deep Model 深度推理旗舰)", desc: "旗舰模型组合，专为复杂决策与高难度任务打造" },
+    { id: "balanced-model", name: "均衡 (Balanced Model 主力均衡)", desc: "性能与成本兼顾，稳定应对日常工作" },
+    { id: "fast-model", name: "快速 (Fast Model 极速响应)", desc: "低成本极速响应，适合轻量高频操作" },
+    { id: "hy4-preview", name: "Tencent HY 4.0 Preview (混元最新旗舰)", desc: "腾讯混元旗舰大模型 4.0 预览版，长上下文与多步推理" },
+    { id: "hy3-x", name: "Tencent HY 3.0-X (混元增强推理)", desc: "腾讯混元 3.0 增强推理模型" },
+    { id: "hy3", name: "Tencent HY 3.0 (混元主力通用)", desc: "腾讯混元 3.0 主力大模型" },
+    { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro (深度求索旗舰)", desc: "DeepSeek V4 旗舰深度推理与全栈编码模型" },
+    { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash (极速响应)", desc: "DeepSeek V4.1 高速响应模型" },
+    { id: "glm-5.3", name: "GLM-5.3 (智谱最新旗舰)", desc: "智谱旗舰编码与 Agent 推理模型" },
+    { id: "glm-5.3-flash", name: "GLM-5.3 Flash (极速推理)", desc: "智谱高速轻量模型" },
+    { id: "glm-5.2", name: "GLM-5.2 (智谱主力通用)", desc: "智谱主力通用大模型" },
+    { id: "glm-5.1", name: "GLM-5.1 (智谱稳定通用)", desc: "智谱稳定通用与编码模型" },
+    { id: "glm-5v-turbo", name: "GLM-5V-Turbo (多模态视觉)", desc: "智谱多模态视觉极速模型" },
+    { id: "minimax-m3", name: "MiniMax-M3 (原生智能体旗舰)", desc: "MiniMax M3 原生智能体模型" },
+    { id: "minimax-m2.7", name: "MiniMax-M2.7 (高阶推理)", desc: "MiniMax M2.7 深度推理与工具调用" },
+    { id: "kimi-k3-1", name: "Kimi-K3.1 (月之暗面长上下文旗舰)", desc: "月之暗面 Kimi K3.1 旗舰超长上下文模型" },
+    { id: "kimi-k2.8-preview", name: "Kimi-K2.8-Preview (月之暗面预览版)", desc: "月之暗面 Kimi K2.8 预览版" },
+    { id: "kimi-k2.7", name: "Kimi-K2.7 (月之暗面主力)", desc: "月之暗面 Kimi K2.7 模型" },
+    { id: "kimi-k2.6", name: "Kimi-K2.6 (月之暗面轻量)", desc: "月之暗面 Kimi K2.6 模型" },
+    { id: "step-5-preview", name: "Step-5-Preview (阶跃星辰旗舰)", desc: "阶跃星辰 Step 5 深度思维模型" },
   ],
 };
 
@@ -3783,6 +3790,15 @@ function AskPageContent() {
         persistCurrentConfig(patchCfg);
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
+        if (event.kind === "thinking" && event.text) {
+          if (laLastStatus !== "thinking") {
+            laLastStatus = "thinking";
+            postLiveActivity("update", {
+              status: "thinking",
+              currentStep: "正在深度思考与推演...",
+            });
+          }
+        }
         patchLast((x) => {
           const calls = [...(x.toolCalls || [])];
           let idx = evt.task_id ? calls.findIndex((c) => c.result?.task_id === evt.task_id) : -1;
@@ -3794,7 +3810,11 @@ function AskPageContent() {
               result: { ...prev, task_id: prev.task_id || evt.task_id, events: mergeTaskEvent(prev.events ?? [], event) },
             };
           }
-          return { ...x, toolCalls: calls };
+          let nextThinking = x.thinking;
+          if (event.kind === "thinking" && event.text && !(x.thinking || "").endsWith(event.text)) {
+            nextThinking = (x.thinking || "") + (x.thinking && !x.thinking.endsWith("\n") && !event.text.startsWith("\n") ? "\n" : "") + event.text;
+          }
+          return { ...x, toolCalls: calls, thinking: nextThinking };
         });
       } else if (evt.type === "thinking" && evt.text) {
         if (laLastStatus !== "thinking") {
@@ -4592,7 +4612,9 @@ function AskPageContent() {
       setSelectedSessionId(sid);
       persistCurrentConfig({ session_id: sid });
       if (!sid) {
-        startNewChat();
+        if (!activeConversationIdRef.current) {
+          startNewChat();
+        }
         return;
       }
       const targetSession = sessions.find(

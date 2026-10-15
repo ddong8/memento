@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage, Document, User
@@ -27,7 +28,9 @@ async def get_conversation(
     """Get conversation metadata and message count."""
     mids = await user_machine_ids(db, _user)
 
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+    result = await db.execute(
+        select(Document).options(defer(Document.content_tsv)).where(Document.id == doc_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404)
@@ -51,6 +54,7 @@ async def get_conversation(
     if session_id and doc.tool_id == "antigravity":
         plans_q = (
             select(Document)
+            .options(defer(Document.content_tsv), defer(Document.metadata_))
             .where(
                 Document.tool_id == "antigravity",
                 Document.category == "plan",
@@ -101,7 +105,11 @@ async def get_conversation_messages(
     """Get paginated, human-readable conversation messages."""
     mids = await user_machine_ids(db, _user)
 
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+    result = await db.execute(
+        select(Document)
+        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .where(Document.id == doc_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404)
@@ -183,7 +191,15 @@ async def update_conversation(
     """Update conversation title, cascading to child subagents and invalidating cache."""
     mids = await user_machine_ids(db, _user)
 
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+    result = await db.execute(
+        select(Document)
+        .options(
+            defer(Document.content),
+            defer(Document.content_tsv),
+            defer(Document.metadata_),
+        )
+        .where(Document.id == doc_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404)
@@ -211,6 +227,8 @@ async def update_conversation(
     from ..services.cache import cache_delete_prefix
     if doc.project_id:
         await cache_delete_prefix(f"project:conv:{_user.id}:{doc.project_id}:")
+        await cache_delete_prefix(f"project:timeline:{_user.id}:{doc.project_id}:")
+    await cache_delete_prefix(f"projects:list:{_user.id}:")
 
     return {"status": "ok", "id": str(doc.id), "title": doc.title}
 

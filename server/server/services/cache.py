@@ -74,9 +74,16 @@ async def cache_delete_prefix(prefix: str) -> int:
         return 0
     deleted = 0
     try:
+        batch = []
         async for key in c.scan_iter(match=f"{prefix}*", count=200):
-            await c.delete(key)
-            deleted += 1
+            batch.append(key)
+            if len(batch) >= 100:
+                await c.delete(*batch)
+                deleted += len(batch)
+                batch = []
+        if batch:
+            await c.delete(*batch)
+            deleted += len(batch)
     except Exception as e:
         logger.debug("cache_delete_prefix(%s) failed: %s", prefix, e)
     return deleted

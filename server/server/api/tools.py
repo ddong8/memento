@@ -7,11 +7,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, Tool, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_get, cache_set
 from ..services.user_filter import user_machine_ids, apply_user_filter
 
 router = APIRouter(prefix="/api/tools", tags=["tools"])
@@ -53,19 +55,26 @@ async def list_tools(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[ToolSummary]:
+    cache_key = f"tools:list:{_user.id}:{device_id or 'all'}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return [ToolSummary(**item) for item in cached]
+
     mids = await user_machine_ids(db, _user)
 
     if not device_id and mids is None:
         # Admin/owner without device filter — return raw Tool stats
         result = await db.execute(select(Tool).order_by(Tool.display_name))
         tools = result.scalars().all()
-        return [
+        res = [
             ToolSummary(
                 id=t.id, display_name=t.display_name, icon=t.icon,
                 total_files=t.total_files, total_size_bytes=t.total_size_bytes,
                 last_sync_at=t.last_sync_at.isoformat() if t.last_sync_at else None,
             ) for t in tools
         ]
+        await cache_set(cache_key, [t.model_dump() for t in res], ttl_seconds=30)
+        return res
 
     # Device-specific or user-filtered tool stats
     query = select(Document.tool_id, func.count().label("cnt"))
@@ -79,7 +88,7 @@ async def list_tools(
     tool_counts = {r[0]: r[1] for r in result.all()}
 
     tools_result = await db.execute(select(Tool).order_by(Tool.display_name))
-    return [
+    res = [
         ToolSummary(
             id=t.id, display_name=t.display_name, icon=t.icon,
             total_files=tool_counts.get(t.id, 0),
@@ -88,6 +97,8 @@ async def list_tools(
         ) for t in tools_result.scalars().all()
         if t.id in tool_counts
     ]
+    await cache_set(cache_key, [t.model_dump() for t in res], ttl_seconds=30)
+    return res
 
 
 TOOL_DISPLAY_NAMES = {
@@ -147,7 +158,15 @@ async def list_tool_files(
 ) -> list[DocumentSummary]:
     mids = await user_machine_ids(db, _user)
 
-    query = select(Document).where(Document.tool_id == tool_id)
+    query = (
+        select(Document)
+        .options(
+            defer(Document.content),
+            defer(Document.content_tsv),
+            defer(Document.metadata_),
+        )
+        .where(Document.tool_id == tool_id)
+    )
     if category:
         query = query.where(Document.category == category)
     query = _device_filter(query, device_id)
@@ -161,8 +180,8 @@ async def list_tool_files(
     machine_names: dict[str, str] = {}
     machine_ids = {d.machine_id for d in docs if d.machine_id}
     if machine_ids:
-        m_result = await db.execute(select(Machine).where(Machine.id.in_(machine_ids)))
-        machine_names = {str(m.id): m.name for m in m_result.scalars().all()}
+        m_result = await db.execute(select(Machine.id, Machine.name).where(Machine.id.in_(machine_ids)))
+        machine_names = {str(mid): mname for mid, mname in m_result.all()}
 
     return [
         DocumentSummary(

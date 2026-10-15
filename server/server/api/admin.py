@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -191,11 +191,11 @@ async def delete_user(
         select(Machine.id).where(Machine.user_id == user_id)
     )).all()]
     docs_deleted = 0
-    for mid in machine_ids:
+    if machine_ids:
         doc_ids = [r[0] for r in (await db.execute(
-            select(Document.id).where(Document.machine_id == mid)
+            select(Document.id).where(Document.machine_id.in_(machine_ids))
         )).all()]
-        docs_deleted += len(doc_ids)
+        docs_deleted = len(doc_ids)
         for i in range(0, len(doc_ids), 500):
             batch = doc_ids[i:i + 500]
             await db.execute(delete(AccessLog).where(AccessLog.document_id.in_(batch)))
@@ -204,9 +204,7 @@ async def delete_user(
             await db.execute(delete(DocumentEmbedding).where(DocumentEmbedding.document_id.in_(batch)))
             await db.execute(delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id.in_(batch)))
             await db.execute(delete(Document).where(Document.id.in_(batch)))
-        await db.execute(delete(SyncState).where(SyncState.machine_id == mid))
-
-    if machine_ids:
+        await db.execute(delete(SyncState).where(SyncState.machine_id.in_(machine_ids)))
         await db.execute(delete(Machine).where(Machine.id.in_(machine_ids)))
 
     # User-scoped knowledge entities
@@ -409,24 +407,35 @@ async def sync_status(
     )
     tools = result.scalars().all()
 
-    states = []
-    for t in tools:
-        sync_result = await db.execute(
-            select(SyncState)
-            .where(SyncState.tool_id == t.id)
-            .order_by(SyncState.last_synced_at.desc())
-            .limit(1)
+    # Window function partitions by tool_id and finds rn=1 in a single query
+    # instead of looping N SELECTs on SyncState (N+1 query elimination).
+    subq = (
+        select(
+            SyncState.tool_id,
+            SyncState.relative_path,
+            func.row_number()
+            .over(
+                partition_by=SyncState.tool_id,
+                order_by=SyncState.last_synced_at.desc(),
+            )
+            .label("rn"),
         )
-        latest = sync_result.scalar_one_or_none()
-        states.append({
+    ).subquery()
+    latest_rows = await db.execute(
+        select(subq.c.tool_id, subq.c.relative_path).where(subq.c.rn == 1)
+    )
+    latest_by_tool = {row[0]: row[1] for row in latest_rows.all()}
+
+    return [
+        {
             "tool_id": t.id,
             "display_name": t.display_name,
             "total_files": t.total_files,
             "last_sync_at": t.last_sync_at.isoformat() if t.last_sync_at else None,
-            "latest_file": latest.relative_path if latest else None,
-        })
-
-    return states
+            "latest_file": latest_by_tool.get(t.id),
+        }
+        for t in tools
+    ]
 
 
 # ---------------------------------------------------------------------------

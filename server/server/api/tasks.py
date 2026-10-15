@@ -195,7 +195,14 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
     return machine
 
 
-def _serialize(t: DeviceTask) -> dict:
+def _serialize(t: DeviceTask, truncate_output: bool = False) -> dict:
+    stdout = t.stdout
+    stderr = t.stderr
+    if truncate_output:
+        if stdout and len(stdout) > 2000:
+            stdout = stdout[:1000] + "\n...[truncated]...\n" + stdout[-1000:]
+        if stderr and len(stderr) > 2000:
+            stderr = stderr[:1000] + "\n...[truncated]...\n" + stderr[-1000:]
     return {
         "id": str(t.id),
         "device_id": t.device_id,
@@ -203,8 +210,8 @@ def _serialize(t: DeviceTask) -> dict:
         "payload": t.payload,
         "status": t.status,
         "exit_code": t.exit_code,
-        "stdout": t.stdout,
-        "stderr": t.stderr,
+        "stdout": stdout,
+        "stderr": stderr,
         "error": t.error,
         "timeout_seconds": t.timeout_seconds,
         "created_at": t.created_at.isoformat() if t.created_at else None,
@@ -267,7 +274,7 @@ async def list_tasks(
         q = q.where(DeviceTask.device_id == device_id)
     if status:
         q = q.where(DeviceTask.status == status)
-    return [_serialize(t) for t in (await db.execute(q)).scalars().all()]
+    return [_serialize(t, truncate_output=True) for t in (await db.execute(q)).scalars().all()]
 
 
 @router.get("/{task_id}")

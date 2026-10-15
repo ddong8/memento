@@ -182,7 +182,7 @@ class ConversationPatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res["title"], "新会话标题")
             self.assertEqual(doc.title, "新会话标题")
             db.commit.assert_awaited_once()
-            mock_cache_del.assert_awaited_once_with(f"project:conv:{user_id}:{proj_id}:")
+            mock_cache_del.assert_any_await(f"project:conv:{user_id}:{proj_id}:")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ Supported formats:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -38,7 +40,6 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
     msg_type = obj.get("type", "")
     raw_ts = obj.get("timestamp", "")
     if isinstance(raw_ts, (int, float)) and raw_ts > 0:
-        from datetime import datetime, timezone
         ts_sec = raw_ts / 1000.0 if raw_ts > 1e11 else float(raw_ts)
         timestamp = datetime.fromtimestamp(ts_sec, tz=timezone.utc).isoformat()
     else:
@@ -851,7 +852,6 @@ def parse_conversation(raw_content: str, tool_id: str, offset: int = 0, limit: i
     """Parse JSONL conversation into normalized messages. Supports pagination."""
     if tool_id == "hermes":
         return _parse_hermes_session(raw_content, offset, limit)
-    import hashlib
     messages = []
     seen: set[str] = set()
     skipped = 0
@@ -887,7 +887,6 @@ def count_conversation_messages(raw_content: str, tool_id: str) -> int:
     """Count messages without building full list — memory efficient."""
     if tool_id == "hermes":
         return _count_hermes_messages(raw_content)
-    import hashlib
     count = 0
     seen: set[str] = set()
     for line in _iter_json_objects(raw_content):

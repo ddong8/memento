@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Machine, Skill, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, verify_collector_token
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.skill_service import (
     apply_edits,
     apply_pending_update,
@@ -60,11 +61,23 @@ async def _edit(db: AsyncSession, user: User, skill: Skill, body: SkillEdit | No
         raise HTTPException(status_code=400, detail=str(e))
 
 
+async def _bust_skills_cache(user_id: uuid.UUID) -> None:
+    try:
+        await cache_delete_prefix(f"skills:list:{user_id}")
+    except Exception:
+        pass
+
+
 @router.get("")
 async def list_skills(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    cache_key = f"skills:list:{user.id}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     rows = (await db.execute(
         select(Skill).where(Skill.user_id == user.id)
         .order_by(Skill.last_seen_at.desc().nulls_last(), Skill.created_at.desc())
@@ -72,7 +85,7 @@ async def list_skills(
     machines = (await db.execute(
         select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
-    return {
+    payload = {
         "drafts": [skill_out(s) for s in rows if s.status == "draft"],
         "published": [skill_out(s) for s in rows if s.status == "published"],
         "archived": [skill_out(s, full=False) for s in rows if s.status in ("dismissed", "retired")],
@@ -87,6 +100,8 @@ async def list_skills(
             for m in machines
         ],
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.put("/{skill_id}")
@@ -102,6 +117,7 @@ async def edit_skill(
     if skill.status == "published":
         publish(skill)
     await db.commit()
+    await _bust_skills_cache(user.id)
     await db.refresh(skill)
     return {"skill": skill_out(skill)}
 
@@ -119,6 +135,7 @@ async def publish_skill(
         raise HTTPException(status_code=400, detail="说明和步骤都不能为空")
     publish(skill)
     await db.commit()
+    await _bust_skills_cache(user.id)
     await db.refresh(skill)
     return {"skill": skill_out(skill)}
 
@@ -133,6 +150,7 @@ async def dismiss_skill(
     skill = await _own(db, user, skill_id)
     skill.status = "dismissed"
     await db.commit()
+    await _bust_skills_cache(user.id)
     return {"skill": skill_out(skill)}
 
 
@@ -146,6 +164,7 @@ async def retire_skill(
     skill = await _own(db, user, skill_id)
     skill.status = "retired"
     await db.commit()
+    await _bust_skills_cache(user.id)
     return {"skill": skill_out(skill)}
 
 
@@ -159,6 +178,7 @@ async def restore_skill(
     skill = await _own(db, user, skill_id)
     skill.status = "draft"
     await db.commit()
+    await _bust_skills_cache(user.id)
     return {"skill": skill_out(skill)}
 
 
@@ -174,6 +194,7 @@ async def apply_update(
         raise HTTPException(status_code=400, detail="没有待确认的更新")
     apply_pending_update(skill)
     await db.commit()
+    await _bust_skills_cache(user.id)
     await db.refresh(skill)
     return {"skill": skill_out(skill)}
 
@@ -187,6 +208,7 @@ async def discard_update(
     skill = await _own(db, user, skill_id)
     skill.pending_update = None
     await db.commit()
+    await _bust_skills_cache(user.id)
     return {"skill": skill_out(skill)}
 
 

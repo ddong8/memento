@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, Project, Tool, User
@@ -52,18 +53,33 @@ async def list_devices_with_tools(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """Level 1: All devices with tool counts."""
+    from ..services.cache import cache_get, cache_set
+    cache_key = f"hierarchy:devices:{_user.id}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     machines_q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.name)
     if _user.role not in ("admin", "owner"):
         machines_q = machines_q.where(Machine.user_id == _user.id)
-    machines = await db.execute(machines_q)
+    machines_res = await db.execute(machines_q)
+    machines_list = list(machines_res.scalars().all())
+    if not machines_list:
+        return []
+
+    mids = [m.id for m in machines_list]
+    tools_result = await db.execute(
+        select(Document.machine_id, Document.tool_id, func.count().label("cnt"))
+        .where(Document.machine_id.in_(mids), Document.tool_id != "system")
+        .group_by(Document.machine_id, Document.tool_id)
+    )
+    tool_counts_by_mid: dict[uuid.UUID, dict[str, int]] = {}
+    for mid, tid, cnt in tools_result.all():
+        tool_counts_by_mid.setdefault(mid, {})[tid] = cnt
+
     items = []
-    for m in machines.scalars().all():
-        tools_result = await db.execute(
-            select(Document.tool_id, func.count().label("cnt"))
-            .where(Document.machine_id == m.id, Document.tool_id != "system")
-            .group_by(Document.tool_id)
-        )
-        tool_counts = {r[0]: r[1] for r in tools_result.all()}
+    for m in machines_list:
+        tool_counts = tool_counts_by_mid.get(m.id, {})
         total = sum(tool_counts.values())
         items.append({
             "id": str(m.id),
@@ -73,6 +89,7 @@ async def list_devices_with_tools(
             "total_files": total,
             "tools": [{"id": tid, "file_count": cnt} for tid, cnt in sorted(tool_counts.items())],
         })
+    await cache_set(cache_key, items, ttl_seconds=30)
     return items
 
 
@@ -173,7 +190,15 @@ async def list_device_tool_files(
     if not m:
         return {"total": 0, "files": []}
 
-    query = select(Document).where(Document.machine_id == m.id, Document.tool_id == tool_id)
+    query = (
+        select(Document)
+        .options(
+            defer(Document.content),
+            defer(Document.content_tsv),
+            defer(Document.metadata_),
+        )
+        .where(Document.machine_id == m.id, Document.tool_id == tool_id)
+    )
     if project_id and project_id != "none":
         query = query.where(Document.project_id == uuid.UUID(project_id))
     elif project_id == "none":

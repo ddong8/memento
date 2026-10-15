@@ -678,6 +678,7 @@ async def _bust_user_memory_cache(user_id: uuid.UUID) -> None:
         from ..services.cache import cache_delete_prefix
         await cache_delete_prefix(f"memory:tree:{user_id}:")
         await cache_delete_prefix(f"memory:stats:{user_id}:")
+        await cache_delete_prefix(f"memory:markdown:{user_id}:")
     except Exception:
         pass
 
@@ -832,9 +833,18 @@ async def get_core_memory_markdown(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Export current user's core memories as formatted MEMORY.md."""
+    from ..services.cache import cache_get, cache_set
     from ..services.dreaming_service import export_core_memory_markdown
+
+    cache_key = f"memory:markdown:{_user.id}:"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     md = await export_core_memory_markdown(db, _user)
-    return {"markdown": md}
+    payload = {"markdown": md}
+    await cache_set(cache_key, payload, ttl_seconds=60)
+    return payload
 
 
 @router.post("/core")

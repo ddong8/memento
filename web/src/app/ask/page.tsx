@@ -6235,6 +6235,8 @@ function AskPageContent() {
                                   border: `1px solid ${isUser ? "var(--aurora-border)" : "var(--aurora-border)"}`,
                                   borderRadius: 8,
                                   padding: "6px 10px",
+                                  contentVisibility: "auto",
+                                  containIntrinsicSize: "0 60px",
                                 }}
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>

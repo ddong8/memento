@@ -175,18 +175,19 @@ async def get_dashboard(
             "total_files": dev_counts.get(m.id, 0),
         })
 
-    # Today's stats
-    today_total_q = select(func.count()).where(Document.synced_at >= today_start)
-    today_total_q = _apply_device_filter(today_total_q, device_id)
-    today_total_q = apply_user_filter(today_total_q, mids, Document.machine_id)
-    today_total = (await db.execute(today_total_q)).scalar() or 0
-
-    today_conv_q = select(func.count()).where(
-        Document.synced_at >= today_start, Document.category == "conversation",
+    # Today's stats — single conditional aggregation query instead of 2 count round-trips
+    today_agg_q = (
+        select(
+            func.count().label("total"),
+            func.count().filter(Document.category == "conversation").label("conversations"),
+        )
+        .where(Document.synced_at >= today_start)
     )
-    today_conv_q = _apply_device_filter(today_conv_q, device_id)
-    today_conv_q = apply_user_filter(today_conv_q, mids, Document.machine_id)
-    today_conversations = (await db.execute(today_conv_q)).scalar() or 0
+    today_agg_q = _apply_device_filter(today_agg_q, device_id)
+    today_agg_q = apply_user_filter(today_agg_q, mids, Document.machine_id)
+    today_row = (await db.execute(today_agg_q)).one()
+    today_total = today_row.total or 0
+    today_conversations = today_row.conversations or 0
 
     # Total stats
     doc_count_q = select(func.count()).select_from(Document)

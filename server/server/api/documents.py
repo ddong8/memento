@@ -6,6 +6,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -23,8 +24,12 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 async def _get_doc_with_permission(
     doc_id: uuid.UUID, db: AsyncSession, user: User | None,
     mids: list | None = None,
+    include_content: bool = True,
 ) -> Document:
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+    query = select(Document).where(Document.id == doc_id).options(defer(Document.content_tsv))
+    if not include_content:
+        query = query.options(defer(Document.content), defer(Document.metadata_))
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404)
@@ -87,7 +92,7 @@ async def get_document_history(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     mids = await user_machine_ids(db, _user)
-    await _get_doc_with_permission(doc_id, db, user, mids)
+    await _get_doc_with_permission(doc_id, db, user, mids, include_content=False)
 
     result = await db.execute(
         select(DocumentVersion)
@@ -126,7 +131,7 @@ async def get_document_backlinks(
     with no new schema and no manually written links.
     """
     mids = await user_machine_ids(db, _user)
-    await _get_doc_with_permission(doc_id, db, user, mids)
+    await _get_doc_with_permission(doc_id, db, user, mids, include_content=False)
 
     # Hop 1: entities this document was observed in.
     #

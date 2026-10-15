@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -239,6 +240,20 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
             print(f"[Projects API] Consolidation error: {exc}\n{traceback.format_exc()}")
 
 
+async def _bust_project_cache(project_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None) -> None:
+    try:
+        from ..services.cache import cache_delete_prefix
+        if user_id:
+            await cache_delete_prefix(f"projects:list:{user_id}:")
+        else:
+            await cache_delete_prefix("projects:list:")
+        if project_id:
+            await cache_delete_prefix("project:timeline:")
+            await cache_delete_prefix("project:conv:")
+    except Exception:
+        pass
+
+
 @router.get("")
 async def list_projects(
     tool_id: str | None = None,
@@ -247,6 +262,13 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
+    cache_key = f"projects:list:{_user.id}:{tool_id or 'all'}:{device_id or 'all'}"
+    if not sync:
+        from ..services.cache import cache_get
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     mids = await user_machine_ids(db, _user)
 
     target_mid: uuid.UUID | None = None
@@ -433,6 +455,10 @@ async def list_projects(
         except Exception:
             pass
 
+    if not sync:
+        from ..services.cache import cache_set
+        await cache_set(cache_key, items, ttl_seconds=20)
+
     return items
 
 
@@ -457,10 +483,13 @@ async def get_project(
 
     docs_q = (
         select(Document)
+        .options(defer(Document.content_tsv), defer(Document.metadata_))
         .where(Document.project_id == project_id)
         .order_by(Document.synced_at.desc())
         .limit(50)
     )
+    if not include_content:
+        docs_q = docs_q.options(defer(Document.content))
     docs_q = apply_user_filter(docs_q, mids, Document.machine_id)
     docs_result = await db.execute(docs_q)
     docs = docs_result.scalars().all()
@@ -519,6 +548,7 @@ async def update_project(
             project.title = new_title
 
     await db.commit()
+    await _bust_project_cache(project_id, _user.id)
     await db.refresh(project)
     return {
         "id": str(project.id),
@@ -546,6 +576,12 @@ async def get_project_timeline(
     - related brain artifacts (task.md, implementation_plan.md, walkthrough.md)
     Filters out .resolved versions and .metadata.json noise.
     """
+    from ..services.cache import cache_get, cache_set
+    cache_key = f"project:timeline:{_user.id}:{project_id}:{category or 'all'}:{offset}:{limit}:{order}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     mids = await user_machine_ids(db, _user)
 
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
@@ -775,7 +811,7 @@ async def get_project_timeline(
         else:
             ev["content_preview"] = plan_previews.get(uuid.UUID(ev["id"]))
 
-    return {
+    payload = {
         "project": {
             "id": str(project.id),
             "slug": project.slug,
@@ -788,12 +824,19 @@ async def get_project_timeline(
         "limit": limit,
         "events": page,
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
+
+
+_last_reconcile_time: dict[uuid.UUID, float] = {}
+_RECONCILE_COOLDOWN_SECONDS: float = 120.0
 
 
 async def _reconcile_project_documents(
     db: AsyncSession,
     target_project: Project,
     target_mid: uuid.UUID | None = None,
+    force: bool = False,
 ) -> int:
     """Auto-adopt and reconcile conversations belonging to this project.
 
@@ -803,6 +846,12 @@ async def _reconcile_project_documents(
       - misassigned during initial delta ingest
     Returns the number of adopted documents.
     """
+    global _last_reconcile_time
+    now = time.time()
+    last_t = _last_reconcile_time.get(target_project.id, 0.0)
+    if not force and (now - last_t < _RECONCILE_COOLDOWN_SECONDS):
+        return 0
+    _last_reconcile_time[target_project.id] = now
     try:
         tool_id = target_project.tool_id
         raw_slug_name = target_project.slug.split("/")[-1] if "/" in target_project.slug else target_project.slug
@@ -1046,11 +1095,6 @@ async def get_project_conversations(
                 "sessions": [],
             }
 
-    # Auto-adopt any missing / orphaned conversations for this project
-    adopted_count = await _reconcile_project_documents(db, project, target_mid)
-    if adopted_count > 0:
-        await db.commit()
-
     from ..services.cache import cache_get, cache_set
     as_of_key = as_of.isoformat() if as_of else "live"
     dev_key = device_id or "all"
@@ -1058,10 +1102,14 @@ async def get_project_conversations(
         f"project:conv:{_user.id}:{project_id}:{dev_key}:"
         f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
     )
-    if adopted_count == 0:
-        cached = await cache_get(cache_key)
-        if cached is not None:
-            return cached
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Auto-adopt any missing / orphaned conversations for this project (throttled to 120s per project)
+    adopted_count = await _reconcile_project_documents(db, project, target_mid)
+    if adopted_count > 0:
+        await db.commit()
 
     # Phase 1: scan only metadata columns to figure out pagination + subagent
     # grouping. Pulling Document.content (TOAST'd, can be 500 KB+ per doc)
@@ -1827,6 +1875,7 @@ async def get_project_blueprint(
     CURATED = ("identity", "memory", "plan", "learning")
     curated_q = (
         select(Document)
+        .options(defer(Document.content_tsv), defer(Document.metadata_))
         .where(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
@@ -1844,6 +1893,11 @@ async def get_project_blueprint(
     if recent_convs > 0:
         conv_q = (
             select(Document)
+            .options(
+                defer(Document.content),
+                defer(Document.content_tsv),
+                defer(Document.metadata_),
+            )
             .where(
                 Document.project_id == project_id,
                 Document.category == "conversation",

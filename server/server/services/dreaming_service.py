@@ -1367,12 +1367,22 @@ async def run_dreaming_pipeline(
 
 async def export_core_memory_markdown(db: AsyncSession, user: User) -> str:
     """Render the user's UserMemory items into a unified MEMORY.md file."""
+    from sqlalchemy.orm import load_only
+
     res = await db.execute(
         select(UserMemory)
+        .options(load_only(
+            UserMemory.category,
+            UserMemory.key,
+            UserMemory.is_folder,
+            UserMemory.tree_path,
+            UserMemory.confidence,
+            UserMemory.content,
+        ))
         .where(UserMemory.user_id == user.id, UserMemory.status == "active")
         .order_by(UserMemory.category, UserMemory.key)
     )
-    memories = res.scalars().all()
+    memories = res.scalars().all() if hasattr(res, "scalars") else res.all()
 
     if not memories:
         return (

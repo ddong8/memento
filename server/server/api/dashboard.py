@@ -32,6 +32,13 @@ async def get_dashboard(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Aggregated dashboard data for home page."""
+    from ..services.cache import cache_get, cache_set
+
+    cache_key = f"dashboard:{_user.id}:{device_id or 'all'}:{tz_offset}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     mids = await user_machine_ids(db, _user)
 
     # tz_offset: JS getTimezoneOffset() value (e.g. -480 for UTC+8)
@@ -196,7 +203,7 @@ async def get_dashboard(
     proj_count_q = apply_user_filter(proj_count_q, mids, Document.machine_id)
     total_projects = (await db.execute(proj_count_q)).scalar() or 0
 
-    return {
+    payload = {
         "tools": tools,
         "recent_conversations": recent_conversations,
         "daily": daily,
@@ -211,3 +218,5 @@ async def get_dashboard(
             "today_conversations": today_conversations,
         },
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload

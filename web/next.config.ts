@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   compress: true,
   poweredByHeader: false,
   experimental: {
-    optimizePackageImports: ["react-icons", "date-fns"],
+    optimizePackageImports: ["react-icons", "date-fns", "three", "@tanstack/react-virtual"],
   },
   async redirects() {
     return [

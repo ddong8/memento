@@ -36,7 +36,7 @@ def _get_ingest_semaphore() -> "asyncio.Semaphore":
         _ingest_semaphore = _asyncio.Semaphore(24)
     return _ingest_semaphore
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -1002,6 +1002,7 @@ async def ingest_file(
             from .cache import cache_delete_prefix
             await cache_delete_prefix(f"daily:detail:{user_id}:")
             await cache_delete_prefix(f"daily:dates:{user_id}:")
+            await cache_delete_prefix(f"dashboard:{user_id}:")
             if doc.project_id:
                 await cache_delete_prefix(f"project:conv:{user_id}:{doc.project_id}:")
         except Exception:
@@ -1009,10 +1010,10 @@ async def ingest_file(
 
     # Update tool stats
     tool.last_sync_at = now
-    count_result = await db.execute(
-        select(Document.id).where(Document.tool_id == tool_id)
-    )
-    tool.total_files = len(count_result.all())
+    count_val = (await db.execute(
+        select(func.count()).select_from(Document).where(Document.tool_id == tool_id)
+    )).scalar() or 0
+    tool.total_files = count_val
 
     # Extract conversation messages into conversation_messages table
     # For DELTA mode, only parse new content; for FULL mode, re-parse all

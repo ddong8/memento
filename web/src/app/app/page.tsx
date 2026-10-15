@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n";
@@ -89,10 +89,25 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const sseDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sseDebounceTimerRef.current) {
+        clearTimeout(sseDebounceTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => { fetchData(); }, [fetchData]);
   useSSE((event) => {
     setLastEvent(`${event.data.tool_id}: ${event.data.title || event.data.relative_path}`);
-    fetchData();
+    if (sseDebounceTimerRef.current) {
+      clearTimeout(sseDebounceTimerRef.current);
+    }
+    sseDebounceTimerRef.current = setTimeout(() => {
+      fetchData();
+    }, 800);
   });
 
   if (loading) return <div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>{t.loading}</div>;

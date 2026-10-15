@@ -702,18 +702,39 @@ async def get_project_timeline(
         )
         msg_counts = {row[0]: row[1] for row in cnt_result.all()}
 
-    # Preview messages — fetch first 6 user/assistant messages per conv doc
+    # Preview messages — fetch first 4 user/assistant messages per conv doc via SQL window function
     previews: dict = {}
     if page_conv_ids:
-        # Use a window function via a lateral-like approach: just fetch first 10 rows per doc
-        # by line_number, then filter in Python. Small constant per doc.
-        msg_rows = await db.execute(
-            select(ConversationMessage.document_id, ConversationMessage.role,
-                   ConversationMessage.content, ConversationMessage.timestamp,
-                   ConversationMessage.line_number)
+        # Window function partitions by document_id and limits rn <= 4 in the database engine,
+        # preventing transferring tens of thousands of messages across the network into Python memory.
+        subq = (
+            select(
+                ConversationMessage.document_id,
+                ConversationMessage.role,
+                ConversationMessage.content,
+                ConversationMessage.timestamp,
+                ConversationMessage.line_number,
+                func.row_number()
+                .over(
+                    partition_by=ConversationMessage.document_id,
+                    order_by=ConversationMessage.line_number,
+                )
+                .label("rn"),
+            )
             .where(ConversationMessage.document_id.in_(page_conv_ids))
             .where(ConversationMessage.role.in_(("user", "assistant")))
-            .order_by(ConversationMessage.document_id, ConversationMessage.line_number)
+        ).subquery()
+
+        msg_rows = await db.execute(
+            select(
+                subq.c.document_id,
+                subq.c.role,
+                subq.c.content,
+                subq.c.timestamp,
+                subq.c.line_number,
+            )
+            .where(subq.c.rn <= 4)
+            .order_by(subq.c.document_id, subq.c.line_number)
         )
         for doc_id, role, content, ts_val, _ln in msg_rows.all():
             lst = previews.setdefault(doc_id, [])
@@ -1228,14 +1249,22 @@ async def get_project_conversations(
         )
         doc_contents = {r[0]: (r[1] or "") for r in c_rows.all()}
 
-    # Get all plan docs for this project (for artifact embedding)
-    plans_q = select(Document).where(Document.project_id == project_id, Document.category == "plan")
+    # Get all plan docs for this project (for artifact embedding) — scalar columns + 5KB content snippet
+    plans_cols = (
+        Document.id,
+        Document.title,
+        Document.relative_path,
+        Document.metadata_,
+        Document.file_size_bytes,
+        func.substr(Document.content, 1, 5000).label("content"),
+    )
+    plans_q = select(*plans_cols).where(Document.project_id == project_id, Document.category == "plan")
     if target_mid is not None:
         plans_q = plans_q.where(Document.machine_id == target_mid)
     else:
         plans_q = apply_user_filter(plans_q, mids, Document.machine_id)
     plans_result = await db.execute(plans_q)
-    all_plans = plans_result.scalars().all()
+    all_plans = plans_result.all()
 
     # Index plans by session_id
     plans_by_session: dict[str, list] = {}

@@ -1004,6 +1004,7 @@ async def ingest_file(
             await cache_delete_prefix(f"daily:dates:{user_id}:")
             await cache_delete_prefix(f"dashboard:{user_id}:")
             await cache_delete_prefix(f"memory:stats:{user_id}:")
+            await cache_delete_prefix(f"devices:stats:{user_id}:")
             if doc.project_id:
                 await cache_delete_prefix(f"project:conv:{user_id}:{doc.project_id}:")
         except Exception:

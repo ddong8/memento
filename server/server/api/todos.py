@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -57,27 +58,43 @@ async def _own(db: AsyncSession, user: User, todo_id: str) -> Todo:
     return todo
 
 
+async def _bust_user_todo_cache(user_id: Any) -> None:
+    from ..services.cache import cache_delete_prefix
+    await cache_delete_prefix(f"todos:{user_id}:")
+
+
 @router.get("")
 async def list_todos(
     project: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    opened = await open_todos(db, user, limit=200)
+    from ..services.cache import cache_get, cache_set
+
+    clean_proj = project.strip() if project and project.strip() else None
+    cache_key = f"todos:{user.id}:{clean_proj.lower() if clean_proj else 'all'}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    opened = await open_todos(db, user, limit=200, project=clean_proj)
     since = datetime.now(timezone.utc) - timedelta(days=CLOSED_DAYS)
+    closed_q = select(Todo).where(
+        Todo.user_id == user.id, Todo.status != "open", Todo.closed_at >= since
+    )
+    if clean_proj:
+        closed_q = closed_q.where(Todo.project.ilike(f"%{clean_proj}%"))
     closed = (await db.execute(
-        select(Todo).where(Todo.user_id == user.id, Todo.status != "open", Todo.closed_at >= since)
-        .order_by(Todo.closed_at.desc()).limit(50)
+        closed_q.order_by(Todo.closed_at.desc()).limit(50)
     )).scalars().all()
-    if project:
-        p = project.lower()
-        opened = [t for t in opened if p in (t.project or "").lower()]
-        closed = [t for t in closed if p in (t.project or "").lower()]
-    return {
+
+    payload = {
         "open": [todo_out(t) for t in opened],
         "closed": [todo_out(t) for t in closed],
         "counts": await todo_counts(db, user),
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.post("")
@@ -95,6 +112,7 @@ async def create_todo(
     )
     await db.commit()
     await db.refresh(todo)
+    await _bust_user_todo_cache(user.id)
     return {"todo": todo_out(todo), "created": created}
 
 
@@ -125,4 +143,5 @@ async def edit_todo(
             raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     await db.refresh(todo)
+    await _bust_user_todo_cache(user.id)
     return {"todo": todo_out(todo)}

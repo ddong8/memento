@@ -159,19 +159,26 @@ async def get_daily(
     conversations = []
     tool_stats: dict[str, int] = {}
     if conv_map:
-        doc_ids = [uuid.UUID(k) for k in conv_map.keys()]
-        doc_info = await db.execute(select(Document).where(Document.id.in_(doc_ids)))
-        for d in doc_info.scalars().all():
-            info = conv_map.get(str(d.id), {})
+        doc_info = await db.execute(
+            select(
+                Document.id,
+                Document.tool_id,
+                Document.title,
+                Document.relative_path,
+                Document.content_type,
+            ).where(Document.id.in_(doc_ids))
+        )
+        for doc_id, tool_id, title, rel_path, c_type in doc_info.all():
+            info = conv_map.get(str(doc_id), {})
             total = info.get("user_messages", 0) + info.get("assistant_messages", 0)
-            tool_stats[d.tool_id] = tool_stats.get(d.tool_id, 0) + total
+            tool_stats[tool_id] = tool_stats.get(tool_id, 0) + total
             conversations.append({
-                "id": str(d.id),
-                "tool_id": d.tool_id,
-                "title": d.title or d.relative_path,
+                "id": str(doc_id),
+                "tool_id": tool_id,
+                "title": title or rel_path,
                 "user_messages": info.get("user_messages", 0),
                 "assistant_messages": info.get("assistant_messages", 0),
-                "content_type": d.content_type,
+                "content_type": c_type,
             })
         conversations.sort(key=lambda x: x["user_messages"], reverse=True)
 
@@ -256,9 +263,15 @@ async def get_daily_messages(
     )
     total = count_result.scalar() or 0
 
-    # Get messages with document info
+    # Get messages with document info (scalar projection avoids JSONB metadata & ORM tracking overhead)
     msg_result = await db.execute(
-        select(ConversationMessage, Document.tool_id, Document.title)
+        select(
+            ConversationMessage.role,
+            ConversationMessage.content,
+            ConversationMessage.timestamp,
+            Document.tool_id,
+            Document.title,
+        )
         .join(Document, ConversationMessage.document_id == Document.id)
         .where(*msg_filter, subagent_filter, *user_filter)
         .order_by(ConversationMessage.timestamp, ConversationMessage.document_id, ConversationMessage.line_number)
@@ -266,15 +279,16 @@ async def get_daily_messages(
         .limit(limit)
     )
 
-    messages = []
-    for cm, tool_id, doc_title in msg_result.all():
-        messages.append({
-            "role": cm.role,
-            "content": cm.content or "",
-            "timestamp": cm.timestamp.isoformat() if cm.timestamp else None,
+    messages = [
+        {
+            "role": role,
+            "content": content or "",
+            "timestamp": ts.isoformat() if ts else None,
             "tool_id": tool_id,
             "conversation_title": doc_title,
-        })
+        }
+        for role, content, ts, tool_id, doc_title in msg_result.all()
+    ]
 
     return {"date": date_str, "total": total, "offset": offset, "limit": limit, "messages": messages}
 

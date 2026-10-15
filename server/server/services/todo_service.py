@@ -94,12 +94,17 @@ def todo_out(todo: Todo) -> dict[str, Any]:
     }
 
 
-async def open_todos(db: AsyncSession, user: User, limit: int = OPEN_LIMIT) -> list[Todo]:
-    return list((await db.execute(
-        select(Todo).where(Todo.user_id == user.id, Todo.status == "open")
-        .order_by(Todo.due_at.asc().nulls_last(), Todo.created_at.desc())
-        .limit(limit)
-    )).scalars().all())
+async def open_todos(
+    db: AsyncSession,
+    user: User,
+    limit: int = OPEN_LIMIT,
+    project: str | None = None,
+) -> list[Todo]:
+    q = select(Todo).where(Todo.user_id == user.id, Todo.status == "open")
+    if project:
+        q = q.where(Todo.project.ilike(f"%{project.strip()}%"))
+    q = q.order_by(Todo.due_at.asc().nulls_last(), Todo.created_at.desc()).limit(limit)
+    return list((await db.execute(q)).scalars().all())
 
 
 async def add_todo(
@@ -337,6 +342,10 @@ async def learn_todos(db: AsyncSession, user: User) -> dict[str, Any]:
         await db.commit()
         opened = [t for t in opened if t.status == "open"]
 
+    if created or closed:
+        from .cache import cache_delete_prefix
+        await cache_delete_prefix(f"todos:{user.id}:")
+
     await ai_health.put_json(cursor_key, next_cursor, ttl_seconds=90 * 24 * 3600)
     return {"scanned": len(said), "created": [t.title for t in created], "closed": closed}
 
@@ -371,20 +380,16 @@ async def todo_counts(db: AsyncSession, user: User, days: int = 7) -> dict[str, 
     now = datetime.now(timezone.utc)
     today, _ = local_day_bounds(now)
     since = now - timedelta(days=days)
-    open_n = (await db.execute(
-        select(func.count()).select_from(Todo).where(Todo.user_id == user.id, Todo.status == "open")
-    )).scalar() or 0
-    overdue = (await db.execute(
-        select(func.count()).select_from(Todo).where(
-            Todo.user_id == user.id, Todo.status == "open", Todo.due_at.is_not(None), Todo.due_at < today,
-        )
-    )).scalar() or 0
-    done = (await db.execute(
-        select(func.count()).select_from(Todo).where(
-            Todo.user_id == user.id, Todo.status == "done", Todo.closed_at >= since,
-        )
-    )).scalar() or 0
-    added = (await db.execute(
-        select(func.count()).select_from(Todo).where(Todo.user_id == user.id, Todo.created_at >= since)
-    )).scalar() or 0
-    return {"open": open_n, "overdue": overdue, "done_recent": done, "added_recent": added}
+    stmt = select(
+        func.count().filter(Todo.status == "open").label("open_n"),
+        func.count().filter((Todo.status == "open") & Todo.due_at.is_not(None) & (Todo.due_at < today)).label("overdue"),
+        func.count().filter((Todo.status == "done") & (Todo.closed_at >= since)).label("done"),
+        func.count().filter(Todo.created_at >= since).label("added"),
+    ).where(Todo.user_id == user.id)
+    row = (await db.execute(stmt)).one()
+    return {
+        "open": row.open_n or 0,
+        "overdue": row.overdue or 0,
+        "done_recent": row.done or 0,
+        "added_recent": row.added or 0,
+    }

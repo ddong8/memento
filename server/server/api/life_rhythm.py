@@ -55,6 +55,8 @@ async def sync_collector_rhythms(
     synced = await life_service.sync_rhythms_from_collector(
         db, user, days=body.days, tz_offset=body.tz_offset
     )
+    from ..services.cache import cache_set
+    await cache_set(f"life:sync_cooldown:{user.id}:{body.days}", "1", ttl_seconds=300)
     return {
         "status": "ok",
         "synced_days": len(synced),

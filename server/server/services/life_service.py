@@ -230,6 +230,8 @@ async def record_daily_rhythm(
 
     await db.commit()
     await db.refresh(record)
+    from .cache import cache_delete_prefix
+    await cache_delete_prefix(f"life:rhythm:{user.id}:")
     return record
 
 
@@ -400,11 +402,22 @@ async def get_recent_rhythms(
     sync_collector: bool = True,
 ) -> list[dict[str, Any]]:
     """Retrieve daily rhythms for the past N days, automatically derived from collector activity."""
+    from .cache import cache_get, cache_set
+
+    cache_key = f"life:rhythm:{user.id}:{days}:{tz_offset}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     if sync_collector:
-        try:
-            await sync_rhythms_from_collector(db, user, days=days, tz_offset=tz_offset)
-        except Exception as e:
-            logger.warning("Collector rhythm auto-sync skipped: %s", e)
+        cooldown_key = f"life:sync_cooldown:{user.id}:{days}"
+        should_sync = (await cache_get(cooldown_key)) is None
+        if should_sync:
+            try:
+                await sync_rhythms_from_collector(db, user, days=days, tz_offset=tz_offset)
+                await cache_set(cooldown_key, "1", ttl_seconds=300)
+            except Exception as e:
+                logger.warning("Collector rhythm auto-sync skipped: %s", e)
 
     start_date = date.today() - timedelta(days=days)
     records = (await db.execute(
@@ -413,7 +426,7 @@ async def get_recent_rhythms(
         .order_by(UserLifeRhythm.log_date.desc())
     )).scalars().all()
 
-    return [
+    payload = [
         {
             "id": str(r.id),
             "date": r.log_date.isoformat(),
@@ -428,6 +441,8 @@ async def get_recent_rhythms(
         }
         for r in records
     ]
+    await cache_set(cache_key, payload, ttl_seconds=60)
+    return payload
 
 
 async def generate_life_decision_advice(db: AsyncSession, user: User, target_date: date) -> str:
@@ -482,6 +497,8 @@ async def generate_life_decision_advice(db: AsyncSession, user: User, target_dat
         advice = await call_plain_chat([{"role": "user", "content": prompt}], background=True, user=user)
         target_record.ai_advice = (advice or "").strip()
         await db.commit()
+        from .cache import cache_delete_prefix
+        await cache_delete_prefix(f"life:rhythm:{user.id}:")
         return (advice or "").strip()
     except Exception as e:
         logger.warning("Failed to generate life decision advice: %s", e)
@@ -498,6 +515,8 @@ async def clear_user_rhythms(db: AsyncSession, user: User, log_date: date | None
     for r in records:
         await db.delete(r)
     await db.commit()
+    from .cache import cache_delete_prefix
+    await cache_delete_prefix(f"life:rhythm:{user.id}:")
     return count
 
 

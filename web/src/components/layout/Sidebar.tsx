@@ -86,7 +86,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       try {
         const { api } = await import("@/lib/api-client");
         const data = await api.getTodos();
-        const openTodos = Array.isArray(data.open) ? data.open.length : 0;
+        const counts = data.counts as Record<string, number> | undefined;
+        const openTodos = typeof counts?.open === "number" ? counts.open : (Array.isArray(data.open) ? data.open.length : 0);
         setTodoCount(openTodos);
       } catch {}
     };

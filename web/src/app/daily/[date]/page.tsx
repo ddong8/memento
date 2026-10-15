@@ -248,9 +248,6 @@ function DailyConversationFlow({ dateStr, t, locale }: { dateStr: string; t: I18
     timestamp: m.timestamp,
   }));
 
-  // Group by conversation for section headers
-  let lastConvTitle = "";
-
   return (
     <div style={{ marginBottom: 18 }}>
       {!loaded ? (
@@ -274,12 +271,18 @@ function DailyConversationFlow({ dateStr, t, locale }: { dateStr: string; t: I18
             {chatMessages.map((msg, idx) => {
               const raw = messages[idx];
               const convTitle = raw?.conversation_title || "";
+              const prevTitle = idx > 0 ? (messages[idx - 1]?.conversation_title || "") : "";
               const toolId = raw?.tool_id || "";
-              const showHeader = convTitle !== lastConvTitle;
-              lastConvTitle = convTitle;
+              const showHeader = Boolean(convTitle && convTitle !== prevTitle);
               return (
-                <div key={idx}>
-                  {showHeader && convTitle && (
+                <div
+                  key={idx}
+                  style={{
+                    contentVisibility: "auto",
+                    containIntrinsicSize: "0 80px",
+                  }}
+                >
+                  {showHeader && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "12px 0" }}>
                       <div style={{ flex: 1, borderTop: "1px solid var(--aurora-border)" }} />
                       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 9999, background: "var(--aurora-chip)", color: "var(--aurora-fg3)", fontSize: 11 }}>

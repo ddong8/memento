@@ -55,21 +55,29 @@ async def list_devices(
 
     machine_ids = [m.id for m in machines]
 
-    # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips.
-    stats_q = (
-        select(Document.machine_id, Document.tool_id, func.count())
-        .where(Document.machine_id.in_(machine_ids), Document.tool_id != "system")
-        .group_by(Document.machine_id, Document.tool_id)
-    )
-    totals_by_name: dict = {}
-    tools_by_name: dict = {}
-    name_by_mid = {m.id: m.name for m in machines}
-    for mid, tid, n in (await db.execute(stats_q)).all():
-        mname = name_by_mid.get(mid, "")
-        totals_by_name[mname] = totals_by_name.get(mname, 0) + n
-        tlist = tools_by_name.setdefault(mname, [])
-        if tid not in tlist:
-            tlist.append(tid)
+    # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips (cached for 60s).
+    from ..services.cache import cache_get, cache_set
+    stats_cache_key = f"devices:stats:{_user.id}"
+    cached_stats = await cache_get(stats_cache_key)
+    if cached_stats is not None:
+        totals_by_name = cached_stats.get("totals", {})
+        tools_by_name = cached_stats.get("tools", {})
+    else:
+        stats_q = (
+            select(Document.machine_id, Document.tool_id, func.count())
+            .where(Document.machine_id.in_(machine_ids), Document.tool_id != "system")
+            .group_by(Document.machine_id, Document.tool_id)
+        )
+        totals_by_name = {}
+        tools_by_name = {}
+        name_by_mid = {m.id: m.name for m in machines}
+        for mid, tid, n in (await db.execute(stats_q)).all():
+            mname = name_by_mid.get(mid, "")
+            totals_by_name[mname] = totals_by_name.get(mname, 0) + n
+            tlist = tools_by_name.setdefault(mname, [])
+            if tid not in tlist:
+                tlist.append(tid)
+        await cache_set(stats_cache_key, {"totals": totals_by_name, "tools": tools_by_name}, ttl_seconds=60)
 
     from datetime import datetime, timezone
     from ..services.ws_manager import ws_manager

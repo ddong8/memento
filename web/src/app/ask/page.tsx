@@ -3880,7 +3880,20 @@ function AskPageContent() {
 
     try {
       for (;;) {
-        const { done, value } = await reader.read();
+        // Watchdog: server emits keepalive every 8s. If no data arrives for 25s,
+        // the TCP socket is dead (common during VPN handover/NAT timeout). Cancel and let followRun reconnect.
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const readPromise = reader.read();
+        const timeoutPromise = new Promise<{ done: true; value: undefined }>((_, reject) => {
+          timer = setTimeout(() => {
+            try { reader.cancel(); } catch {}
+            reject(new Error("Stream idle timeout (zombie socket detected)"));
+          }, 25000);
+        });
+
+        const { done, value } = await Promise.race([readPromise, timeoutPromise]).finally(() => {
+          if (timer) clearTimeout(timer);
+        });
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const frames = buffer.split("\n\n");

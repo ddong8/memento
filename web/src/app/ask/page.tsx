@@ -1317,26 +1317,7 @@ function AskPageContent() {
   const prevPathnameRef = useRef<string>(pathname);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // When returning from another menu (e.g. /memory, /inbox, /daily, /profile) back to AI Deacon:
-  // Instantly restore exact scroll position (0ms) within the kept-alive DOM container
-  useEffect(() => {
-    const prev = prevPathnameRef.current;
-    prevPathnameRef.current = pathname;
-    const isNowAsk = pathname === "/ask" || pathname.startsWith("/ask/");
-    const wasNotAsk = !prev || !prev.startsWith("/ask");
 
-    if (isNowAsk && wasNotAsk) {
-      const targetScroll = askCache?.scrollTop;
-      if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = targetScroll;
-        requestAnimationFrame(() => {
-          if (chatScrollRef.current) {
-            chatScrollRef.current.scrollTop = targetScroll;
-          }
-        });
-      }
-    }
-  }, [pathname]);
 
   // Agent Context: Model, Project & Session selection
   const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || initSnap?.selectedModel || "");
@@ -1806,6 +1787,31 @@ function AskPageContent() {
       scrollSettleTimersRef.current.forEach(clearTimeout);
     };
   }, []);
+
+  // When returning from another menu (e.g. /memory, /inbox, /daily, /profile) back to AI Deacon:
+  // Instantly restore exact scroll position (0ms) within the kept-alive DOM container
+  useEffect(() => {
+    const prev = prevPathnameRef.current;
+    prevPathnameRef.current = pathname;
+    const isNowAsk = pathname === "/ask" || pathname.startsWith("/ask/");
+    const wasNotAsk = !prev || !prev.startsWith("/ask");
+
+    if (isNowAsk && wasNotAsk) {
+      if (streamingRef.current || askCache?.streaming) {
+        scrollConversationToBottom(true);
+      } else {
+        const targetScroll = askCache?.scrollTop;
+        if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
+          chatScrollRef.current.scrollTop = targetScroll;
+          requestAnimationFrame(() => {
+            if (chatScrollRef.current) {
+              chatScrollRef.current.scrollTop = targetScroll;
+            }
+          });
+        }
+      }
+    }
+  }, [pathname, scrollConversationToBottom]);
 
   // RAF-batched streaming: accumulate updates, flush once per frame
   const turnsRef = useRef<Turn[]>([]);
@@ -2852,6 +2858,12 @@ function AskPageContent() {
 
       // 0ms Zero-Latency Return: If we are already on this conversation (e.g. returning from Dynamic Island or Live Activity)
       if (activeConversationIdRef.current === targetId) {
+        if (!window.location.pathname.startsWith("/ask")) {
+          const pushFn = (window as any).__memento_client_push;
+          if (typeof pushFn === "function") {
+            pushFn(`/ask?id=${encodeURIComponent(targetId)}`);
+          }
+        }
         if (!detail?.preserveScroll) {
           pendingScrollToBottomRef.current = true;
           scrollConversationToBottom(true);
@@ -2874,6 +2886,12 @@ function AskPageContent() {
       } catch {}
       // 0ms Zero-Latency: If already active
       if (activeConversationIdRef.current === id) {
+        if (!window.location.pathname.startsWith("/ask")) {
+          const pushFn = (window as any).__memento_client_push;
+          if (typeof pushFn === "function") {
+            pushFn(`/ask?id=${encodeURIComponent(id)}&scroll=bottom`);
+          }
+        }
         pendingScrollToBottomRef.current = true;
         scrollConversationToBottom(true);
         return;
@@ -2901,6 +2919,12 @@ function AskPageContent() {
             } catch {}
             // 0ms Zero-Latency: If already on this conversation (e.g. tapping Dynamic Island)
             if (activeConversationIdRef.current === id) {
+              if (!window.location.pathname.startsWith("/ask")) {
+                const pushFn = (window as any).__memento_client_push;
+                if (typeof pushFn === "function") {
+                  pushFn(`/ask?id=${encodeURIComponent(id)}${parsed.searchParams.get("scroll") === "bottom" ? "&scroll=bottom" : ""}`);
+                }
+              }
               if (parsed.searchParams.get("scroll") === "bottom") {
                 pendingScrollToBottomRef.current = true;
                 scrollConversationToBottom(true);

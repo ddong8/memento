@@ -592,13 +592,19 @@ export default function WebShell() {
               const fullUrl = pendingUrlRef.current;
               pendingUrlRef.current = null;
               const js = `
-                setTimeout(function() {
+                (function() {
                   if (typeof window.__memento_navigate === 'function') {
                     window.__memento_navigate(${JSON.stringify(fullUrl)});
                   } else {
-                    window.location.assign(${JSON.stringify(fullUrl)});
+                    setTimeout(function() {
+                      if (typeof window.__memento_navigate === 'function') {
+                        window.__memento_navigate(${JSON.stringify(fullUrl)});
+                      } else {
+                        window.location.assign(${JSON.stringify(fullUrl)});
+                      }
+                    }, 80);
                   }
-                }, 300);
+                })();
                 true;
               `;
               web.current.injectJavaScript(js);

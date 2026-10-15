@@ -46,11 +46,15 @@ export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: str
   ],
   claude: [
     { id: "", name: "⚡ 默认模型 (跟随客户端/CLI配置)", desc: "使用本地 Claude 客户端配置的默认模型" },
-    { id: "sonnet", name: "sonnet (官方动态最新 Sonnet 别名)", desc: "自动映射当前官方最新 Sonnet (当前为 Claude Sonnet 5)" },
-    { id: "opus", name: "opus (官方动态最新 Opus 别名)", desc: "高阶架构与超大上下文 (当前为 Claude Opus 5)" },
+    { id: "opus", name: "opus (官方动态最新 Opus 别名)", desc: "官方推荐别名，极高智能与超长上下文 (当前自动映射 Claude Opus 5.5)" },
+    { id: "sonnet", name: "sonnet (官方动态最新 Sonnet 别名)", desc: "官方推荐别名，自动指向最新主力 (当前自动映射 Claude Sonnet 5.5)" },
     { id: "fable", name: "fable (官方动态最新 Fable 别名)", desc: "官方推荐别名，最强智能体与高阶科学推理 (当前为 Claude Fable 5.1)" },
     { id: "opus[1m]", name: "opus[1m] (100万上下文增强版)", desc: "超大上下文深度思维推演" },
     { id: "haiku", name: "haiku (官方动态最新 Haiku 别名)", desc: "极速轻量日常模型 (当前为 Claude Haiku 4.5)" },
+    { id: "claude-opus-5-5", name: "claude-opus-5-5 (Claude Opus 5.5)", desc: "顶尖旗舰架构设计与前沿复杂多步推理 (最新顶级旗舰)" },
+    { id: "claude-sonnet-5-5", name: "claude-sonnet-5-5 (Claude Sonnet 5.5)", desc: "最新前沿主力编码与多模态推理模型 (最新主力)" },
+    { id: "opus-5.5", name: "opus-5.5 (Claude Opus 5.5 简写)", desc: "Claude Opus 5.5 快速别名" },
+    { id: "sonnet-5.5", name: "sonnet-5.5 (Claude Sonnet 5.5 简写)", desc: "Claude Sonnet 5.5 快速别名" },
     { id: "claude-fable-5-1", name: "claude-fable-5-1 (Claude Fable 5.1)", desc: "官方最强智能体与高阶科学推理模型 (顶尖旗舰)" },
     { id: "claude-opus-5", name: "claude-opus-5 (Claude Opus 5)", desc: "官方顶级旗舰架构设计与复杂推演 (当前旗舰)" },
     { id: "claude-sonnet-5", name: "claude-sonnet-5 (Claude Sonnet 5)", desc: "官方最新主力编码与推理模型 (当前主力)" },
@@ -2975,31 +2979,40 @@ function AskPageContent() {
   }, [modeParam]);
 
   // Load dynamic agent capabilities (models, default configs, reasoning effort)
-  useEffect(() => {
+  const [isRefreshingCaps, setIsRefreshingCaps] = useState<boolean>(false);
+  const reloadCapabilities = useCallback(async (manual = false) => {
     if (executionMode === "ai" || executionMode === "shell") {
       setCapabilities(null);
       return;
     }
-    let cancelled = false;
-    api.getAgentCapabilities(executionMode, selectedDevice)
-      .then((data) => {
-        if (!cancelled && data) {
-          setCapabilities(data);
-          if (!isCustomModel) {
-            const hasModel = (data.models || []).some((m) => m.id === selectedModel);
-            if (!hasModel && selectedModel !== "") {
-              setSelectedModel("");
-            }
+    if (manual) setIsRefreshingCaps(true);
+    try {
+      const data = await api.getAgentCapabilities(executionMode, selectedDevice);
+      if (data) {
+        setCapabilities(data);
+        if (!isCustomModel) {
+          const hasModel = (data.models || []).some((m) => m.id === selectedModel);
+          if (!hasModel && selectedModel !== "") {
+            setSelectedModel("");
           }
         }
-      })
-      .catch((err) => {
-        console.warn("Failed to load agent capabilities:", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [executionMode, selectedDevice, isCustomModel, selectedModel]);
+        if (manual) {
+          showInAppToast(isZh ? "已同步最新模型" : "Models Synced", isZh ? `已获取到 ${data.models?.length || 0} 个可用模型` : `Found ${data.models?.length || 0} models`);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load agent capabilities:", err);
+      if (manual) {
+        showInAppToast(isZh ? "模型列表已刷新" : "Refreshed", isZh ? "已加载默认推荐模型列表" : "Default model list loaded");
+      }
+    } finally {
+      if (manual) setIsRefreshingCaps(false);
+    }
+  }, [executionMode, selectedDevice, isCustomModel, selectedModel, isZh]);
+
+  useEffect(() => {
+    void reloadCapabilities(false);
+  }, [reloadCapabilities]);
 
   // Throttled patchLast aligned with requestAnimationFrame: mutate ref immediately, coalesce React Markdown re-renders to avoid CPU spikes
   const patchLast = useCallback((fn: (turn: Turn) => Turn) => {
@@ -5783,6 +5796,28 @@ function AskPageContent() {
                         {isZh ? "✏️ 自定义输入任意模型..." : "✏️ Custom model..."}
                       </option>
                     </select>
+                    <button
+                      type="button"
+                      onClick={() => reloadCapabilities(true)}
+                      disabled={isRefreshingCaps}
+                      title={isZh ? "点击自动从设备与官方在线拉取最新模型" : "Sync latest models from device & upstream"}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: "2px 2px",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--aurora-fg3)",
+                        opacity: isRefreshingCaps ? 0.5 : 0.8,
+                        transition: "color 0.15s ease, opacity 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--aurora-accent)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--aurora-fg3)")}
+                    >
+                      <Icon name="refresh" size={12} className={isRefreshingCaps ? "animate-spin" : ""} />
+                    </button>
                   </div>
                 )
               )}

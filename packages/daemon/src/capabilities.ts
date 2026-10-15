@@ -23,6 +23,9 @@ interface ModelOption {
 
 export function formatClaudeDisplayName(modelId: string): string {
   const m = modelId.toLowerCase();
+  if (m.includes("opus-5-5") || m.includes("opus-5.5") || m.includes("opus-5_5")) return "Claude Opus 5.5";
+  if (m.includes("sonnet-5-5") || m.includes("sonnet-5.5") || m.includes("sonnet-5_5")) return "Claude Sonnet 5.5";
+  if (m.includes("haiku-5-5") || m.includes("haiku-5.5") || m.includes("haiku-5_5")) return "Claude Haiku 5.5";
   if (m.includes("fable-5-1") || m.includes("fable-5.1")) return "Claude Fable 5.1";
   if (m.includes("mythos-5-1") || m.includes("mythos-5.1")) return "Claude Mythos 5.1";
   if (m.includes("fable-5")) return "Claude Fable 5";
@@ -50,7 +53,8 @@ export function formatClaudeDisplayName(modelId: string): string {
 export function claudeModelRank(model: string): number {
   const m = model.toLowerCase();
   let score = 0;
-  if (/5[_\-.]1/.test(m)) score += 800;
+  if (/5[_\-.]5/.test(m)) score += 900;
+  else if (/5[_\-.]1/.test(m)) score += 800;
   else if (/(?<![0-9])[_\-.]5(?:$|[_\-.])/.test(m)) score += 700;
   else if (/4[_\-.][678]/.test(m)) score += 600;
   else if (/4[_\-.]5/.test(m)) score += 500;
@@ -110,6 +114,8 @@ async function scanFile(path: string): Promise<string[]> {
 }
 
 const FALLBACK_CLAUDE = [
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
   "claude-fable-5-1",
   "claude-opus-5",
   "claude-sonnet-5",
@@ -148,16 +154,71 @@ async function claudeCapabilities(claudePath: string, home: string): Promise<Rec
       desc: defaultModel ? `当前本地配置: ${defaultModel}` : "使用本地 Claude Code 配置的默认模型",
       is_default: true,
     },
-    { id: "sonnet", name: "sonnet (官方动态最新 Sonnet 别名)", desc: "官方推荐别名，自动指向最新主力 (当前为 Claude Sonnet 5)" },
-    { id: "opus", name: "opus (官方动态最新 Opus 别名)", desc: "官方推荐别名，极高智能与超长上下文 (当前为 Claude Opus 5)" },
+    { id: "opus", name: "opus (官方动态最新 Opus 别名)", desc: "官方推荐别名，极高智能与超长上下文 (当前自动映射 Claude Opus 5.5)" },
+    { id: "sonnet", name: "sonnet (官方动态最新 Sonnet 别名)", desc: "官方推荐别名，自动指向最新主力 (当前自动映射 Claude Sonnet 5.5)" },
     { id: "fable", name: "fable (官方动态最新 Fable 别名)", desc: "官方推荐别名，最强智能体与高阶科学推理 (当前为 Claude Fable 5.1)" },
     { id: "opus[1m]", name: "opus[1m] (100万上下文增强版)", desc: "Claude Opus 深度思维 / 100万 Token 超大上下文" },
     { id: "haiku", name: "haiku (官方动态最新 Haiku 别名)", desc: "官方推荐别名，极速轻量 (当前为 Claude Haiku 4.5)" },
+    { id: "claude-opus-5-5", name: "claude-opus-5-5 (Claude Opus 5.5)", desc: "顶尖旗舰架构设计与前沿复杂多步推理 (最新顶级旗舰)" },
+    { id: "claude-sonnet-5-5", name: "claude-sonnet-5-5 (Claude Sonnet 5.5)", desc: "最新前沿主力编码与多模态推理模型 (最新主力)" },
+    { id: "opus-5.5", name: "opus-5.5 (Claude Opus 5.5 简写)", desc: "Claude Opus 5.5 快速别名" },
+    { id: "sonnet-5.5", name: "sonnet-5.5 (Claude Sonnet 5.5 简写)", desc: "Claude Sonnet 5.5 快速别名" },
   ];
   const seen = new Set(models.map((m) => m.id));
   if (defaultModel && !seen.has(defaultModel)) {
     models.push({ id: defaultModel, name: `${defaultModel} (当前本地配置)`, desc: "本地 ~/.claude/settings.json 中配置的模型" });
     seen.add(defaultModel);
+  }
+
+  // 1. 自动提取本地 ~/.claude/settings.json 中 modelSettings 配置的任意自定义与最新模型
+  const modelSettings = (settings?.modelSettings && typeof settings.modelSettings === "object")
+    ? (settings.modelSettings as Record<string, unknown>)
+    : {};
+  for (const configuredModel of Object.keys(modelSettings)) {
+    if (configuredModel && !seen.has(configuredModel)) {
+      seen.add(configuredModel);
+      models.push({
+        id: configuredModel,
+        name: `${configuredModel} (${formatClaudeDisplayName(configuredModel)} · 本地配置)`,
+        desc: "在 ~/.claude/settings.json 中配置的模型",
+      });
+    }
+  }
+
+  // 2. 自动拉取：尝试从 Anthropic API / 本地配置的反代 Base URL 动态探测获取最新模型列表
+  const envConfig = (settings?.env && typeof settings.env === "object") ? (settings.env as Record<string, string>) : {};
+  const baseUrl = envConfig.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_BASE_URL;
+  const authToken = envConfig.ANTHROPIC_AUTH_TOKEN || envConfig.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (baseUrl || authToken) {
+    try {
+      const endpoint = baseUrl ? `${baseUrl.replace(/\/+$/, "")}/v1/models` : "https://api.anthropic.com/v1/models";
+      const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
+      if (authToken) {
+        if (authToken.startsWith("sk-ant-")) headers["x-api-key"] = authToken;
+        else headers["Authorization"] = `Bearer ${authToken}`;
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(endpoint, { headers, signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const payload = (await res.json()) as any;
+        const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        for (const item of list) {
+          const mid = String(item?.id || item?.name || "");
+          if (mid && mid.toLowerCase().includes("claude-") && !seen.has(mid)) {
+            seen.add(mid);
+            models.push({
+              id: mid,
+              name: `${mid} (${formatClaudeDisplayName(mid)} · 动态拉取)`,
+              desc: "从 Anthropic API 动态获取到的最新可用模型",
+            });
+          }
+        }
+      }
+    } catch {
+      // 忽略网络或证书错误，优雅回退
+    }
   }
 
   const candidates: string[] = [];
@@ -171,6 +232,24 @@ async function claudeCapabilities(claudePath: string, home: string): Promise<Rec
   } catch {
     // no VS Code extensions
   }
+
+  // 扫描 Node/NVM 版本目录中的全局 Claude Code 二进制与脚本
+  const nvmDir = process.env.NVM_DIR || join(home, ".nvm");
+  try {
+    const nvmVersions = join(nvmDir, "versions", "node");
+    if (existsSync(nvmVersions)) {
+      for (const ver of readdirSync(nvmVersions)) {
+        candidates.push(
+          join(nvmVersions, ver, "lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"),
+          join(nvmVersions, ver, "lib/node_modules/@anthropic-ai/claude-code/cli.js"),
+          join(nvmVersions, ver, "bin/claude"),
+        );
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   candidates.push(
     join(home, ".claude/local/node_modules/@anthropic-ai/claude-code/bin/claude.exe"),
     join(home, ".claude/local/node_modules/@anthropic-ai/claude-code/cli.js"),

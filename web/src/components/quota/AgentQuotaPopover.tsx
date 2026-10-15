@@ -834,7 +834,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     gap: 4,
                   }}
                 >
-                  <span>{expandedClaude ? "收起可用模型" : `查看支持模型 (${claude.models.length} 个，共享订阅额度)`}</span>
+                  <span>
+                    {expandedClaude
+                      ? "收起可用模型"
+                      : `查看支持模型 (${claude.models.length} 个，${claude.quota_type === "token_payg" ? "按量计费" : "共享订阅额度"})`}
+                  </span>
                   <Icon name={expandedClaude ? "chevron_up" : "chevron_down"} size={12} />
                 </button>
 
@@ -854,7 +858,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
                     }}
                   >
                     <div style={{ fontSize: 10.5, color: "var(--aurora-fg3)", paddingBottom: 4, borderBottom: "1px dashed var(--aurora-border)" }}>
-                      所有模型共享 Anthropic Pro 滑动窗口配额
+                      {claude.quota_type === "token_payg"
+                        ? (claude.details?.custom_gateway ? `所有模型通过反向网关 (${claude.details.custom_gateway}) 直连按 Token 计费` : "所有模型通过 API Key 直连按 Token 计费")
+                        : "所有模型共享 Anthropic Pro 滑动窗口配额"}
                     </div>
                     {claude.models.map((m, idx) => {
                       return (

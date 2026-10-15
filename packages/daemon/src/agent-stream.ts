@@ -288,6 +288,13 @@ export class CodexStreamParser extends AgentStreamParser {
               events.push({ kind: "text", text: this.lastMessage });
             }
             break;
+          case "reasoning": {
+            const rText = str(item.text) || str(item.summary) || (Array.isArray(item.rawContent) ? item.rawContent.map((c) => isObject(c) ? str(c.text) : "").join("") : "");
+            if (rText && rText.trim()) {
+              events.push({ kind: "thinking", text: rText.trim() });
+            }
+            break;
+          }
           case "command_execution": {
             const exit = num(item.exit_code);
             const cmd = str(item.command) ?? "";
@@ -406,7 +413,7 @@ export class UniversalStreamParser extends AgentStreamParser {
           }
           return [ev];
         }
-        if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text") {
+        if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text" || d.kind === "thinking") {
           const ev = d as AgentEvent;
           if (ev.kind === "text" && typeof ev.text === "string") {
             this.lastText += (this.lastText ? "\n\n" : "") + ev.text;

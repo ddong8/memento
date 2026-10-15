@@ -98,6 +98,9 @@ export class ClaudeStreamParser extends AgentStreamParser {
               const text = String(block.text);
               this.texts.push(text);
               events.push({ kind: "text", text });
+            } else if (block.type === "thinking" && String(block.thinking ?? "").trim()) {
+              const thinking = String(block.thinking);
+              events.push({ kind: "thinking", text: thinking });
             } else if (block.type === "tool_use") {
               const name = str(block.name) ?? "tool";
               const input = isObject(block.input) ? block.input : {};
@@ -370,16 +373,27 @@ export class CodexStreamParser extends AgentStreamParser {
 
 export class UniversalStreamParser extends AgentStreamParser {
   private lastText = "";
+  private plainTexts: string[] = [];
   private lastToolId: string | null = null;
   private toolSeq = 0;
 
   get finalText(): string | undefined {
-    return this.lastText.trim() ? this.lastText : undefined;
+    if (this.lastText.trim()) return this.lastText.trim();
+    if (this.plainTexts.length > 0) {
+      const combined = this.plainTexts.join("\n").trim();
+      if (combined) return combined;
+    }
+    return undefined;
   }
 
   feed(line: string): AgentEvent[] | null {
     const raw = line.trim();
     if (!raw) return [];
+
+    const sidMatch = /session id:\s*([^\s\n\r]+)/i.exec(raw) ?? /thread[_-]id:\s*([^\s\n\r]+)/i.exec(raw);
+    if (sidMatch && sidMatch[1]) {
+      this.sessionId = sidMatch[1];
+    }
 
     // 1. Explicit memento structured event line: {"type":"memento_event","event":{...}}
     if (raw.startsWith("{") && raw.endsWith("}")) {
@@ -458,6 +472,9 @@ export class UniversalStreamParser extends AgentStreamParser {
       ];
     }
 
+    if (!/^(?:⚡|⏳|⏹️|❓|session id:)/i.test(raw)) {
+      this.plainTexts.push(line);
+    }
     return null;
   }
 }

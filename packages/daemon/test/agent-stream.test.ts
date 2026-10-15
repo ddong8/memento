@@ -176,6 +176,31 @@ describe("Interactive questions", () => {
     const ev3 = parser.feed("⚡ [创建项目数据库]")!;
     expect(ev3).toHaveLength(1);
     expect(ev3[0]).toMatchObject({ kind: "tool", name: "创建项目数据库", status: "running" });
+
+    parser.feed("session id: test-session-1234");
+    expect(parser.sessionId).toBe("test-session-1234");
+
+    parser.feed("Hello from agent!");
+    expect(parser.finalText).toBe("Hello from agent!");
+  });
+
+  it("ClaudeStreamParser parses thinking blocks and WorkBuddy stream-json", () => {
+    const parser = new ClaudeStreamParser();
+    const ev1 = parser.feed('{"type":"system","subtype":"init","session_id":"wb-session-999","model":"hy4-preview"}')!;
+    expect(parser.sessionId).toBe("wb-session-999");
+    expect(ev1[0]).toMatchObject({ kind: "session", session_id: "wb-session-999", model: "hy4-preview" });
+
+    const ev2 = parser.feed('{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"Thinking deeply..."}]}}')!;
+    expect(ev2).toHaveLength(1);
+    expect(ev2[0]).toMatchObject({ kind: "thinking", text: "Thinking deeply..." });
+
+    const ev3 = parser.feed('{"type":"assistant","message":{"content":[{"type":"text","text":"这是回答内容"}]}}')!;
+    expect(ev3).toHaveLength(1);
+    expect(ev3[0]).toMatchObject({ kind: "text", text: "这是回答内容" });
+
+    parser.feed('{"type":"result","subtype":"success","is_error":false,"result":"这是回答内容","session_id":"wb-session-999"}');
+    expect(parser.finalText).toBe("这是回答内容");
   });
 });
+
 

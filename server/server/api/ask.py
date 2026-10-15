@@ -2533,12 +2533,18 @@ async def _direct_agent_stream(
             tool_calls_to_save.append(saved_call)
 
         persisted_session_id = ""
-        if result_dict and result_dict.get("session_id"):
-            persisted_session_id = str(result_dict.get("session_id"))
-        elif session_id:
-            persisted_session_id = str(session_id)
-        elif orig_session_id:
-            persisted_session_id = str(orig_session_id)
+        res_status = (result_dict or {}).get("status")
+        res_err = str((result_dict or {}).get("error") or (result_dict or {}).get("stderr") or "")
+        session_dead = res_status == "failed" or any(s in res_err for s in [
+            "No conversation found", "session not found", "conversation not found", "could not find session", "no rollout found"
+        ])
+        if not session_dead:
+            if result_dict and result_dict.get("session_id"):
+                persisted_session_id = str(result_dict.get("session_id"))
+            elif session_id:
+                persisted_session_id = str(session_id)
+            elif orig_session_id:
+                persisted_session_id = str(orig_session_id)
 
         persisted_dev_id = (
             (result_dict.get("device_id") or result_dict.get("device_name"))
@@ -2629,7 +2635,15 @@ async def _direct_agent_stream(
                 else:
                     summary_text = _clean_agent_summary(stdout)
             elif status == "succeeded" or exit_code == 0:
-                summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
+                if not stdout:
+                    if stderr and any(s in stderr for s in ["No conversation found", "session not found", "conversation not found", "could not find session"]):
+                        summary_text = f"⚠️ 历史会话未在设备上找到或已过期（{stderr.strip()[:120]}）。已自动为您重置会话，请重新提问。"
+                    elif stderr:
+                        summary_text = f"⚠️ 任务执行完成但无输出（{stderr.strip()[:120]}）。"
+                    else:
+                        summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
+                else:
+                    summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
             else:
                 summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
         else:

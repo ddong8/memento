@@ -20,6 +20,16 @@ function parseArgs(argv) {
       out.resumeId = String(argv[++i] ?? "").trim();
     } else if (a.startsWith("--resume=")) {
       out.resumeId = a.slice("--resume=".length).trim();
+    } else if (a === "--resume-create-missing") {
+      out.resumeCreateMissing = true;
+    } else if ((a === "--session-id" || a === "-s") && i + 1 < argv.length) {
+      out.resumeId = String(argv[++i] ?? "").trim();
+    } else if (a.startsWith("--session-id=")) {
+      out.resumeId = a.slice("--session-id=".length).trim();
+    } else if ((a === "--output-format" || a === "-o") && i + 1 < argv.length) {
+      out.outputFormat = String(argv[++i] ?? "").trim();
+    } else if (a.startsWith("--output-format=")) {
+      out.outputFormat = a.slice("--output-format=".length).trim();
     } else if ((a === "--model" || a === "-m") && i + 1 < argv.length) {
       out.model = String(argv[++i] ?? "").trim();
     } else if (a.startsWith("--model=")) {

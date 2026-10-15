@@ -585,15 +585,31 @@ export class TaskRunner {
         args = codexArgs({ workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
         parser = new CodexStreamParser();
       } else if (isWorkbuddy) {
-        args = [
-          ...(sessionId ? ["--resume", sessionId] : []),
-          ...(model ? ["--model", model] : []),
-          ...(effort ? ["--effort", effort] : []),
-          ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
-          "-p",
-          prompt,
-        ];
-        parser = new UniversalStreamParser();
+        const isMjsRunner = exe.endsWith("workbuddy_cli.mjs");
+        if (isMjsRunner) {
+          args = [
+            ...(sessionId ? ["--resume", sessionId] : []),
+            ...(model ? ["--model", model] : []),
+            ...(effort ? ["--effort", effort] : []),
+            ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+            "-p",
+            prompt,
+          ];
+          parser = new UniversalStreamParser();
+        } else {
+          // Native WorkBuddy / CodeBuddy CLI supports Claude-compatible stream-json
+          args = [
+            "--output-format",
+            "stream-json",
+            ...(sessionId ? ["--resume", sessionId, "--resume-create-missing"] : []),
+            ...(model ? ["--model", model] : []),
+            ...(effort ? ["--effort", effort] : []),
+            ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+            "-p",
+            prompt,
+          ];
+          parser = new ClaudeStreamParser();
+        }
       } else {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
@@ -653,8 +669,9 @@ export class TaskRunner {
       }
 
       // Retry 2: the session to resume isn't on this device (common when dispatching across devices): start fresh.
-      if (exitCode !== 0 && action !== "shell" && sessionId && isSessionNotFound(errScan())) {
-        this.notice(taskId, "\n⚡ [自动自愈] 本地未找到历史会话（跨设备远程调度常见），已自动重置为全新会话重新执行...\n\n");
+      const sessionNotFoundDetected = isSessionNotFound(errScan());
+      if ((exitCode !== 0 || (!out.stdout.trim() && !parser?.finalText?.trim())) && action !== "shell" && sessionId && sessionNotFoundDetected) {
+        this.notice(taskId, "\n⚡ [自动自愈] 本地未找到历史会话（跨设备远程调度或会话过期常见），已自动重置为全新会话重新执行...\n\n");
         if (binary.includes("claude")) {
           parser = new ClaudeStreamParser();
           exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings }), parser, stdinPrompt: prompt });
@@ -662,19 +679,37 @@ export class TaskRunner {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ workDir, effort, model, prompt }), parser });
         } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
-          parser = undefined;
-          exitCode = await run({
-            args: [
-              ...(model ? ["--model", model] : []),
-              ...(effort ? ["--effort", effort] : []),
-              ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
-              "-p",
-              prompt,
-            ],
-          });
+          const isMjsRunner = exe.endsWith("workbuddy_cli.mjs");
+          if (isMjsRunner) {
+            parser = new UniversalStreamParser();
+            exitCode = await run({
+              args: [
+                ...(model ? ["--model", model] : []),
+                ...(effort ? ["--effort", effort] : []),
+                ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+                "-p",
+                prompt,
+              ],
+              parser,
+            });
+          } else {
+            parser = new ClaudeStreamParser();
+            exitCode = await run({
+              args: [
+                "--output-format",
+                "stream-json",
+                ...(model ? ["--model", model] : []),
+                ...(effort ? ["--effort", effort] : []),
+                ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
+                "-p",
+                prompt,
+              ],
+              parser,
+            });
+          }
         } else {
-          parser = undefined;
-          exitCode = await run({ args: [...(model ? ["--model", model] : []), "-p", prompt] });
+          parser = new UniversalStreamParser();
+          exitCode = await run({ args: [...(model ? ["--model", model] : []), "-p", prompt], parser });
         }
       }
 
@@ -709,20 +744,23 @@ export class TaskRunner {
         }
       }
 
+      const sessionFailedFinal = !fullOut && (isSessionNotFound(fullErr) || isSessionNotFound(streamErrors));
+      const effectiveExitCode = sessionFailedFinal && exitCode === 0 ? 1 : exitCode;
+
       this.send(
         taskFinishedMessage({
           taskId,
-          status: timedOut && !isStillRunning ? "timeout" : isStillRunning ? "still_running" : exitCode === 0 ? "succeeded" : "failed",
-          exitCode,
+          status: timedOut && !isStillRunning ? "timeout" : isStillRunning ? "still_running" : effectiveExitCode === 0 ? "succeeded" : "failed",
+          exitCode: effectiveExitCode,
           stdout: fullOut,
           stderr: fullErr,
           error: timedOut
             ? `Task timed out after ${task.timeoutSeconds}s`
-            : exitCode !== 0
-              ? fullErr || streamErrors || `Exit code ${exitCode}`
+            : effectiveExitCode !== 0
+              ? fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
               : null,
           errorType: promptTooLong ? "prompt_too_long" : null,
-          sessionId: parser?.sessionId ?? sid ?? (sessionId || null),
+          sessionId: parser?.sessionId ?? sid ?? (sessionFailedFinal ? null : (sessionId || null)),
           events: this.eventLogs.get(taskId)?.events,
         }),
       );

@@ -232,9 +232,16 @@ function parseTurnContent(turn: Turn): { thinking: string; content: string } {
 
 function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState<boolean>(false);
+  const [userToggled, setUserToggled] = useState<boolean>(false);
+  const [manualExpanded, setManualExpanded] = useState<boolean>(false);
+
+  // Auto-expand during live thinking stream; auto-collapse when answering begins, unless user manually toggled
+  const expanded = userToggled ? manualExpanded : Boolean(isLive);
 
   if (!thinking && !isLive) return null;
+
+  const charCount = thinking.trim().length;
+  const countLabel = charCount > 0 ? `${charCount.toLocaleString()} 字` : "";
 
   return (
     <div
@@ -250,7 +257,10 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          setUserToggled(true);
+          setManualExpanded(!expanded);
+        }}
         style={{
           width: "100%",
           display: "flex",
@@ -265,18 +275,24 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
           textAlign: "left",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <Icon
             name="brain"
             size={14}
             style={{
               color: isLive ? "var(--aurora-accent)" : "#D97706",
               animation: isLive ? "pulse 1.5s infinite" : "none",
+              flexShrink: 0,
             }}
           />
-          <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)" }}>
+          <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
             {isLive ? t.ask.thinking : t.ask.thinkingDone}
           </span>
+          {countLabel && (
+            <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+              ({isLive ? `已推演 ${countLabel}` : `共 ${countLabel}`})
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--aurora-fg4)" }}>
           <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
@@ -2489,10 +2505,20 @@ function AskPageContent() {
         lines.push(`### 👤 用户提问 #${Math.floor(i / 2) + 1}`);
         lines.push("");
         lines.push(t.content || "");
+        if (t.images && t.images.length > 0) {
+          lines.push(`\n*(包含 ${t.images.length} 张图片附件)*`);
+        }
         lines.push("");
       } else {
-        lines.push(`### 🤖 AI 执事回复 #${Math.floor(i / 2) + 1}`);
+        const modelLabel = t.model ? ` [${t.model}]` : t.execution_mode && t.execution_mode !== "ai" ? ` [${t.execution_mode}]` : "";
+        const durLabel = t.duration_ms ? ` (${(t.duration_ms / 1000).toFixed(1)}s)` : "";
+        lines.push(`### 🤖 AI 执事回复 #${Math.floor(i / 2) + 1}${modelLabel}${durLabel}`);
         lines.push("");
+        if (t.thinking && t.thinking.trim()) {
+          lines.push(`<details><summary>🧠 思考过程 (${t.thinking.trim().length} 字)</summary>\n`);
+          lines.push(t.thinking.trim());
+          lines.push("\n</details>\n");
+        }
         if (t.toolCalls && t.toolCalls.length > 0) {
           lines.push("#### 🛠️ 设备执行记录");
           t.toolCalls.forEach((call, cidx) => {
@@ -3019,13 +3045,16 @@ function AskPageContent() {
       }
     }
 
-    // 3. 流式生成过程中的防抖自动跟踪滚动
+    // 3. 流式生成过程中的防抖自动跟踪滚动（如果用户向上翻阅查看历史则锁定视图，不强行滚底）
     if (!streamingRef.current) return;
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
       if (streamingRef.current && chatScrollRef.current) {
-        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+        const el = chatScrollRef.current;
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (distFromBottom > 160) return;
+        el.scrollTop = el.scrollHeight;
         if (bottomRef.current) {
           bottomRef.current.scrollIntoView({ behavior: "auto", block: "end" });
         }
@@ -5268,6 +5297,16 @@ function AskPageContent() {
                 <Btn
                   variant="glass"
                   size="sm"
+                  icon="download"
+                  onClick={handleExportMarkdown}
+                  title={isZh ? "导出 Markdown 研报记录" : "Export Markdown report"}
+                  className="shrink-0"
+                >
+                  <span className="hidden xl:inline">{isZh ? "导出" : "Export"}</span>
+                </Btn>
+                <Btn
+                  variant="glass"
+                  size="sm"
                   icon="share"
                   onClick={() => openSingleShare(activeConversationId, displayConvTitle)}
                   title={isZh ? "分享整场对话" : "Share full conversation"}
@@ -5305,7 +5344,7 @@ function AskPageContent() {
                 askCache.scrollTop = el.scrollTop;
               }
               const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-              setShowScrollBottom(dist > 350);
+              setShowScrollBottom(dist > 180);
             }}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
@@ -5460,7 +5499,7 @@ function AskPageContent() {
         }}
       >
         <Icon name="arrow_down" size={13} />
-        <span>{isZh ? "回到底部" : "Bottom"}</span>
+        <span>{streaming ? (isZh ? "最新输出" : "Latest") : (isZh ? "回到底部" : "Bottom")}</span>
       </button>
     )}
   </div>

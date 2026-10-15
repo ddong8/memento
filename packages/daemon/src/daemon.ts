@@ -7,6 +7,7 @@ import { IngestClient } from "./ingest.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
 import { applySkillInjection } from "./skill-inject.js";
 import { FileWatcher } from "./watcher.js";
+import { TaskWorktree } from "./worktree.js";
 import { WsTaskClient } from "./ws-client.js";
 
 export interface DaemonStatus {
@@ -118,6 +119,11 @@ export class Daemon extends EventEmitter {
     // The resident profile and published skills, kept in each enabled tool.
     void this.syncProfileAndSkills();
     this.timers.push(setInterval(() => void this.syncProfileAndSkills(), PROFILE_SYNC_MS));
+
+    // Clean up stale git worktrees in background
+    void TaskWorktree.cleanupStale().then((count) => {
+      if (count > 0) this.log(`Cleaned up ${count} stale worktree(s)`);
+    }).catch(() => {});
 
     this.log("Memento daemon is running.");
     this.notify();

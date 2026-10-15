@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, normalize, relative } from "node:path";
 
 import { homeDir } from "./config.js";
@@ -100,4 +100,34 @@ export class TaskWorktree {
       file_count: files.length,
     };
   }
+
+  /**
+   * Scans ~/.memento/worktrees for orphaned worktree directories older than maxAgeMs (default 24h)
+   * or clean directories, and safely cleans them up.
+   */
+  static async cleanupStale(options: { home?: string; maxAgeMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<number> {
+    const rootDir = join(options.home ?? homeDir(), ".memento", "worktrees");
+    const maxAge = options.maxAgeMs ?? 24 * 60 * 60 * 1000;
+    let cleaned = 0;
+    try {
+      const entries = await readdir(rootDir, { withFileTypes: true });
+      const now = Date.now();
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const targetDir = join(rootDir, entry.name);
+        try {
+          const stats = await stat(targetDir);
+          if (now - stats.mtimeMs > maxAge) {
+            const status = await git(["status", "--porcelain"], targetDir, options.env);
+            if (status.code === 0 && !status.stdout.trim()) {
+              await rm(targetDir, { recursive: true, force: true });
+              cleaned++;
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+    return cleaned;
+  }
 }
+

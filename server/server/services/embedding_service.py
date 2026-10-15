@@ -52,6 +52,19 @@ def _chunk_text(text: str, chunk_chars: int = CHUNK_SIZE, overlap_chars: int = C
     return [c for c in chunks if len(c) > 50]
 
 
+_embedding_client: httpx.AsyncClient | None = None
+
+
+def _get_embedding_client() -> httpx.AsyncClient:
+    global _embedding_client
+    import httpx
+    if _embedding_client is None or _embedding_client.is_closed:
+        _embedding_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+        )
+    return _embedding_client
+
+
 async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> list[list[float]] | None:
     """Call the external embedding HTTP server.
 
@@ -68,24 +81,31 @@ async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> li
         return None
 
     try:
-        import httpx
         all_embeddings: list[list[float]] = []
         batch_size = 10
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i:i + batch_size]
-                resp = await client.post(
-                    f"{EMBEDDING_SERVER_URL}/embed",
-                    json={"texts": batch},
-                )
-                if resp.status_code != 200:
-                    logger.warning("Embedding server returned %d", resp.status_code)
-                    return None
-                data = resp.json()
-                all_embeddings.extend(data.get("embeddings", []))
+        client = _get_embedding_client()
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            resp = await client.post(
+                f"{EMBEDDING_SERVER_URL}/embed",
+                json={"texts": batch},
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                logger.warning("Embedding server returned %d", resp.status_code)
+                return None
+            data = resp.json()
+            all_embeddings.extend(data.get("embeddings", []))
         _server_available = True
         return all_embeddings
     except Exception as e:
+        global _embedding_client
+        if _embedding_client and not _embedding_client.is_closed:
+            try:
+                await _embedding_client.aclose()
+            except Exception:
+                pass
+        _embedding_client = None
         import time
         _last_check_time = time.time()
         if _server_available is not True:

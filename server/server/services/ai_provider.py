@@ -416,52 +416,53 @@ async def stream_chat_completion(
                             })
                             break
 
-                    started = True
-                    in_think_tag = False
-                    async for line in resp.aiter_lines():
-                        if not line or not line.startswith("data: "):
-                            continue
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            delta = (chunk.get("choices") or [{}])[0].get("delta", {})
-                            reasoning = delta.get("reasoning_content") or ""
-                            if reasoning:
-                                yield {"type": "thinking", "text": reasoning}
+                        started = True
+                        in_think_tag = False
+                        async for line in resp.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                                reasoning = delta.get("reasoning_content") or ""
+                                if reasoning:
+                                    yield {"type": "thinking", "text": reasoning}
 
-                            content = delta.get("content") or ""
-                            if content:
-                                if in_think_tag:
-                                    if "</think>" in content:
-                                        t_part, c_part = content.split("</think>", 1)
-                                        if t_part:
-                                            yield {"type": "thinking", "text": t_part}
-                                        in_think_tag = False
+                                content = delta.get("content") or ""
+                                if content:
+                                    if in_think_tag:
+                                        if "</think>" in content:
+                                            t_part, c_part = content.split("</think>", 1)
+                                            if t_part:
+                                                yield {"type": "thinking", "text": t_part}
+                                            in_think_tag = False
+                                            if c_part:
+                                                yield {"type": "content", "text": c_part}
+                                        else:
+                                            yield {"type": "thinking", "text": content}
+                                    elif "<think>" in content:
+                                        c_part, rest = content.split("<think>", 1)
                                         if c_part:
                                             yield {"type": "content", "text": c_part}
+                                        in_think_tag = True
+                                        if "</think>" in rest:
+                                            t_part, after = rest.split("</think>", 1)
+                                            if t_part:
+                                                yield {"type": "thinking", "text": t_part}
+                                            in_think_tag = False
+                                            if after:
+                                                yield {"type": "content", "text": after}
+                                        else:
+                                            if rest:
+                                                yield {"type": "thinking", "text": rest}
                                     else:
-                                        yield {"type": "thinking", "text": content}
-                                elif "<think>" in content:
-                                    c_part, rest = content.split("<think>", 1)
-                                    if c_part:
-                                        yield {"type": "content", "text": c_part}
-                                    in_think_tag = True
-                                    if "</think>" in rest:
-                                        t_part, after = rest.split("</think>", 1)
-                                        if t_part:
-                                            yield {"type": "thinking", "text": t_part}
-                                        in_think_tag = False
-                                        if after:
-                                            yield {"type": "content", "text": after}
-                                    else:
-                                        if rest:
-                                            yield {"type": "thinking", "text": rest}
-                                else:
-                                    yield {"type": "content", "text": content}
-                        except Exception:
-                            continue
+                                        yield {"type": "content", "text": content}
+                            except Exception:
+                                continue
+
                         await ai_health.record_call(
                             "stream", "ok" if index == 0 else "fallback",
                             provider=p.name, model=p.model,

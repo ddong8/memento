@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AgentMission, User
@@ -43,7 +44,11 @@ async def list_missions(
     user: User = Depends(get_current_user),
 ):
     """List autonomous missions for the current user."""
-    query = select(AgentMission).where(AgentMission.user_id == user.id)
+    query = (
+        select(AgentMission)
+        .options(defer(AgentMission.context))
+        .where(AgentMission.user_id == user.id)
+    )
     if status:
         query = query.where(AgentMission.status == status)
     query = query.order_by(AgentMission.created_at.desc()).limit(limit)

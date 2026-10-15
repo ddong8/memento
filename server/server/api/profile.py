@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, delete
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -28,6 +29,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, verify_collector_token
 from ..services import ai_health
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.profile_service import (
     INJECTION_TARGETS,
     build_profile_draft,
@@ -87,6 +89,13 @@ async def _owned_machine(db: AsyncSession, user: User, device_id: str) -> Machin
     return machine
 
 
+async def _bust_user_profile_cache(user_id) -> None:
+    try:
+        await cache_delete_prefix(f"profile:summary:{user_id}")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Web UI (JWT)
 # ---------------------------------------------------------------------------
@@ -96,6 +105,11 @@ async def get_profile(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    cache_key = f"profile:summary:{user.id}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     published = await get_published_profile(db, user)
     draft = await get_draft_profile(db, user)
     history = (await db.execute(
@@ -105,10 +119,13 @@ async def get_profile(
         .limit(10)
     )).all()
     machines = (await db.execute(
-        select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
+        select(Machine)
+        .options(defer(Machine.skill_status), defer(Machine.remote_exec_key))
+        .where(Machine.user_id == user.id, Machine.merged_into.is_(None))
+        .order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     now = datetime.now(timezone.utc)
-    return {
+    payload = {
         "published": _profile_out(published),
         "draft": _profile_out(draft),
         "history": [
@@ -126,6 +143,8 @@ async def get_profile(
             for m in machines
         ],
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.post("/draft/regenerate")
@@ -140,6 +159,7 @@ async def regenerate_draft(
         await ai_health.put_json(f"profile_run:{user.id}", {**run, "status": "error", "error": f"{type(e).__name__}: {e}"[:300]})
         raise
     await ai_health.put_json(f"profile_run:{user.id}", {**run, "status": status})
+    await _bust_user_profile_cache(user.id)
     return {"status": status, "draft": _profile_out(draft)}
 
 
@@ -161,6 +181,7 @@ async def save_draft(
         db.add(draft)
     await db.commit()
     await db.refresh(draft)
+    await _bust_user_profile_cache(user.id)
     return {"draft": _profile_out(draft)}
 
 
@@ -173,6 +194,7 @@ async def discard_draft(
     if draft:
         await db.delete(draft)
         await db.commit()
+    await _bust_user_profile_cache(user.id)
     return {"status": "discarded"}
 
 
@@ -192,6 +214,7 @@ async def publish(
         profile = await publish_profile(db, user, content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    await _bust_user_profile_cache(user.id)
     return {"published": _profile_out(profile)}
 
 
@@ -208,6 +231,7 @@ async def set_device_targets(
     machine = await _owned_machine(db, user, device_id)
     machine.profile_targets = [t for t in INJECTION_TARGETS if t in body.targets]
     await db.commit()
+    await _bust_user_profile_cache(user.id)
     return {"device_id": device_id, "targets": machine.profile_targets}
 
 
@@ -539,4 +563,6 @@ async def report_injection(
         "reported_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.commit()
+    await _bust_user_profile_cache(user.id)
     return {"status": "ok"}
+

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
+from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +169,6 @@ async def get_agent_quotas(
 
     # 3. If online device is connected to WebSocket, trigger an async request
     try:
-        from ..services.ws_manager import ws_manager
         dispatched = False
         if is_specific:
             target_key = None

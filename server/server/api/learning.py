@@ -7,12 +7,13 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import CorrectionEvent, CorrectionTopic, Document, SessionReview, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.correction_service import ProfileFull, accept_topic, correction_stats, topic_out
 from ..services import jobs
 from ..services.eval_service import build_set, eval_summary, run_eval, run_out
@@ -46,6 +47,11 @@ async def list_corrections(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    cache_key = f"learning:corrections:{user.id}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     pending = (await db.execute(
         select(CorrectionTopic)
         .where(CorrectionTopic.user_id == user.id, CorrectionTopic.status == "pending")
@@ -53,20 +59,34 @@ async def list_corrections(
         .limit(30)
     )).scalars().all()
     topic_ids = [t.id for t in pending]
-    quotes_by_topic: dict[uuid.UUID, list[CorrectionEvent]] = {}
+    quotes_by_topic: dict[uuid.UUID, list] = {}
     if topic_ids:
-        all_events = (await db.execute(
-            select(CorrectionEvent)
-            .where(CorrectionEvent.topic_id.in_(topic_ids))
-            .order_by(CorrectionEvent.topic_id, CorrectionEvent.said_at.desc())
-        )).scalars().all()
-        for ev in all_events:
-            lst = quotes_by_topic.setdefault(ev.topic_id, [])
-            if len(lst) < 3:
-                lst.append(ev)
+        # Window function row_number partitions by topic_id and takes top 3 directly in DB
+        subq = (
+            select(
+                CorrectionEvent.topic_id,
+                CorrectionEvent.quote,
+                CorrectionEvent.said_at,
+                func.row_number()
+                .over(
+                    partition_by=CorrectionEvent.topic_id,
+                    order_by=CorrectionEvent.said_at.desc(),
+                )
+                .label("rn"),
+            ).where(CorrectionEvent.topic_id.in_(topic_ids))
+        ).subquery()
+        event_rows = (await db.execute(
+            select(subq.c.topic_id, subq.c.quote, subq.c.said_at).where(subq.c.rn <= 3)
+        )).all()
+        for tid, quote, said_at in event_rows:
+            quotes_by_topic.setdefault(tid, []).append(
+                type("EventQuote", (), {"quote": quote, "said_at": said_at})()
+            )
 
     out = [topic_out(topic, quotes_by_topic.get(topic.id, [])) for topic in pending]
-    return {"pending": out, "stats": await correction_stats(db, user)}
+    payload = {"pending": out, "stats": await correction_stats(db, user)}
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.post("/corrections/{topic_id}/accept")
@@ -89,6 +109,9 @@ async def accept(
     if topic.memory_id:
         # An accepted rule may replace an older one; drop that from memory and the profile now.
         spawn(reconcile_in_background(user.id, topic.memory_id))
+
+    await cache_delete_prefix(f"learning:corrections:{user.id}")
+    await cache_delete_prefix(f"learning:check:{user.id}")
     return {"topic": topic_out(topic)}
 
 
@@ -101,6 +124,8 @@ async def dismiss(
     topic = await _own_topic(db, user, topic_id)
     topic.status = "dismissed"
     await db.commit()
+    await cache_delete_prefix(f"learning:corrections:{user.id}")
+    await cache_delete_prefix(f"learning:check:{user.id}")
     return {"topic": topic_out(topic)}
 
 
@@ -117,10 +142,15 @@ async def check(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
+    cache_key = f"learning:check:{user.id}:{action or ''}:{project or ''}:{query or ''}:{format}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     g = await guidance_for(db, user, action, project, query)
-    if format == "markdown":
-        return {"markdown": render_guidance(g)}
-    return g
+    res = {"markdown": render_guidance(g)} if format == "markdown" else g
+    await cache_set(cache_key, res, ttl_seconds=30)
+    return res
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Todo, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.todo_service import (
     add_todo,
     clean_title,
@@ -59,7 +60,6 @@ async def _own(db: AsyncSession, user: User, todo_id: str) -> Todo:
 
 
 async def _bust_user_todo_cache(user_id: Any) -> None:
-    from ..services.cache import cache_delete_prefix
     await cache_delete_prefix(f"todos:{user_id}:")
 
 
@@ -69,8 +69,6 @@ async def list_todos(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    from ..services.cache import cache_get, cache_set
-
     clean_proj = project.strip() if project and project.strip() else None
     cache_key = f"todos:{user.id}:{clean_proj.lower() if clean_proj else 'all'}"
     cached = await cache_get(cache_key)

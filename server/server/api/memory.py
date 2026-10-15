@@ -679,6 +679,7 @@ async def _bust_user_memory_cache(user_id: uuid.UUID) -> None:
         await cache_delete_prefix(f"memory:tree:{user_id}:")
         await cache_delete_prefix(f"memory:stats:{user_id}:")
         await cache_delete_prefix(f"memory:markdown:{user_id}:")
+        await cache_delete_prefix(f"learning:check:{user_id}:")
     except Exception:
         pass
 

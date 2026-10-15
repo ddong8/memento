@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import ConversationMessage, Document, Machine, Project, Todo, User
 from . import ai_health
 from .ai_provider import call_plain_chat
+from .cache import cache_delete_prefix
 from .dreaming_service import SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 
 logger = logging.getLogger("server.todos")
@@ -343,7 +344,6 @@ async def learn_todos(db: AsyncSession, user: User) -> dict[str, Any]:
         opened = [t for t in opened if t.status == "open"]
 
     if created or closed:
-        from .cache import cache_delete_prefix
         await cache_delete_prefix(f"todos:{user.id}:")
 
     await ai_health.put_json(cursor_key, next_cursor, ttl_seconds=90 * 24 * 3600)

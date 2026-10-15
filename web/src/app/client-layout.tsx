@@ -81,7 +81,7 @@ function AppShellInner({
   return (
     <div className="min-h-screen">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className={`transition-all duration-200 ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0`}>
+      <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} />
         <main
           className={

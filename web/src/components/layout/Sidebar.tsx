@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
 import { getApiBase, authFetch } from "@/lib/api-client";
@@ -73,7 +73,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     fetchDevices(true);
     const timer = setInterval(() => fetchDevices(false), 60_000);
     return () => clearInterval(timer);
-  }, [open]);
+  }, []);
 
   // Fetch uncompleted todos for badge
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     void fetchTodos(true);
     const timer = setInterval(() => void fetchTodos(false), 60_000);
     return () => clearInterval(timer);
-  }, [open]);
+  }, []);
 
   // Check update version
   useEffect(() => {
@@ -132,17 +132,31 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     }
   };
 
-  const [askHref, setAskHref] = useState("/ask");
+  const [askHref, setAskHref] = useState<string>(() => {
+    if (typeof window === "undefined") return "/ask";
+    try {
+      const lastId = localStorage.getItem("memento_last_ask_conv_id");
+      return lastId ? `/ask?id=${encodeURIComponent(lastId)}` : "/ask";
+    } catch {
+      return "/ask";
+    }
+  });
+
   useEffect(() => {
     const updateHref = () => {
-      if (typeof window === "undefined") return;
-      const lastId = localStorage.getItem("memento_last_ask_conv_id");
-      setAskHref(lastId ? `/ask?id=${encodeURIComponent(lastId)}` : "/ask");
+      try {
+        const lastId = localStorage.getItem("memento_last_ask_conv_id");
+        const nextHref = lastId ? `/ask?id=${encodeURIComponent(lastId)}` : "/ask";
+        setAskHref((prev) => (prev !== nextHref ? nextHref : prev));
+      } catch {}
     };
-    updateHref();
     window.addEventListener("storage", updateHref);
-    return () => window.removeEventListener("storage", updateHref);
-  }, [pathname]);
+    window.addEventListener("memento_switch_chat", updateHref);
+    return () => {
+      window.removeEventListener("storage", updateHref);
+      window.removeEventListener("memento_switch_chat", updateHref);
+    };
+  }, []);
 
   const isAskActive = pathname === "/ask" || (pathname.startsWith("/ask/") && !pathname.startsWith("/ask/tools"));
   const isOverviewActive = pathname === "/app";
@@ -160,7 +174,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       <aside
         className={[
           "fixed left-0 top-0 z-40 flex flex-col h-screen select-none",
-          "transition-all duration-200 ease-in-out",
+          "transition-[width,transform] duration-200 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full",
           "lg:!translate-x-0",
           collapsed ? "w-[68px]" : "w-60",
@@ -181,6 +195,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         >
           <Link
             href={askHref}
+            prefetch={true}
             onClick={handleNavClick}
             className={`flex items-center gap-2.5 min-w-0 app-region-no-drag ${
               collapsed ? "w-full justify-center" : "flex-1"
@@ -390,6 +405,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           {/* Online devices indicator */}
           <Link
             href="/profile?tab=devices"
+            prefetch={true}
             onClick={handleNavClick}
             className={`flex items-center rounded-xl text-xs transition-all hover:opacity-90 mb-1.5 ${
               collapsed ? "w-10 h-9 mx-auto justify-center" : "justify-between px-3 py-1.5"
@@ -514,7 +530,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   );
 }
 
-function SectionHeader({
+const SectionHeader = memo(function SectionHeader({
   label,
   collapsed = false,
   style,
@@ -554,9 +570,9 @@ function SectionHeader({
       {label}
     </div>
   );
-}
+});
 
-function NavRow({
+const NavRow = memo(function NavRow({
   href,
   label,
   icon,
@@ -573,42 +589,23 @@ function NavRow({
   collapsed?: boolean;
   onClick?: () => void;
 }) {
-  const [hover, setHover] = useState(false);
-  const color = active
-    ? "var(--aurora-accent)"
-    : hover
-    ? "var(--aurora-fg1)"
-    : "var(--aurora-fg2)";
-
-  const bg = active
-    ? "var(--aurora-accent-soft)"
-    : hover
-    ? "var(--aurora-chip)"
-    : "transparent";
-
   return (
     <Link
       href={href}
+      prefetch={true}
       onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       title={label + (badge ? ` (${badge})` : "")}
+      className={`group flex items-center relative select-none transition-colors duration-150 ${
+        collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-2 px-3.5 mx-2 my-0.5"
+      } rounded-xl ${
+        active
+          ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent-soft)] font-semibold"
+          : "text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] font-normal"
+      }`}
       style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: collapsed ? "center" : "flex-start",
-        position: "relative",
-        gap: 11,
-        padding: collapsed ? "9px 0" : "7.5px 14px",
-        margin: collapsed ? "2px 8px" : "1.5px 8px",
-        borderRadius: 12,
-        color,
-        background: bg,
-        fontSize: 13,
-        fontWeight: active ? 600 : 450,
         letterSpacing: "-0.01em",
+        fontSize: 13,
         textDecoration: "none",
-        transition: "all .15s",
       }}
     >
       <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -640,7 +637,7 @@ function NavRow({
       </div>
 
       {!collapsed && (
-        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: 11 }}>
           {label}
         </span>
       )}
@@ -669,9 +666,10 @@ function NavRow({
             borderRadius: 9999,
             background: "var(--aurora-accent)",
             flexShrink: 0,
+            marginLeft: 8,
           }}
         />
       )}
     </Link>
   );
-}
+});

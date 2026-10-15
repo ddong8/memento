@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 /**
  * Returns the canonical KeepAlive key for supported top-level menu routes.
@@ -116,7 +118,7 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
   const scrollMapRef = useRef<Record<string, number>>({});
   const activeKeyRef = useRef<string | null>(currentKey);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const prevKey = activeKeyRef.current;
     if (prevKey && typeof window !== "undefined") {
       scrollMapRef.current[prevKey] = window.scrollY;
@@ -126,9 +128,7 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
 
     if (currentKey && typeof window !== "undefined") {
       const savedScroll = scrollMapRef.current[currentKey] ?? 0;
-      requestAnimationFrame(() => {
-        window.scrollTo(0, savedScroll);
-      });
+      window.scrollTo({ top: savedScroll, behavior: "instant" as ScrollBehavior });
     }
   }, [currentKey]);
 
@@ -144,6 +144,7 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
             style={{
               display: isCurrent ? "block" : "none",
               height: "100%",
+              contain: "style",
             }}
           >
             {view}

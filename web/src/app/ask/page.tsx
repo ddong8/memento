@@ -2,7 +2,7 @@
 
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
@@ -1313,7 +1313,30 @@ function AskPageContent() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || initSnap?.executionMode || "ai");
   const [cwd, setCwd] = useState<string>(() => askCache?.cwd || initSnap?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
+  const pathname = usePathname();
+  const prevPathnameRef = useRef<string>(pathname);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  // When returning from another menu (e.g. /memory, /inbox, /daily, /profile) back to AI Deacon:
+  // Instantly restore exact scroll position (0ms) within the kept-alive DOM container
+  useEffect(() => {
+    const prev = prevPathnameRef.current;
+    prevPathnameRef.current = pathname;
+    const isNowAsk = pathname === "/ask" || pathname.startsWith("/ask/");
+    const wasNotAsk = !prev || !prev.startsWith("/ask");
+
+    if (isNowAsk && wasNotAsk) {
+      const targetScroll = askCache?.scrollTop;
+      if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = targetScroll;
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = targetScroll;
+          }
+        });
+      }
+    }
+  }, [pathname]);
 
   // Agent Context: Model, Project & Session selection
   const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || initSnap?.selectedModel || "");
@@ -2825,19 +2848,36 @@ function AskPageContent() {
     const handleSwitchChat = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const targetId = detail?.id;
-      if (targetId) {
-        lastRestoredIdRef.current = null;
-        loadConversation(targetId, {
-          force: true,
-          preserveScroll: detail?.scrollToBottom === false ? true : false,
-        });
+      if (!targetId) return;
+
+      // 0ms Zero-Latency Return: If we are already on this conversation (e.g. returning from Dynamic Island or Live Activity)
+      if (activeConversationIdRef.current === targetId) {
+        if (!detail?.preserveScroll) {
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
+        }
+        return;
       }
+
+      lastRestoredIdRef.current = null;
+      loadConversation(targetId, {
+        force: detail?.forceReload ?? false,
+        preserveScroll: detail?.scrollToBottom === false,
+      });
     };
     window.addEventListener("memento_switch_chat", handleSwitchChat);
+
     (window as any).__memento_open_chat = (id: string) => {
+      if (!id) return;
       try {
         localStorage.setItem("memento_last_ask_conv_id", id);
       } catch {}
+      // 0ms Zero-Latency: If already active
+      if (activeConversationIdRef.current === id) {
+        pendingScrollToBottomRef.current = true;
+        scrollConversationToBottom(true);
+        return;
+      }
       lastRestoredIdRef.current = null;
       if (!window.location.pathname.startsWith("/ask")) {
         const pushFn = (window as any).__memento_client_push;
@@ -2847,8 +2887,9 @@ function AskPageContent() {
       } else {
         window.history.pushState(null, "", `/ask?id=${encodeURIComponent(id)}`);
       }
-      loadConversation(id, { force: true, preserveScroll: false });
+      loadConversation(id, { force: false, preserveScroll: false });
     };
+
     (window as any).__memento_navigate = (url: string) => {
       if (url.includes("/ask")) {
         try {
@@ -2858,6 +2899,14 @@ function AskPageContent() {
             try {
               localStorage.setItem("memento_last_ask_conv_id", id);
             } catch {}
+            // 0ms Zero-Latency: If already on this conversation (e.g. tapping Dynamic Island)
+            if (activeConversationIdRef.current === id) {
+              if (parsed.searchParams.get("scroll") === "bottom") {
+                pendingScrollToBottomRef.current = true;
+                scrollConversationToBottom(true);
+              }
+              return;
+            }
             lastRestoredIdRef.current = null;
             if (!window.location.pathname.startsWith("/ask")) {
               const pushFn = (window as any).__memento_client_push;
@@ -2870,7 +2919,7 @@ function AskPageContent() {
             } else {
               window.history.pushState(null, "", `/ask?id=${encodeURIComponent(id)}`);
             }
-            loadConversation(id, { force: true, preserveScroll: false });
+            loadConversation(id, { force: false, preserveScroll: false });
             return;
           }
         } catch {}
@@ -2885,7 +2934,7 @@ function AskPageContent() {
     return () => {
       window.removeEventListener("memento_switch_chat", handleSwitchChat);
     };
-  }, [loadConversation]);
+  }, [loadConversation, scrollConversationToBottom]);
 
   // Follow the stream as tokens land & handle conversation switching auto-scroll
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

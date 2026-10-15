@@ -45,7 +45,7 @@ describe("Real Agent Quotas", () => {
     } finally {
       await rm(testDir, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 
   it("probes host Claude Code environment gracefully", async () => {
     const quota = await probeClaudeCodeQuota();
@@ -61,7 +61,7 @@ describe("Real Agent Quotas", () => {
       expect(quota.models?.length).toBeGreaterThan(0);
       expect(quota.models?.some((m) => m.model_id.includes("5-5"))).toBe(true);
     }
-  });
+  }, 15000);
 
   it("probes Codex real plan and does not fake 100% on free tier", async () => {
     const quota = await probeCodexQuota();

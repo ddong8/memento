@@ -315,15 +315,6 @@ export default function WebShell() {
         try {
           web.current.postMessage(JSON.stringify({ type: "deep_link", url: fullUrl, timestamp: Date.now() }));
         } catch {}
-        setTimeout(() => {
-          web.current?.injectJavaScript(js);
-          try {
-            web.current?.postMessage(JSON.stringify({ type: "deep_link", url: fullUrl, timestamp: Date.now() }));
-          } catch {}
-        }, 120);
-        setTimeout(() => {
-          web.current?.injectJavaScript(js);
-        }, 360);
       } else {
         pendingUrlRef.current = fullUrl;
       }

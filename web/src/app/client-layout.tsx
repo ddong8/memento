@@ -122,13 +122,11 @@ function AppShell({ children }: { children: React.ReactNode }) {
         const dispatchSwitch = () => {
           window.dispatchEvent(
             new CustomEvent("memento_switch_chat", {
-              detail: { id: convId, forceReload: true, scrollToBottom: true },
+              detail: { id: convId, forceReload: false, scrollToBottom: true },
             })
           );
         };
         dispatchSwitch();
-        setTimeout(dispatchSwitch, 80);
-        setTimeout(dispatchSwitch, 240);
       };
 
       (window as unknown as { __memento_client_push?: (path: string) => void }).__memento_client_push = (path: string) => {

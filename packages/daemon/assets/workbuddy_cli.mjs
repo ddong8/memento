@@ -341,6 +341,7 @@ async function main() {
 
   let printedText = false;
   let lastToolId = "";
+  let thoughtShown = false;
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", async (chunk) => {
     const text = String(chunk).trim();

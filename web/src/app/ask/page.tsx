@@ -1040,8 +1040,93 @@ function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; 
       convDetail: data.convDetail,
       updatedAt: Date.now(),
     };
+    conversationTurnsCache.set(data.id, {
+      turns: sanitizedTurns,
+      config: {
+        executionMode: data.executionMode,
+        model: data.selectedModel,
+        effort: data.selectedEffort,
+        cwd: data.cwd,
+        selectedDevice: data.selectedDevice,
+        selectedProjectId: data.selectedProjectId,
+        selectedProjectTitle: data.selectedProjectTitle,
+        selectedSessionId: data.selectedSessionId,
+        worktreeMode: data.worktreeMode,
+      },
+    });
     localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
   } catch {}
+}
+
+// Module-level in-memory caches for true zero-latency instant navigation and refreshing
+const conversationTurnsCache = new Map<string, { turns: Turn[]; config?: Record<string, any> }>();
+const capabilitiesMemoryCache = new Map<string, AgentCapabilities>();
+
+const CONVERSATIONS_CACHE_KEY = "memento_cached_ask_convs";
+const QUOTAS_CACHE_KEY = "memento_agent_quotas_cache";
+
+function getCachedConversations(): AskConversationSummary[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function getLocalCachedQuotas(deviceId?: string): AgentQuotasResponse | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(deviceId ? `${QUOTAS_CACHE_KEY}_${deviceId}` : QUOTAS_CACHE_KEY) || localStorage.getItem(QUOTAS_CACHE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function getImmediateCapabilities(mode: ExecutionMode, deviceId?: string): AgentCapabilities | null {
+  if (mode === "ai" || mode === "shell") return null;
+  const cacheKey = `${mode}:${deviceId || "default"}`;
+  const mem = capabilitiesMemoryCache.get(cacheKey);
+  if (mem) return mem;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(`memento_caps_${cacheKey}`) || localStorage.getItem(`memento_caps_${mode}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.models) && parsed.models.length > 0) {
+          capabilitiesMemoryCache.set(cacheKey, parsed);
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  const fallbackModels = FALLBACK_AGENT_MODELS[mode];
+  if (fallbackModels && fallbackModels.length > 0) {
+    return {
+      tool: mode,
+      models: fallbackModels,
+      default_model: "",
+      supports_effort: true,
+      default_effort: "",
+      effort_options: [],
+    };
+  }
+  return null;
+}
+
+function saveCapabilitiesCache(mode: ExecutionMode, deviceId: string | undefined, caps: AgentCapabilities) {
+  if (!caps || !Array.isArray(caps.models)) return;
+  const cacheKey = `${mode}:${deviceId || "default"}`;
+  capabilitiesMemoryCache.set(cacheKey, caps);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`memento_caps_${cacheKey}`, JSON.stringify(caps));
+      localStorage.setItem(`memento_caps_${mode}`, JSON.stringify(caps));
+    } catch {}
+  }
 }
 
 // Module-level in-memory cache to preserve state when switching menus in-app
@@ -1091,7 +1176,9 @@ function AskPageContent() {
   /** Run agent tasks in their own git worktree and branch. */
   const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode ?? initSnap?.worktreeMode ?? false);
   const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || initSnap?.selectedEffort || "");
-  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(() => askCache?.capabilities || null);
+  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(
+    () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
+  );
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(() => askCache?.projects || []);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || initSnap?.selectedProjectId || "");
@@ -1280,7 +1367,7 @@ function AskPageContent() {
   }, []);
 
   // Conversation history state
-  const [conversations, setConversations] = useState<AskConversationSummary[]>(() => askCache?.conversations || []);
+  const [conversations, setConversations] = useState<AskConversationSummary[]>(() => askCache?.conversations || getCachedConversations());
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     () => askCache?.activeConversationId || initSnap?.id || idParam || null
   );
@@ -1311,7 +1398,7 @@ function AskPageContent() {
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
-  const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || null);
+  const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || getLocalCachedQuotas(initSnap?.selectedDevice || selectedDevice));
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [shareTargetId, setShareTargetId] = useState<string>("");
   const [shareTitle, setShareTitle] = useState<string>("");
@@ -1350,6 +1437,11 @@ function AskPageContent() {
         const res = await api.getAgentQuotas(selectedDevice);
         if (!cancelled && res) {
           setQuotasData(res);
+          try {
+            const k = selectedDevice ? `${QUOTAS_CACHE_KEY}_${selectedDevice}` : QUOTAS_CACHE_KEY;
+            localStorage.setItem(k, JSON.stringify(res));
+            localStorage.setItem(QUOTAS_CACHE_KEY, JSON.stringify(res));
+          } catch {}
         }
       } catch {
         // ignore
@@ -1566,7 +1658,11 @@ function AskPageContent() {
         ? selectedDevice
         : undefined;
       const list = await api.listAskConversations(devId);
-      setConversations(list || []);
+      const safeList = list || [];
+      setConversations(safeList);
+      try {
+        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 60)));
+      } catch {}
     } catch (e) {
       console.error("Failed to load ask conversations:", e);
     } finally {
@@ -1757,6 +1853,45 @@ function AskPageContent() {
         }
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("memento_wake_stream"));
+        }
+      }
+
+      // 0ms Zero-Latency Navigation: If we have cached turns for this conversation, render immediately!
+      const cachedConv = conversationTurnsCache.get(id);
+      if (cachedConv && cachedConv.turns && cachedConv.turns.length > 0) {
+        turnsRef.current = cachedConv.turns;
+        setTurns(cachedConv.turns);
+        activeConversationIdRef.current = id;
+        setActiveConversationId(id);
+        if (cachedConv.config?.executionMode) {
+          setExecutionMode(cachedConv.config.executionMode);
+        }
+        if (cachedConv.config?.model !== undefined) {
+          setSelectedModel(cachedConv.config.model);
+        }
+        if (cachedConv.config?.effort !== undefined) {
+          setSelectedEffort(cachedConv.config.effort);
+        }
+        if (cachedConv.config?.cwd) {
+          setCwd(cachedConv.config.cwd);
+        }
+        if (cachedConv.config?.selectedProjectId) {
+          setSelectedProjectId(cachedConv.config.selectedProjectId);
+        }
+        if (cachedConv.config?.selectedProjectTitle) {
+          setSelectedProjectTitle(cachedConv.config.selectedProjectTitle);
+        }
+        if (cachedConv.config?.selectedSessionId) {
+          setSelectedSessionId(cachedConv.config.selectedSessionId);
+        }
+        if (cachedConv.config?.selectedDevice) {
+          setSelectedDevice(cachedConv.config.selectedDevice);
+        }
+        setHistoryOpen(false);
+        setSourcesOpen(false);
+        if (!preserveScroll) {
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
         }
       }
 
@@ -2985,10 +3120,23 @@ function AskPageContent() {
       setCapabilities(null);
       return;
     }
-    if (manual) setIsRefreshingCaps(true);
+    // 1. Zero-latency synchronous cache check & immediate application (0ms)
+    const immediate = getImmediateCapabilities(executionMode, selectedDevice);
+    if (immediate) {
+      setCapabilities(immediate);
+    }
+    if (manual) {
+      setIsRefreshingCaps(true);
+      showInAppToast(
+        isZh ? "已即时同步最新模型" : "Models Synced",
+        isZh ? `已就绪 ${immediate?.models?.length || 0} 个可用模型 (零延迟)` : `Ready with ${immediate?.models?.length || 0} models`
+      );
+    }
     try {
-      const data = await api.getAgentCapabilities(executionMode, selectedDevice);
+      // 2. Background fresh revalidation
+      const data = await api.getAgentCapabilities(executionMode, selectedDevice, manual);
       if (data) {
+        saveCapabilitiesCache(executionMode, selectedDevice, data);
         setCapabilities(data);
         if (!isCustomModel) {
           const hasModel = (data.models || []).some((m) => m.id === selectedModel);
@@ -2996,23 +3144,27 @@ function AskPageContent() {
             setSelectedModel("");
           }
         }
-        if (manual) {
-          showInAppToast(isZh ? "已同步最新模型" : "Models Synced", isZh ? `已获取到 ${data.models?.length || 0} 个可用模型` : `Found ${data.models?.length || 0} models`);
-        }
       }
     } catch (err) {
       console.warn("Failed to load agent capabilities:", err);
-      if (manual) {
+      if (manual && !immediate) {
         showInAppToast(isZh ? "模型列表已刷新" : "Refreshed", isZh ? "已加载默认推荐模型列表" : "Default model list loaded");
       }
     } finally {
-      if (manual) setIsRefreshingCaps(false);
+      if (manual) {
+        setTimeout(() => setIsRefreshingCaps(false), 200);
+      }
     }
   }, [executionMode, selectedDevice, isCustomModel, selectedModel, isZh]);
 
   useEffect(() => {
+    // 0ms instant sync upon switching executionMode or device
+    const imm = getImmediateCapabilities(executionMode, selectedDevice);
+    if (imm) {
+      setCapabilities(imm);
+    }
     void reloadCapabilities(false);
-  }, [reloadCapabilities]);
+  }, [executionMode, selectedDevice, reloadCapabilities]);
 
   // Throttled patchLast aligned with requestAnimationFrame: mutate ref immediately, coalesce React Markdown re-renders to avoid CPU spikes
   const patchLast = useCallback((fn: (turn: Turn) => Turn) => {

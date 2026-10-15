@@ -965,12 +965,15 @@ export const api = {
       body: JSON.stringify({ new_prompt: newPrompt, recent_turns: recentTurns }),
     }),
 
-  getAgentCapabilities: (tool: string, deviceId?: string) => {
+  getAgentCapabilities: (tool: string, deviceId?: string, forceRefresh?: boolean) => {
     const params = new URLSearchParams({ tool });
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only") {
       params.set("device_id", deviceId);
     }
-    return apiFetch<AgentCapabilities>(`/api/ask/capabilities?${params}`);
+    if (forceRefresh) {
+      params.set("fresh", "1");
+    }
+    return apiFetch<AgentCapabilities>(`/api/ask/capabilities?${params}`, { skipCache: forceRefresh });
   },
 
   getAgentQuotas: (deviceId?: string) => {

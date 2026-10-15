@@ -58,8 +58,21 @@ function getQuotaColor(percent?: number | null): { text: string; gradient: strin
   };
 }
 
+const CACHED_QUOTA_KEY = "memento_agent_quotas_cache";
+
+function getCachedQuotas(deviceId?: string): AgentQuotasResponse | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(deviceId ? `${CACHED_QUOTA_KEY}_${deviceId}` : CACHED_QUOTA_KEY) || localStorage.getItem(CACHED_QUOTA_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return null;
+}
+
 export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDataChange }: AgentQuotaPopoverProps) {
-  const [data, setData] = useState<AgentQuotasResponse | null>(initialData || null);
+  const [data, setData] = useState<AgentQuotasResponse | null>(() => initialData || getCachedQuotas(deviceId));
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedAgy, setExpandedAgy] = useState(true);
@@ -70,7 +83,7 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
 
   // Sync initialData if provided from parent
   useEffect(() => {
-    if (initialData && !data) {
+    if (initialData) {
       setData(initialData);
     }
   }, [initialData]);
@@ -108,6 +121,11 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
       startTransition(() => {
         setData(res);
         onDataChange?.(res);
+        try {
+          const key = deviceId ? `${CACHED_QUOTA_KEY}_${deviceId}` : CACHED_QUOTA_KEY;
+          localStorage.setItem(key, JSON.stringify(res));
+          localStorage.setItem(CACHED_QUOTA_KEY, JSON.stringify(res));
+        } catch {}
       });
     } catch (e) {
       console.error("Failed to load agent quotas:", e);

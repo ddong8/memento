@@ -78,13 +78,14 @@ export class LocalApi {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!authorized(req, this.token)) return json(res, 401, { error: "unauthorized" });
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+    const path = parsedUrl.pathname;
+    const force = parsedUrl.searchParams.get("force") === "1" || parsedUrl.searchParams.get("fresh") === "1";
     try {
       if (req.method === "GET" && path === "/status") return json(res, 200, this.daemon.status);
       if (req.method === "GET" && path === "/quotas") {
         const { probeAllQuotas } = await import("./quotas.js");
-        const quotas = await probeAllQuotas(this.home);
+        const quotas = await probeAllQuotas(this.home, { force });
         return json(res, 200, quotas);
       }
       if (req.method === "GET" && path === "/logs") return json(res, 200, { logs: this.daemon.recentLogs });

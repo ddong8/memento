@@ -1061,9 +1061,153 @@ function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: string; 
 // Module-level in-memory caches for true zero-latency instant navigation and refreshing
 const conversationTurnsCache = new Map<string, { turns: Turn[]; config?: Record<string, any> }>();
 const capabilitiesMemoryCache = new Map<string, AgentCapabilities>();
+const projectsMemoryCache = new Map<string, ProjectSummary[]>();
+const sessionsMemoryCache = new Map<string, any[]>();
+const pendingPrefetchIds = new Set<string>();
 
 const CONVERSATIONS_CACHE_KEY = "memento_cached_ask_convs";
 const QUOTAS_CACHE_KEY = "memento_agent_quotas_cache";
+const RECENT_TURNS_CACHE_KEY = "memento_recent_conv_turns_cache_v1";
+
+function loadRecentConvTurnsIntoMemory() {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(RECENT_TURNS_CACHE_KEY);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        for (const item of list) {
+          if (item && typeof item.id === "string" && Array.isArray(item.turns)) {
+            conversationTurnsCache.set(item.id, { turns: item.turns, config: item.config });
+          }
+        }
+      }
+    }
+  } catch {}
+}
+
+if (typeof window !== "undefined") {
+  loadRecentConvTurnsIntoMemory();
+}
+
+function saveToRecentConvTurnsCache(id: string, turns: Turn[], data?: any) {
+  if (typeof window === "undefined" || !id || !Array.isArray(turns) || turns.length === 0) return;
+  try {
+    const config = {
+      executionMode: data?.execution_mode || data?.config?.execution_mode,
+      model: data?.model || data?.config?.model,
+      effort: data?.effort || data?.config?.effort,
+      cwd: data?.cwd || data?.config?.cwd,
+      selectedDevice: data?.device_id || data?.config?.device_id,
+      selectedProjectId: data?.project_id || data?.config?.project_id,
+      selectedProjectTitle: data?.project_title,
+      selectedSessionId: data?.session_id || data?.config?.session_id,
+      worktreeMode: Boolean(data?.worktree ?? data?.config?.worktree),
+    };
+
+    conversationTurnsCache.set(id, { turns, config });
+
+    const recentRaw = localStorage.getItem(RECENT_TURNS_CACHE_KEY);
+    let list: Array<{ id: string; turns: Turn[]; config: any; updatedAt: number }> = [];
+    if (recentRaw) {
+      try {
+        const parsed = JSON.parse(recentRaw);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch {}
+    }
+
+    const sanitizedTurns = turns.slice(-30).map((t) => ({
+      role: t.role,
+      content: t.content && t.content.length > 40000 ? t.content.slice(0, 40000) : t.content,
+      thinking: t.thinking,
+      sources: t.sources,
+      toolCalls: t.toolCalls,
+      error: t.error,
+      created_at: t.created_at,
+      started_at: t.started_at,
+      duration_ms: t.duration_ms,
+    }));
+
+    list = list.filter((item) => item.id !== id);
+    list.unshift({ id, turns: sanitizedTurns, config, updatedAt: Date.now() });
+    list = list.slice(0, 10);
+
+    localStorage.setItem(RECENT_TURNS_CACHE_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+async function prefetchConversationTurns(id: string) {
+  if (!id || conversationTurnsCache.has(id) || pendingPrefetchIds.has(id)) return;
+  pendingPrefetchIds.add(id);
+  try {
+    const data = await api.getAskConversation(id, 40);
+    if (data && data.id && Array.isArray(data.turns)) {
+      saveToRecentConvTurnsCache(data.id, data.turns, data);
+    }
+  } catch {} finally {
+    pendingPrefetchIds.delete(id);
+  }
+}
+
+function getCachedProjects(toolId: string, deviceId?: string): ProjectSummary[] {
+  const cacheKey = `${toolId}:${deviceId || "default"}`;
+  const mem = projectsMemoryCache.get(cacheKey);
+  if (mem && mem.length > 0) return mem;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(`memento_cached_projs_${cacheKey}`) || localStorage.getItem(`memento_cached_projs_${toolId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          projectsMemoryCache.set(cacheKey, parsed);
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
+function saveCachedProjects(toolId: string, deviceId: string | undefined, list: ProjectSummary[]) {
+  if (!Array.isArray(list) || list.length === 0) return;
+  const cacheKey = `${toolId}:${deviceId || "default"}`;
+  projectsMemoryCache.set(cacheKey, list);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`memento_cached_projs_${cacheKey}`, JSON.stringify(list.slice(0, 50)));
+      localStorage.setItem(`memento_cached_projs_${toolId}`, JSON.stringify(list.slice(0, 50)));
+    } catch {}
+  }
+}
+
+function getCachedSessions(projectId: string): any[] {
+  if (!projectId) return [];
+  const mem = sessionsMemoryCache.get(projectId);
+  if (mem && mem.length > 0) return mem;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(`memento_cached_sess_${projectId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          sessionsMemoryCache.set(projectId, parsed);
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
+function saveCachedSessions(projectId: string, list: any[]) {
+  if (!projectId || !Array.isArray(list) || list.length === 0) return;
+  sessionsMemoryCache.set(projectId, list);
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(`memento_cached_sess_${projectId}`, JSON.stringify(list.slice(0, 30)));
+    } catch {}
+  }
+}
 
 function getCachedConversations(): AskConversationSummary[] {
   if (typeof window === "undefined") return [];
@@ -1663,6 +1807,22 @@ function AskPageContent() {
       try {
         localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 60)));
       } catch {}
+
+      // Idle prefetch: warm top recent conversations in background for true 0ms clicks
+      if (typeof window !== "undefined") {
+        const prefetchRecent = () => {
+          safeList.slice(0, 4).forEach((item) => {
+            if (!conversationTurnsCache.has(item.id)) {
+              void prefetchConversationTurns(item.id);
+            }
+          });
+        };
+        if ("requestIdleCallback" in window) {
+          (window as any).requestIdleCallback(prefetchRecent, { timeout: 2500 });
+        } else {
+          setTimeout(prefetchRecent, 800);
+        }
+      }
     } catch (e) {
       console.error("Failed to load ask conversations:", e);
     } finally {
@@ -2049,6 +2209,7 @@ function AskPageContent() {
         etag: data._etag,
         convDetail: data,
       });
+      saveToRecentConvTurnsCache(data.id, loadedTurns, data);
 
       // 3. Project and Session restoration
       if (["codex", "claude", "antigravity", "workbuddy"].includes(targetMode)) {
@@ -2062,6 +2223,18 @@ function AskPageContent() {
         if (toolId) {
           try {
             const devForQuery = devToUse !== "auto" && devToUse !== "ask_only" && devToUse !== "all" ? devToUse : undefined;
+            // 0ms instant hydration from cache
+            const cachedProjs = getCachedProjects(toolId, devForQuery);
+            if (cachedProjs.length > 0) {
+              setProjects(cachedProjs);
+            }
+            if (targetProjId) {
+              const cachedSess = getCachedSessions(targetProjId);
+              if (cachedSess.length > 0) {
+                setSessions(cachedSess);
+                setSelectedSessionId(targetSessionId);
+              }
+            }
             let projList = await api.listProjects(toolId, devForQuery);
             if (!projList || projList.length === 0 || (targetProjId && !projList.some((p) => p.id === targetProjId))) {
               const allProjs = await api.listProjects(toolId);
@@ -2088,6 +2261,7 @@ function AskPageContent() {
             }
             const projs = projList || [];
             setProjects(projs);
+            saveCachedProjects(toolId, devForQuery, projs);
 
             let matchedProj = targetProjId ? projs.find((p) => p.id === targetProjId) : undefined;
             if (!matchedProj && targetCwd) {
@@ -2132,11 +2306,16 @@ function AskPageContent() {
                   convDetail: data,
                 });
               }
-              setLoadingSessions(true);
+              const cachedSess = getCachedSessions(effectiveProjId);
+              if (cachedSess.length > 0) {
+                setSessions(cachedSess);
+              }
+              setLoadingSessions(cachedSess.length === 0);
               try {
                 const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
                 const sessList = res?.sessions || [];
                 setSessions(sessList);
+                saveCachedSessions(effectiveProjId, sessList);
                 setSelectedSessionId(targetSessionId);
               } catch (e) {
                 console.error("Failed to restore project sessions:", e);
@@ -4183,10 +4362,17 @@ function AskPageContent() {
       if (!isRestoringRef.current && !isSameProj) {
         persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined, device_id: finalDev });
       }
-      setLoadingSessions(true);
+      // 0ms instant hydration from cache
+      const cachedSess = getCachedSessions(projId);
+      if (cachedSess.length > 0) {
+        setSessions(cachedSess);
+      }
+      setLoadingSessions(cachedSess.length === 0);
       try {
         const res = await api.getProjectConversations(projId, 0, 50, "desc", finalDev);
-        setSessions(res.sessions || []);
+        const sessList = res.sessions || [];
+        setSessions(sessList);
+        saveCachedSessions(projId, sessList);
         if (res.project?.source_path && !clean) {
           let cleanProj = res.project.source_path.trim();
           const match = cleanProj.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
@@ -4229,6 +4415,11 @@ function AskPageContent() {
       }
       try {
         const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
+        // 0ms instant hydration from cache
+        const cachedProjs = getCachedProjects(toolId, devToUse);
+        if (cachedProjs.length > 0) {
+          setProjects(cachedProjs);
+        }
         let list = await api.listProjects(toolId, devToUse);
         const curProjId = selectedProjectIdRef.current;
         if (!list || list.length === 0 || (curProjId && !list.some((p) => p.id === curProjId))) {
@@ -4256,6 +4447,7 @@ function AskPageContent() {
         }
         const projList = list || [];
         setProjects(projList);
+        saveCachedProjects(toolId, devToUse, projList);
 
         if (projList.length > 0) {
           const pref = preferredTitle || (projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title);
@@ -4850,6 +5042,9 @@ function AskPageContent() {
               variant="glass"
               size="sm"
               icon="activity"
+              onMouseEnter={() => {
+                void api.getAgentQuotas(selectedDevice);
+              }}
               onClick={() => setQuotaOpen(true)}
               title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
               className="shrink-0"
@@ -5294,6 +5489,11 @@ function AskPageContent() {
 
                     return (
                       <span
+                        onMouseEnter={() => {
+                          if (["antigravity", "claude", "codex", "workbuddy"].includes(executionMode)) {
+                            void api.getAgentQuotas(selectedDevice);
+                          }
+                        }}
                         onClick={(e) => {
                           if (["antigravity", "claude", "codex", "workbuddy"].includes(executionMode)) {
                             e.stopPropagation();
@@ -7072,6 +7272,7 @@ function AskPageContent() {
                   return (
                     <div
                       key={c.id}
+                      onFocus={() => void prefetchConversationTurns(c.id)}
                       onClick={() => {
                         if (batchSelectMode) {
                           const next = new Set(selectedConvIds);
@@ -7104,6 +7305,7 @@ function AskPageContent() {
                         gap: 10,
                       }}
                       onMouseEnter={(e) => {
+                        void prefetchConversationTurns(c.id);
                         if (!isActive && !selectedConvIds.has(c.id)) {
                           e.currentTarget.style.background = "var(--aurora-chip)";
                           e.currentTarget.style.borderColor = "var(--aurora-border)";

@@ -5,6 +5,7 @@ import { api, type AgentQuotasResponse, type ToolQuotaInfo } from "@/lib/api-cli
 import { Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
+import { showInAppToast } from "@/lib/native-notify";
 
 interface AgentQuotaPopoverProps {
   deviceId?: string;
@@ -111,8 +112,12 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
 
   const loadQuotas = async (forceRefresh = false) => {
     try {
-      if (forceRefresh) setRefreshing(true);
-      else if (!data) setLoading(true);
+      if (forceRefresh) {
+        setRefreshing(true);
+        showInAppToast("正在校准 AI 额度", "后台静默探活各 Agent 最新配额...");
+      } else if (!data) {
+        setLoading(true);
+      }
 
       const res = forceRefresh
         ? await api.refreshAgentQuotas(deviceId)
@@ -127,6 +132,9 @@ export function AgentQuotaPopover({ deviceId, isOpen, onClose, initialData, onDa
           localStorage.setItem(CACHED_QUOTA_KEY, JSON.stringify(res));
         } catch {}
       });
+      if (forceRefresh) {
+        showInAppToast("AI 额度已就绪", "已获取最新 Agent 订阅与模型配额");
+      }
     } catch (e) {
       console.error("Failed to load agent quotas:", e);
     } finally {

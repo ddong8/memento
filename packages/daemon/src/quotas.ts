@@ -826,8 +826,15 @@ export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaIn
   }
 }
 
-/** Aggregates quotas for all AI tools on this device. */
-export async function probeAllQuotas(home = homeDir()): Promise<DeviceQuotasReport> {
+let cachedQuotasReport: { report: DeviceQuotasReport; expiresAt: number; home: string } | null = null;
+
+/** Aggregates quotas for all AI tools on this device with fast-path in-memory caching. */
+export async function probeAllQuotas(home = homeDir(), options?: { force?: boolean }): Promise<DeviceQuotasReport> {
+  const now = Date.now();
+  if (!options?.force && cachedQuotasReport && cachedQuotasReport.home === home && cachedQuotasReport.expiresAt > now) {
+    return cachedQuotasReport.report;
+  }
+
   const [agy, claude, codex, wb] = await Promise.all([
     probeAntigravityQuota(),
     probeClaudeCodeQuota(home),
@@ -835,7 +842,7 @@ export async function probeAllQuotas(home = homeDir()): Promise<DeviceQuotasRepo
     probeWorkbuddyQuota(home),
   ]);
 
-  return {
+  const report: DeviceQuotasReport = {
     timestamp: new Date().toISOString(),
     tools: {
       antigravity: agy,
@@ -844,4 +851,8 @@ export async function probeAllQuotas(home = homeDir()): Promise<DeviceQuotasRepo
       workbuddy: wb,
     },
   };
+
+  cachedQuotasReport = { report, expiresAt: now + 5000, home };
+  return report;
 }
+

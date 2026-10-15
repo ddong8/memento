@@ -513,7 +513,13 @@ export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Rec
   };
 }
 
-export async function probeCapabilities(home = homeDir()): Promise<Capabilities> {
+let cachedCapabilities: { caps: Capabilities; expiresAt: number; home: string } | null = null;
+
+export async function probeCapabilities(home = homeDir(), options?: { force?: boolean }): Promise<Capabilities> {
+  const now = Date.now();
+  if (!options?.force && cachedCapabilities && cachedCapabilities.home === home && cachedCapabilities.expiresAt > now) {
+    return cachedCapabilities.caps;
+  }
   const caps: Capabilities = {};
   const claude = await findExecutable(["claude", "claude-code"]);
   if (claude) {
@@ -549,5 +555,6 @@ export async function probeCapabilities(home = homeDir()): Promise<Capabilities>
   } catch {
     // Ignore environment probing failures
   }
+  cachedCapabilities = { caps, expiresAt: now + 15000, home };
   return caps;
 }

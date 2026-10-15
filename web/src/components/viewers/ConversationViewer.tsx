@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, ConversationMessage } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
@@ -81,6 +81,21 @@ function ConversationViewerContent({
     }
   }, [messages, syncTurnsMedia]);
 
+  // Precompute previous user message timestamps in a single O(N) linear pass
+  // to eliminate O(N^2) backward scans during message list rendering.
+  const prevUserTimestamps = useMemo(() => {
+    const arr: (string | null)[] = new Array(messages.length).fill(null);
+    let lastUserTs: string | null = null;
+    for (let i = 0; i < messages.length; i++) {
+      arr[i] = lastUserTs;
+      const r = messages[i].role || messages[i].message_type;
+      if (r === "user" && !messages[i].content?.startsWith("[Result]")) {
+        lastUserTs = messages[i].timestamp || null;
+      }
+    }
+    return arr;
+  }, [messages]);
+
   return (
     <div
       ref={containerRef}
@@ -95,25 +110,15 @@ function ConversationViewerContent({
       </div>
 
       <div className="space-y-4 max-w-3xl mx-auto pb-8">
-        {messages.map((msg, idx) => {
-          let prevUserTs: string | null = null;
-          for (let j = idx - 1; j >= 0; j--) {
-            const r = messages[j].role || messages[j].message_type;
-            if (r === "user" && !messages[j].content?.startsWith("[Result]")) {
-              prevUserTs = messages[j].timestamp || null;
-              break;
-            }
-          }
-          return (
-            <ChatBubble
-              key={`${msg.id}-${idx}`}
-              msg={msg}
-              prevUserTimestamp={prevUserTs}
-              locale={locale}
-              t={t}
-            />
-          );
-        })}
+        {messages.map((msg, idx) => (
+          <ChatBubble
+            key={`${msg.id}-${idx}`}
+            msg={msg}
+            prevUserTimestamp={prevUserTimestamps[idx]}
+            locale={locale}
+            t={t}
+          />
+        ))}
 
         {artifacts && artifacts.length > 0 && !hasMore && (
           <>

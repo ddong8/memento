@@ -237,11 +237,26 @@ async def _retrieve(
     cached_msgs: dict[uuid.UUID, list[tuple[str, str]]] = {}
     if conv_doc_ids:
         try:
-            msg_rows = (await db.execute(
-                select(ConversationMessage.document_id, ConversationMessage.role, ConversationMessage.content)
+            subq = (
+                select(
+                    ConversationMessage.document_id,
+                    ConversationMessage.role,
+                    ConversationMessage.content,
+                    func.row_number()
+                    .over(
+                        partition_by=ConversationMessage.document_id,
+                        order_by=ConversationMessage.line_number,
+                    )
+                    .label("rn"),
+                )
                 .where(ConversationMessage.document_id.in_(conv_doc_ids))
                 .where(ConversationMessage.role.in_(("user", "assistant")))
-                .order_by(ConversationMessage.document_id, ConversationMessage.line_number)
+            ).subquery()
+
+            msg_rows = (await db.execute(
+                select(subq.c.document_id, subq.c.role, subq.c.content)
+                .where(subq.c.rn <= 4)
+                .order_by(subq.c.document_id, subq.c.rn)
             )).all()
             for doc_id, role, content in msg_rows:
                 if doc_id not in cached_msgs:

@@ -47,7 +47,13 @@ async def get_memory_stats(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Overall memory statistics — scoped to current user unless admin/owner."""
+    from ..services.cache import cache_get, cache_set
+
     admin = _is_admin(_user)
+    cache_key = f"memory:stats:{_user.id}:{admin}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     ent_q = select(func.count()).select_from(KnowledgeEntity)
     if not admin:
@@ -76,13 +82,15 @@ async def get_memory_stats(
     type_result = await db.execute(type_q)
     entity_types = {r[0]: r[1] for r in type_result.all()}
 
-    return {
+    payload = {
         "entities": entities,
         "relations": relations,
         "observations": observations,
         "embeddings": embeddings,
         "entity_types": entity_types,
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.get("/graph")

@@ -52,13 +52,20 @@ async def list_corrections(
         .order_by(CorrectionTopic.times.desc(), CorrectionTopic.last_at.desc())
         .limit(30)
     )).scalars().all()
-    out = []
-    for topic in pending:
-        quotes = (await db.execute(
-            select(CorrectionEvent).where(CorrectionEvent.topic_id == topic.id)
-            .order_by(CorrectionEvent.said_at.desc()).limit(3)
+    topic_ids = [t.id for t in pending]
+    quotes_by_topic: dict[uuid.UUID, list[CorrectionEvent]] = {}
+    if topic_ids:
+        all_events = (await db.execute(
+            select(CorrectionEvent)
+            .where(CorrectionEvent.topic_id.in_(topic_ids))
+            .order_by(CorrectionEvent.topic_id, CorrectionEvent.said_at.desc())
         )).scalars().all()
-        out.append(topic_out(topic, quotes))
+        for ev in all_events:
+            lst = quotes_by_topic.setdefault(ev.topic_id, [])
+            if len(lst) < 3:
+                lst.append(ev)
+
+    out = [topic_out(topic, quotes_by_topic.get(topic.id, [])) for topic in pending]
     return {"pending": out, "stats": await correction_stats(db, user)}
 
 

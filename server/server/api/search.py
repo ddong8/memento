@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, DocumentEmbedding, Machine, User
-from ..db.session import get_db
+from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.user_filter import user_machine_ids, apply_user_filter
 
@@ -161,21 +162,20 @@ async def search(
         .offset(offset)
         .limit(limit)
     )
-    rows = (await db.execute(paged)).all()
-    docs = [r[0] for r in rows]
-    total = rows[0][-1] if rows else 0
+    async def _fetch_paged():
+        async with async_session_factory() as paged_db:
+            res = (await paged_db.execute(paged)).all()
+            return [r[0] for r in res], (res[0][-1] if res else 0)
 
-    # ---- Semantic fusion (first page only) --------------------------------
-    # device_id has no semantic equivalent: it filters by collector token hash
-    # via a Machine subquery, and the vector branch resolves machines through
-    # `mids` instead. Rather than return semantically-similar docs from the
-    # wrong device, skip fusion whenever a device filter is active.
-    sem_order: list = []
-    sem_snippets: dict = {}
-    if semantic and offset == 0 and not device_id:
-        sem_order, sem_snippets = await _semantic_doc_ranks(
-            db, q, mids, tool, category, days, want=limit
-        )
+    async def _fetch_sem():
+        if semantic and offset == 0 and not device_id:
+            async with async_session_factory() as sem_db:
+                return await _semantic_doc_ranks(
+                    sem_db, q, mids, tool, category, days, want=limit
+                )
+        return [], {}
+
+    (docs, total), (sem_order, sem_snippets) = await asyncio.gather(_fetch_paged(), _fetch_sem())
 
     if sem_order:
         kw_rank = {d.id: i for i, d in enumerate(docs)}

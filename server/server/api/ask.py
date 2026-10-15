@@ -141,13 +141,16 @@ async def hybrid_rank(
         )
     kw_q = apply_user_filter(kw_q, mids, Document.machine_id)
     order = (rank.desc(), Document.synced_at.desc()) if rank is not None else (Document.synced_at.desc(),)
-    kw_docs = (
-        await db.execute(kw_q.order_by(*order).limit(k))
-    ).scalars().all()
 
-    sem_order, sem_snippets = await _semantic_doc_ranks(
-        db, q, mids, tool, None, days, want=k
-    )
+    async def _fetch_kw():
+        async with async_session_factory() as kw_db:
+            return (await kw_db.execute(kw_q.order_by(*order).limit(k))).scalars().all()
+
+    async def _fetch_sem():
+        async with async_session_factory() as sem_db:
+            return await _semantic_doc_ranks(sem_db, q, mids, tool, None, days, want=k)
+
+    kw_docs, (sem_order, sem_snippets) = await asyncio.gather(_fetch_kw(), _fetch_sem())
 
     kw_rank = {d.id: i for i, d in enumerate(kw_docs)}
     sem_rank = {doc_id: i for i, doc_id in enumerate(sem_order)}

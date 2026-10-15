@@ -231,12 +231,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
   const remarkPlugins = useMemo(() => [remarkGfm], []);
   const rehypePlugins = useMemo(() => (isStreaming ? [] : [rehypeHighlight]), [isStreaming]);
 
-  return (
-    <div className={`${baseProse} max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
-        components={{
+  const components = useMemo(
+    () => ({
           pre: PreBlock,
           img: ({ node, src, alt, ...props }: any) => {
             if (!src) return null;
@@ -512,7 +508,16 @@ const MarkdownViewer = memo(function MarkdownViewer({
             </li>
           ),
           hr: (props: any) => <hr className="my-2.5 border-[var(--aurora-border)]" {...props} />,
-        }}
+    }),
+    [compactMedia, compactText, inspector]
+  );
+
+  return (
+    <div className={`${baseProse} max-w-full min-w-0 break-words overflow-wrap-anywhere overflow-hidden ${className}`}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={components}
       >
         {formattedContent}
       </ReactMarkdown>

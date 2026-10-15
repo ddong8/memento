@@ -418,8 +418,9 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         const filename = getFilenameFromUrl(decoded);
         let fetchUrl = rawUrl;
 
+        let clean = "";
         if (isLocalFilePath(decoded)) {
-          let clean = decoded.replace(/^file:\/\//, "");
+          clean = decoded.replace(/^file:\/\//, "");
           if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
             clean = clean.slice(1);
           }
@@ -459,11 +460,46 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             res = await fetch(fetchUrl);
           }
         } catch (fetchErr) {
-          // If local fetch fails (e.g. CORS or file:// or offline device), try fallback for deployment guide
-          if (filename.includes("deployment") && filename.endsWith(".md")) {
-            res = await fetch("/artifacts/deployment-guide.md");
-          } else {
+          // Fallback 1: If custom scheme or direct fetch failed (e.g. memento-media CORS in older client),
+          // seamlessly fallback to the device streaming relay API!
+          if (isLocalFilePath(decoded) && clean) {
+            try {
+              const apiBase = getApiBase();
+              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}`;
+              res = await authFetch(relayUrl);
+            } catch {
+              // ignore
+            }
+          }
+
+          if (!res || !res.ok) {
+            if (filename.includes("deployment") && filename.endsWith(".md")) {
+              try {
+                res = await fetch("/artifacts/deployment-guide.md");
+              } catch {
+                // ignore
+              }
+            }
+          }
+
+          if (!res || !res.ok) {
             throw fetchErr;
+          }
+        }
+
+        if (!res || !res.ok) {
+          // Fallback 2: If response was not OK, try streaming relay
+          if (isLocalFilePath(decoded) && clean) {
+            try {
+              const apiBase = getApiBase();
+              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}`;
+              const relayRes = await authFetch(relayUrl);
+              if (relayRes.ok) {
+                res = relayRes;
+              }
+            } catch {
+              // ignore
+            }
           }
         }
 

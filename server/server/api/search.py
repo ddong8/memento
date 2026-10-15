@@ -125,10 +125,18 @@ async def search(
     response says which mode actually ran.
     """
     from ..services.tokenize import tokenize_for_query
+    from ..services.cache import cache_get, cache_set
+    from sqlalchemy.orm import defer
+
+    clean_q = q.strip()
+    cache_key = f"search:{_user.id}:{clean_q.lower()}:{tool or ''}:{category or ''}:{device_id or ''}:{days or ''}:{offset}:{limit}:{int(semantic)}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     mids = await user_machine_ids(db, _user)
-    search_term = f"%{q}%"
-    tsquery = tokenize_for_query(q)
+    search_term = f"%{clean_q}%"
+    tsquery = tokenize_for_query(clean_q)
 
     conds = [
         Document.title.ilike(search_term),
@@ -137,7 +145,11 @@ async def search(
     if tsquery:
         conds.append(Document.content_tsv.op("@@")(func.to_tsquery("simple", tsquery)))
 
-    query = select(Document).where(or_(*conds))
+    query = (
+        select(Document)
+        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .where(or_(*conds))
+    )
 
     if tool:
         query = query.where(Document.tool_id == tool)
@@ -185,7 +197,11 @@ async def search(
         # can render them.
         missing = [doc_id for doc_id in sem_order if doc_id not in kw_rank]
         if missing:
-            extra_q = select(Document).where(Document.id.in_(missing))
+            extra_q = (
+                select(Document)
+                .options(defer(Document.content_tsv), defer(Document.metadata_))
+                .where(Document.id.in_(missing))
+            )
             extra_q = apply_user_filter(extra_q, mids, Document.machine_id)
             extra = (await db.execute(extra_q)).scalars().all()
             docs = docs + list(extra)
@@ -211,11 +227,11 @@ async def search(
         snippet = ""
         if d.content:
             lower_content = d.content.lower()
-            lower_q = q.lower()
+            lower_q = clean_q.lower()
             idx = lower_content.find(lower_q)
             if idx >= 0:
                 start = max(0, idx - 100)
-                end = min(len(d.content), idx + len(q) + 100)
+                end = min(len(d.content), idx + len(clean_q) + 100)
                 snippet = d.content[start:end]
                 if start > 0:
                     snippet = "..." + snippet
@@ -236,7 +252,7 @@ async def search(
             "matched_semantically": d.id in sem_snippets,
         })
 
-    return {
+    payload = {
         "query": q,
         "total": total,
         "offset": offset,
@@ -244,3 +260,5 @@ async def search(
         "semantic_used": bool(sem_order),
         "results": items,
     }
+    await cache_set(cache_key, payload, ttl_seconds=20)
+    return payload

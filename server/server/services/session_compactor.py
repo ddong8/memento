@@ -61,7 +61,11 @@ def estimate_tokens(text: str) -> int:
     """Fast estimation of token count across multilingual text (CJK + Latin)."""
     if not text:
         return 0
-    cjk_count = len(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
+    cjk_count = 0
+    for ch in text:
+        code = ord(ch)
+        if 0x4E00 <= code <= 0x9FFF or 0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7AF:
+            cjk_count += 1
     other_chars = len(text) - cjk_count
     return int(cjk_count * 1.5 + (other_chars / 3.5))
 
@@ -74,12 +78,18 @@ def calculate_session_stats(
     """Analyze session messages to estimate token footprint, bloat, and health status."""
     total_chars = 0
     base64_blobs = 0
+    cjk_count = 0
 
     for m in messages:
         content = str(m.get("content") or "")
         thinking = str(m.get("thinking") or "")
         combined = content + "\n" + thinking
         total_chars += len(combined)
+
+        for ch in combined:
+            code = ord(ch)
+            if 0x4E00 <= code <= 0x9FFF or 0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7AF:
+                cjk_count += 1
 
         blobs = _BASE64_DATA_RE.findall(combined)
         if blobs:
@@ -88,7 +98,8 @@ def calculate_session_stats(
             raw_blobs = _RAW_BASE64_BLOB_RE.findall(combined)
             base64_blobs += len(raw_blobs)
 
-    est_tokens = estimate_tokens("x" * total_chars)
+    other_chars = total_chars - cjk_count
+    est_tokens = int(cjk_count * 1.5 + (other_chars / 3.5))
 
     # Status evaluation
     is_overflow = est_tokens > 90_000 or file_size_bytes > 700_000 or len(messages) > 80

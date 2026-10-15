@@ -16,6 +16,7 @@ from server.api.projects import _reconcile_project_documents
 class OrphanedSubagentTests(unittest.IsolatedAsyncioTestCase):
     async def test_auto_materialize_missing_parent_for_subagents(self) -> None:
         db = AsyncMock()
+        db.add = MagicMock()
         proj_id = uuid.uuid4()
         mach_id = uuid.uuid4()
 

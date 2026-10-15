@@ -1175,6 +1175,7 @@ async def _extract_messages(
     line_num = start_line
     batch = []
     seen_contents: set[str] = set()  # Deduplicate identical messages
+    user_messages_for_title: list[str] = []
     # Walk the content with the tolerant JSON iterator so pretty-printed
     # multi-line entries from Claude Code (Windows 2.1.x) don't get
     # shattered into unparseable single-character fragments by split("\n").
@@ -1198,6 +1199,9 @@ async def _extract_messages(
             if dedupe_key in seen_contents:
                 continue
             seen_contents.add(dedupe_key)
+
+            if normalized.role == "user" and len(user_messages_for_title) < 25:
+                user_messages_for_title.append(normalized.content.replace("\x00", ""))
 
             ts = None
             if normalized.timestamp:
@@ -1239,12 +1243,10 @@ async def _extract_messages(
     ai_cand = _extract_latest_ai_title(content)
     if ai_cand and not _is_junk_or_uuid_title(ai_cand, sid):
         doc.title = ai_cand
-    elif _is_junk_or_uuid_title(doc.title, sid) and batch:
+    elif _is_junk_or_uuid_title(doc.title, sid) and user_messages_for_title:
         # Scan all user messages, not just the first: a compacted session
         # leads with the continuation preamble, so the real prompt is later.
-        cand = _title_from_user_messages(
-            [m.content for m in batch if m.role == "user"], sid
-        )
+        cand = _title_from_user_messages(user_messages_for_title, sid)
         if cand:
             doc.title = cand
 

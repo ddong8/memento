@@ -744,12 +744,14 @@ export default function MemoryGalaxy3D({
       resizeObserver.disconnect();
       intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      container.removeEventListener("pointerdown", markActive);
       container.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("mouseup", handlePointerUp);
       container.removeEventListener("mousemove", handlePointerMove);
       container.removeEventListener("wheel", handleWheel);
       container.removeEventListener("click", handleClick);
       container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchstart", markActive);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
       document.body.style.cursor = "default";

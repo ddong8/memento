@@ -1260,12 +1260,16 @@ export default function DigitalTwinAvatar3D({
       resizeObserver.disconnect();
       intersectionObserver?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("memento:switch-avatar-gender", handleGenderSwitch);
+      window.removeEventListener("memento:set-cam-view", handleCamViewSwitch);
+      container.removeEventListener("pointerdown", markActive);
       container.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("mouseup", handlePointerUp);
       container.removeEventListener("mousemove", handlePointerMove);
       container.removeEventListener("dblclick", handleDblClick);
       container.removeEventListener("wheel", handleWheel);
       container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchstart", markActive);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
       if (renderer.domElement && container.contains(renderer.domElement)) {

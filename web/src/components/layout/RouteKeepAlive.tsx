@@ -86,28 +86,28 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
       typeof window !== "undefined" &&
       (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
 
-    if (isMobile) {
-      // 移动端防显存溢出：最多保留 1 个重型 3D WebGL 路由驻留，防止同时维持 3 个 WebGL 上下文导致手机发热或闪退
-      if (WEBGL_HEAVY_ROUTES.has(currentKey)) {
-        for (const k of Object.keys(cachedViewsRef.current)) {
-          if (k !== currentKey && WEBGL_HEAVY_ROUTES.has(k)) {
-            delete cachedViewsRef.current[k];
-            lruOrderRef.current = lruOrderRef.current.filter((item) => item !== k);
-          }
+    // 1. 全平台防显存溢出与 WebGL 上下文崩溃：最多保留 1 个重型 3D WebGL 路由驻留（全平台桌面端与移动端统一）
+    // 防止同时维持 3 个 WebGL 上下文导致 GPU 显存耗尽、GPU 进程崩溃或标签页彻底卡死
+    if (WEBGL_HEAVY_ROUTES.has(currentKey)) {
+      for (const k of Object.keys(cachedViewsRef.current)) {
+        if (k !== currentKey && WEBGL_HEAVY_ROUTES.has(k)) {
+          delete cachedViewsRef.current[k];
+          lruOrderRef.current = lruOrderRef.current.filter((item) => item !== k);
         }
       }
-      // 移动端 LRU 容量上限：常驻保留 /ask 主对话，其余最多缓存最近访问的 3 个高频菜单页（共 4 页）
-      const maxMobileCached = 4;
-      const keys = Object.keys(cachedViewsRef.current);
-      if (keys.length > maxMobileCached) {
-        for (let i = lruOrderRef.current.length - 1; i >= 0; i--) {
-          const candidate = lruOrderRef.current[i];
-          if (candidate !== currentKey && candidate !== "/ask") {
-            delete cachedViewsRef.current[candidate];
-            lruOrderRef.current.splice(i, 1);
-            if (Object.keys(cachedViewsRef.current).length <= maxMobileCached) {
-              break;
-            }
+    }
+
+    // 2. 全平台 LRU 容量上限：常驻保留 /ask 核心执事对话，其余保留最近高频菜单页（桌面端 6 页，移动端 4 页）
+    const maxCached = isMobile ? 4 : 6;
+    const keys = Object.keys(cachedViewsRef.current);
+    if (keys.length > maxCached) {
+      for (let i = lruOrderRef.current.length - 1; i >= 0; i--) {
+        const candidate = lruOrderRef.current[i];
+        if (candidate !== currentKey && candidate !== "/ask") {
+          delete cachedViewsRef.current[candidate];
+          lruOrderRef.current.splice(i, 1);
+          if (Object.keys(cachedViewsRef.current).length <= maxCached) {
+            break;
           }
         }
       }

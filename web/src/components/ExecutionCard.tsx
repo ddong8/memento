@@ -749,7 +749,15 @@ const ExecutionCard = memo(function ExecutionCard({
                     </div>
                   </div>
                 ) : (
-                  <MarkdownViewer content={result.stdout} compactMedia={true} isStreaming={isRunning} />
+                  <MarkdownViewer
+                    content={
+                      result.stdout.length > 60_000 && !showAllLogs
+                        ? `${result.stdout.slice(-40_000)}\n\n> ℹ️ *[日志输出过长（共 ${result.stdout.length.toLocaleString()} 字符），已截取最近 40,000 字符展示以保障界面流畅。可切换至 Terminal 模式查验详情]*`
+                        : result.stdout
+                    }
+                    compactMedia={true}
+                    isStreaming={isRunning}
+                  />
                 )
               ) : null}
 

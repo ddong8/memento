@@ -148,6 +148,10 @@ function extractPlainText(children: any): string {
 
 export function normalizeMarkdownContent(content: string): string {
   if (!content) return "";
+  // 保护主线程：若单篇文本超过 80,000 字符（~2000行），跳过昂贵的多次正则全量扫描，防止正则回溯锁死 JS 主线程
+  if (content.length > 80_000) {
+    return content;
+  }
 
   // 分离代码块与普通文本，避免误伤代码块内部的格式
   const parts = content.split(/(```[\s\S]*?```)/g);
@@ -229,7 +233,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
 
   const baseProse = compactText ? "prose-compact" : "prose";
   const remarkPlugins = useMemo(() => [remarkGfm], []);
-  const rehypePlugins = useMemo(() => (isStreaming ? [] : [rehypeHighlight]), [isStreaming]);
+  const shouldHighlight = !isStreaming && content.length <= 60_000;
+  const rehypePlugins = useMemo(() => (shouldHighlight ? [rehypeHighlight] : []), [shouldHighlight]);
 
   const components = useMemo(
     () => ({

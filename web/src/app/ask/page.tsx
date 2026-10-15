@@ -3270,24 +3270,27 @@ function AskPageContent() {
             const target = calls[idx];
             const prevRes = target.result || {};
             const chunkText = evt.text || "";
+            const MAX_STREAM_CHARS = 250_000;
             if (evt.stream === "stderr") {
+              const combined = (prevRes.stderr || "") + chunkText;
               calls[idx] = {
                 ...target,
                 result: {
                   ...prevRes,
                   task_id: evt.task_id || prevRes.task_id,
                   status: "running",
-                  stderr: (prevRes.stderr || "") + chunkText,
+                  stderr: combined.length > MAX_STREAM_CHARS ? combined.slice(-MAX_STREAM_CHARS) : combined,
                 },
               };
             } else {
+              const combined = (prevRes.stdout || "") + chunkText;
               calls[idx] = {
                 ...target,
                 result: {
                   ...prevRes,
                   task_id: evt.task_id || prevRes.task_id,
                   status: "running",
-                  stdout: (prevRes.stdout || "") + chunkText,
+                  stdout: combined.length > MAX_STREAM_CHARS ? combined.slice(-MAX_STREAM_CHARS) : combined,
                 },
               };
             }

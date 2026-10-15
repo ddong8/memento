@@ -1081,6 +1081,13 @@ async def _append_conversation_turns(
                 asst_turn["thinking"] = thinking
             if sources:
                 asst_turn["sources"] = sources
+            if config:
+                if config.get("model"):
+                    asst_turn["model"] = str(config["model"])
+                if config.get("execution_mode"):
+                    asst_turn["execution_mode"] = str(config["execution_mode"])
+                if config.get("effort"):
+                    asst_turn["effort"] = str(config["effort"])
             inferred_tc_dev = None
             if tool_calls:
                 clean_tool_calls = []
@@ -1871,6 +1878,8 @@ async def _recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversati
                 "created_at": end_dt.isoformat(),
                 "duration_ms": dur_ms,
                 "toolCalls": [tc_entry],
+                "model": pl.get("model") or None,
+                "execution_mode": pl.get("execution_mode") or dt_row.action or None,
             })
         conv.turns = raw_turns
         conv.updated_at = datetime.now(timezone.utc)

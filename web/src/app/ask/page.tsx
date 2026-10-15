@@ -134,6 +134,8 @@ interface Turn {
   created_at?: string;
   started_at?: string;
   duration_ms?: number;
+  model?: string;
+  execution_mode?: string;
 }
 
 function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -581,6 +583,7 @@ const AssistantBubble = memo(function AssistantBubble({
   turn,
   isLast,
   streaming,
+  isReconnecting,
   prevUserCreatedAt,
   onSourcesClick,
   onSmartCompactAndRetry,
@@ -592,6 +595,7 @@ const AssistantBubble = memo(function AssistantBubble({
   turn: Turn;
   isLast: boolean;
   streaming: boolean;
+  isReconnecting?: boolean;
   prevUserCreatedAt?: string;
   onSourcesClick: (sources: Source[]) => void;
   onSmartCompactAndRetry: (sid?: string) => void;
@@ -760,16 +764,26 @@ const AssistantBubble = memo(function AssistantBubble({
           )}
         </div>
       )}
-      {isCurrentlyStreaming && startTime && (
+      {isCurrentlyStreaming && (
         <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/30 not-prose select-none text-[11px] text-[var(--aurora-fg3)]">
-          <span
-            className="inline-flex items-center gap-1.5 opacity-80"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-            title={`开始处理时间: ${startTime.full}`}
-          >
-            <Icon name="clock" size={11} style={{ color: "var(--aurora-accent)" }} />
-            <span>开始于 {startTime.short}</span>
-          </span>
+          {startTime && (
+            <span
+              className="inline-flex items-center gap-1.5 opacity-80"
+              style={{ fontVariantNumeric: "tabular-nums" }}
+              title={`开始处理时间: ${startTime.full}`}
+            >
+              <Icon name="clock" size={11} style={{ color: "var(--aurora-accent)" }} />
+              <span>开始于 {startTime.short}</span>
+            </span>
+          )}
+          {isReconnecting && (
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/35 text-amber-500 text-[11px] font-medium animate-pulse ml-auto"
+            >
+              <Icon name="refresh" size={11} className="animate-spin" />
+              <span>网络切换中，正在恢复流式同步...</span>
+            </span>
+          )}
         </div>
       )}
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
@@ -791,6 +805,15 @@ const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
                 <span>耗时 {durationText}</span>
+              </span>
+            )}
+            {(turn.model || (turn.execution_mode && turn.execution_mode !== "ai")) && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] font-mono"
+                title={`执行引擎/模型: ${turn.model || turn.execution_mode}`}
+              >
+                <Icon name="sparkles" size={10} style={{ color: "var(--aurora-accent)" }} />
+                <span>{turn.model || turn.execution_mode}</span>
               </span>
             )}
           </div>
@@ -1308,6 +1331,7 @@ function AskPageContent() {
 
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
   // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（流式输出期间跳过逐帧全量正则扫描，流式结束或会话加载时立即同步）
   useEffect(() => {
@@ -3911,16 +3935,19 @@ function AskPageContent() {
     return sawDone;
   }, [patchLast, persistCurrentConfig, t, executionMode, selectedDevice, normalizeDeviceId]);
 
-  // Reattach to a run from the last event seen, until it ends.
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
     let attempt = 1;
     while (!ctrl.signal.aborted) {
+      if (attempt > 1) {
+        setIsReconnecting(true);
+      }
       try {
         const res = await authFetch(
           `${getApiBase()}/api/ask/conversations/${cursor.convId}/stream?after=${cursor.lastId}`,
           { signal: ctrl.signal },
         );
         if (res.status === 404) {
+          setIsReconnecting(false);
           // Finished and no longer held by the server: the saved conversation has it all.
           const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
@@ -3929,14 +3956,22 @@ function AskPageContent() {
           return;
         }
         if (res.ok && res.body) {
+          setIsReconnecting(false);
           const finished = await consumeRun(res, cursor);
           if (finished) return;
         }
       } catch (err) {
-        if ((err as Error)?.name === "AbortError" || ctrl.signal.aborted) return;
+        if ((err as Error)?.name === "AbortError" || ctrl.signal.aborted) {
+          setIsReconnecting(false);
+          return;
+        }
+        setIsReconnecting(true);
       }
 
-      if (ctrl.signal.aborted) return;
+      if (ctrl.signal.aborted) {
+        setIsReconnecting(false);
+        return;
+      }
 
       // Check server status before sleeping or retrying: is the task still active on the server?
       try {
@@ -3944,6 +3979,7 @@ function AskPageContent() {
           signal: ctrl.signal,
         });
         if (runRes.status === 404) {
+          setIsReconnecting(false);
           const data = await api.getAskConversation(cursor.convId!, 40);
           turnsRef.current = data.turns || [];
           setTurns(data.turns || []);
@@ -3953,6 +3989,7 @@ function AskPageContent() {
         if (runRes.ok) {
           const run = await runRes.json();
           if (run.done || run.cancelled) {
+            setIsReconnecting(false);
             const data = await api.getAskConversation(cursor.convId!, 40);
             turnsRef.current = data.turns || [];
             setTurns(data.turns || []);
@@ -3972,9 +4009,11 @@ function AskPageContent() {
       const sleepTime = Math.min(600 * attempt, maxDelay);
       await interruptibleSleep(sleepTime, ctrl.signal);
     }
+    setIsReconnecting(false);
   }, [consumeRun, scrollConversationToBottom]);
 
   const finishStream = useCallback((ctrl: AbortController) => {
+    setIsReconnecting(false);
     if (abortRef.current !== ctrl) return; // superseded by a newer stream
     if (rafIdRef.current) window.cancelAnimationFrame(rafIdRef.current);
     turnsDirtyRef.current = false;
@@ -4133,6 +4172,7 @@ function AskPageContent() {
     abortRef.current?.abort();
     streamingRef.current = false;
     setStreaming(false);
+    setIsReconnecting(false);
     if (askCache) {
       askCache.streaming = false;
       askCache.activeRun = null;
@@ -4189,7 +4229,7 @@ function AskPageContent() {
     const initialTurns: Turn[] = [
       ...turns.filter((x) => !x.error),
       { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined, created_at: nowIso },
-      { role: "assistant", content: "", toolCalls: [], started_at: nowIso },
+      { role: "assistant", content: "", toolCalls: [], started_at: nowIso, model: selectedModel || undefined, execution_mode: executionMode },
     ];
     turnsRef.current = initialTurns;
     setTurns(initialTurns);
@@ -5051,6 +5091,7 @@ function AskPageContent() {
                 turn={turn}
                 isLast={i === turns.length - 1}
                 streaming={i === turns.length - 1 ? streaming : false}
+                isReconnecting={i === turns.length - 1 ? isReconnecting : false}
                 prevUserCreatedAt={prevUserCreatedAt}
                 onSourcesClick={handleSourcesClick}
                 onSmartCompactAndRetry={handleSmartCompactAndRetry}
@@ -7041,6 +7082,28 @@ function AskPageContent() {
               >
                 <Icon name="microphone" size={15} />
               </button>
+              {isReconnecting && (
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "0 10px",
+                    height: 36,
+                    borderRadius: 11,
+                    background: "rgba(245, 158, 11, 0.15)",
+                    border: "1px solid rgba(245, 158, 11, 0.35)",
+                    color: "#f59e0b",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    flexShrink: 0,
+                  }}
+                  className="animate-pulse"
+                >
+                  <Icon name="refresh" size={12} className="animate-spin" />
+                  <span>正在恢复流式同步...</span>
+                </div>
+              )}
               {streaming ? (
                 <Btn
                   variant="danger"

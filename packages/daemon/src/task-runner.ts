@@ -54,6 +54,20 @@ export function taskFinishedMessage(f: TaskFinished): Record<string, unknown> {
   };
 }
 
+/**
+ * Smart head-tail truncation for command outputs:
+ * Keeps initial context (first ~40K chars) and final diagnostic/error traces (last ~100K chars),
+ * folding the middle spam to prevent ballooning WebSocket frames and losing error stacks.
+ */
+export function smartTruncateOutput(text: string, maxChars = 150_000, headChars = 40_000, tailChars = 100_000): string {
+  if (!text || text.length <= maxChars) return text;
+  const head = text.slice(0, headChars);
+  const tail = text.slice(-tailChars);
+  const omitted = text.length - headChars - tailChars;
+  const omittedLines = text.slice(headChars, -tailChars).split("\n").length;
+  return `${head}\n\n... [已自动折叠中间约 ${omittedLines} 行 / ${omitted.toLocaleString()} 字符日志] ...\n\n${tail}`;
+}
+
 const chunk = (taskId: string, stream: "stdout" | "stderr", text: string) => ({ type: "task_chunk", task_id: taskId, stream, text });
 
 const claudeUserMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
@@ -407,7 +421,11 @@ export class TaskRunner {
       proc.stdout.setEncoding("utf8");
       proc.stdout.on("data", (text: string) => {
         armTimer();
-        out.stdout += text;
+        if (out.stdout.length < 2_500_000) {
+          out.stdout += text;
+        } else if (!out.stdout.endsWith("[...后续输出过大已转为实时流式传输...]\n")) {
+          out.stdout += "\n[...后续输出过大已转为实时流式传输...]\n";
+        }
         this.send(chunk(taskId, "stdout", text));
       });
     } else {
@@ -416,7 +434,9 @@ export class TaskRunner {
         const events = parser.feed(line);
         if (events === null) {
           if (!line.trim()) return;
-          out.stdout += `${line}\n`;
+          if (out.stdout.length < 2_500_000) {
+            out.stdout += `${line}\n`;
+          }
           this.send(chunk(taskId, "stdout", `${line}\n`));
           return;
         }
@@ -724,7 +744,12 @@ export class TaskRunner {
       const fullErr = out.stderr.trim();
       // A structured run's answer is its final message, not everything said along the way.
       const answer = parser?.finalText?.trim();
-      if (answer) fullOut = answer;
+      if (answer) {
+        fullOut = answer;
+      } else {
+        fullOut = smartTruncateOutput(fullOut);
+      }
+      const safeErr = smartTruncateOutput(fullErr, 80_000, 20_000, 60_000);
       const streamErrors = parser?.errors.trim() ?? "";
       const timedOut = exitCode === TIMED_OUT;
       const hasStillRunningTag = out.stdout.includes("STATUS_STILL_RUNNING") || fullErr.includes("STATUS_STILL_RUNNING");
@@ -753,7 +778,7 @@ export class TaskRunner {
           status: timedOut && !isStillRunning ? "timeout" : isStillRunning ? "still_running" : effectiveExitCode === 0 ? "succeeded" : "failed",
           exitCode: effectiveExitCode,
           stdout: fullOut,
-          stderr: fullErr,
+          stderr: safeErr,
           error: timedOut
             ? `Task timed out after ${task.timeoutSeconds}s`
             : effectiveExitCode !== 0

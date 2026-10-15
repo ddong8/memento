@@ -213,21 +213,27 @@ export async function prepareCommand(
 /** Stops a task and everything it started (shells, test runners, dev servers). */
 export function killProcessTree(proc: ChildProcess | undefined): void {
   if (!proc?.pid || proc.exitCode !== null || proc.signalCode !== null) return;
+  const pid = proc.pid;
   if (process.platform === "win32") {
-    execFile("taskkill", ["/F", "/T", "/PID", String(proc.pid)], { windowsHide: true }, (err) => {
+    execFile("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true }, (err) => {
       if (err) proc.kill("SIGKILL");
     });
     return;
   }
   try {
     // Tasks start in their own process group (spawned detached), so this reaches the children too.
-    process.kill(-proc.pid, "SIGKILL");
+    process.kill(-pid, "SIGKILL");
   } catch {
     try {
       proc.kill("SIGKILL");
     } catch {
       // already gone
     }
+  }
+  try {
+    execFile("pkill", ["-9", "-P", String(pid)], () => {});
+  } catch {
+    // ignore
   }
 }
 

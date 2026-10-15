@@ -17,6 +17,8 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services import cache
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.memory_lifecycle import touch_recalled
 from ..services.user_filter import user_machine_ids
 
@@ -47,8 +49,6 @@ async def get_memory_stats(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Overall memory statistics — scoped to current user unless admin/owner."""
-    from ..services.cache import cache_get, cache_set
-
     admin = _is_admin(_user)
     cache_key = f"memory:stats:{_user.id}:{admin}"
     cached = await cache_get(cache_key)
@@ -675,11 +675,11 @@ async def get_core_memories(
 
 async def _bust_user_memory_cache(user_id: uuid.UUID) -> None:
     try:
-        from ..services.cache import cache_delete_prefix
-        await cache_delete_prefix(f"memory:tree:{user_id}:")
-        await cache_delete_prefix(f"memory:stats:{user_id}:")
-        await cache_delete_prefix(f"memory:markdown:{user_id}:")
-        await cache_delete_prefix(f"learning:check:{user_id}:")
+        await cache.cache_delete_prefix(f"memory:tree:{user_id}:")
+        await cache.cache_delete_prefix(f"memory:stats:{user_id}:")
+        await cache.cache_delete_prefix(f"memory:markdown:{user_id}:")
+        await cache.cache_delete_prefix(f"learning:check:{user_id}:")
+        await cache.cache_delete_prefix(f"project:blueprint:{user_id}:")
     except Exception:
         pass
 
@@ -710,8 +710,6 @@ async def get_core_memory_tree(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Retrieve user's core memories organized as a true hierarchical directory tree based on tree_path."""
-    from ..services.cache import cache_get, cache_set
-
     real_category = category if isinstance(category, str) and category.strip() else None
     cache_key = f"memory:tree:{_user.id}:{real_category or 'all'}"
     cached = await cache_get(cache_key)
@@ -834,7 +832,6 @@ async def get_core_memory_markdown(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Export current user's core memories as formatted MEMORY.md."""
-    from ..services.cache import cache_get, cache_set
     from ..services.dreaming_service import export_core_memory_markdown
 
     cache_key = f"memory:markdown:{_user.id}:"

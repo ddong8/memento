@@ -7,13 +7,17 @@ import json
 import re
 import time
 import uuid
+import traceback
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select, update
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import defer, load_only
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..services import cache
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 
 from ..db.models import (
     ConversationMessage, Document, KnowledgeEntity, KnowledgeObservation,
@@ -236,20 +240,19 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
             if has_changes:
                 await db.commit()
         except Exception as exc:
-            import traceback
             print(f"[Projects API] Consolidation error: {exc}\n{traceback.format_exc()}")
 
 
 async def _bust_project_cache(project_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None) -> None:
     try:
-        from ..services.cache import cache_delete_prefix
         if user_id:
-            await cache_delete_prefix(f"projects:list:{user_id}:")
+            await cache.cache_delete_prefix(f"projects:list:{user_id}:")
         else:
-            await cache_delete_prefix("projects:list:")
+            await cache.cache_delete_prefix("projects:list:")
         if project_id:
-            await cache_delete_prefix("project:timeline:")
-            await cache_delete_prefix("project:conv:")
+            await cache.cache_delete_prefix("project:timeline:")
+            await cache.cache_delete_prefix("project:conv:")
+            await cache.cache_delete_prefix("project:blueprint:")
     except Exception:
         pass
 
@@ -264,7 +267,6 @@ async def list_projects(
 ) -> list[dict]:
     cache_key = f"projects:list:{_user.id}:{tool_id or 'all'}:{device_id or 'all'}"
     if not sync:
-        from ..services.cache import cache_get
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
@@ -357,7 +359,9 @@ async def list_projects(
     target_docs = []
     if target_mid is not None:
         disc_doc = (await db.execute(
-            select(Document).where(
+            select(Document)
+            .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+            .where(
                 Document.tool_id == "system",
                 Document.category == "discovery",
                 Document.machine_id == target_mid,
@@ -365,7 +369,9 @@ async def list_projects(
         )).scalar_one_or_none()
         if not disc_doc and target_machine and target_machine.collector_token_hash:
             disc_doc = (await db.execute(
-                select(Document).where(
+                select(Document)
+                .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+                .where(
                     Document.tool_id == "system",
                     Document.category == "discovery",
                     Document.relative_path == f"discovery/{target_machine.collector_token_hash}.json",
@@ -375,9 +381,13 @@ async def list_projects(
             target_docs.append(disc_doc)
     else:
         # User sees all machines
-        m_query = select(Document).where(
-            Document.tool_id == "system",
-            Document.category == "discovery",
+        m_query = (
+            select(Document)
+            .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+            .where(
+                Document.tool_id == "system",
+                Document.category == "discovery",
+            )
         )
         if mids is not None:
             m_query = m_query.where(Document.machine_id.in_(mids))
@@ -425,9 +435,8 @@ async def list_projects(
                         p_vis = proj_obj.visibility
                         p_created = proj_obj.created_at.isoformat() if getattr(proj_obj, "created_at", None) else None
                         p_updated = proj_obj.updated_at.isoformat() if getattr(proj_obj, "updated_at", None) else None
-                    except Exception as proj_err:
-                        import uuid as _uuid
-                        p_id = str(_uuid.uuid4())
+                    except Exception:
+                        p_id = str(uuid.uuid4())
                         p_title = clean_name
                         p_tool = t
                         p_src = _clean_source_path(p_path)
@@ -446,7 +455,6 @@ async def list_projects(
                         "updated_at": p_updated,
                     })
         except Exception as exc:
-            import traceback
             print(f"[Projects API] Discovery parse error: {exc}\n{traceback.format_exc()}")
 
     if new_projs_created:
@@ -456,7 +464,6 @@ async def list_projects(
             pass
 
     if not sync:
-        from ..services.cache import cache_set
         await cache_set(cache_key, items, ttl_seconds=20)
 
     return items
@@ -483,7 +490,7 @@ async def get_project(
 
     docs_q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .options(defer(Document.content_tsv), defer(Document.metadata_), defer(Document.rendered_html))
         .where(Document.project_id == project_id)
         .order_by(Document.synced_at.desc())
         .limit(50)
@@ -507,7 +514,7 @@ async def get_project(
             "category": d.category,
             "title": d.title,
             "file_size_bytes": d.file_size_bytes,
-            "synced_at": d.synced_at.isoformat(),
+            "synced_at": d.synced_at.isoformat() if d.synced_at else None,
         }
         if include_content and d.category in INLINE_CATEGORIES:
             row["content"] = d.content
@@ -1095,7 +1102,6 @@ async def get_project_conversations(
                 "sessions": [],
             }
 
-    from ..services.cache import cache_get, cache_set
     as_of_key = as_of.isoformat() if as_of else "live"
     dev_key = device_id or "all"
     cache_key = (
@@ -1117,7 +1123,6 @@ async def get_project_conversations(
     # cold-start time on chunky projects (favorite_chat hit 24 s with 152
     # conversations). load_only here ~halves wall time on big projects and
     # dramatically reduces TOAST reads.
-    from sqlalchemy.orm import load_only
     conv_q = (
         select(Document)
         .options(load_only(
@@ -1273,7 +1278,7 @@ async def get_project_conversations(
                 conv_ts[str(d.id)] = d.source_modified_at or d.synced_at
 
     main_convs.sort(
-        key=lambda d: conv_ts.get(str(d.id)) or d.synced_at,
+        key=lambda d: conv_ts.get(str(d.id)) or d.synced_at or datetime.min.replace(tzinfo=timezone.utc),
         reverse=(order != "asc"),
     )
     total_sessions = len(main_convs)
@@ -1495,7 +1500,9 @@ async def get_project_conversations(
             # If current title is junk or looks like a raw prompt / code snippet, check annotations table
             if is_title_junk or ("<USER_REQUEST>" in conv_title or conv_title.startswith("💬") or "\n" in conv_title or len(conv_title) > 35):
                 ann_doc = (await db.execute(
-                    select(Document).where(
+                    select(Document)
+                    .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+                    .where(
                         Document.tool_id == "antigravity",
                         Document.category == "state",
                         Document.relative_path.like(f"%annotations/{session_id}.pbtxt"),
@@ -1687,9 +1694,12 @@ async def export_project_markdown(
     # Pull all docs for this project (no 50-row cap; this is an export).
     docs_q = (
         select(Document)
+        .options(defer(Document.content_tsv), defer(Document.rendered_html))
         .where(Document.project_id == project_id)
         .order_by(Document.synced_at.desc())
     )
+    if not include_conversations:
+        docs_q = docs_q.where(Document.category != "conversation")
     docs_q = apply_user_filter(docs_q, mids, Document.machine_id)
     docs = [d for d in (await db.execute(docs_q)).scalars().all()
             if not _is_export_noise(d.relative_path)]
@@ -1863,6 +1873,11 @@ async def get_project_blueprint(
     Powers the MCP ``memory_blueprint`` tool — replaces 5-10 sequential
     RPCs with one.
     """
+    cache_key = f"project:blueprint:{_user.id}:{project_id}:{recent_convs}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     mids = await user_machine_ids(db, _user)
 
     project = (await db.execute(
@@ -1875,7 +1890,7 @@ async def get_project_blueprint(
     CURATED = ("identity", "memory", "plan", "learning")
     curated_q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .options(defer(Document.content_tsv), defer(Document.metadata_), defer(Document.rendered_html))
         .where(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
@@ -1897,6 +1912,7 @@ async def get_project_blueprint(
                 defer(Document.content),
                 defer(Document.content_tsv),
                 defer(Document.metadata_),
+                defer(Document.rendered_html),
             )
             .where(
                 Document.project_id == project_id,
@@ -1954,7 +1970,7 @@ async def get_project_blueprint(
                 "target_type": target.entity_type,
             })
 
-    return {
+    payload = {
         "project": {
             "id": str(project.id),
             "title": project.title,
@@ -1968,7 +1984,7 @@ async def get_project_blueprint(
                 "category": d.category,
                 "title": d.title,
                 "relative_path": d.relative_path,
-                "synced_at": d.synced_at.isoformat(),
+                "synced_at": d.synced_at.isoformat() if d.synced_at else None,
                 "content": d.content,
                 "ai_summary": d.ai_summary,
             }
@@ -1979,7 +1995,7 @@ async def get_project_blueprint(
                 "id": str(d.id),
                 "title": d.title or d.relative_path.rsplit("/", 1)[-1],
                 "tool_id": d.tool_id,
-                "synced_at": d.synced_at.isoformat(),
+                "synced_at": d.synced_at.isoformat() if d.synced_at else None,
                 "ai_summary": d.ai_summary,
             }
             for d in convs
@@ -2005,3 +2021,5 @@ async def get_project_blueprint(
             "total_relations": sum(len(v) for v in relations_by_entity.values()),
         },
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload

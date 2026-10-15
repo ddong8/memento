@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
@@ -195,7 +196,7 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
     return machine
 
 
-def _serialize(t: DeviceTask, truncate_output: bool = False) -> dict:
+def _serialize(t: DeviceTask, truncate_output: bool = False, include_events: bool = True) -> dict:
     stdout = t.stdout
     stderr = t.stderr
     if truncate_output:
@@ -218,7 +219,7 @@ def _serialize(t: DeviceTask, truncate_output: bool = False) -> dict:
         "dispatched_at": t.dispatched_at.isoformat() if t.dispatched_at else None,
         "finished_at": t.finished_at.isoformat() if t.finished_at else None,
         "alerts": t.alerts or [],
-        "events": t.events or [],
+        "events": (t.events or []) if include_events else [],
     }
 
 
@@ -267,14 +268,19 @@ async def list_tasks(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List tasks the caller dispatched (admins see all)."""
-    q = select(DeviceTask).order_by(DeviceTask.created_at.desc()).limit(min(limit, 200))
+    q = (
+        select(DeviceTask)
+        .options(defer(DeviceTask.events))
+        .order_by(DeviceTask.created_at.desc())
+        .limit(min(limit, 200))
+    )
     if _user.role not in ("admin", "owner"):
         q = q.where(DeviceTask.user_id == _user.id)
     if device_id:
         q = q.where(DeviceTask.device_id == device_id)
     if status:
         q = q.where(DeviceTask.status == status)
-    return [_serialize(t, truncate_output=True) for t in (await db.execute(q)).scalars().all()]
+    return [_serialize(t, truncate_output=True, include_events=False) for t in (await db.execute(q)).scalars().all()]
 
 
 @router.get("/{task_id}")
@@ -319,7 +325,6 @@ async def cancel_task(
     if task.status in ("succeeded", "failed", "timeout", "cancelled"):
         return _serialize(task)
 
-    from ..services.ws_manager import ws_manager
     # Notify running collector process immediately to kill process tree
     await ws_manager.send_cancel(task.device_id, str(task.id))
 
@@ -352,7 +357,6 @@ async def send_task_input(
     if task.status not in ("queued", "running"):
         return {"ok": False, "reason": f"task status is {task.status}, not running"}
 
-    from ..services.ws_manager import ws_manager
     sent = await ws_manager.send_input(task.device_id, str(task.id), body.input)
     return {"ok": sent}
 

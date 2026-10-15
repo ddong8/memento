@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select, func
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, DocumentEmbedding, Machine, User
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_get, cache_set
+from ..services.tokenize import tokenize_for_query
 from ..services.user_filter import user_machine_ids, apply_user_filter
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -124,10 +127,6 @@ async def search(
     duplicate or drop rows across page boundaries. ``semantic_used`` in the
     response says which mode actually ran.
     """
-    from ..services.tokenize import tokenize_for_query
-    from ..services.cache import cache_get, cache_set
-    from sqlalchemy.orm import defer
-
     clean_q = q.strip()
     cache_key = f"search:{_user.id}:{clean_q.lower()}:{tool or ''}:{category or ''}:{device_id or ''}:{days or ''}:{offset}:{limit}:{int(semantic)}"
     cached = await cache_get(cache_key)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -13,27 +14,25 @@ _background_tasks: set = set()
 # Cap concurrent post-ingest work (each holds a DB connection + a BGE-M3 slot
 # for ~10s). Without this, a re-sync storm exhausts the connection pool and
 # user web requests time out.
-_post_ingest_semaphore: "asyncio.Semaphore | None" = None
+_post_ingest_semaphore: asyncio.Semaphore | None = None
 # Cap concurrent ingest endpoint handlers: each holds a main-pool connection
 # for the entire write transaction (documents + conversation_messages +
 # tsvector update). 16 leaves headroom in the 32-slot main pool for login,
 # dashboard, search, etc. — collector storms can't starve the web UI.
-_ingest_semaphore: "asyncio.Semaphore | None" = None
+_ingest_semaphore: asyncio.Semaphore | None = None
 
 
-def _get_post_ingest_semaphore() -> "asyncio.Semaphore":
+def _get_post_ingest_semaphore() -> asyncio.Semaphore:
     global _post_ingest_semaphore
     if _post_ingest_semaphore is None:
-        import asyncio as _asyncio
-        _post_ingest_semaphore = _asyncio.Semaphore(8)
+        _post_ingest_semaphore = asyncio.Semaphore(8)
     return _post_ingest_semaphore
 
 
-def _get_ingest_semaphore() -> "asyncio.Semaphore":
+def _get_ingest_semaphore() -> asyncio.Semaphore:
     global _ingest_semaphore
     if _ingest_semaphore is None:
-        import asyncio as _asyncio
-        _ingest_semaphore = _asyncio.Semaphore(24)
+        _ingest_semaphore = asyncio.Semaphore(24)
     return _ingest_semaphore
 
 from sqlalchemy import func, or_, select, update

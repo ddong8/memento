@@ -2,18 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
+import secrets
 from datetime import datetime, timezone
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..api.tasks import REMOTE_EXEC_ENABLED
 from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
 from ..services.device_service import ensure_device
-from ..services.ingest_service import ingest_file, _get_ingest_semaphore
+from ..services.ingest_service import (
+    ensure_project,
+    ingest_file,
+    _get_ingest_semaphore,
+    _is_invalid_project_name,
+    _prettify_project_name,
+)
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -231,20 +242,15 @@ async def ingest_discovery(
     machine = await ensure_device(db, device_id, req.get("device_name", ""), req.get("platform", ""), user_id=_collector_user.id)
 
     # Clean up paths in discovery data (URL decode, strip \\?\)
-    import hashlib
-    from urllib.parse import unquote
-    import re as _re
-    from ..services.ingest_service import ensure_project, _is_invalid_project_name, _prettify_project_name
-
     tools_data = req.get("tools", {})
     for t_id, tool_info in tools_data.items():
         if isinstance(tool_info, dict):
             if "root" in tool_info:
-                tool_info["root"] = _re.sub(r"^\\\\?\?\\", "", unquote(tool_info["root"]))
+                tool_info["root"] = re.sub(r"^\\\\?\?\\", "", unquote(tool_info["root"]))
             for proj in tool_info.get("projects", []):
                 if isinstance(proj, dict):
                     if "path" in proj:
-                        proj["path"] = _re.sub(r"^\\\\?\?\\", "", unquote(proj["path"]))
+                        proj["path"] = re.sub(r"^\\\\?\?\\", "", unquote(proj["path"]))
                     p_name = proj.get("name") or (proj.get("path") or "").replace("\\", "/").rstrip("/").split("/")[-1]
                     p_path = proj.get("path")
                     if p_name:
@@ -300,11 +306,8 @@ async def heartbeat(
     #
     # When the switch is off we send nothing, so a collector that has never
     # been enabled simply never learns a key and never polls for work.
-    from ..api.tasks import REMOTE_EXEC_ENABLED
-
     if REMOTE_EXEC_ENABLED:
         if not machine.remote_exec_key:
-            import secrets
             machine.remote_exec_key = secrets.token_urlsafe(32)
             await db.commit()
         resp["remote_exec_key"] = machine.remote_exec_key

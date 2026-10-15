@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import ConversationMessage, Document, Machine, Project, Tool, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_get, cache_set
 from ..services.user_filter import user_machine_ids, apply_user_filter
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -32,8 +33,6 @@ async def get_dashboard(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Aggregated dashboard data for home page."""
-    from ..services.cache import cache_get, cache_set
-
     cache_key = f"dashboard:{_user.id}:{device_id or 'all'}:{tz_offset}"
     cached = await cache_get(cache_key)
     if cached is not None:
@@ -189,20 +188,18 @@ async def get_dashboard(
     today_total = today_row.total or 0
     today_conversations = today_row.conversations or 0
 
-    # Total stats
-    doc_count_q = select(func.count()).select_from(Document)
-    doc_count_q = _apply_device_filter(doc_count_q, device_id)
-    doc_count_q = apply_user_filter(doc_count_q, mids, Document.machine_id)
-    total_docs = (await db.execute(doc_count_q)).scalar() or 0
-    # Count only projects the user has ingested into — Project has no user_id,
-    # so scope via Document.machine_id → Machine.user_id (same path as mids).
-    proj_count_q = (
-        select(func.count(func.distinct(Document.project_id)))
-        .where(Document.project_id.isnot(None))
+    # Total stats — single aggregation query combining total docs and unique projects
+    total_agg_q = (
+        select(
+            func.count().label("total_docs"),
+            func.count(func.distinct(Document.project_id)).label("total_projects"),
+        )
     )
-    proj_count_q = _apply_device_filter(proj_count_q, device_id)
-    proj_count_q = apply_user_filter(proj_count_q, mids, Document.machine_id)
-    total_projects = (await db.execute(proj_count_q)).scalar() or 0
+    total_agg_q = _apply_device_filter(total_agg_q, device_id)
+    total_agg_q = apply_user_filter(total_agg_q, mids, Document.machine_id)
+    total_row = (await db.execute(total_agg_q)).one()
+    total_docs = total_row.total_docs or 0
+    total_projects = total_row.total_projects or 0
 
     payload = {
         "tools": tools,

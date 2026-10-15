@@ -11,6 +11,8 @@ import mimetypes
 import os
 import urllib.parse
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
@@ -19,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import AccessLog, ConversationMessage, Document, DocumentVersion, Machine, Project, SyncState, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_current_user_flexible
-from ..services.user_filter import user_machine_ids
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services.user_filter import normalize_device_name, user_machine_ids
+from ..services.ws_manager import ws_manager
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -56,7 +60,6 @@ async def list_devices(
     machine_ids = [m.id for m in machines]
 
     # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips (cached for 60s).
-    from ..services.cache import cache_get, cache_set
     stats_cache_key = f"devices:stats:{_user.id}"
     cached_stats = await cache_get(stats_cache_key)
     if cached_stats is not None:
@@ -78,10 +81,6 @@ async def list_devices(
             if tid not in tlist:
                 tlist.append(tid)
         await cache_set(stats_cache_key, {"totals": totals_by_name, "tools": tools_by_name}, ttl_seconds=60)
-
-    from datetime import datetime, timezone
-    from ..services.ws_manager import ws_manager
-    from ..services.user_filter import normalize_device_name
 
     items = []
     seen_names = set()
@@ -238,6 +237,12 @@ async def delete_device(
     stats = await _purge_device_data(db, device_db_id, include_system=True)
     await db.execute(delete(Machine).where(Machine.id == device_db_id))
 
+    await cache_delete_prefix(f"devices:stats:{_user.id}")
+    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
+    await cache_delete_prefix(f"dashboard:{_user.id}")
+    await cache_delete_prefix(f"tools:list:{_user.id}")
+    await cache_delete_prefix(f"projects:list:{_user.id}")
+
     return {"status": "deleted", "device_id": str(device_db_id), "name": machine.name, **stats}
 
 
@@ -250,6 +255,13 @@ async def purge_device(
     """Delete all documents + related data but keep the device record (used before resync)."""
     machine = await _verify_device_ownership(db, device_db_id, _user)
     stats = await _purge_device_data(db, device_db_id, include_system=False)
+
+    await cache_delete_prefix(f"devices:stats:{_user.id}")
+    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
+    await cache_delete_prefix(f"dashboard:{_user.id}")
+    await cache_delete_prefix(f"tools:list:{_user.id}")
+    await cache_delete_prefix(f"projects:list:{_user.id}")
+
     return {"status": "purged", "device_id": str(device_db_id), "name": machine.name, **stats}
 
 

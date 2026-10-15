@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import ConversationMessage, DailySummary, Document, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.user_filter import user_machine_ids
 
 router = APIRouter(prefix="/api/daily", tags=["daily"])
@@ -32,7 +33,6 @@ async def list_daily_dates(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List dates with conversation activity in the last N days."""
-    from ..services.cache import cache_get, cache_set
     # Cache by (user, days, tz). The underlying GROUP BY on
     # conversation_messages does a 33K-row seq scan + 65MB block read on cold
     # cache (2-3s). The answer itself is small and stable across a minute,
@@ -100,7 +100,6 @@ async def get_daily(
     how a share link's "snapshot" semantics work: viewers see what the
     owner saw at link-creation time, not what the owner is editing now.
     """
-    from ..services.cache import cache_get, cache_set
     # as_of in the cache key so share traffic doesn't poison the
     # owner-UI's cache (and vice versa).
     as_of_key = as_of.isoformat() if as_of else "live"
@@ -122,9 +121,14 @@ async def get_daily(
     day_end = datetime(next_date.year, next_date.month, next_date.day, tzinfo=tz)
 
     # Get today's messages grouped by document + role (exclude tool noise + subagents)
+    # Project document fields directly to eliminate a second round-trip query.
     msg_q = (
         select(
-            ConversationMessage.document_id,
+            Document.id,
+            Document.tool_id,
+            Document.title,
+            Document.relative_path,
+            Document.content_type,
             ConversationMessage.role,
             func.count().label("cnt"),
         )
@@ -142,46 +146,41 @@ async def get_daily(
         msg_q = msg_q.where(Document.machine_id.in_(mids))
     if as_of is not None:
         msg_q = msg_q.where(ConversationMessage.timestamp <= as_of)
-    msg_q = msg_q.group_by(ConversationMessage.document_id, ConversationMessage.role)
+    msg_q = msg_q.group_by(
+        Document.id,
+        Document.tool_id,
+        Document.title,
+        Document.relative_path,
+        Document.content_type,
+        ConversationMessage.role,
+    )
     msg_result = await db.execute(msg_q)
 
     conv_map: dict[str, dict] = {}
-    for doc_id, role, cnt in msg_result.all():
+    for doc_id, tool_id, title, rel_path, c_type, role, cnt in msg_result.all():
         key = str(doc_id)
         if key not in conv_map:
-            conv_map[key] = {"id": key, "user_messages": 0, "assistant_messages": 0}
-        if role == "user":
-            conv_map[key]["user_messages"] = cnt
-        elif role == "assistant":
-            conv_map[key]["assistant_messages"] = cnt
-
-    # Enrich with document info (tool_id, title)
-    conversations = []
-    tool_stats: dict[str, int] = {}
-    if conv_map:
-        doc_info = await db.execute(
-            select(
-                Document.id,
-                Document.tool_id,
-                Document.title,
-                Document.relative_path,
-                Document.content_type,
-            ).where(Document.id.in_(doc_ids))
-        )
-        for doc_id, tool_id, title, rel_path, c_type in doc_info.all():
-            info = conv_map.get(str(doc_id), {})
-            total = info.get("user_messages", 0) + info.get("assistant_messages", 0)
-            tool_stats[tool_id] = tool_stats.get(tool_id, 0) + total
-            conversations.append({
-                "id": str(doc_id),
+            conv_map[key] = {
+                "id": key,
                 "tool_id": tool_id,
                 "title": title or rel_path,
-                "user_messages": info.get("user_messages", 0),
-                "assistant_messages": info.get("assistant_messages", 0),
+                "user_messages": 0,
+                "assistant_messages": 0,
                 "content_type": c_type,
-            })
-        conversations.sort(key=lambda x: x["user_messages"], reverse=True)
+            }
+        if role == "user":
+            conv_map[key]["user_messages"] += cnt
+        elif role == "assistant":
+            conv_map[key]["assistant_messages"] += cnt
 
+    tool_stats: dict[str, int] = {}
+    conversations = list(conv_map.values())
+    for c in conversations:
+        tid = c["tool_id"]
+        total = c["user_messages"] + c["assistant_messages"]
+        tool_stats[tid] = tool_stats.get(tid, 0) + total
+
+    conversations.sort(key=lambda x: x["user_messages"], reverse=True)
     total_messages = sum(c["user_messages"] + c["assistant_messages"] for c in conversations)
 
     # Get daily summaries — scoped to the current user. admin/owner see all.
@@ -401,8 +400,10 @@ async def generate_daily_summary_endpoint(
         msgs_by_doc[str(m.document_id)].append(m)
 
     doc_ids = [uuid.UUID(k) for k in msgs_by_doc.keys()]
-    doc_info_result = await db.execute(select(Document).where(Document.id.in_(doc_ids)))
-    doc_map = {str(d.id): d for d in doc_info_result.scalars().all()}
+    doc_info_result = await db.execute(
+        select(Document.id, Document.tool_id, Document.title).where(Document.id.in_(doc_ids))
+    )
+    doc_map = {str(r.id): r for r in doc_info_result.all()}
 
     # Build conversation data for AI summary — no per-conversation limit
     conv_data = []
@@ -453,6 +454,7 @@ async def generate_daily_summary_endpoint(
         db.add(summary)
 
     await db.flush()
+    await cache_delete_prefix(f"daily:detail:{_user.id}:{date_str}:")
 
     return {
         "date": date_str,

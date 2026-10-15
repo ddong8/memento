@@ -331,9 +331,8 @@ def main():
             if args.timeout > 0 and (time.time() - start_time > args.timeout):
                 if active_background_tasks:
                     tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                    sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
+                    sys.stderr.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
                     sys.stderr.write(f"\n⏳ [任务在后台持续执行中（{tid_names}），达到单次等待上限（{args.timeout}s），保持后台运行]\n")
-                    sys.stdout.flush()
                     sys.stderr.flush()
                     completed = True
                     break
@@ -366,32 +365,32 @@ def main():
                                         tail_txt = lf.read().decode("utf-8", errors="ignore")
                                     if "] Timer fired." in tail_txt or "] Timer cancelled:" in tail_txt:
                                         active_background_tasks.discard(bg_t)
-                                        sys.stdout.write(f"\n✅ [后台任务 {tc} 执行完毕/已结束]\n\n")
-                                        sys.stdout.flush()
+                                        sys.stderr.write(f"\n✅ [后台任务 {tc} 执行完毕/已结束]\n\n")
+                                        sys.stderr.flush()
                                         idle_count = 0
                             except Exception:
                                 pass
                     if has_log_growth:
                         idle_count = 0  # 任务日志在持续写入，说明后台进程活跃，重置空闲计时
 
-                # 周期性保活心跳与状态提示
+                # 周期性保活心跳与状态提示（输出至 stderr，确保不污染正文 stdout）
                 if idle_count > 0 and idle_count % 125 == 0:  # 每 25 秒输出一次心跳
                     if state.get("waiting_user_input"):
-                        sys.stdout.write("\n\n⏳ [等待用户选择或回复中...]\n\n")
-                        sys.stdout.flush()
+                        sys.stderr.write("\n\n⏳ [等待用户选择或回复中...]\n\n")
+                        sys.stderr.flush()
                     elif state.get("in_flight_tools"):
                         tool_names = ", ".join(state["in_flight_tools"])
                         el_sec = int(time.time() - state["tool_start_time"]) if state.get("tool_start_time") else int(idle_count * 0.2)
-                        sys.stdout.write(f"\n\n⏳ [工具 {tool_names} 持续执行中（已运行 {el_sec}s），请稍候...]\n\n")
-                        sys.stdout.flush()
+                        sys.stderr.write(f"\n\n⏳ [工具 {tool_names} 持续执行中（已运行 {el_sec}s），请稍候...]\n\n")
+                        sys.stderr.flush()
                     elif active_background_tasks:
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                        sys.stdout.write(f"\n\n⏳ [后台任务 {tid_names} 执行中，请稍候...]\n\n")
-                        sys.stdout.flush()
+                        sys.stderr.write(f"\n\n⏳ [后台任务 {tid_names} 执行中，请稍候...]\n\n")
+                        sys.stderr.flush()
                     else:
                         el_sec = int(idle_count * 0.2)
-                        sys.stdout.write(f"\n\n⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n\n")
-                        sys.stdout.flush()
+                        sys.stderr.write(f"\n\n⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n\n")
+                        sys.stderr.flush()
 
                 # 静默超过 20 秒后，每 10 秒探测 Antigravity 语言服务器存活状态
                 if idle_count > 100 and idle_count % 50 == 0:
@@ -428,9 +427,8 @@ def main():
                 if active_background_tasks:
                     if idle_count > 900:  # 180s
                         tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                        sys.stdout.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
+                        sys.stderr.write(f"\n[STATUS_STILL_RUNNING: tasks={tid_names}]\n")
                         sys.stderr.write(f"\n⏳ [后台任务（{tid_names}）持续运行中，达到单次轮询等待上限（180s），已安全转入后台监控]\n")
-                        sys.stdout.flush()
                         sys.stderr.flush()
                         completed = True
                         break
@@ -471,8 +469,8 @@ def main():
                     bg_tid = m_bg.group(1).strip()
                     active_background_tasks.add(bg_tid)
                     tid_clean = bg_tid.split("/")[-1]
-                    sys.stdout.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
-                    sys.stdout.flush()
+                    sys.stderr.write(f"\n⏳ [后台任务启动: {tid_clean}，持续追踪执行进度...]\n\n")
+                    sys.stderr.flush()
                     idle_count = 0
 
             # Check if any active background task finished, failed, or was canceled
@@ -500,8 +498,8 @@ def main():
                     active_background_tasks.discard(bg_tid)
                     status_desc = "已取消/终止" if is_canceled else "执行完毕，已接收运行结果"
                     icon = "⏹️" if is_canceled else "✅"
-                    sys.stdout.write(f"\n{icon} [后台任务 {tid_clean} {status_desc}]\n\n")
-                    sys.stdout.flush()
+                    sys.stderr.write(f"\n{icon} [后台任务 {tid_clean} {status_desc}]\n\n")
+                    sys.stderr.flush()
                     idle_count = 0
                 elif tasks_dir.exists():
                     log_path = tasks_dir / f"{tid_clean}.log"
@@ -514,8 +512,8 @@ def main():
                                     tail_bytes = lf.read().decode("utf-8", errors="ignore")
                                 if "] Timer fired." in tail_bytes or "] Timer cancelled:" in tail_bytes:
                                     active_background_tasks.discard(bg_tid)
-                                    sys.stdout.write(f"\n✅ [后台任务 {tid_clean} 执行完毕/已结束]\n\n")
-                                    sys.stdout.flush()
+                                    sys.stderr.write(f"\n✅ [后台任务 {tid_clean} 执行完毕/已结束]\n\n")
+                                    sys.stderr.flush()
                                     idle_count = 0
                         except Exception:
                             pass
@@ -581,8 +579,8 @@ def main():
                                 if target_tid and (target_tid in bg_tid or bg_tid in target_tid or target_tid.split("/")[-1] == bg_tid.split("/")[-1]):
                                     active_background_tasks.discard(bg_tid)
                                     tid_c = bg_tid.split("/")[-1]
-                                    sys.stdout.write(f"\n⏹️ [后台任务 {tid_c} 已由 Agent 主动终止]\n\n")
-                                    sys.stdout.flush()
+                                    sys.stderr.write(f"\n⏹️ [后台任务 {tid_c} 已由 Agent 主动终止]\n\n")
+                                    sys.stderr.flush()
                                     idle_count = 0
 
                         if tc_name == "ask_question":
@@ -634,8 +632,8 @@ def main():
                             # 只要后台任务仍在运行（is_waiting_transition），模型输出的所有过渡提示均保持流式展示，坚决不提前退出
                             is_waiting_transition = True
                             tid_names = ", ".join(t.split("/")[-1] for t in active_background_tasks)
-                            sys.stdout.write(f"\n⏳ [后台任务 {tid_names} 持续执行中，持续追踪进度...]\n\n")
-                            sys.stdout.flush()
+                            sys.stderr.write(f"\n⏳ [后台任务 {tid_names} 持续执行中，持续追踪进度...]\n\n")
+                            sys.stderr.flush()
                             idle_count = 0
 
     if not completed:

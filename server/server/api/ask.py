@@ -2282,6 +2282,32 @@ async def sse_keepalive_generator(
                 pass
 
 
+def _clean_agent_summary(text: str) -> str:
+    """Strip transient heartbeat and background task status tags from assistant stdout."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    substantive_start = -1
+    for i, line in enumerate(lines):
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        is_transient = (
+            trimmed.startswith(("⏳", "⏹", "✅", "❌", "🈳", "⚡"))
+            and "[" in trimmed
+            and "]" in trimmed
+        ) or trimmed.startswith("[STATUS_STILL_RUNNING:")
+        if not is_transient:
+            substantive_start = i
+            break
+
+    if substantive_start != -1:
+        cleaned = "\n".join(lines[substantive_start:]).strip()
+        cleaned_lines = [l for l in cleaned.splitlines() if not l.strip().startswith("[STATUS_STILL_RUNNING:")]
+        return "\n".join(cleaned_lines).strip()
+    return text.strip()
+
+
 async def _direct_agent_stream(
     db: AsyncSession,
     user: User,
@@ -2589,19 +2615,19 @@ async def _direct_agent_stream(
                 summary_text = f"❌ {err_msg}"
             elif status == "timeout" or exit_code == 124:
                 if stdout:
-                    summary_text = f"{stdout}\n\n> ⚠️ *[任务执行耗时较长触发安全保护中断，已记录上述排查过程。请发送“继续”以获取完整结论]*"
+                    summary_text = f"{_clean_agent_summary(stdout)}\n\n> ⚠️ *[任务执行耗时较长触发安全保护中断，已记录上述排查过程。请发送“继续”以获取完整结论]*"
                 else:
                     summary_text = f"⚠️ 任务执行超时（{err_msg[:100]}）。您可以发送“继续”继续获取结果。"
             elif status == "still_running":
                 if stdout:
-                    summary_text = f"{stdout}\n\n> ⏳ *[原始工具后台任务仍在持续执行中，请稍候]*"
+                    summary_text = f"{_clean_agent_summary(stdout)}\n\n> ⏳ *[原始工具后台任务仍在持续执行中，请稍候]*"
                 else:
                     summary_text = "⏳ 任务已转入后台持续执行中。"
             elif action == "agent" and stdout:
                 if is_only_tool_calls:
                     summary_text = f"{stdout}\n\n> 💡 *[阶段工具排查已完成，正在生成结论。如未显示完整回复，请发送“继续”]*"
                 else:
-                    summary_text = stdout
+                    summary_text = _clean_agent_summary(stdout)
             elif status == "succeeded" or exit_code == 0:
                 summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
             else:

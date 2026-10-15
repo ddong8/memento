@@ -10,7 +10,7 @@ import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
 import { showInAppToast } from "@/lib/native-notify";
-import MarkdownViewer from "@/components/viewers/MarkdownViewer";
+import MarkdownViewer, { stripTransientStatusPrefix } from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
@@ -217,7 +217,7 @@ function parseTurnContent(turn: Turn): { thinking: string; content: string } {
       content = content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
     }
   }
-  content = content.replace(/^(?:✅\s*)?\[后台任务\s+[^\]]+执行完毕，已接收运行结果\]\s*\n*/g, "");
+  content = stripTransientStatusPrefix(content);
   return { thinking, content };
 }
 

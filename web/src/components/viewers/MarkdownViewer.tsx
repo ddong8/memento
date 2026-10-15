@@ -115,7 +115,7 @@ function StatusStepItem({ icon, text }: { icon: string; text: string }) {
   } else if (icon === "✅") {
     badgeStyle = "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
     iconStyle = "text-emerald-500 dark:text-emerald-400";
-  } else if (icon === "⏹️") {
+  } else if (icon.startsWith("⏹") || icon === "🈳") {
     badgeStyle = "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300";
     iconStyle = "text-slate-400";
   } else if (icon === "❌") {
@@ -146,6 +146,42 @@ function extractPlainText(children: any): string {
   return "";
 }
 
+/**
+ * 彻底过滤并剥离回复正文首尾夹带的瞬态执行进度与保活心跳提示（如后台任务启动/终止、模型思考用时等），
+ * 当且仅当剥离后存在真正的回答正文时，予以干净纯化；若纯粹为等待中的单条心跳则予以保留。
+ */
+export function stripTransientStatusPrefix(text: string): string {
+  if (!text) return "";
+  let content = text;
+
+  if (content.includes("<think>")) {
+    content = content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "").trim();
+  }
+
+  const leadingStatusRegex =
+    /^(?:(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[(?:后台任务|模型思考|等待用户|工具|任务在后台)[^\]]*\]|\[(?:STATUS_STILL_RUNNING|Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\])\s*/u;
+
+  let cleaned = content.trim();
+  while (true) {
+    const m = cleaned.match(leadingStatusRegex);
+    if (m) {
+      cleaned = cleaned.slice(m[0].length).trimStart();
+    } else {
+      break;
+    }
+  }
+
+  if (cleaned.length > 0) {
+    // 同时也剥离尾部因保护中断可能追加的纯心跳/STATUS_STILL_RUNNING
+    cleaned = cleaned.replace(
+      /\s*(?:\[STATUS_STILL_RUNNING:[^\]]*\]|(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[(?:后台任务|模型思考|等待用户|任务在后台)[^\]]*\])\s*$/u,
+      ""
+    );
+    return cleaned.trim();
+  }
+  return content.trim();
+}
+
 export function normalizeMarkdownContent(content: string): string {
   if (!content) return "";
   // 保护主线程：若单篇文本超过 80,000 字符（~2000行），跳过昂贵的多次正则全量扫描，防止正则回溯锁死 JS 主线程
@@ -153,8 +189,11 @@ export function normalizeMarkdownContent(content: string): string {
     return content;
   }
 
+  // 先过滤首部堆积的瞬态心跳或执行日志
+  const sanitized = stripTransientStatusPrefix(content);
+
   // 分离代码块与普通文本，避免误伤代码块内部的格式
-  const parts = content.split(/(```[\s\S]*?```)/g);
+  const parts = sanitized.split(/(```[\s\S]*?```)/g);
 
   return parts
     .map((part, i) => {
@@ -163,8 +202,8 @@ export function normalizeMarkdownContent(content: string): string {
 
       let text = part;
 
-      // 1. 规范化 Unicode 圆点列表符 (• 或 · 或 ⁃ 或 ‣) 为标准 Markdown 列表符 (- )
-      text = text.replace(/(^|\n)[ \t]*[•·⁃‣][ \t]+/g, "$1- ");
+      // 1. 规范化 Unicode 圆点列表符 (• 或 · 或 ⁃ 或 ‣) 为标准 Markdown 列表符 (- )，保留已有行首缩进深度
+      text = text.replace(/(^|\n)([ \t]*)[•·⁃‣][ \t]+/g, "$1$2- ");
 
       // 2. 规范化以 1) 2) 3) 等编号开头的独立单行标题为 ### 标题
       // 匹配以数字加括号开头，长度在 2~40 字之间，且不以标点结尾的独立单行
@@ -176,18 +215,18 @@ export function normalizeMarkdownContent(content: string): string {
         }
       );
 
-      // 3. 剥离执行步骤行前误加的 blockquote 引用符 "> "
-      text = text.replace(/(^|\n)[ \t]*>[ \t]*(?=(?:⚡|⏳|✅|⏹️|❌)\s*\[)/g, "$1");
+      // 3. 剥离执行步骤行前误加的 blockquote 引用符 "> "，保留已有缩进
+      text = text.replace(/(^|\n)([ \t]*)>[ \t]*(?=(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[)/gu, "$1$2");
 
       // 4. 将被连在同一行或紧邻的执行步骤/思考进度标记切分为独立段落（强制独立换行）
       // 例如 "⚡ [Action] ⏳ [Thinking...]" -> 强制拆成独立段落，彻底消除横向粘连
       text = text.replace(
-        /((?:⚡|⏳|✅|⏹️|❌)\s*\[[^\]]+\]|\[(?:Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\])/g,
+        /((?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[[^\]]+\]|\[(?:Checking|Verifying|Deploying|Building|Starting|Testing)[^\]]*\])/gu,
         "\n\n$1\n\n"
       );
 
-      // 5. 规范化连续换行
-      text = text.replace(/\n{3,}/g, "\n\n");
+      // 5. 消除连续换行中的残留多余空格，并规范化为双换行段落分隔
+      text = text.replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{3,}/g, "\n\n");
 
       // 6. 执行进度与保活心跳去重：消除连续刷屏的重复心跳（如重复的 "⏳ [后台任务 ... 执行中]"）
       const lines = text.split("\n");
@@ -197,7 +236,7 @@ export function normalizeMarkdownContent(content: string): string {
       for (const line of lines) {
         const trimmed = line.trim();
         // 匹配类似: ⏳ [后台任务 task-30627 执行中，请稍候...] 或 ⏳ [模型思考推理中（已用时 25s），请稍候...]
-        const hbMatch = trimmed.match(/^⏳\s*\[(?:后台任务\s+(\S+)\s+执行中|模型思考推理中)/);
+        const hbMatch = trimmed.match(/^⏳\s*\[(?:后台任务\s+(\S+)\s+(?:执行中|持续执行|启动)|模型思考推理中)/u);
         if (hbMatch) {
           const taskKey = hbMatch[1] || "thinking";
           if (taskKey === lastHeartbeatTask) {
@@ -443,7 +482,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
             }
             return (
               <code
-                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-words [overflow-wrap:anywhere]"
+                className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-words [overflow-wrap:anywhere] [box-decoration-break:clone] [-webkit-box-decoration-break:clone]"
                 {...props}
               >
                 {children}
@@ -482,7 +521,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
           ),
           p: ({ node, children, ...props }: any) => {
             const textContent = extractPlainText(children).trim();
-            const statusMatch = textContent.match(/^(⚡|⏳|✅|⏹️|❌)\s*(?:\[([^\]]+)\]|(.*))$/);
+            const statusMatch = textContent.match(/^(⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*(?:\[([^\]]+)\]|(.*))$/u);
             if (statusMatch && (statusMatch[2] || statusMatch[3])) {
               const icon = statusMatch[1];
               const text = (statusMatch[2] || statusMatch[3]).trim();
@@ -508,7 +547,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
             </ol>
           ),
           li: ({ node, children, ...props }: any) => (
-            <li className={compactText ? "text-[12px] leading-normal" : "text-[13.5px] leading-normal"} {...props}>
+            <li className={compactText ? "text-[12px] leading-relaxed break-words" : "text-[13.5px] leading-relaxed break-words"} {...props}>
               {children}
             </li>
           ),

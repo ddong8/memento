@@ -366,33 +366,37 @@ export async function discoverObsidian(env = defaultEnv()): Promise<DiscoveredTo
 }
 
 export async function discoverWorkbuddy(env = defaultEnv()): Promise<DiscoveredTool | null> {
-  const root = join(env.home, ".workbuddy");
-  if (!existsSync(root)) return null;
+  const roots = [join(env.home, ".codebuddy"), join(env.home, ".workbuddy")].filter((r) => existsSync(r));
+  if (roots.length === 0) return null;
+  const primaryRoot = roots[0]!;
   const projects: DiscoveredProject[] = [];
   const seen = new Set<string>();
-  const projectsDir = join(root, "projects");
-  let dirs: string[] = [];
-  try {
-    dirs = (await readdir(projectsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
-  } catch {
-    // no projects yet
-  }
-  for (const dirName of dirs) {
-    let name = "";
-    let realPath = (await firstCwd(join(projectsDir, dirName))) ?? "";
-    if (realPath) name = prettify(basename(realPath));
-    if (!name || !realPath) [name, realPath] = decodeClaudeDir(dirName);
-    let clean = cleanPath(realPath, env.platform);
-    if (/[/\\]WorkBuddy[/\\]\d{4}[-_]?\d{2}/i.test(clean)) {
-      clean = dirname(clean);
-      name = "WorkBuddy";
+
+  for (const root of roots) {
+    const projectsDir = join(root, "projects");
+    let dirs: string[] = [];
+    try {
+      dirs = (await readdir(projectsDir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      // no projects yet
     }
-    if (clean && isVolumeMounted(clean, env.platform) && !seen.has(clean)) {
-      seen.add(clean);
-      if (!isInvalidProjectName(name)) projects.push({ name, path: clean, metadata: { hash: dirName } });
+    for (const dirName of dirs) {
+      let name = "";
+      let realPath = (await firstCwd(join(projectsDir, dirName))) ?? "";
+      if (realPath) name = prettify(basename(realPath));
+      if (!name || !realPath) [name, realPath] = decodeClaudeDir(dirName);
+      let clean = cleanPath(realPath, env.platform);
+      if (/[/\\]WorkBuddy[/\\]\d{4}[-_]?\d{2}/i.test(clean)) {
+        clean = dirname(clean);
+        name = "WorkBuddy";
+      }
+      if (clean && isVolumeMounted(clean, env.platform) && !seen.has(clean)) {
+        seen.add(clean);
+        if (!isInvalidProjectName(name)) projects.push({ name, path: clean, metadata: { hash: dirName } });
+      }
     }
   }
-  return { id: "workbuddy", name: "WorkBuddy", root, projects };
+  return { id: "workbuddy", name: "WorkBuddy", root: primaryRoot, projects };
 }
 
 /** Every supported tool installed on this machine, by id. */

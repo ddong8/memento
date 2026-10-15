@@ -31,9 +31,14 @@ export function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: s
       case "antigravity":
         add(join(tool.root, "brain"), "antigravity");
         break;
-      case "workbuddy":
+      case "workbuddy": {
         add(join(tool.root, "projects"), "workbuddy");
+        const altRoot = tool.root.includes(".codebuddy")
+          ? tool.root.replace(/\.codebuddy$/, ".workbuddy")
+          : tool.root.replace(/\.workbuddy$/, ".codebuddy");
+        add(join(altRoot, "projects"), "workbuddy");
         break;
+      }
       case "cursor":
         add(join(tool.root, "projects"), "cursor");
         break;

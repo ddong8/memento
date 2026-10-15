@@ -133,7 +133,7 @@ export async function discoverWorkbuddyGateway(home = homeDir()): Promise<Workbu
 
 /** Checks whether WorkBuddy desktop app or `~/.workbuddy` is present on this machine. */
 export function isWorkbuddyInstalled(home = homeDir()): boolean {
-  if (existsSync(join(home, ".workbuddy"))) return true;
+  if (existsSync(join(home, ".workbuddy")) || existsSync(join(home, ".codebuddy"))) return true;
   if (
     process.platform === "darwin" &&
     (existsSync("/Applications/WorkBuddy.app") || existsSync(join(home, "Applications", "WorkBuddy.app")))

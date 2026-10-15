@@ -202,13 +202,83 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
   }
 }
 
+async function refreshClaudeOAuthToken(oauth: Record<string, any>, fullCreds: Record<string, any>): Promise<string | undefined> {
+  const refreshToken = oauth.refreshToken;
+  if (!refreshToken) return undefined;
+  const postData = JSON.stringify({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: oauth.clientId || "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    scope: Array.isArray(oauth.scopes) ? oauth.scopes.join(" ") : (oauth.scopes || ""),
+  });
+
+  return new Promise((resolve) => {
+    const req = https.request(
+      "https://platform.claude.com/v1/oauth/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        let buf = "";
+        res.on("data", (c) => (buf += c));
+        res.on("end", async () => {
+          try {
+            if (res.statusCode === 200) {
+              const data = JSON.parse(buf);
+              if (data.access_token) {
+                if (process.platform === "darwin" && fullCreds) {
+                  try {
+                    fullCreds.claudeAiOauth = {
+                      ...oauth,
+                      accessToken: data.access_token,
+                      refreshToken: data.refresh_token || oauth.refreshToken,
+                      expiresAt: Date.now() + (data.expires_in || 28800) * 1000,
+                    };
+                    await run(
+                      "security",
+                      ["add-generic-password", "-U", "-s", "Claude Code-credentials", "-w", JSON.stringify(fullCreds)],
+                      2000,
+                    );
+                  } catch {}
+                }
+                resolve(data.access_token);
+                return;
+              }
+            }
+          } catch {}
+          resolve(undefined);
+        });
+      },
+    );
+    req.on("error", () => resolve(undefined));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(undefined);
+    });
+    req.write(postData);
+    req.end();
+  });
+}
+
 async function getClaudeOAuthToken(): Promise<string | undefined> {
   if (process.platform === "darwin") {
     const res = await run("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], 2000);
     if (res.code === 0 && res.stdout.trim()) {
       try {
         const creds = JSON.parse(res.stdout.trim());
-        return creds.claudeAiOauth?.accessToken;
+        const oauth = creds.claudeAiOauth;
+        if (!oauth) return undefined;
+        const expiresAt = oauth.expiresAt || oauth.accessTokenExpiresAt;
+        if (expiresAt && typeof expiresAt === "number" && expiresAt < Date.now() && oauth.refreshToken) {
+          const refreshed = await refreshClaudeOAuthToken(oauth, creds);
+          if (refreshed) return refreshed;
+        }
+        return oauth.accessToken;
       } catch {}
     }
   }
@@ -224,6 +294,8 @@ function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | u
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "oauth-2025-04-20",
           "anthropic-client": "claude-code/2.1.283",
         },
         timeout: 4000,
@@ -257,6 +329,14 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
     if (existsSync(cJsonPath)) {
       try {
         d = JSON.parse(await readFile(cJsonPath, "utf8"));
+      } catch {}
+    }
+
+    const sJsonPath = join(home, ".claude", "settings.json");
+    let sJson: Record<string, any> = {};
+    if (existsSync(sJsonPath)) {
+      try {
+        sJson = JSON.parse(await readFile(sJsonPath, "utf8"));
       } catch {}
     }
 
@@ -326,14 +406,19 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
       resetTime = weeklyLimit?.resets_at || ut.seven_day?.resets_at || sessionLimit?.resets_at || ut.five_hour?.resets_at || null;
     }
 
-    const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
+    const sEnv = sJson.env || {};
+    const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY || sEnv.ANTHROPIC_API_KEY || sEnv.ANTHROPIC_AUTH_TOKEN);
     const planName = hasApiKey
-      ? "Claude (API Key 模式)"
-      : oauth.organizationType === "claude_pro"
-        ? "Claude Pro"
-        : oauth.organizationType
-          ? `Claude ${oauth.organizationType}`
-          : "Claude 订阅";
+      ? (sEnv.ANTHROPIC_BASE_URL ? "Claude (网关/API 模式)" : "Claude (API Key 模式)")
+      : oauth.billingType === "apple_subscription"
+        ? "Claude Pro (Apple 订阅)"
+        : oauth.billingType === "stripe_subscription"
+          ? "Claude Pro (Stripe 订阅)"
+          : oauth.organizationType === "claude_pro"
+            ? "Claude Pro"
+            : oauth.organizationType
+              ? `Claude ${oauth.organizationType}`
+              : "Claude 订阅";
     const tier = hasApiKey ? "API_KEY" : (oauth.organizationRateLimitTier || "PRO").toUpperCase();
     const remainingFraction = remainingPercent != null ? remainingPercent / 100 : null;
 
@@ -346,8 +431,48 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
 
     const models: QuotaModelItem[] = [
       {
-        label: "Claude 3.7 Sonnet (Hybrid Reasoning)",
-        model_id: "claude-3-7-sonnet",
+        label: "Claude Opus 5.5 (Frontier & Deep Thinking)",
+        model_id: "claude-opus-5-5",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Sonnet 5.5 (High-Speed Thinking)",
+        model_id: "claude-sonnet-5-5",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Fable 5.1 (Long-horizon Agentic)",
+        model_id: "claude-fable-5-1",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Opus 5 (Thinking)",
+        model_id: "claude-opus-5",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Sonnet 5 (Thinking)",
+        model_id: "claude-sonnet-5",
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      },
+      {
+        label: "Claude Opus 4.6 (Thinking)",
+        model_id: "claude-opus-4-6",
         remaining_fraction: remainingFraction,
         remaining_percent: remainingPercent,
         status_text: modelStatusText,
@@ -362,8 +487,8 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
         reset_time: resetTime || undefined,
       },
       {
-        label: "Claude Opus 4.6 (Thinking)",
-        model_id: "claude-opus-4-6",
+        label: "Claude 3.7 Sonnet (Hybrid Reasoning)",
+        model_id: "claude-3-7-sonnet",
         remaining_fraction: remainingFraction,
         remaining_percent: remainingPercent,
         status_text: modelStatusText,
@@ -379,9 +504,20 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
       },
     ];
 
+    if (sJson.model && !models.some((m) => m.model_id === sJson.model)) {
+      models.unshift({
+        label: `${sJson.model} (本地默认配置)`,
+        model_id: sJson.model,
+        remaining_fraction: remainingFraction,
+        remaining_percent: remainingPercent,
+        status_text: modelStatusText,
+        reset_time: resetTime || undefined,
+      });
+    }
+
     if (Array.isArray(d.additionalModelOptionsCache)) {
       for (const opt of d.additionalModelOptionsCache) {
-        if (opt?.label && opt?.value) {
+        if (opt?.label && opt?.value && !models.some((m) => m.model_id === opt.value)) {
           models.push({
             label: opt.label.includes("Fable") ? "Claude Fable 5.1 (Long-horizon)" : opt.label,
             model_id: opt.value,
@@ -412,7 +548,7 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
               : "Anthropic 滑动窗口 (根据使用频次与官方队列动态重置)"),
         probe_source: liveUsage
           ? "Anthropic OAuth 实时用量 API"
-          : (hasApiKey ? "环境变量 ANTHROPIC_API_KEY" : "~/.claude.json 本地授权凭据"),
+          : (hasApiKey ? (sEnv.ANTHROPIC_BASE_URL ? `反向网关 (${sEnv.ANTHROPIC_BASE_URL})` : "环境变量 ANTHROPIC_API_KEY") : "~/.claude.json 本地授权凭据"),
         remaining_percent: remainingPercent,
         reset_time: resetTime,
         models,
@@ -425,6 +561,7 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
           is_live_api: Boolean(liveUsage),
           shared_quota: true,
           has_api_key_override: hasApiKey,
+          custom_gateway: sEnv.ANTHROPIC_BASE_URL || null,
         },
       };
     }

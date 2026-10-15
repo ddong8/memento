@@ -32,6 +32,7 @@ export class WsTaskClient {
   private pingTimer: NodeJS.Timeout | undefined;
   private p2p: P2pMediaServer | undefined;
   private wakeUp: (() => void) | undefined;
+  private readonly pendingOutbox: Record<string, unknown>[] = [];
   readonly runner: TaskRunner;
 
   constructor(
@@ -141,6 +142,7 @@ export class WsTaskClient {
         case "connected":
           this.onConnection(true);
           this.log(`Handshake verified by server (${String(data.device_name ?? "")})`);
+          this.flushPendingOutbox();
           void this.reportP2pInfo();
           void this.reportQuotas();
           break;
@@ -186,11 +188,44 @@ export class WsTaskClient {
 
   sendJson(message: Record<string, unknown>): void {
     const ws = this.ws;
+    if (ws?.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(JSON.stringify(message));
+        return;
+      } catch (e) {
+        this.log(`Failed to send frame: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    // Queue critical task messages if socket is not open (e.g. during network or VPN switch)
+    const type = String(message.type ?? "");
+    if (type && type !== "ping" && type !== "pong") {
+      this.pendingOutbox.push(message);
+      if (this.pendingOutbox.length > 500) {
+        // Keep queue bounded; never drop task_finished
+        const dropIdx = this.pendingOutbox.findIndex((m) => m.type !== "task_finished");
+        if (dropIdx !== -1) {
+          this.pendingOutbox.splice(dropIdx, 1);
+        } else {
+          this.pendingOutbox.shift();
+        }
+      }
+    }
+  }
+
+  private flushPendingOutbox(): void {
+    if (this.pendingOutbox.length === 0) return;
+    const ws = this.ws;
     if (ws?.readyState !== WebSocket.OPEN) return;
-    try {
-      ws.send(JSON.stringify(message));
-    } catch (e) {
-      this.log(`Failed to send frame: ${e instanceof Error ? e.message : e}`);
+    this.log(`Flushing ${this.pendingOutbox.length} queued messages after reconnect...`);
+    while (this.pendingOutbox.length > 0) {
+      const msg = this.pendingOutbox[0];
+      try {
+        ws.send(JSON.stringify(msg));
+        this.pendingOutbox.shift();
+      } catch (e) {
+        this.log(`Failed flushing queued message: ${e instanceof Error ? e.message : e}`);
+        break;
+      }
     }
   }
 

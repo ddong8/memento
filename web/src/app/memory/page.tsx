@@ -8,11 +8,15 @@ import { getApiBase, authFetch, api, type ProfileState } from "@/lib/api-client"
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput, Chip } from "@/components/aurora/primitives";
-import { ShareModal } from "@/components/ShareModal";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import DreamingPanel from "@/components/memory/DreamingPanel";
 import CognitiveCompass from "@/components/memory/CognitiveCompass";
 import type { GalaxyNode, GalaxyEdge } from "@/components/memory/MemoryGalaxy3D";
+
+const ShareModal = dynamic(
+  () => import("@/components/ShareModal").then((m) => m.ShareModal),
+  { ssr: false }
+);
 
 const MemoryGalaxy3D = dynamic(
   () => import("@/components/memory/MemoryGalaxy3D"),

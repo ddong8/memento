@@ -196,6 +196,7 @@ async def list_device_tool_files(
             defer(Document.content),
             defer(Document.content_tsv),
             defer(Document.metadata_),
+            defer(Document.rendered_html),
         )
         .where(Document.machine_id == m.id, Document.tool_id == tool_id)
     )

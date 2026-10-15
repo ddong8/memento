@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { api, ConversationMeta, ExportDiagnostics } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import ConversationViewer from "@/components/viewers/ConversationViewer";
 import { ToolGlyph } from "@/components/aurora/Icon";
 import { Chip, Btn } from "@/components/aurora/primitives";
-import { ShareModal } from "@/components/ShareModal";
+
+const ShareModal = dynamic(
+  () => import("@/components/ShareModal").then((m) => m.ShareModal),
+  { ssr: false }
+);
 
 interface RelatedPlan {
   id: string;

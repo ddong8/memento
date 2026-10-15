@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import or_, select, func
+from sqlalchemy.orm import defer
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -130,7 +131,10 @@ async def hybrid_rank(
         conds.append(Document.content_tsv.op("@@")(ts))
         rank = func.ts_rank(Document.content_tsv, ts, 1)
 
-    kw_q = select(Document).where(or_(*conds))
+    kw_q = select(Document).options(
+        defer(Document.content_tsv),
+        defer(Document.rendered_html),
+    ).where(or_(*conds))
     if tool:
         kw_q = kw_q.where(Document.tool_id == tool)
     if days:
@@ -158,7 +162,10 @@ async def hybrid_rank(
     docs = list(kw_docs)
     missing = [doc_id for doc_id in sem_order if doc_id not in kw_rank]
     if missing:
-        extra_q = select(Document).where(Document.id.in_(missing))
+        extra_q = select(Document).options(
+            defer(Document.content_tsv),
+            defer(Document.rendered_html),
+        ).where(Document.id.in_(missing))
         extra_q = apply_user_filter(extra_q, mids, Document.machine_id)
         docs += list((await db.execute(extra_q)).scalars().all())
 
@@ -792,7 +799,13 @@ async def _get_or_create_conversation(
             try:
                 doc_cid = uuid.UUID(conv_id_str)
                 doc_item = (await session.execute(
-                    select(Document).where(Document.id == doc_cid)
+                    select(Document)
+                    .options(
+                        defer(Document.content),
+                        defer(Document.content_tsv),
+                        defer(Document.rendered_html),
+                    )
+                    .where(Document.id == doc_cid)
                 )).scalars().first()
                 if doc_item:
                     meta = doc_item.metadata_ or {}
@@ -928,7 +941,13 @@ async def _get_or_create_conversation(
             try:
                 from ..db.models import ConversationMessage
                 doc_target = (await session.execute(
-                    select(Document).where(
+                    select(Document)
+                    .options(
+                        defer(Document.content),
+                        defer(Document.content_tsv),
+                        defer(Document.rendered_html),
+                    )
+                    .where(
                         (Document.metadata_.op("->>")("session_id") == session_id)
                         | (Document.metadata_.op("->>")("cascade_id") == session_id)
                     ).limit(1)

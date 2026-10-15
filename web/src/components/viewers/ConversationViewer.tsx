@@ -1,13 +1,18 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { api, ConversationMessage } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
 import MarkdownViewer from "./MarkdownViewer";
 import { Icon } from "@/components/aurora/Icon";
 import { MediaInspectorProvider, useMediaInspector } from "./MediaInspectorContext";
-import { MediaInspectorPanel } from "./MediaInspectorPanel";
+
+const MediaInspectorPanel = dynamic(
+  () => import("./MediaInspectorPanel").then((m) => m.MediaInspectorPanel),
+  { ssr: false }
+);
 
 interface Artifact {
   id: string;

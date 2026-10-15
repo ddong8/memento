@@ -26,7 +26,10 @@ async def _get_doc_with_permission(
     mids: list | None = None,
     include_content: bool = True,
 ) -> Document:
-    query = select(Document).where(Document.id == doc_id).options(defer(Document.content_tsv))
+    query = select(Document).where(Document.id == doc_id).options(
+        defer(Document.content_tsv),
+        defer(Document.rendered_html),
+    )
     if not include_content:
         query = query.options(defer(Document.content), defer(Document.metadata_))
     result = await db.execute(query)

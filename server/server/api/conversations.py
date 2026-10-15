@@ -29,7 +29,9 @@ async def get_conversation(
     mids = await user_machine_ids(db, _user)
 
     result = await db.execute(
-        select(Document).options(defer(Document.content_tsv)).where(Document.id == doc_id)
+        select(Document)
+        .options(defer(Document.content_tsv), defer(Document.rendered_html))
+        .where(Document.id == doc_id)
     )
     doc = result.scalar_one_or_none()
     if not doc:
@@ -54,7 +56,12 @@ async def get_conversation(
     if session_id and doc.tool_id == "antigravity":
         plans_q = (
             select(Document)
-            .options(defer(Document.content_tsv), defer(Document.metadata_))
+            .options(
+                defer(Document.content),
+                defer(Document.content_tsv),
+                defer(Document.metadata_),
+                defer(Document.rendered_html),
+            )
             .where(
                 Document.tool_id == "antigravity",
                 Document.category == "plan",
@@ -107,7 +114,11 @@ async def get_conversation_messages(
 
     result = await db.execute(
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .options(
+            defer(Document.content_tsv),
+            defer(Document.metadata_),
+            defer(Document.rendered_html),
+        )
         .where(Document.id == doc_id)
     )
     doc = result.scalar_one_or_none()
@@ -197,6 +208,7 @@ async def update_conversation(
             defer(Document.content),
             defer(Document.content_tsv),
             defer(Document.metadata_),
+            defer(Document.rendered_html),
         )
         .where(Document.id == doc_id)
     )

@@ -164,6 +164,7 @@ async def list_tool_files(
             defer(Document.content),
             defer(Document.content_tsv),
             defer(Document.metadata_),
+            defer(Document.rendered_html),
         )
         .where(Document.tool_id == tool_id)
     )

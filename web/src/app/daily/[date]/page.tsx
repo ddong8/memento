@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, ConversationMessage } from "@/lib/api-client";
@@ -9,7 +10,11 @@ import { ChatBubble } from "@/components/viewers/ConversationViewer";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { ToolGlyph } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
-import { ShareModal } from "@/components/ShareModal";
+
+const ShareModal = dynamic(
+  () => import("@/components/ShareModal").then((m) => m.ShareModal),
+  { ssr: false }
+);
 
 type I18nT = ReturnType<typeof useI18n>["t"];
 

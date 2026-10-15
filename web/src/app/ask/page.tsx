@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
@@ -11,11 +12,21 @@ import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primit
 import { showInAppToast } from "@/lib/native-notify";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
-import { MediaInspectorPanel } from "@/components/viewers/MediaInspectorPanel";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
-import { AgentQuotaPopover } from "@/components/quota/AgentQuotaPopover";
-import { ShareModal } from "@/components/ShareModal";
+
+const MediaInspectorPanel = dynamic(
+  () => import("@/components/viewers/MediaInspectorPanel").then((m) => m.MediaInspectorPanel),
+  { ssr: false }
+);
+const AgentQuotaPopover = dynamic(
+  () => import("@/components/quota/AgentQuotaPopover").then((m) => m.AgentQuotaPopover),
+  { ssr: false }
+);
+const ShareModal = dynamic(
+  () => import("@/components/ShareModal").then((m) => m.ShareModal),
+  { ssr: false }
+);
 
 export type ExecutionMode = "ai" | "claude" | "codex" | "antigravity" | "workbuddy" | "shell";
 

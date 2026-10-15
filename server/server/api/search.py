@@ -146,7 +146,11 @@ async def search(
 
     query = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_))
+        .options(
+            defer(Document.content_tsv),
+            defer(Document.metadata_),
+            defer(Document.rendered_html),
+        )
         .where(or_(*conds))
     )
 
@@ -198,7 +202,11 @@ async def search(
         if missing:
             extra_q = (
                 select(Document)
-                .options(defer(Document.content_tsv), defer(Document.metadata_))
+                .options(
+                    defer(Document.content_tsv),
+                    defer(Document.metadata_),
+                    defer(Document.rendered_html),
+                )
                 .where(Document.id.in_(missing))
             )
             extra_q = apply_user_filter(extra_q, mids, Document.machine_id)

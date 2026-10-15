@@ -916,14 +916,22 @@ async def _reconcile_project_documents(
         if frag_ids:
             adopt_cond = adopt_cond | Document.project_id.in_(frag_ids)
 
-        match_docs_q = select(Document).where(
-            Document.tool_id == tool_id,
-            Document.category == "conversation",
-            or_(
-                Document.project_id.is_(None),
-                Document.project_id.in_(frag_ids),
-            ) if frag_ids else Document.project_id.is_(None),
-            adopt_cond,
+        match_docs_q = (
+            select(Document)
+            .options(
+                defer(Document.content),
+                defer(Document.content_tsv),
+                defer(Document.rendered_html),
+            )
+            .where(
+                Document.tool_id == tool_id,
+                Document.category == "conversation",
+                or_(
+                    Document.project_id.is_(None),
+                    Document.project_id.in_(frag_ids),
+                ) if frag_ids else Document.project_id.is_(None),
+                adopt_cond,
+            )
         )
         if target_mid is not None:
             match_docs_q = match_docs_q.where(
@@ -947,10 +955,18 @@ async def _reconcile_project_documents(
                 if isinstance(d.metadata_, dict) and d.metadata_.get("session_id")
             ]
             if adopted_sids:
-                related_docs_q = select(Document).where(
-                    Document.tool_id == tool_id,
-                    Document.project_id.is_(None),
-                    Document.metadata_["session_id"].astext.in_(adopted_sids),
+                related_docs_q = (
+                    select(Document)
+                    .options(
+                        defer(Document.content),
+                        defer(Document.content_tsv),
+                        defer(Document.rendered_html),
+                    )
+                    .where(
+                        Document.tool_id == tool_id,
+                        Document.project_id.is_(None),
+                        Document.metadata_["session_id"].astext.in_(adopted_sids),
+                    )
                 )
                 related_docs = (await db.execute(related_docs_q)).scalars().all()
                 for rd in related_docs:
@@ -961,10 +977,18 @@ async def _reconcile_project_documents(
         # When subagents (e.g. projects/.../<session_id>/subagents/...) exist in this project
         # but the parent document (projects/.../<session_id>.jsonl) does not exist (e.g. because
         # the parent file was huge or failed upload), the session is orphaned and omitted.
-        subagent_q = select(Document).where(
-            Document.project_id == target_project.id,
-            Document.category == "conversation",
-            Document.relative_path.ilike("%/subagents/%"),
+        subagent_q = (
+            select(Document)
+            .options(
+                defer(Document.content),
+                defer(Document.content_tsv),
+                defer(Document.rendered_html),
+            )
+            .where(
+                Document.project_id == target_project.id,
+                Document.category == "conversation",
+                Document.relative_path.ilike("%/subagents/%"),
+            )
         )
         if target_mid is not None:
             subagent_q = subagent_q.where(Document.machine_id == target_mid)

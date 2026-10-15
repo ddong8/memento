@@ -938,16 +938,17 @@ async def _get_or_create_conversation(
                         doc_mach = await session.get(Machine, doc_target.machine_id)
                         if doc_mach:
                             device_id = doc_mach.collector_token_hash or doc_mach.name
-                    msgs = (await session.execute(
-                        select(ConversationMessage).where(ConversationMessage.document_id == doc_target.id)
+                    msg_rows = (await session.execute(
+                        select(ConversationMessage.role, ConversationMessage.content, ConversationMessage.timestamp)
+                        .where(ConversationMessage.document_id == doc_target.id)
                         .order_by(ConversationMessage.line_number.asc())
-                    )).scalars().all()
-                    for m in msgs:
+                    )).all()
+                    for role, content, ts in msg_rows:
                         init_turns.append({
-                            "role": m.role or "user",
-                            "content": m.content or "",
+                            "role": role or "user",
+                            "content": content or "",
                             "toolCalls": [],
-                            "created_at": m.timestamp.isoformat() if m.timestamp else datetime.now(timezone.utc).isoformat(),
+                            "created_at": ts.isoformat() if ts else datetime.now(timezone.utc).isoformat(),
                         })
             except Exception:
                 pass

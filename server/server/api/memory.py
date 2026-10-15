@@ -673,6 +673,15 @@ async def get_core_memories(
     ]
 
 
+async def _bust_user_memory_cache(user_id: uuid.UUID) -> None:
+    try:
+        from ..services.cache import cache_delete_prefix
+        await cache_delete_prefix(f"memory:tree:{user_id}:")
+        await cache_delete_prefix(f"memory:stats:{user_id}:")
+    except Exception:
+        pass
+
+
 @router.post("/core/{memory_id}/revive")
 async def revive_core_memory(
     memory_id: uuid.UUID,
@@ -688,6 +697,7 @@ async def revive_core_memory(
     mem.status, mem.status_reason, mem.superseded_by = "active", None, None
     mem.last_recalled_at = datetime.now(timezone.utc)
     await db.commit()
+    await _bust_user_memory_cache(_user.id)
     return {"status": "active", "id": str(mem.id)}
 
 
@@ -698,7 +708,14 @@ async def get_core_memory_tree(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Retrieve user's core memories organized as a true hierarchical directory tree based on tree_path."""
+    from ..services.cache import cache_get, cache_set
+
     real_category = category if isinstance(category, str) and category.strip() else None
+    cache_key = f"memory:tree:{_user.id}:{real_category or 'all'}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     stmt = (
         select(UserMemory)
         .where(UserMemory.user_id == _user.id)
@@ -801,10 +818,12 @@ async def get_core_memory_tree(
             else:
                 root_nodes[f"leaf:{m.id}"] = leaf_node
 
-    return {
+    payload = {
         "tree": list(root_nodes.values()),
         "total_count": len(memories),
     }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return payload
 
 
 @router.get("/core/markdown")
@@ -862,6 +881,7 @@ async def create_core_memory(
         existing.is_folder = body.is_folder
         existing.updated_at = datetime.now(timezone.utc)
         await db.commit()
+        await _bust_user_memory_cache(_user.id)
         return {"status": "updated", "id": str(existing.id)}
 
     new_mem = UserMemory(
@@ -878,6 +898,7 @@ async def create_core_memory(
     db.add(new_mem)
     await db.commit()
     await db.refresh(new_mem)
+    await _bust_user_memory_cache(_user.id)
     return {"status": "created", "id": str(new_mem.id)}
 
 
@@ -914,6 +935,7 @@ async def update_core_memory(
     mem.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
+    await _bust_user_memory_cache(_user.id)
     return {"status": "updated", "id": str(mem.id)}
 
 
@@ -932,6 +954,7 @@ async def delete_core_memory(
 
     await db.delete(mem)
     await db.commit()
+    await _bust_user_memory_cache(_user.id)
     return {"status": "deleted", "id": str(memory_id)}
 
 

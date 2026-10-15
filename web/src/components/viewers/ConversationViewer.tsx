@@ -111,13 +111,20 @@ function ConversationViewerContent({
 
       <div className="space-y-4 max-w-3xl mx-auto pb-8">
         {messages.map((msg, idx) => (
-          <ChatBubble
+          <div
             key={`${msg.id}-${idx}`}
-            msg={msg}
-            prevUserTimestamp={prevUserTimestamps[idx]}
-            locale={locale}
-            t={t}
-          />
+            style={{
+              contentVisibility: "auto",
+              containIntrinsicSize: msg.role === "user" ? "0 80px" : "0 160px",
+            }}
+          >
+            <ChatBubble
+              msg={msg}
+              prevUserTimestamp={prevUserTimestamps[idx]}
+              locale={locale}
+              t={t}
+            />
+          </div>
         ))}
 
         {artifacts && artifacts.length > 0 && !hasMore && (

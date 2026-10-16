@@ -933,6 +933,9 @@ export const api = {
         file_size_bytes?: number;
         estimated_tokens?: number;
         compact_recommended?: boolean;
+        /** The device the session ran on, as the device list names it */
+        device_id?: string | null;
+        device_name?: string | null;
         messages?: Array<{
           role: string;
           content: string;
@@ -1061,16 +1064,28 @@ export interface AgentCapabilities {
   effort_options: AgentEffortOption[];
 }
 
+/** A device a project lives on, with the project's folder there. */
+export interface ProjectDevice {
+  device_id: string;
+  name: string;
+  source_path: string;
+  document_count: number;
+  last_active: string | null;
+}
+
 export interface ProjectSummary {
   id: string;
   slug: string;
   title: string;
   tool_id: string;
+  /** The folder on the device asked for; without one, on the device it was most recently worked on */
   source_path: string;
   visibility: string;
   document_count: number;
   created_at: string;
   updated_at: string | null;
+  /** Where the project lives, most recently active first */
+  devices?: ProjectDevice[];
 }
 
 export interface AskConversationSummary {

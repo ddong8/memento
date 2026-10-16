@@ -4,7 +4,7 @@ import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } fro
 import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse, type ProjectDevice } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -1221,13 +1221,61 @@ async function prefetchConversationTurns(id: string) {
   }
 }
 
+function isConcreteDevice(deviceId?: string | null): deviceId is string {
+  return !!deviceId && !["auto", "ask_only", "all"].includes(deviceId);
+}
+
+function isDeviceOnline(d: DeviceSummary): boolean {
+  return d.online ?? (d.last_heartbeat ? Date.now() - new Date(d.last_heartbeat).getTime() < 180_000 : false);
+}
+
+/** A project folder as typed into the working-directory field. */
+function cleanProjectPath(raw?: string | null): string {
+  const s = (raw || "").trim();
+  if (!s) return "";
+  const match = s.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.\-]+(?:[/\\][a-zA-Z0-9_.\-]+)*)/);
+  if (match) return match[1].replace(/[/\\]+$/, "");
+  return s.split(/[\r\n",]/)[0].trim().replace(/[/\\]+$/, "");
+}
+
+function pathWithin(child: string, root: string): boolean {
+  const norm = (p: string) => p.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const c = norm(child);
+  const r = norm(root);
+  return !!r && (c === r || c.startsWith(`${r}/`));
+}
+
+/** The project's folder on a device: never another machine's folder. */
+function projectPathOn(proj: ProjectSummary | undefined, deviceId?: string): string {
+  if (!proj) return "";
+  if (proj.devices && proj.devices.length > 0) {
+    if (!isConcreteDevice(deviceId)) return cleanProjectPath(proj.devices[0].source_path || proj.source_path);
+    const here = proj.devices.find((d) => d.device_id === deviceId);
+    return here ? cleanProjectPath(here.source_path) : "";
+  }
+  return cleanProjectPath(proj.source_path);
+}
+
+/** In auto mode a project runs where it lives: the device it was most recently worked on, online ones first. */
+function homeDeviceOf(proj: ProjectSummary | undefined, devices: DeviceSummary[]): ProjectDevice | undefined {
+  const homes = proj?.devices || [];
+  const online = (id: string) => devices.some((d) => d.device_id === id && isDeviceOnline(d));
+  return homes.find((h) => online(h.device_id)) || homes[0];
+}
+
+// Project and session lists belong to one device: a list cached for another device
+// is never shown in its place (it was how a project got another machine's folder).
+function projectsCacheKey(toolId: string, deviceId?: string) {
+  return `${toolId}:${isConcreteDevice(deviceId) ? deviceId : "all"}`;
+}
+
 function getCachedProjects(toolId: string, deviceId?: string): ProjectSummary[] {
-  const cacheKey = `${toolId}:${deviceId || "default"}`;
+  const cacheKey = projectsCacheKey(toolId, deviceId);
   const mem = projectsMemoryCache.get(cacheKey);
   if (mem && mem.length > 0) return mem;
   if (typeof window !== "undefined") {
     try {
-      const raw = localStorage.getItem(`memento_cached_projs_${cacheKey}`) || localStorage.getItem(`memento_cached_projs_${toolId}`);
+      const raw = localStorage.getItem(`memento_cached_projs_v2_${cacheKey}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -1242,27 +1290,33 @@ function getCachedProjects(toolId: string, deviceId?: string): ProjectSummary[] 
 
 function saveCachedProjects(toolId: string, deviceId: string | undefined, list: ProjectSummary[]) {
   if (!Array.isArray(list) || list.length === 0) return;
-  const cacheKey = `${toolId}:${deviceId || "default"}`;
+  const cacheKey = projectsCacheKey(toolId, deviceId);
   projectsMemoryCache.set(cacheKey, list);
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem(`memento_cached_projs_${cacheKey}`, JSON.stringify(list.slice(0, 50)));
-      localStorage.setItem(`memento_cached_projs_${toolId}`, JSON.stringify(list.slice(0, 50)));
+      localStorage.setItem(`memento_cached_projs_v2_${cacheKey}`, JSON.stringify(list.slice(0, 50)));
     } catch {}
   }
 }
 
-function getCachedSessions(projectId: string): any[] {
+type ProjectSession = Awaited<ReturnType<typeof api.getProjectConversations>>["sessions"][number];
+
+function sessionsCacheKey(projectId: string, deviceId?: string) {
+  return `${projectId}|${isConcreteDevice(deviceId) ? deviceId : "all"}`;
+}
+
+function getCachedSessions(projectId: string, deviceId?: string): ProjectSession[] {
   if (!projectId) return [];
-  const mem = sessionsMemoryCache.get(projectId);
+  const cacheKey = sessionsCacheKey(projectId, deviceId);
+  const mem = sessionsMemoryCache.get(cacheKey);
   if (mem && mem.length > 0) return mem;
   if (typeof window !== "undefined") {
     try {
-      const raw = localStorage.getItem(`memento_cached_sess_${projectId}`);
+      const raw = localStorage.getItem(`memento_cached_sess_v2_${cacheKey}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          sessionsMemoryCache.set(projectId, parsed);
+          sessionsMemoryCache.set(cacheKey, parsed);
           return parsed;
         }
       }
@@ -1271,12 +1325,13 @@ function getCachedSessions(projectId: string): any[] {
   return [];
 }
 
-function saveCachedSessions(projectId: string, list: any[]) {
+function saveCachedSessions(projectId: string, deviceId: string | undefined, list: ProjectSession[]) {
   if (!projectId || !Array.isArray(list) || list.length === 0) return;
-  sessionsMemoryCache.set(projectId, list);
+  const cacheKey = sessionsCacheKey(projectId, deviceId);
+  sessionsMemoryCache.set(cacheKey, list);
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem(`memento_cached_sess_${projectId}`, JSON.stringify(list.slice(0, 30)));
+      localStorage.setItem(`memento_cached_sess_v2_${cacheKey}`, JSON.stringify(list.slice(0, 30)));
     } catch {}
   }
 }
@@ -1296,7 +1351,10 @@ function getCachedConversations(): AskConversationSummary[] {
 function getLocalCachedQuotas(deviceId?: string): AgentQuotasResponse | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(deviceId ? `${QUOTAS_CACHE_KEY}_${deviceId}` : QUOTAS_CACHE_KEY) || localStorage.getItem(QUOTAS_CACHE_KEY);
+    // Quotas are per device: a concrete device never shows another device's numbers
+    const raw = isConcreteDevice(deviceId)
+      ? localStorage.getItem(`${QUOTAS_CACHE_KEY}_${deviceId}`)
+      : localStorage.getItem(QUOTAS_CACHE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
   return null;
@@ -1309,7 +1367,8 @@ function getImmediateCapabilities(mode: ExecutionMode, deviceId?: string): Agent
   if (mem) return mem;
   if (typeof window !== "undefined") {
     try {
-      const raw = localStorage.getItem(`memento_caps_${cacheKey}`) || localStorage.getItem(`memento_caps_${mode}`);
+      // Models and defaults are per device: another device's list is never borrowed
+      const raw = localStorage.getItem(`memento_caps_${cacheKey}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.models) && parsed.models.length > 0) {
@@ -1340,7 +1399,6 @@ function saveCapabilitiesCache(mode: ExecutionMode, deviceId: string | undefined
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(`memento_caps_${cacheKey}`, JSON.stringify(caps));
-      localStorage.setItem(`memento_caps_${mode}`, JSON.stringify(caps));
     } catch {}
   }
 }
@@ -1416,6 +1474,8 @@ function AskPageContent() {
       file_size_bytes?: number;
       estimated_tokens?: number;
       compact_recommended?: boolean;
+      device_id?: string | null;
+      device_name?: string | null;
       messages?: Array<{
         role: string;
         content: string;
@@ -1561,6 +1621,19 @@ function AskPageContent() {
 
   const projectsRef = useRef<ProjectSummary[]>([]);
   projectsRef.current = projects;
+  const selectedDeviceRef = useRef<string>(selectedDevice);
+  selectedDeviceRef.current = selectedDevice;
+  const cwdRef = useRef<string>(cwd);
+  cwdRef.current = cwd;
+  const autoPinnedRef = useRef<string>("");
+  const executionModeRef = useRef<ExecutionMode>(executionMode);
+  executionModeRef.current = executionMode;
+  // loadProjectsForMode, for handleSelectProject (declared before it) to reload the list for a pinned device
+  const loadProjectsRef = useRef<((mode: ExecutionMode, targetDev?: string, preferredTitle?: string) => Promise<void>) | null>(null);
+  // Every list load takes a ticket; a reply to an older ticket (an earlier device, tool or project) is dropped
+  const projectsReqRef = useRef(0);
+  const sessionsReqRef = useRef(0);
+  const capsReqRef = useRef(0);
   const selectedProjectIdRef = useRef<string>("");
   selectedProjectIdRef.current = selectedProjectId;
   const selectedProjectTitleRef = useRef<string>("");
@@ -1651,6 +1724,8 @@ function AskPageContent() {
 
   useEffect(() => {
     let cancelled = false;
+    // Switching devices shows that device's last numbers (or none) until fresh ones arrive
+    setQuotasData(getLocalCachedQuotas(selectedDevice));
     const fetchQuotas = async (force = false) => {
       if (!force && typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (!force && typeof window !== "undefined" && !window.location.pathname.startsWith("/ask")) return;
@@ -1659,9 +1734,8 @@ function AskPageContent() {
         if (!cancelled && res) {
           setQuotasData(res);
           try {
-            const k = selectedDevice ? `${QUOTAS_CACHE_KEY}_${selectedDevice}` : QUOTAS_CACHE_KEY;
+            const k = isConcreteDevice(selectedDevice) ? `${QUOTAS_CACHE_KEY}_${selectedDevice}` : QUOTAS_CACHE_KEY;
             localStorage.setItem(k, JSON.stringify(res));
-            localStorage.setItem(QUOTAS_CACHE_KEY, JSON.stringify(res));
           } catch {}
         }
       } catch {
@@ -2232,29 +2306,6 @@ function AskPageContent() {
         if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
         if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
 
-        if (targetCwd && devices.length > 0) {
-          const lowerCwd = targetCwd.toLowerCase();
-          const curDevObj = devices.find((d) => d.device_id === targetDev);
-          const curDevName = (curDevObj?.name || "").toLowerCase();
-          let devMismatched = !targetDev || targetDev === "auto";
-          if (lowerCwd.includes("/users/donghaixing") && !curDevName.includes("macbook")) devMismatched = true;
-          else if (lowerCwd.includes("/users/haixingdong") && !(curDevName.includes("mac-mini") || curDevName.includes("mini"))) devMismatched = true;
-          else if ((lowerCwd.includes("c:") || lowerCwd.includes("d:")) && !curDevName.includes("windows") && !curDevName.includes("desktop-")) devMismatched = true;
-
-          if (devMismatched) {
-            if (lowerCwd.includes("/users/haixingdong")) {
-              const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
-              if (macMini) targetDev = macMini.device_id;
-            } else if (lowerCwd.includes("/users/donghaixing")) {
-              const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
-              if (macBook) targetDev = macBook.device_id;
-            } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
-              const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
-              if (win) targetDev = win.device_id;
-            }
-          }
-        }
-
         // Persist inferred configuration back to server DB if repaired
         if (targetMode !== prevMode || (targetDev && targetDev !== "auto" && targetDev !== prevDev)) {
           api.updateAskConversation(data.id, {
@@ -2324,31 +2375,20 @@ function AskPageContent() {
         const toolId = toolMap[targetMode];
         if (toolId) {
           try {
-            const devForQuery = devToUse !== "auto" && devToUse !== "ask_only" && devToUse !== "all" ? devToUse : undefined;
-            // 0ms instant hydration from cache
-            const cachedProjs = getCachedProjects(toolId, devForQuery);
-            if (cachedProjs.length > 0) {
-              setProjects(cachedProjs);
-            }
+            const devForQuery = isConcreteDevice(devToUse) ? devToUse : undefined;
+            const projTicket = ++projectsReqRef.current;
+            const sessTicket = ++sessionsReqRef.current;
+            // 0ms instant hydration from this device's cache
+            setProjects(getCachedProjects(toolId, devForQuery));
             if (targetProjId) {
-              const cachedSess = getCachedSessions(targetProjId);
+              const cachedSess = getCachedSessions(targetProjId, devForQuery);
               if (cachedSess.length > 0) {
                 setSessions(cachedSess);
                 setSelectedSessionId(targetSessionId);
               }
             }
             let projList = await api.listProjects(toolId, devForQuery);
-            if (!projList || projList.length === 0 || (targetProjId && !projList.some((p) => p.id === targetProjId))) {
-              const allProjs = await api.listProjects(toolId);
-              if (allProjs && allProjs.length > 0) {
-                const existingIds = new Set((projList || []).map((p) => p.id));
-                const merged = [...(projList || [])];
-                for (const p of allProjs) {
-                  if (!existingIds.has(p.id)) merged.push(p);
-                }
-                projList = merged;
-              }
-            }
+            if (projTicket !== projectsReqRef.current) return;
             if (targetProjId && (!projList || !projList.some((p) => p.id === targetProjId))) {
               try {
                 const single = await api.getProject(targetProjId);
@@ -2408,23 +2448,38 @@ function AskPageContent() {
                   convDetail: data,
                 });
               }
-              const cachedSess = getCachedSessions(effectiveProjId);
+              const cachedSess = getCachedSessions(effectiveProjId, devForQuery);
               if (cachedSess.length > 0) {
                 setSessions(cachedSess);
               }
               setLoadingSessions(cachedSess.length === 0);
               try {
                 const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
+                if (sessTicket !== sessionsReqRef.current) return;
                 const sessList = res?.sessions || [];
                 setSessions(sessList);
-                saveCachedSessions(effectiveProjId, sessList);
+                saveCachedSessions(effectiveProjId, devForQuery, sessList);
                 setSelectedSessionId(targetSessionId);
+                // A conversation saved without a device runs where its session ran
+                const ranOn = sessList.find((x) => (x.session_id || x.conversation_id) === targetSessionId)?.device_id;
+                const pinned = ranOn ? normalizeDeviceId(ranOn) : "";
+                if (!devForQuery && isConcreteDevice(pinned)) {
+                  setSelectedDevice(pinned);
+                  selectedDeviceRef.current = pinned;
+                  const folder = targetCwd || projectPathOn(matchedProj, pinned);
+                  if (folder) {
+                    setCwd(folder);
+                    setShowCwd(true);
+                  }
+                  api.updateAskConversation(data.id, { device_id: pinned, ...(folder ? { cwd: folder } : {}) }).catch(() => {});
+                }
               } catch (e) {
+                if (sessTicket !== sessionsReqRef.current) return;
                 console.error("Failed to restore project sessions:", e);
                 setSessions([]);
                 setSelectedSessionId(targetSessionId);
               } finally {
-                setLoadingSessions(false);
+                if (sessTicket === sessionsReqRef.current) setLoadingSessions(false);
               }
             } else {
               setSelectedProjectId("");
@@ -2659,7 +2714,8 @@ function AskPageContent() {
       .catch(() => setDevices([]));
   }, []);
 
-  // Automatically normalize selectedDevice once devices load, or infer concrete device from turns/cwd when stuck on 'auto'
+  // Normalize selectedDevice once devices load; a conversation stuck on 'auto' takes the device its turns ran on.
+  // The device picked is never changed to match the folder: the folder follows the device.
   useEffect(() => {
     if (selectedDevice && !["auto", "ask_only", "all"].includes(selectedDevice)) {
       const norm = normalizeDeviceId(selectedDevice);
@@ -2669,52 +2725,15 @@ function AskPageContent() {
       }
     }
 
-    // Validate if current selectedDevice contradicts cwd path
-    if (cwd && devices.length > 0) {
-      const lowerCwd = cwd.toLowerCase();
-      const currentDevObj = devices.find((d) => d.device_id === selectedDevice);
-      const currentDevName = (currentDevObj?.name || "").toLowerCase();
-      let mismatched = false;
-      if (lowerCwd.includes("/users/donghaixing") && !currentDevName.includes("macbook")) {
-        mismatched = true;
-      } else if (lowerCwd.includes("/users/haixingdong") && !(currentDevName.includes("mac-mini") || currentDevName.includes("mini"))) {
-        mismatched = true;
-      } else if ((lowerCwd.includes("c:") || lowerCwd.includes("d:")) && !currentDevName.includes("windows") && !currentDevName.includes("desktop-")) {
-        mismatched = true;
-      }
-
-      if (mismatched || selectedDevice === "auto") {
-        if (lowerCwd.includes("/users/donghaixing")) {
-          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
-          if (macBook && macBook.device_id !== selectedDevice) {
-            setSelectedDevice(macBook.device_id);
-            persistCurrentConfig({ device_id: macBook.device_id });
-            return;
-          }
-        } else if (lowerCwd.includes("/users/haixingdong")) {
-          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
-          if (macMini && macMini.device_id !== selectedDevice) {
-            setSelectedDevice(macMini.device_id);
-            persistCurrentConfig({ device_id: macMini.device_id });
-            return;
-          }
-        } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
-          const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
-          if (win && win.device_id !== selectedDevice) {
-            setSelectedDevice(win.device_id);
-            persistCurrentConfig({ device_id: win.device_id });
-            return;
-          }
-        }
-      }
-    }
-
     if (selectedDevice === "auto") {
       if (turns.length > 0) {
         const inferred = inferConfigFromTurns(turns);
         if (inferred.deviceId) {
           const norm = normalizeDeviceId(inferred.deviceId);
-          if (norm && norm !== "auto") {
+          // Once per conversation and device: choosing auto again afterwards stays auto
+          const pinKey = `${activeConversationIdRef.current}|${norm}`;
+          if (norm && norm !== "auto" && autoPinnedRef.current !== pinKey) {
+            autoPinnedRef.current = pinKey;
             setSelectedDevice(norm);
             persistCurrentConfig({ device_id: norm });
             return;
@@ -2722,7 +2741,7 @@ function AskPageContent() {
         }
       }
     }
-  }, [devices, turns, cwd, selectedDevice, normalizeDeviceId, inferConfigFromTurns, persistCurrentConfig]);
+  }, [devices, turns, selectedDevice, normalizeDeviceId, inferConfigFromTurns, persistCurrentConfig]);
 
   // Check URL params (?id=... or ?q=...)
   const qParam = searchParams.get("q");
@@ -3506,9 +3525,11 @@ function AskPageContent() {
         isZh ? `已就绪 ${immediate?.models?.length || 0} 个可用模型 (零延迟)` : `Ready with ${immediate?.models?.length || 0} models`
       );
     }
+    const ticket = ++capsReqRef.current;
     try {
       // 2. Background fresh revalidation
       const data = await api.getAgentCapabilities(executionMode, selectedDevice, manual);
+      if (ticket !== capsReqRef.current) return;
       if (data) {
         saveCapabilitiesCache(executionMode, selectedDevice, data);
         setCapabilities(data);
@@ -4646,6 +4667,7 @@ function AskPageContent() {
       if (!isSameProj && !isRestoringRef.current) {
         setSelectedSessionId("");
       }
+      const ticket = ++sessionsReqRef.current;
       if (!projId) {
         setSessions([]);
         if (!isRestoringRef.current) {
@@ -4659,73 +4681,58 @@ function AskPageContent() {
         setSelectedProjectTitle(proj.title);
         selectedProjectTitleRef.current = proj.title;
       }
-      let clean = "";
-      if (proj?.source_path) {
-        clean = proj.source_path.trim();
-        const match = clean.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
-        if (match) {
-          clean = match[1].replace(/[\/\\]+$/, "");
-        } else {
-          clean = clean.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
-        }
-        setCwd(clean);
-        setShowCwd(true);
-      }
 
-      let devForQuery = explicitDev || selectedDevice;
-      if (clean && devices.length > 0) {
-        const lowerCwd = clean.toLowerCase();
-        if (lowerCwd.includes("/users/donghaixing")) {
-          const macBook = devices.find((d) => d.name?.toLowerCase().includes("macbook"));
-          if (macBook) devForQuery = macBook.device_id;
-        } else if (lowerCwd.includes("/users/haixingdong")) {
-          const macMini = devices.find((d) => d.name?.toLowerCase().includes("mac-mini") || d.name?.toLowerCase().includes("mini"));
-          if (macMini) devForQuery = macMini.device_id;
-        } else if (lowerCwd.includes("c:") || lowerCwd.includes("d:")) {
-          const win = devices.find((d) => d.name?.toLowerCase().includes("windows") || d.name?.toLowerCase().includes("desktop-"));
-          if (win) devForQuery = win.device_id;
+      // The device is the one picked. Only in auto mode does the project choose it, the device it
+      // lives on, so that the folder, the sessions and the run all belong to the same machine.
+      let dev = explicitDev !== undefined ? explicitDev : selectedDeviceRef.current;
+      let pinned = false;
+      if (!isConcreteDevice(dev) && dev !== "ask_only") {
+        const home = homeDeviceOf(proj, devices);
+        if (home) {
+          dev = home.device_id;
+          setSelectedDevice(dev);
+          selectedDeviceRef.current = dev;
+          pinned = true;
         }
       }
-      const normDev = normalizeDeviceId(devForQuery);
-      if (normDev && normDev !== "auto" && normDev !== selectedDevice) {
-        setSelectedDevice(normDev);
-        persistCurrentConfig({ device_id: normDev });
+      const folder = projectPathOn(proj, dev);
+      setCwd(folder);
+      setShowCwd(Boolean(folder));
+      if (pinned) {
+        // The project list follows the device now picked
+        void loadProjectsRef.current?.(executionModeRef.current, dev, proj?.title);
       }
-      const finalDev = normDev || selectedDevice;
 
-      if (!isRestoringRef.current && !isSameProj) {
-        persistCurrentConfig({ project_id: projId, session_id: "", cwd: clean || undefined, device_id: finalDev });
+      if (!isRestoringRef.current) {
+        persistCurrentConfig(
+          isSameProj ? { cwd: folder, device_id: dev } : { project_id: projId, session_id: "", cwd: folder, device_id: dev }
+        );
       }
-      // 0ms instant hydration from cache
-      const cachedSess = getCachedSessions(projId);
-      if (cachedSess.length > 0) {
-        setSessions(cachedSess);
-      }
+      // 0ms instant hydration from this device's cache
+      const cachedSess = getCachedSessions(projId, dev);
+      setSessions(cachedSess);
       setLoadingSessions(cachedSess.length === 0);
       try {
-        const res = await api.getProjectConversations(projId, 0, 50, "desc", finalDev);
+        const res = await api.getProjectConversations(projId, 0, 50, "desc", dev);
+        if (ticket !== sessionsReqRef.current) return;
         const sessList = res.sessions || [];
         setSessions(sessList);
-        saveCachedSessions(projId, sessList);
-        if (res.project?.source_path && !clean) {
-          let cleanProj = res.project.source_path.trim();
-          const match = cleanProj.match(/((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_\.\-]+(?:[\/\\][a-zA-Z0-9_\.\-]+)*)/);
-          if (match) {
-            cleanProj = match[1].replace(/[\/\\]+$/, "");
-          } else {
-            cleanProj = cleanProj.split(/[\r\n",]/)[0].trim().replace(/[\/\\]+$/, "");
-          }
-          setCwd(cleanProj);
+        saveCachedSessions(projId, dev, sessList);
+        // The server knows this device's folder even when the list didn't
+        const serverFolder = isConcreteDevice(dev) ? cleanProjectPath(res.project?.source_path) : "";
+        if (!folder && serverFolder) {
+          setCwd(serverFolder);
           setShowCwd(true);
         }
       } catch (e) {
+        if (ticket !== sessionsReqRef.current) return;
         console.error("Failed to load project sessions:", e);
         setSessions([]);
       } finally {
-        setLoadingSessions(false);
+        if (ticket === sessionsReqRef.current) setLoadingSessions(false);
       }
     },
-    [selectedDevice, persistCurrentConfig, devices, normalizeDeviceId]
+    [persistCurrentConfig, devices]
   );
 
   const loadProjectsForMode = useCallback(
@@ -4737,41 +4744,35 @@ function AskPageContent() {
         workbuddy: "workbuddy",
       };
       const toolId = toolMap[mode];
+      const ticket = ++projectsReqRef.current;
+      const clearProject = () => {
+        ++sessionsReqRef.current;
+        setSelectedProjectId("");
+        selectedProjectIdRef.current = "";
+        setSessions([]);
+        setSelectedSessionId("");
+      };
       if (!toolId) {
         if (!isRestoringRef.current) {
           setProjects([]);
-          setSelectedProjectId("");
-          selectedProjectIdRef.current = "";
-          setSessions([]);
-          setSelectedSessionId("");
+          clearProject();
         }
         return;
       }
+      const devToUse = targetDev !== undefined ? targetDev : selectedDeviceRef.current;
+      // 0ms instant hydration from this device's cache, never another device's list
+      setProjects(getCachedProjects(toolId, devToUse));
       try {
-        const devToUse = targetDev !== undefined ? targetDev : selectedDevice;
-        // 0ms instant hydration from cache
-        const cachedProjs = getCachedProjects(toolId, devToUse);
-        if (cachedProjs.length > 0) {
-          setProjects(cachedProjs);
-        }
-        let list = await api.listProjects(toolId, devToUse);
+        let list = (await api.listProjects(toolId, devToUse)) || [];
+        if (ticket !== projectsReqRef.current) return;
         const curProjId = selectedProjectIdRef.current;
-        if (!list || list.length === 0 || (curProjId && !list.some((p) => p.id === curProjId))) {
-          const allProjs = await api.listProjects(toolId);
-          if (allProjs && allProjs.length > 0) {
-            const existingIds = new Set((list || []).map((p) => p.id));
-            const merged = [...(list || [])];
-            for (const p of allProjs) {
-              if (!existingIds.has(p.id)) merged.push(p);
-            }
-            list = merged;
-          }
-        }
-        if (curProjId && (!list || !list.some((p) => p.id === curProjId))) {
+        // An old conversation's project that is no longer listed still shows by name
+        if (isRestoringRef.current && curProjId && !list.some((p) => p.id === curProjId)) {
           try {
             const single = await api.getProject(curProjId);
+            if (ticket !== projectsReqRef.current) return;
             if (single && single.id) {
-              list = [...(list || []), single];
+              list = [...list, single];
               if (single.title && !isUuidOrHash(single.title)) {
                 setSelectedProjectTitle(single.title);
                 selectedProjectTitleRef.current = single.title;
@@ -4779,53 +4780,61 @@ function AskPageContent() {
             }
           } catch {}
         }
-        const projList = list || [];
-        setProjects(projList);
-        saveCachedProjects(toolId, devToUse, projList);
+        setProjects(list);
+        saveCachedProjects(toolId, devToUse, list);
+        if (isRestoringRef.current) return;
 
-        if (projList.length > 0) {
-          const pref = preferredTitle || (projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title);
-          let targetProj = pref
-            ? projList.find((p) => p.title?.toLowerCase() === pref.toLowerCase() || p.slug?.toLowerCase().endsWith(`/${pref.toLowerCase()}`))
-            : undefined;
-          if (!targetProj && !selectedProjectIdRef.current) {
-            targetProj = projList[0];
+        const pref = preferredTitle || projectsRef.current.find((p) => p.id === curProjId)?.title;
+        let target = pref
+          ? list.find((p) => p.title?.toLowerCase() === pref.toLowerCase() || p.slug?.toLowerCase().endsWith(`/${pref.toLowerCase()}`))
+          : undefined;
+        if (!target && curProjId) target = list.find((p) => p.id === curProjId);
+        // Pick a project for a device that was picked; in auto mode picking one would also pick the device
+        if (!target && !curProjId && isConcreteDevice(devToUse)) target = list[0];
+        if (target && target.id !== curProjId) {
+          handleSelectProject(target.id, list, devToUse);
+        } else if (target) {
+          const folder = projectPathOn(target, devToUse);
+          if (folder && !pathWithin(cwdRef.current, folder)) {
+            setCwd(folder);
+            setShowCwd(true);
           }
-          if (targetProj && targetProj.id !== selectedProjectIdRef.current && !isRestoringRef.current) {
-            handleSelectProject(targetProj.id, projList, devToUse);
-          }
-        } else {
-          if (!isRestoringRef.current) {
-            setSelectedProjectId("");
-            selectedProjectIdRef.current = "";
-            setSessions([]);
-            setSelectedSessionId("");
-          }
+        } else if (curProjId) {
+          // The project picked before isn't on this device
+          clearProject();
+          setCwd("");
+          setShowCwd(false);
+          persistCurrentConfig({ project_id: "", session_id: "", cwd: "" });
         }
       } catch (e) {
+        if (ticket !== projectsReqRef.current) return;
         console.error("Failed to load projects:", e);
         if (!isRestoringRef.current) {
           setProjects([]);
-          setSelectedProjectId("");
-          selectedProjectIdRef.current = "";
-          setSessions([]);
-          setSelectedSessionId("");
+          clearProject();
         }
       }
     },
-    [selectedDevice, handleSelectProject]
+    [handleSelectProject, persistCurrentConfig]
   );
+  loadProjectsRef.current = loadProjectsForMode;
 
   const handleDeviceChange = (newDev: string) => {
     setSelectedDevice(newDev);
-    persistCurrentConfig({ device_id: newDev });
+    selectedDeviceRef.current = newDev;
     const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
+    ++sessionsReqRef.current;
     setSelectedProjectId("");
     selectedProjectIdRef.current = "";
     setSelectedSessionId("");
     setSessions([]);
+    // The folder was the previous device's; the project brings its own folder on this one
+    setCwd("");
+    setShowCwd(false);
+    persistCurrentConfig({ device_id: newDev, project_id: "", session_id: "", cwd: "" });
     if (["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
-      loadProjectsForMode(executionMode, newDev, prevTitle);
+      // Choosing auto leaves the project to the user: picking one then picks its device
+      loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
   };
 
@@ -4861,6 +4870,16 @@ function AskPageContent() {
       const targetSession = sessions.find(
         (s) => (s.session_id || s.conversation_id) === sid
       );
+      // A session resumes on the device it ran on, in the project's folder there
+      const ranOn = targetSession?.device_id ? normalizeDeviceId(targetSession.device_id) : "";
+      if (isConcreteDevice(ranOn) && ranOn !== selectedDeviceRef.current) {
+        setSelectedDevice(ranOn);
+        selectedDeviceRef.current = ranOn;
+        const folder = projectPathOn(projectsRef.current.find((p) => p.id === selectedProjectIdRef.current), ranOn);
+        setCwd(folder);
+        setShowCwd(Boolean(folder));
+        persistCurrentConfig({ device_id: ranOn, cwd: folder });
+      }
       if (!targetSession) {
         const matchedAskConv = conversations.find(
           (c) => c.config?.session_id === sid || c.id === sid
@@ -5165,29 +5184,28 @@ function AskPageContent() {
   const suggestedDevice = useMemo(() => {
     if (!input || !devices || devices.length <= 1) return null;
     const lower = input.toLowerCase();
+    const osOf = (d?: DeviceSummary) => {
+      const n = (d?.name || "").toLowerCase();
+      if (n.includes("windows") || n.startsWith("desktop-") || n.startsWith("laptop-")) return "windows";
+      if (n.includes("darwin") || n.includes("mac")) return "mac";
+      if (n.includes("linux")) return "linux";
+      return "";
+    };
+    // Suggest only when the device picked can't be the one meant: a Mac path on another Mac is fine
+    const currentOs = osOf(devices.find((d) => d.device_id === selectedDevice));
+    const firstOf = (os: string) =>
+      devices.filter((d) => osOf(d) === os).sort((a, b) => Number(isDeviceOnline(b)) - Number(isDeviceOnline(a)))[0];
 
-    // Windows detection
-    const hasWinPath = lower.includes("c:\\") || lower.includes("d:\\") || lower.includes("c:/") || lower.includes("d:/") || /\b(powershell|cmd\.exe|choco|winget)\b/.test(lower);
-    if (hasWinPath) {
-      const winDev = devices.find((d) => {
-        const n = (d.name || "").toLowerCase();
-        return n.includes("windows") || n.includes("desktop-") || n.includes("pc");
-      });
-      if (winDev && winDev.device_id !== selectedDevice) {
-        return { device: winDev, reason: isZh ? "检测到 Windows 路径/命令" : "Windows path/command detected" };
-      }
+    const hasWinPath = /\b[cd]:[\\/]/.test(lower) || /\b(powershell|cmd\.exe|choco|winget)\b/.test(lower);
+    if (hasWinPath && currentOs !== "windows") {
+      const winDev = firstOf("windows");
+      if (winDev) return { device: winDev, reason: isZh ? "检测到 Windows 路径/命令" : "Windows path/command detected" };
     }
 
-    // Mac detection
-    const hasMacPath = lower.includes("/users/") || lower.includes(".app/") || /\b(brew\s+|osascript|launchctl)\b/.test(lower);
-    if (hasMacPath) {
-      const macDev = devices.find((d) => {
-        const n = (d.name || "").toLowerCase();
-        return n.includes("mac") || n.includes("darwin");
-      });
-      if (macDev && macDev.device_id !== selectedDevice) {
-        return { device: macDev, reason: isZh ? "检测到 macOS 路径/命令" : "macOS path/command detected" };
-      }
+    const hasMacPath = /(^|[\s"'`(=])\/users\//.test(lower) || lower.includes(".app/") || /\b(brew\s+|osascript|launchctl)\b/.test(lower);
+    if (hasMacPath && currentOs !== "mac") {
+      const macDev = firstOf("mac");
+      if (macDev) return { device: macDev, reason: isZh ? "检测到 macOS 路径/命令" : "macOS path/command detected" };
     }
 
     return null;
@@ -6393,6 +6411,19 @@ function AskPageContent() {
                       onChange={(e) => {
                         setCwd(e.target.value);
                         persistCurrentConfig({ cwd: e.target.value });
+                      }}
+                      onBlur={() => {
+                        // A folder outside the project's no longer belongs to that project or its sessions
+                        const proj = projects.find((p) => p.id === selectedProjectId);
+                        const root = projectPathOn(proj, selectedDevice);
+                        if (proj && root && cwd.trim() && !pathWithin(cwd, root)) {
+                          ++sessionsReqRef.current;
+                          setSelectedProjectId("");
+                          selectedProjectIdRef.current = "";
+                          setSelectedSessionId("");
+                          setSessions([]);
+                          persistCurrentConfig({ project_id: "", session_id: "" });
+                        }
                       }}
                       placeholder={t.ask.cwdPlaceholder}
                       style={{

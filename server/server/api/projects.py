@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, inspect as sa_inspect, or_, select, update
 from sqlalchemy.orm import defer, load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,10 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
+from ..services.project_placement import (
+    DeviceRef, Placement, device_index, discovered_for, discovered_projects, is_junk_project,
+    pick_project_path, project_devices, project_placements,
+)
 from ..services.ingest_service import (
     _clean_source_path, _is_junk_or_uuid_title, _title_from_user_messages,
     _prettify_project_name, _is_invalid_project_name, ensure_project,
@@ -257,6 +261,43 @@ async def _bust_project_cache(project_id: uuid.UUID | None = None, user_id: uuid
         pass
 
 
+def _loaded_iso(obj, attr: str) -> str | None:
+    """ISO time of a column, or None when it isn't loaded (a just-flushed row's server defaults)."""
+    if attr in sa_inspect(obj).unloaded:
+        return None
+    value = getattr(obj, attr)
+    return value.isoformat() if value else None
+
+
+def _device_doc_scope(target_machine: Machine | None, mids: list[uuid.UUID] | None):
+    """The documents that count for the device picked (None: no restriction)."""
+    if target_machine is None:
+        return Document.machine_id.in_(mids) if mids is not None else None
+    target_mid = target_machine.id
+    name = (target_machine.name or "").lower()
+    project_path = Document.metadata_["project_path"].astext
+    if "mac-mini" in name:
+        return (
+            (Document.machine_id == target_mid)
+            | Document.relative_path.ilike("%haixingdong%")
+            | project_path.ilike("%haixingdong%")
+        )
+    if "macbook" in name:
+        return (
+            (Document.machine_id == target_mid)
+            | Document.relative_path.ilike("%donghaixing%")
+            | project_path.ilike("%donghaixing%")
+        )
+    if any(k in name for k in ("windows", "desktop-", "laptop-", "win-", "admin")):
+        return (
+            (Document.machine_id == target_mid)
+            | project_path.ilike("%d:/%")
+            | project_path.ilike("%c:/%")
+            | Document.relative_path.ilike("%users-admin%")
+        )
+    return Document.machine_id == target_mid
+
+
 @router.get("")
 async def list_projects(
     tool_id: str | None = None,
@@ -265,7 +306,14 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
-    cache_key = f"projects:list:{_user.id}:{tool_id or 'all'}:{device_id or 'all'}"
+    """Projects for the ask composer, each with the folder on the devices it lives on.
+
+    With ``device_id``: that device's projects, ``source_path`` being the folder
+    on that device (empty when unknown, never another machine's folder).
+    Without: every project, ``devices`` listing where each one lives, most
+    recently active first.
+    """
+    cache_key = f"projects:list:v2:{_user.id}:{tool_id or 'all'}:{device_id or 'all'}"
     if not sync:
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -273,48 +321,22 @@ async def list_projects(
 
     mids = await user_machine_ids(db, _user)
 
-    target_mid: uuid.UUID | None = None
+    target_machine: Machine | None = None
     if device_id and device_id not in ("auto", "ask_only", "all"):
         target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
-        if target_machine:
-            target_mid = target_machine.id
-        else:
+        if not target_machine:
             return []
 
     # Auto-consolidate fragmented projects (throttled to at most once per 10m to keep reads fast)
     await _consolidate_projects_if_needed(db, force=sync)
 
-    # Single query: projects LEFT JOIN documents, GROUP BY, count documents
+    scope = _device_doc_scope(target_machine, mids)
     doc_count_col = func.count(Document.id).label("doc_count")
-    local_path_col = func.max(Document.metadata_["project_path"].astext).label("local_path")
     join_cond = Document.project_id == Project.id
-    if target_mid is not None:
-        if target_machine and "mac-mini" in (target_machine.name or "").lower():
-            join_cond = join_cond & (
-                (Document.machine_id == target_mid)
-                | Document.relative_path.ilike("%haixingdong%")
-                | Document.metadata_["project_path"].astext.ilike("%haixingdong%")
-            )
-        elif target_machine and "macbook" in (target_machine.name or "").lower():
-            join_cond = join_cond & (
-                (Document.machine_id == target_mid)
-                | Document.relative_path.ilike("%donghaixing%")
-                | Document.metadata_["project_path"].astext.ilike("%donghaixing%")
-            )
-        elif target_machine and any(k in (target_machine.name or "").lower() for k in ("windows", "desktop-", "laptop-", "win-", "admin")):
-            join_cond = join_cond & (
-                (Document.machine_id == target_mid)
-                | Document.metadata_["project_path"].astext.ilike("%d:/%")
-                | Document.metadata_["project_path"].astext.ilike("%c:/%")
-                | Document.relative_path.ilike("%users-admin%")
-            )
-        else:
-            join_cond = join_cond & (Document.machine_id == target_mid)
-    elif mids is not None:
-        join_cond = join_cond & Document.machine_id.in_(mids)
-
+    if scope is not None:
+        join_cond = join_cond & scope
     query = (
-        select(Project, doc_count_col, local_path_col)
+        select(Project, doc_count_col)
         .outerjoin(Document, join_cond)
         .where(
             ~Project.title.in_(list(_IGNORE_PROJECT_NAMES)),
@@ -323,139 +345,83 @@ async def list_projects(
         )
         .group_by(Project.id)
         .order_by(Project.updated_at.desc())
+        # Exclude empty projects with zero docs from project selector
+        .having(doc_count_col > 0)
     )
     if tool_id:
         query = query.where(Project.tool_id == tool_id)
-    # Exclude empty projects with zero docs from project selector
-    query = query.having(doc_count_col > 0)
+    rows = (await db.execute(query)).all()
 
-    result = await db.execute(query)
-    rows = result.all()
+    index = await device_index(db, _user)
+    placements = await project_placements(db, [p.id for p, _ in rows], scope)
+    discovered = await discovered_projects(db, target_machine, mids, tool_id)
+    target_ref = (
+        DeviceRef(target_machine.collector_token_hash or str(target_machine.id), target_machine.name)
+        if target_machine is not None else None
+    )
 
-    items = []
-    for p, count, local_path in rows:
-        valid_local_path = None
-        if target_mid is not None and local_path:
-            lp_clean = _clean_source_path(local_path)
-            if lp_clean:
-                lp_leaf = lp_clean.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower()
-                p_leaf = p.slug.split("/")[-1].strip("-\"'` ").lower()
-                p_title = (p.title or "").strip("-\"'` ").lower()
-                if lp_leaf == p_leaf or lp_leaf == p_title or (p_leaf and p_leaf in lp_leaf):
-                    valid_local_path = lp_clean
-        items.append({
+    def entry(p: Project, path: str, count: int, devices: list[dict]) -> dict:
+        return {
             "id": str(p.id),
             "slug": p.slug,
             "title": p.title,
             "tool_id": p.tool_id,
-            "source_path": _clean_source_path(valid_local_path if valid_local_path else p.source_path),
+            "source_path": path,
             "visibility": p.visibility,
-            "document_count": count or 0,
-            "created_at": p.created_at.isoformat(),
-            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-        })
+            "document_count": count,
+            "created_at": _loaded_iso(p, "created_at"),
+            "updated_at": _loaded_iso(p, "updated_at"),
+            "devices": devices,
+        }
 
-    # Incorporate discovered projects for target machine or all user machines
-    target_docs = []
-    if target_mid is not None:
-        disc_doc = (await db.execute(
-            select(Document)
-            .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
-            .where(
-                Document.tool_id == "system",
-                Document.category == "discovery",
-                Document.machine_id == target_mid,
-            ).order_by(Document.synced_at.desc()).limit(1)
-        )).scalar_one_or_none()
-        if not disc_doc and target_machine and target_machine.collector_token_hash:
-            disc_doc = (await db.execute(
-                select(Document)
-                .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
-                .where(
-                    Document.tool_id == "system",
-                    Document.category == "discovery",
-                    Document.relative_path == f"discovery/{target_machine.collector_token_hash}.json",
-                ).order_by(Document.synced_at.desc()).limit(1)
-            )).scalar_one_or_none()
-        if disc_doc:
-            target_docs.append(disc_doc)
-    else:
-        # User sees all machines
-        m_query = (
-            select(Document)
-            .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
-            .where(
-                Document.tool_id == "system",
-                Document.category == "discovery",
+    items = []
+    for p, count in rows:
+        found = discovered_for(p.slug, discovered)
+        if target_ref is not None:
+            pls = placements.get(p.id, [])
+            path = pick_project_path(pls, p.slug, p.title) or next(
+                (c for c in (_clean_source_path(d.path) for d in found) if c and not is_junk_project(None, c)), ""
             )
-        )
-        if mids is not None:
-            m_query = m_query.where(Document.machine_id.in_(mids))
-        m_docs = (await db.execute(m_query)).scalars().all()
-        seen_mids = set()
-        for d in sorted(m_docs, key=lambda x: x.synced_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True):
-            mid_key = str(d.machine_id or d.relative_path)
-            if mid_key not in seen_mids:
-                seen_mids.add(mid_key)
-                target_docs.append(d)
+            last = max((pl.last_active for pl in pls if pl.last_active), default=None)
+            devices = [{
+                "device_id": target_ref.device_id,
+                "name": target_ref.name,
+                "source_path": path,
+                "document_count": count or 0,
+                "last_active": last.isoformat() if last else None,
+            }]
+        else:
+            devices = project_devices(p.slug, p.title, placements.get(p.id, []), found, index)
+            path = next((d["source_path"] for d in devices if d["source_path"]), "") or _clean_source_path(p.source_path) or ""
+        if is_junk_project(p.title, path or p.source_path):
+            continue
+        items.append(entry(p, path, count or 0, devices))
 
+    # Projects a device reported but has no synced documents for yet
     existing_slugs = {item["slug"] for item in items}
     new_projs_created = False
-    for disc_doc in target_docs:
-        if not disc_doc or not disc_doc.content:
+    for d in discovered:
+        c_slug = f"{d.tool_id}/{d.name}"
+        if c_slug in existing_slugs:
             continue
+        c_path = _clean_source_path(d.path) or ""
+        if is_junk_project(d.name, c_path):
+            continue
+        existing_slugs.add(c_slug)
+        found = discovered_for(c_slug, discovered)
         try:
-            tools_map = json.loads(disc_doc.content)
-            target_tools = [tool_id] if tool_id else list(tools_map.keys())
-            for t in target_tools:
-                tool_info = tools_map.get(t, {})
-                if not isinstance(tool_info, dict):
-                    continue
-                for p_entry in tool_info.get("projects", []):
-                    if not isinstance(p_entry, dict):
-                        continue
-                    p_name = p_entry.get("name") or (p_entry.get("path") or "").replace("\\", "/").rstrip("/").split("/")[-1]
-                    p_path = p_entry.get("path")
-                    if not p_name:
-                        continue
-                    clean_name = _prettify_project_name(p_name).strip("-\"'` ")
-                    if not clean_name or _is_invalid_project_name(clean_name):
-                        continue
-                    c_slug = f"{t}/{clean_name}"
-                    if c_slug in existing_slugs:
-                        continue
-                    existing_slugs.add(c_slug)
-                    try:
-                        proj_obj = await ensure_project(db, t, clean_name, source_path=p_path)
-                        new_projs_created = True
-                        p_id = str(proj_obj.id)
-                        p_title = proj_obj.title
-                        p_tool = proj_obj.tool_id
-                        p_src = _clean_source_path(p_path or proj_obj.source_path)
-                        p_vis = proj_obj.visibility
-                        p_created = proj_obj.created_at.isoformat() if getattr(proj_obj, "created_at", None) else None
-                        p_updated = proj_obj.updated_at.isoformat() if getattr(proj_obj, "updated_at", None) else None
-                    except Exception:
-                        p_id = str(uuid.uuid4())
-                        p_title = clean_name
-                        p_tool = t
-                        p_src = _clean_source_path(p_path)
-                        p_vis = "private"
-                        p_created = None
-                        p_updated = None
-                    items.append({
-                        "id": p_id,
-                        "slug": c_slug,
-                        "title": p_title,
-                        "tool_id": p_tool,
-                        "source_path": p_src,
-                        "visibility": p_vis,
-                        "document_count": 0,
-                        "created_at": p_created,
-                        "updated_at": p_updated,
-                    })
+            proj_obj = await ensure_project(db, d.tool_id, d.name, source_path=d.path)
+            new_projs_created = True
         except Exception as exc:
-            print(f"[Projects API] Discovery parse error: {exc}\n{traceback.format_exc()}")
+            print(f"[Projects API] Discovery project error: {exc}\n{traceback.format_exc()}")
+            continue
+        if target_ref is not None:
+            devices = [{"device_id": target_ref.device_id, "name": target_ref.name, "source_path": c_path, "document_count": 0, "last_active": None}]
+            path = c_path
+        else:
+            devices = project_devices(c_slug, proj_obj.title, [], found, index)
+            path = next((x["source_path"] for x in devices if x["source_path"]), "") or c_path
+        items.append(entry(proj_obj, path, 0, devices))
 
     if new_projs_created:
         try:
@@ -1117,7 +1083,7 @@ async def get_project_conversations(
                     "id": str(project.id),
                     "slug": project.slug,
                     "title": project.title,
-                    "source_path": _clean_source_path(project.source_path),
+                    "source_path": "",
                 },
                 "total_sessions": 0,
                 "session_offset": session_offset,
@@ -1129,7 +1095,7 @@ async def get_project_conversations(
     as_of_key = as_of.isoformat() if as_of else "live"
     dev_key = device_id or "all"
     cache_key = (
-        f"project:conv:{_user.id}:{project_id}:{dev_key}:"
+        f"project:conv:v2:{_user.id}:{project_id}:{dev_key}:"
         f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
     )
     cached = await cache_get(cache_key)
@@ -1309,6 +1275,8 @@ async def get_project_conversations(
 
     # Paginate by main session (subagents folded into parents)
     page_convs = main_convs[session_offset:session_offset + session_limit]
+    # Which device each session ran on, as the device list names it
+    device_refs = await device_index(db, _user)
 
     # For paginated docs, find any that need a real title (junk, UUID, or empty)
     docs_needing_title = [
@@ -1634,28 +1602,30 @@ async def get_project_conversations(
             "messages": messages,
             "truncated": bool(max_messages_per_session and total_msgs > max_messages_per_session),
             "artifacts": artifacts,
+            "device_id": device_refs[d.machine_id].device_id if d.machine_id in device_refs else None,
+            "device_name": device_refs[d.machine_id].name if d.machine_id in device_refs else None,
         })
 
-    dev_source_path = None
-    if target_mid is not None:
-        p_leaf = project.slug.split("/")[-1].strip("-\"'` ").lower()
-        p_title = (project.title or "").strip("-\"'` ").lower()
-        for d in all_convs:
-            sp = (d.metadata_ or {}).get("project_path")
-            if sp and len(sp) > 3 and not sp.isdigit() and sp.lower() not in ("...", "dev", "desktop", "tmp", "temp"):
-                sp_clean = _clean_source_path(sp)
-                if sp_clean:
-                    sp_leaf = sp_clean.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower()
-                    if sp_leaf == p_leaf or sp_leaf == p_title or (p_leaf and p_leaf in sp_leaf):
-                        dev_source_path = sp_clean
-                        break
+    if target_machine is not None:
+        # The folder on the device picked; empty rather than another machine's folder
+        source_path = pick_project_path(
+            [Placement(d.machine_id, (d.metadata_ or {}).get("project_path"), 1, d.synced_at) for d in all_convs],
+            project.slug, project.title,
+        )
+        if not source_path:
+            found = discovered_for(project.slug, await discovered_projects(db, target_machine, mids, project.tool_id))
+            source_path = next(
+                (c for c in (_clean_source_path(x.path) for x in found) if c and not is_junk_project(None, c)), ""
+            )
+    else:
+        source_path = _clean_source_path(project.source_path) or ""
 
     payload = {
         "project": {
             "id": str(project.id),
             "slug": project.slug,
             "title": project.title,
-            "source_path": _clean_source_path(dev_source_path or project.source_path),
+            "source_path": source_path,
         },
         "total_sessions": total_sessions,
         "session_offset": session_offset,

@@ -40,18 +40,6 @@ Thumbs.db
 server/data/geoip/
 *.mmdb
 
-# Flutter / Dart
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-mobile/build/
-mobile/android/local.properties
-mobile/ios/Pods/
-mobile/ios/.symlinks/
-mobile/ios/Flutter/Flutter.framework
-mobile/ios/Flutter/Flutter.podspec
-
 # Updates distribution binaries
 data/updates/*.zip
 data/updates/*.tar.gz

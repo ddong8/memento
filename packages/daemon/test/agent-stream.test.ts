@@ -201,6 +201,24 @@ describe("Interactive questions", () => {
     parser.feed('{"type":"result","subtype":"success","is_error":false,"result":"这是回答内容","session_id":"wb-session-999"}');
     expect(parser.finalText).toBe("这是回答内容");
   });
+
+  it("CodexStreamParser emits question event for mcp_tool_call and shell confirmation", () => {
+    const parser = new CodexStreamParser();
+    const q1 = parser.feed(
+      '{"type":"item.started","item":{"id":"mcp1","type":"mcp_tool_call","server":"memento","tool":"ask_question","arguments":{"question":"请确认数据库迁移?","options":["立即迁移","取消"]}}}',
+    )!;
+    expect(q1.some((e) => e.kind === "question" && e.status === "waiting")).toBe(true);
+
+    const qDone = parser.feed(
+      '{"type":"item.completed","item":{"id":"mcp1","type":"mcp_tool_call","server":"memento","tool":"ask_question","result":"立即迁移","status":"completed"}}',
+    )!;
+    expect(qDone.some((e) => e.kind === "question" && e.status === "answered")).toBe(true);
+
+    const qShell = parser.feed(
+      '{"type":"item.started","item":{"id":"s1","type":"command_execution","command":"rm -i old.log","aggregated_output":"remove old.log? [y/N]"}}',
+    )!;
+    expect(qShell.some((e) => e.kind === "question" && e.status === "waiting")).toBe(true);
+  });
 });
 
 

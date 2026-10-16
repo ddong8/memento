@@ -303,14 +303,36 @@ export class CodexStreamParser extends AgentStreamParser {
             if (/\b(?:nohup|screen|tmux|daemon)\b|&\s*$/i.test(cmd) || /(?:started in background|running in background)/i.test(outText)) {
               this.isStillRunning = true;
             }
+            const toolId = str(item.id);
             events.push({
               kind: "tool",
-              id: str(item.id),
+              id: toolId,
               name: "Shell",
               detail: clip(firstLine(codexCommand(cmd)), 200),
               status: running(exit !== undefined && exit !== 0),
               ...(done ? { output: clip(outText, 400) } : {}),
             });
+
+            // Interactive confirmation prompt detection in shell output
+            const ynMatch = /(?:^|\s)(?:\[y\/n\]|\[y\/N\]|\[Y\/n\]|\(y\/n\)|\(Y\/N\)|是否继续\?|确认执行\?)/i.exec(outText);
+            if (!done && ynMatch) {
+              const lastLine = outText.trim().split("\n").pop()?.trim() ?? outText;
+              events.push({
+                kind: "question",
+                id: `cmd_q_${toolId ?? Date.now()}`,
+                tool: "confirm",
+                question: clip(lastLine, 200),
+                options: ["y", "n"],
+                is_multi_select: false,
+                status: "waiting",
+              });
+            } else if (done && ynMatch && toolId) {
+              events.push({
+                kind: "question",
+                id: `cmd_q_${toolId}`,
+                status: "answered",
+              });
+            }
             break;
           }
           case "file_change": {
@@ -330,15 +352,55 @@ export class CodexStreamParser extends AgentStreamParser {
             });
             break;
           }
-          case "mcp_tool_call":
+          case "mcp_tool_call": {
+            const toolName = str(item.tool) ?? "";
+            const serverName = str(item.server) ?? "";
+            const fullName = [serverName, toolName].filter(Boolean).join(".");
+            const args = isObject(item.arguments)
+              ? item.arguments
+              : isObject(item.input)
+              ? item.input
+              : typeof item.arguments === "string"
+              ? decode(item.arguments) ?? {}
+              : {};
+            const isQuestion =
+              /^(?:ask_question|AskFollowupQuestion|request_user_input|confirm|prompt)$/i.test(toolName) ||
+              /question|confirm/i.test(toolName);
+
             events.push({
               kind: "tool",
               id: str(item.id),
-              name: [item.server, item.tool].filter((x) => x != null).join("."),
-              detail: "",
+              name: fullName || "tool",
+              detail: isQuestion ? clip(str(args.question) || str(args.prompt) || "", 200) : "",
               status: running(item.status === "failed"),
+              ...(done && item.result != null ? { output: clip(str(item.result), 400) } : {}),
             });
+
+            if (isQuestion) {
+              const qId = str(item.id) ?? `mcp_q_${Date.now()}`;
+              if (!done) {
+                const qText = str(args.question) || str(args.prompt) || str(args.message) || "请选择或确认下一步操作";
+                const qOptions = Array.isArray(args.options) ? args.options : undefined;
+                events.push({
+                  kind: "question",
+                  id: qId,
+                  tool: toolName,
+                  question: qText,
+                  options: qOptions,
+                  is_multi_select: Boolean(args.is_multi_select || args.multiple),
+                  status: "waiting",
+                });
+              } else {
+                events.push({
+                  kind: "question",
+                  id: qId,
+                  status: "answered",
+                  answer: clip(str(item.result ?? ""), 200),
+                });
+              }
+            }
             break;
+          }
           case "web_search":
             events.push({
               kind: "tool",

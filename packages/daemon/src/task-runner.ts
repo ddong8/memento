@@ -361,6 +361,20 @@ export class TaskRunner {
     const proc = this.running.get(taskId);
     if (proc?.stdin?.writable) {
       proc.stdin.write(`${text}\n`);
+      const eventLog = this.eventLogs.get(taskId);
+      if (eventLog) {
+        const waitingQ = eventLog.events.find(
+          (e) => e.kind === "question" && (e.status === "waiting" || !e.status),
+        );
+        if (waitingQ && waitingQ.id) {
+          this.emitEvent(taskId, {
+            kind: "question",
+            id: waitingQ.id,
+            status: "answered",
+            answer: text,
+          });
+        }
+      }
       this.emitEvent(taskId, { kind: "steer", text, status: "sent" });
       const echo = `\n[输入] ${text}\n`;
       const out = this.outputs.get(taskId);
@@ -406,6 +420,18 @@ export class TaskRunner {
     let timer: NodeJS.Timeout | undefined;
     let stallTimer: NodeJS.Timeout | undefined;
 
+    const cmdLine = `${spec.exe} ${spec.args?.join(" ")} ${spec.stdinPrompt ?? ""}`;
+    const isHeavyCommand = /\b(?:cargo\s+build|flutter\s+build|npm\s+run\s+build|docker\s+build|mvn\s+package|gradle\s+build|git\s+clone)\b/i.test(
+      cmdLine,
+    );
+    // Dynamically grant at least 300s (5 minutes) for heavy build/compilation jobs if a small timeout (<300s) was passed
+    const effectiveTimeout = isHeavyCommand && timeoutSeconds > 0 && timeoutSeconds < 300 ? 300 : timeoutSeconds;
+
+    const hasWaitingQuestion = () => {
+      const el = this.eventLogs.get(taskId);
+      return el?.events.some((e) => e.kind === "question" && (e.status === "waiting" || !e.status)) ?? false;
+    };
+
     const armStallWatchdog = () => {
       if (stallTimer) clearTimeout(stallTimer);
       // If process runs for 5 minutes with zero output, send a progress heartbeat alert
@@ -421,12 +447,17 @@ export class TaskRunner {
     // Activity-based watchdog: refreshed whenever process produces stdout/stderr, disabled if timeoutSeconds <= 0
     const armTimer = () => {
       armStallWatchdog();
-      if (timeoutSeconds > 0) {
+      if (effectiveTimeout > 0) {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
+          if (hasWaitingQuestion()) {
+            // User is reviewing an interactive question dialog; defer timeout
+            armTimer();
+            return;
+          }
           timedOut = true;
           killProcessTree(proc);
-        }, timeoutSeconds * 1000);
+        }, effectiveTimeout * 1000);
       }
     };
     armTimer();

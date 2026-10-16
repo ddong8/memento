@@ -403,10 +403,13 @@ def main():
                     else:
                         ls_dead_checks = 0
 
-                if last_error_message and idle_count > 75:  # 15s idle after error
-                    sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
-                    sys.stderr.flush()
-                    sys.exit(1)
+                if last_error_message and idle_count > 300:  # 60s idle after non-transient error
+                    if _is_antigravity_ls_alive() and idle_count < 600:  # Allow up to 120s if language server is healthy
+                        pass
+                    else:
+                        sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
+                        sys.stderr.flush()
+                        sys.exit(1)
 
                 # 超时判定分支状态机：
                 # 1. 处于等待用户输入时：不触发空闲超时（受全局 args.timeout 约束）
@@ -538,10 +541,13 @@ def main():
                 state["in_flight_tools"] = []
                 state["tool_start_time"] = None
                 err_msg = data.get("error") or data.get("message") or data.get("content") or ""
-                # Filter out transient API retry messages (e.g. attempt 1 failure) where Antigravity retries upstream
+                # Filter out transient API retry messages (e.g. attempt 1 failure, stream interrupted) where Antigravity retries upstream
                 is_transient = any(kw in err_msg.lower() for kw in (
                     "attempt 1", "attempt 2", "connection reset", "eof", "broken pipe",
-                    "timeout", "handshake", "temporarily unavailable"
+                    "timeout", "handshake", "temporarily unavailable",
+                    "stream was interrupted", "stream interrupted", "interrupted",
+                    "please continue the task", "rate limit", "resource exhausted",
+                    "overloaded", "retry", "try again"
                 ))
                 if is_transient:
                     continue

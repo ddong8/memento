@@ -404,9 +404,23 @@ export class TaskRunner {
 
     let timedOut = false;
     let timer: NodeJS.Timeout | undefined;
+    let stallTimer: NodeJS.Timeout | undefined;
+
+    const armStallWatchdog = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      // If process runs for 5 minutes with zero output, send a progress heartbeat alert
+      stallTimer = setTimeout(() => {
+        this.send({
+          type: "task_progress",
+          task_id: taskId,
+          status: "进程正在静默运行中（超过 5 分钟无新输出，可能处于深度计算或等待输入）",
+        });
+      }, 300_000);
+    };
 
     // Activity-based watchdog: refreshed whenever process produces stdout/stderr, disabled if timeoutSeconds <= 0
     const armTimer = () => {
+      armStallWatchdog();
       if (timeoutSeconds > 0) {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
@@ -467,10 +481,12 @@ export class TaskRunner {
     return new Promise<number>((resolve, reject) => {
       proc.once("error", (e) => {
         if (timer) clearTimeout(timer);
+        if (stallTimer) clearTimeout(stallTimer);
         reject(e);
       });
       proc.once("exit", (code, signal) => {
         if (timer) clearTimeout(timer);
+        if (stallTimer) clearTimeout(stallTimer);
         // Let the last output drain, but don't wait on a pipe some leftover child still holds.
         void Promise.race([stdoutDone, new Promise((r) => setTimeout(r, 3000))]).then(() =>
           resolve(timedOut ? TIMED_OUT : (code ?? (signal ? -1 : 1))),

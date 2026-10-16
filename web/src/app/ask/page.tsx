@@ -234,6 +234,25 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   const { t } = useI18n();
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [manualExpanded, setManualExpanded] = useState<boolean>(false);
+  const [elapsedSec, setElapsedSec] = useState<number>(0);
+  const startTimeRef = useRef<number | null>(null);
+  const finalDurationRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isLive) {
+      if (!startTimeRef.current) startTimeRef.current = Date.now();
+      const interval = setInterval(() => {
+        if (startTimeRef.current) {
+          setElapsedSec((Date.now() - startTimeRef.current) / 1000);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    } else {
+      if (startTimeRef.current && finalDurationRef.current === null) {
+        finalDurationRef.current = Math.max(0.1, (Date.now() - startTimeRef.current) / 1000);
+      }
+    }
+  }, [isLive]);
 
   // Auto-expand during live thinking stream; auto-collapse when answering begins, unless user manually toggled
   const expanded = userToggled ? manualExpanded : Boolean(isLive);
@@ -242,6 +261,9 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
 
   const charCount = thinking.trim().length;
   const countLabel = charCount > 0 ? `${charCount.toLocaleString()} 字` : "";
+  const duration = isLive ? elapsedSec : (finalDurationRef.current ?? elapsedSec);
+  const durLabel = duration > 0 ? `${duration.toFixed(1)}s` : "";
+  const speedLabel = (!isLive && duration > 0.5 && charCount > 10) ? `约 ${Math.round(charCount / duration)} 字/秒` : "";
 
   return (
     <div
@@ -288,9 +310,13 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
           <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
             {isLive ? t.ask.thinking : t.ask.thinkingDone}
           </span>
-          {countLabel && (
+          {isLive ? (
             <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              ({isLive ? `已推演 ${countLabel}` : `共 ${countLabel}`})
+              ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+              ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
             </span>
           )}
         </div>
@@ -4455,15 +4481,59 @@ function AskPageContent() {
     }
   }, [send, input, turns]);
 
-  // 全局快捷键: Cmd+K / Ctrl+K 快速聚焦输入框，Escape 关闭侧边栏或停止生成
+  // 全局快捷键与事件监听: Cmd/Ctrl+K 聚焦、Cmd+Shift+O 新建、Cmd+Shift+E 导出，memento_fill_input 一键错误排查与填充
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    const handleFillInput = (e: any) => {
+      const text = e?.detail?.text;
+      const autoSubmit = Boolean(e?.detail?.autoSubmit);
+      if (typeof text === "string" && text.trim()) {
+        setInput(text);
+        if (autoSubmit) {
+          setTimeout(() => {
+            sendWithText(text);
+          }, 60);
+        } else {
+          inputElRef.current?.focus();
+        }
+      }
+    };
+    window.addEventListener("memento_fill_input", handleFillInput);
+
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const hasModifier = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      // Cmd/Ctrl + Shift + O: 一键新建对话
+      if (hasModifier && e.shiftKey && key === "o") {
         e.preventDefault();
-        inputElRef.current?.focus();
+        startNewChat();
         return;
       }
+
+      // Cmd/Ctrl + Shift + E: 一键导出 Markdown 研报
+      if (hasModifier && e.shiftKey && key === "e") {
+        e.preventDefault();
+        handleExportMarkdown();
+        return;
+      }
+
+      // Cmd/Ctrl + K: 聚焦输入框或历史搜索框
+      if (hasModifier && key === "k") {
+        e.preventDefault();
+        if (historyOpen) {
+          const searchInput =
+            document.querySelector<HTMLInputElement>('input[placeholder*="搜索"]') ||
+            document.querySelector<HTMLInputElement>('input[placeholder*="Search"]');
+          searchInput?.focus();
+        } else {
+          inputElRef.current?.focus();
+        }
+        return;
+      }
+
+      // Escape: 关闭侧边栏或中止流式生成
       if (e.key === "Escape") {
         if (historyOpen) {
           e.preventDefault();
@@ -4472,15 +4542,18 @@ function AskPageContent() {
         }
         if (streaming && abortRef.current) {
           e.preventDefault();
-          userCancelledRef.current = true;
-          abortRef.current.abort();
+          stopRun();
           return;
         }
       }
     };
+
     window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [historyOpen, streaming]);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+      window.removeEventListener("memento_fill_input", handleFillInput);
+    };
+  }, [historyOpen, streaming, sendWithText, startNewChat, handleExportMarkdown, stopRun]);
 
   // Expose global task cancellation for Native App / Live Activity bridge
   useEffect(() => {

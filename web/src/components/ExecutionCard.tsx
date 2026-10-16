@@ -971,6 +971,62 @@ const ExecutionCard = memo(function ExecutionCard({
               )}
             </div>
           )}
+
+          {isFailed && !isPromptTooLong && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.25)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#ef4444", display: "flex", alignItems: "center", gap: 6 }}>
+                <span>✕ 任务执行遇到错误 {result?.exit_code !== undefined ? `(exit ${result.exit_code})` : ""}</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const errMsg = (result?.error || result?.stderr || result?.stdout || "").trim().slice(-600);
+                  const cmd = (command || (args?.command as string) || "").trim();
+                  const fixPrompt = `我在执行以下命令/任务时遇到了报错：\n\`\`\`bash\n${cmd || name}\n\`\`\`\n报错信息如下：\n\`\`\`text\n${errMsg || "执行失败，未返回具体 stderr"}\n\`\`\`\n请帮我深入分析该错误根因，并提供修复方案或直接代我执行修复操作。`;
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("memento_fill_input", {
+                        detail: { text: fixPrompt, autoSubmit: true },
+                      })
+                    );
+                  }
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "5px 12px",
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 2px 6px rgba(239, 68, 68, 0.25)",
+                  transition: "opacity 0.15s ease",
+                }}
+                title="自动将此报错交给执事分析并尝试自动修复"
+              >
+                <Icon name="sparkles" size={12} />
+                <span>⚡ 请求执事分析并修复</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

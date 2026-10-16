@@ -144,6 +144,9 @@ async def get_conversation_messages(
                     "thinking": m.thinking or None,
                     "tool_name": m.tool_name,
                     "tool_input": m.tool_input,
+                    "status": m.status or None,
+                    "exit_code": m.exit_code,
+                    "error": m.error or None,
                     "timestamp": m.timestamp or None,
                     "raw_type": m.raw_type,
                 }
@@ -180,6 +183,9 @@ async def get_conversation_messages(
                 "thinking": (m.metadata_ or {}).get("thinking") if m.metadata_ else None,
                 "tool_name": (m.metadata_ or {}).get("tool_name", "") if m.metadata_ else "",
                 "tool_input": (m.metadata_ or {}).get("tool_input", "") if m.metadata_ else "",
+                "status": (m.metadata_ or {}).get("status") if m.metadata_ else None,
+                "exit_code": (m.metadata_ or {}).get("exit_code") if m.metadata_ else None,
+                "error": (m.metadata_ or {}).get("error") if m.metadata_ else None,
                 "timestamp": m.timestamp.isoformat() if m.timestamp else None,
                 "raw_type": m.message_type or "",
             }

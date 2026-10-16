@@ -267,6 +267,79 @@ class ConversationParserTests(unittest.TestCase):
         self.assertEqual(out_msg.raw_type, "tool_result")
         self.assertEqual(out_msg.content, "total 42\nfile.txt")
 
+    def test_modern_codex_item_completed_parsed(self) -> None:
+        # Agent message
+        raw_msg = json.dumps({
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "agent_message", "text": "任务执行完成"},
+        })
+        msg = parse_conversation_line(raw_msg, "codex")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "assistant")
+        self.assertEqual(msg.content, "任务执行完成")
+
+        # Command execution success
+        raw_cmd_ok = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "echo hi",
+                "aggregated_output": "hi\n",
+                "exit_code": 0,
+                "status": "completed",
+            },
+        })
+        cmd_msg_ok = parse_conversation_line(raw_cmd_ok, "codex")
+        self.assertIsNotNone(cmd_msg_ok)
+        assert cmd_msg_ok is not None
+        self.assertEqual(cmd_msg_ok.role, "tool")
+        self.assertEqual(cmd_msg_ok.tool_name, "Shell")
+        self.assertEqual(cmd_msg_ok.tool_input, "echo hi")
+        self.assertEqual(cmd_msg_ok.status, "succeeded")
+        self.assertEqual(cmd_msg_ok.exit_code, 0)
+
+        # Command execution failure
+        raw_cmd_fail = json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_2",
+                "type": "command_execution",
+                "command": "cat nonexistent",
+                "aggregated_output": "cat: nonexistent: No such file or directory",
+                "exit_code": 1,
+                "status": "failed",
+            },
+        })
+        cmd_msg_fail = parse_conversation_line(raw_cmd_fail, "codex")
+        self.assertIsNotNone(cmd_msg_fail)
+        assert cmd_msg_fail is not None
+        self.assertEqual(cmd_msg_fail.status, "failed")
+        self.assertEqual(cmd_msg_fail.exit_code, 1)
+        self.assertIn("exit code 1", cmd_msg_fail.error)
+
+    def test_claude_code_tool_result_status_and_exit_code(self) -> None:
+        raw_err = json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_456",
+                    "content": "Command failed with exit code 2",
+                    "is_error": True,
+                }],
+            },
+        })
+        msg = parse_conversation_line(raw_err, "claude_code")
+        self.assertIsNotNone(msg)
+        assert msg is not None
+        self.assertEqual(msg.role, "tool")
+        self.assertEqual(msg.status, "failed")
+        self.assertEqual(msg.exit_code, 1)
+        self.assertEqual(msg.error, "Command failed with exit code 2")
+
 
 if __name__ == "__main__":
     unittest.main()

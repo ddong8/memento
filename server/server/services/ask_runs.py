@@ -397,8 +397,16 @@ class AskRunRegistry:
         run.finished_at = time.time()
         run.current_step = "已停止"
         run.step_type = "cancelled"
+        run.frames.append(_frame({"type": "error", "message": "已停止"}))
+        run.frames.append(_frame({"type": "done"}))
         if run.task:
             run.task.cancel()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._wake(run))
+            loop.call_later(RETAIN_AFTER_DONE, self._drop, run)
+        except RuntimeError:
+            pass
         return True
 
     async def _pump(self, run: AskRun, factory: GeneratorFactory) -> None:

@@ -259,10 +259,10 @@ export function claudeToolDetail(name: string, input: Json): string {
 }
 
 export class CodexStreamParser extends AgentStreamParser {
-  private lastMessage: string | undefined;
+  private messages: string[] = [];
 
   get finalText(): string | undefined {
-    return this.lastMessage;
+    return this.messages.join("\n\n").trim() || undefined;
   }
 
   feed(line: string): AgentEvent[] | null {
@@ -284,8 +284,9 @@ export class CodexStreamParser extends AgentStreamParser {
         switch (item.type) {
           case "agent_message":
             if (done && String(item.text ?? "").trim()) {
-              this.lastMessage = String(item.text);
-              events.push({ kind: "text", text: this.lastMessage });
+              const msg = String(item.text).trim();
+              this.messages.push(msg);
+              events.push({ kind: "text", text: msg });
             }
             break;
           case "reasoning": {

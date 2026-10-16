@@ -23,6 +23,9 @@ class NormalizedMessage:
     tool_name: str = "" # If role=="tool", the tool that was used
     tool_input: str = ""  # Tool input/command
     thinking: str = ""  # Optional thinking/reasoning text kept separate from final response
+    status: str = ""    # "running", "succeeded", "failed", "still_running", etc.
+    exit_code: int | None = None
+    error: str = ""
     timestamp: str = ""
     raw_type: str = ""  # Original message type
 
@@ -93,9 +96,14 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                             r.get("text", "") if isinstance(r, dict) else str(r)
                             for r in out
                         )
+                    is_err = b.get("is_error") is True
+                    err_text = str(out) if is_err else ""
                     return NormalizedMessage(
                         role="tool",
                         content=str(out),
+                        status="failed" if is_err else "succeeded",
+                        exit_code=1 if is_err else 0,
+                        error=err_text[:400] if is_err else "",
                         timestamp=timestamp,
                         raw_type="tool_output",
                     )
@@ -126,6 +134,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                             thinking=thinking,
                             tool_name=name,
                             tool_input=tool_input,
+                            status="running",
                             timestamp=timestamp,
                             raw_type=msg_type,
                         )
@@ -135,6 +144,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                         tool_name=name,
                         tool_input=tool_input,
                         thinking=thinking,
+                        status="running",
                         timestamp=timestamp,
                         raw_type="tool_call",
                     )
@@ -212,6 +222,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                 content=f"[{name}]",
                 tool_name=name,
                 tool_input=tool_input[:2000],
+                status="running",
                 timestamp=timestamp,
                 raw_type="tool_call",
             )
@@ -229,10 +240,17 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
             if len(display) > 5000:
                 display = display[:5000] + "\n…(truncated)"
             if display:
+                is_failed = obj.get("is_error") is True or bool(obj.get("error"))
+                status_val = obj.get("status") or ("failed" if is_failed else "succeeded")
+                exit_code_val = obj.get("exit_code")
+                error_val = str(obj.get("error") or "")
                 return NormalizedMessage(
                     role="tool",
                     content=display,
                     tool_name=name,
+                    status=str(status_val),
+                    exit_code=exit_code_val if isinstance(exit_code_val, int) else None,
+                    error=error_val,
                     timestamp=timestamp,
                     raw_type="tool_result",
                 )
@@ -242,6 +260,102 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
 
     # --- Codex format ---
     if tool_id == "codex":
+        # Handle modern item.started / item.completed events
+        if msg_type in ("item.completed", "item.started", "item.updated"):
+            item = obj.get("item")
+            if isinstance(item, dict):
+                itype = item.get("type", "")
+                done = msg_type == "item.completed"
+                if itype == "agent_message":
+                    text = item.get("text", "")
+                    if done and str(text).strip():
+                        return NormalizedMessage(
+                            role="assistant",
+                            content=str(text).strip(),
+                            timestamp=timestamp,
+                            raw_type="agent_message",
+                        )
+                    return None
+                if itype == "user_message":
+                    text = item.get("text") or item.get("message") or item.get("content") or ""
+                    if str(text).strip():
+                        return NormalizedMessage(
+                            role="user",
+                            content=str(text).strip(),
+                            timestamp=timestamp,
+                            raw_type="user_message",
+                        )
+                    return None
+                if itype == "reasoning":
+                    rtext = item.get("text") or item.get("summary") or _extract_codex_content(item.get("rawContent", []))
+                    if str(rtext).strip():
+                        return NormalizedMessage(
+                            role="assistant",
+                            content="[AI 思考过程]",
+                            thinking=str(rtext).strip(),
+                            timestamp=timestamp,
+                            raw_type="reasoning",
+                        )
+                    return None
+                if itype == "command_execution":
+                    cmd = str(item.get("command") or "")
+                    exit_code = item.get("exit_code")
+                    output = str(item.get("aggregated_output") or "")
+                    is_failed = exit_code is not None and exit_code != 0
+                    status = "running" if not done else ("failed" if is_failed else "succeeded")
+                    display = output.strip() if output.strip() else f"[{cmd}]"
+                    if len(display) > 5000:
+                        display = display[:5000] + "\n…(truncated)"
+                    err_msg = str(item.get("error") or "")
+                    if not err_msg and is_failed:
+                        err_msg = f"exit code {exit_code}"
+                    return NormalizedMessage(
+                        role="tool",
+                        content=display,
+                        tool_name="Shell",
+                        tool_input=cmd,
+                        status=status,
+                        exit_code=exit_code if isinstance(exit_code, int) else None,
+                        error=err_msg,
+                        timestamp=timestamp,
+                        raw_type="command_execution",
+                    )
+                if itype == "file_change":
+                    changes = item.get("changes") or []
+                    paths = [str(c.get("path") or "") for c in changes if isinstance(c, dict)]
+                    status = "failed" if item.get("status") == "failed" else ("succeeded" if done else "running")
+                    return NormalizedMessage(
+                        role="tool",
+                        content=", ".join(filter(None, paths)) or "[file_change]",
+                        tool_name="Edit",
+                        status=status,
+                        timestamp=timestamp,
+                        raw_type="file_change",
+                    )
+                if itype == "web_search":
+                    query = str(item.get("query") or "")
+                    return NormalizedMessage(
+                        role="tool",
+                        content=f"[WebSearch: {query}]",
+                        tool_name="WebSearch",
+                        tool_input=query,
+                        status="succeeded" if done else "running",
+                        timestamp=timestamp,
+                        raw_type="web_search",
+                    )
+                if itype == "mcp_tool_call":
+                    s_name = f"{item.get('server', '')}.{item.get('tool', '')}".strip(".") or "mcp"
+                    return NormalizedMessage(
+                        role="tool",
+                        content=f"[{s_name}]",
+                        tool_name=s_name,
+                        tool_input=json.dumps(item.get("arguments", {}), ensure_ascii=False),
+                        status="failed" if item.get("status") == "failed" else ("succeeded" if done else "running"),
+                        timestamp=timestamp,
+                        raw_type="mcp_tool_call",
+                    )
+            return None
+
         payload = obj.get("payload", {})
 
         if msg_type == "response_item":
@@ -280,6 +394,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                     content=f"[{tool_name}]",
                     tool_name=tool_name,
                     tool_input=tool_input,
+                    status="running",
                     timestamp=timestamp,
                     raw_type="tool_call",
                 )
@@ -296,9 +411,16 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                 if len(display) > 5000:
                     display = display[:5000] + "\n…(truncated)"
                 if display:
+                    is_failed = payload.get("is_error") is True or bool(payload.get("error"))
+                    status_val = payload.get("status") or ("failed" if is_failed else "succeeded")
+                    exit_code_val = payload.get("exit_code")
+                    error_val = str(payload.get("error") or "")
                     return NormalizedMessage(
                         role="tool",
                         content=display,
+                        status=str(status_val),
+                        exit_code=exit_code_val if isinstance(exit_code_val, int) else None,
+                        error=error_val,
                         timestamp=timestamp,
                         raw_type="tool_result",
                     )
@@ -467,6 +589,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                     content=f"[{tname}]",
                     tool_name=tname,
                     tool_input=targs[:2000],
+                    status="running",
                     timestamp=obj.get("created_at") or timestamp,
                     raw_type="tool_call",
                 )
@@ -489,9 +612,16 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
         if msg_type == "GENERIC":
             content = (obj.get("content") or "").strip()
             if content:
+                err_raw = str(obj.get("error") or "")
+                exit_code_raw = obj.get("exit_code")
+                is_err = bool(err_raw) or (isinstance(exit_code_raw, int) and exit_code_raw != 0)
+                status_raw = obj.get("status") or ("failed" if is_err else "succeeded")
                 return NormalizedMessage(
                     role="tool",
                     content=content[:3000],
+                    status=str(status_raw),
+                    exit_code=exit_code_raw if isinstance(exit_code_raw, int) else None,
+                    error=err_raw,
                     timestamp=obj.get("created_at") or timestamp,
                     raw_type="tool_output",
                 )
@@ -814,7 +944,27 @@ def _parse_hermes_session(raw_content: str, offset: int, limit: int | None) -> l
             tool_name = tool_name_by_id.get(tcid, "tool")
             formatted = _format_hermes_tool_content(text)
             display = formatted if len(formatted) <= 4000 else formatted[:4000] + "\n…(truncated)"
-            norm = NormalizedMessage(role="tool", content=display, tool_name=tool_name, timestamp=timestamp)
+            h_status = "succeeded"
+            h_exit_code = None
+            h_error = ""
+            try:
+                outer = json.loads(text)
+                if isinstance(outer, dict):
+                    h_exit_code = outer.get("exit_code")
+                    h_error = str(outer.get("error") or "")
+                    if h_error or (isinstance(h_exit_code, int) and h_exit_code != 0):
+                        h_status = "failed"
+            except Exception:
+                pass
+            norm = NormalizedMessage(
+                role="tool",
+                content=display,
+                tool_name=tool_name,
+                status=h_status,
+                exit_code=h_exit_code if isinstance(h_exit_code, int) else None,
+                error=h_error,
+                timestamp=timestamp,
+            )
         else:
             continue
 

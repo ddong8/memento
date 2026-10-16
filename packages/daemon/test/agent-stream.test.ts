@@ -71,7 +71,7 @@ describe("Codex exec --json", () => {
     const t = tools(events);
     expect(t.map((x) => x.detail)).toEqual(["ls", "printf hi > hello2.txt"]);
     expect(t.every((x) => x.status === "done")).toBe(true);
-    expect(parser.finalText).toBe("DONE");
+    expect(parser.finalText).toBe("我将执行 ls，然后创建 hello2.txt。\n\nDONE");
     expect(parser.sessionId).toBe("01a0e88c-159e-74f2-9b90-68d0adee98a0");
     expect(events.at(-1)!.kind).toBe("usage");
   });

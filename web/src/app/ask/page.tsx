@@ -3167,6 +3167,12 @@ function AskPageContent() {
             }
           } else if (run && run.done) {
             // Task has completed on server
+            const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
+            if (isStreamActive) {
+              // The SSE stream is actively receiving frames from the server.
+              // Do NOT abort it or race with final delta/done frames still in transit!
+              return;
+            }
             if (streamingRef.current || forceRefreshWhenIdle) {
               if (abortRef.current) {
                 try {
@@ -3179,6 +3185,12 @@ function AskPageContent() {
               if (isMounted && data?.turns) {
                 const prevLast = turnsRef.current[turnsRef.current.length - 1];
                 const nextLast = data.turns[data.turns.length - 1];
+                if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
+                  nextLast.content = prevLast.content;
+                }
+                if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
+                  nextLast.toolCalls = prevLast.toolCalls;
+                }
                 const changed =
                   wasStreaming ||
                   data.turns.length !== turnsRef.current.length ||
@@ -3208,6 +3220,10 @@ function AskPageContent() {
           }
         } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
           // No active run on server
+          const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
+          if (isStreamActive) {
+            return;
+          }
           if (abortRef.current) {
             try {
               abortRef.current.abort();
@@ -3219,6 +3235,12 @@ function AskPageContent() {
           if (isMounted && data?.turns) {
             const prevLast = turnsRef.current[turnsRef.current.length - 1];
             const nextLast = data.turns[data.turns.length - 1];
+            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
+              nextLast.content = prevLast.content;
+            }
+            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
+              nextLast.toolCalls = prevLast.toolCalls;
+            }
             const changed =
               wasStreaming ||
               data.turns.length !== turnsRef.current.length ||
@@ -3518,14 +3540,24 @@ function AskPageContent() {
     void reloadCapabilities(false);
   }, [executionMode, selectedDevice, reloadCapabilities]);
 
-  // Throttled patchLast aligned with requestAnimationFrame: mutate ref immediately, coalesce React Markdown re-renders to avoid CPU spikes
-  const patchLast = useCallback((fn: (turn: Turn) => Turn) => {
+  // Throttled patchLast: mutate ref immediately. When immediate is requested or tab is hidden, flush immediately; otherwise coalesce via requestAnimationFrame.
+  const patchLast = useCallback((fn: (turn: Turn) => Turn, immediate = false) => {
     const arr = turnsRef.current;
     const i = arr.length - 1;
     if (i >= 0 && arr[i].role === "assistant") {
       arr[i] = fn(arr[i]);
     } else {
       arr.push(fn({ role: "assistant", content: "", toolCalls: [] }));
+    }
+    const isHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    if (immediate || isHidden) {
+      if (rafIdRef.current) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      turnsDirtyRef.current = false;
+      setTurns([...turnsRef.current]);
+      return;
     }
     if (!turnsDirtyRef.current) {
       turnsDirtyRef.current = true;
@@ -3961,13 +3993,16 @@ function AskPageContent() {
             created_at: doneIso,
             ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),
           };
-        });
+        }, true);
       } else if (evt.type === "error") {
         postLiveActivity("end", {
           status: "error",
           currentStep: `发生错误: ${(evt.message || t.ask.error || "").slice(0, 36)}`,
         });
-        patchLast((x) => ({ ...x, content: evt.message || t.ask.error, error: true, created_at: x.created_at || new Date().toISOString() }));
+        patchLast(
+          (x) => ({ ...x, content: evt.message || t.ask.error, error: true, created_at: x.created_at || new Date().toISOString() }),
+          true
+        );
       }
     };
 
@@ -4018,9 +4053,19 @@ function AskPageContent() {
         if (res.status === 404) {
           setIsReconnecting(false);
           // Finished and no longer held by the server: the saved conversation has it all.
-          const data = await api.getAskConversation(cursor.convId!, 40);
-          turnsRef.current = data.turns || [];
-          setTurns(data.turns || []);
+          const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
+          if (data?.turns) {
+            const prevLast = turnsRef.current[turnsRef.current.length - 1];
+            const nextLast = data.turns[data.turns.length - 1];
+            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
+              nextLast.content = prevLast.content;
+            }
+            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
+              nextLast.toolCalls = prevLast.toolCalls;
+            }
+            turnsRef.current = data.turns;
+            setTurns(data.turns);
+          }
           scrollConversationToBottom(true);
           return;
         }
@@ -4049,9 +4094,19 @@ function AskPageContent() {
         });
         if (runRes.status === 404) {
           setIsReconnecting(false);
-          const data = await api.getAskConversation(cursor.convId!, 40);
-          turnsRef.current = data.turns || [];
-          setTurns(data.turns || []);
+          const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
+          if (data?.turns) {
+            const prevLast = turnsRef.current[turnsRef.current.length - 1];
+            const nextLast = data.turns[data.turns.length - 1];
+            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
+              nextLast.content = prevLast.content;
+            }
+            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
+              nextLast.toolCalls = prevLast.toolCalls;
+            }
+            turnsRef.current = data.turns;
+            setTurns(data.turns);
+          }
           scrollConversationToBottom(true);
           return;
         }
@@ -4059,9 +4114,19 @@ function AskPageContent() {
           const run = await runRes.json();
           if (run.done || run.cancelled) {
             setIsReconnecting(false);
-            const data = await api.getAskConversation(cursor.convId!, 40);
-            turnsRef.current = data.turns || [];
-            setTurns(data.turns || []);
+            const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
+            if (data?.turns) {
+              const prevLast = turnsRef.current[turnsRef.current.length - 1];
+              const nextLast = data.turns[data.turns.length - 1];
+              if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
+                nextLast.content = prevLast.content;
+              }
+              if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
+                nextLast.toolCalls = prevLast.toolCalls;
+              }
+              turnsRef.current = data.turns;
+              setTurns(data.turns);
+            }
             scrollConversationToBottom(true);
             return;
           }

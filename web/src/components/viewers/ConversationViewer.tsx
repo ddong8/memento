@@ -471,15 +471,67 @@ export const ChatBubble = memo(function ChatBubble({
             maxWidth: "90%",
           }}
         >
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: displayInput || content ? 6 : 0 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: displayInput || content ? 6 : 0, flexWrap: "wrap" }}>
             <Icon name="terminal" size={13} style={{ color: "var(--aurora-accent)" }} />
             <span style={{ fontFamily: "ui-monospace,monospace", fontWeight: 600, fontSize: 11.5 }}>{toolName || "Tool"}</span>
+            {msg.status && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: "1px 6px",
+                  borderRadius: 999,
+                  background:
+                    msg.status === "failed" || (typeof msg.exit_code === "number" && msg.exit_code !== 0)
+                      ? "rgba(239, 68, 68, 0.12)"
+                      : msg.status === "running"
+                      ? "rgba(59, 130, 246, 0.12)"
+                      : "rgba(16, 185, 129, 0.12)",
+                  color:
+                    msg.status === "failed" || (typeof msg.exit_code === "number" && msg.exit_code !== 0)
+                      ? "#EF4444"
+                      : msg.status === "running"
+                      ? "#3B82F6"
+                      : "#10B981",
+                  border: `1px solid ${
+                    msg.status === "failed" || (typeof msg.exit_code === "number" && msg.exit_code !== 0)
+                      ? "rgba(239, 68, 68, 0.25)"
+                      : msg.status === "running"
+                      ? "rgba(59, 130, 246, 0.25)"
+                      : "rgba(16, 185, 129, 0.25)"
+                  }`,
+                }}
+              >
+                {msg.status === "failed" || (typeof msg.exit_code === "number" && msg.exit_code !== 0)
+                  ? (msg.exit_code !== undefined && msg.exit_code !== null ? `exit ${msg.exit_code}` : "failed")
+                  : msg.status === "running"
+                  ? "running"
+                  : (msg.exit_code === 0 ? "exit 0" : "succeeded")}
+              </span>
+            )}
             {msg.timestamp && (
               <span style={{ fontSize: 10, color: "var(--aurora-fg4)", fontVariantNumeric: "tabular-nums" }}>
                 {new Date(msg.timestamp).toLocaleString(locale)}
               </span>
             )}
           </div>
+          {msg.error && (
+            <div
+              style={{
+                marginTop: 4,
+                marginBottom: 6,
+                padding: "4px 8px",
+                borderRadius: 6,
+                background: "rgba(239, 68, 68, 0.08)",
+                border: "1px solid rgba(239, 68, 68, 0.2)",
+                fontSize: 11,
+                color: "#EF4444",
+                fontFamily: "ui-monospace,monospace",
+              }}
+            >
+              ⚠️ {msg.error}
+            </div>
+          )}
           {displayInput && (
             <pre
               style={{

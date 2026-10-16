@@ -2291,6 +2291,11 @@ async def sse_keepalive_generator(
                 pass
 
 
+_TRANSIENT_LINE_RE = re.compile(
+    r"^(?:(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[(?:后台任务|模型思考|等待用户|工具|任务在后台)[^\]]*\]|\[STATUS_STILL_RUNNING:[^\]]*\])"
+)
+
+
 def _clean_agent_summary(text: str) -> str:
     """Strip transient heartbeat and background task status tags from assistant stdout."""
     if not text:
@@ -2301,11 +2306,7 @@ def _clean_agent_summary(text: str) -> str:
         trimmed = line.strip()
         if not trimmed:
             continue
-        is_transient = (
-            trimmed.startswith(("⏳", "⏹", "✅", "❌", "🈳", "⚡"))
-            and "[" in trimmed
-            and "]" in trimmed
-        ) or trimmed.startswith("[STATUS_STILL_RUNNING:")
+        is_transient = bool(_TRANSIENT_LINE_RE.match(trimmed))
         if not is_transient:
             substantive_start = i
             break

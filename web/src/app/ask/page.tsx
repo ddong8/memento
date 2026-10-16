@@ -3171,6 +3171,13 @@ function AskPageContent() {
                 askCache.streaming = false;
                 askCache.activeRun = null;
               }
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("memento_ask_done", {
+                    detail: { conversation_id: convId },
+                  })
+                );
+              }
             }
           }
         } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
@@ -3203,6 +3210,13 @@ function AskPageContent() {
           if (askCache) {
             askCache.streaming = false;
             askCache.activeRun = null;
+          }
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("memento_ask_done", {
+                detail: { conversation_id: convId },
+              })
+            );
           }
         }
       } catch {
@@ -4208,6 +4222,13 @@ function AskPageContent() {
     }
     if (convId) {
       authFetch(`${getApiBase()}/api/ask/conversations/${convId}/cancel`, { method: "POST" }).catch(() => {});
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("memento_ask_done", {
+            detail: { conversation_id: convId },
+          })
+        );
+      }
     }
   }, []);
 

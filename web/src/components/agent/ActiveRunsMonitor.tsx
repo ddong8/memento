@@ -60,6 +60,7 @@ export default function ActiveRunsMonitor() {
   const notifiedConvIdsRef = useRef<Set<string>>(new Set());
   const seenFinishedWhileVisibleRef = useRef<Set<string>>(new Set());
   const completedNoticeTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const locallyFinishedMapRef = useRef<Map<string, number>>(new Map());
 
   const hasActiveRuns = runs.some((r) => !r.done);
   const hasVisibleNotifications = runs.some(
@@ -86,13 +87,22 @@ export default function ActiveRunsMonitor() {
       const data = await api.listAskRuns(20);
       if (!Array.isArray(data)) return;
 
+      const nowTs = Date.now();
+      const sanitizedData = data.map((r) => {
+        const finishedAtMs = locallyFinishedMapRef.current.get(r.conversation_id);
+        if (finishedAtMs && nowTs - finishedAtMs < 60_000) {
+          return { ...r, done: true, finished_at: r.finished_at || finishedAtMs / 1000 };
+        }
+        return r;
+      });
+
       const currentActiveIds = new Set<string>();
-      data.forEach((r) => {
+      sanitizedData.forEach((r) => {
         if (!r.done) currentActiveIds.add(r.conversation_id);
       });
 
       // Check transitions: was active previously, now done
-      data.forEach((r) => {
+      sanitizedData.forEach((r) => {
         if (
           r.done &&
           activeIdsRef.current.has(r.conversation_id) &&
@@ -129,23 +139,7 @@ export default function ActiveRunsMonitor() {
       });
 
       activeIdsRef.current = currentActiveIds;
-      setRuns((prev) => {
-        if (prev.length === 0 && data.length === 0) return prev;
-        if (
-          prev.length === data.length &&
-          prev.every(
-            (p, idx) =>
-              p.conversation_id === data[idx].conversation_id &&
-              p.done === data[idx].done &&
-              p.cancelled === data[idx].cancelled &&
-              p.failed === data[idx].failed &&
-              p.finished_at === data[idx].finished_at
-          )
-        ) {
-          return prev;
-        }
-        return data;
-      });
+      setRuns(sanitizedData);
     } catch {
       // Ignore network errors during polling
     }
@@ -156,6 +150,7 @@ export default function ActiveRunsMonitor() {
     const handleAskDone = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
+        locallyFinishedMapRef.current.set(convId, Date.now());
         activeIdsRef.current.delete(convId);
         const alreadyNotified = notifiedConvIdsRef.current.has(convId);
         notifiedConvIdsRef.current.add(convId);
@@ -186,12 +181,13 @@ export default function ActiveRunsMonitor() {
           setDismissedNotificationIds((prev) => new Set([...prev, convId]));
         }
       }
-      fetchRuns();
+      setTimeout(fetchRuns, 150);
     };
 
     const handleAskStart = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
+        locallyFinishedMapRef.current.delete(convId);
         notifiedConvIdsRef.current.delete(convId);
         seenFinishedWhileVisibleRef.current.delete(convId);
         setDismissedNotificationIds((prev) => {
@@ -200,7 +196,7 @@ export default function ActiveRunsMonitor() {
           return next;
         });
       }
-      fetchRuns();
+      setTimeout(fetchRuns, 150);
     };
 
     window.addEventListener("memento_ask_done", handleAskDone);
@@ -302,17 +298,22 @@ export default function ActiveRunsMonitor() {
     (r) => r.done && !dismissedNotificationIds.has(r.conversation_id) && (now / 1000 - (r.finished_at || 0) < 20)
   );
 
-  // Suppress floating dock when the user is already on /ask observing the single active run
-  const isWatchingOnlyActiveRun =
-    pathname === "/ask" &&
-    (activeRuns.length === 1 || (currentConvId && activeRuns.every((r) => r.conversation_id === currentConvId)));
-  const showFloatingDock = activeRuns.length > 0 && !isWatchingOnlyActiveRun;
+  // Suppress floating dock for runs that are already actively in the user's viewport on /ask
+  const unobservedActiveRuns = activeRuns.filter((r) => {
+    if (pathname === "/ask") {
+      if (currentConvId && r.conversation_id === currentConvId) return false;
+      if (activeRuns.length === 1 && (!currentConvId || currentConvId === r.conversation_id)) return false;
+    }
+    return true;
+  });
+  const showFloatingDock = unobservedActiveRuns.length > 0;
 
   // Handle task stop/cancel
   const handleCancel = async (e: React.MouseEvent, convId: string) => {
     e.stopPropagation();
     try {
       setCancellingId(convId);
+      locallyFinishedMapRef.current.set(convId, Date.now());
       // 立即在前端标记已停止，无需等待后端与轮询回包
       setRuns((prev) =>
         prev.map((r) => (r.conversation_id === convId ? { ...r, done: true, cancelled: true } : r))
@@ -526,11 +527,11 @@ export default function ActiveRunsMonitor() {
                   智能体运行中
                 </span>
                 <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/60 px-1.5 py-0.2 rounded-full border border-emerald-500/30 whitespace-nowrap">
-                  {formatDuration(activeRuns[0].started_at)}
+                  {formatDuration(unobservedActiveRuns[0].started_at)}
                 </span>
-                {activeRuns.length > 1 && (
+                {unobservedActiveRuns.length > 1 && (
                   <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/25 text-sky-300 font-mono">
-                    +{activeRuns.length - 1}
+                    +{unobservedActiveRuns.length - 1}
                   </span>
                 )}
                 <span className="text-[11px] text-sky-400 flex items-center gap-0.5 opacity-90 font-medium whitespace-nowrap pl-0.5 group-hover:underline">
@@ -557,7 +558,7 @@ export default function ActiveRunsMonitor() {
                     <span className="text-xs font-semibold text-white tracking-wide flex items-center gap-1.5">
                       后台智能体运行中
                       <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-500/20 text-sky-300 font-mono">
-                        {activeRuns.length}
+                        {unobservedActiveRuns.length}
                       </span>
                     </span>
                   </div>
@@ -583,7 +584,7 @@ export default function ActiveRunsMonitor() {
                     WebkitOverflowScrolling: "touch",
                   }}
                 >
-                  {activeRuns.map((run) => {
+                  {unobservedActiveRuns.map((run) => {
                     const badge = getModeBadge(run.execution_mode);
                     const isCurrentChat = currentConvId === run.conversation_id;
                     const isCancelling = cancellingId === run.conversation_id;

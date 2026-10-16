@@ -187,6 +187,9 @@ class AskRun:
             elif evt_type == "done":
                 self.step_type = "done"
                 self.current_step = "任务完成"
+                self.done = True
+                if not self.finished_at:
+                    self.finished_at = time.time()
         except Exception:
             pass
 
@@ -278,9 +281,21 @@ class AskRunRegistry:
     def active_for_user(self, user_id: uuid.UUID, include_recent_seconds: float = 0) -> list[AskRun]:
         now = time.time()
         res = []
-        for r in self._runs.values():
+        for r in list(self._runs.values()):
             if r.user_id != user_id:
                 continue
+            # If the underlying background task has completed, ensure done is marked
+            if r.task and r.task.done() and not r.done:
+                r.done = True
+                if not r.finished_at:
+                    r.finished_at = now
+            # Safety timeout: if a run has had no frames or activity for > 15 minutes, mark as finished
+            if not r.done and (now - r.last_active_at > 900):
+                r.done = True
+                r.failed = True
+                r.finished_at = now
+                r.current_step = "任务超时已终止"
+
             if not r.done:
                 res.append(r)
             elif include_recent_seconds > 0 and r.finished_at and (now - r.finished_at <= include_recent_seconds):
@@ -375,10 +390,15 @@ class AskRunRegistry:
 
     def cancel(self, conversation_id: str, user_id: uuid.UUID) -> bool:
         run = self.get(conversation_id, user_id)
-        if run is None or run.done or run.task is None:
+        if run is None or run.done:
             return False
         run.cancelled = True
-        run.task.cancel()
+        run.done = True
+        run.finished_at = time.time()
+        run.current_step = "已停止"
+        run.step_type = "cancelled"
+        if run.task:
+            run.task.cancel()
         return True
 
     async def _pump(self, run: AskRun, factory: GeneratorFactory) -> None:

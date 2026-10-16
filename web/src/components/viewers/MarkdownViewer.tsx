@@ -228,6 +228,9 @@ export function normalizeMarkdownContent(content: string): string {
       // 5. 消除连续换行中的残留多余空格，并规范化为双换行段落分隔
       text = text.replace(/[ \t]*\n[ \t]*/g, "\n").replace(/\n{3,}/g, "\n\n");
 
+      // 6. 防止分割线 (--- 或 ===) 与前一行普通正文紧贴，导致被 CommonMark 误解析为巨大的 Setext 二级/一级大标题 (<h2>/<h1>)
+      text = text.replace(/([^\n])\n(-{3,}|={3,})\s*(?:\n|$)/g, "$1\n\n$2\n\n");
+
       // 6. 执行进度与保活心跳去重：消除连续刷屏的重复心跳（如重复的 "⏳ [后台任务 ... 执行中]"）
       const lines = text.split("\n");
       const filteredLines: string[] = [];

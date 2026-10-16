@@ -458,7 +458,10 @@ export class UniversalStreamParser extends AgentStreamParser {
 
   feed(line: string): AgentEvent[] | null {
     const raw = line.trim();
-    if (!raw) return [];
+    if (!raw) {
+      this.plainTexts.push("");
+      return null;
+    }
 
     const sidMatch = /session id:\s*([^\s\n\r]+)/i.exec(raw) ?? /thread[_-]id:\s*([^\s\n\r]+)/i.exec(raw);
     if (sidMatch && sidMatch[1]) {

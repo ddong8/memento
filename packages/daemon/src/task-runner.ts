@@ -478,7 +478,13 @@ export class TaskRunner {
         armTimer();
         const events = parser.feed(line);
         if (events === null) {
-          if (!line.trim()) return;
+          if (!line.trim()) {
+            // Preserve paragraph separation while preventing excessive empty lines
+            if (out.stdout.endsWith("\n\n")) return;
+            out.stdout += "\n";
+            this.send(chunk(taskId, "stdout", "\n"));
+            return;
+          }
           if (out.stdout.length < 2_500_000) {
             out.stdout += `${line}\n`;
           }

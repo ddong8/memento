@@ -341,7 +341,7 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
     }
 
     const oauth = d.oauthAccount || {};
-    const token = await getClaudeOAuthToken();
+    const token = home === homeDir() ? await getClaudeOAuthToken() : undefined;
 
     // 1. 优先尝试直接调用 Anthropic 官方实时 /api/oauth/usage 端点获取 100% 鲜活数据
     let liveUsage: Record<string, any> | undefined;

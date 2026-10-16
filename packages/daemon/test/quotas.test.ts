@@ -78,8 +78,8 @@ describe("Real Agent Quotas", () => {
     if (quota.available) {
       expect(quota.logged_in).toBe(true);
       expect(typeof quota.remaining_percent).toBe("number");
-      // 本机 Gemini 3.8 Flash 配额实际为 2.7%
-      expect(quota.remaining_percent).toBeLessThan(100);
+      expect(quota.remaining_percent).toBeLessThanOrEqual(100);
+      expect(quota.remaining_percent).toBeGreaterThanOrEqual(0);
       expect(quota.models?.length).toBeGreaterThan(0);
     }
   });

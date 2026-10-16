@@ -373,7 +373,7 @@ export class CodexStreamParser extends AgentStreamParser {
               name: fullName || "tool",
               detail: isQuestion ? clip(str(args.question) || str(args.prompt) || "", 200) : "",
               status: running(item.status === "failed"),
-              ...(done && item.result != null ? { output: clip(str(item.result), 400) } : {}),
+              ...(done && item.result != null ? { output: clip(str(item.result) ?? "", 400) } : {}),
             });
 
             if (isQuestion) {
@@ -395,7 +395,7 @@ export class CodexStreamParser extends AgentStreamParser {
                   kind: "question",
                   id: qId,
                   status: "answered",
-                  answer: clip(str(item.result ?? ""), 200),
+                  answer: clip(str(item.result) ?? "", 200),
                 });
               }
             }

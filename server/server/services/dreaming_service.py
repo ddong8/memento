@@ -807,7 +807,7 @@ IGNORE_SLUGS: set[str] = {
     # Non-project tasks & diagnostic sessions
     "oom_cpu治理任务", "基础设施侦察任务", "外接硬盘盒诊断", "influxdb_移除任务",
     "phase_b_2", "errors_log", "ver1_kbw_04_17", "0212", "abc215",
-    "120_78_4_157", "120_77", "192_168_1_144", "内网穿透方案", "product_catalog_module",
+    "内网穿透方案", "product_catalog_module",  # IP-like names are caught by the pattern below
     "pdf预览项目", "chrome扩展", "systemd_ubuntu", "docker_gpu_镜像",
     # Miscellaneous files & licenses
     "apache_2_0_license_codex_text", "dot_github", "license", "video", "jupyter",
@@ -820,7 +820,7 @@ def _is_suspicious_non_project(slug: str, raw_name: str) -> bool:
     """Detect non-project strings (chemical formulas, IP addresses, date stamps, hardware specs, etc.)."""
     s = slug.lower().strip()
     r = raw_name.lower().strip()
-    # IP address patterns (e.g. 192_168_1_144, 120_77, 120_78_4_157)
+    # IP address patterns (e.g. 192_0_2_10, 198_51, 203_0_113_7)
     if re.match(r"^(\d+[\._])+\d+$", s) or re.search(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", r):
         return True
     # Chemical compound terms / IUPAC / reaction fragments

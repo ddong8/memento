@@ -136,8 +136,8 @@ class TestDreamingService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(_is_suspicious_non_project("smiles_c1234", "SMILES: CC(C)C1=CC=C..."))
 
         # IP addresses and nodes
-        self.assertTrue(_is_suspicious_non_project("192_168_1_144", "192.168.1.144"))
-        self.assertTrue(_is_suspicious_non_project("120_77", "120.77"))
+        self.assertTrue(_is_suspicious_non_project("192_0_2_10", "192.0.2.10"))
+        self.assertTrue(_is_suspicious_non_project("198_51", "198.51"))
         self.assertTrue(_is_suspicious_non_project("node_144", "node-144"))
 
         # Models & hardware specs
@@ -165,7 +165,7 @@ class TestDreamingService(unittest.IsolatedAsyncioTestCase):
         doc_rows = [
             ("quant_future", "quant_future", 20),
             ("3_甲基_3,9_二氮杂螺", "化学化合物", 10),  # Suspicious non-project -> filtered
-            ("192_168_1_144", "服务器节点", 8),        # IP -> filtered
+            ("192_0_2_10", "服务器节点", 8),        # IP -> filtered
             ("scratch_tool", "临时脚本", 2),            # cnt < 5 and uncurated -> filtered
         ]
         # Knowledge entities: zero-doc noise entities marked as 'project'
@@ -186,7 +186,7 @@ class TestDreamingService(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("quant_future", slugs)
         self.assertNotIn("3_甲基_3,9_二氮杂螺", slugs)
-        self.assertNotIn("192_168_1_144", slugs)
+        self.assertNotIn("192_0_2_10", slugs)
         self.assertNotIn("scratch_tool", slugs)
         self.assertNotIn("塞来昔布中间体", slugs)
         self.assertNotIn("2周反转策略", slugs)

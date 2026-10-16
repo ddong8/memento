@@ -100,11 +100,10 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=0),
         "kwargs": {"days_back": 1},
     },
-    # Every 15 min: reattempt documents whose embedding pipeline errored
-    # (e.g. the host-side BGE-M3 server was briefly unreachable).
+    # Every minute: embed documents that changed and went quiet, retry failures with backoff.
     "embedding-retry": {
         "task": "server.tasks.embedding_retry.retry_failed_embeddings",
-        "schedule": crontab(minute="*/15"),
+        "schedule": crontab(minute="*"),
     },
     # Same cadence (offset by 2 min so the two retry beats don't hammer
     # the DB / LLM provider at the same instant). Picks up docs whose

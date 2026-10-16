@@ -896,6 +896,10 @@ async def ingest_file(
             doc.content = content
         doc.content_hash = content_hash
         doc.file_size_bytes = file_size
+        # New text: the embedding sweep picks the document up once it goes quiet
+        from .embedding_service import EMBED_CATEGORIES
+        if category in EMBED_CATEGORIES:
+            doc.embedding_status = "pending"
         doc.metadata_ = {**doc.metadata_, **metadata}
         doc.needs_review = doc.needs_review or had_sensitive
         doc.synced_at = now
@@ -1063,7 +1067,7 @@ async def ingest_file(
 
 
 async def _run_post_ingest(doc_id, tool_id: str, category: str) -> None:
-    """Post-ingest: generate embeddings and extract knowledge (best-effort, own session)."""
+    """Post-ingest: extract knowledge (best-effort, own session)."""
     import logging
     logger = logging.getLogger("post_ingest")
 
@@ -1090,15 +1094,7 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
                 logger.info("Post-ingest: doc %s not found", doc_id)
                 return
 
-            # Embedding (skip if API not available)
-            try:
-                from .embedding_service import generate_document_embeddings
-                count = await generate_document_embeddings(db, doc)
-                if count > 0:
-                    await db.commit()
-            except Exception as e:
-                logger.info("Embedding skipped for %s: %s", doc.relative_path, e)
-                await db.rollback()
+            # Embeddings come from the sweep (tasks/embedding_retry.py), not from every sync.
 
             # Knowledge graph extraction
             try:

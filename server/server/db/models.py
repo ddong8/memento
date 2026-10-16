@@ -155,7 +155,11 @@ class Document(Base):
     # drop documents. Values: pending (just ingested), ok (embedded), failed
     # (call errored — retry candidate), skipped (too short / binary — intentional).
     embedding_status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Failures in a row (0 after a success); sets how long the sweep waits before retrying.
     embedding_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # When the sweep last embedded the document, and when it may try again after a failure.
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    embedding_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Knowledge-graph extraction pipeline status. Same shape as the
     # embedding pair above. Values: pending (just ingested), ok
     # (extracted), failed (LLM errored — retry candidate via

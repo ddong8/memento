@@ -10,10 +10,11 @@ resources:
 - ingress.yaml
 
 # memento-config 用 generator:内容变化时名字带新 hash → 自动滚动 api/worker/beat,
-# 避免改了 EMBEDDING_SERVER_URL / AI_MODEL 却不生效。kustomize 会自动把各 Deployment
+# 避免改了 EMBEDDING_* / AI_MODEL 却不生效。kustomize 会自动把各 Deployment
 # 里 configMapRef: memento-config 的引用改写成带 hash 的名字。
-# embedding 跑在 Mac mini 上(原生 CPU,见 nas-memento-cicd 文档),集群经局域网直连;
-# Mac 的 LAN IP 必须在路由器做 DHCP 保留以稳定(否则 IP 变了要改这里并重新部署)。
+# 向量化走硅基流动的 BAAI/bge-m3(OpenAI 兼容接口),Key 在集群 Secret 的
+# MEMENTO_EMBEDDING_API_KEY 里。换回自建 bge-m3 服务:PROVIDER=local 并配
+# MEMENTO_EMBEDDING_SERVER_URL(内网地址不写进公开仓库,放集群里)。
   # 远程任务执行:允许从 Web / ask 的 agent 模式把 shell 或 agent 任务派到
   # 自己的设备上执行。设备端无需任何配置 —— 打开后,collector 下次心跳会
   # 领到服务端为它签发的专属密钥(每设备一把,存本地 0600 文件)。
@@ -23,7 +24,9 @@ configMapGenerator:
 - literals:
   - MEMENTO_REDIS_URL=redis://redis:6379/0
   - MEMENTO_S3_ENDPOINT=http://minio:9000
-  - MEMENTO_EMBEDDING_SERVER_URL=http://192.168.1.88:18002
+  - MEMENTO_EMBEDDING_PROVIDER=openai
+  - MEMENTO_EMBEDDING_API_URL=https://api.siliconflow.cn/v1
+  - MEMENTO_EMBEDDING_MODEL=BAAI/bge-m3
   - MEMENTO_AI_BASE_URL=https://ark.cn-beijing.volces.com/api/coding/v3
   - MEMENTO_AI_MODEL=glm-5.2
   - MEMENTO_AI_BACKGROUND_MODEL=deepseek-v4.1-flash

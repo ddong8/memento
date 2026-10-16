@@ -2636,7 +2636,10 @@ async def _direct_agent_stream(
                     is_only_tool_calls = True
 
             if status == "failed":
-                summary_text = f"❌ {err_msg}"
+                if action == "agent" and stdout:
+                    summary_text = f"{_clean_agent_summary(stdout)}\n\n> ❌ *[任务执行遇到错误: {err_msg}]*"
+                else:
+                    summary_text = f"❌ {err_msg}"
             elif status == "timeout" or exit_code == 124:
                 if stdout:
                     summary_text = f"{_clean_agent_summary(stdout)}\n\n> ⚠️ *[任务执行耗时较长触发安全保护中断，已记录上述排查过程。请发送“继续”以获取完整结论]*"
@@ -2661,7 +2664,10 @@ async def _direct_agent_stream(
                     else:
                         summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
                 else:
-                    summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
+                    if action == "shell":
+                        summary_text = f"```\n{stdout}\n```"
+                    else:
+                        summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
             else:
                 summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
         else:

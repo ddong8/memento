@@ -202,6 +202,16 @@ export const ChatBubble = memo(function ChatBubble({
   const thinking = msg.thinking?.trim() || "";
   const [expanded, setExpanded] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (text: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  };
 
   // Legacy fallback: convert old [Result] / [Tool: ...] messages into tool roles
   if (role === "user" && content.startsWith("[Result]")) {
@@ -514,6 +524,28 @@ export const ChatBubble = memo(function ChatBubble({
                 {new Date(msg.timestamp).toLocaleString(locale)}
               </span>
             )}
+            <button
+              type="button"
+              onClick={(e) => handleCopy(content || displayInput || "", e)}
+              title={copied ? (locale.startsWith("zh") ? "已复制" : "Copied") : (locale.startsWith("zh") ? "复制内容" : "Copy content")}
+              style={{
+                marginLeft: "auto",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: "2px 6px",
+                borderRadius: 4,
+                color: copied ? "#10B981" : "var(--aurora-fg4)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 10.5,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <Icon name={copied ? "check" : "copy"} size={11} />
+              <span>{copied ? (locale.startsWith("zh") ? "已复制" : "Copied") : ""}</span>
+            </button>
           </div>
           {msg.error && (
             <div
@@ -552,24 +584,47 @@ export const ChatBubble = memo(function ChatBubble({
             </pre>
           )}
           {content && content !== `[${toolName}]` && (
-            <pre
-              style={{
-                marginTop: 4,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                maxHeight: 240,
-                overflow: "hidden",
-                background: "var(--aurora-surface-solid)",
-                border: "1px solid var(--aurora-border)",
-                borderRadius: 8,
-                padding: 8,
-                fontFamily: "ui-monospace,monospace",
-                fontSize: 11,
-                color: "var(--aurora-fg3)",
-              }}
-            >
-              {content.length > 800 && !expanded ? content.slice(0, 800) + "..." : content}
-            </pre>
+            <div>
+              <pre
+                style={{
+                  marginTop: 4,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: expanded ? "none" : 240,
+                  overflow: "hidden",
+                  background: "var(--aurora-surface-solid)",
+                  border: "1px solid var(--aurora-border)",
+                  borderRadius: 8,
+                  padding: 8,
+                  fontFamily: "ui-monospace,monospace",
+                  fontSize: 11,
+                  color: "var(--aurora-fg3)",
+                }}
+              >
+                {content.length > 800 && !expanded ? content.slice(0, 800) + "..." : content}
+              </pre>
+              {content.length > 800 && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    marginTop: 4,
+                    fontSize: 11,
+                    color: "var(--aurora-accent)",
+                    background: "transparent",
+                    border: 0,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  <Icon name={expanded ? "chevron_up" : "chevron_down"} size={12} />
+                  <span>{expanded ? t.conversation.collapse : t.conversation.expandAll}</span>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

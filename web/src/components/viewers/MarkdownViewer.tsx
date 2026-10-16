@@ -28,12 +28,13 @@ interface MarkdownViewerProps {
 
 function PreBlock({ children, ...props }: any) {
   const [copied, setCopied] = useState(false);
+  const [copiedApply, setCopiedApply] = useState(false);
   const [isWrap, setIsWrap] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
 
   const codeElement = Array.isArray(children) ? children[0] : children;
   const langMatch = codeElement?.props?.className?.match(/language-([a-zA-Z0-9_-]+)/);
-  const lang = langMatch ? langMatch[1] : "";
+  const lang = (langMatch ? langMatch[1] : "").toLowerCase();
 
   const codeText = useMemo(() => {
     if (typeof codeElement?.props?.children === "string") {
@@ -47,6 +48,15 @@ function PreBlock({ children, ...props }: any) {
     return codeText.trim().split("\n").length;
   }, [codeText]);
 
+  const isDiff = useMemo(() => {
+    return (
+      lang === "diff" ||
+      lang === "patch" ||
+      codeText.startsWith("diff --git") ||
+      (codeText.includes("--- ") && codeText.includes("+++ "))
+    );
+  }, [lang, codeText]);
+
   const handleCopy = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -59,11 +69,30 @@ function PreBlock({ children, ...props }: any) {
     }
   };
 
+  const handleCopyApply = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const text = codeText || (preRef.current ? preRef.current.innerText || "" : "");
+    if (!text) return;
+    const cmd = `git apply << 'EOF'\n${text.trim()}\nEOF`;
+    navigator.clipboard.writeText(cmd).then(() => {
+      setCopiedApply(true);
+      setTimeout(() => setCopiedApply(false), 2000);
+    }).catch(() => {});
+  };
+
   return (
     <div className="not-prose relative group/code my-3 rounded-xl overflow-hidden border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-md">
       <div className="flex items-center justify-between px-3.5 py-1.5 bg-white/5 border-b border-white/5 text-[11px] text-[var(--aurora-fg3)] font-mono select-none">
         <div className="flex items-center gap-2">
-          <span className="font-semibold">{lang ? lang.toUpperCase() : "CODE"}</span>
+          {isDiff ? (
+            <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              DIFF / PATCH
+            </span>
+          ) : (
+            <span className="font-semibold">{lang ? lang.toUpperCase() : "CODE"}</span>
+          )}
           {lineCount > 1 && (
             <span className="text-[10px] px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg4)]">
               {lineCount} lines
@@ -71,6 +100,16 @@ function PreBlock({ children, ...props }: any) {
           )}
         </div>
         <div className="flex items-center gap-1.5">
+          {isDiff && (
+            <button
+              type="button"
+              onClick={handleCopyApply}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/20 transition-colors cursor-pointer"
+              title="复制 git apply 命令，可直接在终端粘贴执行应用改动"
+            >
+              {copiedApply ? "✓ 已复制命令" : "⚡ 复制 git apply"}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsWrap((w) => !w)}

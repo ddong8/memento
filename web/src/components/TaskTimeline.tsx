@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState, useMemo, type CSSProperties } from "react";
 import { steerNote, taskRunSummary, taskToolLabel, type TaskEvent } from "@memento/core";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
@@ -64,8 +64,20 @@ export default function TaskTimeline({
 
   const rows = events.filter((e) => e.kind !== "usage" && e.kind !== "session");
   const kept = [...events].reverse().find((e) => e.kind === "worktree" && e.status === "kept") as (TaskEvent & Record<string, unknown>) | undefined;
-  const hidden = !showAll && rows.length > COLLAPSED ? rows.length - COLLAPSED : 0;
-  const visible = hidden ? rows.slice(hidden) : rows;
+
+  const isWaitingQuestion = (e: TaskEvent) =>
+    e.kind === "question" && ((e as any).status === "waiting" || !(e as any).status);
+
+  // Guaranteed unhide protection: any active question waiting for response is never hidden
+  const visible = useMemo(() => {
+    if (showAll || rows.length <= COLLAPSED) return rows;
+    const recent = rows.slice(-COLLAPSED);
+    const olderWaiting = rows.slice(0, rows.length - COLLAPSED).filter(isWaitingQuestion);
+    if (olderWaiting.length === 0) return recent;
+    return [...olderWaiting, ...recent];
+  }, [showAll, rows]);
+
+  const hidden = rows.length - visible.length;
 
   const plain = (icon: IconName, text: string, note: string | null, color = "var(--aurora-fg3)") => (
     <div style={{ display: "flex", gap: 8, padding: "4px 0", fontSize: 12.5, lineHeight: 1.45 }}>

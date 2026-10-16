@@ -5136,6 +5136,63 @@ function AskPageContent() {
     placeholderText = isZh ? `在 ${currentDev.name} 上执行任务或提问...` : `Run task or question on ${currentDev.name}...`;
   }
 
+  // Active question waiting for user input across recent turns
+  const activeWaitingQuestion = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      if (turn.toolCalls) {
+        for (const tc of turn.toolCalls) {
+          const events = tc.result?.events;
+          if (events && Array.isArray(events)) {
+            const q = events.find(
+              (e: any) => e.kind === "question" && (e.status === "waiting" || !e.status) && !e.answer
+            ) as any;
+            if (q) {
+              return {
+                question: q,
+                taskId: tc.result?.task_id || tc.id,
+                device: tc.result?.device_name || tc.device_name || "",
+              };
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }, [turns]);
+
+  // Smart device routing recommendation based on prompt input
+  const suggestedDevice = useMemo(() => {
+    if (!input || !devices || devices.length <= 1) return null;
+    const lower = input.toLowerCase();
+
+    // Windows detection
+    const hasWinPath = lower.includes("c:\\") || lower.includes("d:\\") || lower.includes("c:/") || lower.includes("d:/") || /\b(powershell|cmd\.exe|choco|winget)\b/.test(lower);
+    if (hasWinPath) {
+      const winDev = devices.find((d) => {
+        const n = (d.name || "").toLowerCase();
+        return n.includes("windows") || n.includes("desktop-") || n.includes("pc");
+      });
+      if (winDev && winDev.device_id !== selectedDevice) {
+        return { device: winDev, reason: isZh ? "检测到 Windows 路径/命令" : "Windows path/command detected" };
+      }
+    }
+
+    // Mac detection
+    const hasMacPath = lower.includes("/users/") || lower.includes(".app/") || /\b(brew\s+|osascript|launchctl)\b/.test(lower);
+    if (hasMacPath) {
+      const macDev = devices.find((d) => {
+        const n = (d.name || "").toLowerCase();
+        return n.includes("mac") || n.includes("darwin");
+      });
+      if (macDev && macDev.device_id !== selectedDevice) {
+        return { device: macDev, reason: isZh ? "检测到 macOS 路径/命令" : "macOS path/command detected" };
+      }
+    }
+
+    return null;
+  }, [input, devices, selectedDevice, isZh]);
+
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId),
     [conversations, activeConversationId]
@@ -7162,6 +7219,106 @@ function AskPageContent() {
                 <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
                   {isZh ? `已附加 ${attachedImages.length} 张图片` : `${attachedImages.length} image(s) attached`}
                 </span>
+              </div>
+            )}
+
+            {/* Active Waiting Question Sticky Banner */}
+            {activeWaitingQuestion && (
+              <div
+                onClick={() => {
+                  const q = activeWaitingQuestion.question as any;
+                  const targetId = `question-prompt-${q?.id || activeWaitingQuestion.taskId || "active"}`;
+                  const el = document.getElementById(targetId);
+                  if (el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  } else {
+                    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                  }
+                }}
+                style={{
+                  margin: "0 0 8px 0",
+                  padding: "7px 12px",
+                  borderRadius: 10,
+                  background: "linear-gradient(90deg, rgba(245,158,11,0.18), rgba(245,158,11,0.08))",
+                  border: "1px solid rgba(245,158,11,0.4)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  cursor: "pointer",
+                  boxShadow: "0 2px 10px rgba(245,158,11,0.12)",
+                }}
+                className="animate-pulse"
+                title={isZh ? "点击定位到提问并进行回复" : "Click to view and answer the question"}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>
+                  <span style={{ color: "#D97706", display: "flex", flexShrink: 0 }}>
+                    <Icon name="message" size={14} />
+                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: "#B45309", whiteSpace: "nowrap", flexShrink: 0 }}>
+                    {isZh ? "Agent 等待确认" : "Agent waiting"}
+                  </span>
+                  <span style={{ fontSize: 12, color: "var(--aurora-fg2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {(activeWaitingQuestion.question as any)?.question || (isZh ? "请回复..." : "Please respond...")}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: "var(--aurora-accent)",
+                    background: "var(--aurora-surface-solid)",
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    border: "1px solid var(--aurora-border-strong)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {isZh ? "立即回复 ↓" : "Respond ↓"}
+                </span>
+              </div>
+            )}
+
+            {/* Smart Device Routing Recommendation Pill */}
+            {suggestedDevice && (
+              <div
+                style={{
+                  margin: "0 0 8px 0",
+                  padding: "6px 12px",
+                  borderRadius: 9,
+                  background: "rgba(49, 134, 255, 0.1)",
+                  border: "1px solid rgba(49, 134, 255, 0.3)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ color: "var(--aurora-accent)" }}>💡</span>
+                  <span style={{ color: "var(--aurora-fg2)" }}>
+                    {suggestedDevice.reason}，{isZh ? "建议切换目标设备至：" : "recommended target device:"}
+                  </span>
+                  <strong style={{ color: "var(--aurora-fg1)" }}>{suggestedDevice.device.name}</strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeviceChange(suggestedDevice.device.device_id)}
+                  style={{
+                    padding: "2px 9px",
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    border: "1px solid var(--aurora-accent)",
+                    background: "var(--aurora-accent)",
+                    color: "#fff",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  {isZh ? "一键切换" : "Switch"}
+                </button>
               </div>
             )}
 

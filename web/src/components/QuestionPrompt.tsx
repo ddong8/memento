@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useId } from "react";
+import { useState, useId, useRef, useEffect } from "react";
 import type { TaskEvent } from "@memento/core";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { useI18n, fmt } from "@/lib/i18n";
@@ -97,8 +97,23 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
 
   const currentAnswer = localAnswer || questionEvent.answer;
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isAnswered && containerRef.current) {
+      const timer = setTimeout(() => {
+        try {
+          containerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch {}
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isAnswered]);
+
   return (
     <div
+      ref={containerRef}
+      id={`question-prompt-${questionEvent.id || taskId || "active"}`}
       style={{
         margin: "10px 0",
         padding: "12px 14px",
@@ -106,8 +121,11 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
         background: isAnswered
           ? "rgba(16,185,129,0.06)"
           : "rgba(245,158,11,0.08)",
-        border: `1px solid ${isAnswered ? "rgba(16,185,129,0.25)" : "rgba(245,158,11,0.3)"}`,
-        boxShadow: "0 2px 8px -1px rgba(0,0,0,0.04)",
+        border: `1px solid ${isAnswered ? "rgba(16,185,129,0.25)" : "rgba(245,158,11,0.4)"}`,
+        boxShadow: isAnswered
+          ? "0 2px 8px -1px rgba(0,0,0,0.04)"
+          : "0 0 0 1px rgba(245,158,11,0.2), 0 4px 16px -2px rgba(245,158,11,0.15)",
+        transition: "all 0.25s ease",
       }}
     >
       {/* Header */}

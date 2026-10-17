@@ -10,7 +10,7 @@ from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
-    Document, DocumentVersion, KnowledgeEntity, KnowledgeObservation, User,
+    Document, KnowledgeEntity, KnowledgeObservation, User,
 )
 from ..db.session import get_db
 from ..middleware.access_log import log_access
@@ -72,48 +72,6 @@ async def get_document(
         "created_at": doc.created_at.isoformat(),
         "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
     }
-
-
-@router.get("/{doc_id}/raw")
-async def get_document_raw(
-    doc_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
-    _user: User = Depends(get_current_user),
-) -> dict:
-    mids = await user_machine_ids(db, _user)
-    doc = await _get_doc_with_permission(doc_id, db, user, mids)
-    return {"content": doc.content, "content_type": doc.content_type}
-
-
-@router.get("/{doc_id}/history")
-async def get_document_history(
-    doc_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_optional_user),
-    _user: User = Depends(get_current_user),
-) -> list[dict]:
-    mids = await user_machine_ids(db, _user)
-    await _get_doc_with_permission(doc_id, db, user, mids, include_content=False)
-
-    result = await db.execute(
-        select(DocumentVersion)
-        .where(DocumentVersion.document_id == doc_id)
-        .order_by(DocumentVersion.synced_at.desc())
-        .limit(limit)
-    )
-    versions = result.scalars().all()
-    return [
-        {
-            "id": v.id,
-            "content_hash": v.content_hash,
-            "file_size_bytes": v.file_size_bytes,
-            "content_delta": v.content_delta,
-            "synced_at": v.synced_at.isoformat(),
-        }
-        for v in versions
-    ]
 
 
 @router.get("/{doc_id}/backlinks")

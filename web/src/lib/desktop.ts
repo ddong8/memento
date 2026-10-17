@@ -1,5 +1,5 @@
 /** What the Memento desktop app exposes to the web UI (apps/desktop/src/preload.ts). */
-export interface DaemonStatus {
+interface DaemonStatus {
   running: boolean;
   online: boolean;
   deviceName: string;

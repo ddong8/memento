@@ -16,7 +16,7 @@ const RESCAN_MS = 60_000;
 type Log = (message: string) => void;
 
 /** Which directory of each tool holds its sessions. */
-export function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[]): Map<string, string> {
+function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: string[]): Map<string, string> {
   const targets = new Map<string, string>(); // dir -> tool id
   const add = (dir: string, tool: string) => existsSync(dir) && targets.set(dir, tool);
   for (const tool of Object.values(tools)) {
@@ -55,7 +55,7 @@ export function watchTargets(tools: Record<string, DiscoveredTool>, extraDirs: s
 }
 
 /** Whether a file under a watched directory is something to upload. */
-export function isWatchedFile(filePath: string, toolId: string): boolean {
+function isWatchedFile(filePath: string, toolId: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
   const name = basename(normalized);
   if (
@@ -92,7 +92,7 @@ export function isWatchedFile(filePath: string, toolId: string): boolean {
 }
 
 /** The path the server files a document under. */
-export function relativePathFor(filePath: string, toolId: string, extraDirs: string[] = []): string {
+function relativePathFor(filePath: string, toolId: string, extraDirs: string[] = []): string {
   const normalized = filePath.replace(/\\/g, "/");
   if (toolId === "antigravity") {
     const m = /\/brain\/([^/]+)\//.exec(normalized);
@@ -115,7 +115,7 @@ export function relativePathFor(filePath: string, toolId: string, extraDirs: str
 }
 
 /** Lines of a slice, with giant lines cut down to their head and tail. */
-export function cleanLines(raw: string): string[] {
+function cleanLines(raw: string): string[] {
   const out: string[] = [];
   for (let line of raw.split("\n")) {
     if (!line) continue;
@@ -128,7 +128,7 @@ export function cleanLines(raw: string): string[] {
 }
 
 /** Session id, title and project a slice of a session log belongs to. */
-export function sessionMetadata(
+function sessionMetadata(
   filePath: string,
   toolId: string,
   relPath: string,

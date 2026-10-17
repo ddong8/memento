@@ -6,18 +6,16 @@ import base64
 import hashlib
 import hmac
 import json
-import logging
 import secrets
 import time
-import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote, urlencode
 
 import httpx
 import xml.etree.ElementTree as ET
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.responses import PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +24,7 @@ from ..db.models import InviteCode, User
 from ..db.session import get_db
 from ..services.cache import cache_get, cache_set
 from ..middleware.auth import (
-    create_access_token, get_current_user, hash_password, require_role, verify_password,
+    create_access_token, get_current_user, hash_password, verify_password,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -44,7 +42,6 @@ class RegistrationModeResponse(BaseModel):
     has_any_user: bool
     github_enabled: bool = False
     wechat_enabled: bool = False
-    wechat_oauth_enabled: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -84,7 +81,6 @@ async def registration_mode(db: AsyncSession = Depends(get_db)) -> RegistrationM
         has_any_user=has_any,
         github_enabled=bool(settings.github_client_id and settings.github_client_secret),
         wechat_enabled=bool(settings.wechat_token),
-        wechat_oauth_enabled=bool(settings.wechat_app_id and settings.wechat_app_secret),
     )
 
 
@@ -762,153 +758,3 @@ async def poll_wechat_ticket_endpoint(
         "user_id": str(user.id),
         "role": user.role,
     }
-
-
-# ---------------------------------------------------------------------------
-# WeChat Enterprise OAuth (PC Web QR / Official Account OAuth2)
-# ---------------------------------------------------------------------------
-
-@router.get("/wechat/oauth-url")
-async def wechat_oauth_url(request: Request, next: str = "/") -> dict:
-    """Generate WeChat OAuth authorization URL if configured."""
-    if not settings.wechat_app_id or not settings.wechat_app_secret:
-        raise HTTPException(status_code=400, detail="WeChat OAuth is not configured on this server")
-
-    base = (settings.public_url or str(request.base_url)).rstrip("/")
-    redirect_uri = f"{base}/api/auth/wechat/oauth-callback"
-    state_payload = {"next": next, "nonce": secrets.token_hex(8)}
-    state = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
-
-    scope = settings.wechat_oauth_scope or "snsapi_login"
-    if scope == "snsapi_login":
-        # WeChat Open Platform PC QR Login
-        url = (
-            f"https://open.weixin.qq.com/connect/qrconnect?"
-            f"appid={settings.wechat_app_id}&redirect_uri={quote(redirect_uri)}&"
-            f"response_type=code&scope=snsapi_login&state={state}#wechat_redirect"
-        )
-    else:
-        # WeChat Official Account Web OAuth
-        url = (
-            f"https://open.weixin.qq.com/connect/oauth2/authorize?"
-            f"appid={settings.wechat_app_id}&redirect_uri={quote(redirect_uri)}&"
-            f"response_type=code&scope={scope}&state={state}#wechat_redirect"
-        )
-    return {"url": url}
-
-
-@router.get("/wechat/oauth-callback")
-async def wechat_oauth_callback(
-    code: str = "",
-    state: str = "",
-    request: Request = None,
-    db: AsyncSession = Depends(get_db),
-) -> RedirectResponse:
-    """WeChat OAuth redirect callback: exchange code for access_token, fetch userinfo (avatar & nickname)."""
-    base = (settings.public_url or (str(request.base_url) if request else "http://localhost:3000")).rstrip("/")
-    frontend = base
-
-    def _error(reason: str) -> RedirectResponse:
-        return RedirectResponse(f"{frontend}/auth/login?error={quote(reason)}", status_code=302)
-
-    if not code:
-        return _error("wechat_oauth_no_code")
-
-    next_path = "/"
-    if state:
-        try:
-            state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
-            if isinstance(state_data, dict) and state_data.get("next"):
-                next_path = str(state_data["next"])
-        except Exception:
-            pass
-
-    # 1. Exchange code for access_token
-    token_url = "https://api.weixin.qq.com/sns/oauth2/access_token"
-    token_params = {
-        "appid": settings.wechat_app_id,
-        "secret": settings.wechat_app_secret,
-        "code": code,
-        "grant_type": "authorization_code",
-    }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            token_resp = await client.get(token_url, params=token_params)
-            token_data = token_resp.json()
-        except Exception as e:
-            logging.getLogger("auth").error("WeChat token exchange failed: %s", e)
-            return _error("wechat_oauth_network_error")
-
-    openid = token_data.get("openid")
-    access_token = token_data.get("access_token")
-    if not openid or not access_token:
-        err_msg = token_data.get("errmsg", "unknown")
-        logging.getLogger("auth").error("WeChat token error: %s", token_data)
-        return _error(f"wechat_oauth_token_failed_{err_msg}")
-
-    # 2. Fetch user profile (headimgurl and nickname)
-    user_info_url = "https://api.weixin.qq.com/sns/userinfo"
-    user_info_params = {
-        "access_token": access_token,
-        "openid": openid,
-        "lang": "zh_CN",
-    }
-    nickname = ""
-    headimgurl = None
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            info_resp = await client.get(user_info_url, params=user_info_params)
-            info_data = info_resp.json()
-            if "openid" in info_data:
-                nickname = (info_data.get("nickname") or "").strip()
-                headimgurl = (info_data.get("headimgurl") or "").strip() or None
-        except Exception as e:
-            logging.getLogger("auth").warning("WeChat userinfo fetch failed (proceeding with openid): %s", e)
-
-    # 3. Match or create User
-    result = await db.execute(select(User).where(User.wechat_openid == openid))
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        count_result = await db.execute(select(User.id).limit(1))
-        is_first_user = count_result.scalar_one_or_none() is None
-
-        if is_first_user:
-            role, user_status = "owner", "active"
-        elif settings.registration_mode == "open":
-            role, user_status = "viewer", "active"
-        else:
-            return _error("registration_closed")
-
-        base_email = f"wx_{openid[:10].lower()}@memento.local"
-        email = base_email
-        chk = await db.execute(select(User).where(User.email == email))
-        if chk.scalar_one_or_none() is not None:
-            email = f"wx_{openid[:8].lower()}_{secrets.token_hex(4)}@memento.local"
-
-        user = User(
-            email=email,
-            name=nickname or f"微信用户_{openid[-4:]}",
-            avatar_url=headimgurl,
-            role=role,
-            status=user_status,
-            collector_token=secrets.token_hex(32),
-            wechat_openid=openid,
-        )
-        db.add(user)
-    else:
-        # Update avatar if WeChat provided one and user hasn't set a custom base64 avatar
-        if headimgurl and (not user.avatar_url or not user.avatar_url.startswith("data:")):
-            user.avatar_url = headimgurl
-        if nickname and (not user.name or user.name.startswith("微信用户_")):
-            user.name = nickname
-
-    if user.status != "active":
-        return _error("account_disabled")
-
-    await db.flush()
-    jwt_token = create_access_token(str(user.id), user.role)
-    return RedirectResponse(
-        f"{frontend}/auth/callback#token={jwt_token}&next={quote(next_path)}",
-        status_code=302,
-    )

@@ -12,7 +12,7 @@ const str = (v: unknown): string => (v == null ? "" : String(v));
 export type DueState = "overdue" | "today" | "soon" | "later" | "none";
 
 /** Where a due date (YYYY-MM-DD) stands relative to today. */
-export function dueState(due: string | null | undefined, today = new Date()): DueState {
+function dueState(due: string | null | undefined, today = new Date()): DueState {
   if (!due) return "none";
   const d = new Date(`${due}T00:00:00`);
   if (Number.isNaN(d.getTime())) return "none";

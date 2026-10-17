@@ -30,7 +30,6 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@memento/core": "*",
     "ws": "^8.18.3"
   },
   "devDependencies": {

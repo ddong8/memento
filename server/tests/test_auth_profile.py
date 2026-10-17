@@ -15,9 +15,7 @@ from server.api.auth import (
     delete_avatar,
     update_profile,
     upload_avatar,
-    wechat_oauth_url,
 )
-from server.config import settings
 from server.db.models import User
 
 
@@ -101,21 +99,3 @@ class AuthProfileTests(unittest.IsolatedAsyncioTestCase):
         res = await delete_avatar(user=user, db=db)
         self.assertIsNone(res.avatar_url)
         self.assertIsNone(user.avatar_url)
-
-    async def test_wechat_oauth_url_generation(self) -> None:
-        orig_id = settings.wechat_app_id
-        orig_secret = settings.wechat_app_secret
-        try:
-            settings.wechat_app_id = "wx_test_123"
-            settings.wechat_app_secret = "secret_test_456"
-            settings.wechat_oauth_scope = "snsapi_login"
-            req = MagicMock()
-            req.base_url = "https://mem.example.com"
-
-            res = await wechat_oauth_url(req, next="/app")
-            self.assertIn("https://open.weixin.qq.com/connect/qrconnect?", res["url"])
-            self.assertIn("appid=wx_test_123", res["url"])
-            self.assertIn("scope=snsapi_login", res["url"])
-        finally:
-            settings.wechat_app_id = orig_id
-            settings.wechat_app_secret = orig_secret

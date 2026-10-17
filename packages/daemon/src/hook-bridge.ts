@@ -12,7 +12,7 @@ export interface ToolUse {
  * What leaves the machine for one tool call: the tool, its command or target
  * path, and the working directory. Never file contents.
  */
-export function summarizeToolUse(hook: Record<string, unknown>): ToolUse {
+function summarizeToolUse(hook: Record<string, unknown>): ToolUse {
   const tool = String(hook.tool_name ?? "");
   const input = (hook.tool_input && typeof hook.tool_input === "object" ? hook.tool_input : {}) as Record<string, unknown>;
   const kept: Record<string, string> = {};

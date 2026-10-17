@@ -7,7 +7,6 @@ Only needs: server URL + user's collector token (JWT or collector_token).
 from __future__ import annotations
 
 import logging
-from datetime import date
 
 import httpx
 
@@ -192,7 +191,7 @@ class RemoteClient:
 
     # --- Daily ---
     async def get_daily(self, date_str: str) -> dict:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone
         tz = int(datetime.now(timezone.utc).astimezone().utcoffset().total_seconds() // 60)
         return await self._get(f"/api/daily/{date_str}", {"tz_offset": -tz})
 

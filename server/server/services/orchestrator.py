@@ -29,7 +29,6 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +38,6 @@ from .ai_provider import (
     call_chat_completion,
     call_plain_chat,
     stream_chat_completion,
-    get_ai_providers,
     split_thinking,
 )
 from . import notify_service, task_alerts

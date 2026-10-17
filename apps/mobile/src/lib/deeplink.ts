@@ -75,12 +75,6 @@ export function emitDeepLinkTarget(rawUrl?: string | null): string | null {
   return normalized;
 }
 
-export function consumePendingDeepLinkTarget(): string | null {
-  const val = pendingDeepLinkTarget;
-  pendingDeepLinkTarget = null;
-  return val;
-}
-
 export function subscribeDeepLinkTarget(listener: DeepLinkListener): () => void {
   listeners.add(listener);
   if (pendingDeepLinkTarget) {

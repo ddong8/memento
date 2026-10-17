@@ -21,7 +21,7 @@ on:
     branches: [main]
     paths:
       - "server/**"
-      - "mcp_server/**"
+      - "deploy/bootstrap/**"
       - "web/**"
       - "packages/**"
       - "package.json"
@@ -61,7 +61,7 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── server(context=仓库根,COPY server/ mcp_server/ deploy/bootstrap/)──
+      # ── server(context=仓库根,COPY server/ deploy/bootstrap/ data/updates/)──
       - name: Build & push server
         uses: docker/build-push-action@v6
         with:

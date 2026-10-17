@@ -34,7 +34,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import defer
@@ -62,36 +62,6 @@ def normalize_device_name(name: str | None) -> str:
             return name[:-len(suffix)]
     return name
 
-
-async def _verify_device_key(db: AsyncSession, device_id: str, presented: str | None) -> Machine:
-    """Authenticate a collector for remote execution.
-
-    Each device has its own key, minted server-side and delivered over the
-    authenticated heartbeat — there is no shared secret for the operator to
-    distribute. Compared in constant time so a wrong key can't be recovered
-    by timing the response.
-    """
-    if not presented:
-        raise HTTPException(status_code=403, detail="missing remote exec key")
-    base_dev_id = normalize_device_name(device_id)
-    machines = (await db.execute(
-        select(Machine).where(
-            (Machine.collector_token_hash == device_id)
-            | (Machine.name == device_id)
-            | (Machine.name == base_dev_id)
-            | (Machine.name.like(f"{base_dev_id}%"))
-        ).order_by(Machine.last_heartbeat.desc().nulls_last())
-    )).scalars().all()
-    if not machines:
-        raise HTTPException(status_code=403, detail="device not enrolled for remote execution")
-    matched = None
-    for m in machines:
-        if m.remote_exec_key and secrets.compare_digest(m.remote_exec_key, presented):
-            matched = m
-            break
-    if not matched:
-        raise HTTPException(status_code=403, detail="invalid remote exec key")
-    return matched
 
 # Actions that run arbitrary code and therefore require the exec switch.
 EXEC_ACTIONS = {"shell", "agent"}
@@ -163,14 +133,6 @@ class CreateTask(BaseModel):
     action: str
     payload: dict | None = None
     timeout_seconds: int = Field(default=7200, ge=0, le=86400)
-
-
-class TaskResult(BaseModel):
-    status: str  # succeeded | failed | timeout
-    exit_code: int | None = None
-    stdout: str | None = None
-    stderr: str | None = None
-    error: str | None = None
 
 
 def _require_exec_enabled(action: str) -> None:
@@ -364,108 +326,6 @@ async def send_task_input(
 # ---------------------------------------------------------------------------
 # Collector-facing (device authenticates with its collector token + exec key)
 # ---------------------------------------------------------------------------
-@router.get("/poll/{device_id}")
-async def poll_tasks(
-    device_id: str,
-    x_collector_token: str | None = Header(default=None),
-    x_remote_exec_key: str | None = Header(default=None),
-    db: AsyncSession = Depends(get_db),
-) -> list[dict]:
-    """Collector pulls its queued tasks and marks them running.
-
-    Requires the exec key in addition to the sync token, so a leaked sync
-    token alone cannot pull executable work.
-    """
-    if not REMOTE_EXEC_ENABLED:
-        return []
-    if not x_collector_token:
-        raise HTTPException(status_code=401, detail="missing collector token")
-    machine = await _verify_device_key(db, device_id, x_remote_exec_key)
-
-    # Collect all identifiers for this machine (token hash, name, machine_id, and any alias rows)
-    base_name = normalize_device_name(machine.name)
-    same_name_machines = (await db.execute(
-        select(Machine).where(
-            (Machine.name == machine.name)
-            | (Machine.name == base_name)
-            | (Machine.name.like(f"{base_name}%"))
-        )
-    )).scalars().all()
-    target_ids = {machine.id} | {m.id for m in same_name_machines if m.id}
-    target_tokens = {device_id, machine.collector_token_hash, machine.name, base_name} | {
-        m.collector_token_hash for m in same_name_machines if m.collector_token_hash
-    } | {
-        m.name for m in same_name_machines if m.name
-    }
-
-    rows = (await db.execute(
-        select(DeviceTask)
-        .where(
-            (DeviceTask.device_id.in_(target_tokens)) | (DeviceTask.machine_id.in_(target_ids)),
-            DeviceTask.status == "queued",
-        )
-        .order_by(DeviceTask.created_at.asc())
-        .limit(5)
-    )).scalars().all()
-    if not rows:
-        return []
-
-    now = datetime.now(timezone.utc)
-    ids = [t.id for t in rows]
-    await db.execute(
-        update(DeviceTask)
-        .where(DeviceTask.id.in_(ids))
-        .values(
-            status="running",
-            dispatched_at=now,
-            device_id=machine.collector_token_hash,
-            machine_id=machine.id,
-        )
-    )
-    await db.commit()
-    for t in rows:
-        t.status, t.dispatched_at = "running", now
-        t.device_id, t.machine_id = machine.collector_token_hash, machine.id
-    return [_serialize(t) for t in rows]
-
-
-@router.post("/{task_id}/result")
-async def submit_result(
-    task_id: uuid.UUID,
-    body: TaskResult,
-    x_remote_exec_key: str | None = Header(default=None),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Collector posts back the outcome of a task."""
-    if not REMOTE_EXEC_ENABLED:
-        raise HTTPException(status_code=403, detail="remote execution disabled")
-    task = (await db.execute(
-        select(DeviceTask).where(DeviceTask.id == task_id)
-    )).scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404)
-    # Key is checked against the device this task was dispatched to, so one
-    # device cannot post results for another device's task.
-    await _verify_device_key(db, task.device_id, x_remote_exec_key)
-    # A cancelled task's result is discarded — the operator already gave up
-    # on it, and overwriting the terminal state would resurrect it in the UI.
-    if task.status == "cancelled":
-        return {"status": "discarded"}
-
-    if body.status not in ("succeeded", "failed", "timeout"):
-        raise HTTPException(status_code=400, detail="invalid status")
-
-    task.status = body.status
-    task.exit_code = body.exit_code
-    task.stdout = (body.stdout or "")[:MAX_OUTPUT_CHARS] or None
-    task.stderr = (body.stderr or "")[:MAX_OUTPUT_CHARS] or None
-    task.error = body.error
-    task.finished_at = datetime.now(timezone.utc)
-    await db.commit()
-    logger.info("task %s finished: %s (exit=%s)", task.id, task.status, task.exit_code)
-    return {"status": "recorded"}
-
-
 async def _authenticate_ws(
     db: AsyncSession,
     device_id: str,
@@ -574,23 +434,6 @@ async def device_websocket_endpoint(
                 quotas = data.get("quotas") or {}
                 set_cached_device_quotas(real_device_id, quotas, machine.name, str(machine.id) if machine.id else None)
                 logger.info("Received dynamic agent quotas from device %s (%s)", real_device_id, machine.name)
-            elif msg_type == "p2p_network_info":
-                ipv6 = data.get("ipv6")
-                port = data.get("port")
-                token = data.get("token")
-                if ipv6 and port:
-                    info = {
-                        "ipv6": str(ipv6),
-                        "port": int(port),
-                        "token": str(token or ""),
-                        "updated_at": datetime.now(timezone.utc).timestamp(),
-                    }
-                    ws_manager.set_p2p_info(real_device_id, info)
-                    if machine.name:
-                        ws_manager.set_p2p_info(machine.name, info)
-                    if machine.id:
-                        ws_manager.set_p2p_info(str(machine.id), info)
-                    logger.info("Registered P2P IPv6 endpoint for %s: [%s]:%s", machine.name or real_device_id, ipv6, port)
             elif msg_type == "task_progress":
                 tid = data.get("task_id")
                 if tid:

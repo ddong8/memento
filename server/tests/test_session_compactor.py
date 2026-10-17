@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch
 
 from server.services.session_compactor import (
-    calculate_session_stats,
     estimate_tokens,
     format_injected_context,
     generate_checkpoint_summary,

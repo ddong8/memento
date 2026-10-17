@@ -87,17 +87,17 @@ class TestFileRules(unittest.TestCase):
 
 class TestBarkUrl(unittest.TestCase):
     def test_parse_accepts_what_the_bark_app_shows(self):
-        self.assertEqual(notify_service.parse_bark_url("https://api.day.app/AbC123/这里改成你自己的推送内容"),
-                         ("https://api.day.app", "AbC123"))
-        self.assertEqual(notify_service.parse_bark_url("https://api.day.app/AbC123/"), ("https://api.day.app", "AbC123"))
+        self.assertEqual(notify_service.parse_push_url("https://api.day.app/AbC123/这里改成你自己的推送内容"),
+                         ("bark", "https://api.day.app", "AbC123"))
+        self.assertEqual(notify_service.parse_push_url("https://api.day.app/AbC123/"), ("bark", "https://api.day.app", "AbC123"))
 
     def test_parse_rejects_non_https_and_keyless(self):
-        self.assertIsNone(notify_service.parse_bark_url("http://api.day.app/AbC123"))
-        self.assertIsNone(notify_service.parse_bark_url("https://api.day.app/"))
-        self.assertIsNone(notify_service.parse_bark_url(""))
+        self.assertIsNone(notify_service.parse_push_url("http://api.day.app/AbC123"))
+        self.assertIsNone(notify_service.parse_push_url("https://api.day.app/"))
+        self.assertIsNone(notify_service.parse_push_url(""))
 
     def test_mask_hides_most_of_the_key(self):
-        self.assertEqual(notify_service.mask_bark_url("https://api.day.app/AbC123xyz"), "https://api.day.app/AbC1…")
+        self.assertEqual(notify_service.mask_push_url("https://api.day.app/AbC123xyz"), "https://api.day.app/AbC1…")
 
 
 class TestPushSafety(unittest.IsolatedAsyncioTestCase):

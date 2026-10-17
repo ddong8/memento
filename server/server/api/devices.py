@@ -301,28 +301,6 @@ async def send_command(
     return {"status": "queued", "command_id": cmd_id, "action": action, "device": machine.name}
 
 
-@router.post("/command-by-collector-id")
-async def send_command_by_collector_id(
-    collector_id: str,
-    action: str = "resync",
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> dict:
-    """Send a command using the collector's device_id (survives purge)."""
-    # Authorize: non-admin can only command devices they own. Without this,
-    # a logged-in user could guess/obtain another user's collector token hash
-    # and force resync/purge on their device.
-    result = await db.execute(
-        select(Machine).where(Machine.collector_token_hash == collector_id)
-    )
-    machine = result.scalar_one_or_none()
-    if _user.role not in ("admin", "owner"):
-        if not machine or machine.user_id != _user.id:
-            raise HTTPException(status_code=404, detail="Device not found")
-    cmd_id = _enqueue_command(collector_id, action)
-    return {"status": "queued", "command_id": cmd_id, "action": action}
-
-
 @router.get("/commands")
 async def get_commands(
     x_device_id: str = Header(..., alias="X-Device-Id"),
@@ -355,101 +333,6 @@ async def ack_command(
     return {"status": "acked", "command_id": cmd_id}
 
 
-@router.get("/{device_id}/files/playback-source")
-async def get_playback_source(
-    device_id: str,
-    path: str = Query(..., description="Absolute path on the device or NAS"),
-    request: Request = None,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user_flexible),
-) -> dict[str, Any]:
-    """Resolve dual-mode playback source (IPv6 P2P direct URL + Server Relay fallback URL)."""
-    from ..services.user_filter import find_machine_by_id_or_hash, user_machine_ids
-    from ..services.ws_manager import ws_manager
-
-    target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
-    mids = await user_machine_ids(db, _user)
-
-    if _user.role not in ("admin", "owner"):
-        if target_machine and mids is not None and target_machine.id not in mids:
-            raise HTTPException(status_code=403, detail="Device access denied")
-
-    clean_path = path.strip().replace("\\", "/")
-    if clean_path.startswith("file://"):
-        clean_path = clean_path.replace("file://", "")
-        if clean_path.startswith("/") and len(clean_path) > 3 and clean_path[2] == ":":
-            clean_path = clean_path[1:]
-
-    filename = os.path.basename(clean_path)
-    ext = os.path.splitext(clean_path)[1].lower()
-    mime_type, _ = mimetypes.guess_type(clean_path)
-    if not mime_type:
-        if ext in (".mp4", ".m4v"):
-            mime_type = "video/mp4"
-        elif ext in (".mov",):
-            mime_type = "video/quicktime"
-        elif ext in (".webm",):
-            mime_type = "video/webm"
-        elif ext in (".mp3",):
-            mime_type = "audio/mpeg"
-        elif ext in (".m4a", ".aac"):
-            mime_type = "audio/mp4"
-        elif ext in (".wav",):
-            mime_type = "audio/wav"
-        else:
-            mime_type = "application/octet-stream"
-
-    # Construct relay URL
-    base_url = str(request.base_url).rstrip("/") if request else ""
-    token_val = request.query_params.get("token") if request else None
-    token_param = f"&token={urllib.parse.quote(token_val)}" if token_val else ""
-    relay_url = f"{base_url}/api/devices/{device_id}/files/stream/{filename}?path={urllib.parse.quote(clean_path)}{token_param}"
-
-    # Query P2P info from ws_manager
-    p2p_info = None
-    dev_token = target_machine.collector_token_hash if target_machine else device_id
-    for key in (dev_token, device_id, target_machine.name if target_machine else None):
-        if key:
-            p2p_info = ws_manager.get_p2p_info(key)
-            if p2p_info:
-                break
-
-    if not p2p_info and device_id == "auto":
-        query = select(Machine)
-        if _user.role not in ("admin", "owner") and mids is not None:
-            query = query.where(Machine.id.in_(mids))
-        user_machines = (await db.execute(query)).scalars().all()
-        for m in user_machines:
-            for k in (m.collector_token_hash, m.name):
-                if k:
-                    p2p_info = ws_manager.get_p2p_info(k)
-                    if p2p_info:
-                        break
-            if p2p_info:
-                break
-
-    has_p2p = False
-    p2p_url = None
-    if p2p_info and p2p_info.get("ipv6") and p2p_info.get("port"):
-        ipv6 = p2p_info["ipv6"]
-        port = p2p_info["port"]
-        token = p2p_info.get("token", "")
-        quoted_path = urllib.parse.quote(clean_path, safe='')
-        quoted_token = urllib.parse.quote(token, safe='')
-        p2p_url = f"http://[{ipv6}]:{port}/p2p/stream?path={quoted_path}&token={quoted_token}"
-        has_p2p = True
-
-    return {
-        "has_p2p": has_p2p,
-        "p2p_url": p2p_url,
-        "relay_url": relay_url,
-        "filename": filename,
-        "mime_type": mime_type,
-        "device_id": device_id,
-        "device_name": target_machine.name if target_machine else None,
-    }
-
-
 @router.get("/{device_id}/files/stream")
 @router.get("/{device_id}/files/stream/{filename}")
 async def stream_device_file(
@@ -461,7 +344,7 @@ async def stream_device_file(
     _user: User = Depends(get_current_user_flexible),
 ):
     """Stream a media or artifact file directly from the target device with HTTP 206 Range support."""
-    from ..services.user_filter import find_machine_by_id_or_hash, user_machine_ids
+    from ..services.user_filter import find_machine_by_id_or_hash
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
     mids = await user_machine_ids(db, _user)
 

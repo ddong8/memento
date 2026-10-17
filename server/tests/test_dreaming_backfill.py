@@ -1,9 +1,9 @@
 import unittest
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.db.models import DailySummary, DreamJournal, User
+from server.db.models import DreamJournal, User
 from server.services.dreaming_service import (
     bootstrap_memories_from_knowledge_graph,
     compute_activity_windows,

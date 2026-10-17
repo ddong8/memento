@@ -44,66 +44,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/ingest/file/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ingest File Upload
-         * @description Ingest a large file via multipart upload.
-         */
-        post: operations["ingest_file_upload_api_ingest_file_upload_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/ingest/sqlite-rows": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ingest Sqlite Rows
-         * @description Ingest exported SQLite rows as JSON.
-         */
-        post: operations["ingest_sqlite_rows_api_ingest_sqlite_rows_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/ingest/file/chunk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ingest File Chunk
-         * @description Receive a chunk of a large file. Assembles and ingests when all chunks arrive.
-         */
-        post: operations["ingest_file_chunk_api_ingest_file_chunk_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/ingest/discovery": {
         parameters: {
             query?: never;
@@ -118,23 +58,6 @@ export interface paths {
          * @description Receive tool discovery data from a collector.
          */
         post: operations["ingest_discovery_api_ingest_discovery_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/ingest/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Ingest Status */
-        get: operations["ingest_status_api_ingest_status_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -221,40 +144,6 @@ export interface paths {
         };
         /** Get Document */
         get: operations["get_document_api_documents__doc_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{doc_id}/raw": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Document Raw */
-        get: operations["get_document_raw_api_documents__doc_id__raw_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/documents/{doc_id}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Document History */
-        get: operations["get_document_history_api_documents__doc_id__history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -381,7 +270,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Projects */
+        /**
+         * List Projects
+         * @description Projects for the ask composer, each with the folder on the devices it lives on.
+         *
+         *     With ``device_id``: that device's projects, ``source_path`` being the folder
+         *     on that device (empty when unknown, never another machine's folder).
+         *     Without: every project, ``devices`` listing where each one lives, most
+         *     recently active first.
+         */
         get: operations["list_projects_api_projects_get"];
         put?: never;
         post?: never;
@@ -760,49 +657,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tasks/poll/{device_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Poll Tasks
-         * @description Collector pulls its queued tasks and marks them running.
-         *
-         *     Requires the exec key in addition to the sync token, so a leaked sync
-         *     token alone cannot pull executable work.
-         */
-        get: operations["poll_tasks_api_tasks_poll__device_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/tasks/{task_id}/result": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Submit Result
-         * @description Collector posts back the outcome of a task.
-         */
-        post: operations["submit_result_api_tasks__task_id__result_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/ask/conversations": {
         parameters: {
             query?: never;
@@ -832,7 +686,7 @@ export interface paths {
         };
         /**
          * Get Conversation
-         * @description Get full conversation history with all turns.
+         * @description Get conversation history with runtime configuration and optional recent turn limiting.
          */
         get: operations["get_conversation_api_ask_conversations__conv_id__get"];
         put?: never;
@@ -842,6 +696,50 @@ export interface paths {
          * @description Delete an Ask conversation.
          */
         delete: operations["delete_conversation_api_ask_conversations__conv_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Conversation
+         * @description Update conversation metadata and configuration.
+         */
+        patch: operations["update_conversation_api_ask_conversations__conv_id__patch"];
+        trace?: never;
+    };
+    "/api/ask/conversations/ensure-by-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ensure Conversation By Session
+         * @description Ensure a linked AskConversation exists for the given underlying session_id and return it.
+         */
+        post: operations["ensure_conversation_by_session_api_ask_conversations_ensure_by_session_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ask/conversations/recent-active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recent Active Conversation
+         * @description Get the most relevant active or recent conversation to restore seamlessly on client startup.
+         */
+        get: operations["get_recent_active_conversation_api_ask_conversations_recent_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -856,9 +754,30 @@ export interface paths {
         };
         /**
          * List Active Runs
-         * @description Runs still in progress for this user (e.g. to show them after reopening the app).
+         * @description Runs still in progress for this user (e.g. to show them after reopening the app),
+         *     optionally including recently finished runs within `recent` seconds.
          */
         get: operations["list_active_runs_api_ask_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ask/runs/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Active Runs Wrapped
+         * @description Wrapped active runs endpoint consumed by iOS MementoLiveActivityManager.
+         */
+        get: operations["list_active_runs_wrapped_api_ask_runs_active_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -971,7 +890,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/ask/api/agent/models": {
+    "/api/ask/agent/capabilities": {
         parameters: {
             query?: never;
             header?: never;
@@ -979,10 +898,30 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Agent Models
-         * @description Compatibility alias returning model list.
+         * Get Agent Capabilities
+         * @description Retrieve dynamic models, default configs, and reasoning effort options for a specified agent tool.
          */
-        get: operations["get_agent_models_api_ask_api_agent_models_get"];
+        get: operations["get_agent_capabilities_api_ask_agent_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ask/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Capabilities
+         * @description Retrieve dynamic models, default configs, and reasoning effort options for a specified agent tool.
+         */
+        get: operations["get_agent_capabilities_api_ask_capabilities_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1145,6 +1084,34 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Update Profile
+         * @description Update caller's name and/or avatar.
+         */
+        patch: operations["update_profile_api_auth_me_patch"];
+        trace?: never;
+    };
+    "/api/auth/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Avatar
+         * @description Upload custom avatar image file (JPG, PNG, WebP, GIF, max 2MB). Stored self-contained as base64 data URI.
+         */
+        post: operations["upload_avatar_api_auth_me_avatar_post"];
+        /**
+         * Delete Avatar
+         * @description Clear/remove custom avatar.
+         */
+        delete: operations["delete_avatar_api_auth_me_avatar_delete"];
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -1163,6 +1130,71 @@ export interface paths {
          *     Any running collectors with the old token will start getting 401s until re-configured.
          */
         post: operations["rotate_collector_token_api_auth_me_rotate_collector_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/wechat/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Wechat Verify Webhook
+         * @description WeChat Server URL verification handshake.
+         *     When setting up Webhook in WeChat Developer Console, WeChat calls this GET endpoint.
+         */
+        get: operations["wechat_verify_webhook_api_auth_wechat_webhook_get"];
+        put?: never;
+        /**
+         * Wechat Message Webhook
+         * @description WeChat messages and events receiver (XML format).
+         */
+        post: operations["wechat_message_webhook_api_auth_wechat_webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/wechat/ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Create Wechat Ticket Endpoint
+         * @description Generate a 6-digit numeric login ticket for WeChat QR login.
+         */
+        get: operations["create_wechat_ticket_endpoint_api_auth_wechat_ticket_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/wechat/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Poll Wechat Ticket Endpoint
+         * @description Poll the status of a WeChat login ticket.
+         */
+        get: operations["poll_wechat_ticket_endpoint_api_auth_wechat_poll_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1512,26 +1544,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/devices/command-by-collector-id": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Send Command By Collector Id
-         * @description Send a command using the collector's device_id (survives purge).
-         */
-        post: operations["send_command_by_collector_id_api_devices_command_by_collector_id_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/devices/commands": {
         parameters: {
             query?: never;
@@ -1566,26 +1578,6 @@ export interface paths {
          * @description Collector acknowledges a command — remove it from queue.
          */
         post: operations["ack_command_api_devices_commands__cmd_id__ack_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/{device_id}/files/playback-source": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Playback Source
-         * @description Resolve dual-mode playback source (IPv6 P2P direct URL + Server Relay fallback URL).
-         */
-        get: operations["get_playback_source_api_devices__device_id__files_playback_source_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1786,50 +1778,6 @@ export interface paths {
         get: operations["search_memory_api_memory_search_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/memory/compact": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Compact Memory
-         * @description Run memory compaction — merge old observations into summaries.
-         */
-        post: operations["compact_memory_api_memory_compact_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/memory/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reset Memory
-         * @description Clear this user's knowledge graph + embeddings. Admin/owner clears everything.
-         *
-         *     Memory will regenerate from next ingest. A non-admin calling this MUST NOT
-         *     be able to wipe other users' data — without scoping this was a catastrophic
-         *     multi-tenant bug (any logged-in user could nuke everyone's graph).
-         */
-        post: operations["reset_memory_api_memory_reset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2256,6 +2204,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Persona Response
+         * @description Live AI Sandbox — Test how the digital twin and LLMs adhere to resident persona rules.
+         */
+        post: operations["simulate_persona_response_api_profile_simulate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Avatar Settings
+         * @description Get the current user's digital twin avatar settings and onboarding status.
+         */
+        get: operations["get_avatar_settings_api_profile_avatar_get"];
+        put?: never;
+        /**
+         * Save Avatar Settings
+         * @description Save or update digital twin avatar settings, updating user profile avatar synchronously.
+         */
+        post: operations["save_avatar_settings_api_profile_avatar_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/avatar/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Avatar From Photo
+         * @description AI Vision/Stylization analysis from uploaded user photo to tailor a digital cartoon persona.
+         */
+        post: operations["generate_avatar_from_photo_api_profile_avatar_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Account
+         * @description Self-service account deletion and complete data wipe (App Store Guideline 5.1.1(v)).
+         */
+        delete: operations["delete_account_api_profile_account_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profile/injection": {
         parameters: {
             query?: never;
@@ -2296,6 +2328,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Llm Settings
+         * @description Retrieve current user's custom LLM settings along with system defaults and presets.
+         */
+        get: operations["get_llm_settings_api_profile_llm_get"];
+        /**
+         * Update Llm Settings
+         * @description Update current user's custom LLM configuration.
+         */
+        put: operations["update_llm_settings_api_profile_llm_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/profile/llm/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Llm Connection
+         * @description Test LLM API connectivity and latency.
+         */
+        post: operations["test_llm_connection_api_profile_llm_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/notify/settings": {
         parameters: {
             query?: never;
@@ -2307,6 +2383,70 @@ export interface paths {
         get: operations["get_settings_api_notify_settings_get"];
         /** Update Settings */
         put: operations["update_settings_api_notify_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify/device-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Device Token
+         * @description Register native mobile push token for Memento App.
+         */
+        post: operations["register_device_token_api_notify_device_token_post"];
+        /**
+         * Unregister Device Token
+         * @description Unregister mobile push token upon sign-out.
+         */
+        delete: operations["unregister_device_token_api_notify_device_token_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify/live-activity-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Live Activity Token
+         * @description Register iOS ActivityKit pushToStartToken or per-conversation activity pushToken for Dynamic Island.
+         */
+        post: operations["register_live_activity_token_api_notify_live_activity_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Notification Feed
+         * @description Fetch unread/recent notification items for real-time mobile push & popups.
+         */
+        get: operations["get_notification_feed_api_notify_feed_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2977,10 +3117,530 @@ export interface paths {
          * @description Download update asset file with directory traversal protection.
          *
          *     If hosted locally on the server filesystem, serves it immediately via FileResponse.
-         *     If not cached locally, instantly 302 redirects to upstream GitHub Release URL,
-         *     avoiding blocking the server async event loop with heavy binary proxying.
+         *     If not cached locally, resolves GitHub Release Asset API pre-signed URL (supporting private repos)
+         *     or redirects to upstream GitHub Release URL.
          */
         get: operations["download_update_api_system_update_download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/update/{filename}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Generic Updater File
+         * @description Serve electron-updater generic provider requests (e.g. latest.yml, latest-mac.yml, latest-linux.yml, and binary/blockmap files).
+         */
+        get: operations["generic_updater_file_api_system_update__filename__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Missions
+         * @description List autonomous missions for the current user.
+         */
+        get: operations["list_missions_api_missions_get"];
+        put?: never;
+        /**
+         * Create Mission
+         * @description Create and kick off a new autonomous mission.
+         */
+        post: operations["create_mission_api_missions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions/{mission_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Mission Detail
+         * @description Get full details and timeline of a mission.
+         */
+        get: operations["get_mission_detail_api_missions__mission_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions/{mission_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mobile One Click Approve
+         * @description One-click approval handler for mobile push links.
+         */
+        get: operations["mobile_one_click_approve_api_missions__mission_id__approve_get"];
+        put?: never;
+        /**
+         * Api Approve Mission
+         * @description API endpoint to approve a pending mission.
+         */
+        post: operations["api_approve_mission_api_missions__mission_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/missions/{mission_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Api Reject Mission
+         * @description API endpoint to reject a pending mission.
+         */
+        post: operations["api_reject_mission_api_missions__mission_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proactive/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Settings
+         * @description Retrieve the proactive agent settings for the current user.
+         */
+        get: operations["get_settings_api_proactive_settings_get"];
+        /**
+         * Update Settings
+         * @description Update proactive agent settings for the current user.
+         */
+        put: operations["update_settings_api_proactive_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proactive/test-morning-brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Morning Brief
+         * @description Instantly test and send a morning brief to the user's phone.
+         */
+        post: operations["test_morning_brief_api_proactive_test_morning_brief_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/proactive/test-evening-reflection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Evening Reflection
+         * @description Instantly test and run memory dreaming reflection and push summary.
+         */
+        post: operations["test_evening_reflection_api_proactive_test_evening_reflection_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rhythms
+         * @description Get user's daily life rhythms and screen time allocation for the past N days.
+         */
+        get: operations["get_rhythms_api_life_rhythm_get"];
+        put?: never;
+        /**
+         * Record Rhythm
+         * @description Record daily sleep times, wake-up times, and app usage minutes.
+         */
+        post: operations["record_rhythm_api_life_rhythm_post"];
+        /**
+         * Clear Rhythms
+         * @description Clear all or specific date's life rhythm data (e.g. remove sample data).
+         */
+        delete: operations["clear_rhythms_api_life_rhythm_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Collector Rhythms
+         * @description Explicitly trigger sync and recompute life rhythms from collector interaction events.
+         */
+        post: operations["sync_collector_rhythms_api_life_rhythm_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/ocr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Screentime Image
+         * @description Parse iOS or Android Screen Time screenshot using multimodal AI vision.
+         */
+        post: operations["parse_screentime_image_api_life_rhythm_ocr_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/parse-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Screentime Image
+         * @description Parse iOS or Android Screen Time screenshot using multimodal AI vision.
+         */
+        post: operations["parse_screentime_image_api_life_rhythm_parse_image_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Rhythms
+         * @description Clear all or specific date's life rhythm data (e.g. remove sample data).
+         */
+        post: operations["clear_rhythms_api_life_rhythm_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/advice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Life Advice
+         * @description Generate comprehensive AI lifestyle decisions based on tracked sleep & app usage.
+         */
+        post: operations["get_life_advice_api_life_rhythm_advice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/life/rhythm/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Populate Sample Rhythm
+         * @description Populate sample realistic life rhythm data so user can preview the feature immediately.
+         */
+        post: operations["populate_sample_rhythm_api_life_rhythm_sample_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Quotas
+         * @description Fetch live or cached quota usage across all AI subscription tools (Antigravity, Claude Code, Codex).
+         */
+        get: operations["get_agent_quotas_api_agent_quotas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/quotas/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Agent Quotas
+         * @description Instruct online devices to immediately re-probe AI subscription quotas and return fresh report.
+         */
+        post: operations["refresh_agent_quotas_api_agent_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Quotas
+         * @description Fetch live or cached quota usage across all AI subscription tools (Antigravity, Claude Code, Codex).
+         */
+        get: operations["get_agent_quotas_api_quotas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/quotas/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Agent Quotas
+         * @description Instruct online devices to immediately re-probe AI subscription quotas and return fresh report.
+         */
+        post: operations["refresh_agent_quotas_api_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Quotas
+         * @description Fetch live or cached quota usage across all AI subscription tools (Antigravity, Claude Code, Codex).
+         */
+        get: operations["get_agent_quotas_agent_quotas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/quotas/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Agent Quotas
+         * @description Instruct online devices to immediately re-probe AI subscription quotas and return fresh report.
+         */
+        post: operations["refresh_agent_quotas_agent_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Quotas
+         * @description Fetch live or cached quota usage across all AI subscription tools (Antigravity, Claude Code, Codex).
+         */
+        get: operations["get_agent_quotas_quotas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/quotas/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Agent Quotas
+         * @description Instruct online devices to immediately re-probe AI subscription quotas and return fresh report.
+         */
+        post: operations["refresh_agent_quotas_quotas_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Capabilities
+         * @description Retrieve dynamic models, default configs, and reasoning effort options for a specified agent tool.
+         */
+        get: operations["get_agent_capabilities_api_agent_capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Models
+         * @description Compatibility alias returning model list.
+         */
+        get: operations["get_agent_models_api_agent_models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3037,6 +3697,11 @@ export interface components {
              */
             general: boolean;
         };
+        /** ApproveMissionBody */
+        ApproveMissionBody: {
+            /** Token */
+            token?: string | null;
+        };
         /** AskRequest */
         AskRequest: {
             /** Question */
@@ -3087,24 +3752,74 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
         };
+        /** AvatarGenerateRequest */
+        AvatarGenerateRequest: {
+            /** Photo Data */
+            photo_data?: string | null;
+            /**
+             * Gender
+             * @default male
+             */
+            gender: string | null;
+            /** Style Preference */
+            style_preference?: string | null;
+        };
+        /** AvatarSettingsPayload */
+        AvatarSettingsPayload: {
+            /**
+             * Is Initialized
+             * @default true
+             */
+            is_initialized: boolean;
+            /**
+             * Gender
+             * @default male
+             */
+            gender: string;
+            /**
+             * Style
+             * @default geek
+             */
+            style: string;
+            /**
+             * Preset Id
+             * @default geek_male
+             */
+            preset_id: string;
+            /**
+             * Nickname
+             * @default 数字孪生
+             */
+            nickname: string;
+            /** Avatar Url */
+            avatar_url?: string | null;
+            /** Custom Photo Url */
+            custom_photo_url?: string | null;
+            /**
+             * Theme Color
+             * @default #8B5CF6
+             */
+            theme_color: string;
+            /**
+             * Outfit Color
+             * @default #6366F1
+             */
+            outfit_color: string;
+            /**
+             * Features
+             * @default []
+             */
+            features: string[];
+        };
         /** Body_import_data_api_data_import_post */
         Body_import_data_api_data_import_post: {
             /** File */
             file: string;
         };
-        /** Body_ingest_file_chunk_api_ingest_file_chunk_post */
-        Body_ingest_file_chunk_api_ingest_file_chunk_post: {
-            /** Metadata */
-            metadata: string;
-            /** Content */
-            content: string;
-        };
-        /** Body_ingest_file_upload_api_ingest_file_upload_post */
-        Body_ingest_file_upload_api_ingest_file_upload_post: {
-            /** Metadata */
-            metadata: string;
-            /** Content */
-            content: string;
+        /** Body_upload_avatar_api_auth_me_avatar_post */
+        Body_upload_avatar_api_auth_me_avatar_post: {
+            /** File */
+            file: string;
         };
         /** CompactRequest */
         CompactRequest: {
@@ -3167,6 +3882,25 @@ export interface components {
             /** Is Folder */
             is_folder?: boolean | null;
         };
+        /** CreateMissionBody */
+        CreateMissionBody: {
+            /** Title */
+            title: string;
+            /** Goal */
+            goal: string;
+            /**
+             * Risk Level
+             * @default low
+             */
+            risk_level: string;
+            /**
+             * Context
+             * @default {}
+             */
+            context: {
+                [key: string]: unknown;
+            };
+        };
         /** CreateShareBody */
         CreateShareBody: {
             /** Kind */
@@ -3190,9 +3924,24 @@ export interface components {
             } | null;
             /**
              * Timeout Seconds
-             * @default 300
+             * @default 7200
              */
             timeout_seconds: number;
+        };
+        /** DeleteAccountBody */
+        DeleteAccountBody: {
+            /** Confirmation */
+            confirmation: string;
+        };
+        /** DeviceTokenBody */
+        DeviceTokenBody: {
+            /** Token */
+            token: string;
+            /**
+             * Platform
+             * @default mobile
+             */
+            platform: string | null;
         };
         /** DocumentSummary */
         DocumentSummary: {
@@ -3244,6 +3993,19 @@ export interface components {
             start_date?: string | null;
             /** End Date */
             end_date?: string | null;
+        };
+        /** EnsureConversationBySessionRequest */
+        EnsureConversationBySessionRequest: {
+            /** Session Id */
+            session_id: string;
+            /** Project Id */
+            project_id?: string | null;
+            /** Execution Mode */
+            execution_mode?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Cwd */
+            cwd?: string | null;
         };
         /** GrantPermissionRequest */
         GrantPermissionRequest: {
@@ -3343,6 +4105,121 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /** LLMSettingsBody */
+        LLMSettingsBody: {
+            /**
+             * Custom Enabled
+             * @default false
+             */
+            custom_enabled: boolean;
+            /**
+             * Provider
+             * @default custom
+             */
+            provider: string;
+            /**
+             * Base Url
+             * @default
+             */
+            base_url: string;
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Primary Model
+             * @default
+             */
+            primary_model: string;
+            /**
+             * Background Model
+             * @default
+             */
+            background_model: string;
+            /**
+             * Temperature
+             * @default 0.7
+             */
+            temperature: number;
+            /**
+             * Max Tokens
+             * @default 4096
+             */
+            max_tokens: number;
+            /**
+             * Fallback Enabled
+             * @default false
+             */
+            fallback_enabled: boolean;
+            /**
+             * Fallback Base Url
+             * @default
+             */
+            fallback_base_url: string;
+            /**
+             * Fallback Api Key
+             * @default
+             */
+            fallback_api_key: string;
+            /**
+             * Fallback Model
+             * @default
+             */
+            fallback_model: string;
+        };
+        /** LLMTestBody */
+        LLMTestBody: {
+            /**
+             * Base Url
+             * @default
+             */
+            base_url: string;
+            /**
+             * Api Key
+             * @default
+             */
+            api_key: string;
+            /**
+             * Model
+             * @default
+             */
+            model: string;
+            /**
+             * Primary Model
+             * @default
+             */
+            primary_model: string;
+            /**
+             * Provider
+             * @default
+             */
+            provider: string;
+            /**
+             * Temperature
+             * @default 0.1
+             */
+            temperature: number;
+            /**
+             * Max Tokens
+             * @default 50
+             */
+            max_tokens: number;
+        };
+        /** LiveActivityTokenBody */
+        LiveActivityTokenBody: {
+            /** Push To Start Token */
+            push_to_start_token?: string | null;
+            /** Activity Push Token */
+            activity_push_token?: string | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Email */
@@ -3377,6 +4254,11 @@ export interface components {
              */
             entity_type: string;
         };
+        /** ParseImageBody */
+        ParseImageBody: {
+            /** Image */
+            image: string;
+        };
         /** PitfallBody */
         PitfallBody: {
             /** Title */
@@ -3390,6 +4272,59 @@ export interface components {
             /** Project */
             project?: string | null;
         };
+        /** ProactiveSettingsBody */
+        ProactiveSettingsBody: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Morning Brief Enabled
+             * @default true
+             */
+            morning_brief_enabled: boolean;
+            /**
+             * Morning Brief Time
+             * @default 08:30
+             */
+            morning_brief_time: string;
+            /**
+             * Evening Reflection Enabled
+             * @default true
+             */
+            evening_reflection_enabled: boolean;
+            /**
+             * Evening Reflection Time
+             * @default 22:30
+             */
+            evening_reflection_time: string;
+            /**
+             * Device Alert Enabled
+             * @default true
+             */
+            device_alert_enabled: boolean;
+            /**
+             * Quiet Hours Start
+             * @default 23:30
+             */
+            quiet_hours_start: string;
+            /**
+             * Quiet Hours End
+             * @default 07:30
+             */
+            quiet_hours_end: string;
+            /**
+             * Timezone Offset Hours
+             * @default 8
+             */
+            timezone_offset_hours: number;
+            /**
+             * Auto Approve Safe
+             * @default true
+             */
+            auto_approve_safe: boolean;
+        };
         /** ProfileContent */
         ProfileContent: {
             /** Content */
@@ -3399,6 +4334,24 @@ export interface components {
         PublishBody: {
             /** Content */
             content?: string | null;
+        };
+        /** RecordRhythmBody */
+        RecordRhythmBody: {
+            /** Log Date */
+            log_date?: string | null;
+            /** Wakeup Time */
+            wakeup_time?: string | null;
+            /** Bedtime */
+            bedtime?: string | null;
+            /** Sleep Hours */
+            sleep_hours?: number | null;
+            /**
+             * App Usages
+             * @default []
+             */
+            app_usages: {
+                [key: string]: unknown;
+            }[];
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -3422,6 +4375,28 @@ export interface components {
              * @default false
              */
             github_enabled: boolean;
+            /**
+             * Wechat Enabled
+             * @default false
+             */
+            wechat_enabled: boolean;
+        };
+        /** RejectMissionBody */
+        RejectMissionBody: {
+            /** Token */
+            token?: string | null;
+            /**
+             * Reason
+             * @default 用户驳回
+             */
+            reason: string;
+        };
+        /** SimulateRequest */
+        SimulateRequest: {
+            /** Prompt */
+            prompt: string;
+            /** Scenario */
+            scenario?: string | null;
         };
         /** SkillEdit */
         SkillEdit: {
@@ -3436,6 +4411,19 @@ export interface components {
             /** Project */
             project?: string | null;
         };
+        /** SyncRhythmBody */
+        SyncRhythmBody: {
+            /**
+             * Days
+             * @default 7
+             */
+            days: number;
+            /**
+             * Tz Offset
+             * @default 0
+             */
+            tz_offset: number;
+        };
         /** TargetsBody */
         TargetsBody: {
             /** Targets */
@@ -3445,19 +4433,6 @@ export interface components {
         TaskInputRequest: {
             /** Input */
             input: string;
-        };
-        /** TaskResult */
-        TaskResult: {
-            /** Status */
-            status: string;
-            /** Exit Code */
-            exit_code?: number | null;
-            /** Stdout */
-            stdout?: string | null;
-            /** Stderr */
-            stderr?: string | null;
-            /** Error */
-            error?: string | null;
         };
         /** TodoCreate */
         TodoCreate: {
@@ -3553,6 +4528,42 @@ export interface components {
             /** Sha256 */
             sha256?: string | null;
         };
+        /** UpdateConversationRequest */
+        UpdateConversationRequest: {
+            /** Title */
+            title?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Cwd */
+            cwd?: string | null;
+            /** Execution Mode */
+            execution_mode?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Effort */
+            effort?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+            /** Worktree */
+            worktree?: boolean | null;
+            /** Compact Mode */
+            compact_mode?: boolean | null;
+            /** Pinned */
+            pinned?: boolean | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** UpdateProfileRequest */
+        UpdateProfileRequest: {
+            /** Name */
+            name?: string | null;
+            /** Avatar Url */
+            avatar_url?: string | null;
+        };
         /** UserResponse */
         UserResponse: {
             /** Id */
@@ -3567,6 +4578,8 @@ export interface components {
             status: string;
             /** Collector Token */
             collector_token?: string | null;
+            /** Avatar Url */
+            avatar_url?: string | null;
         };
         /** UserUpdateRequest */
         UserUpdateRequest: {
@@ -3687,122 +4700,6 @@ export interface operations {
             };
         };
     };
-    ingest_file_upload_api_ingest_file_upload_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-device-id"?: string;
-                "x-device-name"?: string;
-                "x-device-platform"?: string;
-                "x-collector-token": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_ingest_file_upload_api_ingest_file_upload_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_sqlite_rows_api_ingest_sqlite_rows_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-device-id"?: string;
-                "x-device-name"?: string;
-                "x-device-platform"?: string;
-                "x-collector-token": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    [key: string]: unknown;
-                };
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_file_chunk_api_ingest_file_chunk_post: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-device-id"?: string;
-                "x-device-name"?: string;
-                "x-device-platform"?: string;
-                "x-collector-token": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_ingest_file_chunk_api_ingest_file_chunk_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     ingest_discovery_api_ingest_discovery_post: {
         parameters: {
             query?: never;
@@ -3838,28 +4735,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_status_api_ingest_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
         };
@@ -4030,78 +4905,6 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_document_raw_api_documents__doc_id__raw_get: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string;
-            };
-            path: {
-                doc_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_document_history_api_documents__doc_id__history_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: {
-                authorization?: string;
-            };
-            path: {
-                doc_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
                 };
             };
             /** @description Validation Error */
@@ -4343,6 +5146,7 @@ export interface operations {
             query?: {
                 tool_id?: string | null;
                 device_id?: string | null;
+                sync?: boolean;
             };
             header?: {
                 authorization?: string;
@@ -4498,6 +5302,8 @@ export interface operations {
             query?: {
                 session_offset?: number;
                 session_limit?: number;
+                offset?: number | null;
+                limit?: number | null;
                 max_messages_per_session?: number;
                 order?: string;
                 device_id?: string | null;
@@ -5019,81 +5825,6 @@ export interface operations {
             };
         };
     };
-    poll_tasks_api_tasks_poll__device_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-collector-token"?: string | null;
-                "x-remote-exec-key"?: string | null;
-            };
-            path: {
-                device_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    submit_result_api_tasks__task_id__result_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "x-remote-exec-key"?: string | null;
-            };
-            path: {
-                task_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TaskResult"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_conversations_api_ask_conversations_get: {
         parameters: {
             query?: {
@@ -5129,7 +5860,9 @@ export interface operations {
     };
     get_conversation_api_ask_conversations__conv_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: {
                 authorization?: string;
             };
@@ -5193,7 +5926,145 @@ export interface operations {
             };
         };
     };
+    update_conversation_api_ask_conversations__conv_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ensure_conversation_by_session_api_ask_conversations_ensure_by_session_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnsureConversationBySessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_recent_active_conversation_api_ask_conversations_recent_active_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_active_runs_api_ask_runs_get: {
+        parameters: {
+            query?: {
+                recent?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_active_runs_wrapped_api_ask_runs_active_get: {
         parameters: {
             query?: never;
             header?: {
@@ -5212,7 +6083,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: unknown;
-                    }[];
+                    };
                 };
             };
             /** @description Validation Error */
@@ -5400,7 +6271,41 @@ export interface operations {
             };
         };
     };
-    get_agent_models_api_ask_api_agent_models_get: {
+    get_agent_capabilities_api_ask_agent_capabilities_get: {
+        parameters: {
+            query?: {
+                tool?: string;
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_capabilities_api_ask_capabilities_get: {
         parameters: {
             query?: {
                 tool?: string;
@@ -5676,6 +6581,107 @@ export interface operations {
             };
         };
     };
+    update_profile_api_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_avatar_api_auth_me_avatar_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_avatar_api_auth_me_avatar_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_avatar_api_auth_me_avatar_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rotate_collector_token_api_auth_me_rotate_collector_token_post: {
         parameters: {
             query?: never;
@@ -5694,6 +6700,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wechat_verify_webhook_api_auth_wechat_webhook_get: {
+        parameters: {
+            query?: {
+                signature?: string;
+                timestamp?: string;
+                nonce?: string;
+                echostr?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wechat_message_webhook_api_auth_wechat_webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_wechat_ticket_endpoint_api_auth_wechat_ticket_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    poll_wechat_ticket_endpoint_api_auth_wechat_poll_get: {
+        parameters: {
+            query: {
+                ticket: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -6408,42 +7523,6 @@ export interface operations {
             };
         };
     };
-    send_command_by_collector_id_api_devices_command_by_collector_id_post: {
-        parameters: {
-            query: {
-                collector_id: string;
-                action?: string;
-            };
-            header?: {
-                authorization?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_commands_api_devices_commands_get: {
         parameters: {
             query?: never;
@@ -6486,46 +7565,6 @@ export interface operations {
             };
             path: {
                 cmd_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_playback_source_api_devices__device_id__files_playback_source_get: {
-        parameters: {
-            query: {
-                /** @description Absolute path on the device or NAS */
-                path: string;
-                token?: string;
-                access_token?: string;
-            };
-            header?: {
-                authorization?: string;
-            };
-            path: {
-                device_id: string;
             };
             cookie?: never;
         };
@@ -6903,72 +7942,6 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     }[];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compact_memory_api_memory_compact_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reset_memory_api_memory_reset_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
             /** @description Validation Error */
@@ -7798,6 +8771,187 @@ export interface operations {
             };
         };
     };
+    simulate_persona_response_api_profile_simulate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_avatar_settings_api_profile_avatar_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_avatar_settings_api_profile_avatar_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvatarSettingsPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_avatar_from_photo_api_profile_avatar_generate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AvatarGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_api_profile_account_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_injection_api_profile_injection_get: {
         parameters: {
             query?: never;
@@ -7845,6 +8999,113 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["server__api__profile__InjectionReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_llm_settings_api_profile_llm_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_llm_settings_api_profile_llm_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_llm_connection_api_profile_llm_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMTestBody"];
             };
         };
         responses: {
@@ -7927,6 +9188,152 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_device_token_api_notify_device_token_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTokenBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unregister_device_token_api_notify_device_token_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceTokenBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    register_live_activity_token_api_notify_live_activity_token_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveActivityTokenBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_notification_feed_api_notify_feed_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
             /** @description Validation Error */
@@ -9208,6 +10615,1041 @@ export interface operations {
                 version?: string | null;
             };
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generic_updater_file_api_system_update__filename__get: {
+        parameters: {
+            query?: {
+                /** @description Optional target release version */
+                version?: string | null;
+            };
+            header?: never;
+            path: {
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_missions_api_missions_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_mission_api_missions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateMissionBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_mission_detail_api_missions__mission_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mobile_one_click_approve_api_missions__mission_id__approve_get: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_approve_mission_api_missions__mission_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveMissionBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    api_reject_mission_api_missions__mission_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                mission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectMissionBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_settings_api_proactive_settings_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_settings_api_proactive_settings_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProactiveSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_morning_brief_api_proactive_test_morning_brief_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_evening_reflection_api_proactive_test_evening_reflection_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_rhythms_api_life_rhythm_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                /** @description Client timezone offset in minutes, e.g. -480 for UTC+8 */
+                tz_offset?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_rhythm_api_life_rhythm_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+                "x-collector-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordRhythmBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_rhythms_api_life_rhythm_delete: {
+        parameters: {
+            query?: {
+                log_date?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_collector_rhythms_api_life_rhythm_sync_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SyncRhythmBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_screentime_image_api_life_rhythm_ocr_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+                "x-collector-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParseImageBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_screentime_image_api_life_rhythm_parse_image_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+                "x-collector-token"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParseImageBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_rhythms_api_life_rhythm_clear_post: {
+        parameters: {
+            query?: {
+                log_date?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_life_advice_api_life_rhythm_advice_post: {
+        parameters: {
+            query?: {
+                log_date?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    populate_sample_rhythm_api_life_rhythm_sample_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_quotas_api_agent_quotas_get: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID or name */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_agent_quotas_api_agent_quotas_refresh_post: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID to refresh */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_quotas_api_quotas_get: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID or name */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_agent_quotas_api_quotas_refresh_post: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID to refresh */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_quotas_agent_quotas_get: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID or name */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_agent_quotas_agent_quotas_refresh_post: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID to refresh */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_quotas_quotas_get: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID or name */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_agent_quotas_quotas_refresh_post: {
+        parameters: {
+            query?: {
+                /** @description Optional target device ID to refresh */
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_capabilities_api_agent_capabilities_get: {
+        parameters: {
+            query?: {
+                tool?: string;
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_agent_models_api_agent_models_get: {
+        parameters: {
+            query?: {
+                tool?: string;
+                device_id?: string | null;
+            };
+            header?: {
+                authorization?: string;
+            };
             path?: never;
             cookie?: never;
         };

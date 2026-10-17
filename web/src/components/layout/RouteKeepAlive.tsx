@@ -9,7 +9,7 @@ const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffec
  * Returns the canonical KeepAlive key for supported top-level menu routes.
  * Sub-detail pages (e.g. /projects/[id], /daily/[date]) return null so they render transiently.
  */
-export function getRouteKeepAliveKey(pathname: string | null): string | null {
+function getRouteKeepAliveKey(pathname: string | null): string | null {
   if (!pathname) return null;
   // AI 执事 (Ask Butler) - covers /ask and /ask?id=...
   if (pathname === "/ask" || (pathname.startsWith("/ask/") && !pathname.startsWith("/ask/tools"))) {

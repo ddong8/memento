@@ -10,9 +10,8 @@ Continuously runs in the background. Coordinates:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -193,7 +192,6 @@ async def _send_morning_brief(db: AsyncSession, user: User, user_now: datetime) 
     machines = (await db.execute(
         select(Machine).where(Machine.user_id == user.id)
     )).scalars().all()
-    now_ts = user_now.timestamp() * 1000
     online_count = sum(
         1 for m in machines
         if m.last_heartbeat and (datetime.now(timezone.utc) - m.last_heartbeat).total_seconds() < 180

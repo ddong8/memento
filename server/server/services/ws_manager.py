@@ -28,17 +28,6 @@ class DeviceConnectionManager:
         self._task_connections: dict[str, WebSocket] = {}
         # req_id (str) -> asyncio.Future
         self._pending_file_requests: dict[str, asyncio.Future] = {}
-        # device_id (str) -> {"ipv6": str, "port": int, "token": str, "updated_at": float}
-        self._device_p2p_info: dict[str, dict[str, Any]] = {}
-
-    def set_p2p_info(self, device_id: str, info: dict[str, Any]) -> None:
-        """Cache current IPv6 P2P endpoint info reported by the collector device."""
-        self._device_p2p_info[device_id] = info
-        logger.info("Updated IPv6 P2P info for device %s: [%s]:%s", device_id, info.get("ipv6"), info.get("port"))
-
-    def get_p2p_info(self, device_id: str) -> dict[str, Any] | None:
-        """Retrieve latest IPv6 P2P endpoint info for device, if active."""
-        return self._device_p2p_info.get(device_id)
 
     def register(self, device_id: str, ws: WebSocket) -> None:
         self._connections[device_id] = ws

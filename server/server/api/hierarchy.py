@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Document, Machine, Project, Tool, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.user_filter import user_machine_ids
 
 router = APIRouter(prefix="/api/hierarchy", tags=["hierarchy"])
 

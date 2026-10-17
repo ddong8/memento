@@ -4,15 +4,14 @@ import WebSocket from "ws";
 
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
-import { P2pMediaServer } from "./p2p-media.js";
 import { probeAllQuotas } from "./quotas.js";
 import { parseTaskDispatch, TaskRunner } from "./task-runner.js";
 
 type Log = (message: string) => void;
 
 const PING_MS = 25_000;
-/** Refresh and report the P2P IPv6 endpoint every 12 pings (~5 minutes): ISP prefixes change. */
-const P2P_EVERY_PINGS = 12;
+/** Re-probe and report quotas every 12 pings (~5 minutes). */
+const QUOTA_EVERY_PINGS = 12;
 
 export function taskSocketUrl(serverUrl: string, deviceId: string): string {
   const base = serverUrl.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://").replace(/\/+$/, "");
@@ -30,7 +29,6 @@ export class WsTaskClient {
   private disposed = false;
   private ws: WebSocket | undefined;
   private pingTimer: NodeJS.Timeout | undefined;
-  private p2p: P2pMediaServer | undefined;
   private wakeUp: (() => void) | undefined;
   private readonly pendingOutbox: Record<string, unknown>[] = [];
   readonly runner: TaskRunner;
@@ -56,16 +54,11 @@ export class WsTaskClient {
     clearInterval(this.pingTimer);
     this.ws?.close();
     this.wakeUp?.();
-    void this.p2p?.stop();
-    this.p2p = undefined;
     this.runner.dispose();
   }
 
   /** Connects and stays connected until disposed. */
   async start(): Promise<void> {
-    this.p2p ??= new P2pMediaServer(this.config.token, this.log);
-    await this.p2p.start().catch((e: unknown) => this.log(`Failed to start IPv6 P2P server: ${e instanceof Error ? e.message : e}`));
-
     let backoff = 2;
     while (!this.disposed) {
       this.onConnection(false);
@@ -116,7 +109,6 @@ export class WsTaskClient {
         this.log("WebSocket transport connected, awaiting server handshake...");
         this.startPing();
         void this.reportCapabilities();
-        void this.reportP2pInfo();
       });
       ws.on("message", (raw) => this.handleFrame(raw.toString()));
       ws.on("close", (code, reason) => {
@@ -143,7 +135,6 @@ export class WsTaskClient {
           this.onConnection(true);
           this.log(`Handshake verified by server (${String(data.device_name ?? "")})`);
           this.flushPendingOutbox();
-          void this.reportP2pInfo();
           void this.reportQuotas();
           break;
         case "pong":
@@ -151,7 +142,6 @@ export class WsTaskClient {
         case "get_agent_capabilities":
           void this.reportCapabilities();
           void this.reportQuotas();
-          void this.reportP2pInfo();
           break;
         case "get_agent_quotas":
           void this.reportQuotas();
@@ -235,10 +225,7 @@ export class WsTaskClient {
     this.pingTimer = setInterval(() => {
       if (!this.connected) return;
       this.sendJson({ type: "ping" });
-      if (++count % P2P_EVERY_PINGS === 0) {
-        void this.reportP2pInfo();
-        void this.reportQuotas();
-      }
+      if (++count % QUOTA_EVERY_PINGS === 0) void this.reportQuotas();
     }, PING_MS);
   }
 
@@ -261,15 +248,6 @@ export class WsTaskClient {
     } catch (e) {
       this.log(`Quota probe failed: ${e instanceof Error ? e.message : e}`);
     }
-  }
-
-  private async reportP2pInfo(): Promise<void> {
-    const p2p = this.p2p;
-    if (!p2p?.port) return;
-    const ipv6 = p2p.refreshIpv6();
-    if (!ipv6) return;
-    this.sendJson({ type: "p2p_network_info", ipv6, port: p2p.port, token: this.config.token });
-    this.log(`Registered IPv6 P2P streaming endpoint with coordinator: [${ipv6}]:${p2p.port}`);
   }
 
   private async handleFileStat(reqId: string, rawPath: string): Promise<void> {

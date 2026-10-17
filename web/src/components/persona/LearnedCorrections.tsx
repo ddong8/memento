@@ -9,7 +9,7 @@ type Obj = Record<string, unknown>;
 const str = (v: unknown): string => (v == null ? "" : String(v));
 
 /** "project:chembook" -> the project name and kind; null for a general rule. */
-export function correctionScope(scope: unknown): { kind: "project" | "device"; name: string } | null {
+function correctionScope(scope: unknown): { kind: "project" | "device"; name: string } | null {
   const [kind, ...rest] = str(scope || "global").split(":");
   const name = rest.join(":");
   if (!name || (kind !== "project" && kind !== "device")) return null;

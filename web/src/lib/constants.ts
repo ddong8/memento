@@ -1,64 +1,4 @@
-/** Shared constants — icons, colors, and display mappings used across pages. */
-
-export const TOOL_ICONS: Record<string, string> = {
-  claude_code: "🤖",
-  openclaw: "🐙",
-  codex: "📦",
-  antigravity: "🚀",
-  workbuddy: "🐱",
-  obsidian: "💎",
-  cursor: "⚡",
-  windsurf: "🏄",
-  vscode: "💠",
-  hermes: "✦",
-};
-
-export const PLATFORM_ICONS: Record<string, string> = {
-  Darwin: "🍎",
-  Linux: "🐧",
-  Windows: "🪟",
-};
-
-/** Tool card left-border accent colors (Tailwind classes). */
-export const TOOL_COLORS: Record<string, string> = {
-  claude_code: "border-l-orange-500",
-  openclaw: "border-l-purple-500",
-  codex: "border-l-green-500",
-  antigravity: "border-l-blue-500",
-  workbuddy: "border-l-teal-500",
-  obsidian: "border-l-violet-500",
-  cursor: "border-l-cyan-500",
-  windsurf: "border-l-teal-500",
-  vscode: "border-l-indigo-500",
-  hermes: "border-l-sky-500",
-};
-
-/** Category display icons. */
-export const CATEGORY_ICONS: Record<string, string> = {
-  config: "⚙️",
-  conversation: "💬",
-  memory: "🧠",
-  history: "📜",
-  plan: "📋",
-  identity: "🪪",
-  state: "📊",
-  learning: "📚",
-  extension: "🧩",
-  note: "📝",
-  skill: "🎯",
-};
-
-export function getToolIcon(toolId: string): string {
-  return TOOL_ICONS[toolId] || "🔧";
-}
-
-export function getPlatformIcon(platform: string): string {
-  return PLATFORM_ICONS[platform] || "💻";
-}
-
-export function getCategoryIcon(category: string): string {
-  return CATEGORY_ICONS[category] || "📄";
-}
+/** Shared display helpers used across pages. */
 
 /** Format byte sizes to human-readable strings. */
 export function formatBytes(bytes: number): string {
@@ -67,11 +7,6 @@ export function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0)} ${sizes[i]}`;
-}
-
-/** Get browser timezone offset as query param string (e.g. "&tz_offset=-480" for UTC+8). */
-export function tzParam(): string {
-  return `tz_offset=${new Date().getTimezoneOffset()}`;
 }
 
 /** Format timestamp to relative time string. */

@@ -38,7 +38,6 @@ def _get_ingest_semaphore() -> asyncio.Semaphore:
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
 from .profile_service import strip_profile_block
 from ..db.models import (
     ConversationMessage, Document, DocumentVersion, Project, SyncState, Tool,
@@ -1068,9 +1067,6 @@ async def ingest_file(
 
 async def _run_post_ingest(doc_id, tool_id: str, category: str) -> None:
     """Post-ingest: extract knowledge (best-effort, own session)."""
-    import logging
-    logger = logging.getLogger("post_ingest")
-
     # Only process conversations and memory — skip configs, extensions, etc.
     if category not in ("conversation", "memory", "learning", "plan", "identity"):
         return

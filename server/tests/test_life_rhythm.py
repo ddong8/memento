@@ -1,6 +1,6 @@
 import unittest
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.db.models import User, UserLifeRhythm
@@ -29,7 +29,7 @@ class TestLifeRhythmService(unittest.IsolatedAsyncioTestCase):
         mock_result.scalar_one_or_none.return_value = None
         self.db.execute.return_value = mock_result
 
-        rec = await life_service.record_daily_rhythm(
+        await life_service.record_daily_rhythm(
             db=self.db,
             user=self.user,
             log_date=date(2026, 10, 5),

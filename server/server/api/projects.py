@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import time
 import uuid
@@ -17,7 +16,7 @@ from sqlalchemy.orm import defer, load_only
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services import cache
-from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services.cache import cache_get, cache_set
 
 from ..db.models import (
     ConversationMessage, Document, KnowledgeEntity, KnowledgeObservation,
@@ -25,7 +24,6 @@ from ..db.models import (
 )
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.conversation_parser import parse_conversation
 from ..services.user_filter import user_machine_ids, apply_user_filter, find_machine_by_id_or_hash
 from ..services.project_placement import (
     DeviceRef, Placement, device_index, discovered_for, discovered_projects, is_junk_project,

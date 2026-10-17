@@ -18,7 +18,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services import cache
-from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services.cache import cache_get, cache_set
 from ..services.memory_lifecycle import touch_recalled
 from ..services.user_filter import user_machine_ids
 
@@ -262,77 +262,6 @@ async def search_memory(
             })
 
     return results
-
-
-@router.post("/compact")
-async def compact_memory(
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> dict:
-    """Run memory compaction — merge old observations into summaries."""
-    from ..services.memory_compaction import run_compaction
-    return await run_compaction(db)
-
-
-@router.post("/reset")
-async def reset_memory(
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> dict:
-    """Clear this user's knowledge graph + embeddings. Admin/owner clears everything.
-
-    Memory will regenerate from next ingest. A non-admin calling this MUST NOT
-    be able to wipe other users' data — without scoping this was a catastrophic
-    multi-tenant bug (any logged-in user could nuke everyone's graph).
-    """
-    from sqlalchemy import delete, text
-
-    admin = _is_admin(_user)
-
-    if admin:
-        obs = (await db.execute(delete(KnowledgeObservation))).rowcount
-        rels = (await db.execute(delete(KnowledgeRelation))).rowcount
-        ents = (await db.execute(delete(KnowledgeEntity))).rowcount
-        embs = (await db.execute(delete(DocumentEmbedding))).rowcount
-        await db.execute(text(
-            "UPDATE documents SET metadata = metadata - '_graph_hash' "
-            "WHERE metadata ? '_graph_hash'"
-        ))
-    else:
-        obs = (await db.execute(
-            delete(KnowledgeObservation).where(
-                KnowledgeObservation.entity_id.in_(_user_entity_ids_subq(_user))
-            )
-        )).rowcount
-        rels = (await db.execute(
-            delete(KnowledgeRelation).where(
-                KnowledgeRelation.source_id.in_(_user_entity_ids_subq(_user))
-            )
-        )).rowcount
-        ents = (await db.execute(
-            delete(KnowledgeEntity).where(KnowledgeEntity.user_id == _user.id)
-        )).rowcount
-        embs = (await db.execute(
-            delete(DocumentEmbedding).where(
-                DocumentEmbedding.document_id.in_(_user_doc_ids_subq(_user))
-            )
-        )).rowcount
-        await db.execute(text(
-            "UPDATE documents SET metadata = metadata - '_graph_hash' "
-            "WHERE metadata ? '_graph_hash' "
-            "AND machine_id IN (SELECT id FROM machines WHERE user_id = :uid)"
-        ), {"uid": _user.id})
-
-    await db.commit()
-    return {
-        "status": "reset",
-        "deleted": {
-            "entities": ents,
-            "relations": rels,
-            "observations": obs,
-            "embeddings": embs,
-        },
-    }
 
 
 # ---------------------------------------------------------------------------

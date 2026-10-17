@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import date
 
 from .ai_provider import call_plain_chat, get_ai_providers
-from .conversation_parser import parse_conversation
 
 logger = logging.getLogger("server.ai_summary")
 
@@ -124,58 +122,3 @@ async def generate_daily_summary_from_digests(
     if result:
         logger.info("Generated daily summary for %s (%d chars)", summary_date, len(result))
     return result
-
-
-def _extract_conversation_digest(
-    content: str, tool_id: str, target_date: str = "", max_chars: int = 3000,
-) -> str:
-    """Extract user questions and assistant replies, filtered to target date if possible."""
-    messages = parse_conversation(content, tool_id)
-    parts = []
-    total = 0
-    for m in messages:
-        if m.role not in ("user", "assistant"):
-            continue
-        if m.content.startswith("[Result]") or m.content.startswith("[Tool:"):
-            continue
-        if target_date and m.timestamp:
-            msg_date = m.timestamp[:10]
-            if msg_date != target_date:
-                continue
-        prefix = "👤 用户" if m.role == "user" else "🤖 AI"
-        text = m.content[:500]
-        line = f"{prefix}: {text}"
-        if total + len(line) > max_chars:
-            parts.append("...(对话内容过长，已截断)")
-            break
-        parts.append(line)
-        total += len(line)
-    return "\n".join(parts)
-
-
-async def generate_daily_summary(
-    summary_date: date,
-    conversations: list[dict],
-) -> str | None:
-    """Legacy: generate summary from raw conversation content (single-pass)."""
-    if not get_ai_providers():
-        return None
-
-    conv_data = []
-    for conv in conversations:
-        tool_id = conv.get("tool_id", "unknown")
-        title = conv.get("title", "")
-        content = conv.get("content", "")
-        content_type = conv.get("content_type", "")
-        if not content:
-            continue
-        if content_type == "jsonl" or (content_type == "json" and tool_id == "hermes"):
-            digest = _extract_conversation_digest(
-                content, tool_id, target_date=summary_date.isoformat(), max_chars=2000,
-            )
-        else:
-            digest = content[:1000]
-        if digest.strip():
-            conv_data.append({"tool_id": tool_id, "title": title, "digest": digest})
-
-    return await generate_daily_summary_from_digests(summary_date, conv_data)

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.db.models import AgentMission, CorrectionTopic, Machine, User, UserProfile
+from server.db.models import CorrectionTopic, Machine, User, UserProfile
 from server.api.learning import check, list_corrections, accept, dismiss, AcceptBody
 from server.api.profile import get_profile, save_draft, publish, set_device_targets, report_injection, ProfileContent, PublishBody, TargetsBody, InjectionReport
 from server.api.missions import list_missions

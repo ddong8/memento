@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db.models import Document, Permission, Project, User
+from ..db.models import Document, Permission, User
 
 
 async def can_view_document(
@@ -37,19 +37,6 @@ async def can_view_document(
 
     # Check tool-level permission
     return await _has_tool_permission(db, user.id, doc.tool_id)
-
-
-async def can_view_project(
-    db: AsyncSession, user: User | None, project: Project,
-) -> bool:
-    """Check if a user can view a project."""
-    if project.visibility == "public":
-        return True
-    if user is None:
-        return False
-    if user.role in ("owner", "admin"):
-        return True
-    return await _has_project_permission(db, user.id, project.id, project.tool_id)
 
 
 async def _has_project_permission(

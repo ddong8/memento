@@ -6,13 +6,12 @@ import logging
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine, User
-from ..db.session import async_session_factory, get_db
+from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.ws_manager import ws_manager
 
@@ -54,10 +53,6 @@ def set_cached_device_quotas(
         _device_quotas[machine_id] = report_with_meta
 
     _latest_global_quotas = report_with_meta
-
-
-def _enrich_report_models(report: dict[str, Any]) -> dict[str, Any]:
-    return report
 
 
 def get_cached_device_quotas(device_id: str | None = None) -> dict[str, Any] | None:

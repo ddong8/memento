@@ -15,6 +15,7 @@ import socket
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -62,18 +63,6 @@ def parse_push_url(raw: str | None) -> tuple[str, str, str] | None:
     return "bark", f"{parsed.scheme}://{parsed.netloc}", parts[0]
 
 
-def parse_bark_url(raw: str | None) -> tuple[str, str] | None:
-    if not raw:
-        return None
-    parsed = urlparse(raw.strip())
-    if parsed.scheme != "https":
-        return None
-    res = parse_push_url(raw)
-    if not res:
-        return None
-    return res[1], res[2]
-
-
 def mask_push_url(raw: str | None) -> str | None:
     res = parse_push_url(raw)
     if not res:
@@ -83,10 +72,6 @@ def mask_push_url(raw: str | None) -> str | None:
         return f"{target}/{key[:4]}…"
     # ntfy
     return f"{target[:-len(key)]}{key[:4]}…"
-
-
-def mask_bark_url(raw: str | None) -> str | None:
-    return mask_push_url(raw)
 
 
 async def _is_public_host(host: str) -> bool:

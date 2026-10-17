@@ -6,7 +6,6 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from collections import defaultdict
 from .celery_app import celery_app

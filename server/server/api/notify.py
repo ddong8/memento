@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -12,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.notify_service import mask_push_url, parse_push_url, send_bark
+from ..services.notify_service import mask_push_url, parse_push_url
 
 router = APIRouter(prefix="/api/notify", tags=["notify"])
 

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,8 +14,6 @@ from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.ai_provider import (
-    AIProviderConfig,
-    call_chat_completion,
     get_system_default_llm_info,
 )
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -150,14 +150,3 @@ async def run_user_backfill_async(user_id: str, chunk_days: int = 3, max_chunks:
                 "error": str(e),
             })
             raise
-
-
-@celery_app.task(
-    name="server.tasks.dreaming_tasks.run_dreaming_backfill_task",
-    acks_late=True,
-)
-def run_dreaming_backfill_task(user_id: str, chunk_days: int = 3, max_chunks: int = 30) -> dict:
-    """Execute historical dreaming backfill for a user in background."""
-    logger.info("Starting historical dreaming backfill for user %s (chunk_days=%d)...", user_id, chunk_days)
-    return asyncio.run(run_user_backfill_async(user_id, chunk_days=chunk_days, max_chunks=max_chunks))
-

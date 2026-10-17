@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession

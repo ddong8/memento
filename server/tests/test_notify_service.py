@@ -1,7 +1,6 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 import uuid
-import time
 
 from server.services.notify_service import (
     _is_duplicate_push,

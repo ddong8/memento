@@ -221,7 +221,7 @@ export function stripTransientStatusPrefix(text: string): string {
   return content.trim();
 }
 
-export function normalizeMarkdownContent(content: string): string {
+function normalizeMarkdownContent(content: string): string {
   if (!content) return "";
   // 保护主线程：若单篇文本超过 80,000 字符（~2000行），跳过昂贵的多次正则全量扫描，防止正则回溯锁死 JS 主线程
   if (content.length > 80_000) {

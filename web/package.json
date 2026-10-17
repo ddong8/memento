@@ -12,9 +12,8 @@
   },
   "dependencies": {
     "@memento/core": "*",
-    "@tanstack/react-virtual": "^3.13.23",
     "@types/three": "^0.186.0",
-    "date-fns": "^4.1.0",
+    "highlight.js": "^11.11.1",
     "next": "16.2.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",

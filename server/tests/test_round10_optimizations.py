@@ -2,10 +2,9 @@
 
 import unittest
 import uuid
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.db.models import Document, Machine, Project, User, UserMemory
+from server.db.models import Document, Project, User, UserMemory
 from server.api.documents import _get_doc_with_permission
 from server.api.projects import _reconcile_project_documents, _bust_project_cache
 from server.api.memory import _bust_user_memory_cache

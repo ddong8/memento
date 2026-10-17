@@ -124,17 +124,11 @@ export const TOOL_HUE: Record<string, { h: number; bg: string }> = {
   hermes:      { h: 200, bg: "linear-gradient(135deg,#38BDF8,#0EA5E9)" },
 };
 
-export const TOOL_ICON_NAME: Record<string, IconName> = {
-  claude_code: "sparkles", openclaw: "octopus", codex: "box",
-  antigravity: "rocket", workbuddy: "sparkles", obsidian: "diamond", cursor: "lightning",
-  windsurf: "surf", vscode: "code", hermes: "zap",
-};
-
-export const PLATFORM_ICON_NAME: Record<string, IconName> = {
+const PLATFORM_ICON_NAME: Record<string, IconName> = {
   Darwin: "apple", Linux: "linux", Windows: "windows",
 };
 
-export const CATEGORY_ICON_NAME: Record<string, IconName> = {
+const CATEGORY_ICON_NAME: Record<string, IconName> = {
   config: "settings", conversation: "message", memory: "brain",
   history: "clock", plan: "target", identity: "user", state: "activity",
   learning: "book", extension: "layers", note: "edit", skill: "zap",

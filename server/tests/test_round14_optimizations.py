@@ -2,10 +2,9 @@
 
 import unittest
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.db.models import DeviceTask, Document, Project, User
+from server.db.models import DeviceTask, Project, User
 from server.api.tasks import list_tasks, _serialize
 from server.api.projects import (
     get_project_blueprint,
@@ -52,7 +51,6 @@ class TestRound14Optimizations(unittest.IsolatedAsyncioTestCase):
         """Verify get_project_blueprint caches response and defers rendered_html."""
         user = User(id=uuid.uuid4(), email="user@example.com", role="user")
         project_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
         project = Project(
             id=project_id,
             title="Memento",

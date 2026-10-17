@@ -53,4 +53,3 @@ export function useTheme(): Theme {
 }
 
 export const radius = { card: 16, control: 10, chip: 8 };
-export const mono = "Menlo";

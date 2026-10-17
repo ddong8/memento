@@ -17,7 +17,7 @@ Notifications.setNotificationHandler({
 const DEDUP_WINDOW_MS = 60000;
 const _notifiedKeys = new Map<string, number>();
 
-export function getNotificationKey(title?: string | null, body?: string | null): string {
+function getNotificationKey(title?: string | null, body?: string | null): string {
   return `${(title || "").trim()}:::${(body || "").trim()}`;
 }
 

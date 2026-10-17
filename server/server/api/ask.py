@@ -24,9 +24,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -692,10 +691,10 @@ def _build_messages(
         if dev_info:
             user_prompt += f"上下文参考:\n{dev_info}"
         user_prompt += (
-            f"规则与要求:\n"
-            f"1. 必须仔细结合前序交互历史，主动调用 run_on_device 工具在目标物理机上执行真实操作（如 kill 进程、停止服务、重启等）！\n"
-            f"2. 绝对严禁在文本中编写或伪造执行状态，所有操作必须通过触发真实的 run_on_device 工具下发！\n"
-            f"3. 严禁在未调用工具前回复「未获取到操作」或直接结束！"
+            "规则与要求:\n"
+            "1. 必须仔细结合前序交互历史，主动调用 run_on_device 工具在目标物理机上执行真实操作（如 kill 进程、停止服务、重启等）！\n"
+            "2. 绝对严禁在文本中编写或伪造执行状态，所有操作必须通过触发真实的 run_on_device 工具下发！\n"
+            "3. 严禁在未调用工具前回复「未获取到操作」或直接结束！"
         )
         if sources:
             user_prompt = f"参考资料:\n{context}\n\n{user_prompt}"
@@ -3330,9 +3329,6 @@ async def get_agent_capabilities(
     )
 
 
-@router.get("/models")
-@router.get("/agent/models")
-@router.get("/api/agent/models")
 async def get_agent_models(
     tool: str = "codex",
     device_id: str | None = None,

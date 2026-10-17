@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -54,17 +53,9 @@ async def update_settings(
 import asyncio
 import logging
 import traceback
-import uuid
 from ..db.session import async_session_factory
-from ..services.notify_service import notify_user, send_apns_push, send_expo_push, send_bark
 
 logger = logging.getLogger("server.proactive")
-
-
-@router.get("/version")
-async def get_version():
-    """Diagnostic version endpoint to verify deployment status."""
-    return {"version": "2026-10-02-v2", "status": "active"}
 
 
 @router.post("/test-morning-brief")

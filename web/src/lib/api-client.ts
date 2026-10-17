@@ -11,9 +11,6 @@ export function getApiBase(): string {
   return "http://localhost:8001";
 }
 
-// Keep for import compat — but always call getApiBase() instead
-export const API_BASE = "";
-
 /** Authenticated fetch — wraps native fetch with JWT from localStorage. */
 export function authFetch(url: string, init?: RequestInit): Promise<Response> {
   const token = _getToken();
@@ -330,14 +327,14 @@ export interface BacklinksResult {
 }
 
 // Timeline
-export interface TimelinePreviewMessage {
+interface TimelinePreviewMessage {
   role: string;
   content: string;
   tool_name?: string;
   timestamp: string | null;
 }
 
-export interface TimelineArtifact {
+interface TimelineArtifact {
   id: string;
   title: string;
   doc_type: string;
@@ -345,7 +342,7 @@ export interface TimelineArtifact {
   file_size_bytes: number;
 }
 
-export interface TimelineConversation {
+interface TimelineConversation {
   id: string;
   title: string;
   message_count: number;
@@ -353,7 +350,7 @@ export interface TimelineConversation {
   file_size_bytes: number;
 }
 
-export interface TimelineEvent {
+interface TimelineEvent {
   // Common
   type: string; // "session" (grouped) or category name (standalone)
   tool_id: string;
@@ -1001,7 +998,7 @@ export const api = {
   },
 };
 
-export interface QuotaModelItem {
+interface QuotaModelItem {
   label: string;
   model_id: string;
   remaining_fraction?: number | null;

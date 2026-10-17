@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timezone
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, File, Form, Header, UploadFile
+from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,142 +94,6 @@ async def ingest_file_endpoint(
     return IngestResponse(document_id=str(doc.id), message="Ingested successfully")
 
 
-@router.post("/file/upload", response_model=IngestResponse)
-async def ingest_file_upload(
-    metadata: str = Form(...),
-    content: UploadFile = File(...),
-    _collector_user: User = Depends(verify_collector_token),
-    _throttle: None = Depends(throttle_ingest),
-    db: AsyncSession = Depends(get_db),
-    x_device_id: str = Header("unknown"),
-    x_device_name: str = Header("unknown"),
-    x_device_platform: str = Header("unknown"),
-) -> IngestResponse:
-    """Ingest a large file via multipart upload."""
-    meta = json.loads(metadata)
-    file_content = (await content.read()).decode("utf-8", errors="replace")
-    machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-
-    doc = await ingest_file(
-        db=db,
-        tool_id=meta["tool"],
-        category=meta["category"],
-        content_type=meta["content_type"],
-        relative_path=meta["relative_path"],
-        content=file_content,
-        content_hash=meta["hash"],
-        file_size=meta.get("file_size", len(file_content.encode("utf-8"))),
-        mode=meta.get("mode", "full"),
-        offset=meta.get("offset", 0),
-        metadata=meta.get("metadata", {}),
-        timestamp=meta.get("timestamp"),
-        machine_id=str(machine.id),
-        user_id=str(_collector_user.id),
-    )
-    return IngestResponse(document_id=str(doc.id), message="Uploaded successfully")
-
-
-@router.post("/sqlite-rows", response_model=IngestResponse)
-async def ingest_sqlite_rows(
-    req: dict,
-    _collector_user: User = Depends(verify_collector_token),
-    _throttle: None = Depends(throttle_ingest),
-    db: AsyncSession = Depends(get_db),
-    x_device_id: str = Header("unknown"),
-    x_device_name: str = Header("unknown"),
-    x_device_platform: str = Header("unknown"),
-) -> IngestResponse:
-    """Ingest exported SQLite rows as JSON."""
-    machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-    content = json.dumps(req.get("rows", []), ensure_ascii=False)
-    doc = await ingest_file(
-        db=db,
-        tool_id=req["tool"],
-        category="state",
-        content_type="sqlite_export",
-        relative_path=f"{req.get('db_path', 'unknown')}/{req.get('source_table', 'unknown')}",
-        content=content,
-        content_hash="",
-        file_size=len(content.encode("utf-8")),
-        mode="delta" if req.get("last_rowid", 0) > 0 else "full",
-        offset=req.get("last_rowid", 0),
-        metadata={"source_table": req.get("source_table"), "db_path": req.get("db_path")},
-        machine_id=str(machine.id),
-        user_id=str(_collector_user.id),
-    )
-    return IngestResponse(document_id=str(doc.id), message="SQLite rows ingested")
-
-
-# In-memory chunk buffer for chunked uploads
-_chunk_buffers: dict[str, dict] = {}
-
-
-@router.post("/file/chunk", response_model=IngestResponse)
-async def ingest_file_chunk(
-    metadata: str = Form(...),
-    content: UploadFile = File(...),
-    _collector_user: User = Depends(verify_collector_token),
-    _throttle: None = Depends(throttle_ingest),
-    db: AsyncSession = Depends(get_db),
-    x_device_id: str = Header("unknown"),
-    x_device_name: str = Header("unknown"),
-    x_device_platform: str = Header("unknown"),
-) -> IngestResponse:
-    """Receive a chunk of a large file. Assembles and ingests when all chunks arrive."""
-    meta = json.loads(metadata)
-    chunk_data = await content.read()
-    upload_id = meta["upload_id"]
-    chunk_index = meta["chunk_index"]
-    total_chunks = meta["total_chunks"]
-
-    # Initialize buffer
-    if upload_id not in _chunk_buffers:
-        _chunk_buffers[upload_id] = {
-            "meta": meta,
-            "chunks": {},
-            "total_chunks": total_chunks,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-    _chunk_buffers[upload_id]["chunks"][chunk_index] = chunk_data
-
-    # Check if all chunks received
-    buf = _chunk_buffers[upload_id]
-    if len(buf["chunks"]) < total_chunks:
-        return IngestResponse(
-            document_id="pending",
-            message=f"Chunk {chunk_index + 1}/{total_chunks} received",
-        )
-
-    # All chunks received — assemble and ingest
-    full_content = b"".join(buf["chunks"][i] for i in range(total_chunks))
-    del _chunk_buffers[upload_id]
-
-    file_content = full_content.decode("utf-8", errors="replace")
-    machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-
-    doc = await ingest_file(
-        db=db,
-        tool_id=meta["tool"],
-        category=meta["category"],
-        content_type=meta["content_type"],
-        relative_path=meta["relative_path"],
-        content=file_content,
-        content_hash=meta["hash"],
-        file_size=len(full_content),
-        mode=meta.get("mode", "full"),
-        offset=meta.get("offset", 0),
-        metadata=meta.get("metadata", {}),
-        timestamp=meta.get("timestamp"),
-        machine_id=str(machine.id),
-        user_id=str(_collector_user.id),
-    )
-    return IngestResponse(
-        document_id=str(doc.id),
-        message=f"Assembled {total_chunks} chunks ({len(full_content)} bytes), ingested",
-    )
-
-
 @router.post("/discovery")
 async def ingest_discovery(
     req: dict,
@@ -263,7 +127,7 @@ async def ingest_discovery(
 
     discovery_content = json.dumps(tools_data, indent=2, ensure_ascii=False)
     content_hash = hashlib.sha256(discovery_content.encode("utf-8")).hexdigest()
-    doc = await ingest_file(
+    await ingest_file(
         db=db, tool_id="system", category="discovery", content_type="json",
         relative_path=f"discovery/{device_id}.json",
         content=discovery_content, content_hash=content_hash,
@@ -274,11 +138,6 @@ async def ingest_discovery(
         user_id=str(_collector_user.id),
     )
     return {"status": "ok", "tools_discovered": len(req.get("tools", {}))}
-
-
-@router.get("/status")
-async def ingest_status() -> dict:
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @router.post("/heartbeat")

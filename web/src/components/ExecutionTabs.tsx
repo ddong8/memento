@@ -297,5 +297,3 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
     </div>
   );
 }
-
-export { ExecutionTabs };

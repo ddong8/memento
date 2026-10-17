@@ -20,7 +20,6 @@ from ..db.models import (
     KnowledgeObservation,
     KnowledgeRelation,
     Machine,
-    Project,
     SyncState,
     User,
     UserMemory,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
-from passlib.hash import sha256_crypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,10 +16,9 @@ async def ensure_device(
     device_id: str,
     device_name: str,
     device_platform: str,
-    user_id: "uuid.UUID | None" = None,
+    user_id: uuid.UUID | None = None,
 ) -> Machine:
     """Find or create a machine record for this device."""
-    import uuid
     result = await db.execute(
         select(Machine).where(Machine.collector_token_hash == device_id)
     )
@@ -64,11 +63,3 @@ async def ensure_device(
             machine.user_id = user_id
 
     return machine
-
-
-async def list_devices(db: AsyncSession) -> list[Machine]:
-    """List all registered devices."""
-    result = await db.execute(
-        select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc())
-    )
-    return list(result.scalars().all())

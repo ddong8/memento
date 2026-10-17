@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -188,7 +188,7 @@ async def extract_knowledge_from_document(
 
     # Get or determine user_id from document's machine
     user_obj = None
-    from ..db.models import Machine, User
+    from ..db.models import User
     if not user_id and doc.machine_id:
         machine = (await db.execute(
             select(Machine).where(Machine.id == doc.machine_id)

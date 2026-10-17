@@ -20,6 +20,11 @@
 - bot 回写提交带 `[skip ci]`(GitHub 上真生效、不是装饰),避免触发死循环。
 - **不要用 ConfigMap 挂载覆盖镜像里的代码文件做热修复。** 2026-10-13 有人这样给 api 挂了 projects.py、ingest_service.py、user_filter.py,补丁一直没撤,之后这三个文件的改动在线上全部不生效(镜像照常更新,文件被挂载盖住)。Fleet 不把这类手动加的挂载算作漂移,不会自动清掉。确实要紧急止血,也要在修复随镜像上线后立刻删掉挂载和 ConfigMap。
 
+### api 是多副本(deploy/k8s/api.yaml 的 replicas)
+- 请求和设备 WebSocket 会落到任意一个副本。副本之间经 Redis 协调,全在 `server/server/services/cluster.py`:跨副本调用、键归属(设备连在哪个副本)、有序写、锁/互斥/租约、共享字典。设备连接见 `ws_manager.py`,提问运行(镜像到 Redis stream,任一副本可续看/停止)见 `ask_runs.py`。
+- **新代码不要把需要跨请求共享的状态放进模块级 dict / `asyncio.Lock` / 进程内后台循环**:会在副本间各自为政。共享状态用 Redis(`cluster.redis`、`SharedDict`),互斥用 `cluster.mutex` / `try_lock`,只该跑一份的后台任务包在 `cluster.leased(...)` 里。纯缓存(丢了能重算)可以留在进程内。
+- 发版时旧 pod 会先等进行中的回答跑完(最多 `MEMENTO_SHUTDOWN_DRAIN_SECONDS`,默认 600 秒)再退出,期间客户端自动改连新 pod 继续看。所以旧 pod 停在 `Terminating` 几分钟是正常的;改这个时长要同步改 api.yaml 的 `terminationGracePeriodSeconds`。
+
 ### 查状态 / 排障
 - 构建:`gh run list --workflow=deploy.yml`
 - 集群:`kubectl -n fleet-local get gitrepo memento`、`kubectl -n memento get pods`

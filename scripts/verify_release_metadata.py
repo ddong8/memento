@@ -117,7 +117,11 @@ def verify_metadata(version_file: Path, github_tag: str | None = None) -> bool:
             repo = os.environ.get("MEMENTO_GITHUB_REPO", "ddong8/memento")
             url = f"https://api.github.com/repos/{repo}/releases/tags/{github_tag}"
             print(f"[*] Checking GitHub Release assets at: {url}")
-            req = urllib.request.Request(url, headers={"User-Agent": "Memento-Release-Verifier"})
+            headers = {"User-Agent": "Memento-Release-Verifier"}
+            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 gh_release = json.loads(resp.read().decode("utf-8"))
             gh_assets = {a["name"]: a["size"] for a in gh_release.get("assets", [])}

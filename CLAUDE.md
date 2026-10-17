@@ -12,7 +12,8 @@
 - **公开仓库 → 不要往仓库里放任何 Secret**;postgres / redis / minio 与 Secret 都在集群内手工维护、不进仓库,deploy/k8s 里只引用。
 
 ### 关键约束(改 CI/部署相关时务必遵守)
-- 集群拉 GHCR 镜像、以及 Fleet 克隆 github,**都经一台 Mac 上的 Clash 代理**绕开国内限速(地址在集群的代理配置里,不写进公开仓库)。部署时需这台 Mac 的 Clash 在线(已缓存镜像/已同步代码不受影响)。
+- Fleet 克隆 github 走集群内的代理 `fleet-proxy`(`cattle-fleet-system` 命名空间,gitjob 的 HTTP(S)_PROXY 指向它),不再经 Mac 上的 Clash。拉 GHCR 镜像以集群实际配置为准(2026-10-17 旧的 Mac 代理地址已不通,拉镜像照常)。代理地址等不写进公开仓库。
+- GitHub 偶发超时后 gitrepo 会停在 `Stalled` / `GitPolling=False`,之后不再自动拉新提交,要按下面的办法强制重同步(2026-10-17 实测有效)。
 - CI 装 kustomize 用「release CDN 直接下载固定版」(`releases/download/.../kustomize_v5.4.3_...`),**不要改回 `install_kustomize.sh`**——它查 GitHub API,共享 runner 上会撞限流导致部署失败。
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
 - bot 回写提交带 `[skip ci]`(GitHub 上真生效、不是装饰),避免触发死循环。

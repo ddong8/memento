@@ -122,7 +122,7 @@ main() {
     say "Handing off to the local installer…"
     echo
     cd "$TARGET_DIR"
-    chmod +x install.sh uninstall.sh 2>/dev/null || true
+    chmod +x install.sh 2>/dev/null || true
     exec ./install.sh "$@"
 }
 

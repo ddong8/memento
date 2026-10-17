@@ -315,6 +315,11 @@ jobs:
               json.dump(meta, f, ensure_ascii=False, indent=2)
           "
 
+      - name: Verify release metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/verify_release_metadata.py --github-tag "${{ steps.release_meta.outputs.tag }}"
+
       - name: Commit and push updated version metadata
         run: |
           git config user.name 'github-actions[bot]'

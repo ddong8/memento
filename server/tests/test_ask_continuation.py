@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
-from server.api.ask import _classify_continuation  # noqa: E402
+from server.services.ask_prompt import classify_continuation  # noqa: E402
 
 
 class AskContinuationTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class AskContinuationTests(unittest.TestCase):
             ("重启一下服务", True, True),
         ]
         for query, expected_cont, expected_act in test_cases:
-            is_cont, is_act, ctx = _classify_continuation(query, self.history)
+            is_cont, is_act, ctx = classify_continuation(query, self.history)
             self.assertEqual(is_cont, expected_cont, f"Failed cont for '{query}'")
             self.assertEqual(is_act, expected_act, f"Failed act for '{query}'")
             self.assertEqual(ctx["device_name"], "Mac mini")
@@ -55,13 +55,13 @@ class AskContinuationTests(unittest.TestCase):
 
     def test_informational_continuation(self):
         query = "为什么这个任务会遗留？"
-        is_cont, is_act, ctx = _classify_continuation(query, self.history)
+        is_cont, is_act, ctx = classify_continuation(query, self.history)
         self.assertTrue(is_cont)
         self.assertFalse(is_act)  # Not an action command, so RAG should be allowed
 
     def test_unrelated_query(self):
         query = "明天北京天气怎么样"
-        is_cont, is_act, ctx = _classify_continuation(query, self.history)
+        is_cont, is_act, ctx = classify_continuation(query, self.history)
         self.assertFalse(is_cont)
         self.assertFalse(is_act)
 
@@ -69,7 +69,7 @@ class AskContinuationTests(unittest.TestCase):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
         import uuid
-        from server.api.ask import _retrieve_core_memories
+        from server.services.ask_retrieval import retrieve_core_memories
         from server.db.models import User, UserMemory
 
         mock_user = User(id=uuid.uuid4(), email="dev@example.com")
@@ -101,7 +101,7 @@ class AskContinuationTests(unittest.TestCase):
         db.execute.return_value = mock_result
 
         async def _run():
-            return await _retrieve_core_memories(
+            return await retrieve_core_memories(
                 db=db,
                 user=mock_user,
                 question="这个项目发布怎么做",
@@ -116,7 +116,7 @@ class AskContinuationTests(unittest.TestCase):
         self.assertIn("proj_memento_overview", keys)
 
     def test_infer_conversation_config_codex(self):
-        from server.api.ask import _infer_conversation_config
+        from server.services.ask_store import infer_conversation_config
         from server.db.models import AskConversation
 
         mock_conv = AskConversation(
@@ -157,7 +157,7 @@ class AskContinuationTests(unittest.TestCase):
             ],
         )
 
-        cfg, inferred = _infer_conversation_config(mock_conv)
+        cfg, inferred = infer_conversation_config(mock_conv)
         self.assertEqual(cfg["execution_mode"], "codex")
         self.assertEqual(cfg["project_id"], "proj-react-native-123")
         self.assertEqual(cfg["session_id"], "sess-codex-abc")
@@ -168,7 +168,7 @@ class AskContinuationTests(unittest.TestCase):
 
     def test_infer_conversation_config_json_string_args(self):
         import json
-        from server.api.ask import _infer_conversation_config
+        from server.services.ask_store import infer_conversation_config
         from server.db.models import AskConversation
 
         mock_conv = AskConversation(
@@ -193,7 +193,7 @@ class AskContinuationTests(unittest.TestCase):
             ],
         )
 
-        cfg, inferred = _infer_conversation_config(mock_conv)
+        cfg, inferred = infer_conversation_config(mock_conv)
         self.assertEqual(cfg["execution_mode"], "claude")
         self.assertEqual(cfg["session_id"], "sess-claude-xyz")
 
@@ -210,7 +210,7 @@ class AskContinuationTests(unittest.TestCase):
         self.assertEqual(clean_q2, "再做一个视频吧")
 
     def test_pinned_conversation_request(self):
-        from server.api.ask import UpdateConversationRequest
+        from server.api.ask_conversations import UpdateConversationRequest
         req = UpdateConversationRequest(pinned=True, title="Pinned Conversation")
         self.assertTrue(req.pinned)
         self.assertEqual(req.title, "Pinned Conversation")

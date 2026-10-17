@@ -926,13 +926,13 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
     from .todo_service import add_todo, open_todos, parse_due, todo_out
 
     if name == "search_memory":
-        from ..api.ask import _retrieve
+        from .ask_retrieval import retrieve
 
         query = str(args.get("query") or "").strip()
         if not query:
             return {"error": "query is required"}
         days = args.get("days")
-        sources = await _retrieve(db, user, query, None, int(days) if isinstance(days, (int, float)) and days > 0 else None)
+        sources = await retrieve(db, user, query, None, int(days) if isinstance(days, (int, float)) and days > 0 else None)
         return {"results": [
             {"title": s["title"], "tool": s["tool_id"], "path": s["relative_path"], "synced_at": s["synced_at"],
              "excerpt": (s["excerpt"] or "")[:700]}

@@ -482,7 +482,7 @@ async def device_websocket_endpoint(
                                 if not watched and new_status != "still_running":
                                     try:
                                         from ..db.models import AskConversation
-                                        from .ask import _infer_conversation_config, _recover_orphaned_tasks_for_conv
+                                        from ..services.ask_store import infer_conversation_config, recover_orphaned_tasks_for_conv
                                         pl = t.payload or {}
                                         pl_conv = str(pl.get("conversation_id") or "").strip()
                                         pl_sess = str(pl.get("session_id") or "").strip()
@@ -499,10 +499,10 @@ async def device_websocket_endpoint(
                                                 .order_by(AskConversation.updated_at.desc())
                                                 .limit(20)
                                             )).scalars().all()
-                                            conv_obj = next((c for c in cand_convs if _infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
+                                            conv_obj = next((c for c in cand_convs if infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
                                         if conv_obj:
-                                            cfg_c, _ = _infer_conversation_config(conv_obj)
-                                            await _recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)
+                                            cfg_c, _ = infer_conversation_config(conv_obj)
+                                            await recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)
                                     except Exception as rec_err:
                                         logger.warning("Failed to auto-recover conversation turn for task %s: %s", tid_str, rec_err)
                     except Exception as e:

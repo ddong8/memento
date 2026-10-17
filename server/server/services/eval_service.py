@@ -150,7 +150,7 @@ async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[
 
 
 def _config() -> dict[str, Any]:
-    from ..api.ask import TOP_K
+    from .ask_retrieval import TOP_K
     from ..api.search import RRF_K
 
     return {
@@ -164,7 +164,7 @@ def _config() -> dict[str, Any]:
 
 async def run_eval(db: AsyncSession, user: User, trigger: str = "scheduled", set_version: int | None = None) -> EvalRun:
     """Score the current (or given) set. Builds the first set if there is none."""
-    from ..api.ask import hybrid_rank
+    from .ask_retrieval import hybrid_rank
 
     version = set_version or await current_version(db, user)
     if version is None:

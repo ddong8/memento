@@ -110,7 +110,7 @@ export default function LoginScreen() {
   const checkPoll = useCallback(async () => {
     if (!ticket || ticketStatus !== "pending" || completedRef.current || authTab !== "wechat") return;
     try {
-      const res = await fetch(`${baseServer}/api/auth/wechat/ticket/${ticket}`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${baseServer}/api/auth/wechat/poll?ticket=${encodeURIComponent(ticket)}`, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return;
       const data = (await res.json()) as { status: string; access_token?: string; detail?: string };
       if (data.status === "success" && data.access_token) {

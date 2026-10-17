@@ -13,7 +13,7 @@
 
 ### 关键约束(改 CI/部署相关时务必遵守)
 - Fleet 克隆 github 走集群内的代理 `fleet-proxy`(`cattle-fleet-system` 命名空间,gitjob 的 HTTP(S)_PROXY 指向它),不再经 Mac 上的 Clash。拉 GHCR 镜像以集群实际配置为准(2026-10-17 旧的 Mac 代理地址已不通,拉镜像照常)。代理地址等不写进公开仓库。
-- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍每分钟轮询一次,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:代理只有一个出口在用,这个出口时好时坏,期间连续 17 分钟全部超时)。要尽快上线就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。
+- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍每分钟轮询一次,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。
 - CI 装 kustomize 用「release CDN 直接下载固定版」(`releases/download/.../kustomize_v5.4.3_...`),**不要改回 `install_kustomize.sh`**——它查 GitHub API,共享 runner 上会撞限流导致部署失败。
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
 - 服务端 Python 依赖锁在 `server/uv.lock`,Docker 安装的是由它导出的 `server/requirements.lock`(带哈希)。改了 `server/pyproject.toml` 的依赖后:`cd server && uv lock && uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o requirements.lock`;升级依赖用 `uv lock --upgrade` 再导出。CI 会检查两者一致。

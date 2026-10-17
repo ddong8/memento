@@ -70,8 +70,11 @@ class Settings(BaseSettings):
     # When unset, the redirect_uri is derived from the incoming request.
     public_url: str = ""
 
-    # WeChat Official Account (Subscription/Service) Webhook configuration
-    wechat_token: str = "memento_wx_token_2026"
+    # WeChat Official Account webhook: the Token set under 消息与事件推送 in the WeChat
+    # developer platform. Empty disables WeChat login. While rotating it, keep the old
+    # value in wechat_token_previous until the platform has been switched over.
+    wechat_token: str = ""
+    wechat_token_previous: str = ""
 
     # Apple Push Notification Service (APNs) for iOS offline background & lock-screen pushes
     apns_auth_key: str = ""  # Raw PEM content of AuthKey_xxx.p8

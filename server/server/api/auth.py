@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 import time
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from ..middleware.auth import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger("server.auth")
 
 # Brute-force guards. Login counts failures only, so a user who signs in
 # normally never gets near the limit; register counts every attempt.
@@ -640,6 +642,20 @@ def _xml_reply(to_user: str, from_user: str, content: str) -> str:
     )
 
 
+WECHAT_MAX_SKEW_SECONDS = 300
+
+
+def _wechat_token_used(signature: str, timestamp: str, nonce: str) -> str | None:
+    """Which configured token ("current" / "previous") produced WeChat's signature,
+    sha1 of the sorted token, timestamp and nonce; None when neither did."""
+    for label, token in (("current", settings.wechat_token), ("previous", settings.wechat_token_previous)):
+        if token and signature:
+            expected = hashlib.sha1("".join(sorted([token, timestamp, nonce])).encode("utf-8")).hexdigest()
+            if hmac.compare_digest(expected, signature):
+                return label
+    return None
+
+
 @router.get("/wechat/webhook", response_class=PlainTextResponse)
 async def wechat_verify_webhook(
     signature: str = "",
@@ -653,10 +669,7 @@ async def wechat_verify_webhook(
     if not signature or not echostr:
         return PlainTextResponse("Memento WeChat Webhook is active.", status_code=200)
 
-    token = settings.wechat_token
-    items = sorted([token, timestamp, nonce])
-    computed_sig = hashlib.sha1("".join(items).encode("utf-8")).hexdigest()
-    if computed_sig == signature:
+    if _wechat_token_used(signature, timestamp, nonce):
         return PlainTextResponse(content=echostr, status_code=200)
 
     return PlainTextResponse(content="Invalid signature", status_code=403)
@@ -665,6 +678,15 @@ async def wechat_verify_webhook(
 @router.post("/wechat/webhook")
 async def wechat_message_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     """WeChat messages and events receiver (XML format)."""
+    # Every push carries signature/timestamp/nonce in the URL; anything else is not from WeChat
+    q = request.query_params
+    timestamp = q.get("timestamp", "")
+    used = _wechat_token_used(q.get("signature", ""), timestamp, q.get("nonce", ""))
+    if not used or not timestamp.isdigit() or abs(time.time() - int(timestamp)) > WECHAT_MAX_SKEW_SECONDS:
+        return PlainTextResponse("forbidden", status_code=403)
+    if used == "previous":
+        logger.info("WeChat push signed with the previous token; the platform still uses the old Token")
+
     body_bytes = await request.body()
     if not body_bytes:
         return PlainTextResponse("success", status_code=200)
@@ -700,8 +722,7 @@ async def wechat_message_webhook(request: Request, db: AsyncSession = Depends(ge
                 return Response(content=_xml_reply(from_user, to_user, reply), media_type="application/xml")
 
     except Exception as e:
-        import logging
-        logging.getLogger("auth").error("WeChat webhook error: %s", e)
+        logger.error("WeChat webhook error: %s", e)
 
     return PlainTextResponse("success", status_code=200)
 

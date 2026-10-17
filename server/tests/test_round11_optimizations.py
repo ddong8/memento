@@ -23,7 +23,7 @@ class TestRound11Optimizations(unittest.IsolatedAsyncioTestCase):
         mock_redis.scan_iter = fake_scan_iter
         mock_redis.delete = AsyncMock()
 
-        with patch("server.services.cache._get_client", return_value=mock_redis):
+        with patch("server.services.cache.redis_client", return_value=mock_redis):
             deleted = await cache.cache_delete_prefix("test:key:")
             self.assertEqual(deleted, 250)
             # Should have called delete 3 times: 100, 100, 50 keys

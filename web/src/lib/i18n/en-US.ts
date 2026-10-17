@@ -425,6 +425,7 @@ const enUS: Translations = {
     pendingApproval: "Your account is pending approval. An admin will activate it.",
     goToLogin: "Go to Login",
     invalidCredentials: "Login failed",
+    tooManyAttempts: "Too many attempts. Please try again later.",
     ownerWelcome: "You are the first user — auto-promoted to owner.",
     memberWelcome: "Registration complete — your account is active. Here is your personal Collector Token; use it to start syncing on any device.",
     collectorTokenLabel: "Your Collector Token",

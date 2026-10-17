@@ -51,7 +51,9 @@ export default function LoginPage() {
       // Same-origin relative paths only — reject "//host" and "/\host"
       // (backslash normalizes to slash → protocol-relative open redirect).
       router.push(next && next.startsWith("/") && !/^\/[/\\]/.test(next) ? next : "/ask");
-    } catch { setError(t.auth.invalidCredentials); }
+    } catch (err: unknown) {
+      setError(err instanceof Error && err.message.startsWith("API 429") ? t.auth.tooManyAttempts : t.auth.invalidCredentials);
+    }
   };
 
   const banner = error || oauthError;

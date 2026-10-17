@@ -64,7 +64,8 @@ export default function RegisterPage() {
         } catch { /* noop */ }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t.auth.invalidCredentials);
+      if (err instanceof Error && err.message.startsWith("API 429")) setError(t.auth.tooManyAttempts);
+      else setError(err instanceof Error ? err.message : t.auth.invalidCredentials);
     }
   };
 

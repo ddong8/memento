@@ -23,7 +23,7 @@ logger = logging.getLogger("cache")
 _client: aioredis.Redis | None = None
 
 
-def _get_client() -> aioredis.Redis | None:
+def redis_client() -> aioredis.Redis | None:
     global _client
     if _client is not None:
         return _client
@@ -36,7 +36,7 @@ def _get_client() -> aioredis.Redis | None:
 
 
 async def cache_get(key: str) -> Any | None:
-    c = _get_client()
+    c = redis_client()
     if c is None:
         return None
     try:
@@ -50,7 +50,7 @@ async def cache_get(key: str) -> Any | None:
 
 
 async def cache_set(key: str, value: Any, ttl_seconds: int) -> None:
-    c = _get_client()
+    c = redis_client()
     if c is None:
         return
     try:
@@ -69,7 +69,7 @@ async def cache_delete_prefix(prefix: str) -> int:
     SCAN is preferred over KEYS to avoid blocking the Redis server on
     a large keyspace.
     """
-    c = _get_client()
+    c = redis_client()
     if c is None:
         return 0
     deleted = 0

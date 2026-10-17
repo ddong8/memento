@@ -1797,8 +1797,7 @@ export interface paths {
          * Create Observation
          * @description Store a free-form memory observation attached to a (possibly new) entity.
          *
-         *     Closes the previous remote-mode stub in mcp_server — memory_store now
-         *     actually persists. Always scoped to the calling user via user_id; the
+         *     Backs the MCP memory_store tool. Always scoped to the calling user via user_id; the
          *     unique constraint (user_id, name, entity_type) upserts entities across
          *     repeated stores with the same name.
          */

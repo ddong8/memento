@@ -435,6 +435,7 @@ const zhCN = {
     pendingApproval: "您的账号正在等待管理员审批。",
     goToLogin: "前往登录",
     invalidCredentials: "登录失败",
+    tooManyAttempts: "尝试次数过多，请稍后再试",
     ownerWelcome: "你是第一个注册的用户，已自动设为 owner。",
     memberWelcome: "注册完成,账号已激活。下面是你的专属 Collector Token,用它即可在任意设备上开始采集。",
     collectorTokenLabel: "你的 Collector Token",

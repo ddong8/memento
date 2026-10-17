@@ -22,12 +22,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db.models import InviteCode, User
 from ..db.session import get_db
+from ..services import rate_limit
 from ..services.cache import cache_get, cache_set
 from ..middleware.auth import (
     create_access_token, get_current_user, hash_password, verify_password,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Brute-force guards. Login counts failures only, so a user who signs in
+# normally never gets near the limit; register counts every attempt.
+LOGIN_WINDOW = 15 * 60
+LOGIN_MAX_PER_ACCOUNT = 10
+LOGIN_MAX_PER_IP = 30
+REGISTER_WINDOW = 60 * 60
+REGISTER_MAX_PER_IP = 10
 
 
 class RegisterRequest(BaseModel):
@@ -87,8 +96,13 @@ async def registration_mode(db: AsyncSession = Depends(get_db)) -> RegistrationM
 @router.post("/register", response_model=UserResponse)
 async def register(
     req: RegisterRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
+    ip_key = f"register:ip:{rate_limit.client_ip(request) or 'unknown'}"
+    await rate_limit.check(ip_key, REGISTER_MAX_PER_IP)
+    await rate_limit.hit(ip_key, REGISTER_WINDOW)
+
     # Check if email already exists
     result = await db.execute(select(User).where(User.email == req.email))
     if result.scalar_one_or_none():
@@ -210,15 +224,24 @@ async def refresh_token(user: User = Depends(get_current_user)) -> TokenResponse
 @router.post("/login", response_model=TokenResponse)
 async def login(
     req: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
+    account_key = f"login:account:{req.email.strip().lower()}"
+    ip_key = f"login:ip:{rate_limit.client_ip(request) or 'unknown'}"
+    await rate_limit.check(account_key, LOGIN_MAX_PER_ACCOUNT)
+    await rate_limit.check(ip_key, LOGIN_MAX_PER_IP)
+
     result = await db.execute(select(User).where(User.email == req.email))
     user = result.scalar_one_or_none()
     if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
+        await rate_limit.hit(account_key, LOGIN_WINDOW)
+        await rate_limit.hit(ip_key, LOGIN_WINDOW)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if user.status != "active":
         raise HTTPException(status_code=403, detail="Account not yet approved")
 
+    await rate_limit.reset(account_key)
     token = create_access_token(str(user.id), user.role)
     return TokenResponse(access_token=token, user_id=str(user.id), role=user.role)
 

@@ -45,6 +45,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_optional_user
 from ..services.geoip import lookup as geoip_lookup
+from ..services.rate_limit import client_ip
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
@@ -371,17 +372,6 @@ async def revoke_share(
 # ---------------------------------------------------------------------------
 # Visitor-side (auth optional; required iff share.target_user_id is set)
 # ---------------------------------------------------------------------------
-def _client_ip(request: Request) -> str | None:
-    """Prefer X-Forwarded-For from our nginx; fall back to socket peer."""
-    xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()
-    xr = request.headers.get("X-Real-IP")
-    if xr:
-        return xr.strip()
-    return request.client.host if request.client else None
-
-
 async def _load_active_share(
     db: AsyncSession, token: str, viewer: User | None,
 ) -> ShareLink:
@@ -404,7 +394,7 @@ async def _load_active_share(
 
 
 async def _record_view(db: AsyncSession, link: ShareLink, request: Request) -> None:
-    ip = _client_ip(request)
+    ip = client_ip(request)
     geo = geoip_lookup(ip) if ip else {}
     ua = request.headers.get("User-Agent")
     referer = request.headers.get("Referer")

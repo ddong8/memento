@@ -68,6 +68,7 @@ jobs:
           context: .
           file: server/Dockerfile
           push: true
+          build-args: GIT_SHA=${{ steps.vars.outputs.sha }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-server:${{ steps.vars.outputs.sha }}
             ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-server:latest
@@ -129,3 +130,23 @@ jobs:
             sleep 3
           done
           echo "回写 push 失败"; exit 1
+
+  # 回写 tag 只说明"该部署了"。等线上 /health 报出这次的提交号才算真正上线;
+  # Fleet 卡住(gitrepo Stalled)等情况会在这里超时失败,不再静默。
+  verify:
+    needs: [build, bump]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for production to run this commit
+        env:
+          SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          for i in $(seq 1 60); do
+            live=$(curl -fsS --max-time 10 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
+            if [ "$live" = "$SHA" ]; then echo "线上已是 $SHA"; exit 0; fi
+            echo "线上版本 ${live:-无响应},等待 $SHA ..."
+            sleep 15
+          done
+          echo "::error::15 分钟内线上没有切到 $SHA。先看 kubectl -n fleet-local get gitrepo memento,Stalled 时按 CLAUDE.md 强制重同步(forceSyncGeneration+1)"
+          exit 1

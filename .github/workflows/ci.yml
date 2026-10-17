@@ -14,6 +14,17 @@ jobs:
   python:
     name: ${{ matrix.package }} · py${{ matrix.python }}
     runs-on: ubuntu-latest
+    # The embedding-sweep and project-placement tests need a real PostgreSQL with pgvector
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: memento_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d memento_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     strategy:
       fail-fast: false
       matrix:
@@ -39,8 +50,16 @@ jobs:
         working-directory: ${{ matrix.package }}
         run: python -m compileall -q .
 
+      # pyflakes rules: undefined names, unused imports/variables, shadowed definitions
+      - name: Lint
+        run: |
+          pip install ruff==0.13.0
+          ruff check --isolated --select F server/server server/tests scripts embedding
+
       - name: pytest
         working-directory: ${{ matrix.package }}
+        env:
+          MEMENTO_TEST_DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/memento_test
         run: |
           if [ -d tests ] && [ "$(find tests -name 'test_*.py' | wc -l)" -gt 0 ]; then
             pytest -v

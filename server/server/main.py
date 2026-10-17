@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -513,4 +514,5 @@ async def root() -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    # version = the commit this image was built from; the deploy workflow waits for it to go live
+    return {"status": "ok", "version": os.environ.get("MEMENTO_BUILD_SHA", "dev")}

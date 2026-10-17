@@ -26,6 +26,10 @@ COPY data/updates/ /app/data/updates/
 # Embeddings come from an OpenAI-compatible API or the self-hosted BGE-M3
 # service in embedding/ (MEMENTO_EMBEDDING_PROVIDER), not from this image.
 
+# Last, so a new commit doesn't invalidate the cached layers above; /health reports it
+ARG GIT_SHA=dev
+ENV MEMENTO_BUILD_SHA=${GIT_SHA}
+
 EXPOSE 8000
 
 # SSE 长连接不会自己结束:停止时最多等 25s 就关掉,赶在 k8s 强杀(terminationGracePeriodSeconds 40)前干净退出

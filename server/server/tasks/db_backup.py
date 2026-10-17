@@ -1,4 +1,4 @@
-"""Daily database snapshot → MinIO. Defends against the volume-nuke
+"""Weekly database snapshot → MinIO. Defends against the volume-nuke
 incident (5/5: pgdata wiped, all conversations / users / projects lost
 because nothing was backed up).
 
@@ -28,7 +28,7 @@ from .celery_app import celery_app
 logger = logging.getLogger("db_backup")
 
 BACKUP_BUCKET = "memento-backups"
-RETENTION_DAYS = 14
+RETENTION_DAYS = 56  # 8 weekly snapshots
 
 # Tables to back up, in load order (FK-safe). Append new tables here as
 # the schema grows.
@@ -91,15 +91,15 @@ async def _dump_async(buf: io.BytesIO) -> dict:
     return counts
 
 
-@celery_app.task(name="server.tasks.db_backup.run_daily_backup")
-def run_daily_backup() -> dict:
+@celery_app.task(name="server.tasks.db_backup.run_weekly_backup")
+def run_weekly_backup() -> dict:
     """Celery entry point. Runs an event loop because asyncpg is async-only."""
     return asyncio.run(_run_backup())
 
 
 async def _run_backup() -> dict:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    key = f"daily/{today}.csv.gz"
+    key = f"weekly/{today}.csv.gz"
 
     buf = io.BytesIO()
     counts = await _dump_async(buf)
@@ -122,12 +122,14 @@ async def _run_backup() -> dict:
     s3.put_object(Bucket=BACKUP_BUCKET, Key=key, Body=buf.getvalue())
     logger.info("Uploaded s3://%s/%s (%d bytes)", BACKUP_BUCKET, key, size)
 
-    # Prune older than RETENTION_DAYS
+    # Prune older than RETENTION_DAYS (daily/ holds the snapshots from before the weekly schedule)
     try:
         cutoff = (datetime.now(timezone.utc).date() - timedelta(days=RETENTION_DAYS))
-        resp = s3.list_objects_v2(Bucket=BACKUP_BUCKET, Prefix="daily/")
+        objects = []
+        for prefix in ("weekly/", "daily/"):
+            objects += s3.list_objects_v2(Bucket=BACKUP_BUCKET, Prefix=prefix).get("Contents") or []
         deleted = 0
-        for obj in resp.get("Contents") or []:
+        for obj in objects:
             stem = obj["Key"].split("/")[-1].split(".")[0]
             try:
                 obj_date = datetime.strptime(stem, "%Y-%m-%d").date()

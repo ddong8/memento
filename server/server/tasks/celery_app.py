@@ -113,12 +113,12 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.knowledge_retry.retry_failed_knowledge",
         "schedule": crontab(minute="2,17,32,47"),
     },
-    # Daily 03:30 — pg_dump | gzip → s3://memento-backups/daily/<date>.sql.gz,
-    # rolling 14-day retention. Defends against the kind of incident that
-    # wiped pgdata (volume nuke, install --purge, etc.).
-    "daily-db-backup": {
-        "task": "server.tasks.db_backup.run_daily_backup",
-        "schedule": crontab(hour=3, minute=30),
+    # Sundays 03:30 — table data via COPY | gzip → s3://memento-backups/weekly/<date>.csv.gz,
+    # 8 weeks kept. Defends against the kind of incident that wiped pgdata
+    # (volume nuke, install --purge, etc.).
+    "weekly-db-backup": {
+        "task": "server.tasks.db_backup.run_weekly_backup",
+        "schedule": crontab(hour=3, minute=30, day_of_week="sun"),
     },
     # Hourly at :07 — re-derive real titles for docs still carrying junk
     # worker-ID titles (agent-*, wf_*, UUIDs, compaction preamble). Only

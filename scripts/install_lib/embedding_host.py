@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import venv
 from pathlib import Path
 
 from .platform_utils import (
@@ -138,7 +137,7 @@ def predownload_model(model: str = "BAAI/bge-m3") -> str:
     )
     try:
         subprocess.run([str(py), "-c", hf_code], check=True)
-        ok(f"Model downloaded via HuggingFace.")
+        ok("Model downloaded via HuggingFace.")
         return model
     except subprocess.CalledProcessError:
         warn("HuggingFace direct download failed — retrying via hf-mirror.com…")

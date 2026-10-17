@@ -7,9 +7,8 @@
 跨设备、跨工具自动采集 AI 编程对话与记忆,自建后端汇总,Web + MCP 统一查看、搜索、召回。
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Python ≥3.10](https://img.shields.io/badge/python-≥3.10-blue.svg)](#技术栈)
+[![Python ≥3.12](https://img.shields.io/badge/python-≥3.12-blue.svg)](#技术栈)
 [![Next.js 16](https://img.shields.io/badge/next.js-16-black.svg)](#技术栈)
-[![PyPI - memento-brain-memory](https://img.shields.io/pypi/v/memento-brain-memory?label=mcp-memory)](https://pypi.org/project/memento-brain-memory/)
 
 [快速开始](#-快速开始) · [架构](#️-架构) · [支持的工具](#-支持的-ai-工具) · [自部署](#-自托管部署) · [MCP 接入](#-mcp-记忆服务)
 
@@ -94,7 +93,7 @@ graph TB
         MAG["Antigravity"]
     end
 
-    MCP["memento-brain-memory<br/>MCP Server"]
+    MCP["@memento/mcp<br/>MCP Server"]
     MCC --> MCP
     MCDX --> MCP
     MCUR --> MCP
@@ -294,7 +293,7 @@ LLM 自动从同步进来的对话和文档里抽:
 
 ## 🧠 MCP 记忆服务
 
-桌面端自带 MCP 服务,在「本机采集」页一键复制 Claude Code / Codex / 其他工具的配置;也可以 `pip install memento-brain-memory` 后运行 `memento-memory`(读取 `~/.memento/collector.json` 的登录信息)。各工具的配置位置:
+桌面端自带 MCP 服务(`@memento/mcp`),在「本机采集」页一键复制 Claude Code / Codex / 其他工具的配置;没装桌面端的机器可以在仓库里 `npm ci && npm run build -w @memento/mcp` 后运行 `node packages/mcp/dist/cli.js`(读取 `~/.memento/collector.json` 的登录信息,也可以传 `--server URL --token TOKEN`)。各工具的配置位置:
 
 | AI 工具 | MCP 配置文件 | 写入方式 |
 |---|---|---|
@@ -377,13 +376,13 @@ LLM 自动从同步进来的对话和文档里抽:
 
 | 层级 | 技术 |
 |------|------|
-| 采集器 | Python ≥3.10, watchdog, httpx, pydantic-settings |
-| MCP 记忆 | Python ≥3.10, mcp ≥1.26, asyncpg, pgvector |
+| 采集守护进程 | Node.js ≥20, TypeScript, ws(随桌面端分发,也可单独运行) |
+| MCP 记忆 | TypeScript, @modelcontextprotocol/sdk(stdio,调用服务端接口) |
 | 服务端 | Python ≥3.12, FastAPI ≥0.115, SQLAlchemy 2.0 async, asyncpg, Celery |
 | 数据库 | PostgreSQL 16 (+ pgvector + pg_trgm), Redis 7, MinIO (S3 兼容) |
 | 前端 | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | AI 摘要 / 图谱 | Anthropic Claude API + OpenAI 兼容端点(Kimi / DashScope...) |
-| Embedding | BGE-M3,默认 Docker 容器(CPU);`--native` 模式跑宿主 venv 用 macOS MPS / Linux CUDA |
+| Embedding | BAAI/bge-m3:OpenAI 兼容接口(如硅基流动),或自建 BGE-M3 服务(Docker 容器;`--native` 跑宿主 venv,Linux 可用 CUDA) |
 | GeoIP | MaxMind GeoLite2 / db-ip city-lite(离线 mmdb) |
 | 部署 | Docker Compose(7 服务) |
 
@@ -409,8 +408,6 @@ memento/
 ├── apps/
 │   ├── desktop/              # Electron 桌面端(Memento)
 │   └── mobile/               # Expo 手机端(Memento)
-├── mcp_server/               # Python 版 MCP 记忆 — PyPI: memento-brain-memory
-├── mobile/                   # Flutter 客户端(迁移期间照常维护)
 ├── server/                   # 后端 FastAPI
 │   └── server/
 │       ├── main.py           # 入口 + schema 迁移 + validate_production

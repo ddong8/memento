@@ -281,8 +281,7 @@ async def create_observation(
 ) -> dict:
     """Store a free-form memory observation attached to a (possibly new) entity.
 
-    Closes the previous remote-mode stub in mcp_server — memory_store now
-    actually persists. Always scoped to the calling user via user_id; the
+    Backs the MCP memory_store tool. Always scoped to the calling user via user_id; the
     unique constraint (user_id, name, entity_type) upserts entities across
     repeated stores with the same name.
     """
@@ -340,7 +339,7 @@ async def semantic_search(
     mids = await user_machine_ids(db, _user)
 
     # 30s timeout: the embedding server is CPU-only on Apple Silicon
-    # (MPS deliberately avoided — see embedding_server.py:33-43 for the
+    # (MPS deliberately avoided — see _load_model in embedding/embedding_server.py for the
     # macOS kernel deadlock). A cold-cached query + 4kB Chinese tokenize
     # can easily push 5-12s on M-series CPU. 8s was tripping false
     # "embedding-server-unavailable" returns on a perfectly healthy

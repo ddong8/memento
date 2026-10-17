@@ -62,6 +62,8 @@ Electron 桌面端：
 ### 收尾
 - [x] 清理不再使用的代码（2026-09-29 用户确认）：删除旧 Python 采集器 `collector/`、打包壳 `memento_brain/` 和它的架构文档；Python MCP 去掉直连数据库模式（远程模式保留，现有 `memento-memory` 配置照常可用）；服务端删掉从未生效的 `/mcp` 挂载和 PyPI 采集器版本接口，镜像不再安装 mcp_server；管理页去掉「更新采集器」按钮（新旧采集都不处理这个命令）；CI 和 PyPI 发布只保留 memento-brain-memory；自建安装脚本改为从仓库构建 Node 守护进程（没有 Node 就提示装桌面端）
 - [x] 再次清理冗余（2026-10-17）：服务端删掉没有任何客户端调用的接口（分片/表格上传、HTTP 轮询派活、文档原文与历史、记忆压缩与重置、按采集器 id 发命令、微信 OAuth 登录等）和它们留下的辅助函数、未使用的导入与依赖（alembic、passlib）；P2P 媒体直连只有已下线的 Flutter 手机端用过，网页端一直走服务器中转，守护进程不再在公网 IPv6 上开媒体端口
+- [x] 删除 Python 版 MCP（2026-10-17 用户确认）：TS 版 `@memento/mcp` 的 17 个工具、5 个资源与它一一对应；同时删掉 PyPI 发布流程和 CI 里的 Python MCP 任务。PyPI 上已发布的 memento-brain-memory 旧版本保留，不再更新
+- [x] 修复自托管的本机原生向量服务：两份分叉的 embedding_server 合并为 `embedding/embedding_server.py`（保留 Mac 上避开 MPS、超长文本截断和双栈监听），launchd / systemd / Windows 计划任务模板都改为直接运行它
 - [ ] Flutter 版下线说明
 
 ## 进度记录

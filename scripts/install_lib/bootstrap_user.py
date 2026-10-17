@@ -12,7 +12,6 @@ import re
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from .platform_utils import REPO_ROOT, info, ok, warn
 
@@ -100,7 +99,7 @@ def ensure_first_user(interactive: bool = True) -> str:
     existing = _parse_env_local()
     token = existing.get("MEMENTO_COLLECTOR_TOKEN")
     if token:
-        ok(f"Owner user already registered (token in .env.local).")
+        ok("Owner user already registered (token in .env.local).")
         return token
 
     email, password, name = _prompt_credentials(interactive)

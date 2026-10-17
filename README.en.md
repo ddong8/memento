@@ -7,9 +7,8 @@
 Auto-collect AI coding conversations and memory across devices and tools, aggregate on your own backend, and view / search / recall through a unified Web UI + MCP.
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Python ≥3.10](https://img.shields.io/badge/python-≥3.10-blue.svg)](#-tech-stack)
+[![Python ≥3.12](https://img.shields.io/badge/python-≥3.12-blue.svg)](#-tech-stack)
 [![Next.js 16](https://img.shields.io/badge/next.js-16-black.svg)](#-tech-stack)
-[![PyPI - memento-brain-memory](https://img.shields.io/pypi/v/memento-brain-memory?label=mcp-memory)](https://pypi.org/project/memento-brain-memory/)
 
 [Quick Start](#-quick-start) · [Architecture](#️-architecture) · [Supported Tools](#-supported-ai-tools) · [Self-host](#-quick-start) · [MCP](#-mcp-memory-service)
 
@@ -94,7 +93,7 @@ graph TB
         MAG["Antigravity"]
     end
 
-    MCP["memento-brain-memory<br/>MCP Server"]
+    MCP["@memento/mcp<br/>MCP Server"]
     MCC --> MCP
     MCDX --> MCP
     MCUR --> MCP
@@ -294,7 +293,7 @@ Read / write through MCP tools: write with `memory_store`; read with `memory_gra
 
 ## 🧠 MCP memory service
 
-The desktop app ships the MCP server; its "This computer" page has ready-to-copy setup for Claude Code, Codex and other tools. Or `pip install memento-brain-memory` and run `memento-memory` (it reads the sign-in from `~/.memento/collector.json`). Where each tool keeps its MCP config:
+The desktop app ships the MCP server (`@memento/mcp`); its "This computer" page has ready-to-copy setup for Claude Code, Codex and other tools. On a machine without the desktop app, run `npm ci && npm run build -w @memento/mcp` in a checkout, then `node packages/mcp/dist/cli.js` (it reads the sign-in from `~/.memento/collector.json`, or pass `--server URL --token TOKEN`). Where each tool keeps its MCP config:
 
 | AI tool | MCP config file | How it's written |
 |---|---|---|
@@ -377,13 +376,13 @@ Project timelines and daily digests can be shared publicly with one click:
 
 | Layer | Technology |
 |------|------------|
-| Collector | Python ≥3.10, watchdog, httpx, pydantic-settings |
-| MCP memory | Python ≥3.10, mcp ≥1.26, asyncpg, pgvector |
+| Collector daemon | Node.js ≥20, TypeScript, ws (ships with the desktop app, can run standalone) |
+| MCP memory | TypeScript, @modelcontextprotocol/sdk (stdio, calls the server API) |
 | Server | Python ≥3.12, FastAPI ≥0.115, SQLAlchemy 2.0 async, asyncpg, Celery |
 | Database | PostgreSQL 16 (+ pgvector + pg_trgm), Redis 7, MinIO (S3-compatible) |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | AI summary / graph | Anthropic Claude API + OpenAI-compatible endpoints (Kimi / DashScope...) |
-| Embedding | BGE-M3 host process (macOS MPS / Linux CUDA / CPU fallback) |
+| Embedding | BAAI/bge-m3 via an OpenAI-compatible API (e.g. SiliconFlow) or the self-hosted BGE-M3 service (Docker; `--native` runs a host venv, CUDA on Linux) |
 | GeoIP | MaxMind GeoLite2 / db-ip city-lite (offline mmdb) |
 | Deployment | Docker Compose (7 services) |
 
@@ -409,8 +408,6 @@ memento/
 ├── apps/
 │   ├── desktop/              # Electron desktop app (Memento)
 │   └── mobile/               # Expo mobile app (Memento)
-├── mcp_server/               # Python MCP memory — PyPI: memento-brain-memory
-├── mobile/                   # Flutter client (maintained during the migration)
 ├── server/                   # Backend FastAPI
 │   └── server/
 │       ├── main.py           # entry + schema migrations + validate_production

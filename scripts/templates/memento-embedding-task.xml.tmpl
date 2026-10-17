@@ -42,8 +42,8 @@
       <!-- Windows scheduled tasks have no native Environment block; pass the
            model path via a wrapper cmd that sets the env then execs python. -->
       <Command>cmd.exe</Command>
-      <Arguments>/c set "MEMENTO_EMBEDDING_MODEL_NAME={model}" &amp;&amp; "{pythonw}" -m server.services.embedding_server --port 8002</Arguments>
-      <WorkingDirectory>{repo}\server</WorkingDirectory>
+      <Arguments>/c set "MEMENTO_EMBEDDING_MODEL_NAME={model}" &amp;&amp; "{pythonw}" "{repo}\embedding\embedding_server.py" --port 8002</Arguments>
+      <WorkingDirectory>{repo}\embedding</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

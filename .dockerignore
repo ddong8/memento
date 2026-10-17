@@ -1,4 +1,4 @@
-# server 镜像 context 是仓库根(server/Dockerfile 只 COPY server/ mcp_server/ deploy/bootstrap/),
+# server 镜像 context 是仓库根(server/Dockerfile 只 COPY server/ deploy/bootstrap/ data/updates/),
 # 这里排除大体积 / 敏感 / 无关产物,缩小上传到 builder 的 context、杜绝密钥进层。
 .git
 .github

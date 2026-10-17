@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory={repo}/server
-ExecStart={python} -m server.services.embedding_server --port 8002
+WorkingDirectory={repo}/embedding
+ExecStart={python} {repo}/embedding/embedding_server.py --port 8002
 Restart=on-failure
 RestartSec=10
 Environment=PYTORCH_ENABLE_MPS_FALLBACK=1

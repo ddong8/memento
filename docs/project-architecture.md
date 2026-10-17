@@ -120,20 +120,9 @@ memento/
 │   ├── desktop/           # Electron 桌面端：网页界面 + utilityProcess 里的守护进程 + 托盘 + 自动更新
 │   └── mobile/            # Expo 手机端
 │
-├── mcp_server/             # MCP Memory Server
-│   ├── mcp_server/
-│   │   ├── __main__.py    # 入口（--server/--token 或 --db-url）
-│   │   ├── server.py      # FastMCP 实例 + 5 Tools + 4 Resources
-│   │   ├── search.py      # 混合检索（语义+全文+图谱）
-│   │   ├── graph.py       # 知识图谱查询 + 观察存储
-│   │   ├── remote_client.py # HTTP 远程模式（JWT 自动续期）
-│   │   └── db.py          # 数据库模型（独立，不依赖 server 包）
-│   ├── pyproject.toml     # PyPI: memento-brain-memory (CLI alias: memento-memory)
-│   └── README.md
-│
 ├── embedding/              # 自托管用的 BGE-M3 向量服务(线上改用硅基流动 API)
-│   ├── Dockerfile         # Docker 版本（供非 Apple Silicon 平台使用）
-│   └── embedding_server.py # HTTP /embed + /health
+│   ├── Dockerfile         # Docker 版本
+│   └── embedding_server.py # HTTP /embed + /health（Docker 和 --native 宿主服务共用）
 │
 ├── web/                    # Next.js 前端
 │   ├── src/
@@ -484,8 +473,8 @@ Token 丢了、需要轮换、或某台设备被泄露想吊销全量 → Web `/
 | **前端** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
 | **数据库** | PostgreSQL 16 + pgvector, Redis 7 |
 | **存储** | MinIO (S3 兼容) |
-| **采集器** | Python ≥3.10, watchdog, httpx, cryptography(内置 Antigravity .pb 解密) |
-| **MCP 记忆** | Python ≥3.10, mcp ≥1.26, pgvector, sqlalchemy[asyncio] |
-| **AI/ML** | BGE-M3 sentence-transformers(宿主 GPU)+ Anthropic Claude SDK + OpenAI 兼容(Kimi/DashScope 等) |
-| **协议** | MCP(stdio + Streamable HTTP), SSE, JWT |
-| **部署** | Docker Compose, PyPI(memento-brain / memento-brain-collector / memento-brain-memory) |
+| **采集守护进程** | Node.js ≥20, TypeScript(`@memento/daemon`,随桌面端分发,也可单独运行) |
+| **MCP 记忆** | TypeScript, @modelcontextprotocol/sdk(`@memento/mcp`,stdio,调用服务端接口) |
+| **AI/ML** | BAAI/bge-m3(OpenAI 兼容接口如硅基流动,或自建 BGE-M3 服务)+ Anthropic Claude SDK + OpenAI 兼容(Kimi/DashScope 等) |
+| **协议** | MCP(stdio), SSE, WebSocket, JWT |
+| **部署** | 自托管用 Docker Compose;线上 k3s + Rancher Fleet(GitOps),镜像在 GHCR;桌面端走 GitHub Release |

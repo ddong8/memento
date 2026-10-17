@@ -19,9 +19,6 @@ from __future__ import annotations
 
 import subprocess
 import time
-import urllib.error
-import urllib.request
-from pathlib import Path
 
 from .platform_utils import (
     REPO_ROOT, docker_available, docker_start_hint, info, ok, warn,

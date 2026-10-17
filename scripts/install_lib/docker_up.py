@@ -9,8 +9,8 @@ import urllib.request
 from typing import Iterable
 
 from .platform_utils import (
-    REPO_ROOT, docker_available, docker_start_hint, fail, info, ok,
-    port_in_use, port_user_hint, warn,
+    REPO_ROOT, docker_available, docker_start_hint, info, ok,
+    port_in_use,
 )
 
 # host_port → container_service (for error messages)

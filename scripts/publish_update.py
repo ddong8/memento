@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -97,7 +96,7 @@ def main():
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     print(f"Updated {version_file} successfully!")
-    print(f"Ready for client auto-update! Endpoint: /api/system/update/check")
+    print("Ready for client auto-update! Endpoint: /api/system/update/check")
 
 
 if __name__ == "__main__":

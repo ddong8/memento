@@ -27,9 +27,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-embedding = [
-    "sentence-transformers>=3.0",
-]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",

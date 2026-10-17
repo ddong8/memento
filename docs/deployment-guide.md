@@ -285,27 +285,30 @@ memento-daemon start
 
 ### 3. 为各大 AI 工具接入 MCP 记忆大脑
 
+MCP 服务随桌面端分发：用桌面端自己的可执行文件以 Node 模式启动 `mcp.mjs`，登录信息读 `~/.memento/collector.json`。桌面端「本机采集」页会按当前系统生成各工具的完整配置，一键复制即可。下面以 macOS 为例。
+
 #### 接入 Claude Code
-在 `~/.claude/claude_desktop_config.json` 或项目级 `.claude.json` 中添加：
+```bash
+claude mcp add memento-memory -s user -e ELECTRON_RUN_AS_NODE=1 -- \
+  "/Applications/Memento.app/Contents/MacOS/Memento" \
+  "/Applications/Memento.app/Contents/Resources/app.asar.unpacked/dist/mcp.mjs"
+```
+
+#### 接入 Cursor / Windsurf / Antigravity
+在对应的 MCP 配置文件里加：
 ```json
 {
   "mcpServers": {
     "memento-memory": {
-      "command": "uvx",
-      "args": [
-        "memento-brain-memory",
-        "--server-url", "https://mem.yourdomain.com",
-        "--token", "your_collector_token"
-      ]
+      "command": "/Applications/Memento.app/Contents/MacOS/Memento",
+      "args": ["/Applications/Memento.app/Contents/Resources/app.asar.unpacked/dist/mcp.mjs"],
+      "env": { "ELECTRON_RUN_AS_NODE": "1" }
     }
   }
 }
 ```
 
-#### 接入 Cursor / Windsurf / Antigravity
-在 IDE 的 MCP 配置面板中新增 Command：
-- **Command**: `uvx`
-- **Args**: `["memento-brain-memory", "--server-url", "https://mem.yourdomain.com", "--token", "your_collector_token"]`
+没装桌面端的机器：在仓库里 `npm ci && npm run build -w @memento/mcp`，然后把 command 换成 `node`、args 换成 `["<仓库>/packages/mcp/dist/cli.js", "--server", "https://mem.yourdomain.com", "--token", "your_collector_token"]`。
 
 接入后，AI 即可在对话中主动调用：
 - `memory_search`：语义搜索过往记忆、架构决策与踩坑记录；

@@ -1,7 +1,10 @@
-"""Standalone embedding HTTP server — runs on host machine, called by API container.
+"""Standalone embedding HTTP server for self-hosted BGE-M3.
+
+The Docker image (embedding/Dockerfile) and the native host service
+(scripts/install_lib/embedding_host.py) both run this file.
 
 Usage:
-  python -m server.services.embedding_server [--port 8002] [--model BAAI/bge-m3]
+  python embedding/embedding_server.py [--port 8002] [--model BAAI/bge-m3]
 
 Provides a single endpoint:
   POST /embed  {"texts": ["hello", "world"]}  →  {"embeddings": [[...], [...]]}
@@ -13,7 +16,6 @@ import argparse
 import json
 import logging
 import os
-import sys
 import socket
 import threading
 from contextlib import contextmanager
@@ -126,13 +128,33 @@ logger = logging.getLogger("embedding_server")
 
 _model = None
 
+# BGE-M3 supports up to 8192 tokens. Roughly cap text at 32000 chars (~8k tokens).
+MAX_TEXT_CHARS = 32000
+
 
 def _load_model(model_name: str):
     global _model
-    logger.info("Loading %s ...", model_name)
+    # Device selection:
+    # - CUDA: real GPU, use it.
+    # - MPS (Apple Silicon): reachable but hangs the process in STAT=U
+    #   uninterruptible sleep within ~10min of idle inference, because the
+    #   OS compresses BGE-M3 tensors into the unified-memory swap pool and
+    #   the next Metal command buffer dispatch deadlocks waking them up.
+    #   Confirmed empirically. Fall back to CPU until we move to ONNX/int8.
+    # - CPU on M-series: ~200ms for 50 chunks via AMX/AVX, fully stable.
+    # Override with MEMENTO_EMBEDDING_DEVICE if you want to gamble on MPS.
+    import torch
+    forced = os.environ.get("MEMENTO_EMBEDDING_DEVICE", "").strip().lower()
+    if forced in ("cpu", "cuda", "mps"):
+        device = forced
+    elif torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
+    logger.info("Loading %s on %s ...", model_name, device)
     from sentence_transformers import SentenceTransformer
-    _model = SentenceTransformer(model_name)
-    logger.info("Model loaded: %s (dim=%d)", model_name, _model.get_sentence_embedding_dimension())
+    _model = SentenceTransformer(model_name, device=device)
+    logger.info("Model loaded: %s (dim=%d, device=%s)", model_name, _model.get_sentence_embedding_dimension(), device)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -147,6 +169,9 @@ class Handler(BaseHTTPRequestHandler):
             if not texts:
                 self._json_response({"embeddings": []})
                 return
+
+            # Defensive: clip oversized inputs to avoid tokenizer / MPS crashes
+            texts = [(t or "")[:MAX_TEXT_CHARS] for t in texts]
 
             self._json_response({"embeddings": encode(texts)})
         except Exception as e:

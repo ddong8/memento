@@ -473,16 +473,6 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           }
 
           if (!res || !res.ok) {
-            if (filename.includes("deployment") && filename.endsWith(".md")) {
-              try {
-                res = await fetch("/artifacts/deployment-guide.md");
-              } catch {
-                // ignore
-              }
-            }
-          }
-
-          if (!res || !res.ok) {
             throw fetchErr;
           }
         }
@@ -504,17 +494,6 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         }
 
         if (!res || !res.ok) {
-          if (filename.includes("deployment") && filename.endsWith(".md")) {
-            const fallbackRes = await fetch("/artifacts/deployment-guide.md");
-            if (fallbackRes.ok) {
-              const text = await fallbackRes.text();
-              if (active) {
-                setContent(text);
-                setLoading(false);
-              }
-              return;
-            }
-          }
           throw new Error(`HTTP ${res ? res.status : 404}`);
         }
 

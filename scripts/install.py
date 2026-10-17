@@ -116,17 +116,6 @@ def _cmd_update(args: argparse.Namespace) -> int:
             [which("node"), str(collector_setup.DAEMON_CLI), "install-service"],
             check=False, cwd=str(REPO_ROOT),
         )
-    # The MCP server is still a pip package: upgrade it if it's installed.
-    probe = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "memento-brain-memory"],
-        capture_output=True,
-    )
-    if probe.returncode == 0:
-        info("Upgrading memento-brain-memory…")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "--user", "memento-brain-memory"],
-            check=False,
-        )
     # Embedding (if installed) restarts via its own service manager
     # (launchd / systemd / Docker restart policy) — nothing to do here.
     ok("Update complete. Run `./install.sh doctor` to verify.")

@@ -23,8 +23,8 @@ RUN pip install --no-cache-dir .
 COPY deploy/bootstrap/ /app/bootstrap/
 COPY data/updates/ /app/data/updates/
 
-# Note: BGE-M3 embedding model runs on host machine (not in container)
-# Start with: python -m server.services.embedding_server --port 8002
+# Embeddings come from an OpenAI-compatible API or the self-hosted BGE-M3
+# service in embedding/ (MEMENTO_EMBEDDING_PROVIDER), not from this image.
 
 EXPOSE 8000
 

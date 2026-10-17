@@ -94,8 +94,7 @@ memento/
 │   │   ├── services/      # 业务逻辑层
 │   │   │   ├── ingest_service.py      # 文件入库 + 后处理触发
 │   │   │   ├── conversation_parser.py # JSONL 对话解析（6 种格式）
-│   │   │   ├── embedding_service.py   # 调用 embedding 服务器
-│   │   │   ├── embedding_server.py    # BGE-M3 独立 HTTP 服务
+│   │   │   ├── embedding_service.py   # 向量化(硅基流动或自建 bge-m3)+ 增量后台处理
 │   │   │   ├── graph_service.py       # LLM 知识图谱提取
 │   │   │   ├── memory_compaction.py   # 记忆压缩（每 24h）
 │   │   │   ├── ai_summary_service.py  # AI 日报总结（两阶段）
@@ -132,7 +131,7 @@ memento/
 │   ├── pyproject.toml     # PyPI: memento-brain-memory (CLI alias: memento-memory)
 │   └── README.md
 │
-├── embedding/              # BGE-M3 Embedding 服务（Docker 构建用，实际运行在宿主机）
+├── embedding/              # 自托管用的 BGE-M3 向量服务(线上改用硅基流动 API)
 │   ├── Dockerfile         # Docker 版本（供非 Apple Silicon 平台使用）
 │   └── embedding_server.py # HTTP /embed + /health
 │
@@ -433,7 +432,7 @@ Token 丢了、需要轮换、或某台设备被泄露想吊销全量 → Web `/
 
 ### 环境变量
 
-所有 key 用 `MEMENTO_` 前缀(历史 `DR_*` 已通过 `scripts/migrate_rebrand.py` 迁移)。
+所有 key 用 `MEMENTO_` 前缀。
 
 #### 服务端核心
 

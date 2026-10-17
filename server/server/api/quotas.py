@@ -1,4 +1,9 @@
-"""API endpoints and coordinator cache for AI subscription tool quotas (Antigravity, Claude Code, OpenAI Codex)."""
+"""API endpoints for AI subscription tool quotas (Antigravity, Claude Code, OpenAI Codex).
+
+Devices report their quotas over their WebSocket; the reports are kept in
+services/device_reports.py. Users only see, and can only probe, their own
+devices (admins and the owner: all of them).
+"""
 
 import asyncio
 from datetime import datetime, timezone
@@ -13,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Machine, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.cluster import SharedDict, cluster
+from ..services.device_reports import get_cached_device_quotas
 from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -23,44 +28,49 @@ compat_router = APIRouter(prefix="/api/quotas", tags=["quotas"])
 raw_router = APIRouter(prefix="/agent/quotas", tags=["quotas"])
 raw_compat_router = APIRouter(prefix="/quotas", tags=["quotas"])
 
-# Live agent quotas reported by connected devices (whichever replica they're on)
-# Key: device_id | machine_name | machine_id
-_device_quotas = SharedDict(cluster, "device_quotas")
+def _sees_all(user: User) -> bool:
+    return user.role in ("admin", "owner")
 
 
-def set_cached_device_quotas(
-    device_id: str,
-    report: dict[str, Any],
-    machine_name: str | None = None,
-    machine_id: str | None = None,
-) -> None:
-    """Store reported quotas into coordinator memory."""
-    if not isinstance(report, dict):
-        return
-
-    report_with_meta = {
-        **report,
-        "device_id": device_id,
-        "device_name": machine_name or device_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    _device_quotas.set((device_id, machine_name, machine_id), report_with_meta)
+async def _find_machine(db: AsyncSession, user: User, device_id: str) -> Machine | None:
+    """The device by name, collector hash or id, among those the user may see."""
+    conditions = [
+        Machine.name == device_id,
+        Machine.collector_token_hash == device_id,
+    ]
+    try:
+        conditions.append(Machine.id == uuid.UUID(device_id))
+    except (ValueError, AttributeError):
+        pass
+    query = select(Machine).where(or_(*conditions))
+    if not _sees_all(user):
+        query = query.where(Machine.user_id == user.id)
+    return (await db.execute(query)).scalars().first()
 
 
-def get_cached_device_quotas(device_id: str | None = None) -> dict[str, Any] | None:
-    """Lookup cached quotas for a specific device, or the most recent valid report."""
-    reports = _device_quotas.data
-    if device_id and device_id not in ("auto", "ask_only", "all"):
-        if device_id in reports:
-            return reports[device_id]
-        for k, v in reports.items():
-            if device_id.lower() in k.lower() or k.lower() in device_id.lower():
-                return v
-        return None
-
-    # The latest report from any device (only when no specific device is requested)
-    return max(reports.values(), key=lambda r: str(r.get("updated_at") or ""), default=None)
+async def _ask_for_quotas(
+    db: AsyncSession, user: User, device_id: str | None, target_mid: str | None, is_specific: bool,
+) -> bool:
+    """Ask the device, or every online device the user may see, to report fresh quotas."""
+    msg = {"type": "get_agent_quotas"}
+    if is_specific:
+        target = target_mid if target_mid and ws_manager.is_online(target_mid) else None
+        if target is None and _sees_all(user) and device_id and ws_manager.is_online(device_id):
+            target = device_id
+        return bool(target) and await ws_manager.send_json(target, msg)
+    if _sees_all(user):
+        if not ws_manager.has_online_devices():
+            return False
+        await ws_manager.broadcast(msg)
+        return True
+    hashes = (await db.execute(
+        select(Machine.collector_token_hash).where(Machine.user_id == user.id)
+    )).scalars().all()
+    sent = False
+    for h in hashes:
+        if h and ws_manager.is_online(h):
+            sent = await ws_manager.send_json(h, msg) or sent
+    return sent
 
 
 def _make_fallback_report(device_id: str | None = None, device_name: str | None = None) -> dict[str, Any]:
@@ -113,8 +123,8 @@ async def get_agent_quotas(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Fetch live or cached quota usage across all AI subscription tools (Antigravity, Claude Code, Codex)."""
-    # 1. Check in-memory cache
-    cached = get_cached_device_quotas(device_id)
+    # 1. Check the cache
+    cached = get_cached_device_quotas(device_id, _user)
     if cached:
         return cached
 
@@ -124,25 +134,14 @@ async def get_agent_quotas(
     is_specific = bool(device_id and device_id not in ("auto", "ask_only", "all"))
     if is_specific:
         try:
-            conditions = [
-                Machine.name == device_id,
-                Machine.collector_token_hash == device_id,
-            ]
-            try:
-                device_uuid = uuid.UUID(device_id)
-                conditions.append(Machine.id == device_uuid)
-            except (ValueError, AttributeError):
-                pass
-            m_row = (await db.execute(
-                select(Machine).where(or_(*conditions))
-            )).scalars().first()
+            m_row = await _find_machine(db, _user, device_id)
             if m_row:
                 machine_name = m_row.name
                 target_mid = str(m_row.id)
                 cached = (
-                    get_cached_device_quotas(m_row.collector_token_hash)
-                    or (get_cached_device_quotas(m_row.name) if m_row.name else None)
-                    or get_cached_device_quotas(str(m_row.id))
+                    get_cached_device_quotas(m_row.collector_token_hash, _user)
+                    or (get_cached_device_quotas(m_row.name, _user) if m_row.name else None)
+                    or get_cached_device_quotas(str(m_row.id), _user)
                 )
                 if cached:
                     return cached
@@ -151,29 +150,14 @@ async def get_agent_quotas(
 
     # 3. If online device is connected to WebSocket, trigger an async request
     try:
-        dispatched = False
-        if is_specific:
-            target_key = None
-            if target_mid and ws_manager.is_online(target_mid):
-                target_key = target_mid
-            elif device_id and ws_manager.is_online(device_id):
-                target_key = device_id
-            if target_key:
-                await ws_manager.send_json(target_key, {"type": "get_agent_quotas"})
-                dispatched = True
-        elif ws_manager.has_online_devices():
-            # broadcast to any online device when no specific device is targeted
-            await ws_manager.broadcast({"type": "get_agent_quotas"})
-            dispatched = True
-
-        if dispatched:
+        if await _ask_for_quotas(db, _user, device_id, target_mid, is_specific):
             for _ in range(10):
                 await asyncio.sleep(0.1)
-                cached = get_cached_device_quotas(device_id)
+                cached = get_cached_device_quotas(device_id, _user)
                 if not cached and target_mid:
-                    cached = get_cached_device_quotas(target_mid)
+                    cached = get_cached_device_quotas(target_mid, _user)
                 if not cached and machine_name:
-                    cached = get_cached_device_quotas(machine_name)
+                    cached = get_cached_device_quotas(machine_name, _user)
                 if cached:
                     return cached
     except Exception as e:
@@ -198,18 +182,7 @@ async def refresh_agent_quotas(
     is_specific = bool(device_id and device_id not in ("auto", "ask_only", "all"))
     if is_specific:
         try:
-            conditions = [
-                Machine.name == device_id,
-                Machine.collector_token_hash == device_id,
-            ]
-            try:
-                device_uuid = uuid.UUID(device_id)
-                conditions.append(Machine.id == device_uuid)
-            except (ValueError, AttributeError):
-                pass
-            m_row = (await db.execute(
-                select(Machine).where(or_(*conditions))
-            )).scalars().first()
+            m_row = await _find_machine(db, _user, device_id)
             if m_row:
                 machine_name = m_row.name
                 target_mid = str(m_row.id)
@@ -219,18 +192,7 @@ async def refresh_agent_quotas(
     # Dispatch request to WS clients
     dispatched = False
     try:
-        if is_specific:
-            target_key = None
-            if target_mid and ws_manager.is_online(target_mid):
-                target_key = target_mid
-            elif device_id and ws_manager.is_online(device_id):
-                target_key = device_id
-            if target_key:
-                await ws_manager.send_json(target_key, {"type": "get_agent_quotas"})
-                dispatched = True
-        else:
-            await ws_manager.broadcast({"type": "get_agent_quotas"})
-            dispatched = True
+        dispatched = await _ask_for_quotas(db, _user, device_id, target_mid, is_specific)
     except Exception as e:
         logger.warning("Error dispatching refresh_agent_quotas over ws: %s", e)
 
@@ -238,17 +200,17 @@ async def refresh_agent_quotas(
     if dispatched:
         for _ in range(15):
             await asyncio.sleep(0.1)
-            cached = get_cached_device_quotas(device_id)
+            cached = get_cached_device_quotas(device_id, _user)
             if not cached and target_mid:
-                cached = get_cached_device_quotas(target_mid)
+                cached = get_cached_device_quotas(target_mid, _user)
             if not cached and machine_name:
-                cached = get_cached_device_quotas(machine_name)
+                cached = get_cached_device_quotas(machine_name, _user)
             if cached:
                 return cached
 
-    res = get_cached_device_quotas(device_id)
+    res = get_cached_device_quotas(device_id, _user)
     if not res and target_mid:
-        res = get_cached_device_quotas(target_mid)
+        res = get_cached_device_quotas(target_mid, _user)
     if not res and machine_name:
-        res = get_cached_device_quotas(machine_name)
+        res = get_cached_device_quotas(machine_name, _user)
     return res or _make_fallback_report(device_id=device_id, device_name=machine_name)

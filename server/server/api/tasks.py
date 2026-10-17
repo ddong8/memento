@@ -43,8 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
-from ..services import notify_service, task_alerts
-from ..services.cluster import SharedDict, cluster
+from ..services import device_reports, notify_service, task_alerts
 from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger("server.tasks_api")
@@ -72,63 +71,6 @@ CONTROL_ACTIONS = {"resync", "update"}
 # Cap stored output. The collector truncates before upload too; this is the
 # server-side backstop so one runaway task cannot bloat the table.
 MAX_OUTPUT_CHARS = 200_000
-
-# Live agent capabilities reported by connected devices (whichever replica they're on)
-_device_capabilities = SharedDict(cluster, "device_capabilities")
-
-
-def get_cached_device_capabilities(device_id: str | None = None, tool: str | None = None) -> dict | None:
-    if not device_id or device_id in ("auto", "ask_only"):
-        for caps in _device_capabilities.data.values():
-            if tool:
-                if tool in caps:
-                    return caps[tool]
-            else:
-                return caps
-        return None
-
-    caps = _device_capabilities.data.get(device_id)
-    if not caps:
-        for k, v in _device_capabilities.data.items():
-            if k == device_id or device_id.startswith(k) or k.startswith(device_id):
-                caps = v
-                break
-
-    if not caps:
-        return None
-    if tool:
-        return caps.get(tool)
-    return caps
-
-
-def get_device_environment_summary(device_id: str | None = None) -> str | None:
-    """Format a compact environment profile string for system prompts and tool contexts."""
-    caps = get_cached_device_capabilities(device_id)
-    if not caps or not isinstance(caps, dict):
-        return None
-    env = caps.get("environment")
-    if not env or not isinstance(env, dict):
-        return None
-
-    plat = env.get("platform") or ""
-    arch = env.get("arch") or ""
-    shell = env.get("shell") or ""
-    user = env.get("username") or ""
-    tools_dict = env.get("tools") or {}
-    active_tools = [f"{k}: {v}" for k, v in tools_dict.items() if v]
-
-    lines = [
-        f"系统平台: {plat} ({arch}) | 默认 Shell: {shell} | 当前用户: {user}",
-    ]
-    if active_tools:
-        lines.append(f"已就绪工具链: {', '.join(active_tools)}")
-    workspaces = env.get("workspaces") or []
-    if workspaces:
-        lines.append(f"常用工作区路径: {', '.join(workspaces[:3])}")
-    lines.append("提示: 目标设备已就绪上述环境与工具，执行命令时直接调用对应环境，无需重复运行 which/--version 探查。")
-    return "\n".join(lines)
-
-
 
 class CreateTask(BaseModel):
     action: str
@@ -381,11 +323,13 @@ async def device_websocket_endpoint(
 
     await websocket.accept()
     real_device_id = machine.collector_token_hash
-    await ws_manager.register(
-        real_device_id, websocket, device_id, machine.name,
+    aliases = (
+        real_device_id, device_id, machine.name,
         normalize_device_name(machine.name) if machine.name else None,
         str(machine.id) if machine.id else None,
     )
+    await ws_manager.register(real_device_id, websocket, *aliases)
+    device_reports.record_owner(aliases, str(machine.user_id) if machine.user_id else None)
 
     try:
         async with async_session_factory() as db:
@@ -420,12 +364,11 @@ async def device_websocket_endpoint(
                     await db.commit()
             elif msg_type == "agent_capabilities":
                 caps = data.get("capabilities") or {}
-                _device_capabilities.set((real_device_id, machine.name, str(machine.id) if machine.id else None), caps)
+                device_reports.set_device_capabilities((real_device_id, machine.name, str(machine.id) if machine.id else None), caps)
                 logger.info("Received dynamic agent capabilities from device %s (%s)", real_device_id, machine.name)
             elif msg_type == "agent_quotas":
-                from .quotas import set_cached_device_quotas
                 quotas = data.get("quotas") or {}
-                set_cached_device_quotas(real_device_id, quotas, machine.name, str(machine.id) if machine.id else None)
+                device_reports.set_cached_device_quotas(real_device_id, quotas, machine.name, str(machine.id) if machine.id else None)
                 logger.info("Received dynamic agent quotas from device %s (%s)", real_device_id, machine.name)
             elif msg_type == "task_progress":
                 tid = data.get("task_id")

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 from ..services.ask_runs import RunConflict, ask_runs
 from .ask_store import append_conversation_turns
+from .device_reports import get_device_environment_summary
 
 logger = logging.getLogger("server.ask")
 
@@ -213,8 +214,7 @@ async def direct_agent_stream(
             args["prompt"] = final_prompt
         args["binary"] = binary
 
-        from .tasks import get_device_environment_summary
-        env_summary = get_device_environment_summary(device_id)
+        env_summary = get_device_environment_summary(device_id, user)
         if env_summary and not orig_session_id:
             curr_spa = args.get("system_prompt_append") or ""
             args["system_prompt_append"] = f"{curr_spa}\n\n【目标设备就绪环境指纹画像】\n{env_summary}".strip()

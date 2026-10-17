@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import unittest
-from server.api.quotas import (
-    _make_fallback_report,
+import uuid
+
+from server.api.quotas import _make_fallback_report
+from server.db.models import User
+from server.services.device_reports import (
+    get_cached_device_capabilities,
     get_cached_device_quotas,
+    record_owner,
     set_cached_device_quotas,
+    set_device_capabilities,
 )
 
 
@@ -55,6 +61,43 @@ class QuotasCoordinatorTests(unittest.TestCase):
         # Test lookup by unknown/non-matching device_id MUST return None
         res_unknown = get_cached_device_quotas("non-existent-device-id")
         self.assertIsNone(res_unknown)
+
+    def test_reports_are_only_shown_to_whoever_may_see_the_device(self) -> None:
+        owner_id, other_id = uuid.uuid4(), uuid.uuid4()
+        mine = User(id=owner_id, email="me@example.com", role="user")
+        someone_else = User(id=other_id, email="x@example.com", role="user")
+        admin = User(id=uuid.uuid4(), email="a@example.com", role="admin")
+        names = ("hash-77", "Studio", "mid-77")
+        record_owner(names, str(owner_id))
+        set_cached_device_quotas("hash-77", {"tools": {}}, machine_name="Studio", machine_id="mid-77")
+        set_device_capabilities(names, {"codex": {"models": ["gpt"]}})
+
+        self.assertEqual(get_cached_device_quotas("Studio", mine)["device_id"], "hash-77")
+        self.assertEqual(get_cached_device_quotas("Studio", admin)["device_id"], "hash-77")
+        self.assertIsNone(get_cached_device_quotas("Studio", someone_else))
+        self.assertIsNone(get_cached_device_quotas("Stud", someone_else))  # no fuzzy match into others' devices
+        latest = get_cached_device_quotas(None, someone_else)
+        self.assertTrue(latest is None or latest["device_id"] != "hash-77")
+
+        self.assertEqual(get_cached_device_capabilities("Studio", "codex", mine), {"models": ["gpt"]})
+        self.assertIsNone(get_cached_device_capabilities("Studio", "codex", someone_else))
+        self.assertIsNone(get_cached_device_capabilities(None, "codex", someone_else))
+
+    def test_prompt_carries_the_device_environment_for_its_owner_only(self) -> None:
+        from server.services.ask_prompt import build_messages
+
+        owner_id = uuid.uuid4()
+        mine = User(id=owner_id, email="me@example.com", role="user")
+        someone_else = User(id=uuid.uuid4(), email="x@example.com", role="user")
+        names = ("hash-88", "Lab-Mac", "mid-88")
+        record_owner(names, str(owner_id))
+        set_device_capabilities(names, {"environment": {"platform": "darwin", "arch": "arm64", "shell": "zsh"}})
+
+        def system_prompt(user: User) -> str:
+            return build_messages("q", [], None, device_id="Lab-Mac", user=user)[0]["content"]
+
+        self.assertIn("darwin (arm64)", system_prompt(mine))
+        self.assertNotIn("darwin (arm64)", system_prompt(someone_else))
 
     def test_ws_manager_online_helpers(self) -> None:
         from server.services.ws_manager import DeviceConnectionManager

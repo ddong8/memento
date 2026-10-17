@@ -10,7 +10,8 @@ import re
 
 
 
-from ..db.models import UserMemory
+from ..db.models import User, UserMemory
+from .device_reports import get_device_environment_summary
 
 logger = logging.getLogger("server.ask")
 
@@ -199,6 +200,7 @@ def build_messages(
     user_profile_content: str | None = None,
     guidance_data: dict | None = None,
     device_id: str | None = None,
+    user: User | None = None,
 ) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
@@ -227,8 +229,7 @@ def build_messages(
 
     # 4. Device Environment Fingerprint
     if device_id and device_id not in ("auto", "ask_only"):
-        from .tasks import get_device_environment_summary
-        env_summary = get_device_environment_summary(device_id)
+        env_summary = get_device_environment_summary(device_id, user)
         if env_summary:
             system_prompt += f"\n\n【目标设备就绪环境指纹画像】\n{env_summary}"
 

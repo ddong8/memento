@@ -316,6 +316,7 @@ async def ask(
         user_profile_content=user_prof_content,
         guidance_data=guidance_data,
         device_id=device_id or None,
+        user=_user,
     )
 
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
@@ -664,10 +665,10 @@ async def get_agent_capabilities(
     user: User = Depends(get_current_user),
 ):
     """Retrieve dynamic models, default configs, and reasoning effort options for a specified agent tool."""
-    from .tasks import get_cached_device_capabilities
+    from ..services.device_reports import get_cached_device_capabilities
 
     tool_key = tool.lower().strip()
-    live = get_cached_device_capabilities(device_id, tool_key)
+    live = get_cached_device_capabilities(device_id, tool_key, user)
     if live and isinstance(live, dict) and live.get("models"):
         # Ensure models is a list of structured dicts
         norm_models = []

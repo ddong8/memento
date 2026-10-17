@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import gzip
-import io
 import logging
 import re
+import tempfile
 from datetime import datetime, timezone, timedelta
+from typing import BinaryIO
 
 import asyncpg
 import boto3
@@ -30,56 +31,73 @@ logger = logging.getLogger("db_backup")
 BACKUP_BUCKET = "memento-backups"
 RETENTION_DAYS = 56  # 8 weekly snapshots
 
-# Tables to back up, in load order (FK-safe). Append new tables here as
-# the schema grows.
-TABLES = [
-    "users",
-    "invite_codes",
-    "machines",
-    "tools",
-    "projects",
-    "documents",
-    "document_versions",
-    "document_embeddings",
-    "conversation_messages",
-    "knowledge_entities",
-    "knowledge_relations",
-    "knowledge_observations",
-    "permissions",
-    "access_logs",
-    "share_links",
-    "share_views",
-    "daily_summaries",
-    "sync_state",
-]
+_SAFE_NAME = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def load_order(tables: list[str], deps: list[tuple[str, str]]) -> list[str]:
+    """Every table, parents before the tables whose foreign keys point at them,
+    so a restore can load the dump top to bottom. deps holds (child, parent)
+    pairs; self references are ignored and any cycle is appended by name."""
+    parents: dict[str, set[str]] = {t: set() for t in tables}
+    for child, parent in deps:
+        if child in parents and parent in parents and child != parent:
+            parents[child].add(parent)
+    order: list[str] = []
+    ready = sorted(t for t, ps in parents.items() if not ps)
+    while ready:
+        table = ready.pop(0)
+        order.append(table)
+        for t, ps in parents.items():
+            if table in ps:
+                ps.discard(table)
+                if not ps and t not in order and t not in ready:
+                    ready.append(t)
+        ready.sort()
+    return order + sorted(t for t in tables if t not in order)
+
+
+async def _tables(conn: asyncpg.Connection) -> list[str]:
+    """All tables in the public schema (new ones are picked up automatically)."""
+    names = [r["relname"] for r in await conn.fetch(
+        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'public' AND c.relkind = 'r'"
+    )]
+    deps = [(r["child"], r["parent"]) for r in await conn.fetch(
+        "SELECT ch.relname AS child, pa.relname AS parent FROM pg_constraint k "
+        "JOIN pg_class ch ON ch.oid = k.conrelid JOIN pg_class pa ON pa.oid = k.confrelid "
+        "JOIN pg_namespace n ON n.oid = ch.relnamespace "
+        "WHERE k.contype = 'f' AND n.nspname = 'public'"
+    )]
+    return load_order(names, deps)
 
 
 def _libpq_url() -> str:
     return settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
-async def _dump_async(buf: io.BytesIO) -> dict:
-    """Stream every table out via COPY ... TO STDOUT (binary), gzip into buf.
-    Returns per-table row counts for the manifest.
+async def _dump_async(out: BinaryIO, dsn: str | None = None) -> dict:
+    """Stream every table out via COPY ... TO STDOUT (csv), gzip into out.
+    Returns per-table row counts, in load order, for the manifest.
     """
     counts: dict = {}
-    conn = await asyncpg.connect(_libpq_url())
+    conn = await asyncpg.connect(dsn or _libpq_url())
     try:
-        gz = gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6)
+        gz = gzip.GzipFile(fileobj=out, mode="wb", compresslevel=6)
         try:
-            for table in TABLES:
-                # Validate table name (defensive — TABLES is a static allow-list,
-                # but never compose SQL with raw identifiers).
-                if not re.match(r"^[a-z_][a-z0-9_]*$", table):
-                    raise ValueError(f"unsafe table name: {table}")
-                row = await conn.fetchrow(f"SELECT COUNT(*) AS n FROM {table}")
+            for table in await _tables(conn):
+                # Names come from the catalog, but never compose SQL with an
+                # identifier we haven't checked.
+                if not _SAFE_NAME.match(table):
+                    logger.warning("Skipping table with an unexpected name: %r", table)
+                    continue
+                row = await conn.fetchrow(f'SELECT COUNT(*) AS n FROM "{table}"')
                 counts[table] = int(row["n"]) if row else 0
 
                 header = f"\n-- TABLE: {table} ({counts[table]} rows)\n".encode()
                 gz.write(header)
                 # COPY (SELECT * FROM tbl) TO STDOUT — works for any row count
                 await conn.copy_from_query(
-                    f"SELECT * FROM {table}",
+                    f'SELECT * FROM "{table}"',
                     output=gz,
                     format="csv",
                     header=True,
@@ -101,12 +119,6 @@ async def _run_backup() -> dict:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     key = f"weekly/{today}.csv.gz"
 
-    buf = io.BytesIO()
-    counts = await _dump_async(buf)
-    size = buf.tell()
-    buf.seek(0)
-    logger.info("Backup built in memory: %d bytes, %d tables", size, len(counts))
-
     s3 = boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint,
@@ -119,7 +131,15 @@ async def _run_backup() -> dict:
         s3.head_bucket(Bucket=BACKUP_BUCKET)
     except Exception:
         s3.create_bucket(Bucket=BACKUP_BUCKET)
-    s3.put_object(Bucket=BACKUP_BUCKET, Key=key, Body=buf.getvalue())
+
+    # Spool to disk and upload in parts: the dump is over a gigabyte, and
+    # holding it (plus a copy for the upload) in memory OOM-kills the worker.
+    with tempfile.TemporaryFile() as f:
+        counts = await _dump_async(f)
+        size = f.tell()
+        f.seek(0)
+        logger.info("Backup built: %d bytes, %d tables", size, len(counts))
+        s3.upload_fileobj(f, BACKUP_BUCKET, key)
     logger.info("Uploaded s3://%s/%s (%d bytes)", BACKUP_BUCKET, key, size)
 
     # Prune older than RETENTION_DAYS (daily/ holds the snapshots from before the weekly schedule)

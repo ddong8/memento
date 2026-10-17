@@ -41,7 +41,7 @@ configMapGenerator:
 images:
 - name: ghcr.io/ddong8/memento-server
   newName: ghcr.io/ddong8/memento-server
-  newTag: e9f9175cb718
+  newTag: 9b1a6e3c6c9d
 - name: ghcr.io/ddong8/memento-web
   newName: ghcr.io/ddong8/memento-web
-  newTag: e9f9175cb718
+  newTag: 9b1a6e3c6c9d

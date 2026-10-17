@@ -28,4 +28,5 @@ COPY data/updates/ /app/data/updates/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# SSE 长连接不会自己结束:停止时最多等 25s 就关掉,赶在 k8s 强杀(terminationGracePeriodSeconds 40)前干净退出
+CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "25"]

@@ -8,6 +8,8 @@ spec:
   template:
     metadata: { labels: { app: api } }
     spec:
+      # 10s preStop + uvicorn 最多 25s 优雅退出(见 server/Dockerfile),留 5s 余量
+      terminationGracePeriodSeconds: 40
       containers:
         - name: api
           image: ghcr.io/ddong8/memento-server:latest
@@ -35,6 +37,10 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 12
+          lifecycle:
+            # 先等网关(Traefik)把这个 pod 从后端摘掉再停:滚动更新时旧 pod 继续接请求,不再有几秒的 502
+            preStop:
+              sleep: { seconds: 10 }
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "2", memory: 4Gi }

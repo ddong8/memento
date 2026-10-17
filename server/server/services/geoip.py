@@ -9,7 +9,7 @@ The file format is the same between:
   - MaxMind's GeoLite2-City (free, needs license key to download)
   - db-ip.com's dbip-city-lite (free, no signup)
 
-We document both in scripts/download_geoip.sh; the code doesn't care which
+scripts/fetch_geoip.py downloads either; the code doesn't care which
 source you used.
 """
 

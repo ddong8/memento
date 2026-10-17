@@ -35,7 +35,7 @@ node_modules/
 Thumbs.db
 .claude/
 
-# GeoIP DB (downloaded on demand by scripts/download_geoip.sh, ~125MB binary)
+# GeoIP DB (downloaded on demand by scripts/fetch_geoip.py, ~125MB binary)
 server/data/geoip/
 *.mmdb
 

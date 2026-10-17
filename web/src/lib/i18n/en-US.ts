@@ -37,6 +37,7 @@ const enUS: Translations = {
     noViews: "No viewers yet",
     when: "When",
     from: "From",
+    geoCredit: "IP geolocation by",
     ipAddr: "IP",
     shared: "Share",
     sharedBy: "Shared by",

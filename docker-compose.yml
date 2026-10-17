@@ -160,7 +160,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       # GeoIP database for share-link visitor location. Host dir is created
-      # on-demand by scripts/download_geoip.sh; mount is optional — service
+      # on-demand by scripts/fetch_geoip.py; mount is optional — service
       # gracefully degrades to "country/city unknown" if missing.
       - ./server/data/geoip:/data/geoip:ro
     depends_on:

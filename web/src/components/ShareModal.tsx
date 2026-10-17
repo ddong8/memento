@@ -448,6 +448,10 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
                         ))}
                       </tbody>
                     </table>
+                    <div style={{ padding: "4px 10px", fontSize: 10, color: "var(--aurora-fg4)", borderTop: "1px solid var(--aurora-border)" }}>
+                      {t.share.geoCredit}{" "}
+                      <a href="https://db-ip.com" target="_blank" rel="noreferrer" style={{ color: "var(--aurora-fg3)" }}>DB-IP</a>
+                    </div>
                   </div>
                 )}
               </div>

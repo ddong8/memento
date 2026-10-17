@@ -37,6 +37,7 @@ const zhCN = {
     when: "时间",
     from: "来自",
     ipAddr: "IP",
+    geoCredit: "IP 归属地数据来自",
     shared: "分享",
     sharedBy: "分享自",
     revokedNotice: "此链接已被撤销。",

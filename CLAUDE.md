@@ -16,6 +16,7 @@
 - GitHub 偶发超时后 gitrepo 会停在 `Stalled` / `GitPolling=False`,之后不再自动拉新提交,要按下面的办法强制重同步(2026-10-17 实测有效)。
 - CI 装 kustomize 用「release CDN 直接下载固定版」(`releases/download/.../kustomize_v5.4.3_...`),**不要改回 `install_kustomize.sh`**——它查 GitHub API,共享 runner 上会撞限流导致部署失败。
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
+- 服务端 Python 依赖锁在 `server/uv.lock`,Docker 安装的是由它导出的 `server/requirements.lock`(带哈希)。改了 `server/pyproject.toml` 的依赖后:`cd server && uv lock && uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o requirements.lock`;升级依赖用 `uv lock --upgrade` 再导出。CI 会检查两者一致。
 - bot 回写提交带 `[skip ci]`(GitHub 上真生效、不是装饰),避免触发死循环。
 - **不要用 ConfigMap 挂载覆盖镜像里的代码文件做热修复。** 2026-10-13 有人这样给 api 挂了 projects.py、ingest_service.py、user_filter.py,补丁一直没撤,之后这三个文件的改动在线上全部不生效(镜像照常更新,文件被挂载盖住)。Fleet 不把这类手动加的挂载算作漂移,不会自动清掉。确实要紧急止血,也要在修复随镜像上线后立刻删掉挂载和 ConfigMap。
 

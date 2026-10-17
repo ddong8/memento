@@ -50,6 +50,14 @@ jobs:
         working-directory: ${{ matrix.package }}
         run: python -m compileall -q .
 
+      # The Docker image installs server/requirements.lock: it must match uv.lock, and uv.lock must match pyproject.toml
+      - name: Dependency lock is current
+        working-directory: server
+        run: |
+          pip install uv==0.10.0
+          uv lock --check
+          uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt | diff - requirements.lock
+
       # pyflakes rules: undefined names, unused imports/variables, shadowed definitions
       - name: Lint
         run: |

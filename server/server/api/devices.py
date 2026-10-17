@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from collections import defaultdict
@@ -22,19 +23,39 @@ from ..db.models import AccessLog, ConversationMessage, Document, DocumentVersio
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_current_user_flexible
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services.cluster import PREFIX, cluster
 from ..services.user_filter import normalize_device_name, user_machine_ids
 from ..services.ws_manager import ws_manager
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
+logger = logging.getLogger("server.devices")
 
-# In-memory command queue per device_id (collector_token_hash)
-# Format: {device_id: [{id, action, created_at}, ...]}
+# Command queue per device_id (collector_token_hash), picked up on the device's
+# next poll. In Redis so a command queued through one api replica reaches a
+# device polling another; this process's memory only without Redis.
+# Format: [{id, action, created_at}, ...]
 _command_queue: dict[str, list[dict]] = defaultdict(list)
 _cmd_counter = 0
+_CMD_KEY = f"{PREFIX}devcmd:"
+_CMD_SEQ = f"{PREFIX}devcmd-seq"
+_CMD_TTL = 7 * 86400
 
-def _enqueue_command(device_collector_id: str, action: str) -> int:
+
+async def _enqueue_command(device_collector_id: str, action: str) -> int:
     """Add a command to the queue for a device."""
     global _cmd_counter
+    r = cluster.redis
+    if r is not None:
+        try:
+            cmd_id = int(await r.incr(_CMD_SEQ))
+            cmd = {"id": cmd_id, "action": action, "created_at": time.time()}
+            pipe = r.pipeline(transaction=False)
+            pipe.rpush(_CMD_KEY + device_collector_id, json.dumps(cmd))
+            pipe.expire(_CMD_KEY + device_collector_id, _CMD_TTL)
+            await pipe.execute()
+            return cmd_id
+        except Exception as e:
+            logger.warning("queueing %s for %s in Redis failed, keeping it here: %s", action, device_collector_id, e)
     _cmd_counter += 1
     _command_queue[device_collector_id].append({
         "id": _cmd_counter,
@@ -42,6 +63,30 @@ def _enqueue_command(device_collector_id: str, action: str) -> int:
         "created_at": time.time(),
     })
     return _cmd_counter
+
+
+async def _pending_commands(device_collector_id: str) -> list[dict]:
+    commands = list(_command_queue.get(device_collector_id, []))
+    r = cluster.redis
+    if r is not None:
+        try:
+            commands += [json.loads(c) for c in await r.lrange(_CMD_KEY + device_collector_id, 0, -1)]
+        except Exception as e:
+            logger.warning("reading commands for %s failed: %s", device_collector_id, e)
+    return commands
+
+
+async def _ack_command(device_collector_id: str, cmd_id: int) -> None:
+    queue = _command_queue.get(device_collector_id, [])
+    _command_queue[device_collector_id] = [c for c in queue if c["id"] != cmd_id]
+    r = cluster.redis
+    if r is not None:
+        try:
+            for raw in await r.lrange(_CMD_KEY + device_collector_id, 0, -1):
+                if json.loads(raw).get("id") == cmd_id:
+                    await r.lrem(_CMD_KEY + device_collector_id, 0, raw)
+        except Exception as e:
+            logger.warning("acking command %s for %s failed: %s", cmd_id, device_collector_id, e)
 
 
 @router.get("")
@@ -297,7 +342,7 @@ async def send_command(
                 "UPDATE documents SET metadata = metadata - '_graph_hash' WHERE machine_id = :mid AND metadata ? '_graph_hash'"
             ), {"mid": device_db_id})
 
-    cmd_id = _enqueue_command(machine.collector_token_hash, action)
+    cmd_id = await _enqueue_command(machine.collector_token_hash, action)
     return {"status": "queued", "command_id": cmd_id, "action": action, "device": machine.name}
 
 
@@ -318,8 +363,7 @@ async def get_commands(
         if x_collector_version:
             machine.collector_version = x_collector_version
 
-    commands = _command_queue.get(x_device_id, [])
-    return commands
+    return await _pending_commands(x_device_id)
 
 
 @router.post("/commands/{cmd_id}/ack")
@@ -328,8 +372,7 @@ async def ack_command(
     x_device_id: str = Header(..., alias="X-Device-Id"),
 ) -> dict:
     """Collector acknowledges a command — remove it from queue."""
-    queue = _command_queue.get(x_device_id, [])
-    _command_queue[x_device_id] = [c for c in queue if c["id"] != cmd_id]
+    await _ack_command(x_device_id, cmd_id)
     return {"status": "acked", "command_id": cmd_id}
 
 
@@ -400,7 +443,6 @@ async def stream_device_file(
 
     total_size = 0
     is_local = os.path.exists(clean_path) and os.path.isfile(clean_path)
-    from ..services.ws_manager import ws_manager
 
     dev_token = target_machine.collector_token_hash if target_machine else device_id
     if is_local:
@@ -426,12 +468,12 @@ async def stream_device_file(
                 if m.name and m.name not in candidates:
                     candidates.append(m.name)
             if _user.role in ("admin", "owner"):
-                for conn_id in list(ws_manager._connections.keys()):
+                for conn_id in ws_manager.connected_ids():
                     if conn_id not in candidates:
                         candidates.append(conn_id)
 
             for cand_token in candidates:
-                if cand_token in ws_manager._connections and cand_token != dev_token:
+                if ws_manager.has_device(cand_token) and cand_token != dev_token:
                     cand_stat = await ws_manager.request_file_stat(cand_token, clean_path, timeout=3.5)
                     if cand_stat.get("exists"):
                         stat = cand_stat

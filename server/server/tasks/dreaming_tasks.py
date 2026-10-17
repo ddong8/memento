@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from ..db.models import User
 from ..db.session import async_session_factory
 from ..services import ai_health
+from ..services.cluster import PREFIX, Mutex, cluster
 from ..services.dreaming_service import run_dreaming_backfill, run_dreaming_pipeline
 from ..services.notify_service import notify_user
 from ..services.profile_service import build_profile_draft
@@ -28,17 +30,37 @@ except (ImportError, ModuleNotFoundError):
 
 logger = logging.getLogger("server.tasks.dreaming_tasks")
 
+# A backfill runs on the api replica that got the request, holding the
+# BACKFILL_LOCK mutex; its progress goes to Redis so any replica can report it.
 _BACKFILL_STATUS: dict[str, dict] = {}
+_BACKFILL_KEY = f"{PREFIX}dream-backfill:"
+BACKFILL_LOCK = "dream-backfill:"
 
 
-def get_backfill_status(user_id: str) -> dict:
+async def get_backfill_status(user_id: str) -> dict:
     """Get the current progress or latest result of a user's dreaming backfill."""
-    return _BACKFILL_STATUS.get(user_id, {"status": "idle"})
+    status = _BACKFILL_STATUS.get(user_id)
+    if status and status.get("status") == "running":
+        return status  # it runs here: this copy is the freshest
+    r = cluster.redis
+    if r is not None:
+        try:
+            raw = await r.get(_BACKFILL_KEY + user_id)
+            status = json.loads(raw) if raw else status
+        except Exception as e:
+            logger.warning("reading backfill status of %s failed: %s", user_id, e)
+    if status is None:
+        return {"status": "idle"}
+    if status.get("status") == "running" and not await cluster.locked(BACKFILL_LOCK + user_id):
+        return {"status": "error", "error": "回填所在的服务实例已重启，回填中断，可以重新发起"}
+    return status
 
 
 def set_backfill_status(user_id: str, status: dict) -> None:
-    """Update backfill status in-memory."""
+    """Update backfill status (this replica, and Redis for the others)."""
     _BACKFILL_STATUS[user_id] = status
+    blob = json.dumps(status, ensure_ascii=False, default=str)
+    cluster.write(lambda r: r.set(_BACKFILL_KEY + user_id, blob, ex=7 * 86400))
 
 
 async def _run_all_users_dreaming(days_back: int = 1) -> dict[str, int]:
@@ -103,8 +125,19 @@ def run_nightly_dreaming(days_back: int = 1) -> dict[str, int]:
     return asyncio.run(_run_all_users_dreaming(days_back=days_back))
 
 
-async def run_user_backfill_async(user_id: str, chunk_days: int = 3, max_chunks: int = 30) -> dict:
-    """Execute backfill asynchronously for a single user."""
+async def run_user_backfill_async(
+    user_id: str, chunk_days: int = 3, max_chunks: int = 30, mutex: Mutex | None = None,
+) -> dict:
+    """Execute backfill asynchronously for a single user, releasing `mutex` (BACKFILL_LOCK) at the end."""
+    try:
+        return await _run_user_backfill(user_id, chunk_days, max_chunks)
+    finally:
+        if mutex is not None:
+            await cluster.flush()  # the final status is out before another backfill may start
+            await mutex.release()
+
+
+async def _run_user_backfill(user_id: str, chunk_days: int, max_chunks: int) -> dict:
     import uuid
     set_backfill_status(user_id, {
         "status": "running",

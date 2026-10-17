@@ -65,7 +65,7 @@ async def raise_alert(
         return None
     if stream_to_watchers:
         ws_manager.push_alert(task_id, alert)
-    if notify_service.allow_risky_push(task_id):
+    if await notify_service.allow_risky_push(task_id):
         target_url = notify_service.task_link(task_id)
         try:
             async with async_session_factory() as db:
@@ -112,7 +112,7 @@ def _task_summary(task: DeviceTask) -> str:
 
 async def handle_task_finished(task_id: str, status: str | None, device_name: str | None, watched: bool) -> None:
     """Push a finished agent task notification (deduplicated with AskRun notifications by notify_service)."""
-    notify_service.forget_task(task_id)
+    await notify_service.forget_task(task_id)
     if status == "cancelled":
         return
     try:

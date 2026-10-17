@@ -49,7 +49,6 @@ What's intentionally NOT in v1:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import io
 import json
@@ -118,19 +117,6 @@ def _is_zip_noise(name: str) -> bool:
     return False
 
 VALID_SHARE_KINDS = {"timeline", "daily", "memory"}
-
-# In-memory per-user lock so concurrent imports for the same account
-# can't shred the DB invariants. The web endpoint also gates by this.
-_user_locks: dict[uuid.UUID, asyncio.Lock] = {}
-
-
-def get_user_lock(user_id: uuid.UUID) -> asyncio.Lock:
-    lock = _user_locks.get(user_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _user_locks[user_id] = lock
-    return lock
-
 
 @dataclass
 class ImportResult:

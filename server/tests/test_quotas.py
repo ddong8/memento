@@ -64,4 +64,4 @@ class QuotasCoordinatorTests(unittest.TestCase):
         mgr._connections["dev-1"] = object()  # mock ws
         self.assertTrue(mgr.has_online_devices())
         self.assertTrue(mgr.is_online("dev-1"))
-        self.assertEqual(len(mgr.active_connections), 1)
+        self.assertEqual(mgr.connected_ids(), ["dev-1"])

@@ -11,8 +11,12 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/memento"
 
-    # Redis
+    # Redis (also how api replicas coordinate, see services/cluster.py)
     redis_url: str = "redis://localhost:6380/0"
+    # On shutdown (e.g. a rolling deploy), how long to let ask runs in progress
+    # finish before stopping them. Keep the pod's terminationGracePeriodSeconds above
+    # preStop + uvicorn's graceful timeout + this.
+    shutdown_drain_seconds: int = 600
 
     # S3 / MinIO
     s3_endpoint: str = "http://localhost:9000"

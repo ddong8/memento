@@ -933,7 +933,7 @@ async def recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversatio
         from ..services.ask_runs import ask_runs
 
         conv_id_str = str(conv.id)
-        active_run = ask_runs.get(conv_id_str, conv.user_id) if conv.user_id else None
+        active_run = await ask_runs.get(conv_id_str, conv.user_id) if conv.user_id else None
         if active_run and not active_run.done:
             return None
 

@@ -163,12 +163,12 @@ class TestDreamingBackfill(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(res["memories"]), 2)
         self.assertEqual(mock_db.add.call_count, 3)  # 2 memories + 1 DreamJournal
 
-    def test_status_registry(self):
+    async def test_status_registry(self):
         user_id = str(uuid.uuid4())
-        self.assertEqual(get_backfill_status(user_id)["status"], "idle")
+        self.assertEqual((await get_backfill_status(user_id))["status"], "idle")
 
         set_backfill_status(user_id, {"status": "running", "current": 2, "total": 5})
-        status = get_backfill_status(user_id)
+        status = await get_backfill_status(user_id)
         self.assertEqual(status["status"], "running")
         self.assertEqual(status["current"], 2)
 

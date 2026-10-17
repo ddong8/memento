@@ -9,6 +9,7 @@ task that triggered it.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import logging
 import socket
@@ -24,13 +25,16 @@ from sqlalchemy import select
 from ..config import settings
 from ..db.models import User
 from ..db.session import async_session_factory
+from .cache import redis_client
 
 logger = logging.getLogger("server.notify")
 
 # Pushes per task for risky operations; beyond this they're recorded but not pushed,
-# so a looping agent can't flood the phone.
+# so a looping agent can't flood the phone. Counted in Redis (the device may move
+# to another api replica mid-task), in this process's memory without it.
 RISKY_PUSHES_PER_TASK = 5
 _risky_push_counts: dict[str, int] = {}
+_RISKY_KEY = "risky-pushes:"
 _background: set[asyncio.Task] = set()
 
 
@@ -526,9 +530,12 @@ async def send_expo_push(
         return False
 
 
-# Server-side sliding-window deduplication (120 seconds)
+# Server-side sliding-window deduplication (120 seconds). The two pushes for one
+# finished task (the ask run's and the device's) can come from different api
+# replicas, so the window lives in Redis; this process's memory without it.
 _recent_pushes: dict[str, float] = {}
 DEDUP_WINDOW_SECONDS = 120.0
+_DEDUP_KEY = "push-dedup:"
 
 
 def _extract_core_body(body: str) -> str:
@@ -541,19 +548,29 @@ def _extract_core_body(body: str) -> str:
     return core
 
 
-def _is_duplicate_push(user_id: str | uuid.UUID, title: str, body: str) -> bool:
-    now = time.time()
-    # Prune old records
-    expired = [k for k, ts in _recent_pushes.items() if now - ts > DEDUP_WINDOW_SECONDS * 2]
-    for k in expired:
-        _recent_pushes.pop(k, None)
-
+async def _is_duplicate_push(user_id: str | uuid.UUID, title: str, body: str) -> bool:
     clean_title = (title or "").strip()
     clean_body = (body or "").strip()
     uid = str(user_id)
     key = f"{uid}:{clean_title}:{clean_body}"
     core_body = _extract_core_body(clean_body)
     core_key = f"{uid}:{clean_title}:{core_body}" if core_body else key
+
+    c = redis_client()
+    if c is not None:
+        try:
+            # A push with the same exact key always has the same core key, so one atomic
+            # SET NX on the core key decides for every replica at once
+            digest = hashlib.sha1(core_key.encode("utf-8")).hexdigest()
+            return not await c.set(_DEDUP_KEY + digest, 1, ex=int(DEDUP_WINDOW_SECONDS), nx=True)
+        except Exception as e:
+            logger.debug("push dedup fell back to this process: %s", e)
+
+    now = time.time()
+    # Prune old records
+    expired = [k for k, ts in _recent_pushes.items() if now - ts > DEDUP_WINDOW_SECONDS * 2]
+    for k in expired:
+        _recent_pushes.pop(k, None)
 
     last_ts = _recent_pushes.get(key)
     if last_ts is not None and (now - last_ts) < DEDUP_WINDOW_SECONDS:
@@ -584,7 +601,7 @@ async def notify_user(
     """
     if not user_id:
         return False
-    if _is_duplicate_push(user_id, title, body):
+    if await _is_duplicate_push(user_id, title, body):
         logger.info("Deduplicated duplicate push notification for user %s: %s", user_id, title)
         return True
     async with async_session_factory() as db:
@@ -658,7 +675,17 @@ async def notify_user(
     return sent
 
 
-def allow_risky_push(task_id: str) -> bool:
+async def allow_risky_push(task_id: str) -> bool:
+    c = redis_client()
+    if c is not None:
+        try:
+            pipe = c.pipeline(transaction=True)
+            pipe.incr(_RISKY_KEY + task_id)
+            pipe.expire(_RISKY_KEY + task_id, 86400)
+            count, _ = await pipe.execute()
+            return int(count) <= RISKY_PUSHES_PER_TASK
+        except Exception as e:
+            logger.debug("risky push count fell back to this process: %s", e)
     count = _risky_push_counts.get(task_id, 0)
     if count >= RISKY_PUSHES_PER_TASK:
         return False
@@ -666,8 +693,14 @@ def allow_risky_push(task_id: str) -> bool:
     return True
 
 
-def forget_task(task_id: str) -> None:
+async def forget_task(task_id: str) -> None:
     _risky_push_counts.pop(task_id, None)
+    c = redis_client()
+    if c is not None:
+        try:
+            await c.delete(_RISKY_KEY + task_id)
+        except Exception as e:
+            logger.debug("forgetting risky push count of %s failed: %s", task_id, e)
 
 
 def spawn(coro) -> None:

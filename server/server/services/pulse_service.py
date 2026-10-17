@@ -21,6 +21,7 @@ from ..config import settings
 from ..db.models import AgentMission, Machine, Todo, User
 from ..db.session import async_session_factory
 from . import ai_health, mission_service
+from .cluster import cluster
 from .ai_provider import call_plain_chat
 from .dreaming_service import run_dreaming_pipeline
 from .notify_service import notify_user
@@ -99,8 +100,12 @@ async def _pulse_loop() -> None:
 
     while _running:
         try:
-            async with async_session_factory() as db:
-                await _execute_pulse_cycle(db)
+            # One replica runs the pulse (briefs, missions, device alerts); another
+            # takes over if it goes away
+            async with cluster.leased("pulse") as mine:
+                if mine:
+                    async with async_session_factory() as db:
+                        await _execute_pulse_cycle(db)
         except asyncio.CancelledError:
             break
         except Exception as e:

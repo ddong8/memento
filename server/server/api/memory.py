@@ -1005,25 +1005,27 @@ async def trigger_dream_backfill(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Trigger progressive historical dreaming replay across all previous records."""
-    import asyncio
-    from ..tasks.dreaming_tasks import get_backfill_status, run_user_backfill_async
+    from ..services.cluster import cluster
+    from ..tasks.dreaming_tasks import BACKFILL_LOCK, get_backfill_status, run_user_backfill_async
 
     req = body or DreamBackfillRequest()
     user_id_str = str(_user.id)
 
-    curr = get_backfill_status(user_id_str)
-    if curr.get("status") == "running":
+    # One backfill per user, whichever replica gets the request
+    mutex = await cluster.mutex(BACKFILL_LOCK + user_id_str)
+    if mutex is None:
         return {
             "status": "already_running",
             "message": "历史回填任务已在运行中，请勿重复触发",
-            "progress": curr,
+            "progress": await get_backfill_status(user_id_str),
         }
 
     if req.run_async:
-        asyncio.create_task(run_user_backfill_async(
+        cluster.spawn(run_user_backfill_async(
             user_id=user_id_str,
             chunk_days=req.chunk_days,
             max_chunks=req.max_chunks,
+            mutex=mutex,
         ))
         return {
             "status": "started",
@@ -1036,6 +1038,7 @@ async def trigger_dream_backfill(
             user_id=user_id_str,
             chunk_days=req.chunk_days,
             max_chunks=req.max_chunks,
+            mutex=mutex,
         )
         return {
             "status": "completed",
@@ -1049,7 +1052,7 @@ async def get_dream_backfill_status(
 ) -> dict:
     """Query current progress or latest status of historical dreaming backfill."""
     from ..tasks.dreaming_tasks import get_backfill_status
-    return get_backfill_status(str(_user.id))
+    return await get_backfill_status(str(_user.id))
 
 
 @router.post("/bootstrap")

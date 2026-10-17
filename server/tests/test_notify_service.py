@@ -2,6 +2,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 import uuid
 
+import fakeredis
+
+from server.services import notify_service
 from server.services.notify_service import (
     _is_duplicate_push,
     _recent_pushes,
@@ -12,29 +15,45 @@ from server.services.notify_service import (
 class NotifyServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         _recent_pushes.clear()
+        # Without Redis: this process's own window
+        self.no_redis = patch.object(notify_service, "redis_client", return_value=None)
+        self.no_redis.start()
 
-    def test_deduplication_sliding_window(self):
+    def tearDown(self):
+        self.no_redis.stop()
+
+    async def _check_window(self):
         uid = str(uuid.uuid4())
         title = "测试标题"
         body = "测试内容"
 
         # First call should succeed (not a duplicate)
-        self.assertFalse(_is_duplicate_push(uid, title, body))
+        self.assertFalse(await _is_duplicate_push(uid, title, body))
 
         # Immediate second call with identical content should be detected as duplicate
-        self.assertTrue(_is_duplicate_push(uid, title, body))
+        self.assertTrue(await _is_duplicate_push(uid, title, body))
 
         # Different title or body should not be treated as duplicate
-        self.assertFalse(_is_duplicate_push(uid, "不同标题", body))
-        self.assertFalse(_is_duplicate_push(uid, title, "不同内容"))
+        self.assertFalse(await _is_duplicate_push(uid, "不同标题", body))
+        self.assertFalse(await _is_duplicate_push(uid, title, "不同内容"))
 
         # Different user should not be treated as duplicate
-        self.assertFalse(_is_duplicate_push(str(uuid.uuid4()), title, body))
+        self.assertFalse(await _is_duplicate_push(str(uuid.uuid4()), title, body))
 
         # Same task summary with different device name prefix or alert count suffix should be deduplicated
-        self.assertFalse(_is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿"))
-        self.assertTrue(_is_duplicate_push(uid, "✅ 任务完成", "memento-65b88d53c382f-8eb4ed13：修复3D动画卡顿"))
-        self.assertTrue(_is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿（期间 2 次危险操作）"))
+        self.assertFalse(await _is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿"))
+        self.assertTrue(await _is_duplicate_push(uid, "✅ 任务完成", "memento-65b88d53c382f-8eb4ed13：修复3D动画卡顿"))
+        self.assertTrue(await _is_duplicate_push(uid, "✅ 任务完成", "haixingdeMac-mini：修复3D动画卡顿（期间 2 次危险操作）"))
+
+    async def test_deduplication_sliding_window(self):
+        await self._check_window()
+
+    async def test_deduplication_is_shared_by_replicas_through_redis(self):
+        # The ask run's push and the device's push for one task, raised on two replicas
+        shared = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+        with patch.object(notify_service, "redis_client", return_value=shared):
+            await self._check_window()
+            self.assertEqual(_recent_pushes, {})  # decided in Redis, not here
 
     @patch("server.services.notify_service.send_apns_push", new_callable=AsyncMock)
     @patch("server.services.notify_service.send_expo_push", new_callable=AsyncMock)

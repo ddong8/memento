@@ -44,6 +44,7 @@ from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
 from ..services import notify_service, task_alerts
+from ..services.cluster import SharedDict, cluster
 from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger("server.tasks_api")
@@ -72,13 +73,13 @@ CONTROL_ACTIONS = {"resync", "update"}
 # server-side backstop so one runaway task cannot bloat the table.
 MAX_OUTPUT_CHARS = 200_000
 
-# Cache of live agent capabilities reported by connected devices
-_device_capabilities: dict[str, dict] = {}
+# Live agent capabilities reported by connected devices (whichever replica they're on)
+_device_capabilities = SharedDict(cluster, "device_capabilities")
 
 
 def get_cached_device_capabilities(device_id: str | None = None, tool: str | None = None) -> dict | None:
     if not device_id or device_id in ("auto", "ask_only"):
-        for caps in _device_capabilities.values():
+        for caps in _device_capabilities.data.values():
             if tool:
                 if tool in caps:
                     return caps[tool]
@@ -86,9 +87,9 @@ def get_cached_device_capabilities(device_id: str | None = None, tool: str | Non
                 return caps
         return None
 
-    caps = _device_capabilities.get(device_id)
+    caps = _device_capabilities.data.get(device_id)
     if not caps:
-        for k, v in _device_capabilities.items():
+        for k, v in _device_capabilities.data.items():
             if k == device_id or device_id.startswith(k) or k.startswith(device_id):
                 caps = v
                 break
@@ -380,15 +381,11 @@ async def device_websocket_endpoint(
 
     await websocket.accept()
     real_device_id = machine.collector_token_hash
-    ws_manager.register(device_id, websocket)
-    ws_manager.register(real_device_id, websocket)
-    if machine.name:
-        ws_manager.register(machine.name, websocket)
-        base_name = normalize_device_name(machine.name)
-        if base_name != machine.name:
-            ws_manager.register(base_name, websocket)
-    if machine.id:
-        ws_manager.register(str(machine.id), websocket)
+    await ws_manager.register(
+        real_device_id, websocket, device_id, machine.name,
+        normalize_device_name(machine.name) if machine.name else None,
+        str(machine.id) if machine.id else None,
+    )
 
     try:
         async with async_session_factory() as db:
@@ -423,11 +420,7 @@ async def device_websocket_endpoint(
                     await db.commit()
             elif msg_type == "agent_capabilities":
                 caps = data.get("capabilities") or {}
-                _device_capabilities[real_device_id] = caps
-                if machine.name:
-                    _device_capabilities[machine.name] = caps
-                if machine.id:
-                    _device_capabilities[str(machine.id)] = caps
+                _device_capabilities.set((real_device_id, machine.name, str(machine.id) if machine.id else None), caps)
                 logger.info("Received dynamic agent capabilities from device %s (%s)", real_device_id, machine.name)
             elif msg_type == "agent_quotas":
                 from .quotas import set_cached_device_quotas
@@ -459,7 +452,7 @@ async def device_websocket_endpoint(
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")
                 if tid_str:
-                    watched = ws_manager.has_subscriber(tid_str)
+                    watched = await ws_manager.is_watched(tid_str)
                     ws_manager.push_finished(tid_str, data)
                     try:
                         tid_uuid = uuid.UUID(tid_str)
@@ -515,4 +508,4 @@ async def device_websocket_endpoint(
     except Exception as e:
         logger.warning("Device WebSocket error on %s: %s", real_device_id, e)
     finally:
-        ws_manager.unregister(real_device_id, websocket)
+        await ws_manager.unregister(real_device_id, websocket)

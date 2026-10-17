@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import Machine, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
+from ..services.cluster import SharedDict, cluster
 from ..services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -22,10 +23,9 @@ compat_router = APIRouter(prefix="/api/quotas", tags=["quotas"])
 raw_router = APIRouter(prefix="/agent/quotas", tags=["quotas"])
 raw_compat_router = APIRouter(prefix="/quotas", tags=["quotas"])
 
-# Cache of live agent quotas reported by connected devices
+# Live agent quotas reported by connected devices (whichever replica they're on)
 # Key: device_id | machine_name | machine_id
-_device_quotas: dict[str, dict[str, Any]] = {}
-_latest_global_quotas: dict[str, Any] = {}
+_device_quotas = SharedDict(cluster, "device_quotas")
 
 
 def set_cached_device_quotas(
@@ -35,7 +35,6 @@ def set_cached_device_quotas(
     machine_id: str | None = None,
 ) -> None:
     """Store reported quotas into coordinator memory."""
-    global _latest_global_quotas
     if not isinstance(report, dict):
         return
 
@@ -46,34 +45,22 @@ def set_cached_device_quotas(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    _device_quotas[device_id] = report_with_meta
-    if machine_name:
-        _device_quotas[machine_name] = report_with_meta
-    if machine_id:
-        _device_quotas[machine_id] = report_with_meta
-
-    _latest_global_quotas = report_with_meta
+    _device_quotas.set((device_id, machine_name, machine_id), report_with_meta)
 
 
 def get_cached_device_quotas(device_id: str | None = None) -> dict[str, Any] | None:
     """Lookup cached quotas for a specific device, or the most recent valid report."""
+    reports = _device_quotas.data
     if device_id and device_id not in ("auto", "ask_only", "all"):
-        if device_id in _device_quotas:
-            return _device_quotas[device_id]
-        for k, v in _device_quotas.items():
+        if device_id in reports:
+            return reports[device_id]
+        for k, v in reports.items():
             if device_id.lower() in k.lower() or k.lower() in device_id.lower():
                 return v
         return None
 
-    # Fallback to latest global report (only when no specific device is requested)
-    if _latest_global_quotas:
-        return _latest_global_quotas
-
-    # Fallback to any active device quota
-    if _device_quotas:
-        return next(iter(_device_quotas.values()))
-
-    return None
+    # The latest report from any device (only when no specific device is requested)
+    return max(reports.values(), key=lambda r: str(r.get("updated_at") or ""), default=None)
 
 
 def _make_fallback_report(device_id: str | None = None, device_name: str | None = None) -> dict[str, Any]:
@@ -176,8 +163,7 @@ async def get_agent_quotas(
                 dispatched = True
         elif ws_manager.has_online_devices():
             # broadcast to any online device when no specific device is targeted
-            for mid in ws_manager.active_connections:
-                await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+            await ws_manager.broadcast({"type": "get_agent_quotas"})
             dispatched = True
 
         if dispatched:
@@ -207,8 +193,6 @@ async def refresh_agent_quotas(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Instruct online devices to immediately re-probe AI subscription quotas and return fresh report."""
-    from ..services.ws_manager import ws_manager
-
     machine_name = None
     target_mid = None
     is_specific = bool(device_id and device_id not in ("auto", "ask_only", "all"))
@@ -245,8 +229,7 @@ async def refresh_agent_quotas(
                 await ws_manager.send_json(target_key, {"type": "get_agent_quotas"})
                 dispatched = True
         else:
-            for mid in ws_manager.active_connections:
-                await ws_manager.send_json(mid, {"type": "get_agent_quotas"})
+            await ws_manager.broadcast({"type": "get_agent_quotas"})
             dispatched = True
     except Exception as e:
         logger.warning("Error dispatching refresh_agent_quotas over ws: %s", e)

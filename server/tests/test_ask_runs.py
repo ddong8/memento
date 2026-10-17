@@ -63,7 +63,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             saved.append(True)  # stands in for persisting the conversation
             yield frame({"type": "done"})
 
-        run = self.registry.start("c1", self.user.id, "q", gen, request_id="r1")
+        run = await self.registry.start("c1", self.user.id, "q", gen, request_id="r1")
         reader = run.stream(0)
         first = await self._collect(reader, limit=2)
         await reader.aclose()  # phone went to the background
@@ -81,7 +81,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             for i in range(3):
                 yield frame({"type": "delta", "text": str(i)})
 
-        run = self.registry.start("c2", self.user.id, "q", gen)
+        run = await self.registry.start("c2", self.user.id, "q", gen)
         await run.task
         resumed = await self._collect(run.stream(2))
         self.assertTrue(resumed[0].startswith("id: 3\n"))
@@ -97,13 +97,13 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 cleaned_up.set()  # where the orchestrator tells the device to stop
 
-        run = self.registry.start("c3", self.user.id, "q", gen)
+        run = await self.registry.start("c3", self.user.id, "q", gen)
         await asyncio.sleep(0.01)
-        self.assertTrue(self.registry.cancel("c3", self.user.id))
+        self.assertTrue(await self.registry.cancel("c3", self.user.id))
         await asyncio.wait_for(run.task, 1)
         self.assertTrue(cleaned_up.is_set())
         self.assertEqual(types(run.frames)[-2:], ["error", "done"])
-        self.assertFalse(self.registry.cancel("c3", self.user.id))
+        self.assertFalse(await self.registry.cancel("c3", self.user.id))
 
     async def test_one_run_per_conversation_and_retries_attach(self):
         release = asyncio.Event()
@@ -112,12 +112,12 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             yield frame({"type": "done"})
 
-        run = self.registry.start("c4", self.user.id, "q", gen, request_id="req-1")
+        run = await self.registry.start("c4", self.user.id, "q", gen, request_id="req-1")
         with self.assertRaises(ar.RunConflict):
-            self.registry.start("c4", self.user.id, "again", gen)
-        self.assertIs(self.registry.by_request("req-1", self.user.id), run)
-        self.assertIsNone(self.registry.by_request("req-1", uuid.uuid4()))  # other users can't attach
-        self.assertIsNone(self.registry.get("c4", uuid.uuid4()))
+            await self.registry.start("c4", self.user.id, "again", gen)
+        self.assertIs(await self.registry.by_request("req-1", self.user.id), run)
+        self.assertIsNone(await self.registry.by_request("req-1", uuid.uuid4()))  # other users can't attach
+        self.assertIsNone(await self.registry.get("c4", uuid.uuid4()))
         release.set()
         await run.task
 
@@ -125,18 +125,18 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         async def gen(db, user):
             yield frame({"type": "done"})
 
-        run = self.registry.start("c5", self.user.id, "q", gen)
+        run = await self.registry.start("c5", self.user.id, "q", gen)
         await run.task
-        self.assertIs(self.registry.get("c5", self.user.id), run)
+        self.assertIs(await self.registry.get("c5", self.user.id), run)
         await asyncio.sleep(0.1)
-        self.assertIsNone(self.registry.get("c5", self.user.id))
+        self.assertIsNone(await self.registry.get("c5", self.user.id))
 
     async def test_unwatched_long_run_pushes_when_done(self):
         async def gen(db, user):
             yield frame({"type": "done"})
 
         with patch.object(ar, "NOTIFY_MIN_SECONDS", 0):
-            run = self.registry.start("c6", self.user.id, "修复登录 bug\n细节", gen)
+            run = await self.registry.start("c6", self.user.id, "修复登录 bug\n细节", gen)
             await run.task
             await asyncio.sleep(0)
         self.notify.assert_awaited_once()
@@ -151,7 +151,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             yield frame({"type": "done"})
 
         with patch.object(ar, "NOTIFY_MIN_SECONDS", 0):
-            run = self.registry.start("c7", self.user.id, "q", gen, request_id="r7")
+            run = await self.registry.start("c7", self.user.id, "q", gen, request_id="r7")
             reader = run.stream(0)
             consume = asyncio.create_task(self._collect(reader))
             await asyncio.sleep(0.01)
@@ -165,7 +165,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         async def quick(db, user):
             yield frame({"type": "done"})
 
-        run = self.registry.start("c8", self.user.id, "q", quick)  # NOTIFY_MIN_SECONDS back to 8
+        run = await self.registry.start("c8", self.user.id, "q", quick)  # NOTIFY_MIN_SECONDS back to 8
         await run.task
         self.notify.assert_not_awaited()
 
@@ -175,7 +175,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             yield frame({"type": "ping"})
             yield frame({"type": "done"})
 
-        run = self.registry.start("c9", self.user.id, "q", gen)
+        run = await self.registry.start("c9", self.user.id, "q", gen)
         await run.task
         self.assertEqual(types(run.frames), ["run_started", "done"])
 
@@ -189,7 +189,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 stopped.set()
 
-        run = self.registry.start("c10", self.user.id, "q", gen)  # no request id: old app
+        run = await self.registry.start("c10", self.user.id, "q", gen)  # no request id: old app
         reader = run.stream(0)
         await self._collect(reader, limit=2)  # generator is running
         await reader.aclose()
@@ -202,14 +202,14 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         async def gen(db, user):
             yield frame({"type": "tool_call"})
 
-        run = self.registry.start("c11", self.user.id, "q", gen, request_id="r11")
-        self.assertTrue(self.registry.cancel("c11", self.user.id))  # before the task's first step
+        run = await self.registry.start("c11", self.user.id, "q", gen, request_id="r11")
+        self.assertTrue(await self.registry.cancel("c11", self.user.id))  # before the task's first step
         await asyncio.wait({run.task}, timeout=1)
         await asyncio.sleep(0)
         self.assertTrue(run.done)
         self.assertEqual(types(run.frames)[-2:], ["error", "done"])
         # the conversation isn't blocked afterwards
-        run2 = self.registry.start("c11", self.user.id, "again", gen, request_id="r12")
+        run2 = await self.registry.start("c11", self.user.id, "again", gen, request_id="r12")
         await run2.task
         self.assertTrue(run2.done)
 
@@ -225,7 +225,7 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
             yield frame({"type": "delta", "text": "all done"})
             yield frame({"type": "done"})
 
-        run = self.registry.start(
+        run = await self.registry.start(
             "c12",
             self.user.id,
             "Check git status",
@@ -255,12 +255,12 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         async def gen(db, user):
             yield frame({"type": "done"})
 
-        run = self.registry.start("c13", self.user.id, "q", gen)
+        run = await self.registry.start("c13", self.user.id, "q", gen)
         await run.task
         # Immediately after finishing: not in active_for_user(recent=0)
-        self.assertEqual(len(self.registry.active_for_user(self.user.id, include_recent_seconds=0)), 0)
+        self.assertEqual(len(await self.registry.active_for_user(self.user.id, include_recent_seconds=0)), 0)
         # But in active_for_user(recent=10)
-        recent = self.registry.active_for_user(self.user.id, include_recent_seconds=10)
+        recent = await self.registry.active_for_user(self.user.id, include_recent_seconds=10)
         self.assertEqual(len(recent), 1)
         self.assertEqual(recent[0].conversation_id, "c13")
 

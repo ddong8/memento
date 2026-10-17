@@ -162,7 +162,7 @@ async def get_recent_active_conversation(
     _user: User = Depends(get_current_user),
 ):
     """Get the most relevant active or recent conversation to restore seamlessly on client startup."""
-    active_runs = ask_runs.active_for_user(_user.id)
+    active_runs = await ask_runs.active_for_user(_user.id)
     target_conv_id = None
     if active_runs:
         target_conv_id = active_runs[0].conversation_id

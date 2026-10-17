@@ -91,7 +91,7 @@ async def list_active_runs(
 ) -> list[dict]:
     """Runs still in progress for this user (e.g. to show them after reopening the app),
     optionally including recently finished runs within `recent` seconds."""
-    return [r.summary() for r in ask_runs.active_for_user(_user.id, include_recent_seconds=float(recent))]
+    return [r.summary() for r in await ask_runs.active_for_user(_user.id, include_recent_seconds=float(recent))]
 
 
 @router.get("/runs/active")
@@ -99,12 +99,12 @@ async def list_active_runs_wrapped(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Wrapped active runs endpoint consumed by iOS MementoLiveActivityManager."""
-    return {"runs": [r.summary() for r in ask_runs.active_for_user(_user.id)]}
+    return {"runs": [r.summary() for r in await ask_runs.active_for_user(_user.id)]}
 
 
 @router.get("/conversations/{conv_id}/run")
 async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
-    run = ask_runs.get(conv_id, _user.id)
+    run = await ask_runs.get(conv_id, _user.id)
     if run is None:
         raise HTTPException(status_code=404, detail="no run")
     return run.summary()
@@ -113,7 +113,7 @@ async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict
 @router.get("/conversations/{conv_id}/stream")
 async def attach_run(conv_id: str, after: int = 0, _user: User = Depends(get_current_user)):
     """Replay a run's frames after `after` and follow it live."""
-    run = ask_runs.get(conv_id, _user.id)
+    run = await ask_runs.get(conv_id, _user.id)
     if run is None:
         raise HTTPException(status_code=404, detail="no run")
     return StreamingResponse(run.stream(after), media_type="text/event-stream", headers=SSE_HEADERS)
@@ -122,7 +122,7 @@ async def attach_run(conv_id: str, after: int = 0, _user: User = Depends(get_cur
 @router.post("/conversations/{conv_id}/cancel")
 async def cancel_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
     """Stop a run, and with it any device task it is waiting on."""
-    if not ask_runs.cancel(conv_id, _user.id):
+    if not await ask_runs.cancel(conv_id, _user.id):
         raise HTTPException(status_code=404, detail="no running task")
     return {"status": "cancelling"}
 
@@ -146,7 +146,7 @@ async def ask(
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
 
-    retried = ask_runs.by_request(body.request_id, _user.id)
+    retried = await ask_runs.by_request(body.request_id, _user.id)
     if retried is not None:
         return StreamingResponse(retried.stream(0), media_type="text/event-stream", headers=SSE_HEADERS)
 
@@ -186,7 +186,7 @@ async def ask(
             await asyncio.sleep(1.0)
             yield "data: {\"type\": \"done\"}\n\n"
 
-        return run_response(
+        return await run_response(
             conv_id,
             _user,
             question,
@@ -216,7 +216,7 @@ async def ask(
         effective_effort = body.effort or effective_cfg.get("effort") or None
         effective_cwd = body.cwd or effective_cfg.get("cwd") or None
 
-        return run_response(
+        return await run_response(
             conv_id,
             _user,
             question,
@@ -436,7 +436,7 @@ async def ask(
             yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
             await asyncio.sleep(0.05)
 
-        return run_response(
+        return await run_response(
             conv_id,
             _user,
             question,
@@ -517,7 +517,7 @@ async def ask(
         await asyncio.sleep(0.05)
 
     # Plain answers need no database session of their own.
-    return run_response(
+    return await run_response(
         conv_id,
         _user,
         question,

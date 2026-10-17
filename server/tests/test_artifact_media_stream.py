@@ -9,7 +9,7 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
     async def test_ws_manager_file_stat_and_chunk(self):
         mgr = DeviceConnectionManager()
         dummy_ws = AsyncMock()
-        mgr.register('device_mac_nas', dummy_ws)
+        await mgr.register('device_mac_nas', dummy_ws)
 
         # 1. Test request_file_stat
         async def fake_respond_stat():

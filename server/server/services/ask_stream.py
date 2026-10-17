@@ -423,7 +423,7 @@ SSE_HEADERS = {
 }
 
 
-def run_response(
+async def run_response(
     conv_id,
     user: User,
     question: str,
@@ -438,7 +438,7 @@ def run_response(
     """Start the ask as a background run and stream it. The run survives the
     client disconnecting; see services/ask_runs.py."""
     try:
-        run = ask_runs.start(
+        run = await ask_runs.start(
             str(conv_id),
             user.id,
             question,

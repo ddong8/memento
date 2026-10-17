@@ -1,4 +1,8 @@
-"""SSE (Server-Sent Events) service — thread-safe, with cleanup on disconnect."""
+"""SSE (Server-Sent Events) service — thread-safe, with cleanup on disconnect.
+
+Events reach subscribers on every api replica: each one is delivered here and
+relayed to the other replicas over the cluster bus (services/cluster.py).
+"""
 
 from __future__ import annotations
 
@@ -8,15 +12,31 @@ import time
 import threading
 from collections import deque
 
+from .cluster import PREFIX, cluster
+
 _lock = threading.Lock()
 _subscribers: list[tuple[str | None, asyncio.Queue]] = []
 _recent_events: deque = deque(maxlen=50)
+_CHANNEL = f"{PREFIX}sse"
 
 
 def publish_event(event_type: str, data: dict, user_id: str | None = None) -> None:
     """Publish an event. If user_id is given, deliver only to that user's subscribers.
     user_id=None = broadcast to everyone (used for system-wide events only)."""
     event = {"type": event_type, "data": data, "timestamp": time.time()}
+    _deliver(user_id, event)
+    cluster.publish(_CHANNEL, {"user_id": user_id, "event": event})
+
+
+def _on_relay(_channel: str, msg: dict) -> None:
+    if msg.get("origin") != cluster.pod_id and isinstance(msg.get("event"), dict):
+        _deliver(msg.get("user_id"), msg["event"])
+
+
+cluster.on(_CHANNEL, _on_relay)
+
+
+def _deliver(user_id: str | None, event: dict) -> None:
     _recent_events.append((user_id, event))
     with _lock:
         dead = []

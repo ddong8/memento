@@ -8,8 +8,9 @@ spec:
   template:
     metadata: { labels: { app: api } }
     spec:
-      # 10s preStop + uvicorn 最多 25s 优雅退出(见 server/Dockerfile),留 5s 余量
-      terminationGracePeriodSeconds: 40
+      # 10s preStop + uvicorn 最多 25s 优雅退出(见 server/Dockerfile)
+      # + 最多 600s 等进行中的回答跑完(MEMENTO_SHUTDOWN_DRAIN_SECONDS,客户端期间改连新 pod 继续看),留 25s 余量
+      terminationGracePeriodSeconds: 660
       containers:
         - name: api
           image: ghcr.io/ddong8/memento-server:latest

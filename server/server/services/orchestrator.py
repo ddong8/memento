@@ -764,7 +764,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                         )
                 if len(img_cmds) > 1:
                     sync_tid = str(uuid.uuid4())
-                    sync_q = ws_manager.subscribe_task(sync_tid)
+                    sync_q = await ws_manager.subscribe_task(sync_tid)
                     try:
                         sent_sync = await ws_manager.send_task(target_ws_id, {
                             "id": sync_tid,
@@ -779,14 +779,14 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                                 if rem <= 0:
                                     break
                                 s_evt = await asyncio.wait_for(sync_q.get(), timeout=rem)
-                                if s_evt.get("type") == "_task_finished_ws":
+                                if s_evt.get("type") == "task_finished":
                                     break
                     except Exception as sync_err:
                         logger.debug("Pre-sync images to device %s finished/skipped: %s", target_ws_id, sync_err)
                     finally:
-                        ws_manager.unsubscribe_task(sync_tid)
+                        await ws_manager.unsubscribe_task(sync_tid)
 
-            task_q = ws_manager.subscribe_task(task_id_str)
+            task_q = await ws_manager.subscribe_task(task_id_str)
             ws_payload = {**payload, "images": args["images"]} if args.get("images") else payload
             dispatched_ws = await ws_manager.send_task(target_ws_id, {
                 "id": task_id_str,
@@ -799,7 +799,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 task.dispatched_at = datetime.now(timezone.utc)
                 await db.commit()
             else:
-                ws_manager.unsubscribe_task(task_id_str)
+                await ws_manager.unsubscribe_task(task_id_str)
                 task_q = None
 
         if device_timeout > 0:
@@ -821,12 +821,17 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 else:
                     yield evt
         except (asyncio.CancelledError, GeneratorExit):
-            logger.info("Task %s cancelled by client, sending cancel to device %s", task_id_str, device_id)
-            await ws_manager.send_cancel(device_id, task_id_str)
+            from .ask_runs import ask_runs
+            if ask_runs.shutting_down:
+                # A deploy cut the run short: the device keeps going and its result is saved when it reports
+                logger.info("Task %s left running on device %s while the server shuts down", task_id_str, device_id)
+            else:
+                logger.info("Task %s cancelled by client, sending cancel to device %s", task_id_str, device_id)
+                await ws_manager.send_cancel(device_id, task_id_str)
             raise
         finally:
             if task_q is not None:
-                ws_manager.unsubscribe_task(task_id_str)
+                await ws_manager.unsubscribe_task(task_id_str)
 
         if done_ws:
             ws_out = done_ws.get("stdout") or ""

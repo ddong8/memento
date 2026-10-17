@@ -361,15 +361,19 @@ def _run_migrations(conn) -> None:
 
 
 async def _schedule_daily_compaction():
-    """Run memory compaction once per day in background."""
+    """Run memory compaction once per day in background (on one replica: the
+    first to get that day's lock)."""
     import asyncio
+    from datetime import date
+    from .services.cluster import cluster
     await asyncio.sleep(60)  # Wait for startup to complete
     while True:
         try:
-            from .db.session import async_session_factory
-            from .services.memory_compaction import run_compaction
-            async with async_session_factory() as db:
-                await run_compaction(db)
+            if await cluster.try_lock(f"compaction:{date.today().isoformat()}", 2 * 86400):
+                from .db.session import async_session_factory
+                from .services.memory_compaction import run_compaction
+                async with async_session_factory() as db:
+                    await run_compaction(db)
         except Exception as e:
             import logging
             logging.getLogger("compaction").info("Compaction skipped: %s", e)
@@ -406,7 +410,10 @@ async def _merge_device_records() -> None:
     log = logging.getLogger("memento.devices")
     try:
         from .db.session import async_session_factory
+        from .services.cluster import cluster
         from .services.device_merge import merge_duplicate_machines
+        if not await cluster.try_lock("merge-device-records", 600):
+            return  # another replica that just started is doing it
         async with async_session_factory() as db:
             merged = await merge_duplicate_machines(db)
         for m in merged:
@@ -416,13 +423,23 @@ async def _merge_device_records() -> None:
         log.warning("device record merge skipped: %s", e)
 
 
+# Taken for the migration transaction, so replicas starting together migrate one at a time
+_MIGRATION_LOCK_ID = 0x6D656D656E746F  # "memento"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     import asyncio
+    from sqlalchemy import text
+    from .services.ask_runs import ask_runs
+    from .services.cluster import cluster
     settings.validate_production()
     async with engine.begin() as conn:
+        await conn.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
         await conn.run_sync(_run_migrations)
         await conn.run_sync(Base.metadata.create_all)
+    # Coordination with the other api replicas (device connections, runs, locks)
+    await cluster.start()
     # One computer, one device record: fold in records left behind by a changed device id.
     merge_task = asyncio.create_task(_merge_device_records())
     # Start daily compaction in background
@@ -433,10 +450,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .services.pulse_service import start_proactive_pulse, stop_proactive_pulse
     await start_proactive_pulse()
     yield
+    # Out of the load balancer by now: let ask runs finish while their readers
+    # reattach through the other replicas, then leave.
+    await ask_runs.drain(settings.shutdown_drain_seconds)
     await stop_proactive_pulse()
     compaction_task.cancel()
     warmup_task.cancel()
     merge_task.cancel()
+    await cluster.stop()
     await engine.dispose()
 
 

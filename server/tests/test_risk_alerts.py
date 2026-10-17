@@ -2,6 +2,8 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import fakeredis
+
 from server.db.models import DeviceTask
 from server.services import notify_service, task_alerts
 from server.services.risk_policy import (
@@ -111,16 +113,26 @@ class TestPushSafety(unittest.IsolatedAsyncioTestCase):
         with patch.object(notify_service.socket, "getaddrinfo", return_value=[(2, 1, 6, "", ("104.21.1.1", 443))]):
             self.assertTrue(await notify_service._is_public_host("api.day.app"))
 
-    def test_risky_pushes_are_capped_per_task(self):
-        tid = str(uuid.uuid4())
-        allowed = [notify_service.allow_risky_push(tid) for _ in range(notify_service.RISKY_PUSHES_PER_TASK + 3)]
-        self.assertEqual(allowed.count(True), notify_service.RISKY_PUSHES_PER_TASK)
-        notify_service.forget_task(tid)
-        self.assertTrue(notify_service.allow_risky_push(tid))
-        notify_service.forget_task(tid)
+    async def test_risky_pushes_are_capped_per_task(self):
+        shared = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+        for client in (None, shared):  # this process alone, and every replica through Redis
+            with patch.object(notify_service, "redis_client", return_value=client):
+                tid = str(uuid.uuid4())
+                allowed = [await notify_service.allow_risky_push(tid) for _ in range(notify_service.RISKY_PUSHES_PER_TASK + 3)]
+                self.assertEqual(allowed.count(True), notify_service.RISKY_PUSHES_PER_TASK)
+                await notify_service.forget_task(tid)
+                self.assertTrue(await notify_service.allow_risky_push(tid))
+                await notify_service.forget_task(tid)
 
 
 class TestTaskAlerts(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.no_redis = patch.object(notify_service, "redis_client", return_value=None)
+        self.no_redis.start()
+
+    def tearDown(self):
+        self.no_redis.stop()
+
     async def test_risky_tool_use_is_recorded_streamed_and_pushed(self):
         tid = str(uuid.uuid4())
         owner = uuid.uuid4()
@@ -139,7 +151,7 @@ class TestTaskAlerts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args.args[1], "risky")
         self.assertIn("推送代码到远端", args.args[2])
         self.assertIn("Mac-mini：git push origin main", args.args[3])
-        notify_service.forget_task(tid)
+        await notify_service.forget_task(tid)
 
     async def test_safe_tool_use_does_nothing(self):
         with patch.object(task_alerts, "append_alert", AsyncMock()) as append:

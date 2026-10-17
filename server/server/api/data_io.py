@@ -13,7 +13,8 @@ Concurrency + cap notes:
   * MAX_UPLOAD_BYTES (100 MiB default) gates the import body in TWO
     places: Content-Length header up front, AND a running counter while
     consuming the spool, so a lying header can't bypass it.
-  * Per-user `asyncio.Lock` on both export and import. The export lock
+  * Per-user lock on both export and import, shared by every api replica
+    (cluster.mutex, renewed while held). The export lock
     is held through the *entire* response lifecycle (download stream
     included), not just the build phase — otherwise a user could fire
     a second export the moment the first finishes building, doubling
@@ -25,7 +26,6 @@ Concurrency + cap notes:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -40,8 +40,9 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.export_service import ExportOptions, build_export
 from ..services.import_service import (
-    ImportError as ImportPackageError, get_user_lock, run_import,
+    ImportError as ImportPackageError, run_import,
 )
+from ..services.cluster import cluster
 
 logger = logging.getLogger("memento.data_io")
 
@@ -50,17 +51,14 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 MAX_UPLOAD_BYTES = int(os.environ.get("MEMENTO_IMPORT_MAX_UPLOAD_BYTES",
                                        str(100 * 1024 * 1024)))  # 100 MiB
 
-# In-process per-user gates. asyncio.Lock is cheap; the export side
-# uses one too so a user can't queue 10 parallel ~1 GB builds.
-_export_locks: dict[str, asyncio.Lock] = {}
+# Per-user gates across api replicas (services/cluster.py): one import at a
+# time, and one export so a user can't queue 10 parallel ~1 GB builds.
+def _export_lock_name(uid: str) -> str:
+    return f"export:{uid}"
 
 
-def _export_lock(uid: str) -> asyncio.Lock:
-    lock = _export_locks.get(uid)
-    if lock is None:
-        lock = asyncio.Lock()
-        _export_locks[uid] = lock
-    return lock
+def _import_lock_name(uid: str) -> str:
+    return f"import:{uid}"
 
 
 def _safe_unlink(path: str) -> None:
@@ -83,13 +81,12 @@ async def export_data(
     alongside the temp-file unlink. This prevents an attacker from
     queueing parallel exports as soon as each build phase finishes.
     """
-    lock = _export_lock(str(user.id))
-    if lock.locked():
+    lock = await cluster.mutex(_export_lock_name(str(user.id)))
+    if lock is None:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Another export is already running for this account",
         )
-    await lock.acquire()
 
     try:
         opts = ExportOptions(include_access_logs=include_access_logs)
@@ -103,17 +100,12 @@ async def export_data(
     except BaseException:
         # Build never produced a path → release lock and bail. The
         # success path keeps the lock for BackgroundTask cleanup.
-        lock.release()
+        await lock.release()
         raise
 
-    def _cleanup() -> None:
+    async def _cleanup() -> None:
         _safe_unlink(result.path)
-        # Lock might already be released if `release()` was called more
-        # than once for whatever reason — be defensive.
-        try:
-            lock.release()
-        except RuntimeError:
-            pass
+        await lock.release()
 
     return FileResponse(
         result.path,
@@ -154,18 +146,18 @@ async def import_data(
             detail=f"upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB cap",
         )
 
-    lock = get_user_lock(user.id)
-    if lock.locked():
+    # Snapshot the ORM attribute now so the except-branch logger can't
+    # trip MissingGreenlet on lazy-load after a rollback.
+    user_id_str = str(user.id)
+
+    lock = await cluster.mutex(_import_lock_name(user_id_str))
+    if lock is None:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Another import is already running for this account",
         )
 
-    # Snapshot the ORM attribute now so the except-branch logger can't
-    # trip MissingGreenlet on lazy-load after a rollback.
-    user_id_str = str(user.id)
-
-    async with lock:
+    try:
         # Spool to disk past 8 MiB so the import isn't fully buffered
         # in process memory for a multi-hundred-MB upload. The spool
         # backs the zipfile.ZipFile reader directly.
@@ -201,6 +193,8 @@ async def import_data(
                 spool.close()
             except Exception:
                 pass
+    finally:
+        await lock.release()
 
     return {
         "ok": True,

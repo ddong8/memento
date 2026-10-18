@@ -3929,6 +3929,12 @@ function AskPageContent() {
     displayConvTitleRef.current = displayConvTitle;
   }, [displayConvTitle]);
 
+  const isJunkSessionTitle = useCallback((val?: string) => {
+    if (!val) return true;
+    const low = val.trim().toLowerCase();
+    return !low || low === "start" || low.startsWith("starting the conversation") || low.startsWith("starting conversation") || low === "新对话" || low === "untitled";
+  }, []);
+
   const getTurnAbsIndex = useCallback((localIdx: number) => {
     const curTurns = turnsRef.current;
     const t = curTurns[localIdx] as any;
@@ -4917,7 +4923,12 @@ function AskPageContent() {
                           const matchedConv = isCurrentActive
                             ? activeConversation
                             : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
-                          const t = s?.title || matchedConv?.title || selectedSessionId;
+                          const convTitle = isCurrentActive ? displayConvTitle : matchedConv?.title;
+                          const t = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
+                            || (!isJunkSessionTitle(s?.title) ? s?.title : undefined)
+                            || convTitle
+                            || s?.title
+                            || selectedSessionId;
                           return t.length > 18 ? t.slice(0, 18) + "..." : t;
                         })()}
                       </span>
@@ -5604,9 +5615,15 @@ function AskPageContent() {
                         const sid = s.session_id || s.conversation_id;
                         const isHeavy = s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000);
                         const tag = isHeavy ? " [⚠️ 建议瘦身]" : "";
+                        const matched = conversations.find((c) => c.config?.session_id === sid || c.id === sid);
+                        const cleanTitle = (!isJunkSessionTitle(matched?.title) ? matched?.title : undefined)
+                          || (!isJunkSessionTitle(s.title) ? s.title : undefined)
+                          || matched?.title
+                          || s.title;
+                        const display = cleanTitle || (sid ? sid.slice(0, 10) + "..." : "会话");
                         return (
                           <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                            💬 {s.title ? (s.title.length > 25 ? s.title.slice(0, 25) + "..." : s.title) : (sid ? sid.slice(0, 10) + "..." : "会话")}{tag}
+                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{tag}
                           </option>
                         );
                       })}
@@ -5647,7 +5664,12 @@ function AskPageContent() {
                 ? activeConversation
                 : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
 
-              const sessionTitle = activeSession?.title || matchedConv?.title || selectedSessionId;
+              const convTitle = isCurrentActive ? displayConvTitle : matchedConv?.title;
+              const sessionTitle = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
+                || (!isJunkSessionTitle(activeSession?.title) ? activeSession?.title : undefined)
+                || convTitle
+                || activeSession?.title
+                || selectedSessionId;
 
               let msgs: Array<{ role: string; content: string; timestamp?: string; subagent_name?: string }> = activeSession?.messages || [];
               if (msgs.length === 0 && isCurrentActive && turns.length > 0) {

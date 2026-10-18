@@ -65,9 +65,9 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     if not t:
         return True
     t_lower = t.lower()
-    if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown"):
+    if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown", "start", "starting the conversation", "starting conversation"):
         return True
-    if t_lower.startswith(("agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-", "rollout-")):
+    if t_lower.startswith(("starting the conversation", "starting conversation", "agent-", "subagent-", "workflow-", "wf_", "wf-", "prompt-", "run-", "rollout-")):
         return True
     # Claude Code compaction preamble: when a session is compacted/continued,
     # its first user message is this auto-generated boilerplate, not a real

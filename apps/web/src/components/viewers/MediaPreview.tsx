@@ -316,6 +316,132 @@ export function VideoPlayer({
     };
   }, [src, subtitles]);
 
+  const [autoPoster, setAutoPoster] = useState<string | null>(null);
+
+  // Auto-discover companion cover poster (e.g. 封面.jpg or [baseName].jpg)
+  useEffect(() => {
+    if (poster) return;
+    let canceled = false;
+
+    const probePoster = async () => {
+      const candidates: string[] = [];
+      const baseName = src.replace(/\.[a-zA-Z0-9]+$/, "");
+      candidates.push(`${baseName}.jpg`);
+      candidates.push(`${baseName}_cover.jpg`);
+      candidates.push(`${baseName}_封面.jpg`);
+
+      const lastSlash = src.lastIndexOf("/");
+      if (lastSlash > 0) {
+        const dir = src.slice(0, lastSlash);
+        candidates.push(`${dir}/封面.jpg`);
+        candidates.push(`${dir}/cover.jpg`);
+        candidates.push(`${dir}/成片检查.jpg`);
+      }
+
+      for (const cand of candidates) {
+        if (canceled) break;
+        try {
+          const resolvedImg = resolveMediaUrl(cand);
+          if (!resolvedImg.playUrl) continue;
+          const res = await fetch(resolvedImg.playUrl, { method: "HEAD" });
+          if (res.ok) {
+            if (!canceled) {
+              setAutoPoster(resolvedImg.playUrl);
+            }
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    probePoster();
+    return () => {
+      canceled = true;
+    };
+  }, [src, poster]);
+
+  // Mobile Touch Gestures: Double-tap seek & Long-press 2x speed
+  const [isLongPressing2x, setIsLongPressing2x] = useState<boolean>(false);
+  const [seekFeedback, setSeekFeedback] = useState<{ text: string; direction: "left" | "right" } | null>(null);
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
+  const seekFeedbackTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const originalRateBeforeLongPressRef = useRef<number>(playbackRate);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+
+    const now = Date.now();
+    const timeDelta = now - lastTapRef.current.time;
+    const distDelta = Math.abs(touchX - lastTapRef.current.x);
+
+    if (timeDelta < 320 && distDelta < 70) {
+      // Double tap detected!
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      lastTapRef.current = { time: 0, x: 0 };
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      if (touchX < rect.width * 0.38) {
+        // Rewind 5s
+        v.currentTime = Math.max(0, v.currentTime - 5);
+        setCurrentTime(v.currentTime);
+        setSeekFeedback({ text: "-5秒", direction: "left" });
+      } else if (touchX > rect.width * 0.62) {
+        // Fast forward 5s
+        v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 5);
+        setCurrentTime(v.currentTime);
+        setSeekFeedback({ text: "+5秒", direction: "right" });
+      } else {
+        // Center double tap: toggle fullscreen
+        toggleFullscreen();
+      }
+
+      if (seekFeedbackTimerRef.current) clearTimeout(seekFeedbackTimerRef.current);
+      seekFeedbackTimerRef.current = setTimeout(() => setSeekFeedback(null), 850);
+      return;
+    }
+
+    lastTapRef.current = { time: now, x: touchX };
+
+    // Set up long-press for 2x speed (when playing)
+    if (isPlaying) {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = setTimeout(() => {
+        const v = videoRef.current;
+        if (!v) return;
+        originalRateBeforeLongPressRef.current = v.playbackRate;
+        v.playbackRate = 2.0;
+        setIsLongPressing2x(true);
+        if (typeof window !== "undefined" && typeof (window as any).__memento_haptic === "function") {
+          (window as any).__memento_haptic("medium");
+        }
+      }, 350);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    if (isLongPressing2x) {
+      const v = videoRef.current;
+      if (v) {
+        v.playbackRate = originalRateBeforeLongPressRef.current;
+      }
+      setIsLongPressing2x(false);
+    }
+  };
+
+  const handleTouchCancel = handleTouchEnd;
+
   const inspector = useMediaInspector();
   const isPlayingInInspector = Boolean(
     inspector?.isOpen && inspector?.activeMedia && safeDecodePath(inspector.activeMedia.url) === safeDecodePath(src)
@@ -543,16 +669,129 @@ export function VideoPlayer({
     }
   };
 
+  // Keyboard shortcuts when video container is active
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) {
+        return;
+      }
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      switch (e.key.toLowerCase()) {
+        case " ":
+        case "k":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "arrowleft":
+        case "j":
+          e.preventDefault();
+          v.currentTime = Math.max(0, v.currentTime - 5);
+          setCurrentTime(v.currentTime);
+          triggerControlsActivity();
+          break;
+        case "arrowright":
+        case "l":
+          e.preventDefault();
+          v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 5);
+          setCurrentTime(v.currentTime);
+          triggerControlsActivity();
+          break;
+        case "arrowup": {
+          e.preventDefault();
+          const newVol = Math.min(1, volume + 0.1);
+          v.volume = newVol;
+          setVolume(newVol);
+          setIsMuted(false);
+          triggerControlsActivity();
+          break;
+        }
+        case "arrowdown": {
+          e.preventDefault();
+          const newVol = Math.max(0, volume - 0.1);
+          v.volume = newVol;
+          setVolume(newVol);
+          if (newVol === 0) setIsMuted(true);
+          triggerControlsActivity();
+          break;
+        }
+        case "m":
+          e.preventDefault();
+          toggleMute();
+          break;
+        case "f":
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case "c":
+          if (hasSubtitles) {
+            e.preventDefault();
+            setSubtitlesVisible((prev) => {
+              const next = !prev;
+              if (v.textTracks && v.textTracks.length > 0) {
+                for (let i = 0; i < v.textTracks.length; i++) {
+                  v.textTracks[i].mode = next ? "showing" : "hidden";
+                }
+              }
+              return next;
+            });
+            triggerControlsActivity();
+          }
+          break;
+        default:
+          if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            const pct = Number(e.key) / 10;
+            if (v.duration) {
+              v.currentTime = v.duration * pct;
+              setCurrentTime(v.currentTime);
+              triggerControlsActivity();
+            }
+          }
+          break;
+      }
+    };
+
+    container.addEventListener("keydown", handleKeyDown);
+    return () => container.removeEventListener("keydown", handleKeyDown);
+  }, [togglePlay, toggleMute, toggleFullscreen, volume, hasSubtitles, triggerControlsActivity]);
+
+  const effectivePoster = poster || autoPoster || undefined;
+
   return (
     <div
       ref={containerRef}
+      tabIndex={0}
       onMouseMove={triggerControlsActivity}
       onMouseLeave={() => isPlaying && setShowControls(false)}
-      className={`relative group my-4 w-full overflow-hidden rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl transition-all duration-300 ${className}`}
+      className={`relative group my-4 w-full overflow-hidden rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent)]/50 ${className}`}
       style={{
         boxShadow: "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
       }}
     >
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            video::cue {
+              background-color: rgba(0, 0, 0, 0.78);
+              color: #ffffff;
+              font-size: 14.5px;
+              font-weight: 500;
+              line-height: 1.45;
+              text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+              padding: 2px 8px;
+              border-radius: 4px;
+            }
+          `,
+        }}
+      />
       {/* Top Bar Overlay */}
       <div
         className={`absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-300 ${
@@ -637,11 +876,20 @@ export function VideoPlayer({
       </div>
 
       {/* Main Video Element */}
-      <div className="relative w-full aspect-video flex items-center justify-center bg-black cursor-pointer" onClick={togglePlay}>
+      <div
+        className="relative w-full aspect-video flex items-center justify-center bg-black cursor-pointer select-none"
+        onClick={() => {
+          if (Date.now() - lastTapRef.current.time < 280) return;
+          togglePlay();
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+      >
         <video
           ref={videoRef}
-          src={!poster && playUrl && !playUrl.includes("#") ? `${playUrl}#t=0.001` : playUrl}
-          poster={poster}
+          src={!effectivePoster && playUrl && !playUrl.includes("#") ? `${playUrl}#t=0.001` : playUrl}
+          poster={effectivePoster}
           autoPlay={autoPlay}
           playsInline
           preload="auto"
@@ -687,6 +935,30 @@ export function VideoPlayer({
             />
           )}
         </video>
+
+        {/* Long Press 2x Indicator Banner */}
+        {isLongPressing2x && (
+          <div className="absolute top-4 inset-x-0 flex items-center justify-center pointer-events-none z-30">
+            <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-black/80 border border-amber-400/40 text-white text-xs font-semibold backdrop-blur-md shadow-2xl animate-pulse">
+              <span className="text-amber-400 font-bold">⚡ 2.0x</span>
+              <span>长按倍速播放中</span>
+            </div>
+          </div>
+        )}
+
+        {/* Double Tap Seek Feedback Ripple */}
+        {seekFeedback && (
+          <div
+            className={`absolute top-1/2 -translate-y-1/2 pointer-events-none z-30 ${
+              seekFeedback.direction === "left" ? "left-6" : "right-6"
+            }`}
+          >
+            <div className="flex flex-col items-center justify-center w-16 h-16 rounded-full bg-black/70 border border-white/20 text-white text-xs font-bold backdrop-blur-md shadow-2xl animate-bounce">
+              <span className="text-sm">{seekFeedback.direction === "left" ? "⏪" : "⏩"}</span>
+              <span className="text-[11px] font-mono mt-0.5">{seekFeedback.text}</span>
+            </div>
+          </div>
+        )}
 
         {/* Loading Spinner */}
         {isLoading && !hasError && (

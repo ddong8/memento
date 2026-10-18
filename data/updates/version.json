@@ -1,22 +1,22 @@
 {
-  "version": "1.0.68",
-  "title": "Memento v1.0.68",
+  "version": "1.0.69",
+  "title": "Memento v1.0.69",
   "release_notes": "1. 修复 Windows 通知中心大图与系统托盘图标模糊问题，升级为 512x512 超清通知图标与多尺寸高清 ICO\n2. 修复 iOS 灵动岛点击返回 App 报 Unmatched Route 问题并无缝跳转至对应对话底部",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.68-win-x64.zip",
-      "size": 154566866,
-      "sha256": "6b5c2e7bb0b02311e61108f5596958f42b0f240812cefa6969e74017d7ceb155"
+      "asset_name": "Memento-1.0.69-win-x64.zip",
+      "size": 154612525,
+      "sha256": "7406a45a2ed5213c1eb3a63978f59ec840f8eaee967928729b5364fdd3b1dc67"
     },
     "macos": {
-      "asset_name": "Memento-1.0.68-mac-arm64.zip",
-      "size": 128410335,
-      "sha256": "6e4f1ced6619758be8379ecee479c9131a3c95c65c007e3ff6ddcb494e625aca"
+      "asset_name": "Memento-1.0.69-mac-arm64.zip",
+      "size": 128460338,
+      "sha256": "500bbf0fc4ee5a695ef87898e77d3ae6e04aec682b0c4a746d9c44a98f532ea0"
     },
     "linux": {
-      "asset_name": "Memento-1.0.68-linux-x64.tar.gz",
-      "size": 120443735,
-      "sha256": "3141f7a2148f97c9f70f7f9986927b36625816c75339da73da4025f373a0bb00"
+      "asset_name": "Memento-1.0.69-linux-x64.tar.gz",
+      "size": 120488161,
+      "sha256": "9d32eb8e8b6d679fd4427c5cda72d675cb2519cd7d2a1f1d03872d8c09453a61"
     }
   }
 }

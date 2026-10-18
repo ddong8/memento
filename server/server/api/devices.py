@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AccessLog, ConversationMessage, Document, DocumentVersion, Machine, Project, SyncState, User
 from ..db.session import get_db
-from ..middleware.auth import get_current_user, get_current_user_flexible
+from ..middleware.auth import get_current_user, get_current_user_flexible, get_optional_user
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.cluster import PREFIX, cluster
 from ..services.user_filter import normalize_device_name, user_machine_ids
@@ -382,12 +382,36 @@ async def stream_device_file(
     device_id: str,
     path: str = Query(..., description="Absolute path on the device or NAS"),
     filename: str = None,
+    share_token: str = Query(None, description="Optional public share token for anonymous visitors"),
     request: Request = None,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user_flexible),
+    _user: User | None = Depends(get_optional_user),
 ):
     """Stream a media or artifact file directly from the target device with HTTP 206 Range support."""
     from ..services.user_filter import find_machine_by_id_or_hash
+    from ..db.models import ShareLink
+
+    # If unauthenticated, check if a valid public ShareLink token was supplied
+    if _user is None:
+        effective_token = share_token or (request.query_params.get("token") if request else None)
+        if effective_token:
+            st_link = (await db.execute(
+                select(ShareLink).where(
+                    ShareLink.token == effective_token,
+                    ShareLink.revoked_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if st_link and (not st_link.expires_at or st_link.expires_at > datetime.now(timezone.utc)):
+                _user = (await db.execute(select(User).where(User.id == st_link.owner_user_id))).scalar_one_or_none()
+
+    if _user is None:
+        _user = await get_current_user_flexible(
+            authorization=request.headers.get("Authorization") if request else None,
+            token_query=request.query_params.get("token") if request else None,
+            token_bearer=request.query_params.get("access_token") if request else None,
+            db=db,
+        )
+
     target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
     mids = await user_machine_ids(db, _user)
 
@@ -428,6 +452,8 @@ async def stream_device_file(
             mime_type = "audio/wav"
         elif ext in (".m4a", ".aac"):
             mime_type = "audio/mp4"
+        elif ext in (".srt", ".vtt"):
+            mime_type = "text/vtt; charset=utf-8"
         elif ext in (".html", ".htm"):
             mime_type = "text/html; charset=utf-8"
         elif ext in (".png",):
@@ -443,6 +469,11 @@ async def stream_device_file(
 
     total_size = 0
     is_local = os.path.exists(clean_path) and os.path.isfile(clean_path)
+    if not is_local and "_720p" in clean_path:
+        alt_path = clean_path.replace("_720p", "")
+        if os.path.exists(alt_path) and os.path.isfile(alt_path):
+            clean_path = alt_path
+            is_local = True
 
     dev_token = target_machine.collector_token_hash if target_machine else device_id
     if is_local:

@@ -432,6 +432,16 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 </div>
               );
             }
+            if (type === "subtitle") {
+              const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              return (
+                <div className="not-prose my-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 text-xs text-[var(--aurora-fg2)]">
+                  <span className="font-bold text-indigo-400">CC</span>
+                  <span className="font-mono text-[11px] truncate max-w-[200px]" title={label}>{label}</span>
+                  <span className="text-[10px] px-1 py-0.2 rounded bg-indigo-500/15 text-indigo-400">同步伴随字幕</span>
+                </div>
+              );
+            }
             if (type === "markdown") {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
               const cleanHref = safeDecodePath(href);

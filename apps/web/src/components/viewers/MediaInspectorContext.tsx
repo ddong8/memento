@@ -55,7 +55,7 @@ export function extractMediaFromMarkdown(text: string): Array<{ url: string; tit
   }
 
   // 2. Direct absolute path or file:// occurrences on a line
-  const pathRegex = /(?:^|\s)((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'>\)]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown))(?:\s|$)/gi;
+  const pathRegex = /(?:^|\s)((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'>\)]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown|srt|vtt))(?:\s|$)/gi;
   while ((match = pathRegex.exec(text)) !== null) {
     const rawUrl = match[1]?.trim();
     if (rawUrl && !seenUrls.has(rawUrl)) {

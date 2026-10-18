@@ -23,18 +23,30 @@ import {
   FiX,
   FiFolder,
   FiSidebar,
+  FiShare2,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
 import { useMediaInspector } from "./MediaInspectorContext";
 
-export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "unknown";
+export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "subtitle" | "unknown";
 
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "ogv", "avi", "flv"]);
 const AUDIO_EXTS = new Set(["mp3", "wav", "m4a", "aac", "ogg", "flac", "opus", "wma"]);
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
 const MARKDOWN_EXTS = new Set(["md", "markdown"]);
+const SUBTITLE_EXTS = new Set(["srt", "vtt"]);
+
+/** Convert SRT subtitle format to standard WebVTT format */
+export function srtToVtt(srt: string): string {
+  if (!srt) return "";
+  const normalized = srt.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  if (normalized.startsWith("WEBVTT")) return normalized;
+  // Replace comma in timestamps: 00:00:01,000 --> 00:00:01.000
+  const vttTimestamps = normalized.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
+  return `WEBVTT\n\n${vttTimestamps}`;
+}
 
 /** Detect media type from URL or file name */
 export function detectMediaType(url: string | null | undefined): MediaType {
@@ -46,6 +58,7 @@ export function detectMediaType(url: string | null | undefined): MediaType {
     if (AUDIO_EXTS.has(ext)) return "audio";
     if (IMAGE_EXTS.has(ext)) return "image";
     if (ext === "pdf") return "pdf";
+    if (SUBTITLE_EXTS.has(ext)) return "subtitle";
     if (MARKDOWN_EXTS.has(ext) || clean.includes("/documents/") || clean.includes("/artifacts/")) return "markdown";
   } catch {
     // fallback
@@ -200,6 +213,7 @@ export interface VideoPlayerProps {
   downloadUrl?: string;
   autoPlay?: boolean;
   className?: string;
+  subtitles?: string | string[] | Array<{ src: string; label?: string; lang?: string }>;
 }
 
 export function VideoPlayer({
@@ -209,6 +223,7 @@ export function VideoPlayer({
   downloadUrl,
   autoPlay = false,
   className = "",
+  subtitles,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,6 +243,78 @@ export function VideoPlayer({
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
   const [quality, setQuality] = useState<"1080p" | "720p">("1080p");
   const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
+  const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
+  const [hasSubtitles, setHasSubtitles] = useState<boolean>(false);
+  const [subtitlesVisible, setSubtitlesVisible] = useState<boolean>(true);
+
+  // Auto-discover companion subtitle file (e.g. 岁末余晖_字幕.srt or *.vtt)
+  useEffect(() => {
+    let canceled = false;
+    let createdUrl: string | null = null;
+
+    const probeSubtitle = async () => {
+      const candidates: string[] = [];
+      if (typeof subtitles === "string") {
+        candidates.push(subtitles);
+      } else if (Array.isArray(subtitles)) {
+        for (const s of subtitles) {
+          if (typeof s === "string") candidates.push(s);
+          else if (s?.src) candidates.push(s.src);
+        }
+      }
+
+      // Auto-probing heuristics based on video path
+      const baseName = src.replace(/\.[a-zA-Z0-9]+$/, "");
+      candidates.push(`${baseName}_字幕.srt`);
+      candidates.push(`${baseName}.srt`);
+      candidates.push(`${baseName}.vtt`);
+      const strippedSuffix = baseName.replace(/_[^_/]+$/, "");
+      if (strippedSuffix !== baseName) {
+        candidates.push(`${strippedSuffix}_字幕.srt`);
+        candidates.push(`${strippedSuffix}.srt`);
+        candidates.push(`${strippedSuffix}.vtt`);
+      }
+
+      for (const cand of candidates) {
+        if (canceled) break;
+        try {
+          const resolvedSub = resolveMediaUrl(cand);
+          if (!resolvedSub.playUrl) continue;
+          const res = await fetch(resolvedSub.playUrl, { method: "GET" });
+          if (res.ok) {
+            const rawText = await res.text();
+            if (rawText && (rawText.includes("-->") || rawText.includes("WEBVTT"))) {
+              const vttContent = srtToVtt(rawText);
+              const blob = new Blob([vttContent], { type: "text/vtt;charset=utf-8" });
+              createdUrl = URL.createObjectURL(blob);
+              if (!canceled) {
+                setVttBlobUrl(createdUrl);
+                setHasSubtitles(true);
+                setSubtitlesVisible(true);
+              }
+              return;
+            }
+          }
+        } catch {
+          // try next
+        }
+      }
+
+      if (!canceled) {
+        setHasSubtitles(false);
+        setVttBlobUrl(null);
+      }
+    };
+
+    probeSubtitle();
+
+    return () => {
+      canceled = true;
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [src, subtitles]);
 
   const inspector = useMediaInspector();
   const isPlayingInInspector = Boolean(
@@ -432,6 +519,30 @@ export function VideoPlayer({
     }
   };
 
+  const handleShare = async () => {
+    const shareUrl = finalDownloadUrl;
+    if (typeof navigator !== "undefined" && typeof (navigator as any).share === "function") {
+      try {
+        await (navigator as any).share({
+          title: displayTitle,
+          text: `分享视频：${displayTitle}`,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // user cancelled or fallback
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      showInAppToast("已复制分享链接", displayTitle);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -478,6 +589,15 @@ export function VideoPlayer({
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
           >
             {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            title="分享视频链接"
+            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
+          >
+            <FiShare2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-[11px]">分享</span>
           </button>
           {inspector && (
             <button
@@ -555,7 +675,18 @@ export function VideoPlayer({
             setHasError(true);
           }}
           className="w-full h-full object-contain"
-        />
+        >
+          {vttBlobUrl && (
+            <track
+              key={vttBlobUrl}
+              kind="subtitles"
+              src={vttBlobUrl}
+              srcLang="zh"
+              label="中文字幕"
+              default={subtitlesVisible}
+            />
+          )}
+        </video>
 
         {/* Loading Spinner */}
         {isLoading && !hasError && (
@@ -772,6 +903,34 @@ export function VideoPlayer({
                 </div>
               )}
             </div>
+
+            {/* Subtitle CC Button */}
+            {hasSubtitles && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSubtitlesVisible((v) => {
+                    const next = !v;
+                    const el = videoRef.current;
+                    if (el && el.textTracks && el.textTracks.length > 0) {
+                      for (let i = 0; i < el.textTracks.length; i++) {
+                        el.textTracks[i].mode = next ? "showing" : "hidden";
+                      }
+                    }
+                    return next;
+                  });
+                  triggerControlsActivity();
+                }}
+                title={subtitlesVisible ? "关闭字幕" : "开启中文字幕 (CC)"}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono transition-colors ${
+                  subtitlesVisible
+                    ? "bg-[var(--aurora-accent)] text-white shadow-xs"
+                    : "bg-white/10 hover:bg-white/20 text-white/60"
+                }`}
+              >
+                CC
+              </button>
+            )}
 
             {/* PiP Button */}
             <button

@@ -17,6 +17,7 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiPlay,
+  FiShare2,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
@@ -96,6 +97,30 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     }
   };
 
+  const handleShare = async () => {
+    const url = resolved.downloadUrl || activeMedia.url;
+    if (typeof navigator !== "undefined" && typeof (navigator as any).share === "function") {
+      try {
+        await (navigator as any).share({
+          title: displayTitle,
+          text: `分享媒体：${displayTitle}`,
+          url,
+        });
+        return;
+      } catch {
+        // user cancelled or fallback
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      showInAppToast("已复制分享链接", displayTitle);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   // Resize drag handler
   const handleMouseDown = (e: React.MouseEvent) => {
     isDraggingRef.current = true;
@@ -121,8 +146,20 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
   const renderPlayer = () => {
     switch (activeMedia.type) {
-      case "video":
-        return <VideoPlayer key={activeMedia.url} src={activeMedia.url} title={displayTitle} autoPlay />;
+      case "video": {
+        const subtitleCandidates = mediaList
+          .filter((m) => m.url.toLowerCase().endsWith(".srt") || m.url.toLowerCase().endsWith(".vtt"))
+          .map((m) => m.url);
+        return (
+          <VideoPlayer
+            key={activeMedia.url}
+            src={activeMedia.url}
+            title={displayTitle}
+            subtitles={subtitleCandidates.length > 0 ? subtitleCandidates : undefined}
+            autoPlay
+          />
+        );
+      }
       case "audio":
         return <AudioPlayer key={activeMedia.url} src={activeMedia.url} title={displayTitle} />;
       case "image":
@@ -144,6 +181,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         return <FiImage className="w-3.5 h-3.5 text-purple-400" />;
       case "markdown":
         return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
+      case "subtitle":
+        return <FiFileText className="w-3.5 h-3.5 text-indigo-400" />;
       default:
         return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
     }
@@ -251,6 +290,15 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
             >
               {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShare}
+              title="分享媒体链接"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+            >
+              <FiShare2 className="w-3.5 h-3.5" />
             </button>
 
             <button

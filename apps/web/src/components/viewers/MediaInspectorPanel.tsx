@@ -164,6 +164,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         className={`bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
           lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20
           max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl
+          max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)]
           ${className}`}
         style={{
           width: typeof window !== "undefined" && window.innerWidth < 1024 ? "100%" : isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`,

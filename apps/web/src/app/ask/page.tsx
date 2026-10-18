@@ -4144,7 +4144,7 @@ function AskPageContent() {
                     <span className="hidden xl:inline">
                       {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
                     </span>
-                    <span className="hidden sm:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
+                    <span className="inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}

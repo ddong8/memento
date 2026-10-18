@@ -350,7 +350,17 @@ export function VideoPlayer({
   };
 
   const toggleFullscreen = async () => {
+    const v = videoRef.current;
     const el = containerRef.current;
+    // iOS Safari / WebKit only supports fullscreen directly on the <video> element via webkitEnterFullscreen
+    if ((v as any)?.webkitEnterFullscreen) {
+      try {
+        (v as any).webkitEnterFullscreen();
+        return;
+      } catch {
+        // ignore and fallback
+      }
+    }
     if (!el) return;
     if (!document.fullscreenElement) {
       try {
@@ -510,7 +520,7 @@ export function VideoPlayer({
       <div className="relative w-full aspect-video flex items-center justify-center bg-black cursor-pointer" onClick={togglePlay}>
         <video
           ref={videoRef}
-          src={playUrl}
+          src={!poster && playUrl && !playUrl.includes("#") ? `${playUrl}#t=0.001` : playUrl}
           poster={poster}
           autoPlay={autoPlay}
           playsInline

@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   compress: true,
   poweredByHeader: false,
   experimental: {
-    optimizePackageImports: ["react-icons", "three"],
+    optimizePackageImports: ["react-icons", "three", "highlight.js", "lowlight"],
   },
   async redirects() {
     return [

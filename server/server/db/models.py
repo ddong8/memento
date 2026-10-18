@@ -189,6 +189,7 @@ class Document(Base):
         Index("idx_documents_synced_at", synced_at.desc()),
         Index("idx_documents_machine", "machine_id"),
         Index("idx_documents_machine_tool", "machine_id", "tool_id"),
+        Index("idx_documents_machine_synced", "machine_id", synced_at.desc()),
         Index("idx_documents_tool_synced", "tool_id", synced_at.desc()),
         Index("idx_documents_project_synced", "project_id", synced_at.desc()),
         Index("idx_documents_project_category", "project_id", "category"),

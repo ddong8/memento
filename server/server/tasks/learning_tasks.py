@@ -39,8 +39,9 @@ async def _users(db) -> list[User]:
 async def _run() -> dict:
     async with async_session_factory() as db:
         users = await _users(db)
-        totals = {"events": 0, "new_topics": 0}
-        for user in users:
+    totals = {"events": 0, "new_topics": 0}
+    for user in users:
+        async with async_session_factory() as db:
             try:
                 result = await learn_from_corrections(db, user)
             except Exception as e:
@@ -61,7 +62,7 @@ async def _run() -> dict:
                     user.id, "learning", f"Memento {verb}新的规矩",
                     summarize_new_topics(result["new_topics"]) + "。到「个人设置 → 常驻画像」确认后，各个 AI 工具下次同步就会用上。",
                 )
-        return totals
+    return totals
 
 
 @celery_app.task(name="server.tasks.learning_tasks.learn_corrections", acks_late=True)
@@ -77,8 +78,10 @@ def learn_corrections() -> dict:
 
 async def _todos() -> dict:
     async with async_session_factory() as db:
-        totals = {"created": 0, "closed": 0}
-        for user in await _users(db):
+        users = await _users(db)
+    totals = {"created": 0, "closed": 0}
+    for user in users:
+        async with async_session_factory() as db:
             try:
                 result = await learn_todos(db, user)
             except Exception as e:
@@ -87,7 +90,7 @@ async def _todos() -> dict:
                 continue
             totals["created"] += len(result["created"])
             totals["closed"] += result["closed"]
-        return totals
+    return totals
 
 
 @celery_app.task(name="server.tasks.learning_tasks.learn_todos", acks_late=True)
@@ -101,9 +104,11 @@ def learn_todos_task() -> dict:
 
 async def _remind() -> dict:
     sent = 0
+    now = datetime.now(timezone.utc)
     async with async_session_factory() as db:
-        now = datetime.now(timezone.utc)
-        for user in await _users(db):
+        users = await _users(db)
+    for user in users:
+        async with async_session_factory() as db:
             due = await due_now(db, user, now)
             text = reminder_text(due)
             todo_url = f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily"
@@ -145,8 +150,10 @@ def _review_push(sessions: dict, tasks: dict) -> str | None:
 async def _review() -> dict:
     out = {}
     async with async_session_factory() as db:
-        for user in await _users(db):
-            run: dict = {"at": datetime.now(timezone.utc).isoformat()}
+        users = await _users(db)
+    for user in users:
+        run: dict = {"at": datetime.now(timezone.utc).isoformat()}
+        async with async_session_factory() as db:
             try:
                 sessions = await review_sessions(db, user)
             except Exception as e:
@@ -186,11 +193,13 @@ def review_sessions_task() -> dict:
 async def _lifecycle() -> dict:
     out = {}
     async with async_session_factory() as db:
-        for user in await _users(db):
-            cursor_key = f"reconcile_cursor:{user.id}"
-            cursor = await ai_health.get_json(cursor_key)
-            started = datetime.now(timezone.utc)
-            since = datetime.fromisoformat(cursor) if cursor else None
+        users = await _users(db)
+    for user in users:
+        cursor_key = f"reconcile_cursor:{user.id}"
+        cursor = await ai_health.get_json(cursor_key)
+        started = datetime.now(timezone.utc)
+        since = datetime.fromisoformat(cursor) if cursor else None
+        async with async_session_factory() as db:
             try:
                 reconciled = await reconcile(db, user, since)
                 await ai_health.put_json(cursor_key, started.isoformat(), ttl_seconds=90 * 24 * 3600)

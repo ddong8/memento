@@ -155,6 +155,10 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS ix_documents_embedding_due ON documents "
         "(embedding_status, embedding_next_at) WHERE embedding_status IN ('pending', 'failed')"
     ))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_documents_machine_synced ON documents "
+        "(machine_id, synced_at DESC)"
+    ))
 
     # knowledge_status / knowledge_attempts: same pattern as the embedding
     # pair, added later to give a way to retry LLM extraction. Existing rows

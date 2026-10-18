@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -173,35 +173,78 @@ export function extractUserTitleFromText(text: string): string | undefined {
   return cand;
 }
 
-export function extractTitleFromTranscript(linesOrFilePath: string[] | string): string | undefined {
-  let lines: string[] = [];
-  if (Array.isArray(linesOrFilePath)) {
-    lines = linesOrFilePath;
-  } else if (typeof linesOrFilePath === "string" && existsSync(linesOrFilePath)) {
-    try {
-      const content = readFileSync(linesOrFilePath, "utf8");
-      lines = content.split("\n");
-    } catch {
-      return undefined;
+function extractTitleFromLine(line: string): string | undefined {
+  if (!line.trim()) return undefined;
+  try {
+    const step = JSON.parse(line) as {
+      source?: string;
+      type?: string;
+      content?: unknown;
+    };
+    if (step && typeof step.content === "string") {
+      if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
+        const cand = extractUserTitleFromText(step.content);
+        if (cand) return cand;
+      }
+    }
+  } catch {
+    const cand = extractUserTitleFromText(line);
+    if (cand) return cand;
+  }
+  return undefined;
+}
+
+function extractTitleFromFileStream(filePath: string, maxLines = 50): string | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(filePath, "r");
+    const buffer = Buffer.alloc(64 * 1024);
+    let remainder = "";
+    let linesChecked = 0;
+
+    while (linesChecked < maxLines) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      const chunk = remainder + buffer.toString("utf8", 0, bytesRead);
+      const parts = chunk.split("\n");
+      remainder = parts.pop() ?? "";
+
+      for (const line of parts) {
+        if (!line.trim()) continue;
+        linesChecked++;
+        const cand = extractTitleFromLine(line);
+        if (cand) return cand;
+        if (linesChecked >= maxLines) break;
+      }
+    }
+
+    if (remainder.trim() && linesChecked < maxLines) {
+      const cand = extractTitleFromLine(remainder);
+      if (cand) return cand;
+    }
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore close error
+      }
     }
   }
+  return undefined;
+}
 
-  for (const line of lines.slice(0, 50)) {
-    if (!line.trim()) continue;
-    try {
-      const step = JSON.parse(line) as {
-        source?: string;
-        type?: string;
-        content?: unknown;
-      };
-      if (step && typeof step.content === "string") {
-        if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
-          const cand = extractUserTitleFromText(step.content);
-          if (cand) return cand;
-        }
-      }
-    } catch {
-      const cand = extractUserTitleFromText(line);
+export function extractTitleFromTranscript(linesOrFilePath: string[] | string): string | undefined {
+  if (typeof linesOrFilePath === "string") {
+    if (!existsSync(linesOrFilePath)) return undefined;
+    return extractTitleFromFileStream(linesOrFilePath);
+  }
+
+  if (Array.isArray(linesOrFilePath)) {
+    for (const line of linesOrFilePath.slice(0, 50)) {
+      const cand = extractTitleFromLine(line);
       if (cand) return cand;
     }
   }

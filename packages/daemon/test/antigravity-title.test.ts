@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -60,6 +60,37 @@ describe("Antigravity Title Synchronization and Healing", () => {
 
     const title = extractTitleFromTranscript(lines);
     expect(title).toBe("拉一下最新代码吧");
+  });
+
+  it("extracts title from transcript file with streaming without reading whole file", () => {
+    const testDir = mkdtempSync(join(tmpdir(), "memento-test-stream-"));
+    try {
+      const filePath = join(testDir, "transcript.jsonl");
+      const lines = [
+        JSON.stringify({
+          step_index: 0,
+          source: "USER_EXPLICIT",
+          type: "USER_INPUT",
+          content: "<USER_REQUEST>\n优化流式解析与内存占用\n</USER_REQUEST>",
+        }),
+        JSON.stringify({
+          step_index: 1,
+          source: "MODEL",
+          type: "PLANNER_RESPONSE",
+          content: "正在为您执行优化...",
+        }),
+      ];
+      // Append some trailing dummy lines
+      for (let i = 2; i < 100; i++) {
+        lines.push(JSON.stringify({ step_index: i, content: "x".repeat(1024) }));
+      }
+      writeFileSync(filePath, lines.join("\n"), "utf8");
+
+      const title = extractTitleFromTranscript(filePath);
+      expect(title).toBe("优化流式解析与内存占用");
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   it("updates SQLite db and annotations file and heals title", () => {

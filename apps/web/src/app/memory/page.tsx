@@ -140,6 +140,20 @@ export default function MemoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [entitySearchQuery, setEntitySearchQuery] = useState("");
+
+  const filteredEntityNodes = useMemo(() => {
+    return nodes.filter((n) => {
+      if (filterType && n.type !== filterType) return false;
+      if (!entitySearchQuery.trim()) return true;
+      const q = entitySearchQuery.toLowerCase().trim();
+      return (
+        n.name.toLowerCase().includes(q) ||
+        n.type.toLowerCase().includes(q) ||
+        (n.summary && n.summary.toLowerCase().includes(q))
+      );
+    });
+  }, [nodes, filterType, entitySearchQuery]);
 
   // Share & Notice
   const [shareOpen, setShareOpen] = useState(false);
@@ -1126,44 +1140,101 @@ export default function MemoryPage() {
                 ) : (
                   /* When no entity selected: show all entities grid for quick selection */
                   <div className="space-y-3">
-                    <div className="p-3 rounded-2xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] flex items-center justify-between text-xs">
-                      <span className="text-[var(--aurora-fg2)] font-medium">
-                        全量知识图谱实体列表（点击飞跃对焦 3D 星晶）
-                      </span>
-                      <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
-                        共 {nodes.length} 个节点
-                      </span>
+                    <div className="p-3 rounded-2xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)] space-y-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[var(--aurora-fg2)] font-medium">
+                          知识图谱实体星阵（点击对焦 3D 认知星晶）
+                        </span>
+                        <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
+                          显示 {filteredEntityNodes.length} / 共 {nodes.length} 个
+                        </span>
+                      </div>
+
+                      {/* Instant Entity Search Input */}
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          value={entitySearchQuery}
+                          onChange={(e) => setEntitySearchQuery(e.target.value)}
+                          placeholder="搜索实体名称、类型或摘要..."
+                          className="w-full bg-[var(--aurora-surface)] border border-[var(--aurora-border)] rounded-xl py-1.5 pl-8 pr-7 text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-hidden focus:border-[var(--aurora-accent)] transition-all"
+                        />
+                        <span className="absolute left-2.5 text-[var(--aurora-fg4)] pointer-events-none">
+                          <Icon name="search" size={12} />
+                        </span>
+                        {entitySearchQuery && (
+                          <button
+                            onClick={() => setEntitySearchQuery("")}
+                            className="absolute right-2 text-[var(--aurora-fg4)] hover:text-[var(--aurora-fg1)] p-0.5"
+                          >
+                            <Icon name="close" size={10} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Entity Type Filter Chips */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar text-[11px]">
+                        {[
+                          { id: "", label: "全部" },
+                          { id: "project", label: "项目" },
+                          { id: "tool", label: "工具" },
+                          { id: "concept", label: "概念" },
+                          { id: "technology", label: "技术" },
+                          { id: "person", label: "人物" },
+                        ].map((chip) => {
+                          const isActive = filterType === chip.id;
+                          return (
+                            <button
+                              key={chip.id}
+                              onClick={() => setFilterType(chip.id)}
+                              className={`px-2 py-0.5 rounded-full font-mono transition-all shrink-0 border ${
+                                isActive
+                                  ? "bg-[var(--aurora-accent)]/20 text-[var(--aurora-accent)] border-[var(--aurora-accent)]/40 font-semibold"
+                                  : "bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] border-transparent hover:text-[var(--aurora-fg1)]"
+                              }`}
+                            >
+                              {chip.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {nodes.map((node) => (
-                        <div
-                          key={node.id}
-                          onClick={() => handleSelectNode(node)}
-                          className="p-2.5 rounded-xl bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-[var(--aurora-border-strong)] cursor-pointer transition-all flex flex-col justify-between gap-1 group"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 truncate">
-                              <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: TYPE_COLORS[node.type] || "#38BDF8" }}
-                              />
-                              <span className="text-xs font-bold text-[var(--aurora-fg1)] group-hover:text-[var(--aurora-accent)] truncate">
-                                {node.name}
+                    {filteredEntityNodes.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-[var(--aurora-fg4)] rounded-2xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]">
+                        未找到与 “{entitySearchQuery || filterType}” 匹配的实体星晶
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[520px] overflow-y-auto pr-1">
+                        {filteredEntityNodes.map((node) => (
+                          <div
+                            key={node.id}
+                            onClick={() => handleSelectNode(node)}
+                            className="p-2.5 rounded-xl bg-[var(--aurora-surface-solid)] hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-[var(--aurora-border-strong)] cursor-pointer transition-all flex flex-col justify-between gap-1 group"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 truncate">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: TYPE_COLORS[node.type] || "#38BDF8" }}
+                                />
+                                <span className="text-xs font-bold text-[var(--aurora-fg1)] group-hover:text-[var(--aurora-accent)] truncate">
+                                  {node.name}
+                                </span>
+                              </div>
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] shrink-0">
+                                {node.type}
                               </span>
                             </div>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] shrink-0">
-                              {node.type}
-                            </span>
+                            {node.summary && (
+                              <p className="text-[11px] text-[var(--aurora-fg4)] line-clamp-1 leading-normal">
+                                {node.summary}
+                              </p>
+                            )}
                           </div>
-                          {node.summary && (
-                            <p className="text-[11px] text-[var(--aurora-fg4)] line-clamp-1 leading-normal">
-                              {node.summary}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

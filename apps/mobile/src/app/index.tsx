@@ -28,7 +28,7 @@ import { Icon, type IconName } from "../components/Icon";
 import { Button } from "../components/ui";
 import { normalizeDeepLinkTarget, parseDeepLinkAction, subscribeDeepLinkTarget } from "../lib/deeplink";
 import { isRecentlyNotified, markAsNotified, triggerLocalNotification } from "../lib/notifications";
-import { useSession } from "../lib/session";
+import { loadLocalSnapshot, saveLocalSnapshot, SNAPSHOT_CONVOS_KEY, useSession } from "../lib/session";
 import { useTheme } from "../lib/theme";
 
 type TabId = "ask" | "memory" | "daily" | "inbox" | "profile";
@@ -237,6 +237,16 @@ export default function WebShell() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const [offlineSnapshot, setOfflineSnapshot] = useState<Array<{ id: string; title: string; time?: string }> | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const cached = await loadLocalSnapshot<Array<{ id: string; title: string; time?: string }>>(SNAPSHOT_CONVOS_KEY);
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        setOfflineSnapshot(cached);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -538,6 +548,13 @@ export default function WebShell() {
             }),
           });
         } catch {}
+      } else if (msg.type === "snapshot" && (msg.data || (msg as any).conversations)) {
+        const payload = msg.data || (msg as any).conversations;
+        const key = (msg as { key?: string }).key || SNAPSHOT_CONVOS_KEY;
+        void saveLocalSnapshot(key, payload);
+        if (Array.isArray(payload)) {
+          setOfflineSnapshot(payload as Array<{ id: string; title: string; time?: string }>);
+        }
       }
     } catch {
       // not ours
@@ -617,9 +634,27 @@ export default function WebShell() {
           )}
           renderError={() => (
             <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center", gap: 14, padding: 24, backgroundColor: t.bg }]}>
-              <Text style={{ fontSize: 16, fontWeight: "600", color: t.fg1 }}>连不上 Memento</Text>
-              <Text style={{ fontSize: 13, color: t.fg3, textAlign: "center" }}>检查网络后重试（{origin}）</Text>
-              <Button onPress={() => web.current?.reload()}>重试</Button>
+              <View style={{ alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: t.fg1 }}>
+                  {offlineSnapshot && offlineSnapshot.length > 0 ? "连不上 Memento（离线状态）" : "连不上 Memento"}
+                </Text>
+                <Text style={{ fontSize: 13, color: t.fg3, textAlign: "center" }}>
+                  {offlineSnapshot && offlineSnapshot.length > 0 ? "网络暂时断开，已载入最近本地快照：" : `检查网络后重试（${origin}）`}
+                </Text>
+              </View>
+
+              {offlineSnapshot && offlineSnapshot.length > 0 ? (
+                <View style={{ width: "100%", maxHeight: 220, backgroundColor: t.surface, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: t.border, padding: 8, gap: 6 }}>
+                  {offlineSnapshot.slice(0, 5).map((item, idx) => (
+                    <View key={item.id || idx} style={{ paddingVertical: 6, paddingHorizontal: 8, borderBottomWidth: idx < Math.min(offlineSnapshot.length - 1, 4) ? StyleSheet.hairlineWidth : 0, borderBottomColor: t.border }}>
+                      <Text style={{ fontSize: 13, color: t.fg1, fontWeight: "500" }} numberOfLines={1}>{item.title || "未命名会话"}</Text>
+                      {item.time ? <Text style={{ fontSize: 11, color: t.fg3, marginTop: 2 }}>{item.time}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              <Button onPress={() => web.current?.reload()}>重新连接</Button>
             </View>
           )}
         />

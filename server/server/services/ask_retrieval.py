@@ -75,7 +75,14 @@ async def hybrid_rank(
         async with async_session_factory() as sem_db:
             return await _semantic_doc_ranks(sem_db, q, mids, tool, None, days, want=k)
 
-    kw_docs, (sem_order, sem_snippets) = await asyncio.gather(_fetch_kw(), _fetch_sem())
+    sem_res = await _fetch_sem()
+    if len(sem_res) == 3:
+        sem_order, sem_snippets, sem_sims = sem_res
+    else:
+        sem_order, sem_snippets = sem_res
+        sem_sims = {}
+
+    kw_docs = await _fetch_kw()
 
     kw_rank = {d.id: i for i, d in enumerate(kw_docs)}
     sem_rank = {doc_id: i for i, doc_id in enumerate(sem_order)}
@@ -90,12 +97,28 @@ async def hybrid_rank(
         extra_q = apply_user_filter(extra_q, mids, Document.machine_id)
         docs += list((await db.execute(extra_q)).scalars().all())
 
+    q_lower = q.lower().strip()
+
     def rrf(d) -> float:
         score = 0.0
-        if d.id in kw_rank:
+        in_kw = d.id in kw_rank
+        in_sem = d.id in sem_rank
+        if in_kw:
             score += 1.0 / (RRF_K + kw_rank[d.id] + 1)
-        if d.id in sem_rank:
+        if in_sem:
             score += 1.0 / (RRF_K + sem_rank[d.id] + 1)
+        # Dual-hit synergy bonus: strongly preferred when both channels agree
+        if in_kw and in_sem:
+            score *= 1.3
+        # Direct semantic similarity weighting
+        sim = sem_sims.get(d.id, 0.0)
+        if sim > 0:
+            score += sim * 0.025
+        # Exact title / path relevance boost
+        title_lower = (d.title or "").lower()
+        path_lower = (d.relative_path or "").lower()
+        if q_lower and (q_lower in title_lower or q_lower in path_lower):
+            score *= 1.2
         return score
 
     docs.sort(key=rrf, reverse=True)

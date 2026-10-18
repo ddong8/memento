@@ -124,8 +124,9 @@ export function showInAppToast(title: string, body: string, url?: string): void 
       e.stopPropagation();
       toast.remove();
       if (typeof window !== "undefined") {
-        if (typeof (window as any).__memento_navigate === "function") {
-          (window as any).__memento_navigate(url);
+        const win = window as unknown as { __memento_navigate?: (u: string) => void };
+        if (typeof win.__memento_navigate === "function") {
+          win.__memento_navigate(url);
         } else if (url.startsWith("/")) {
           window.location.href = url;
         } else {
@@ -254,8 +255,9 @@ export async function sendLocalNotification(
     const handleNotificationClick = () => {
       window.focus();
       if (url) {
-        if (typeof (window as any).__memento_navigate === "function") {
-          (window as any).__memento_navigate(url);
+        const win = window as unknown as { __memento_navigate?: (u: string) => void };
+        if (typeof win.__memento_navigate === "function") {
+          win.__memento_navigate(url);
         } else if (url.startsWith("/")) {
           window.location.href = url;
         } else {

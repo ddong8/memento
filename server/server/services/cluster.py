@@ -203,15 +203,25 @@ class Cluster:
         assert self._outbox is not None
         while True:
             channel, item = await self._outbox.get()
-            try:
-                if channel is None:
-                    await item(self._r)
-                else:
-                    await self._r.publish(channel, json.dumps(item, ensure_ascii=False, default=str))
-            except Exception as e:
-                logger.warning("cluster write to %s failed: %s", channel or "redis", e)
-            finally:
-                self._outbox.task_done()
+            # Retry up to 3 attempts on transient connection/timeout errors
+            for attempt in range(3):
+                try:
+                    if not self.available or self._r is None:
+                        break
+                    if channel is None:
+                        await item(self._r)
+                    else:
+                        await self._r.publish(channel, json.dumps(item, ensure_ascii=False, default=str))
+                    break
+                except (aioredis.ConnectionError, aioredis.TimeoutError, aioredis.BusyLoadingError) as ce:
+                    if attempt < 2 and self.available:
+                        await asyncio.sleep(0.08 * (2 ** attempt))
+                        continue
+                    logger.warning("cluster write to %s failed after retries: %s", channel or "redis", ce)
+                except Exception as e:
+                    logger.warning("cluster write to %s failed: %s", channel or "redis", e)
+                    break
+            self._outbox.task_done()
 
     async def _listen(self) -> None:
         backoff = 1.0

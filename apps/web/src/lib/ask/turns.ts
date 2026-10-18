@@ -39,7 +39,7 @@ export function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<vo
       resolve();
       return;
     }
-    let timer: any = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onDone);

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "prebuild": "npm run build -w @memento/core",
     "typecheck": "tsc --noEmit"
   },

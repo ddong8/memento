@@ -78,17 +78,20 @@ async def _semantic_doc_ranks(
 
         order: list = []
         snippets: dict = {}
-        for doc_id, chunk, _dist in (await db.execute(stmt)).all():
+        similarities: dict = {}
+        for doc_id, chunk, dist in (await db.execute(stmt)).all():
             if doc_id in snippets:
                 continue  # keep only the best-scoring chunk per document
             snippets[doc_id] = (chunk or "")[:400]
+            sim = max(0.0, 1.0 - float(dist)) if dist is not None else 0.5
+            similarities[doc_id] = sim
             order.append(doc_id)
             if len(order) >= want:
                 break
-        return order, snippets
+        return order, snippets, similarities
     except Exception:
         # Embedding server down, pgvector missing, timeout — all non-fatal.
-        return [], {}
+        return [], {}, {}
 
 
 @router.get("")
@@ -188,9 +191,14 @@ async def search(
                 return await _semantic_doc_ranks(
                     sem_db, q, mids, tool, category, days, want=limit
                 )
-        return [], {}
+        return [], {}, {}
 
-    (docs, total), (sem_order, sem_snippets) = await asyncio.gather(_fetch_paged(), _fetch_sem())
+    (docs, total), sem_res = await asyncio.gather(_fetch_paged(), _fetch_sem())
+    if len(sem_res) == 3:
+        sem_order, sem_snippets, sem_sims = sem_res
+    else:
+        sem_order, sem_snippets = sem_res
+        sem_sims = {}
 
     if sem_order:
         kw_rank = {d.id: i for i, d in enumerate(docs)}
@@ -215,12 +223,28 @@ async def search(
             # These are genuinely new matches the keyword count never saw.
             total += len(extra)
 
+        clean_q_lower = clean_q.lower().strip()
+
         def rrf(d) -> float:
             score = 0.0
-            if d.id in kw_rank:
+            in_kw = d.id in kw_rank
+            in_sem = d.id in sem_rank
+            if in_kw:
                 score += 1.0 / (RRF_K + kw_rank[d.id] + 1)
-            if d.id in sem_rank:
+            if in_sem:
                 score += 1.0 / (RRF_K + sem_rank[d.id] + 1)
+            # Dual-hit synergy bonus: documents matching both keyword and semantic intent
+            if in_kw and in_sem:
+                score *= 1.25
+            # Semantic similarity weighting
+            sim = sem_sims.get(d.id, 0.0)
+            if sim > 0:
+                score += sim * 0.02
+            # Title / relative path match bonus if query keyword directly appears
+            title_lower = (d.title or "").lower()
+            path_lower = (d.relative_path or "").lower()
+            if clean_q_lower and (clean_q_lower in title_lower or clean_q_lower in path_lower):
+                score *= 1.15
             return score
 
         docs.sort(key=rrf, reverse=True)

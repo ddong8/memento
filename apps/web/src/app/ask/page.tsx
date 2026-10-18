@@ -852,10 +852,10 @@ function AskPageContent() {
         if (cachedConv.config?.executionMode) {
           setExecutionMode(cachedConv.config.executionMode);
         }
-        if (cachedConv.config?.model !== undefined) {
+        if (cachedConv.config?.model) {
           setSelectedModel(cachedConv.config.model);
         }
-        if (cachedConv.config?.effort !== undefined) {
+        if (cachedConv.config?.effort) {
           setSelectedEffort(cachedConv.config.effort);
         }
         if (cachedConv.config?.cwd) {

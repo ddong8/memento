@@ -120,10 +120,15 @@ export class Daemon extends EventEmitter {
     void this.syncProfileAndSkills();
     this.timers.push(setInterval(() => void this.syncProfileAndSkills(), PROFILE_SYNC_MS));
 
-    // Clean up stale git worktrees in background
-    void TaskWorktree.cleanupStale().then((count) => {
-      if (count > 0) this.log(`Cleaned up ${count} stale worktree(s)`);
-    }).catch(() => {});
+    // Clean up stale git worktrees and cache artifacts in background periodically
+    const runWorktreeGc = () => {
+      void TaskWorktree.cleanupStale().then((count) => {
+        if (count > 0) this.log(`Cleaned up ${count} stale worktree/cache artifact(s)`);
+      }).catch(() => {});
+    };
+    runWorktreeGc();
+    const WORKTREE_GC_INTERVAL_MS = 60 * 60 * 1000;
+    this.timers.push(setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS));
 
     this.log("Memento daemon is running.");
     this.notify();

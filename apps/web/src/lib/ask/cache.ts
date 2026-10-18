@@ -314,11 +314,23 @@ export function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: s
   } catch {}
 }
 
+export interface CachedConversationConfig {
+  executionMode?: ExecutionMode;
+  model?: string;
+  effort?: string;
+  cwd?: string;
+  selectedDevice?: string;
+  selectedProjectId?: string;
+  selectedProjectTitle?: string;
+  selectedSessionId?: string;
+  worktreeMode?: boolean;
+}
+
 // Module-level in-memory caches for true zero-latency instant navigation and refreshing
-export const conversationTurnsCache = new Map<string, { turns: Turn[]; config?: Record<string, any> }>();
+export const conversationTurnsCache = new Map<string, { turns: Turn[]; config?: CachedConversationConfig }>();
 const capabilitiesMemoryCache = new Map<string, AgentCapabilities>();
 const projectsMemoryCache = new Map<string, ProjectSummary[]>();
-const sessionsMemoryCache = new Map<string, any[]>();
+const sessionsMemoryCache = new Map<string, ProjectSession[]>();
 const pendingPrefetchIds = new Set<string>();
 
 export const CONVERSATIONS_CACHE_KEY = "memento_cached_ask_convs";
@@ -346,25 +358,32 @@ if (typeof window !== "undefined") {
   loadRecentConvTurnsIntoMemory();
 }
 
-export function saveToRecentConvTurnsCache(id: string, turns: Turn[], data?: any) {
-  if (typeof window === "undefined" || !id || !Array.isArray(turns) || turns.length === 0) return;
+export function saveToRecentConvTurnsCache(
+  id: string,
+  turns: Turn[],
+  data?: Partial<AskConversationDetail> | Record<string, any> | null
+) {
+  if (!id || !Array.isArray(turns) || turns.length === 0) return;
   try {
-    const config = {
-      executionMode: data?.execution_mode || data?.config?.execution_mode,
-      model: data?.model || data?.config?.model,
-      effort: data?.effort || data?.config?.effort,
-      cwd: data?.cwd || data?.config?.cwd,
-      selectedDevice: data?.device_id || data?.config?.device_id,
-      selectedProjectId: data?.project_id || data?.config?.project_id,
-      selectedProjectTitle: data?.project_title,
-      selectedSessionId: data?.session_id || data?.config?.session_id,
-      worktreeMode: Boolean(data?.worktree ?? data?.config?.worktree),
+    const d = data as (Partial<AskConversationDetail> & { config?: Record<string, any> }) | undefined;
+    const config: CachedConversationConfig = {
+      executionMode: (d?.execution_mode || d?.config?.execution_mode) as ExecutionMode | undefined,
+      model: d?.model || d?.config?.model,
+      effort: d?.effort || d?.config?.effort,
+      cwd: d?.cwd || d?.config?.cwd || undefined,
+      selectedDevice: d?.device_id || d?.config?.device_id || undefined,
+      selectedProjectId: d?.project_id || d?.config?.project_id,
+      selectedProjectTitle: d?.project_title,
+      selectedSessionId: d?.session_id || d?.config?.session_id,
+      worktreeMode: Boolean(d?.worktree ?? d?.config?.worktree),
     };
 
     conversationTurnsCache.set(id, { turns, config });
 
+    if (typeof window === "undefined") return;
+
     const recentRaw = localStorage.getItem(RECENT_TURNS_CACHE_KEY);
-    let list: Array<{ id: string; turns: Turn[]; config: any; updatedAt: number }> = [];
+    let list: Array<{ id: string; turns: Turn[]; config: CachedConversationConfig; updatedAt: number }> = [];
     if (recentRaw) {
       try {
         const parsed = JSON.parse(recentRaw);

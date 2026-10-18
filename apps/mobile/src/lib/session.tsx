@@ -9,6 +9,26 @@ export const DEFAULT_SERVER = "https://mem.ihasy.com";
 const SERVER_KEY = "memento.server";
 const TOKEN_KEY = "memento.token";
 const PUSH_TOKEN_KEY = "memento.push_token";
+export const SNAPSHOT_CONVOS_KEY = "memento.snapshot.conversations";
+export const SNAPSHOT_TODOS_KEY = "memento.snapshot.todos";
+
+export async function saveLocalSnapshot(key: string, data: unknown): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed to save local snapshot:", e);
+  }
+}
+
+export async function loadLocalSnapshot<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await SecureStore.getItemAsync(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch (e) {
+    console.warn("Failed to load local snapshot:", e);
+    return null;
+  }
+}
 
 function syncCredentialsToNative(server: string, token: string | null) {
   if (Platform.OS === "ios") {

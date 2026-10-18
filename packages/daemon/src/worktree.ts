@@ -102,19 +102,23 @@ export class TaskWorktree {
   }
 
   /**
-   * Scans ~/.memento/worktrees for orphaned worktree directories older than maxAgeMs (default 24h)
-   * or clean directories, and safely cleans them up.
+   * Scans ~/.memento/worktrees and ~/.memento/cache for orphaned worktrees and stale temporary files
+   * older than maxAgeMs (default 24h), safely reclaiming disk space.
    */
   static async cleanupStale(options: { home?: string; maxAgeMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<number> {
-    const rootDir = join(options.home ?? homeDir(), ".memento", "worktrees");
+    const baseDir = options.home ?? homeDir();
+    const worktreeDir = join(baseDir, ".memento", "worktrees");
+    const cacheDir = join(baseDir, ".memento", "cache");
     const maxAge = options.maxAgeMs ?? 24 * 60 * 60 * 1000;
     let cleaned = 0;
+
+    // 1. Clean stale worktrees
     try {
-      const entries = await readdir(rootDir, { withFileTypes: true });
+      const entries = await readdir(worktreeDir, { withFileTypes: true });
       const now = Date.now();
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        const targetDir = join(rootDir, entry.name);
+        const targetDir = join(worktreeDir, entry.name);
         try {
           const stats = await stat(targetDir);
           if (now - stats.mtimeMs > maxAge) {
@@ -127,6 +131,23 @@ export class TaskWorktree {
         } catch {}
       }
     } catch {}
+
+    // 2. Clean stale temporary cache/media artifacts
+    try {
+      const cacheEntries = await readdir(cacheDir, { withFileTypes: true });
+      const now = Date.now();
+      for (const entry of cacheEntries) {
+        const targetPath = join(cacheDir, entry.name);
+        try {
+          const stats = await stat(targetPath);
+          if (now - stats.mtimeMs > maxAge) {
+            await rm(targetPath, { recursive: true, force: true });
+            cleaned++;
+          }
+        } catch {}
+      }
+    } catch {}
+
     return cleaned;
   }
 }

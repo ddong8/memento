@@ -22,7 +22,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import Boolean, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -203,7 +203,7 @@ async def fetch_user_voice_rows(
             ConversationMessage.timestamp >= since_dt,
             ConversationMessage.timestamp <= until_dt,
             ~ConversationMessage.content.startswith("[Result]"),
-            ~Document.relative_path.op("~")(SUBAGENT_PATH_REGEX),
+            not_(Document.relative_path.op("~", return_type=Boolean)(SUBAGENT_PATH_REGEX)),
             ~func.coalesce(Document.metadata_.has_key("parent_session_id"), False),
         )
         .order_by(ConversationMessage.timestamp.desc())

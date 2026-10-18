@@ -18,6 +18,9 @@ await build({
   outfile: join(dist, "main.cjs"),
   format: "cjs",
   external: ["electron"],
+  define: {
+    "import.meta.url": "undefined",
+  },
 });
 
 await build({

@@ -405,6 +405,30 @@ async def _warm_embedding_server() -> None:
         log.info("embedding warmup skipped: %s", e)
 
 
+async def _warmup_jieba() -> None:
+    """Pre-initialize jieba CJK token dictionary in background thread.
+
+    Jieba loads a 20MB dictionary file and builds a prefix Trie on first cut.
+    Warming it up at boot avoids a 1-2s freeze on the first search or ingest.
+    """
+    import asyncio, logging
+    log = logging.getLogger("memento.warmup")
+    try:
+        def _init():
+            try:
+                import jieba
+                jieba.initialize()
+                return True
+            except ImportError:
+                return False
+
+        loaded = await asyncio.to_thread(_init)
+        if loaded:
+            log.info("jieba prefix dictionary preloaded")
+    except Exception as e:
+        log.info("jieba warmup skipped: %s", e)
+
+
 async def _merge_device_records() -> None:
     """Fold device records left behind by a changed device id (see services/device_merge.py).
 
@@ -448,8 +472,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     merge_task = asyncio.create_task(_merge_device_records())
     # Start daily compaction in background
     compaction_task = asyncio.create_task(_schedule_daily_compaction())
-    # Fire-and-forget warmup of the embedding server (5s after boot)
+    # Fire-and-forget warmup of the embedding server and jieba tokenizer
     warmup_task = asyncio.create_task(_warm_embedding_server())
+    jieba_task = asyncio.create_task(_warmup_jieba())
     # Start 24/7 Always-on Proactive Agent Pulse service
     from .services.pulse_service import start_proactive_pulse, stop_proactive_pulse
     await start_proactive_pulse()
@@ -460,8 +485,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await stop_proactive_pulse()
     compaction_task.cancel()
     warmup_task.cancel()
+    jieba_task.cancel()
     merge_task.cancel()
     await cluster.stop()
+    from .services.ai_provider import close_shared_chat_client
+    await close_shared_chat_client()
     await engine.dispose()
 
 

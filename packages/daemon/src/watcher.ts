@@ -303,6 +303,7 @@ export class FileWatcher {
   private readonly queued = new Set<string>();
   private readonly watchers: FSWatcher[] = [];
   private rescan: NodeJS.Timeout | undefined;
+  private saveOffsetsTimer: NodeJS.Timeout | undefined;
   private targets = new Map<string, string>();
   private processing = false;
   private disposed = false;
@@ -340,7 +341,7 @@ export class FileWatcher {
     this.offsets.clear();
     this.mtimes.clear();
     this.failures.clear();
-    await this.saveOffsets();
+    await this.saveOffsets(true);
     this.log("Resync: re-uploading all watched files");
     for (const [dir, toolId] of this.targets) void this.scan(dir, toolId);
   }
@@ -348,11 +349,15 @@ export class FileWatcher {
   async dispose(): Promise<void> {
     this.disposed = true;
     if (this.rescan) clearInterval(this.rescan);
+    if (this.saveOffsetsTimer) {
+      clearTimeout(this.saveOffsetsTimer);
+      this.saveOffsetsTimer = undefined;
+    }
     for (const t of this.debounce.values()) clearTimeout(t);
     for (const w of this.watchers) w.close();
     this.queue.length = 0;
     this.queued.clear();
-    await this.saveOffsets();
+    await this.saveOffsets(true);
   }
 
   private watchDir(dir: string, toolId: string): void {
@@ -482,16 +487,18 @@ export class FileWatcher {
           this.failures.delete(file);
           offset += slice.length;
           this.offsets.set(file, offset);
-          await this.saveOffsets();
+          await this.saveOffsets(false);
         } else {
           const fails = (this.failures.get(file) ?? 0) + 1;
           this.failures.set(file, fails);
           this.log(`Upload failed for ${relPath} at offset ${offset} (attempt ${fails}), retaining offset to retry`);
+          await this.saveOffsets(true);
           break;
         }
         if (offset < size) await sleep(50);
         else break;
       }
+      await this.saveOffsets(true);
     } finally {
       await handle.close();
     }
@@ -532,7 +539,25 @@ export class FileWatcher {
     }
   }
 
-  private async saveOffsets(): Promise<void> {
+  private async saveOffsets(immediate = false): Promise<void> {
+    if (immediate) {
+      if (this.saveOffsetsTimer) {
+        clearTimeout(this.saveOffsetsTimer);
+        this.saveOffsetsTimer = undefined;
+      }
+      await this.flushOffsets();
+      return;
+    }
+    if (!this.saveOffsetsTimer) {
+      this.saveOffsetsTimer = setTimeout(() => {
+        this.saveOffsetsTimer = undefined;
+        void this.flushOffsets();
+      }, 500);
+      this.saveOffsetsTimer.unref?.();
+    }
+  }
+
+  private async flushOffsets(): Promise<void> {
     try {
       await mkdir(dirname(this.offsetsPath), { recursive: true });
       await writeFile(this.offsetsPath, JSON.stringify(Object.fromEntries(this.offsets)));

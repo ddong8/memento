@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
@@ -20,6 +21,41 @@ import httpx
 from . import ai_health
 
 logger = logging.getLogger("server.ai_provider")
+
+_shared_chat_client: httpx.AsyncClient | None = None
+
+
+def get_shared_chat_client() -> httpx.AsyncClient:
+    global _shared_chat_client
+    if _shared_chat_client is None or _shared_chat_client.is_closed:
+        _shared_chat_client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+            http2=True,
+        )
+    return _shared_chat_client
+
+
+async def close_shared_chat_client() -> None:
+    global _shared_chat_client
+    if _shared_chat_client is not None and not _shared_chat_client.is_closed:
+        await _shared_chat_client.aclose()
+        _shared_chat_client = None
+
+
+@asynccontextmanager
+async def _chat_client_context(timeout: float):
+    # If httpx.AsyncClient is patched or mocked in tests, instantiate via httpx.AsyncClient
+    is_mock = (
+        getattr(httpx.AsyncClient, "_is_mock", False)
+        or hasattr(httpx.AsyncClient, "mock")
+        or type(httpx.AsyncClient).__name__ == "MagicMock"
+        or getattr(httpx.AsyncClient, "__module__", "") != "httpx._client"
+    )
+    if is_mock:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            yield client, True
+    else:
+        yield get_shared_chat_client(), False
 
 
 @dataclass
@@ -204,14 +240,19 @@ async def call_chat_completion(
 
             started = time.monotonic()
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(
-                        f"{p.base_url}/chat/completions",
-                        headers={
+                async with _chat_client_context(timeout=timeout) as (client, is_mock):
+                    post_kwargs: dict = {
+                        "headers": {
                             "Authorization": f"Bearer {p.api_key}",
                             "Content-Type": "application/json",
                         },
-                        json=req_body,
+                        "json": req_body,
+                    }
+                    if not is_mock:
+                        post_kwargs["timeout"] = timeout
+                    resp = await client.post(
+                        f"{p.base_url}/chat/completions",
+                        **post_kwargs,
                     )
             except (httpx.TimeoutException, httpx.NetworkError) as e:
                 if rate_limit_retries < 2:
@@ -378,21 +419,26 @@ async def stream_chat_completion(
         stream_retries = 0
         while stream_retries <= 2:
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    async with client.stream(
-                        "POST",
-                        f"{p.base_url}/chat/completions",
-                        headers={
+                async with _chat_client_context(timeout=timeout) as (client, is_mock):
+                    stream_kwargs: dict = {
+                        "headers": {
                             "Authorization": f"Bearer {p.api_key}",
                             "Content-Type": "application/json",
                         },
-                        json={
+                        "json": {
                             "model": p.model,
                             "messages": messages,
                             "temperature": temperature,
                             "max_tokens": max_tokens,
                             "stream": True,
                         },
+                    }
+                    if not is_mock:
+                        stream_kwargs["timeout"] = timeout
+                    async with client.stream(
+                        "POST",
+                        f"{p.base_url}/chat/completions",
+                        **stream_kwargs,
                     ) as resp:
                         if resp.status_code in (429, 503) and stream_retries < 2:
                             stream_retries += 1

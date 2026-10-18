@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
-import { getApiBase, authFetch } from "@/lib/api-client";
+import { getApiBase, authFetch, api } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { UserMenu } from "@/components/UserMenu";
 import { desktop } from "@/lib/desktop";
@@ -54,8 +54,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     const fetchDevices = (force = false) => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (!force && typeof window !== "undefined" && window.innerWidth < 1024 && !open) return;
-      authFetch(`${getApiBase()}/api/devices`)
-        .then((r) => r.json())
+      api.getDevices()
         .then((devs) => {
           if (!Array.isArray(devs)) return;
           setTotalDevices(devs.length);
@@ -84,10 +83,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (!force && typeof window !== "undefined" && window.innerWidth < 1024 && !open) return;
       try {
-        const { api } = await import("@/lib/api-client");
-        const data = await api.getTodos();
-        const counts = data.counts as Record<string, number> | undefined;
-        const openTodos = typeof counts?.open === "number" ? counts.open : (Array.isArray(data.open) ? data.open.length : 0);
+        const data = (await api.getTodos()) as { counts?: Record<string, number>; open?: unknown[] };
+        const counts = data?.counts;
+        const openTodos = typeof counts?.open === "number" ? counts.open : (Array.isArray(data?.open) ? data.open.length : 0);
         setTodoCount(openTodos);
       } catch {}
     };

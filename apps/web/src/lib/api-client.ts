@@ -525,6 +525,9 @@ export const api = {
   /** fields: title / detail / project / due ("" clears) / status (open | done | dropped) */
   updateTodo: (id: string, fields: Json) => put(`/api/todos/${id}`, fields),
 
+  // === Devices ===
+  getDevices: () => apiFetch<DeviceSummary[]>("/api/devices"),
+
   // === Push notifications ===
   getNotifySettings: () => fresh<Json>("/api/notify/settings"),
   updateNotifySettings: (fields: Json) => put("/api/notify/settings", fields),

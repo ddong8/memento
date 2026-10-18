@@ -80,7 +80,9 @@ jobs:
           context: .
           file: ${{ matrix.target.file }}
           push: true
-          build-args: ${{ matrix.target.has_geoip && format('GIT_SHA={0}\nGEOIP_MONTH={1}', steps.vars.outputs.sha, steps.vars.outputs.geoip_month) || '' }}
+          build-args: |
+            GIT_SHA=${{ steps.vars.outputs.sha }}
+            ${{ matrix.target.has_geoip && format('GEOIP_MONTH={0}', steps.vars.outputs.geoip_month) || '' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:latest
@@ -145,7 +147,7 @@ jobs:
           SHA_SHORT="${SHA:0:12}"
           for i in $(seq 1 60); do
             live=$(curl -fsS --max-time 10 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
-            if [ "$live" = "$SHA_SHORT" ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
+            if [ "$live" = "$SHA_SHORT" ] || [[ "$live" == *"$SHA_SHORT"* ]]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
             echo "线上版本 ${live:-无响应},等待 $SHA_SHORT ..."
             sleep 15
           done

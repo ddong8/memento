@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -92,6 +92,211 @@ export function getAntigravityWorkspaces(home = homeDir()): string[] {
     if (s.workspacePath) seen.add(s.workspacePath);
   }
   return Array.from(seen);
+}
+
+const JUNK_TITLE_SET = new Set([
+  "",
+  "start",
+  "starting conversation",
+  "starting the conversation",
+  "starting the conversation...",
+  "untitled",
+  "unknown",
+  "transcript",
+  "transcript.jsonl",
+  "conversation",
+  "新对话",
+  "新会话",
+  "新建对话",
+]);
+
+const JUNK_PREFIXES = [
+  "starting the conversation",
+  "starting conversation",
+  "new conversation",
+  "agent-",
+  "subagent-",
+  "workflow-",
+  "wf_",
+  "wf-",
+  "prompt-",
+  "run-",
+  "rollout-",
+  "this session is being continued from a previous conversation",
+  "the following is the codex agent history",
+  "<recommended_plugins>",
+  "<environment_context>",
+  "<turn_aborted>",
+  "[request interrupted",
+  "[interrupted",
+  "request interrupted",
+  "turn aborted",
+  "<ide_opened_file>",
+  "<user_request>",
+];
+
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+export function isJunkAntigravityTitle(title?: string | null, sessionId?: string): boolean {
+  if (!title) return true;
+  const t = title.trim();
+  if (!t) return true;
+  const lower = t.toLowerCase();
+  if (JUNK_TITLE_SET.has(lower)) return true;
+  for (const p of JUNK_PREFIXES) {
+    if (lower.startsWith(p)) return true;
+  }
+  if (t.startsWith("{") || t.startsWith("[{") || t.startsWith('{"')) return true;
+  if (/^\\[dswDSWbB]/.test(t) || t.includes("(.*?)") || t.startsWith("<") || t.startsWith("re.search")) return true;
+  if (t.endsWith(".jsonl") || t.endsWith(".json") || t.endsWith(".pbtxt") || t.endsWith(".sqlite") || t.endsWith(".md")) return true;
+  if (UUID_RE.test(t)) return true;
+  if (sessionId && (t === sessionId || t === sessionId.slice(0, 8))) return true;
+  return false;
+}
+
+export function extractUserTitleFromText(text: string): string | undefined {
+  if (!text) return undefined;
+  let cleaned = text;
+  cleaned = cleaned.replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, "");
+  cleaned = cleaned.replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/gi, "");
+  cleaned = cleaned.replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/gi, "");
+  cleaned = cleaned.replace(/<system>[\s\S]*?<\/system>/gi, "");
+  const reqMatch = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i.exec(cleaned);
+  if (reqMatch?.[1]) {
+    cleaned = reqMatch[1];
+  }
+  cleaned = cleaned.replace(/\\n/g, "\n").replace(/\\r/g, "").trim();
+  const firstLine = cleaned.split("\n")[0]?.trim();
+  if (!firstLine) return undefined;
+  const cand = firstLine.slice(0, 60).trim();
+  if (!cand || isJunkAntigravityTitle(cand)) return undefined;
+  return cand;
+}
+
+export function extractTitleFromTranscript(linesOrFilePath: string[] | string): string | undefined {
+  let lines: string[] = [];
+  if (Array.isArray(linesOrFilePath)) {
+    lines = linesOrFilePath;
+  } else if (typeof linesOrFilePath === "string" && existsSync(linesOrFilePath)) {
+    try {
+      const content = readFileSync(linesOrFilePath, "utf8");
+      lines = content.split("\n");
+    } catch {
+      return undefined;
+    }
+  }
+
+  for (const line of lines.slice(0, 50)) {
+    if (!line.trim()) continue;
+    try {
+      const step = JSON.parse(line) as {
+        source?: string;
+        type?: string;
+        content?: unknown;
+      };
+      if (step && typeof step.content === "string") {
+        if (step.type === "USER_INPUT" || step.source === "USER_EXPLICIT") {
+          const cand = extractUserTitleFromText(step.content);
+          if (cand) return cand;
+        }
+      }
+    } catch {
+      const cand = extractUserTitleFromText(line);
+      if (cand) return cand;
+    }
+  }
+  return undefined;
+}
+
+export function updateAntigravitySessionTitle(sessionId: string, newTitle: string, home = homeDir()): boolean {
+  if (!sessionId || !newTitle || isJunkAntigravityTitle(newTitle, sessionId)) return false;
+  const trimmedTitle = newTitle.trim().slice(0, 100);
+  let updatedDb = false;
+
+  const dbPath = join(home, ".gemini", "antigravity", "conversation_summaries.db");
+  if (existsSync(dbPath)) {
+    try {
+      const pyBin = process.platform === "win32" ? "python" : "python3";
+      const script = "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); conn.execute('UPDATE conversation_summaries SET title = ? WHERE conversation_id = ?;', (sys.argv[2], sys.argv[3])); conn.commit(); conn.close()";
+      execFileSync(pyBin, ["-c", script, dbPath, trimmedTitle, sessionId], {
+        encoding: "utf8",
+        timeout: 5000,
+        windowsHide: true,
+      });
+      updatedDb = true;
+    } catch {
+      try {
+        const sqliteBin = process.platform === "darwin" ? "/usr/bin/sqlite3" : "sqlite3";
+        const escapedTitle = trimmedTitle.replace(/'/g, "''");
+        const escapedCid = sessionId.replace(/'/g, "''");
+        execFileSync(
+          sqliteBin,
+          [dbPath, `UPDATE conversation_summaries SET title = '${escapedTitle}' WHERE conversation_id = '${escapedCid}';`],
+          { encoding: "utf8", timeout: 5000, windowsHide: true }
+        );
+        updatedDb = true;
+      } catch {
+        // ignore db update error
+      }
+    }
+  }
+
+  summariesCache = undefined;
+
+  try {
+    const annDir = join(home, ".gemini", "antigravity", "annotations");
+    if (!existsSync(annDir)) {
+      mkdirSync(annDir, { recursive: true });
+    }
+    const annPath = join(annDir, `${sessionId}.pbtxt`);
+    const escapedForPbtxt = trimmedTitle.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    writeFileSync(annPath, `title:"${escapedForPbtxt}"\n`, "utf8");
+  } catch {
+    // ignore annotation write failure
+  }
+
+  return updatedDb;
+}
+
+export function healAntigravitySession(
+  sessionId: string,
+  linesOrFilePath: string[] | string,
+  currentTitle?: string,
+  home = homeDir()
+): string | undefined {
+  if (currentTitle && !isJunkAntigravityTitle(currentTitle, sessionId)) {
+    return currentTitle;
+  }
+
+  let cand = extractTitleFromTranscript(linesOrFilePath);
+  if (!cand && Array.isArray(linesOrFilePath)) {
+    const transcriptFile = join(home, ".gemini", "antigravity", "brain", sessionId, ".system_generated", "logs", "transcript.jsonl");
+    if (existsSync(transcriptFile)) {
+      cand = extractTitleFromTranscript(transcriptFile);
+    }
+  }
+
+  if (cand) {
+    updateAntigravitySessionTitle(sessionId, cand, home);
+    return cand;
+  }
+
+  return undefined;
+}
+
+export async function healAllAntigravitySessions(home = homeDir()): Promise<number> {
+  const map = loadSummariesMap(home);
+  let count = 0;
+  for (const [cid, info] of map.entries()) {
+    if (!info.title || isJunkAntigravityTitle(info.title, cid)) {
+      const transcriptFile = join(home, ".gemini", "antigravity", "brain", cid, ".system_generated", "logs", "transcript.jsonl");
+      if (existsSync(transcriptFile)) {
+        const healed = healAntigravitySession(cid, transcriptFile, undefined, home);
+        if (healed) count++;
+      }
+    }
+  }
+  return count;
 }
 
 

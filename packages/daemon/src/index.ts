@@ -1,4 +1,5 @@
 export * from "./agent-stream.js";
+export * from "./antigravity.js";
 export * from "./autostart.js";
 export * from "./capabilities.js";
 export * from "./config.js";

@@ -4,7 +4,7 @@ import { basename, dirname, extname, join } from "node:path";
 
 import { homeDir, type CollectorConfig } from "./config.js";
 import { cleanPath, decodeClaudeDir, isInvalidProjectName, type DiscoveredTool } from "./discovery.js";
-import { getAntigravitySessionInfo } from "./antigravity.js";
+import { getAntigravitySessionInfo, healAntigravitySession, healAllAntigravitySessions, isJunkAntigravityTitle } from "./antigravity.js";
 import type { IngestClient } from "./ingest.js";
 import { contentHash } from "./sanitizer.js";
 
@@ -156,7 +156,9 @@ function sessionMetadata(
     // 1. Direct from official SQLite conversation_summaries.db
     const summary = getAntigravitySessionInfo(sessionId, home);
     if (summary) {
-      if (summary.title) title = summary.title;
+      if (summary.title && !isJunkAntigravityTitle(summary.title, sessionId)) {
+        title = summary.title;
+      }
       if (summary.workspacePath) setProject(cleanPath(summary.workspacePath));
     }
 
@@ -165,11 +167,20 @@ function sessionMetadata(
       try {
         const ann = readFileSync(join(home, ".gemini", "antigravity", "annotations", `${sessionId}.pbtxt`), "utf8");
         const t = /title:\s*"([^"]+)"/.exec(ann)?.[1]?.trim();
-        if (t && !t.endsWith(".pbtxt")) title = t;
+        if (t && !t.endsWith(".pbtxt") && !isJunkAntigravityTitle(t, sessionId)) {
+          title = t;
+        }
       } catch {
         // no annotation
       }
     }
+
+    // 3. Auto-heal: If title is still missing or junk, extract from transcript and auto write back to Antigravity
+    if (!title && sessionId) {
+      const healed = healAntigravitySession(sessionId, lines.length ? lines : filePath, undefined, home);
+      if (healed) title = healed;
+    }
+
     if (!cwd) {
       try {
         const db = readFileSync(join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`)).toString("utf8");
@@ -315,9 +326,11 @@ export class FileWatcher {
       this.watchDir(dir, toolId);
       void this.scan(dir, toolId);
     }
+    void healAllAntigravitySessions().catch(() => {});
     // Catch anything missed while offline or during a watcher hiccup.
     this.rescan = setInterval(() => {
       for (const [dir, toolId] of targets) void this.scan(dir, toolId);
+      void healAllAntigravitySessions().catch(() => {});
     }, RESCAN_MS);
     this.rescan.unref?.();
   }

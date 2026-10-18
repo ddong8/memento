@@ -240,7 +240,7 @@ export default function PublicSharePage() {
       {payload.kind === "conversation" && <ConversationShareView data={payload.data} locale={locale} t={t} />}
 
       <div style={{ marginTop: 40, textAlign: "center", fontSize: 11, color: "var(--aurora-fg4)" }}>
-        Powered by Memento · <a href="/" style={{ color: "var(--aurora-accent)" }}>memento</a>
+        Powered by Memento · <Link href="/" style={{ color: "var(--aurora-accent)" }}>memento</Link>
       </div>
     </div>
   );

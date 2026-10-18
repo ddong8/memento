@@ -7,8 +7,10 @@
     "apps/*"
   ],
   "scripts": {
-    "gen:api": "npm run gen:api -w @memento/core",
+    "build": "npm run build:core && npm run build -w web && npm run build -w @memento/desktop",
     "build:core": "npm run build -w @memento/core",
+    "lint": "npm run lint --workspaces --if-present",
+    "gen:api": "npm run gen:api -w @memento/core",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present"
   },

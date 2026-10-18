@@ -15,13 +15,16 @@ const SidebarContext = createContext<SidebarContextValue>({
 });
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [collapsed, setCollapsedState] = useState(false);
+  const [collapsed, setCollapsedState] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("memento_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("memento_sidebar_collapsed");
-      if (saved === "true") setCollapsedState(true);
-    } catch {}
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd+B / Ctrl+B to toggle sidebar on desktop

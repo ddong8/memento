@@ -338,6 +338,12 @@ async def semantic_search(
 
     mids = await user_machine_ids(db, _user)
 
+    clean_q = q.strip().lower()
+    cache_key = f"semantic:{_user.id}:{clean_q}:{limit}:{tool_filter or ''}:{days or ''}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     # 30s timeout: the embedding server is CPU-only on Apple Silicon
     # (MPS deliberately avoided — see _load_model in embedding/embedding_server.py for the
     # macOS kernel deadlock). A cold-cached query + 4kB Chinese tokenize
@@ -391,7 +397,9 @@ async def semantic_search(
         if len(seen) >= limit:
             break
 
-    return {"results": list(seen.values())}
+    res = {"results": list(seen.values())}
+    await cache_set(cache_key, res, ttl_seconds=300)
+    return res
 
 
 # ---------------------------------------------------------------------------

@@ -1770,8 +1770,6 @@ function AskPageContent() {
     let isMounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    let wasHidden = false;
-
     const checkServerRun = async (forceRefreshWhenIdle = false) => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
@@ -3706,7 +3704,7 @@ function AskPageContent() {
       abortRef.current?.abort();
       streamingRef.current = false;
       // 优先从已有的 AskConversations 中寻找关联该底层 session 的真正 Ask 会话，避免将 Document ID 误作为 AskConversation ID
-      let matchedAskConv = conversations.find(
+      const matchedAskConv = conversations.find(
         (c) => c.config?.session_id === sid || c.id === sid
       );
       if (matchedAskConv) {

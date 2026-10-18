@@ -128,9 +128,8 @@ jobs:
       - name: web · routes not shadowed by API paths in the proxies
         run: node scripts/check-web-routes.mjs
 
-      - name: web · typecheck & build
+      - name: web · typecheck & build & lint
         run: |
           npm run build -w web
           npm run typecheck -w web
-      # Note: separate `npm run lint` 被 next.config 的 eslint.ignoreDuringBuilds
-      # 一并绕过; React 19 hook 新规则产生的 18 个报错需单独整治后再恢复 lint gate。
+          npm run lint -w web

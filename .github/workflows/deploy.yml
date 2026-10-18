@@ -44,9 +44,20 @@ env:
 
 jobs:
   build:
+    name: build · ${{ matrix.target.name }}
     runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.vars.outputs.sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: server
+            file: server/Dockerfile
+            image: memento-server
+            has_geoip: true
+          - name: web
+            file: apps/web/Dockerfile
+            image: memento-web
+            has_geoip: false
     steps:
       - uses: actions/checkout@v4
 
@@ -63,34 +74,18 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── server(context=仓库根,COPY server/ deploy/bootstrap/ data/updates/)──
-      - name: Build & push server
+      - name: Build & push ${{ matrix.target.name }}
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: server/Dockerfile
+          file: ${{ matrix.target.file }}
           push: true
-          build-args: |
-            GIT_SHA=${{ steps.vars.outputs.sha }}
-            GEOIP_MONTH=${{ steps.vars.outputs.geoip_month }}
+          build-args: ${{ matrix.target.has_geoip && format('GIT_SHA={0}\nGEOIP_MONTH={1}', steps.vars.outputs.sha, steps.vars.outputs.geoip_month) || '' }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-server:${{ steps.vars.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-server:latest
-          cache-from: type=gha,scope=server
-          cache-to: type=gha,mode=max,scope=server
-
-      # ── web(context=仓库根:npm workspace,依赖 packages/core)──
-      - name: Build & push web
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/web/Dockerfile
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-web:${{ steps.vars.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-web:latest
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.target.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
 
   bump:
     needs: build
@@ -108,22 +103,23 @@ jobs:
 
       - name: Pin image tags & push (triggers Fleet)
         env:
-          SHA: ${{ needs.build.outputs.sha }}
+          SHA: ${{ github.sha }}
         run: |
+          SHA_SHORT="${SHA:0:12}"
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           ( cd deploy/k8s && kustomize edit set image \
-              "${REGISTRY}/${OWNER}/memento-server=${REGISTRY}/${OWNER}/memento-server:${SHA}" \
-              "${REGISTRY}/${OWNER}/memento-web=${REGISTRY}/${OWNER}/memento-web:${SHA}" )
+              "${REGISTRY}/${OWNER}/memento-server=${REGISTRY}/${OWNER}/memento-server:${SHA_SHORT}" \
+              "${REGISTRY}/${OWNER}/memento-web=${REGISTRY}/${OWNER}/memento-web:${SHA_SHORT}" )
           # 断言 tag 确实回写成功
-          grep -q "memento-server" deploy/k8s/kustomization.yaml && grep -q "${SHA}" deploy/k8s/kustomization.yaml \
+          grep -q "memento-server" deploy/k8s/kustomization.yaml && grep -q "${SHA_SHORT}" deploy/k8s/kustomization.yaml \
             || { echo "镜像 tag 回写失败"; exit 1; }
           git add deploy/k8s/kustomization.yaml
           if git diff --cached --quiet; then
             echo "镜像 tag 未变,跳过提交"
             exit 0
           fi
-          git commit -m "ci(deploy): memento 镜像 -> ${SHA} [skip ci]"
+          git commit -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} [skip ci]"
           # 串行 run 之间可能有新 commit 落到 main,push 前先 rebase,失败重试
           for i in 1 2 3; do
             if git pull --rebase origin main && git push; then
@@ -144,13 +140,14 @@ jobs:
     steps:
       - name: Wait for production to run this commit
         env:
-          SHA: ${{ needs.build.outputs.sha }}
+          SHA: ${{ github.sha }}
         run: |
+          SHA_SHORT="${SHA:0:12}"
           for i in $(seq 1 60); do
             live=$(curl -fsS --max-time 10 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
-            if [ "$live" = "$SHA" ]; then echo "线上已是 $SHA"; exit 0; fi
-            echo "线上版本 ${live:-无响应},等待 $SHA ..."
+            if [ "$live" = "$SHA_SHORT" ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
+            echo "线上版本 ${live:-无响应},等待 $SHA_SHORT ..."
             sleep 15
           done
-          echo "::error::15 分钟内线上没有切到 $SHA。先看 kubectl -n fleet-local get gitrepo memento,Stalled 时按 CLAUDE.md 强制重同步(forceSyncGeneration+1)"
+          echo "::error::15 分钟内线上没有切到 $SHA_SHORT。先看 kubectl -n fleet-local get gitrepo memento,Stalled 时按 CLAUDE.md 强制重同步(forceSyncGeneration+1)"
           exit 1

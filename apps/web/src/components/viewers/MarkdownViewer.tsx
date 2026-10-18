@@ -382,16 +382,17 @@ const MarkdownViewer = memo(function MarkdownViewer({
                  getFilenameFromUrl(inspector.activeMedia.url) === getFilenameFromUrl(cleanHref))
               );
 
-              // 当处于 AskPage 三栏视窗环境（inspector 存在）或设置了 compactMedia / 重复媒体时：
-              // 统一渲染精致微章卡片，杜绝在对话气泡中内嵌重复大播放器，把播放完整交给右侧第3栏视窗
-              if (inspector || compactMedia || isDuplicate || isCurrentlyInspected) {
+              // 仅在桌面端大屏三栏模式下（width >= 1024 且 inspector 处于常驻分栏环境）统一收敛为徽章；
+              // 在移动端（如 iOS/Android）因无侧边分栏，在消息气泡中直接呈现内嵌播放器，让用户在手机上即刻看到并播放视频
+              const isDesktopDocked = typeof window !== "undefined" && window.innerWidth >= 1024;
+              if ((isDesktopDocked && inspector) || compactMedia || isDuplicate) {
                 return (
                   <div className="not-prose my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-colors hover:border-[var(--aurora-accent)]">
                     <span className="text-[var(--aurora-accent)] font-semibold">🎬</span>
                     <span className="font-medium truncate max-w-[240px]" title={label}>{label}</span>
                     {isCurrentlyInspected && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
-                        已在右侧视窗展示
+                        已在视窗展示
                       </span>
                     )}
                     <button
@@ -403,7 +404,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
                       }}
                       className="ml-1 text-[var(--aurora-accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap"
                     >
-                      {isCurrentlyInspected ? "对焦视窗 ↗" : "在右侧独立视窗播放 ↗"}
+                      {isCurrentlyInspected ? "对焦视窗 ↗" : isDesktopDocked ? "在右侧独立视窗播放 ↗" : "在视窗中打开 ↗"}
                     </button>
                   </div>
                 );

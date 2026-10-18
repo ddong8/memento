@@ -348,6 +348,7 @@ function AskPageContent() {
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
+  const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
 
   const filteredConversations = useMemo(() => {
     const q = historySearchQuery.trim().toLowerCase();
@@ -613,7 +614,7 @@ function AskPageContent() {
   const rafIdRef = useRef<number>(0);
   const turnsDirtyRef = useRef(false);
 
-  const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(true);
+  const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(false);
 
   // Load conversation list
   const loadConversations = useCallback(async (filterDev?: boolean) => {
@@ -4080,14 +4081,16 @@ function AskPageContent() {
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        {/* 对话区顶部 Bar */}
-        <header className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none overflow-hidden">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 overflow-hidden mr-1 sm:mr-2">
+        <header className="px-2 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2">
             <Btn
               variant="glass"
               size="sm"
               icon="clock"
-              onClick={() => setHistoryOpen(true)}
+              onClick={() => {
+                setHistoryOpen(true);
+                void loadConversations();
+              }}
               title={isZh ? "查看历史对话" : "View history"}
               className="shrink-0"
             >
@@ -4095,7 +4098,7 @@ function AskPageContent() {
               {conversations.length > 0 && (
                 <span
                   style={{
-                    fontSize: 11,
+                    fontSize: 10.5,
                     padding: "1px 5px",
                     borderRadius: 999,
                     background: "var(--aurora-chip)",
@@ -4118,7 +4121,7 @@ function AskPageContent() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
             {/* 工作台独立视窗快捷开关 (若对话中有文档、视频或照片，高亮并提示) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
@@ -4135,7 +4138,7 @@ function AskPageContent() {
                     <span className="hidden xl:inline">
                       {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
                     </span>
-                    <span className="xl:hidden">{isZh ? "工作台" : "Desk"}</span>
+                    <span className="hidden sm:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
@@ -4207,8 +4210,10 @@ function AskPageContent() {
             >
               <span className="hidden xl:inline">{t.ask.newChat}</span>
             </Btn>
+
+            {/* 桌面端大屏幕平铺操作按钮 (>= md) */}
             {activeConversationId && turns.length > 0 && (
-              <>
+              <div className="hidden md:flex items-center gap-1 sm:gap-1.5">
                 <Btn
                   variant={selectTurnsMode ? "primary" : "glass"}
                   size="sm"
@@ -4242,7 +4247,7 @@ function AskPageContent() {
                 >
                   <span className="hidden xl:inline">{isZh ? "分享" : "Share"}</span>
                 </Btn>
-              </>
+              </div>
             )}
             {turns.length > 0 && (
               <Btn
@@ -4254,10 +4259,90 @@ function AskPageContent() {
                   abortRef.current?.abort();
                   setTurns([]);
                 }}
-                className="shrink-0"
+                className="hidden md:inline-flex shrink-0"
               >
                 <span className="hidden xl:inline">{t.ask.clear}</span>
               </Btn>
+            )}
+
+            {/* 移动端折叠更多菜单 (< md 屏幕) */}
+            {turns.length > 0 && (
+              <div className="relative md:hidden shrink-0">
+                <Btn
+                  variant={selectTurnsMode ? "primary" : "glass"}
+                  size="sm"
+                  icon="more"
+                  onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                  title={isZh ? "更多会话操作" : "More actions"}
+                  className="shrink-0"
+                />
+
+                {moreMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setMoreMenuOpen(false)}
+                    />
+                    <div
+                      className="absolute right-0 top-10 z-50 min-w-[170px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
+                    >
+                      {activeConversationId && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectTurnsMode(!selectTurnsMode);
+                              setSelectedTurnIndices([]);
+                              setMoreMenuOpen(false);
+                            }}
+                            className={`px-3 py-2 text-xs flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left ${
+                              selectTurnsMode ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
+                            }`}
+                          >
+                            <Icon name="layers" size={15} />
+                            <span>{selectTurnsMode ? (isZh ? "退出多选模式" : "Exit selection") : (isZh ? "批量多选消息" : "Select messages")}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleExportMarkdown();
+                              setMoreMenuOpen(false);
+                            }}
+                            className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
+                          >
+                            <Icon name="download" size={15} />
+                            <span>{isZh ? "导出 Markdown 研报" : "Export Markdown"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              openSingleShare(activeConversationId, displayConvTitle);
+                              setMoreMenuOpen(false);
+                            }}
+                            className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
+                          >
+                            <Icon name="share" size={15} />
+                            <span>{isZh ? "分享完整会话" : "Share conversation"}</span>
+                          </button>
+                          <div className="my-1 border-t border-[var(--aurora-border)]" />
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          abortRef.current?.abort();
+                          setTurns([]);
+                          setMoreMenuOpen(false);
+                        }}
+                        className="px-3 py-2 text-xs flex items-center gap-2.5 text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                      >
+                        <Icon name="trash" size={15} />
+                        <span>{isZh ? "清空当前消息" : "Clear conversation"}</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </header>
@@ -6376,32 +6461,12 @@ function AskPageContent() {
               </div>
 
               {selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only" && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setHistoryFilterDevice(true);
-                      loadConversations(true);
-                    }}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 14,
-                      fontSize: 11.5,
-                      fontWeight: historyFilterDevice ? 600 : 400,
-                      cursor: "pointer",
-                      border: "1px solid",
-                      borderColor: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
-                      background: historyFilterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
-                      color: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                    }}
-                  >
-                    🖥️ 当前设备 ({devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8)})
-                  </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => {
                       setHistoryFilterDevice(false);
-                      loadConversations(false);
+                      void loadConversations(false);
                     }}
                     style={{
                       padding: "4px 10px",
@@ -6416,6 +6481,26 @@ function AskPageContent() {
                     }}
                   >
                     🌐 全部设备
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistoryFilterDevice(true);
+                      void loadConversations(true);
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 14,
+                      fontSize: 11.5,
+                      fontWeight: historyFilterDevice ? 600 : 400,
+                      cursor: "pointer",
+                      border: "1px solid",
+                      borderColor: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
+                      background: historyFilterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                      color: historyFilterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                    }}
+                  >
+                    🖥️ 当前设备 ({devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8)})
                   </button>
                 </div>
               )}

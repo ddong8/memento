@@ -5,6 +5,8 @@ __pycache__/
 .venv/
 dist/
 build/
+.pytest_cache/
+.ruff_cache/
 
 # Node
 node_modules/

@@ -407,7 +407,10 @@ memento/
 │   └── mcp/                  # @memento/mcp: MCP memory server (ships with the desktop app)
 ├── apps/
 │   ├── desktop/              # Electron desktop app (Memento)
-│   └── mobile/               # Expo mobile app (Memento)
+│   ├── mobile/               # Expo mobile app (Memento)
+│   └── web/                  # Next.js 16 frontend
+│       ├── src/app/          # 18+ pages
+│       └── src/components/   # Aurora design system
 ├── server/                   # Backend FastAPI
 │   └── server/
 │       ├── main.py           # entry + schema migrations + validate_production
@@ -417,9 +420,6 @@ memento/
 │       ├── db/               # 16 tables
 │       ├── services/         # ingest / embedding / graph / cache / geoip
 │       └── tasks/            # Celery worker + beat
-├── web/                      # Next.js 16 frontend
-│   ├── src/app/              # 18+ pages
-│   └── src/components/       # Aurora design system
 ├── embedding/                # BGE-M3 host service
 ├── scripts/                  # install.py backend + utility scripts
 ├── deploy/bootstrap/         # curl one-shot installer (install.sh / .ps1 / index.html)

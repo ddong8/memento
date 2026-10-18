@@ -22,7 +22,7 @@ on:
     paths:
       - "server/**"
       - "deploy/bootstrap/**"
-      - "web/**"
+      - "apps/web/**"
       - "packages/**"
       - "package.json"
       - "package-lock.json"
@@ -84,7 +84,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: web/Dockerfile
+          file: apps/web/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/memento-web:${{ steps.vars.outputs.sha }}

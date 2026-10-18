@@ -10,9 +10,9 @@
 .env.*
 !.env.example
 node_modules
-web/node_modules
-web/.next
-web/dist
+apps/web/node_modules
+apps/web/.next
+apps/web/dist
 *.dist
 *.log
 .DS_Store
@@ -22,4 +22,5 @@ web/dist
 # desktop/mobile apps aren't part of any server-side image.
 packages/*/node_modules
 packages/*/dist
-apps
+apps/desktop
+apps/mobile

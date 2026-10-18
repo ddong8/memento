@@ -20,8 +20,8 @@ function apiPaths() {
   return [...paths];
 }
 
-/** First path segment of every page under web/src/app (route groups and dynamic segments skipped). */
-function webRoutes(dir = join(root, "web/src/app")) {
+/** First path segment of every page under apps/web/src/app (route groups and dynamic segments skipped). */
+function webRoutes(dir = join(root, "apps/web/src/app")) {
   return readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && !/^[(_[@]/.test(e.name))
     .map((e) => `/${e.name}`);

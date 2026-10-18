@@ -4,8 +4,7 @@
   "description": "Memento monorepo: shared TypeScript packages, web, desktop and mobile clients",
   "workspaces": [
     "packages/*",
-    "apps/*",
-    "web"
+    "apps/*"
   ],
   "scripts": {
     "gen:api": "npm run gen:api -w @memento/core",

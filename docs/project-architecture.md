@@ -118,16 +118,11 @@ memento/
 │
 ├── apps/
 │   ├── desktop/           # Electron 桌面端：网页界面 + utilityProcess 里的守护进程 + 托盘 + 自动更新
-│   └── mobile/            # Expo 手机端
-│
-├── embedding/              # 自托管用的 BGE-M3 向量服务(线上改用硅基流动 API)
-│   ├── Dockerfile         # Docker 版本
-│   └── embedding_server.py # HTTP /embed + /health（Docker 和 --native 宿主服务共用）
-│
-├── web/                    # Next.js 前端
-│   ├── src/
-│   │   ├── app/           # 21 个页面
-│   │   │   ├── page.tsx               # 产品落地页(未登录可访问)
+│   ├── mobile/            # Expo 手机端
+│   └── web/               # Next.js 前端
+│       ├── src/
+│       │   ├── app/       # 21 个页面
+│       │   │   ├── page.tsx               # 产品落地页(未登录可访问)
 │   │   │   ├── app/                   # Dashboard(登录后主面板)
 │   │   │   ├── auth/login/            # 登录
 │   │   │   ├── auth/register/         # 注册(首个用户 = owner,直显 token)
@@ -163,6 +158,10 @@ memento/
 │   │       └── i18n/                 # 中英文国际化
 │   ├── Dockerfile
 │   └── package.json
+│
+├── embedding/              # 自托管用的 BGE-M3 向量服务(线上改用硅基流动 API)
+│   ├── Dockerfile         # Docker 版本
+│   └── embedding_server.py # HTTP /embed + /health（Docker 和 --native 宿主服务共用）
 │
 ├── docs/                   # 文档
 │   └── project-architecture.md    # 本文档

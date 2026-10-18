@@ -7,7 +7,7 @@
 
 正确流程:**改代码 → push 到 main → GitHub Actions 自动构建镜像推 GHCR → 自动回写 kustomization 镜像 tag → Fleet 检测到 → 集群拉新镜像滚动。** 你只需提交代码。
 
-- 触发路径:push main 改 `server/**` / `web/**` / `packages/**` / `deploy/bootstrap/**` 等(完整列表见 deploy.yml 的 `on.push.paths`)。
+- 触发路径:push main 改 `server/**` / `apps/web/**` / `packages/**` / `deploy/bootstrap/**` 等(完整列表见 deploy.yml 的 `on.push.paths`)。
 - 构建镜像:`ghcr.io/ddong8/memento-{server,web}`(**公开** GHCR)。
 - **公开仓库 → 不要往仓库里放任何 Secret**;postgres / redis / minio 与 Secret 都在集群内手工维护、不进仓库,deploy/k8s 里只引用。
 

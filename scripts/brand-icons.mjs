@@ -58,7 +58,7 @@ async function render(svg, size, out) {
 
 const desktop = join(root, "apps/desktop");
 const mobileExpo = join(root, "apps/mobile/assets");
-const webPublic = join(root, "web/public");
+const webPublic = join(root, "apps/web/public");
 
 // 1. Desktop app icons (macOS Big Sur 824/1024 grid margin: pad 6.25 of 64)
 await render(rounded(6.25), 1024, join(desktop, "build/icon.png"));

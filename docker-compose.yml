@@ -222,7 +222,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: web/Dockerfile
+      dockerfile: apps/web/Dockerfile
     container_name: memento_web
     restart: unless-stopped
     ports:

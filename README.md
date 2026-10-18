@@ -407,7 +407,10 @@ memento/
 │   └── mcp/                  # @memento/mcp:MCP 记忆服务(随桌面端分发)
 ├── apps/
 │   ├── desktop/              # Electron 桌面端(Memento)
-│   └── mobile/               # Expo 手机端(Memento)
+│   ├── mobile/               # Expo 手机端(Memento)
+│   └── web/                  # Next.js 16 前端
+│       ├── src/app/          # 18+ 页面
+│       └── src/components/   # Aurora 设计系统
 ├── server/                   # 后端 FastAPI
 │   └── server/
 │       ├── main.py           # 入口 + schema 迁移 + validate_production
@@ -417,9 +420,6 @@ memento/
 │       ├── db/               # 16 张表
 │       ├── services/         # ingest / embedding / graph / cache / geoip
 │       └── tasks/            # Celery worker + beat
-├── web/                      # Next.js 16 前端
-│   ├── src/app/              # 18+ 页面
-│   └── src/components/       # Aurora 设计系统
 ├── embedding/                # BGE-M3 宿主服务
 ├── scripts/                  # install.py 后端 + 工具脚本
 ├── deploy/bootstrap/         # curl 一键安装(install.sh / .ps1 / index.html)

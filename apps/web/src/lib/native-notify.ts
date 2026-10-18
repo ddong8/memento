@@ -9,6 +9,8 @@
  * 4. In-App Glass Toast Fallback (when system notifications are blocked or in Do Not Disturb)
  */
 
+import { api } from "./api-client";
+
 export type NotificationPermissionState = "granted" | "denied" | "default" | "unsupported";
 
 export function getLocalNotificationPermission(): NotificationPermissionState {
@@ -321,13 +323,17 @@ export function startNotificationFeedPoller(): () => void {
   if (_pollerTimer) return () => {};
 
   const poll = async () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     try {
-      const { api } = await import("./api-client");
       const items = await api.getNotificationFeed(_lastSeenTime);
       if (Array.isArray(items) && items.length > 0) {
         for (const item of items) {
           if (!item.id || _seenIds.has(item.id)) continue;
           _seenIds.add(item.id);
+          if (_seenIds.size > 1000) {
+            const first = _seenIds.values().next().value;
+            if (first) _seenIds.delete(first);
+          }
           if (item.created_at && item.created_at > _lastSeenTime) {
             _lastSeenTime = item.created_at;
           }

@@ -21,6 +21,7 @@ saturated, time requests out and mark documents failed for good.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -139,17 +140,36 @@ async def _embed_batch(client: httpx.AsyncClient, batch: list[str], timeout: flo
     return resp.json().get("embeddings", [])
 
 
+_QUERY_EMBED_CACHE: dict[str, list[float]] = {}
+_QUERY_CACHE_MAX_SIZE = 512
+
+
 async def embed_texts(texts: list[str], timeout: float = 120.0, client: httpx.AsyncClient | None = None) -> list[list[float]]:
     """Normalized vectors for ``texts``; raises when the provider fails."""
+    if not texts:
+        return []
     batch_size = 16 if EMBEDDING_PROVIDER == "openai" else 10
     client = client or _get_embedding_client()
+    batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+    if len(batches) == 1:
+        vectors = await _embed_batch(client, batches[0], timeout)
+        if len(vectors) != len(batches[0]):
+            raise ValueError(f"got {len(vectors)} vectors for {len(batches[0])} texts")
+        return [_normalize(v) for v in vectors]
+
+    sem = asyncio.Semaphore(4)
+
+    async def _fetch(b: list[str]) -> list[list[float]]:
+        async with sem:
+            vecs = await _embed_batch(client, b, timeout)
+            if len(vecs) != len(b):
+                raise ValueError(f"got {len(vecs)} vectors for {len(b)} texts")
+            return vecs
+
+    results = await asyncio.gather(*[_fetch(b) for b in batches])
     out: list[list[float]] = []
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i + batch_size]
-        vectors = await _embed_batch(client, batch, timeout)
-        if len(vectors) != len(batch):
-            raise ValueError(f"got {len(vectors)} vectors for {len(batch)} texts")
-        out.extend(_normalize(v) for v in vectors)
+    for vecs in results:
+        out.extend(_normalize(v) for v in vecs)
     return out
 
 
@@ -163,9 +183,22 @@ async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> li
     global _server_available, _last_check_time, _embedding_client
     if _server_available is False and (time.time() - _last_check_time) < 60:
         return None
+
+    is_single_query = len(texts) == 1 and len(texts[0]) <= 500
+    if is_single_query:
+        q_text = texts[0]
+        cached_vec = _QUERY_EMBED_CACHE.get(q_text)
+        if cached_vec is not None:
+            return [[x for x in cached_vec]]
+
     try:
         vectors = await embed_texts(texts, timeout=timeout)
         _server_available = True
+        if is_single_query and vectors and len(vectors) == 1:
+            if len(_QUERY_EMBED_CACHE) >= _QUERY_CACHE_MAX_SIZE:
+                first_k = next(iter(_QUERY_EMBED_CACHE))
+                _QUERY_EMBED_CACHE.pop(first_k, None)
+            _QUERY_EMBED_CACHE[texts[0]] = vectors[0]
         return vectors
     except Exception as e:
         if _embedding_client and not _embedding_client.is_closed:

@@ -4,6 +4,7 @@ documents, and the core memories recalled alongside them.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -74,14 +75,12 @@ async def hybrid_rank(
         async with async_session_factory() as sem_db:
             return await _semantic_doc_ranks(sem_db, q, mids, tool, None, days, want=k)
 
-    sem_res = await _fetch_sem()
+    (sem_res, kw_docs) = await asyncio.gather(_fetch_sem(), _fetch_kw())
     if len(sem_res) == 3:
         sem_order, sem_snippets, sem_sims = sem_res
     else:
         sem_order, sem_snippets = sem_res
         sem_sims = {}
-
-    kw_docs = await _fetch_kw()
 
     kw_rank = {d.id: i for i, d in enumerate(kw_docs)}
     sem_rank = {doc_id: i for i, doc_id in enumerate(sem_order)}

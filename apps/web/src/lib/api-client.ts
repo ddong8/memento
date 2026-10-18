@@ -872,7 +872,7 @@ export const api = {
     return apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" });
   },
   listAskRuns: (recentSeconds = 0) =>
-    apiFetch<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
+    fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
   ensureConversationBySession: (body: {
     session_id: string;
     project_id?: string;

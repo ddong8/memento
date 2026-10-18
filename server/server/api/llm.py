@@ -24,12 +24,21 @@ router = APIRouter(prefix="/api/profile/llm", tags=["llm-profile"])
 PRESETS = [
     {
         "id": "anthropic",
-        "name": "Anthropic 官方 (Claude 3.7 Sonnet)",
+        "name": "Anthropic 官方 (Claude Opus 5.5 / Sonnet 5.5)",
         "icon": "sparkles",
         "base_url": "https://api.anthropic.com/v1",
-        "models": ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
-        "default_model": "claude-3-7-sonnet-20250219",
-        "default_background_model": "claude-3-5-haiku-20241022",
+        "models": [
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-fable-5-1",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-3-7-sonnet-20250219",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+        ],
+        "default_model": "claude-opus-5-5",
+        "default_background_model": "claude-sonnet-5-5",
         "help_url": "https://console.anthropic.com",
     },
     {

@@ -79,76 +79,80 @@ async def get_or_create_conversation(
             except Exception:
                 pass
 
-        # 尝试通过底层 session_id 复用已有 AskConversation，避免续接时重复新开会话
-        effective_sess_id = session_id
-        if not effective_sess_id and conv_id_str:
-            try:
-                doc_cid = uuid.UUID(conv_id_str)
-                doc_item = (await session.execute(
-                    select(Document)
-                    .options(
-                        defer(Document.content),
-                        defer(Document.content_tsv),
-                        defer(Document.rendered_html),
-                    )
-                    .where(Document.id == doc_cid)
-                )).scalars().first()
-                if doc_item:
-                    meta = doc_item.metadata_ or {}
-                    effective_sess_id = meta.get("session_id") or meta.get("cascade_id")
-            except Exception:
-                pass
+        # 尝试通过底层 session_id 复用已有 AskConversation，避免续接时重复新开会话。
+        # 严格铁律：仅在明确传入了 conv_id_str（例如传入的是关联的 Document ID 或需重定向的特定实体）时，
+        # 才尝试复用已有的 AskConversation；如果客户端未传入 conv_id_str，代表是明确的新建对话请求，
+        # 必须创建全新的独立 AskConversation，严禁被历史旧会话反向劫持！
+        if conv_id_str:
+            effective_sess_id = session_id
+            if not effective_sess_id:
+                try:
+                    doc_cid = uuid.UUID(conv_id_str)
+                    doc_item = (await session.execute(
+                        select(Document)
+                        .options(
+                            defer(Document.content),
+                            defer(Document.content_tsv),
+                            defer(Document.rendered_html),
+                        )
+                        .where(Document.id == doc_cid)
+                    )).scalars().first()
+                    if doc_item:
+                        meta = doc_item.metadata_ or {}
+                        effective_sess_id = meta.get("session_id") or meta.get("cascade_id")
+                except Exception:
+                    pass
 
-        if effective_sess_id:
-            try:
-                sess_conv = (await session.execute(
-                    select(AskConversation).where(
-                        (AskConversation.config.op("->>")("session_id") == effective_sess_id) &
-                        ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
-                    ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
-                )).scalars().first()
-
-                if not sess_conv:
-                    # 备选深层匹配：遍历最近的会话，推导检查 session_id
-                    recent_cands = (await session.execute(
+            if effective_sess_id:
+                try:
+                    sess_conv = (await session.execute(
                         select(AskConversation).where(
+                            (AskConversation.config.op("->>")("session_id") == effective_sess_id) &
                             ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
-                        ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(50)
-                    )).scalars().all()
-                    for rc in recent_cands:
-                        rc_cfg, rc_inf = infer_conversation_config(rc)
-                        if rc_cfg.get("session_id") == effective_sess_id or rc_inf.get("session_id") == effective_sess_id:
-                            sess_conv = rc
-                            break
+                        ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
+                    )).scalars().first()
 
-                if sess_conv:
-                    updated = False
-                    cfg = dict(sess_conv.config or {})
-                    if config:
-                        for k, v in config.items():
-                            if v is not None and v != "":
-                                if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
-                                    continue
-                                if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
-                                    continue
-                                if k == "compact_mode":
-                                    continue
-                                cfg[k] = v
-                    cfg["compact_mode"] = False
-                    cfg["session_id"] = effective_sess_id
-                    sess_conv.config = cfg
-                    if device_id and sess_conv.device_id != device_id:
-                        if device_id != "auto" or not sess_conv.device_id:
-                            sess_conv.device_id = device_id
+                    if not sess_conv:
+                        # 备选深层匹配：遍历最近的会话，推导检查 session_id
+                        recent_cands = (await session.execute(
+                            select(AskConversation).where(
+                                ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
+                            ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(50)
+                        )).scalars().all()
+                        for rc in recent_cands:
+                            rc_cfg, rc_inf = infer_conversation_config(rc)
+                            if rc_cfg.get("session_id") == effective_sess_id or rc_inf.get("session_id") == effective_sess_id:
+                                sess_conv = rc
+                                break
+
+                    if sess_conv:
+                        updated = False
+                        cfg = dict(sess_conv.config or {})
+                        if config:
+                            for k, v in config.items():
+                                if v is not None and v != "":
+                                    if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
+                                        continue
+                                    if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
+                                        continue
+                                    if k == "compact_mode":
+                                        continue
+                                    cfg[k] = v
+                        cfg["compact_mode"] = False
+                        cfg["session_id"] = effective_sess_id
+                        sess_conv.config = cfg
+                        if device_id and sess_conv.device_id != device_id:
+                            if device_id != "auto" or not sess_conv.device_id:
+                                sess_conv.device_id = device_id
+                                updated = True
+                        if cwd and sess_conv.cwd != cwd:
+                            sess_conv.cwd = cwd
                             updated = True
-                    if cwd and sess_conv.cwd != cwd:
-                        sess_conv.cwd = cwd
-                        updated = True
-                    sess_conv.updated_at = datetime.now(timezone.utc)
-                    await session.commit()
-                    return sess_conv.id, sess_conv.title, dict(sess_conv.config or {})
-            except Exception:
-                pass
+                        sess_conv.updated_at = datetime.now(timezone.utc)
+                        await session.commit()
+                        return sess_conv.id, sess_conv.title, dict(sess_conv.config or {})
+                except Exception:
+                    pass
 
         # Determine title
         from ..services.ingest_service import _is_junk_or_uuid_title
@@ -223,7 +227,7 @@ async def get_or_create_conversation(
                 for t in history
                 if t.get("content")
             ]
-        elif session_id:
+        elif session_id and conv_id_str:
             try:
                 from ..db.models import ConversationMessage
                 doc_target = (await session.execute(
@@ -266,6 +270,7 @@ async def get_or_create_conversation(
             conv_cfg["device_id"] = device_id
 
         conv = AskConversation(
+            id=uuid.uuid4(),
             user_id=user.id,
             title=title,
             turns=init_turns,

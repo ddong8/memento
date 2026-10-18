@@ -193,7 +193,7 @@ async def ask(
             body.request_id,
             lambda run_db, run_user: _mock_stream(run_user),
             execution_mode=body.execution_mode or "claude",
-            model=body.model or "claude-3-7-sonnet",
+            model=body.model or "opus",
             device_name="haixing-mac",
             title="Claude Code Agent Task",
         )
@@ -210,11 +210,11 @@ async def ask(
 
     exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "workbuddy", "shell"):
-        effective_session_id = body.session_id or effective_cfg.get("session_id") or None
-        effective_project_id = body.project_id or effective_cfg.get("project_id") or None
-        effective_model = body.model or effective_cfg.get("model") or None
-        effective_effort = body.effort or effective_cfg.get("effort") or None
-        effective_cwd = body.cwd or effective_cfg.get("cwd") or None
+        effective_session_id = body.session_id or (effective_cfg.get("session_id") if body.conversation_id else None) or None
+        effective_project_id = body.project_id or (effective_cfg.get("project_id") if body.conversation_id else None) or None
+        effective_model = body.model or (effective_cfg.get("model") if body.conversation_id else None) or None
+        effective_effort = body.effort or (effective_cfg.get("effort") if body.conversation_id else None) or None
+        effective_cwd = body.cwd or (effective_cfg.get("cwd") if body.conversation_id else None) or None
 
         return await run_response(
             conv_id,

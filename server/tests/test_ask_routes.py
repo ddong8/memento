@@ -37,6 +37,34 @@ class RecentActiveRouteTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json(), {"id": None})
 
+    def test_new_conversation_never_hijacked_by_session_id(self) -> None:
+        import asyncio
+        from server.db.models import User
+        from server.services.ask_store import get_or_create_conversation
+
+        user = User(id=uuid.uuid4(), email="test@test.com")
+        mock_session = AsyncMock()
+        cm = MagicMock()
+        cm.__aenter__.return_value = mock_session
+
+        with patch("server.services.ask_store.async_session_factory", return_value=cm):
+            # When conv_id_str is None, it should directly create a new conversation and NOT query existing AskConversation by session_id
+            conv_id, title, cfg = asyncio.run(get_or_create_conversation(
+                None,
+                user,
+                "你好，这是新对话",
+                "auto",
+                None,
+                session_id="stale_session_123",
+            ))
+            self.assertIsNotNone(conv_id)
+            self.assertEqual(title, "这是新对话")
+            # Verify session.add was called for the new AskConversation
+            mock_session.add.assert_called_once()
+            added_obj = mock_session.add.call_args[0][0]
+            self.assertEqual(str(added_obj.id), str(conv_id))
+
 
 if __name__ == "__main__":
     unittest.main()
+

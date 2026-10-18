@@ -2,7 +2,7 @@
 
 import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse, type ProjectDevice } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
@@ -47,13 +47,14 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatE
 let askCache: CachedAskState | null = null;
 
 function AskPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const idParam = searchParams.get("id");
   const initialSnapshotRef = useRef<LocalConvSnapshot | null>(null);
   if (initialSnapshotRef.current === null && !askCache) {
     if (typeof window !== "undefined") {
       const snap = getLocalConvSnapshot();
-      if (snap && (!idParam || idParam === snap.id)) {
+      if (snap && Boolean(idParam && idParam === snap.id)) {
         initialSnapshotRef.current = snap;
         if (snap.etag && snap.convDetail) {
           seedApiEtagCache(`/api/ask/conversations/${snap.id}?limit=40`, snap.etag, snap.convDetail);
@@ -80,8 +81,12 @@ function AskPageContent() {
   }, [turns, streaming, syncTurnsMedia]);
   const lastSentQuestionRef = useRef<string>(askCache?.activeRun?.question || "");
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<string>(() => askCache?.selectedDevice || initSnap?.selectedDevice || "auto");
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>(() => askCache?.executionMode || initSnap?.executionMode || "ai");
+  const [selectedDevice, setSelectedDevice] = useState<string>(
+    () => askCache?.selectedDevice || initSnap?.selectedDevice || (typeof window !== "undefined" ? localStorage.getItem("memento_last_device") : null) || "auto"
+  );
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>(
+    () => askCache?.executionMode || initSnap?.executionMode || (typeof window !== "undefined" ? (localStorage.getItem("memento_last_execution_mode") as ExecutionMode) : null) || "claude"
+  );
   const [cwd, setCwd] = useState<string>(() => askCache?.cwd || initSnap?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
   const pathname = usePathname();
@@ -125,7 +130,9 @@ function AskPageContent() {
       }>;
     }>
   >(() => askCache?.sessions || []);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>(() => askCache?.selectedSessionId || initSnap?.selectedSessionId || "");
+  const [selectedSessionId, setSelectedSessionId] = useState<string>(
+    () => (idParam ? (askCache?.selectedSessionId || initSnap?.selectedSessionId || "") : "")
+  );
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
   const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
   const [totalTurns, setTotalTurns] = useState<number>(() => askCache?.totalTurns ?? initSnap?.totalTurns ?? (initSnap?.turns?.length || 0));
@@ -303,13 +310,14 @@ function AskPageContent() {
   // Conversation history state
   const [conversations, setConversations] = useState<AskConversationSummary[]>(() => askCache?.conversations || getCachedConversations());
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    () => askCache?.activeConversationId || initSnap?.id || idParam || null
+    () => askCache?.activeConversationId || (idParam ? (initSnap?.id || idParam) : null)
   );
   const activeConversationIdRef = useRef<string | null>(
-    askCache?.activeConversationId || initSnap?.id || idParam || null
+    askCache?.activeConversationId || (idParam ? (initSnap?.id || idParam) : null)
   );
   const streamingRef = useRef<boolean>(Boolean(askCache?.streaming || askCache?.activeRun));
   const isRestoringRef = useRef<boolean>(false);
+  const isNewChatModeRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const isUnmountedRef = useRef<boolean>(false);
   const userCancelledRef = useRef<boolean>(false);
@@ -812,6 +820,7 @@ function AskPageContent() {
   // Load single conversation
   const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean; force?: boolean }) => {
     if (!id || (streamingRef.current && !options?.force)) return;
+    isNewChatModeRef.current = false;
     const limitToUse = options?.limit !== undefined ? options.limit : 40;
     const preserveScroll = options?.preserveScroll ?? false;
     isRestoringRef.current = true;
@@ -1184,25 +1193,55 @@ function AskPageContent() {
 
   // Start fresh chat
   const startNewChat = useCallback(() => {
+    isNewChatModeRef.current = true;
     abortRef.current?.abort();
     streamingRef.current = false;
+    setStreaming(false);
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
+    lastRestoredIdRef.current = null;
     setSelectedSessionId("");
+    setSelectedProjectId("");
+    selectedProjectIdRef.current = "";
+    setSelectedProjectTitle("");
+    selectedProjectTitleRef.current = "";
+    setSessions([]);
+    setCwd("");
+    setShowCwd(false);
     setCompactMode(false);
+    turnsRef.current = [];
     setTurns([]);
     setInput("");
-    window.history.replaceState(null, "", "/ask");
+
+    // 采用当前系统与用户最新偏好配置，清除历史会话的私有绑定
+    const latestMode = (typeof window !== "undefined" ? (localStorage.getItem("memento_last_execution_mode") as ExecutionMode) : null) || "claude";
+    setExecutionMode(latestMode);
+    executionModeRef.current = latestMode;
+    const latestDev = (typeof window !== "undefined" ? localStorage.getItem("memento_last_device") : null) || "auto";
+    setSelectedDevice(latestDev);
+    selectedDeviceRef.current = latestDev;
+    setSelectedModel("");
+    setIsCustomModel(false);
+    setSelectedEffort("");
+    setWorktreeMode(false);
+
+    try {
+      router.replace("/ask");
+    } catch {}
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", "/ask");
+    }
     try {
       localStorage.removeItem("memento_last_ask_conv_id");
       localStorage.removeItem(SNAPSHOT_KEY);
+      localStorage.removeItem("memento_last_conv_snapshot_v2");
     } catch {}
     setHasMoreTurns(false);
     setTotalTurns(0);
     askCache = null;
     setHistoryOpen(false);
     setSourcesOpen(false);
-  }, []);
+  }, [router]);
 
   const [exportingMd, setExportingMd] = useState(false);
 
@@ -1406,6 +1445,14 @@ function AskPageContent() {
     }
 
     const checkAndRestore = async () => {
+      // 若处于明确的新建对话模式且无显式 URL 参数，彻底阻断任何自动恢复！
+      if (isNewChatModeRef.current && !idParam && !qParam) {
+        return;
+      }
+      if (idParam || qParam) {
+        isNewChatModeRef.current = false;
+      }
+
       // Determine target conversation ID:
       // 1) Explicit URL idParam
       // 2) Stored in localStorage from last session
@@ -1418,7 +1465,8 @@ function AskPageContent() {
         if (!resolvedTargetId) {
           try {
             const recent = await api.getRecentActiveConversation();
-            if (recent && recent.id) {
+            // 只有当服务端存在真正未结束的活跃后台任务 (active_run: true) 时才无缝挂接，绝不可把已结束的旧历史会话强加回填给新建态！
+            if (recent && recent.id && recent.active_run) {
               resolvedTargetId = recent.id;
             }
           } catch {}
@@ -2992,6 +3040,7 @@ function AskPageContent() {
     const question = rawQuestion || (sendImages.length > 0 ? (locale === "zh-CN" ? "请分析这张图片" : "Please analyze this image") : "");
     lastSentQuestionRef.current = question;
     userCancelledRef.current = false;
+    isNewChatModeRef.current = false;
 
     const effectiveSessionId = options?.overrideSessionId !== undefined ? options.overrideSessionId : selectedSessionId;
     const effectiveCompact = options?.forceCompact !== undefined ? options.forceCompact : compactMode;
@@ -3460,6 +3509,9 @@ function AskPageContent() {
   const handleDeviceChange = (newDev: string) => {
     setSelectedDevice(newDev);
     selectedDeviceRef.current = newDev;
+    try {
+      localStorage.setItem("memento_last_device", newDev);
+    } catch {}
     const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     ++sessionsReqRef.current;
     setSelectedProjectId("");
@@ -3478,6 +3530,10 @@ function AskPageContent() {
 
   const handleSelectMode = (mode: ExecutionMode) => {
     setExecutionMode(mode);
+    executionModeRef.current = mode;
+    try {
+      localStorage.setItem("memento_last_execution_mode", mode);
+    } catch {}
     let dev = selectedDevice;
     if (mode !== "ai" && selectedDevice === "ask_only") {
       dev = "auto";

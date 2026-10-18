@@ -5,12 +5,21 @@ import WidgetKit
 @available(iOS 16.2, *)
 private struct MementoStatusTheme {
   let status: String
+  let currentStep: String
+
+  init(status: String, currentStep: String = "") {
+    self.status = status
+    self.currentStep = currentStep
+  }
 
   var isFinished: Bool {
-    status == "done" || status == "error" || status == "cancelled"
+    status == "done" || status == "error" || status == "cancelled" || currentStep.contains("完成") || currentStep.contains("已结束") || currentStep.contains("已停止")
   }
 
   var badgeLabel: String {
+    if isFinished && status != "error" && status != "cancelled" {
+      return "已完成"
+    }
     switch status {
     case "thinking": return "深度推演"
     case "tool": return "调用工具"
@@ -19,28 +28,34 @@ private struct MementoStatusTheme {
     case "done": return "已完成"
     case "error": return "任务异常"
     case "cancelled": return "已停止"
-    default: return "运行中"
+    default: return isFinished ? "已完成" : "运行中"
     }
   }
 
   var iconName: String {
+    if isFinished && status != "error" && status != "cancelled" {
+      return "checkmark.circle.fill"
+    }
     switch status {
     case "thinking": return "brain.head.profile"
     case "tool", "executing": return "terminal.fill"
     case "generating": return "sparkles"
     case "done": return "checkmark.circle.fill"
     case "error", "cancelled": return "exclamationmark.triangle.fill"
-    default: return "bolt.horizontal.circle.fill"
+    default: return isFinished ? "checkmark.circle.fill" : "bolt.horizontal.circle.fill"
     }
   }
 
   var accentColor: Color {
+    if isFinished && status != "error" && status != "cancelled" {
+      return Color(red: 0.20, green: 0.83, blue: 0.60)
+    }
     switch status {
     case "done": return Color(red: 0.20, green: 0.83, blue: 0.60)
     case "error", "cancelled": return Color(red: 0.98, green: 0.35, blue: 0.45)
     case "tool", "executing": return Color(red: 0.22, green: 0.74, blue: 0.97)
     case "thinking": return Color(red: 0.66, green: 0.55, blue: 0.98)
-    default: return Color(red: 0.55, green: 0.45, blue: 0.98)
+    default: return isFinished ? Color(red: 0.20, green: 0.83, blue: 0.60) : Color(red: 0.55, green: 0.45, blue: 0.98)
     }
   }
 }
@@ -50,7 +65,7 @@ private struct MementoLockScreenView: View {
   let context: ActivityViewContext<MementoTaskAttributes>
 
   var body: some View {
-    let theme = MementoStatusTheme(status: context.state.status)
+    let theme = MementoStatusTheme(status: context.state.status, currentStep: context.state.currentStep)
     let startDate = Date(timeIntervalSince1970: context.attributes.startedAtEpoch)
     let endDate = startDate.addingTimeInterval(28800)
 
@@ -152,7 +167,7 @@ public struct MementoTaskLiveActivity: Widget {
         .activitySystemActionForegroundColor(.white)
         .widgetURL(URL(string: "memento:///?target=%2Fask%3Fid%3D\(context.attributes.conversationId)%26scroll%3Dbottom"))
     } dynamicIsland: { context in
-      let theme = MementoStatusTheme(status: context.state.status)
+      let theme = MementoStatusTheme(status: context.state.status, currentStep: context.state.currentStep)
       let startDate = Date(timeIntervalSince1970: context.attributes.startedAtEpoch)
       let endDate = startDate.addingTimeInterval(28800)
 

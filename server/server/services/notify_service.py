@@ -456,18 +456,46 @@ async def push_live_activity_event(
             )
 
         act_tok = act_map.get(conversation_id)
+        if not act_tok and event == "end":
+            # If token hasn't arrived or DB read had slight replication lag, wait briefly and re-read
+            await asyncio.sleep(1.0)
+            async with async_session_factory() as db:
+                user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+            if user:
+                prefs = user.notify_settings or {}
+                act_map = prefs.get("live_activity_tokens") or {}
+                act_tok = act_map.get(conversation_id)
+                if not act_tok and act_map:
+                    latest_val = list(act_map.values())[-1]
+                    act_tok = latest_val
+
         if not act_tok:
             return False
 
         if event == "end":
-            return await send_apns_live_activity(
+            # Dismiss immediately from Dynamic Island and lock screen
+            res = await send_apns_live_activity(
                 [act_tok],
                 "end",
                 content_state,
-                dismissal_date=int(time.time()) + 4,
+                dismissal_date=0,
                 priority="10",
                 user_id=user_id,
             )
+            # Clean up the token from user settings so it won't linger
+            if conversation_id in act_map:
+                try:
+                    async with async_session_factory() as db:
+                        u = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+                        if u and u.notify_settings and "live_activity_tokens" in u.notify_settings:
+                            updated_map = dict(u.notify_settings.get("live_activity_tokens") or {})
+                            if conversation_id in updated_map:
+                                updated_map.pop(conversation_id, None)
+                                u.notify_settings = {**u.notify_settings, "live_activity_tokens": updated_map}
+                                await db.commit()
+                except Exception:
+                    pass
+            return res
 
         return await send_apns_live_activity(
             [act_tok],

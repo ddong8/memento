@@ -2276,6 +2276,53 @@ function AskPageContent() {
     }
   }, []);
 
+  const postNativeLiveActivity = useCallback((
+    action: "start" | "update" | "end",
+    patch: {
+      conversationId?: string | null;
+      status: string;
+      currentStep: string;
+      toolName?: string | null;
+      stepCount?: number;
+      startedAtEpoch?: number;
+    },
+  ) => {
+    try {
+      const w = typeof window !== "undefined" ? (window as any) : null;
+      if (!w?.ReactNativeWebView?.postMessage) return;
+      const cid = patch.conversationId || activeConversationIdRef.current;
+      if (!cid) return;
+      const eng =
+        executionMode === "claude"
+          ? "Claude"
+          : executionMode === "antigravity"
+          ? "AGY"
+          : executionMode === "codex"
+          ? "Codex"
+          : executionMode === "workbuddy"
+          ? "WB"
+          : executionMode === "shell"
+          ? "Shell"
+          : "AI";
+      const qTitle = (lastSentQuestionRef.current || "后台任务").replace(/\s+/g, " ").trim().slice(0, 45);
+      w.ReactNativeWebView.postMessage(
+        JSON.stringify({
+          type: "live_activity",
+          action,
+          conversationId: cid,
+          title: qTitle || "后台任务",
+          engine: eng,
+          deviceName: selectedDevice ? "远程设备" : "云端",
+          status: patch.status,
+          currentStep: patch.currentStep.slice(0, 85),
+          stepCount: patch.stepCount || 1,
+          toolName: patch.toolName || null,
+          startedAtEpoch: patch.startedAtEpoch || Math.floor(Date.now() / 1000),
+        }),
+      );
+    } catch {}
+  }, [executionMode, selectedDevice]);
+
   // Read one SSE response of a run, applying its events. Returns true once the run is done.
   const consumeRun = useCallback(async (res: Response, cursor: RunCursor): Promise<boolean> => {
     const reader = res.body!.getReader();
@@ -2296,40 +2343,12 @@ function AskPageContent() {
         toolName?: string | null;
       },
     ) => {
-      try {
-        const w = typeof window !== "undefined" ? (window as any) : null;
-        if (!w?.ReactNativeWebView?.postMessage) return;
-        const cid = patch.conversationId || cursor.convId || activeConversationIdRef.current;
-        if (!cid) return;
-        const eng =
-          executionMode === "claude"
-            ? "Claude"
-            : executionMode === "antigravity"
-            ? "AGY"
-            : executionMode === "codex"
-            ? "Codex"
-            : executionMode === "workbuddy"
-            ? "WB"
-            : executionMode === "shell"
-            ? "Shell"
-            : "AI";
-        const qTitle = (lastSentQuestionRef.current || "后台任务").replace(/\s+/g, " ").trim().slice(0, 45);
-        w.ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: "live_activity",
-            action,
-            conversationId: cid,
-            title: qTitle || "后台任务",
-            engine: eng,
-            deviceName: selectedDevice ? "远程设备" : "云端",
-            status: patch.status,
-            currentStep: patch.currentStep.slice(0, 85),
-            stepCount: laStepCount,
-            toolName: patch.toolName || null,
-            startedAtEpoch: laStartEpoch,
-          }),
-        );
-      } catch {}
+      postNativeLiveActivity(action, {
+        ...patch,
+        conversationId: patch.conversationId || cursor.convId || activeConversationIdRef.current,
+        stepCount: laStepCount,
+        startedAtEpoch: laStartEpoch,
+      });
     };
 
     const handleFrame = (frame: string) => {
@@ -2802,6 +2821,11 @@ function AskPageContent() {
         });
         if (runRes.status === 404) {
           setIsReconnecting(false);
+          postNativeLiveActivity("end", {
+            conversationId: cursor.convId,
+            status: "done",
+            currentStep: "任务完成",
+          });
           const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
           if (data?.turns) {
             const prevLast = turnsRef.current[turnsRef.current.length - 1];
@@ -2822,6 +2846,11 @@ function AskPageContent() {
           const run = await runRes.json();
           if (run.done || run.cancelled) {
             setIsReconnecting(false);
+            postNativeLiveActivity("end", {
+              conversationId: cursor.convId,
+              status: run.cancelled ? "cancelled" : (run.failed ? "error" : "done"),
+              currentStep: run.cancelled ? "任务已取消" : (run.failed ? "任务失败" : "任务完成"),
+            });
             const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
             if (data?.turns) {
               const prevLast = turnsRef.current[turnsRef.current.length - 1];

@@ -264,6 +264,26 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(recent), 1)
         self.assertEqual(recent[0].conversation_id, "c13")
 
+    async def test_live_activity_push_no_update_after_done(self):
+        push_la_mock = ar.notify_service.push_live_activity_event
+
+        async def gen(db, user):
+            yield frame({"type": "tool_call", "name": "run_command"})
+            yield frame({"type": "done"})
+
+        run = await self.registry.start("c14", self.user.id, "q", gen)
+        await run.task
+
+        # Verify that push_live_activity_event was called with 'end', and never with 'update' when current_step is '任务完成'
+        end_calls = [c for c in push_la_mock.call_args_list if c.args[2] == "end"]
+        self.assertGreaterEqual(len(end_calls), 1)
+        self.assertEqual(end_calls[-1].kwargs.get("status"), "done")
+
+        # Verify no update event carried status=tool with current_step="任务完成"
+        for c in push_la_mock.call_args_list:
+            if c.args[2] == "update":
+                self.assertNotEqual(c.kwargs.get("current_step"), "任务完成")
+
 
 if __name__ == "__main__":
     unittest.main()

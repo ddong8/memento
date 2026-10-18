@@ -234,7 +234,7 @@ class AskRun:
         except Exception:
             pass
 
-        if should_push_la and self.current_step != self._last_la_step:
+        if should_push_la and not self.done and self.current_step != self._last_la_step:
             now_ts = time.time()
             if (now_ts - self._last_la_push_at >= 1.8) or self.step_type in ("tool", "error"):
                 self._last_la_push_at = now_ts

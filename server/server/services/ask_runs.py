@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable
@@ -202,7 +203,12 @@ class AskRun:
                     should_push_la = True
             elif evt_type == "task_chunk":
                 self.step_type = "executing"
-                if not self.current_step.startswith("正在执行"):
+                chunk_text = payload.get("chunk") or payload.get("text") or ""
+                if any(kw in chunk_text for kw in ("自动退避重试", "容量紧张", "模型容灾", "自动降级")):
+                    m_tip = re.search(r"\[(.*?)(?:，|\])", chunk_text)
+                    self.current_step = m_tip.group(1)[:40] if m_tip else chunk_text.strip()[:40]
+                    should_push_la = True
+                elif not self.current_step.startswith("正在执行"):
                     self.current_step = f"正在执行工具任务 ({self.tool_name or 'device'})..."
                     should_push_la = True
             elif evt_type == "tool_result":

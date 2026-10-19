@@ -365,6 +365,9 @@ const RUNNER_MARKERS = [
   "task_log_sizes",
   "ask_question_interactive",
   "stream was interrupted",
+  "get_model_candidates",
+  "is_transient_error",
+  "自动退避重试",
   'if __name__ == "__main__":',
 ];
 

@@ -734,6 +734,29 @@ export class TaskRunner {
         }
       }
 
+      // Retry 0.5: Antigravity model capacity unavailable (503 / RESOURCE_EXHAUSTED): fallback tier
+      if (
+        exitCode !== 0 &&
+        isAntigravity &&
+        /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(errScan())
+      ) {
+        const currentModel = (model || "").toLowerCase();
+        const fallbackModel = currentModel.includes("pro") ? "flash_lite" : "pro";
+        this.notice(
+          taskId,
+          `\n⚡ [模型容灾降级] 检测到当前模型容量不足 (503 No capacity)，已自动切换至 ${fallbackModel.toUpperCase()} 档位全新会话无缝重试...\n\n`,
+        );
+        parser = new UniversalStreamParser();
+        const fallbackArgs = [
+          "--model",
+          fallbackModel,
+          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(60, task.timeoutSeconds - 15))] : ["--timeout", "0"]),
+          "-p",
+          prompt,
+        ];
+        exitCode = await run({ args: fallbackArgs, parser });
+      }
+
       // Retry 1: the ChatGPT app holds the Codex session's writer lock, so fork it instead.
       if (exitCode !== 0 && binary.includes("codex") && sessionId && payload.fork !== true && errScan().includes("already has an active writer")) {
         this.notice(taskId, "\n⚡ [自动重试] 该会话当前正被 ChatGPT 客户端占用锁定，已自动无缝切换为 Fork 分支模式重新执行（完整继承上下文记忆）...\n\n");

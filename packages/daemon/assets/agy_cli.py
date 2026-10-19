@@ -141,6 +141,36 @@ def _is_antigravity_ls_alive():
         return False
 
 
+def get_model_candidates(requested_model: str) -> list:
+    """Return ordered list of Antigravity model tiers (flash, pro, flash_lite) to attempt."""
+    m = (requested_model or "").lower().strip()
+    if m in ("flash_lite", "flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-lite"):
+        return ["flash_lite", "flash", "pro"]
+    elif m in ("pro", "gemini-3.1-pro", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-7-sonnet"):
+        return ["pro", "flash", "flash_lite"]
+    else:
+        return ["flash", "pro", "flash_lite"]
+
+
+def is_transient_error(err_msg: str) -> bool:
+    """Detect if an Antigravity error is an upstream transient retry, rate-limit or temporary capacity issue."""
+    if not err_msg:
+        return False
+    msg_low = err_msg.lower()
+    if re.search(r"attempt\s+\d+", msg_low):
+        return True
+    transient_keywords = (
+        "connection reset", "eof", "broken pipe", "timeout", "timed out",
+        "handshake", "temporarily unavailable", "stream was interrupted",
+        "stream interrupted", "interrupted", "please continue the task",
+        "rate limit", "resource exhausted", "overloaded", "retry", "try again",
+        "no capacity available", "capacity available", "code 503", "unavailable",
+        "service unavailable", "bad gateway", "502", "503", "504",
+        "quota reached", "quota", "temporarily",
+    )
+    return any(kw in msg_low for kw in transient_keywords)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Antigravity CLI Runner")
     parser.add_argument("-p", "--prompt", dest="prompt_flag", help="Prompt to send to Antigravity")
@@ -211,16 +241,8 @@ def main():
     ):
         os.environ.pop(k, None)
 
-    # Normalize model tier
-    model_arg = (args.model or "").lower().strip()
-    if model_arg in ("flash_lite", "flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-lite"):
-        model = "flash_lite"
-    elif model_arg in ("pro", "gemini-3.1-pro", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-7-sonnet"):
-        model = "pro"
-    elif model_arg in ("flash", "gemini-3.8-flash", "gemini-3.7-flash"):
-        model = "flash"
-    else:
-        model = "flash"
+    candidate_models = get_model_candidates(args.model)
+    model = candidate_models[0]
 
     title = args.title or prompt[:40]
     conv_id = args.resume_id.strip()
@@ -252,24 +274,40 @@ def main():
             print(f"Error resuming conversation via Antigravity: {e}", file=sys.stderr)
             sys.exit(1)
     else:
-        # Start new conversation
-        cmd = [
-            str(agentapi),
-            "new-conversation",
-            f"--model={model}",
-            f"--title={title}",
-            prompt,
-        ]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ))
-            if res.returncode != 0:
-                err_text = (res.stderr or res.stdout or "").strip()
-                print(f"Error initiating conversation via Antigravity: {err_text}", file=sys.stderr)
-                sys.exit(1)
-            out_json = json.loads(res.stdout)
-            conv_id = out_json["response"]["newConversation"]["conversationId"]
-        except Exception as e:
-            print(f"Error initiating conversation via Antigravity: {e}", file=sys.stderr)
+        # Start new conversation with automatic tier fallback
+        created = False
+        last_init_err = ""
+        for cand in candidate_models:
+            cmd = [
+                str(agentapi),
+                "new-conversation",
+                f"--model={cand}",
+                f"--title={title}",
+                prompt,
+            ]
+            try:
+                res = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ))
+                if res.returncode == 0:
+                    out_json = json.loads(res.stdout)
+                    conv_id = out_json["response"]["newConversation"]["conversationId"]
+                    model = cand
+                    created = True
+                    if cand != candidate_models[0]:
+                        sys.stderr.write(f"\n⚡ [提示: 模型 {candidate_models[0]} 暂不可用，已自动智能降级至 {cand} 成功建立会话]\n\n")
+                        sys.stderr.flush()
+                    break
+                else:
+                    err_text = (res.stderr or res.stdout or "").strip()
+                    last_init_err = err_text
+                    sys.stderr.write(f"\n⏳ [模型 {cand} 启动遇到异常 ({err_text[:80]})，自动尝试切换下一档位...]\n\n")
+                    sys.stderr.flush()
+            except Exception as e:
+                last_init_err = str(e)
+                sys.stderr.write(f"\n⏳ [模型 {cand} 启动失败 ({e})，自动尝试切换下一档位...]\n\n")
+                sys.stderr.flush()
+
+        if not created or not conv_id:
+            print(f"Error initiating conversation via Antigravity: {last_init_err}", file=sys.stderr)
             sys.exit(1)
 
     sys.stderr.write(f"session id: {conv_id}\n")
@@ -403,13 +441,10 @@ def main():
                     else:
                         ls_dead_checks = 0
 
-                if last_error_message and idle_count > 300:  # 60s idle after non-transient error
-                    if _is_antigravity_ls_alive() and idle_count < 600:  # Allow up to 120s if language server is healthy
-                        pass
-                    else:
-                        sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
-                        sys.stderr.flush()
-                        sys.exit(1)
+                if last_error_message and idle_count > 25:  # 5s idle after confirmed non-transient error
+                    sys.stderr.write(f"\nAntigravity Error: {last_error_message}\n")
+                    sys.stderr.flush()
+                    sys.exit(1)
 
                 # 超时判定分支状态机：
                 # 1. 处于等待用户输入时：不触发空闲超时（受全局 args.timeout 约束）
@@ -541,15 +576,12 @@ def main():
                 state["in_flight_tools"] = []
                 state["tool_start_time"] = None
                 err_msg = data.get("error") or data.get("message") or data.get("content") or ""
-                # Filter out transient API retry messages (e.g. attempt 1 failure, stream interrupted) where Antigravity retries upstream
-                is_transient = any(kw in err_msg.lower() for kw in (
-                    "attempt 1", "attempt 2", "connection reset", "eof", "broken pipe",
-                    "timeout", "handshake", "temporarily unavailable",
-                    "stream was interrupted", "stream interrupted", "interrupted",
-                    "please continue the task", "rate limit", "resource exhausted",
-                    "overloaded", "retry", "try again"
-                ))
-                if is_transient:
+                m_attempt = re.search(r"attempt\s+(\d+)", err_msg, re.IGNORECASE)
+                if m_attempt or is_transient_error(err_msg):
+                    attempt_str = f"（第 {m_attempt.group(1)} 次重试）" if m_attempt else ""
+                    sys.stderr.write(f"\n⏳ [远端模型服务容量紧张/排队中，Antigravity 正在自动退避重试{attempt_str}，请稍候...]\n\n")
+                    sys.stderr.flush()
+                    idle_count = 0  # 收到语言服务器重试事件说明后台持续活跃，重置空闲计数
                     continue
                 last_error_message = err_msg
                 continue

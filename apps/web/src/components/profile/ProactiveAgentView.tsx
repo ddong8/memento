@@ -21,23 +21,25 @@ export function ProactiveAgentView() {
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   const loadData = async () => {
+    setLoading(true);
+    setMissionsLoading(true);
     try {
-      setLoading(true);
-      const s = await api.getProactiveSettings();
-      setSettings(s);
-    } catch (e) {
-      console.error("Failed to load proactive settings", e);
+      const [settingsRes, missionsRes] = await Promise.allSettled([
+        api.getProactiveSettings(),
+        api.getMissions(),
+      ]);
+      if (settingsRes.status === "fulfilled") {
+        setSettings(settingsRes.value);
+      } else {
+        console.error("Failed to load proactive settings", settingsRes.reason);
+      }
+      if (missionsRes.status === "fulfilled") {
+        setMissions(missionsRes.value);
+      } else {
+        console.error("Failed to load missions", missionsRes.reason);
+      }
     } finally {
       setLoading(false);
-    }
-
-    try {
-      setMissionsLoading(true);
-      const m = await api.getMissions();
-      setMissions(m);
-    } catch (e) {
-      console.error("Failed to load missions", e);
-    } finally {
       setMissionsLoading(false);
     }
   };

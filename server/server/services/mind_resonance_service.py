@@ -84,28 +84,20 @@ def detect_scenario(terms: list[str], raw_text: str = "") -> dict[str, str]:
     }
 
 
-async def sense_resonance(
+async def _fetch_scoped_and_general_rules(
     db: AsyncSession,
     user: User,
-    query: str | None = None,
-    project: str | None = None,
-    action: str | None = None,
-    limit_entities: int = 4,
-    limit_pitfalls: int = 4,
-) -> dict[str, Any]:
-    """Execute mind resonance sensing across user profile, knowledge graph, pitfalls, and mindset."""
-    q_text = query or ""
-    terms = terms_for(action, project, q_text)
-    scenario = detect_scenario(terms, f"{q_text} {project or ''} {action or ''}")
-
-    # 1. User Mindset & Scoped Rules from Resident Profile
+    terms: list[str],
+    scenario: dict[str, Any],
+    project: str | None,
+) -> tuple[list[str], list[str]]:
+    """Fetch and score scoped and general rules from published resident profile."""
     scoped_rules: list[str] = []
     general_rules: list[str] = []
     try:
         prof = await get_published_profile(db, user)
         if prof and prof.content:
             scopes = split_profile_scopes(prof.content)
-            # Find matching project scope
             target_proj = (project or "").strip().lower()
             if not target_proj:
                 if scenario["id"] == "chemistry_pubchem":
@@ -142,58 +134,120 @@ async def sense_resonance(
             general_rules = [l for l in scored_gen if l][:4]
     except Exception as e:
         logger.warning("Error fetching resident profile in mind resonance: %s", e)
+    return scoped_rules, general_rules
 
-    # 2. Knowledge Graph Entity Activation
+
+async def _fetch_graph_entities(
+    db: AsyncSession,
+    user: User,
+    terms: list[str],
+    limit_entities: int,
+) -> list[dict[str, Any]]:
+    """Batch fetch and activate relevant knowledge graph entities with 2-hop topology."""
     entities_data: list[dict[str, Any]] = []
+    if not terms:
+        return entities_data
+
     try:
-        if terms:
-            # Match entities relevant to terms
-            or_conditions = []
-            for t in terms[:8]:
-                pattern = f"%{t}%"
-                or_conditions.append(KnowledgeEntity.name.ilike(pattern))
-                or_conditions.append(KnowledgeEntity.summary.ilike(pattern))
+        or_conditions = []
+        for t in terms[:8]:
+            pattern = f"%{t}%"
+            or_conditions.append(KnowledgeEntity.name.ilike(pattern))
+            or_conditions.append(KnowledgeEntity.summary.ilike(pattern))
 
-            if or_conditions:
-                ent_q = (
-                    select(KnowledgeEntity)
-                    .where(KnowledgeEntity.user_id == user.id, or_(*or_conditions))
-                    .limit(limit_entities * 2)
+        if not or_conditions:
+            return entities_data
+
+        ent_q = (
+            select(KnowledgeEntity)
+            .where(KnowledgeEntity.user_id == user.id, or_(*or_conditions))
+            .limit(limit_entities * 2)
+        )
+        ent_rows = (await db.execute(ent_q)).scalars().all()
+        sorted_ents = sorted(
+            ent_rows,
+            key=lambda e: score(f"{e.name} {e.summary or ''}", terms),
+            reverse=True,
+        )[:limit_entities]
+
+        if not sorted_ents:
+            return entities_data
+
+        ent_ids = [e.id for e in sorted_ents]
+
+        # Batch 1: Observations for all matched entities in single query
+        obs_map: dict[Any, list[str]] = {eid: [] for eid in ent_ids}
+        obs_q = (
+            select(KnowledgeObservation.entity_id, KnowledgeObservation.content)
+            .where(KnowledgeObservation.entity_id.in_(ent_ids))
+            .order_by(KnowledgeObservation.observed_at.desc().nulls_last())
+        )
+        for eid, content in (await db.execute(obs_q)).all():
+            if len(obs_map[eid]) < 2:
+                obs_map[eid].append(content)
+
+        # Batch 2: 1-hop outgoing relations for all matched entities
+        rel_map: dict[Any, list[dict[str, Any]]] = {eid: [] for eid in ent_ids}
+        rel_q = (
+            select(
+                KnowledgeRelation.source_id,
+                KnowledgeRelation.relation_type,
+                KnowledgeEntity.id,
+                KnowledgeEntity.name,
+            )
+            .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
+            .where(KnowledgeRelation.source_id.in_(ent_ids))
+        )
+        target_ids = []
+        for sid, rel_type, tid, tname in (await db.execute(rel_q)).all():
+            if len(rel_map[sid]) < 2:
+                rel_map[sid].append({"rel": rel_type, "target_id": tid, "target_name": tname})
+                target_ids.append(tid)
+
+        # Batch 3: Optional 2-hop extension (fetch 2nd degree outgoing relations for targets)
+        second_hop_map: dict[Any, list[str]] = {tid: [] for tid in target_ids}
+        if target_ids:
+            hop2_q = (
+                select(
+                    KnowledgeRelation.source_id,
+                    KnowledgeRelation.relation_type,
+                    KnowledgeEntity.name,
                 )
-                ent_rows = (await db.execute(ent_q)).scalars().all()
-                # Score entities by relevance to terms
-                sorted_ents = sorted(ent_rows, key=lambda e: score(f"{e.name} {e.summary or ''}", terms), reverse=True)[:limit_entities]
+                .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
+                .where(KnowledgeRelation.source_id.in_(target_ids[:6]))
+            )
+            for sid, rtype, name in (await db.execute(hop2_q)).all():
+                if len(second_hop_map[sid]) < 1:
+                    second_hop_map[sid].append(f"{rtype} → {name}")
 
-                for ent in sorted_ents:
-                    # Fetch top 2 observations
-                    obs_q = (
-                        select(KnowledgeObservation.content)
-                        .where(KnowledgeObservation.entity_id == ent.id)
-                        .order_by(KnowledgeObservation.observed_at.desc().nulls_last())
-                        .limit(2)
-                    )
-                    obs_rows = [r[0] for r in (await db.execute(obs_q)).all()]
+        for ent in sorted_ents:
+            formatted_rels = []
+            for r in rel_map.get(ent.id, []):
+                rel_str = f"{r['rel']} → {r['target_name']}"
+                hop2 = second_hop_map.get(r["target_id"])
+                if hop2:
+                    rel_str += f" ({hop2[0]})"
+                formatted_rels.append(rel_str)
 
-                    # Fetch top 2 outgoing relations
-                    rel_q = (
-                        select(KnowledgeRelation.relation_type, KnowledgeEntity.name)
-                        .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
-                        .where(KnowledgeRelation.source_id == ent.id)
-                        .limit(2)
-                    )
-                    rel_rows = [f"{r[0]} → {r[1]}" for r in (await db.execute(rel_q)).all()]
-
-                    entities_data.append({
-                        "name": ent.name,
-                        "type": ent.entity_type,
-                        "summary": ent.summary or "",
-                        "observations": obs_rows,
-                        "relations": rel_rows,
-                    })
+            entities_data.append({
+                "name": ent.name,
+                "type": ent.entity_type,
+                "summary": ent.summary or "",
+                "observations": obs_map.get(ent.id, []),
+                "relations": formatted_rels,
+            })
     except Exception as e:
         logger.warning("Error activating graph entities in mind resonance: %s", e)
+    return entities_data
 
-    # 3. Defensive Pitfall Warnings from UserMemory
+
+async def _fetch_pitfalls(
+    db: AsyncSession,
+    user: User,
+    terms: list[str],
+    limit_pitfalls: int,
+) -> list[dict[str, str]]:
+    """Fetch defensive pitfall memories ranked by contextual relevance."""
     pitfalls_data: list[dict[str, str]] = []
     try:
         mem_q = select(UserMemory).where(
@@ -220,6 +274,35 @@ async def sense_resonance(
             })
     except Exception as e:
         logger.warning("Error fetching pitfalls in mind resonance: %s", e)
+    return pitfalls_data
+
+
+async def sense_resonance(
+    db: AsyncSession,
+    user: User,
+    query: str | None = None,
+    project: str | None = None,
+    action: str | None = None,
+    limit_entities: int = 4,
+    limit_pitfalls: int = 4,
+) -> dict[str, Any]:
+    """Execute mind resonance sensing concurrently across user profile, knowledge graph, and pitfalls."""
+    import asyncio
+
+    q_text = query or ""
+    terms = terms_for(action, project, q_text)
+    scenario = detect_scenario(terms, f"{q_text} {project or ''} {action or ''}")
+
+    # Concurrently execute 3 dimensions: Profile rules, Graph entities (with 2-hop), Defensive pitfalls
+    rules_task = _fetch_scoped_and_general_rules(db, user, terms, scenario, project)
+    entities_task = _fetch_graph_entities(db, user, terms, limit_entities)
+    pitfalls_task = _fetch_pitfalls(db, user, terms, limit_pitfalls)
+
+    (scoped_rules, general_rules), entities_data, pitfalls_data = await asyncio.gather(
+        rules_task,
+        entities_task,
+        pitfalls_task,
+    )
 
     return {
         "scenario": scenario,

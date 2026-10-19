@@ -318,6 +318,12 @@ async def save_pitfall(
     )
     db.add(mem)
     await db.flush()
+    try:
+        from .cache import cache_delete_prefix
+        await cache_delete_prefix(f"memory:resonance:{user.id}")
+        await cache_delete_prefix(f"learning:check:{user.id}")
+    except Exception as e:
+        logger.warning("Failed to invalidate cache after save_pitfall: %s", e)
     return mem
 
 

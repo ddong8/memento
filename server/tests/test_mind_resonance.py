@@ -64,13 +64,18 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         mock_ent_res = MagicMock()
         mock_ent_res.scalars.return_value.all.return_value = [ent]
 
-        # Mock observations
+        # Mock observations (batch: entity_id, content)
         mock_obs_res = MagicMock()
-        mock_obs_res.all.return_value = [("桌面端应用名称去掉desktop后缀",)]
+        mock_obs_res.all.return_value = [(ent.id, "桌面端应用名称去掉desktop后缀")]
 
-        # Mock relations
+        # Mock relations (batch 1-hop: source_id, relation_type, target_id, target_name)
+        target_id = uuid.uuid4()
         mock_rel_res = MagicMock()
-        mock_rel_res.all.return_value = [("depends_on", "TauriCore")]
+        mock_rel_res.all.return_value = [(ent.id, "depends_on", target_id, "TauriCore")]
+
+        # Mock relations (batch 2-hop)
+        mock_rel2_res = MagicMock()
+        mock_rel2_res.all.return_value = [(target_id, "submodule", "tauri-collector")]
 
         # Mock UserMemory (pitfalls)
         p_mem = UserMemory(
@@ -85,12 +90,22 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         mock_mem_res = MagicMock()
         mock_mem_res.scalars.return_value.all.return_value = [p_mem]
 
-        mock_db.execute.side_effect = [
-            mock_ent_res,
-            mock_obs_res,
-            mock_rel_res,
-            mock_mem_res,
-        ]
+        async def fake_execute(statement, *args, **kwargs):
+            sql = str(statement)
+            if "knowledge_observations" in sql:
+                return mock_obs_res
+            if "knowledge_relations" in sql:
+                if getattr(fake_execute, "rel1_done", False):
+                    return mock_rel2_res
+                fake_execute.rel1_done = True
+                return mock_rel_res
+            if "knowledge_entities" in sql:
+                return mock_ent_res
+            if "user_memories" in sql:
+                return mock_mem_res
+            return MagicMock()
+
+        mock_db.execute.side_effect = fake_execute
 
         with patch("server.services.mind_resonance_service.get_published_profile", new_callable=AsyncMock, return_value=mock_prof):
             res = await sense_resonance(

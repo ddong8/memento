@@ -50,11 +50,15 @@ export class IngestClient {
     });
   }
 
+  private readonly offlineBuffer: IngestDocument[] = [];
+  private readonly maxOfflineBuffer = 100;
+
   /** Heartbeat; returns the remote-exec key the server hands out (or the one already held). */
   async sendHeartbeat(): Promise<string | undefined> {
     try {
       const res = await this.request("/api/ingest/heartbeat", { method: "POST", body: {} });
       if (res.ok) {
+        void this.flushOfflineBuffer();
         const data = (await res.json()) as { remote_exec_key?: string };
         if (data.remote_exec_key) return data.remote_exec_key;
       }
@@ -64,25 +68,21 @@ export class IngestClient {
     return this.config.remoteExecKey;
   }
 
-  async reportDiscovery(tools: Record<string, DiscoveredTool>): Promise<boolean> {
-    try {
-      const res = await this.request("/api/ingest/discovery", {
-        method: "POST",
-        body: {
-          device_id: this.config.deviceId,
-          device_name: this.config.deviceName,
-          platform: this.config.platform,
-          tools: Object.fromEntries(Object.entries(tools).map(([k, t]) => [k, toolReport(t)])),
-        },
-      });
-      return res.ok;
-    } catch {
-      return false;
+  /** Flush any documents queued while offline once connectivity is restored. */
+  async flushOfflineBuffer(): Promise<number> {
+    if (!this.offlineBuffer.length) return 0;
+    let sent = 0;
+    while (this.offlineBuffer.length) {
+      const doc = this.offlineBuffer[0]!;
+      const ok = await this.uploadSingleDocument(doc);
+      if (!ok) break;
+      this.offlineBuffer.shift();
+      sent++;
     }
+    return sent;
   }
 
-  /** Upload a file or a slice of one, with secrets stripped first. */
-  async ingestDocument(doc: IngestDocument): Promise<boolean> {
+  private async uploadSingleDocument(doc: IngestDocument): Promise<boolean> {
     try {
       const sanitized = sanitizeDocumentContent(doc.content, doc.contentType);
       const res = await this.request("/api/ingest/file", {
@@ -108,6 +108,35 @@ export class IngestClient {
       this.log(`Upload ${doc.relativePath} failed: ${e instanceof Error ? e.message : e}`);
       return false;
     }
+  }
+
+  async reportDiscovery(tools: Record<string, DiscoveredTool>): Promise<boolean> {
+    try {
+      const res = await this.request("/api/ingest/discovery", {
+        method: "POST",
+        body: {
+          device_id: this.config.deviceId,
+          device_name: this.config.deviceName,
+          platform: this.config.platform,
+          tools: Object.fromEntries(Object.entries(tools).map(([k, t]) => [k, toolReport(t)])),
+        },
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Upload a file or a slice of one, with secrets stripped first. Automatically buffers offline on transient errors. */
+  async ingestDocument(doc: IngestDocument): Promise<boolean> {
+    if (this.offlineBuffer.length) {
+      await this.flushOfflineBuffer();
+    }
+    const ok = await this.uploadSingleDocument(doc);
+    if (!ok && this.offlineBuffer.length < this.maxOfflineBuffer) {
+      this.offlineBuffer.push(doc);
+    }
+    return ok;
   }
 
   /** Control commands (resync etc.), acknowledged as they're picked up. */

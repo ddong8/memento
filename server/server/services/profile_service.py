@@ -117,6 +117,21 @@ def _cap(text: str, limit: int) -> str:
     return text[: cut if cut > 0 else limit].rstrip()
 
 
+def deduplicate_rule_lines(lines: list[str]) -> list[str]:
+    """Deduplicate rule lines while preserving order and markdown section structure."""
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("-") or stripped.startswith("*"):
+            norm = re.sub(r"[\s，,。；;！!]+", "", stripped.lstrip("-*• \t").lower())
+            if norm in seen:
+                continue
+            seen.add(norm)
+        deduped.append(line)
+    return deduped
+
+
 def sanitize_profile_content(text: str | None) -> str:
     """Normalize LLM or user-edited profile text into something safe to inject."""
     if not text:
@@ -129,10 +144,12 @@ def sanitize_profile_content(text: str | None) -> str:
     # HTML comment delimiters would let the text forge or close the managed block.
     cleaned = cleaned.replace("<!--", "").replace("-->", "").strip()
     scopes = split_profile_scopes(cleaned)
+    scopes.general = "\n".join(deduplicate_rule_lines(scopes.general.split("\n")))
     scopes.general = _cap(scopes.general, PROFILE_MAX_CHARS)
     for bucket in (scopes.projects, scopes.devices):
         for name, lines in bucket.items():
-            bucket[name] = _cap("\n".join(lines), SCOPED_MAX_CHARS).split("\n") if lines else []
+            cleaned_lines = deduplicate_rule_lines(lines)
+            bucket[name] = _cap("\n".join(cleaned_lines), SCOPED_MAX_CHARS).split("\n") if cleaned_lines else []
     return join_profile_scopes(scopes)
 
 

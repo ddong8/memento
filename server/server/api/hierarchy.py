@@ -58,7 +58,7 @@ async def list_devices_with_tools(
     if cached is not None:
         return cached
 
-    machines_q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.name)
+    machines_q = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.name)
     if _user.role not in ("admin", "owner"):
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines_res = await db.execute(machines_q)

@@ -92,11 +92,15 @@ async def _ack_command(device_collector_id: str, cmd_id: int) -> None:
 
 @router.get("")
 async def list_devices(
+    include_archived: bool = Query(False, description="Whether to include unlinked/archived devices"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     """List all registered collector devices with their stats."""
+    inc_arch = include_archived if isinstance(include_archived, bool) else getattr(include_archived, "default", False)
     machines_q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
+    if not inc_arch:
+        machines_q = machines_q.where(Machine.is_archived.is_(False))
     if _user.role not in ("admin", "owner"):
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines = list((await db.execute(machines_q)).scalars().all())
@@ -106,7 +110,7 @@ async def list_devices(
     machine_ids = [m.id for m in machines]
 
     # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips (cached for 60s).
-    stats_cache_key = f"devices:stats:{_user.id}"
+    stats_cache_key = f"devices:stats:{_user.id}:{inc_arch}"
     cached_stats = await cache_get(stats_cache_key)
     if cached_stats is not None:
         totals_by_name = cached_stats.get("totals", {})
@@ -148,6 +152,7 @@ async def list_devices(
                 break
 
         is_online = has_ws or (age_sec is not None and age_sec < 180)
+        is_arch = bool(getattr(m, "is_archived", False))
 
         items.append({
             "id": str(m.id),
@@ -155,10 +160,12 @@ async def list_devices(
             "device_id": m.collector_token_hash,
             "collector_version": m.collector_version,
             "last_heartbeat": hb.isoformat() if hb else None,
-            "online": is_online,
+            "online": is_online and not is_arch,
             "created_at": m.created_at.isoformat(),
             "document_count": totals_by_name.get(m.name, 0),
             "tools": tools_by_name.get(m.name, []),
+            "is_archived": is_arch,
+            "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
         })
 
     return items
@@ -275,10 +282,36 @@ async def delete_device(
     device_db_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
+    keep_data: bool = Query(False, description="If True, archive/unbind device and keep all documents/data"),
 ) -> dict:
-    """Delete a device and ALL its associated data (documents, messages, embeddings,
-    knowledge observations, sync state, orphaned projects/entities)."""
+    """Delete or unbind a device.
+    If keep_data=True, marks the device as archived so it disappears from the active device list,
+    but retains all its documents, embeddings, knowledge observations, and user data intact.
+    If keep_data=False, permanently purges all documents and the machine record.
+    """
     machine = await _verify_device_ownership(db, device_db_id, _user)
+
+    should_keep = keep_data if isinstance(keep_data, bool) else getattr(keep_data, "default", False)
+    if should_keep:
+        machine.is_archived = True
+        machine.archived_at = datetime.now(timezone.utc)
+        await db.commit()
+
+        await cache_delete_prefix(f"devices:stats:{_user.id}")
+        await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
+        await cache_delete_prefix(f"dashboard:{_user.id}")
+        await cache_delete_prefix(f"tools:list:{_user.id}")
+        await cache_delete_prefix(f"projects:list:{_user.id}")
+
+        return {
+            "status": "archived",
+            "device_id": str(device_db_id),
+            "name": machine.name,
+            "keep_data": True,
+            "documents_deleted": 0,
+            "orphaned_entities_deleted": 0,
+            "orphaned_projects_deleted": 0,
+        }
 
     stats = await _purge_device_data(db, device_db_id, include_system=True)
     await db.execute(delete(Machine).where(Machine.id == device_db_id))
@@ -289,7 +322,49 @@ async def delete_device(
     await cache_delete_prefix(f"tools:list:{_user.id}")
     await cache_delete_prefix(f"projects:list:{_user.id}")
 
-    return {"status": "deleted", "device_id": str(device_db_id), "name": machine.name, **stats}
+    return {"status": "deleted", "device_id": str(device_db_id), "name": machine.name, "keep_data": False, **stats}
+
+
+@router.post("/{device_db_id}/archive")
+async def archive_device(
+    device_db_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Unbind/archive a device while keeping all its documents and data."""
+    machine = await _verify_device_ownership(db, device_db_id, _user)
+    machine.is_archived = True
+    machine.archived_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    await cache_delete_prefix(f"devices:stats:{_user.id}")
+    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
+    await cache_delete_prefix(f"dashboard:{_user.id}")
+    await cache_delete_prefix(f"tools:list:{_user.id}")
+    await cache_delete_prefix(f"projects:list:{_user.id}")
+
+    return {"status": "archived", "device_id": str(device_db_id), "name": machine.name, "keep_data": True}
+
+
+@router.post("/{device_db_id}/unarchive")
+async def unarchive_device(
+    device_db_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Restore an archived device back to the active device list."""
+    machine = await _verify_device_ownership(db, device_db_id, _user)
+    machine.is_archived = False
+    machine.archived_at = None
+    await db.commit()
+
+    await cache_delete_prefix(f"devices:stats:{_user.id}")
+    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
+    await cache_delete_prefix(f"dashboard:{_user.id}")
+    await cache_delete_prefix(f"tools:list:{_user.id}")
+    await cache_delete_prefix(f"projects:list:{_user.id}")
+
+    return {"status": "unarchived", "device_id": str(device_db_id), "name": machine.name}
 
 
 @router.delete("/{device_db_id}/purge")

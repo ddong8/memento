@@ -42,6 +42,10 @@ def _run_migrations(conn) -> None:
         conn.execute(text("ALTER TABLE machines ADD COLUMN merged_into UUID REFERENCES machines(id)"))
     if "user_id" not in machine_cols:
         conn.execute(text("ALTER TABLE machines ADD COLUMN user_id UUID REFERENCES users(id)"))
+    if "is_archived" not in machine_cols:
+        conn.execute(text("ALTER TABLE machines ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE"))
+    if "archived_at" not in machine_cols:
+        conn.execute(text("ALTER TABLE machines ADD COLUMN archived_at TIMESTAMP WITH TIME ZONE"))
 
     # Machine.remote_exec_key — per-device secret for remote task execution.
     # Minted lazily on heartbeat when MEMENTO_REMOTE_EXEC is on, so existing

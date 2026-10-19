@@ -78,6 +78,39 @@ class DeviceFilterTests(unittest.IsolatedAsyncioTestCase):
         # Verify query was constructed with candidate matching
         self.assertEqual(db.execute.call_count, 1)
 
+    async def test_device_unbind_keep_data_preserves_records(self) -> None:
+        from unittest.mock import patch
+        from server.api.devices import delete_device, archive_device, unarchive_device
+
+        user = User(id=uuid.uuid4(), email="user@example.com", role="user")
+        dev_id = uuid.uuid4()
+        machine = Machine(id=dev_id, user_id=user.id, name="Test Laptop", is_archived=False)
+        db = AsyncMock()
+
+        with patch("server.api.devices._verify_device_ownership", new_callable=AsyncMock, return_value=machine), \
+             patch("server.api.devices._purge_device_data", new_callable=AsyncMock) as mock_purge, \
+             patch("server.api.devices.cache_delete_prefix", new_callable=AsyncMock):
+
+            # Test 1: keep_data=True unbinds device without purging data
+            res = await delete_device(dev_id, db=db, _user=user, keep_data=True)
+            self.assertEqual(res["status"], "archived")
+            self.assertTrue(res["keep_data"])
+            self.assertTrue(machine.is_archived)
+            self.assertIsNotNone(machine.archived_at)
+            # Ensure purge was never called!
+            mock_purge.assert_not_called()
+
+            # Test 2: unarchive restores the device
+            unarch_res = await unarchive_device(dev_id, db=db, _user=user)
+            self.assertEqual(unarch_res["status"], "unarchived")
+            self.assertFalse(machine.is_archived)
+            self.assertIsNone(machine.archived_at)
+
+            # Test 3: explicit archive endpoint
+            arch_res = await archive_device(dev_id, db=db, _user=user)
+            self.assertEqual(arch_res["status"], "archived")
+            self.assertTrue(machine.is_archived)
+
 
 if __name__ == "__main__":
     unittest.main()

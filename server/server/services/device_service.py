@@ -44,6 +44,9 @@ async def ensure_device(
         if existing is not None:
             existing.collector_token_hash = device_id
             existing.last_heartbeat = now
+            if getattr(existing, "is_archived", False):
+                existing.is_archived = False
+                existing.archived_at = None
             return existing
 
     if machine is None:
@@ -58,6 +61,9 @@ async def ensure_device(
     else:
         machine.name = device_name
         machine.last_heartbeat = now
+        if getattr(machine, "is_archived", False):
+            machine.is_archived = False
+            machine.archived_at = None
         # Bind to user if not already bound
         if user_id and not machine.user_id:
             machine.user_id = user_id

@@ -52,6 +52,9 @@ class Machine(Base):
     # Set when this record was folded into another one for the same computer
     # (its device id changed); the row is kept for audit, never listed again.
     merged_into: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("machines.id"))
+    # Archived / unlinked flag: unbinds the device from active list while preserving all collected docs and data.
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped["User | None"] = relationship()
     documents: Mapped[list[Document]] = relationship(back_populates="machine")

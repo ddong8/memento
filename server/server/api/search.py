@@ -187,9 +187,11 @@ async def search(
 
     async def _fetch_sem():
         if semantic and offset == 0 and not device_id:
+            from ..services.mind_resonance_service import expand_query_for_search
+            expanded_q = expand_query_for_search(q)
             async with async_session_factory() as sem_db:
                 return await _semantic_doc_ranks(
-                    sem_db, q, mids, tool, category, days, want=limit
+                    sem_db, expanded_q, mids, tool, category, days, want=limit
                 )
         return [], {}, {}
 

@@ -31,6 +31,7 @@ const ShareModal = dynamic(
 
 import type { AgentCapabilities, AgentModelOption, AgentEffortOption } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
+import { MindAnticipation } from "@/components/ask/MindAnticipation";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatExcerpt, formatRelativeTime, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
@@ -6182,6 +6183,15 @@ function AskPageContent() {
                 </button>
               </div>
             )}
+
+            {/* 心领神会前置预判胶囊 */}
+            <MindAnticipation
+              inputValue={input}
+              onSelectPrompt={(p) => {
+                setInput(p);
+                inputElRef.current?.focus();
+              }}
+            />
 
             {/* Input box and action button */}
             <div className="flex items-end gap-1.5 sm:gap-2 w-full min-w-0 box-border">

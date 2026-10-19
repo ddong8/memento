@@ -1077,7 +1077,11 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
 
 
 async def agent_memory_prompt(
-    db: AsyncSession, user: User, project: str | None = None, query: str | None = None
+    db: AsyncSession,
+    user: User,
+    project: str | None = None,
+    query: str | None = None,
+    live_rules: list[str] | None = None,
 ) -> str:
     """The memory-tool rules plus published profile, pitfalls, and available skills."""
     from ..db.models import Skill
@@ -1090,7 +1094,7 @@ async def agent_memory_prompt(
     try:
         from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
         res = await sense_resonance(db, user, query=query, project=project, action="agent")
-        parts.append(render_mind_resonance_markdown(res))
+        parts.append(render_mind_resonance_markdown(res, live_rules=live_rules))
     except Exception as e:
         logger.warning("Failed to load mind resonance in agent_memory_prompt: %s", e)
 

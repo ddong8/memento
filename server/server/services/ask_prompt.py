@@ -202,6 +202,7 @@ def build_messages(
     resonance_data: dict | None = None,
     device_id: str | None = None,
     user: User | None = None,
+    live_rules: list[str] | None = None,
 ) -> list[dict]:
     context = "\n\n".join(
         f"[{i + 1}] {s['title']} ({s['tool_id']}, {s['relative_path']})\n{s['excerpt']}"
@@ -213,7 +214,7 @@ def build_messages(
     # 0. Mind Resonance (前置心领神会与默契共鸣)
     if resonance_data:
         from .mind_resonance_service import render_mind_resonance_markdown
-        rendered_r = render_mind_resonance_markdown(resonance_data)
+        rendered_r = render_mind_resonance_markdown(resonance_data, live_rules=live_rules)
         if rendered_r.strip():
             system_prompt += f"\n\n{rendered_r.strip()}"
 

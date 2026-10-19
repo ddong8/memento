@@ -273,3 +273,50 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
             self.assertIn("【心智避坑唤醒·历史上发生过类似错误】", hint)
             self.assertIn("版本号未对齐导致升级死循环", hint)
             self.assertIn("更新 apps/desktop/package.json 版本号", hint)
+
+    async def test_live_correction_rules_and_cache(self):
+        """Verify extraction, storage, and rendering of session live rules."""
+        from server.services.mind_resonance_service import (
+            extract_live_correction_rules,
+            get_session_live_rules,
+            render_mind_resonance_markdown,
+            save_session_live_rules,
+        )
+        sample_prompt = (
+            "请注意：\n"
+            "回复中不要用 ** 这类 Markdown 加粗符号。\n"
+            "发版必须确认所有 pod 状态。\n"
+            "还有其他需要注意的吗？"
+        )
+        rules = extract_live_correction_rules(sample_prompt)
+        self.assertTrue(any("不要用" in r for r in rules))
+        self.assertTrue(any("必须确认" in r or "发版必须" in r for r in rules))
+
+        user_id = uuid.uuid4()
+        conv_id = "test-conv-123"
+        saved = await save_session_live_rules(user_id, conv_id, rules)
+        self.assertGreater(len(saved), 0)
+
+        retrieved = await get_session_live_rules(user_id, conv_id)
+        self.assertEqual(retrieved, saved)
+
+        rendered = render_mind_resonance_markdown({"mindset": "测试心智"}, live_rules=retrieved)
+        self.assertIn("【当前会话实时纠偏与行为守则（用户在本会话中特别强调，必须绝对遵守）】", rendered)
+
+    def test_query_expansion_for_search(self):
+        """Verify query expansion on short scenario keywords."""
+        from server.services.mind_resonance_service import expand_query_for_search
+
+        # 1. DevOps release scenario
+        exp_rel = expand_query_for_search("发布新版")
+        self.assertIn("version.json", exp_rel)
+        self.assertIn("Fleet", exp_rel)
+
+        # 2. Chemistry pubchem scenario
+        exp_chem = expand_query_for_search("逆合成")
+        self.assertIn("CAS", exp_chem)
+        self.assertIn("SMILES", exp_chem)
+
+        # 3. Long query should remain untouched
+        long_q = "这是一段非常详细具体的指令超过三十个字符所以不需要自动扩展语义锚点"
+        self.assertEqual(expand_query_for_search(long_q), long_q)

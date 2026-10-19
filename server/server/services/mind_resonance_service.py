@@ -166,15 +166,31 @@ async def _fetch_graph_entities(
         )
         ent_rows = (await db.execute(ent_q)).scalars().all()
 
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+
         def entity_affinity(ent: KnowledgeEntity) -> float:
             base_score = float(score(f"{ent.name} {ent.summary or ''}", terms))
+            # 艾宾浩斯时间与频次衰减（半衰期 7 天，越近越活跃）
+            ent_time = getattr(ent, "updated_at", None) or getattr(ent, "created_at", None)
+            if ent_time:
+                if ent_time.tzinfo is None:
+                    ent_time = ent_time.replace(tzinfo=timezone.utc)
+                age_days = max(0.0, (now - ent_time).total_seconds() / 86400.0)
+                temporal_factor = 1.0 / (1.0 + age_days / 7.0)
+            else:
+                temporal_factor = 0.5
+
+            decayed_score = base_score * (0.4 + 0.6 * temporal_factor)
+
             if target_project:
                 low_p = target_project.lower()
                 low_name = ent.name.lower()
                 low_sum = (ent.summary or "").lower()
                 if low_p in low_name or low_p in low_sum:
-                    base_score += 15.0
-            return base_score
+                    decayed_score += 15.0
+            return decayed_score
 
         sorted_ents = sorted(
             ent_rows,
@@ -326,13 +342,20 @@ async def sense_resonance(
     }
 
 
-def render_mind_resonance_markdown(res: dict[str, Any]) -> str:
+def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | None = None) -> str:
     """Format the resonance payload into a crisp, high-signal system prompt section."""
     scen = res.get("scenario") or {}
     lines = [
         "【心领神会·默契前置激活层 (Mind Resonance)】",
         f"识别场景：{scen.get('name', '通用工程')} ｜ 核心心智模型：{res.get('mindset', '')}",
     ]
+
+    # Live Session Corrections (highest priority within current turn)
+    active_live = live_rules or res.get("live_rules") or []
+    if active_live:
+        lines.append("\n【当前会话实时纠偏与行为守则（用户在本会话中特别强调，必须绝对遵守）】：")
+        for lr in active_live[:5]:
+            lines.append(f"- {lr.strip('- * ')}")
 
     # Scoped rules
     scoped = res.get("scoped_rules") or []
@@ -371,3 +394,99 @@ def render_mind_resonance_markdown(res: dict[str, Any]) -> str:
 
     lines.append("\n心领神会行动要求：严格基于上述心智模型与图谱关联展开工作，不反问用户，直达终局。")
     return "\n".join(lines)
+
+
+# Live Correction Patterns for In-Flight Learning
+_CORRECTION_PATTERNS = [
+    re.compile(r"(?:以后|严禁|杜绝|不要|不能|必须|统一|记住|切记)(?:在|用|加|使用|包含|反问|回滚|删除)?\s*([^\n。，；]{3,50})"),
+    re.compile(r"(?:不要|不能|严禁)\s*([^\n。，；]{2,30})"),
+    re.compile(r"(?:必须|统一|只能)\s*([^\n。，；]{2,30})"),
+]
+
+_session_live_rules_mem: dict[str, list[str]] = {}
+
+
+def extract_live_correction_rules(text: str) -> list[str]:
+    """Extract explicit developer/user behavioral corrections and negative constraints from prompt."""
+    if not text:
+        return []
+    rules: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or len(line) < 4:
+            continue
+        for pat in _CORRECTION_PATTERNS:
+            for m in pat.finditer(line):
+                matched = m.group(0).strip("，。；、 ")
+                if any(k in matched for k in ("不要忘了", "能不能", "要不要", "是不是")):
+                    continue
+                if len(matched) >= 4 and matched not in rules:
+                    rules.append(matched)
+    return rules[:4]
+
+
+async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules: list[str]) -> list[str]:
+    """Save newly learned session live rules to cache."""
+    if not conversation_id or not new_rules:
+        return []
+    cache_key = f"session_live_rules:{user_id}:{conversation_id}"
+    existing = await get_session_live_rules(user_id, conversation_id)
+    combined = list(existing)
+    for r in new_rules:
+        if r not in combined:
+            combined.append(r)
+    combined = combined[-10:]
+    _session_live_rules_mem[cache_key] = combined
+    try:
+        from .cache import cache_set
+        await cache_set(cache_key, combined, ttl_seconds=7200)
+    except Exception as e:
+        logger.debug("Failed to set redis session_live_rules: %s", e)
+    return combined
+
+
+async def get_session_live_rules(user_id: Any, conversation_id: str) -> list[str]:
+    """Retrieve session live rules."""
+    if not conversation_id:
+        return []
+    cache_key = f"session_live_rules:{user_id}:{conversation_id}"
+    if cache_key in _session_live_rules_mem:
+        return _session_live_rules_mem[cache_key]
+    try:
+        from .cache import cache_get
+        cached = await cache_get(cache_key)
+        if isinstance(cached, list):
+            _session_live_rules_mem[cache_key] = [str(x) for x in cached]
+            return _session_live_rules_mem[cache_key]
+    except Exception as e:
+        logger.debug("Failed to get redis session_live_rules: %s", e)
+    return []
+
+
+def expand_query_for_search(query: str, target_project: str | None = None) -> str:
+    """Expand short query with domain scenario keywords and mindset anchors for higher hybrid recall."""
+    if not query or len(query.strip()) > 30:
+        return query
+    terms = terms_for(None, target_project, query)
+    scen = detect_scenario(terms, f"{query} {target_project or ''}")
+    scen_id = scen.get("id")
+    anchors: list[str] = []
+    if scen_id == "devops_release":
+        anchors = ["version.json", "kustomization", "Fleet", "package.json", "tag", "部署"]
+    elif scen_id == "chemistry_pubchem":
+        anchors = ["CAS", "SMILES", "逆合成", "格式试剂", "路线重排"]
+    elif scen_id == "data_harvest":
+        anchors = ["CAS", "SMILES", "中文名称", "数据抓取", "资产登记"]
+    elif scen_id == "ui_performance":
+        anchors = ["交互零延迟", "全屏铺满", "缓存", "流式输出"]
+    elif scen_id == "data_safety":
+        anchors = ["归档", "备份", "保留标记", "审计"]
+    elif scen_id == "evolution_memory":
+        anchors = ["心领神会", "常驻画像", "自进化", "避坑"]
+
+    if anchors:
+        clean_q = query.strip()
+        extras = [a for a in anchors if a.lower() not in clean_q.lower()][:3]
+        if extras:
+            return f"{clean_q} {' '.join(extras)}"
+    return query

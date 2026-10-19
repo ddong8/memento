@@ -311,6 +311,22 @@ async def ask(
     except Exception as e:
         logger.warning("Failed to load mind resonance in ask: %s", e)
 
+    # 3.1 Live In-Flight Rules (会话级即时行为纠偏学习)
+    live_rules = None
+    try:
+        from ..services.mind_resonance_service import (
+            extract_live_correction_rules,
+            get_session_live_rules,
+            save_session_live_rules,
+        )
+        new_live = extract_live_correction_rules(question)
+        conv_key = str(conv.id) if conv else (body.conversation_id or "default")
+        if new_live:
+            await save_session_live_rules(_user.id, conv_key, new_live)
+        live_rules = await get_session_live_rules(_user.id, conv_key)
+    except Exception as e:
+        logger.warning("Failed to process session live rules in ask: %s", e)
+
     messages = build_messages(
         question,
         sources,
@@ -326,6 +342,7 @@ async def ask(
         resonance_data=resonance_data,
         device_id=device_id or None,
         user=_user,
+        live_rules=live_rules,
     )
 
     is_agent = (body.agent_mode or (bool(device_id) and device_id != "ask_only")) and device_id != "ask_only"
@@ -336,7 +353,7 @@ async def ask(
     if is_agent:
         from ..services.orchestrator import ORCHESTRATOR_SYSTEM, agent_memory_prompt, run_agent_loop
 
-        system_content = ORCHESTRATOR_SYSTEM + "\n\n" + await agent_memory_prompt(db, _user, project=body.project_id, query=question)
+        system_content = ORCHESTRATOR_SYSTEM + "\n\n" + await agent_memory_prompt(db, _user, project=body.project_id, query=question, live_rules=live_rules)
         if core_mems:
             core_snippets = "\n".join(
                 f"- [{m.category}/{m.key}]: {m.content}" for m in core_mems

@@ -333,3 +333,62 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         # Verify inside code block is preserved
         self.assertIn("2 ** 3", cleaned)
         self.assertIn("'**keep this**'", cleaned)
+
+    async def test_record_online_graph_observation(self):
+        """Verify real-time online knowledge graph observation writeback and cache eviction."""
+        from server.services.mind_resonance_service import record_online_graph_observation
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        user_id = uuid.uuid4()
+
+        # When entity doesn't exist
+        mock_res = MagicMock()
+        mock_res.scalars.return_value.first.return_value = None
+        mock_db.execute.return_value = mock_res
+
+        with patch("server.services.cache.cache_delete_prefix", AsyncMock()) as mock_del:
+            obs = await record_online_graph_observation(
+                mock_db, user_id, "FastAPI", "异步路由改造成功", entity_type="technology"
+            )
+            self.assertIsNotNone(obs)
+            self.assertEqual(obs.content, "异步路由改造成功")
+            mock_db.add.assert_called()
+            mock_del.assert_called_once_with(f"memory:resonance:{user_id}")
+
+    async def test_select_affinity_machine(self):
+        """Verify scenario, OS topology, and path affinity routing across multiple machines."""
+        from server.db.models import Machine
+        from server.services.orchestrator import _select_affinity_machine
+
+        user = User(id=uuid.uuid4(), email="u@test.com")
+        mock_db = AsyncMock()
+
+        m_mac = Machine(
+            id=uuid.uuid4(),
+            name="haixingdong-macbook",
+            collector_token_hash="tok_mac",
+            is_archived=False,
+        )
+        m_linux = Machine(
+            id=uuid.uuid4(),
+            name="chemistry-gpu-server-linux",
+            collector_token_hash="tok_linux",
+            is_archived=False,
+        )
+
+        with patch("server.services.orchestrator.ws_manager.has_device", return_value=True):
+            # Test 1: Chemistry / /data2 scenario prefers Linux
+            chosen_chem = await _select_affinity_machine(
+                mock_db, user, [m_mac, m_linux],
+                {"command": "python parse_reaxys.py", "cwd": "/data2/pubchem"}
+            )
+            self.assertEqual(chosen_chem.name, "chemistry-gpu-server-linux")
+
+            # Test 2: macOS specific command prefers Mac
+            chosen_mac = await _select_affinity_machine(
+                mock_db, user, [m_mac, m_linux],
+                {"command": "osascript -e 'display dialog \"hello\"'", "cwd": "/Users/haixingdong/dev"}
+            )
+            self.assertEqual(chosen_mac.name, "haixingdong-macbook")
+

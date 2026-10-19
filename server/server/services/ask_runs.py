@@ -430,12 +430,40 @@ class AskRunRegistry:
                 r.done = True
                 if not r.finished_at:
                     r.finished_at = now
+                notify_service.spawn(
+                    notify_service.push_live_activity_event(
+                        r.user_id,
+                        r.conversation_id,
+                        "end",
+                        status="error" if r.failed else ("cancelled" if r.cancelled else "done"),
+                        current_step=r.current_step,
+                        step_count=r.step_count,
+                        tool_name=r.tool_name,
+                        elapsed_seconds=int(now - r.started_at),
+                        title=r.title or (r.question[:40] if r.question else "后台任务"),
+                        engine=r.engine_label(),
+                    )
+                )
             # Safety timeout: if a run has had no frames or activity for > 15 minutes, mark as finished
             if not r.done and (now - r.last_active_at > 900):
                 r.done = True
                 r.failed = True
                 r.finished_at = now
                 r.current_step = "任务超时已终止"
+                notify_service.spawn(
+                    notify_service.push_live_activity_event(
+                        r.user_id,
+                        r.conversation_id,
+                        "end",
+                        status="error",
+                        current_step=r.current_step,
+                        step_count=r.step_count,
+                        tool_name=r.tool_name,
+                        elapsed_seconds=int(now - r.started_at),
+                        title=r.title or (r.question[:40] if r.question else "后台任务"),
+                        engine=r.engine_label(),
+                    )
+                )
             runs[r.run_id] = r
         for remote in await self._remote_for_user(user_id):
             runs.setdefault(remote.run_id, remote)
@@ -620,6 +648,20 @@ class AskRunRegistry:
         run.finished_at = time.time()
         self._mirror_end(run)
         self._cluster.spawn(self._cluster.disown(CLAIM + run.conversation_id, run.claim_value))
+        notify_service.spawn(
+            notify_service.push_live_activity_event(
+                run.user_id,
+                run.conversation_id,
+                "end",
+                status="cancelled",
+                current_step=run.current_step,
+                step_count=run.step_count,
+                tool_name=run.tool_name,
+                elapsed_seconds=int((run.finished_at or time.time()) - run.started_at),
+                title=run.title or (run.question[:40] if run.question else "后台任务"),
+                engine=run.engine_label(),
+            )
+        )
         loop = asyncio.get_running_loop()
         loop.create_task(self._wake(run))
         loop.call_later(RETAIN_AFTER_DONE, self._drop, run)

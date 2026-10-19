@@ -104,7 +104,7 @@ describe("memento MCP", () => {
       ),
     );
     const res = await client.readResource({ uri: "memory://resonance" });
-    expect(res.contents[0]?.text).toContain("# Mind Resonance Snapshot");
+    expect((res.contents[0] as { text: string })?.text).toContain("# Mind Resonance Snapshot");
   });
 
   it("searches semantically and falls back to keyword search", async () => {

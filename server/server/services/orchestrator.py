@@ -482,6 +482,116 @@ async def _await_task_stream(
     yield {"type": "_task_timeout", "task_id": str(task_id)}
 
 
+async def _select_affinity_machine(
+    db: AsyncSession,
+    user: User,
+    machines: list[Machine],
+    args: dict[str, Any],
+) -> Machine | None:
+    """Select the optimal machine considering connection liveness, OS topology, cwd path, scenario affinity, and project history."""
+    if not machines:
+        return None
+    if len(machines) == 1:
+        return machines[0]
+
+    from ..db.models import Document
+    from .guidance_service import terms_for
+    from .mind_resonance_service import detect_scenario
+
+    cmd_or_prompt = str(args.get("command") or args.get("prompt") or "").strip()
+    raw_cwd = str(args.get("cwd") or "").strip()
+    proj_id_val = args.get("project_id") or args.get("project")
+
+    terms = terms_for(None, str(proj_id_val) if proj_id_val else None, cmd_or_prompt)
+    scen = detect_scenario(terms, f"{cmd_or_prompt} {raw_cwd}")
+    scen_id = scen.get("id")
+
+    now_utc = datetime.now(timezone.utc)
+    best_mach: Machine | None = None
+    best_score = -999999.0
+
+    proj_machine_ids = set()
+    if proj_id_val:
+        try:
+            pid = uuid.UUID(str(proj_id_val)) if not isinstance(proj_id_val, uuid.UUID) else proj_id_val
+            doc_mq = select(Document.machine_id).where(
+                Document.project_id == pid,
+                Document.machine_id.isnot(None),
+            ).distinct()
+            proj_machine_ids = set((await db.execute(doc_mq)).scalars().all())
+        except Exception:
+            pass
+
+    for m in machines:
+        score = 0.0
+        m_hb = m.last_heartbeat
+        if m_hb and m_hb.tzinfo is None:
+            m_hb = m_hb.replace(tzinfo=timezone.utc)
+        m_age = (now_utc - m_hb).total_seconds() if m_hb else None
+
+        # 1. Connection Liveness
+        m_candidates = [m.collector_token_hash, m.name, normalize_device_name(m.name), str(m.id)]
+        has_active_ws = any(cand and ws_manager.has_device(cand) for cand in m_candidates)
+        if has_active_ws:
+            score += 150.0
+        elif m_age is not None and m_age < OFFLINE_AFTER_SECONDS:
+            score += max(0.0, 60.0 - (m_age / 5.0))
+        else:
+            score -= 100.0
+
+        # 2. Operating System & Path Affinity
+        m_name_lower = (m.name or "").lower()
+        is_mac = any(k in m_name_lower for k in ("mac", "darwin", "mbp", "apple", "imac", "mini"))
+        is_linux = any(k in m_name_lower for k in ("linux", "ubuntu", "debian", "centos", "server"))
+        is_win = any(k in m_name_lower for k in ("win", "pc", "desktop"))
+
+        if raw_cwd:
+            if raw_cwd.startswith("/data2") or raw_cwd.startswith("/home") or raw_cwd.startswith("/root"):
+                if is_linux or not is_mac:
+                    score += 40.0
+            elif raw_cwd.startswith("/Users/"):
+                if is_mac:
+                    score += 40.0
+            elif re.match(r"^[a-zA-Z]:[/\\]", raw_cwd):
+                if is_win:
+                    score += 40.0
+
+        if scen_id in ("chemistry_pubchem", "data_harvest"):
+            if is_linux:
+                score += 35.0
+            elif not is_mac:
+                score += 20.0
+        elif scen_id == "ui_performance":
+            if is_mac:
+                score += 35.0
+        elif scen_id == "devops_release":
+            if is_linux or "server" in m_name_lower:
+                score += 25.0
+
+        if any(tool_cmd in cmd_or_prompt for tool_cmd in ("osascript", "pbcopy", "pbpaste", "xcodebuild", "open -a")):
+            if is_mac:
+                score += 50.0
+            else:
+                score -= 30.0
+        if any(tool_cmd in cmd_or_prompt for tool_cmd in ("apt-get", "systemctl", "yum", "journalctl", "/data2")):
+            if is_linux:
+                score += 50.0
+
+        # 3. Project Affinity
+        if m.id in proj_machine_ids:
+            score += 45.0
+
+        # Recency tie-breaker
+        if m_age is not None:
+            score += max(0.0, 10.0 - (m_age / 300.0))
+
+        if score > best_score:
+            best_score = score
+            best_mach = m
+
+    return best_mach or machines[0]
+
+
 async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, classify_shell: bool = False):
     """classify_shell: the command came from the LLM rather than the user, so
     report it if risky (a retrieved document could have talked the model into it)."""
@@ -506,24 +616,13 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
         return
 
     try:
-        # If device_id is omitted by the model, fall back to the user's most recently active machine
+        # If device_id is omitted by the model, select target machine via affinity routing
         if not device_id:
             mq = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
             if user.role not in ("admin", "owner"):
                 mq = mq.where(Machine.user_id == user.id)
             machines = (await db.execute(mq)).scalars().all()
-            now_utc = datetime.now(timezone.utc)
-            chosen = None
-            for m in machines:
-                m_hb = m.last_heartbeat
-                if m_hb and m_hb.tzinfo is None:
-                    m_hb = m_hb.replace(tzinfo=timezone.utc)
-                m_age = (now_utc - m_hb).total_seconds() if m_hb else None
-                m_candidates = [m.collector_token_hash, m.name, normalize_device_name(m.name), str(m.id)]
-                if any(cand and ws_manager.has_device(cand) for cand in m_candidates) or (m_age is not None and m_age < OFFLINE_AFTER_SECONDS):
-                    chosen = m
-                    break
-            machine = chosen or (machines[0] if machines else None)
+            machine = await _select_affinity_machine(db, user, list(machines), args)
         else:
             base_dev_id = normalize_device_name(device_id)
             machine = (await db.execute(

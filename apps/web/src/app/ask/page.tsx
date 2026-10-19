@@ -2780,6 +2780,11 @@ function AskPageContent() {
         );
         if (res.status === 404) {
           setIsReconnecting(false);
+          postNativeLiveActivity("end", {
+            conversationId: cursor.convId,
+            status: "done",
+            currentStep: "任务完成",
+          });
           // Finished and no longer held by the server: the saved conversation has it all.
           const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
           if (data?.turns) {
@@ -3050,6 +3055,11 @@ function AskPageContent() {
       askCache.activeRun = null;
     }
     if (convId) {
+      postNativeLiveActivity("end", {
+        conversationId: convId,
+        status: "cancelled",
+        currentStep: "已停止",
+      });
       authFetch(`${getApiBase()}/api/ask/conversations/${convId}/cancel`, { method: "POST" }).catch(() => {});
       if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -3365,6 +3375,11 @@ function AskPageContent() {
     (window as any).__memento_stop_task = (convId?: string) => {
       const targetId = convId || activeConversationIdRef.current;
       if (targetId) {
+        postNativeLiveActivity("end", {
+          conversationId: targetId,
+          status: "cancelled",
+          currentStep: "已停止",
+        });
         authFetch(`${getApiBase()}/api/ask/conversations/${targetId}/cancel`, { method: "POST" }).catch(() => {});
         streamingRef.current = false;
         setStreaming(false);
@@ -3374,8 +3389,15 @@ function AskPageContent() {
     };
     return () => {
       delete (window as any).__memento_stop_task;
+      if (streamingRef.current && activeConversationIdRef.current) {
+        postNativeLiveActivity("end", {
+          conversationId: activeConversationIdRef.current,
+          status: "done",
+          currentStep: "任务完成",
+        });
+      }
     };
-  }, []);
+  }, [postNativeLiveActivity]);
 
   const handleSelectProject = useCallback(
     async (projId: string, customProjects?: ProjectSummary[], explicitDev?: string) => {

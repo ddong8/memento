@@ -9,11 +9,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import re
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory
@@ -500,3 +501,73 @@ def clean_guardrail_output(text: str) -> str:
     for i in range(0, len(parts), 2):  # Prose sections outside of code blocks
         parts[i] = re.sub(r"\*\*([^\n*]+?)\*\*", r"\1", parts[i])
     return "```".join(parts)
+
+
+async def record_online_graph_observation(
+    db: AsyncSession,
+    user_id: Any,
+    entity_name: str,
+    observation_content: str,
+    *,
+    entity_type: str = "technology",
+    summary: str | None = None,
+) -> KnowledgeObservation | None:
+    """Record an online knowledge graph observation in real-time, closing the feedback loop and invalidating cache."""
+    if not user_id or not entity_name or not observation_content:
+        return None
+
+    clean_name = entity_name.strip()
+    clean_obs = observation_content.strip()
+    if not clean_name or not clean_obs:
+        return None
+
+    try:
+        q = select(KnowledgeEntity).where(
+            KnowledgeEntity.user_id == user_id,
+            func.lower(KnowledgeEntity.name) == clean_name.lower(),
+        )
+        res = await db.execute(q)
+        entity = res.scalars().first()
+
+        now_utc = datetime.now(timezone.utc)
+        if not entity:
+            entity = KnowledgeEntity(
+                user_id=user_id,
+                name=clean_name,
+                entity_type=entity_type,
+                summary=summary or clean_obs[:150],
+            )
+            db.add(entity)
+            await db.flush()
+        else:
+            if summary and not entity.summary:
+                entity.summary = summary
+            entity.updated_at = now_utc
+
+        dup_q = select(KnowledgeObservation).where(
+            KnowledgeObservation.entity_id == entity.id,
+            KnowledgeObservation.content == clean_obs,
+        )
+        dup = (await db.execute(dup_q)).scalars().first()
+        if dup:
+            return dup
+
+        obs = KnowledgeObservation(
+            entity_id=entity.id,
+            content=clean_obs,
+            observed_at=now_utc,
+        )
+        db.add(obs)
+        await db.flush()
+
+        try:
+            from .cache import cache_delete_prefix
+            await cache_delete_prefix(f"memory:resonance:{user_id}")
+        except Exception as e:
+            logger.debug("Failed to invalidate resonance cache in record_online_graph_observation: %s", e)
+
+        return obs
+    except Exception as e:
+        logger.warning("Failed to record online graph observation: %s", e)
+        return None
+

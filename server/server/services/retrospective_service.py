@@ -319,6 +319,17 @@ async def save_pitfall(
     db.add(mem)
     await db.flush()
     try:
+        from .mind_resonance_service import record_online_graph_observation
+        ent_name = display or "工程实践"
+        obs_content = f"{item.get('title')}：原因【{item.get('cause')}】，解决【{item.get('fix')}】"
+        await record_online_graph_observation(
+            db, user.id, ent_name, obs_content,
+            entity_type="project" if display else "concept",
+            summary=f"避坑指南: {item.get('title')}",
+        )
+    except Exception as e:
+        logger.debug("Failed to record online graph observation for pitfall: %s", e)
+    try:
         from .cache import cache_delete_prefix
         await cache_delete_prefix(f"memory:resonance:{user.id}")
         await cache_delete_prefix(f"learning:check:{user.id}")

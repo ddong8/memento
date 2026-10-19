@@ -494,12 +494,11 @@ const MANAGER_CODE = `
         if let act = existing {
           let content = ActivityContent(state: state, staleDate: nil)
           await act.end(content, dismissalPolicy: .immediate)
-        } else {
-          for other in Activity<MementoTaskAttributes>.activities {
-            if other.attributes.conversationId == convId || convId.isEmpty {
-              let content = ActivityContent(state: state, staleDate: nil)
-              await other.end(content, dismissalPolicy: .immediate)
-            }
+        }
+        for other in Activity<MementoTaskAttributes>.activities {
+          if other.attributes.conversationId == convId || convId.isEmpty || convId == "*" {
+            let content = ActivityContent(state: state, staleDate: nil)
+            await other.end(content, dismissalPolicy: .immediate)
           }
         }
         return
@@ -585,7 +584,8 @@ const MANAGER_CODE = `
 
       Task {
         for act in Activity<MementoTaskAttributes>.activities {
-          if !activeConvIds.contains(act.attributes.conversationId) {
+          let s = act.content.state.status
+          if !activeConvIds.contains(act.attributes.conversationId) || s == "done" || s == "error" || s == "cancelled" {
             let finalState = MementoTaskAttributes.ContentState(
               status: "done",
               currentStep: "任务完成",

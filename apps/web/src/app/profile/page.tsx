@@ -45,7 +45,15 @@ function ProfileContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<TabKey>("account");
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("memento_profile_tab") as TabKey | null;
+      if (saved && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(saved)) {
+        return saved;
+      }
+    }
+    return "account";
+  });
   const [isDesktopEnv, setIsDesktopEnv] = useState(false);
 
   useEffect(() => {
@@ -57,11 +65,22 @@ function ProfileContent() {
     const paramTab = searchParams.get("tab") as TabKey | null;
     if (paramTab && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(paramTab)) {
       setActiveTab(paramTab);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("memento_profile_tab", paramTab);
+      }
+    } else if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("memento_profile_tab") as TabKey | null;
+      if (saved && ["proactive", "llm", "life", "account", "devices", "collector", "health", "admin"].includes(saved)) {
+        setActiveTab(saved);
+      }
     }
   }, [searchParams]);
 
   const switchTab = (tab: TabKey) => {
     setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("memento_profile_tab", tab);
+    }
     router.replace(`/profile?tab=${tab}`, { scroll: false });
   };
 

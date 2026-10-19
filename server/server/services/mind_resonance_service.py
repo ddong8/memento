@@ -572,3 +572,200 @@ async def record_online_graph_observation(
         logger.warning("Failed to record online graph observation: %s", e)
         return None
 
+
+def validate_shell_command_against_iron_rules(
+    command: str,
+    machine_name: str = "",
+    platform_hint: str = "",
+) -> tuple[bool, str | None]:
+    """Validate a shell command against user iron rules and architectural safety guardrails.
+
+    Returns (is_allowed, warning_or_error_message).
+    """
+    cmd = command.strip()
+    cmd_lower = cmd.lower()
+
+    # 1. Iron Rule: Destructive database deletion without backup
+    dangerous_db_patterns = [
+        r"\bdrop\s+database\b",
+        r"\bdrop\s+table\b",
+        r"\btruncate\s+table\b",
+        r"\btruncate\b\s+[a-zA-Z0-9_]+",
+    ]
+    for pat in dangerous_db_patterns:
+        if re.search(pat, cmd_lower):
+            return False, "【用户铁律守门拦截】：严禁执行未经备份的物理硬删除！修改或清空数据前必须先备份原表数据；数据操作倾向打标记归档而非物理删除，便于审计。"
+
+    # 2. Iron Rule: Dangerous physical root or disk deletion
+    dangerous_rm_patterns = [
+        r"\brm\s+-(?:r|rf|fr)\s+/(?:\s|$)",
+        r"\brm\s+-(?:r|rf|fr)\s+/data2?(?:\s|/|$)",
+        r"\brm\s+-(?:r|rf|fr)\s+~/?(?:\s|$)",
+        r"\brm\s+-(?:r|rf|fr)\s+\*$",
+    ]
+    for pat in dangerous_rm_patterns:
+        if re.search(pat, cmd_lower):
+            return False, "【系统安全防线】：检测到针对根目录、用户主目录或核心数据目录的破坏性递归删除命令，已被拦截。请改用精细化、可审计的归档清理策略。"
+
+    # 3. Iron Rule: Rerun tasks must stop old services and carry version tags
+    if any(k in cmd_lower for k in ("run_all", "batch_run", "harvest_all", "reindex_all")):
+        if "--version" not in cmd_lower and "-v " not in cmd_lower:
+            return True, "【用户铁律提醒】：已标注的数据不要重跑，重跑需带版本号；重跑前先确认已停掉旧服务/旧任务，且只针对指定范围。"
+
+    # 4. OS mismatch guard
+    plat = (platform_hint or machine_name).lower()
+    is_mac = any(k in plat for k in ("mac", "darwin", "mbp", "apple", "imac", "mini"))
+    is_linux = any(k in plat for k in ("linux", "ubuntu", "debian", "centos", "server"))
+
+    if is_mac and any(tool in cmd_lower for tool in ("systemctl ", "apt-get ", "apt ", "yum ", "journalctl ")):
+        return False, f"【平台指令不匹配】：目标设备「{machine_name}」为 macOS 环境，不支持 systemctl/apt/yum 等 Linux 命令。请选用 Linux 运算设备或改用 macOS 对应命令（如 brew / launchctl）。"
+    if is_linux and any(tool in cmd_lower for tool in ("osascript ", "pbcopy", "pbpaste", "open -a ")):
+        return False, f"【平台指令不匹配】：目标设备「{machine_name}」为 Linux 环境，不支持 AppleScript 或 macOS 专属命令。请选用 Mac 设备执行。"
+
+    return True, None
+
+
+def enrich_search_query_with_mindset(query: str, scenario: dict[str, Any]) -> str:
+    """Expand short query with domain mindset keywords to boost contextual retrieval recall."""
+    clean_q = query.strip()
+    if len(clean_q) > 40:
+        return clean_q
+
+    scen_id = scenario.get("id", "")
+    if scen_id == "chemistry_pubchem" and not any(k in clean_q.lower() for k in ("cas", "smiles", "pubchem")):
+        return f"{clean_q} CAS SMILES 逆合成"
+    elif scen_id == "data_harvest" and not any(k in clean_q.lower() for k in ("dump", "workbuddy", "中文名")):
+        return f"{clean_q} 数据抓取 中文名称 dump"
+    elif scen_id == "devops_release" and not any(k in clean_q.lower() for k in ("version.json", "tag", "release")):
+        return f"{clean_q} 发布 三位一体 version.json tag"
+    elif scen_id == "ui_performance" and not any(k in clean_q.lower() for k in ("延迟", "保活", "卡顿")):
+        return f"{clean_q} 零延迟 保活 页面流畅"
+    return clean_q
+
+
+def enrich_skill_with_mindset(skill_md: str, scenario: dict[str, Any]) -> str:
+    """Append mental guardrails to skill markdown based on scenario."""
+    scen_id = scenario.get("id", "")
+    defense_lines = []
+
+    if scen_id == "devops_release":
+        defense_lines.extend([
+            "1) 发版前必查历史经验避免重踩坑，确认代码发版打 tag，且所有 pod 确认已部署更新。",
+            "2) 桌面端发布严格遵守元数据三位一体校验（version.json、GitHub Release 与 updates.py 强一致）。",
+            "3) 代码提交规范：中文 Conventional Commits 风格，严禁添加 Claude 共同作者信息，保持线性 Git 历史。",
+            "4) 发布、部署全流程直接帮用户闭环做完，严禁让用户手动敲命令。",
+        ])
+    elif scen_id == "chemistry_pubchem":
+        defense_lines.extend([
+            "1) 遇到原文中是 CAS 号的化合物，直接使用 CAS 号表述，严禁猜测化合物名称。",
+            "2) 逆合成结果必须经过 AI 重排，步数多的路线不能排在前面；避免生成不稳定的格式试剂。",
+        ])
+    elif scen_id == "data_harvest":
+        defense_lines.extend([
+            "1) 抓取化学数据源优先中文网站，且必须抓取中文名称；CAS 与 SMILES 为必须字段。",
+            "2) 先整库 dump 到本地再处理数据；修改数据前先备份原表数据，倾向打标记而非硬删除。",
+        ])
+    else:
+        defense_lines.extend([
+            "1) 仔细深入调查问题，从根子上彻底解决；一次做到位，交付前本地类型检查与自测确认通过。",
+            "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
+        ])
+
+    defenses_text = "\n".join(defense_lines)
+    return (
+        f"{skill_md.rstrip()}\n\n"
+        f"【心领神会·本操作专项执行防线与心智铁律】：\n{defenses_text}"
+    )
+
+
+def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> str:
+    """Enrich check_rules output with real-time mind resonance, project scoped rules, and graph nodes."""
+    scen = resonance.get("scenario") or {}
+    scoped = resonance.get("scoped_rules") or []
+    general = resonance.get("general_rules") or []
+    entities = resonance.get("entities") or []
+    pitfalls = resonance.get("pitfalls") or []
+
+    sections = [guidance_md.strip()]
+
+    mind_lines = [
+        f"\n【心领神会·场景综合心智感知 ({scen.get('name', '工程研发')})】",
+        f"核心导向：{resonance.get('mindset', '')}",
+    ]
+
+    if scoped:
+        mind_lines.append("\n【当前项目专项铁律与深层偏好】：")
+        for r in scoped[:5]:
+            mind_lines.append(f"- {r.strip('- * ')}")
+    elif general:
+        mind_lines.append("\n【高优先级通用协作准则】：")
+        for g in general[:3]:
+            mind_lines.append(f"- {g.strip('- * ')}")
+
+    if entities:
+        mind_lines.append("\n【相关知识图谱实体与历史决策决策】：")
+        for e in entities[:3]:
+            obs_str = f"（{e['observations'][0]}）" if e.get("observations") else ""
+            mind_lines.append(f"- {e['name']}{obs_str}")
+
+    if pitfalls:
+        mind_lines.append("\n【必须坚决规避的历史踩坑】：")
+        for p in pitfalls[:3]:
+            mind_lines.append(f"- {p['key']}：{p['content'][:120]}")
+
+    sections.append("\n".join(mind_lines))
+    return "\n\n".join(s for s in sections if s.strip())
+
+
+def enrich_todo_creation(
+    title: str,
+    project: str | None,
+    scenario: dict[str, Any],
+) -> tuple[str, str | None, str | None]:
+    """Align todo title and project with user iron rules."""
+    clean_title = title.strip()
+    proj = (project or "").strip() or None
+
+    # Auto-infer project from detected scenario if missing
+    if not proj:
+        scen_id = scenario.get("id", "")
+        if scen_id in ("evolution_memory", "ui_performance", "devops_release"):
+            proj = "memento"
+        elif scen_id == "chemistry_pubchem":
+            proj = "pubchem"
+        elif scen_id == "data_harvest":
+            proj = "workbuddy"
+
+    # Suggestion if the model tries to record an immediate task
+    hint = None
+    if any(k in clean_title for k in ("现在", "马上", "立即", "正在", "当前")):
+        hint = "【用户心智规约提示】：当前就要做的事不要记为待办，应由智能体直接执行完成；待办仅用于沉淀后续跟进事项。"
+
+    return clean_title, proj, hint
+
+
+def enrich_device_listing(devices: list[dict[str, Any]], scenario: dict[str, Any]) -> list[dict[str, Any]]:
+    """Annotate devices with affinity recommendations according to scenario."""
+    scen_id = scenario.get("id", "")
+    enriched = []
+    for d in devices:
+        d_copy = dict(d)
+        name_lower = str(d.get("name") or "").lower()
+        is_mac = any(k in name_lower for k in ("mac", "darwin", "mbp", "apple", "imac", "mini"))
+        is_linux = any(k in name_lower for k in ("linux", "ubuntu", "debian", "centos", "server"))
+
+        if is_mac:
+            d_copy["affinity"] = "推荐用于 Mac 本地开发 / 前端 UI 调试 / AppleScript / 客户端打包"
+        elif is_linux:
+            d_copy["affinity"] = "推荐用于 Linux / 高并发后端 / 化学逆合成 / /data2 数据集抓取与处理"
+        else:
+            d_copy["affinity"] = "通用设备节点"
+
+        # Highlight if best match for current scenario
+        if (scen_id in ("chemistry_pubchem", "data_harvest") and is_linux) or (scen_id == "ui_performance" and is_mac):
+            d_copy["scenario_best_match"] = True
+
+        enriched.append(d_copy)
+    return enriched
+
+

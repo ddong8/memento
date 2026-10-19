@@ -6,6 +6,7 @@ import { api, DeviceTask, DeviceSummary, getApiBase, authFetch } from "@/lib/api
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
+import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 
 const TERMINAL = new Set(["succeeded", "failed", "timeout", "cancelled"]);
 // Poll while anything is still in flight. Device polls the server every 10s,
@@ -250,23 +251,40 @@ export default function TasksPage() {
                     </div>
                   )}
                   {body ? (
-                    <pre
-                      style={{
-                        margin: 0,
-                        padding: 12,
-                        borderRadius: 10,
-                        background: "var(--aurora-bg2, rgba(0,0,0,0.25))",
-                        color: "var(--aurora-fg2)",
-                        fontSize: 12,
-                        lineHeight: 1.5,
-                        maxHeight: 340,
-                        overflow: "auto",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {body}
-                    </pre>
+                    task.action === "agent" || /^(?:#{1,4}\s|[-*]\s|\d+\.\s|```|\|)/m.test(body) ? (
+                      <div
+                        style={{
+                          margin: 0,
+                          padding: "12px 14px",
+                          borderRadius: 10,
+                          background: "var(--aurora-bg2, rgba(0,0,0,0.25))",
+                          fontSize: 12.5,
+                          lineHeight: 1.6,
+                          maxHeight: 400,
+                          overflow: "auto",
+                        }}
+                      >
+                        <MarkdownViewer content={body} />
+                      </div>
+                    ) : (
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: 12,
+                          borderRadius: 10,
+                          background: "var(--aurora-bg2, rgba(0,0,0,0.25))",
+                          color: "var(--aurora-fg2)",
+                          fontSize: 12,
+                          lineHeight: 1.5,
+                          maxHeight: 340,
+                          overflow: "auto",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {body}
+                      </pre>
+                    )
                   ) : (
                     <span style={{ fontSize: 12, color: "var(--aurora-fg4)" }}>—</span>
                   )}

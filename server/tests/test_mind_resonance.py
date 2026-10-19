@@ -393,3 +393,68 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(chosen_mac.name, "haixingdong-macbook")
 
+    def test_tool_level_mind_injection(self):
+        from server.services.mind_resonance_service import (
+            enrich_check_rules_result,
+            enrich_device_listing,
+            enrich_search_query_with_mindset,
+            enrich_skill_with_mindset,
+            enrich_todo_creation,
+            validate_shell_command_against_iron_rules,
+        )
+
+        # 1. Shell Iron Rule Guard
+        ok1, err1 = validate_shell_command_against_iron_rules("DROP TABLE user_records;", "linux-box", "linux")
+        self.assertFalse(ok1)
+        self.assertIn("铁律守门拦截", err1)
+
+        ok2, err2 = validate_shell_command_against_iron_rules("rm -rf /data2", "linux-box", "linux")
+        self.assertFalse(ok2)
+        self.assertIn("系统安全防线", err2)
+
+        ok3, err3 = validate_shell_command_against_iron_rules("systemctl restart nginx", "MacBook-Pro", "mac")
+        self.assertFalse(ok3)
+        self.assertIn("平台指令不匹配", err3)
+
+        ok4, err4 = validate_shell_command_against_iron_rules("git status", "MacBook-Pro", "mac")
+        self.assertTrue(ok4)
+        self.assertIsNone(err4)
+
+        # 2. Search Query Expansion
+        expanded = enrich_search_query_with_mindset("查逆合成", {"id": "chemistry_pubchem"})
+        self.assertIn("CAS", expanded)
+        self.assertIn("SMILES", expanded)
+
+        # 3. Skill Guardrails Injection
+        skill_res = enrich_skill_with_mindset("# 发布流程\n步骤 1 2 3", {"id": "devops_release"})
+        self.assertIn("三位一体", skill_res)
+        self.assertIn("Conventional Commits", skill_res)
+
+        # 4. Check Rules Enrichment
+        full_rules = enrich_check_rules_result(
+            "基础规则",
+            {
+                "scenario": {"name": "发布交付"},
+                "mindset": "CI/CD零停机更新",
+                "scoped_rules": ["发版前必查历史经验避免重踩坑"],
+                "general_rules": ["直接给结论和指令"],
+                "entities": [{"name": "version.json", "observations": ["记录三位一体元数据"]}],
+                "pitfalls": [{"key": "tag mismatch", "content": "tag与package.json必须一致"}],
+            },
+        )
+        self.assertIn("基础规则", full_rules)
+        self.assertIn("当前项目专项铁律", full_rules)
+        self.assertIn("version.json", full_rules)
+
+        # 5. Todo Creation Enrichment
+        t_clean, t_proj, t_hint = enrich_todo_creation("现在部署", None, {"id": "devops_release"})
+        self.assertEqual(t_proj, "memento")
+        self.assertIsNotNone(t_hint)
+
+        # 6. Device Listing Enrichment
+        devs = [{"name": "m3-macbook-pro"}, {"name": "chem-linux-node"}]
+        enriched = enrich_device_listing(devs, {"id": "chemistry_pubchem"})
+        self.assertIn("Mac 本地开发", enriched[0]["affinity"])
+        self.assertIn("Linux", enriched[1]["affinity"])
+        self.assertTrue(enriched[1].get("scenario_best_match"))
+

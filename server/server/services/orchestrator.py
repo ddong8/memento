@@ -373,6 +373,7 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
     try:
+        from .mind_resonance_service import detect_scenario, enrich_device_listing
         q = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
         if user.role not in ("admin", "owner"):
             q = q.where(Machine.user_id == user.id)
@@ -397,7 +398,9 @@ async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
                 "last_heartbeat": hb.isoformat() if hb else None,
                 "online": has_ws or (age is not None and age < OFFLINE_AFTER_SECONDS),
             })
-        return {"devices": out}
+        scen = detect_scenario([], "")
+        enriched_devices = enrich_device_listing(out, scen)
+        return {"devices": enriched_devices}
     except Exception as e:
         logger.exception("list_devices failed: %s", e)
         return {"devices": [], "error": str(e)}
@@ -694,14 +697,38 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             return
         payload: dict = {}
         if action == "shell":
-            if not (args.get("command") or "").strip():
+            raw_cmd = (args.get("command") or "").strip()
+            if not raw_cmd:
                 yield {
                     "type": "tool_result",
                     "name": "run_on_device",
                     "result": {"error": "shell 需要 command"},
                 }
                 return
-            payload["command"] = args["command"]
+
+            # 心智铁律前置守门与安全拦截
+            from .mind_resonance_service import validate_shell_command_against_iron_rules
+            plat_str = getattr(machine, "platform", "") or getattr(machine, "os", "") or ""
+            is_allowed, guard_msg = validate_shell_command_against_iron_rules(raw_cmd, mach_name, plat_str)
+            if not is_allowed:
+                yield {
+                    "type": "tool_result",
+                    "name": "run_on_device",
+                    "result": {
+                        "task_id": "",
+                        "device_id": device_id,
+                        "device_name": mach_name,
+                        "action": action,
+                        "status": "failed",
+                        "exit_code": 1,
+                        "error": guard_msg or "操作违反用户铁律，已被前置守门阻断。",
+                    },
+                }
+                return
+            if guard_msg:
+                logger.warning("Shell command guard notice for %s on %s: %s", raw_cmd, mach_name, guard_msg)
+
+            payload["command"] = raw_cmd
             if args.get("conversation_id"):
                 payload["conversation_id"] = args["conversation_id"]
             if args.get("user_question"):
@@ -1111,28 +1138,61 @@ async def _load_alerts(task_id: str) -> list:
 
 
 async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> dict:
-    """The memory tools: plain reads and writes, no device involved."""
+    """The memory tools: plain reads and writes, infused with mind resonance and iron rules."""
     from .guidance_service import guidance_for, render_guidance, score, terms_for
     from .retrospective_service import save_pitfall
     from .skill_service import render_skill_md
     from .todo_service import add_todo, open_todos, parse_due, todo_out
+    from .mind_resonance_service import (
+        detect_scenario,
+        enrich_check_rules_result,
+        enrich_search_query_with_mindset,
+        enrich_skill_with_mindset,
+        enrich_todo_creation,
+        render_mind_resonance_markdown,
+        sense_resonance,
+    )
 
     if name == "search_memory":
         from .ask_retrieval import retrieve
 
-        query = str(args.get("query") or "").strip()
-        if not query:
+        raw_query = str(args.get("query") or "").strip()
+        if not raw_query:
             return {"error": "query is required"}
         days = args.get("days")
-        sources = await retrieve(db, user, query, None, int(days) if isinstance(days, (int, float)) and days > 0 else None)
-        return {"results": [
-            {"title": s["title"], "tool": s["tool_id"], "path": s["relative_path"], "synced_at": s["synced_at"],
-             "excerpt": (s["excerpt"] or "")[:700]}
-            for s in sources[:5]
-        ]}
+
+        terms = terms_for(None, None, raw_query)
+        scen = detect_scenario(terms, raw_query)
+        expanded_query = enrich_search_query_with_mindset(raw_query, scen)
+
+        sources = await retrieve(
+            db, user, expanded_query, None,
+            int(days) if isinstance(days, (int, float)) and days > 0 else None,
+        )
+        return {
+            "query": raw_query,
+            "scenario": scen.get("name"),
+            "mindset_hint": scen.get("mindset"),
+            "results": [
+                {
+                    "title": s["title"],
+                    "tool": s["tool_id"],
+                    "path": s["relative_path"],
+                    "synced_at": s["synced_at"],
+                    "excerpt": (s["excerpt"] or "")[:700],
+                }
+                for s in sources[:5]
+            ],
+        }
     if name == "check_rules":
-        g = await guidance_for(db, user, str(args.get("action") or ""), args.get("project"), args.get("detail"))
-        return {"guidance": render_guidance(g)}
+        act = str(args.get("action") or "")
+        proj = args.get("project")
+        det = args.get("detail")
+        g = await guidance_for(db, user, act, proj, det)
+        base_guidance = render_guidance(g)
+        res = await sense_resonance(db, user, query=det, project=proj, action=act)
+        full_guidance = enrich_check_rules_result(base_guidance, res)
+        return {"guidance": full_guidance}
     if name == "use_skill":
         from ..db.models import Skill
 
@@ -1147,21 +1207,34 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
             exact = ranked[0] if ranked and score(f"{ranked[0].slug} {ranked[0].title} {ranked[0].description}", terms) else None
         if exact is None:
             return {"error": "没有匹配的技能", "available": [s.slug for s in skills]}
-        return {"skill": render_skill_md(exact)}
+
+        base_skill_md = render_skill_md(exact)
+        terms = terms_for(exact.slug, None, exact.title)
+        scen = detect_scenario(terms, f"{exact.slug} {exact.title} {exact.description}")
+        enriched_skill_md = enrich_skill_with_mindset(base_skill_md, scen)
+        return {"skill": enriched_skill_md}
     if name == "remember_pitfall":
         mem = await save_pitfall(db, user, args, None, "agent")
         await db.commit()
         return {"saved": bool(mem), "note": None if mem else "信息不全或已经记过"}
     if name == "add_todo":
+        raw_title = str(args.get("title") or "")
+        raw_proj = args.get("project")
+        terms = terms_for(None, raw_proj, raw_title)
+        scen = detect_scenario(terms, raw_title)
+        clean_title, aligned_proj, hint = enrich_todo_creation(raw_title, raw_proj, scen)
         try:
             todo, created = await add_todo(
-                db, user, str(args.get("title") or ""), detail=args.get("detail"), project=args.get("project"),
+                db, user, clean_title, detail=args.get("detail"), project=aligned_proj,
                 due_at=parse_due(args.get("due")), source="agent",
             )
         except ValueError as e:
             return {"error": str(e)}
         await db.commit()
-        return {"todo": todo_out(todo), "created": created}
+        res_payload: dict = {"todo": todo_out(todo), "created": created}
+        if hint:
+            res_payload["mindset_hint"] = hint
+        return res_payload
     if name == "list_todos":
         todos = await open_todos(db, user)
         project = str(args.get("project") or "").lower()
@@ -1169,7 +1242,6 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
             todos = [t for t in todos if project in (t.project or "").lower()]
         return {"todos": [todo_out(t) for t in todos[:30]]}
     if name == "mind_resonance":
-        from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
         res = await sense_resonance(db, user, query=args.get("query"), project=args.get("project"), action=args.get("action"))
         return {"resonance": render_mind_resonance_markdown(res)}
     return {"error": f"unknown tool: {name}"}

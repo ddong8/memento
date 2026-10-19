@@ -47,6 +47,14 @@ function getRouteKeepAliveKey(pathname: string | null): string | null {
   if (pathname === "/devices") {
     return "/devices";
   }
+  // 个人设置 (Profile)
+  if (pathname === "/profile" || pathname.startsWith("/profile/")) {
+    return "/profile";
+  }
+  // 任务管理 (Tasks)
+  if (pathname === "/tasks") {
+    return "/tasks";
+  }
   return null;
 }
 

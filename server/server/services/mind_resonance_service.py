@@ -500,6 +500,7 @@ def clean_guardrail_output(text: str) -> str:
     parts = text.split("```")
     for i in range(0, len(parts), 2):  # Prose sections outside of code blocks
         parts[i] = re.sub(r"\*\*([^\n*]+?)\*\*", r"\1", parts[i])
+        parts[i] = re.sub(r"\*\*", "", parts[i])
     return "```".join(parts)
 
 

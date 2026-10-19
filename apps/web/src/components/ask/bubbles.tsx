@@ -32,8 +32,8 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     }
   }, [isLive]);
 
-  // Auto-expand during live thinking stream; auto-collapse when answering begins, unless user manually toggled
-  const expanded = userToggled ? manualExpanded : Boolean(isLive);
+  // 始终保持全屏铺满展开，除非用户手动点击折叠
+  const expanded = userToggled ? manualExpanded : true;
 
   if (!thinking && !isLive) return null;
 
@@ -78,10 +78,10 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <Icon
-            name="brain"
+            name="zap"
             size={14}
             style={{
-              color: isLive ? "var(--aurora-accent)" : "#D97706",
+              color: isLive ? "var(--aurora-accent)" : "#F59E0B",
               animation: isLive ? "pulse 1.5s infinite" : "none",
               flexShrink: 0,
             }}
@@ -107,6 +107,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
       {expanded && (
         <div
           style={{
+            width: "100%",
             borderTop: "1px solid var(--aurora-border)",
             padding: "10px 14px",
             background: "rgba(0, 0, 0, 0.12)",
@@ -118,7 +119,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             maxWidth: "100%",
           }}
         >
-          <div className="prose prose-sm max-w-full text-xs" style={{ opacity: 0.9 }}>
+          <div className="prose prose-sm max-w-none w-full text-xs" style={{ opacity: 0.9, width: "100%", maxWidth: "100%" }}>
             <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
           </div>
         </div>

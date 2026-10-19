@@ -425,6 +425,21 @@ async def ask(
                     assistant_created_at=assistant_created_at_final,
                     duration_ms=duration_ms_final,
                 )
+                if tool_calls_map:
+                    successful_calls = [c for c in tool_calls_map.values() if isinstance(c.get("result"), dict) and not c["result"].get("error")]
+                    if successful_calls:
+                        try:
+                            from ..services.mind_resonance_service import record_online_graph_observation
+                            proj_name = (body.project_id or (body.cwd.strip("/").split("/")[-1] if body.cwd else None) or "工程任务")
+                            c0 = successful_calls[0]
+                            c_cmd = c0.get("args", {}).get("command") or c0.get("args", {}).get("prompt") or c0.get("name")
+                            obs_content = f"执行指令【{str(c_cmd)[:80]}】完成，产出答复：{clean_reply[:120]}"
+                            await record_online_graph_observation(
+                                run_db, run_user.id, proj_name, obs_content,
+                                entity_type="project", summary=f"任务执行记录: {question[:40]}",
+                            )
+                        except Exception as e:
+                            logger.debug("Failed to record online graph observation in _persist: %s", e)
 
             try:
                 async for evt in run_agent_loop(run_db, run_user, agent_messages, conv_id=str(conv_id)):
@@ -447,7 +462,11 @@ async def ask(
                         elif etype == "thinking":
                             accumulated_thinking.append(evt.get("text") or "")
                         elif etype == "delta":
-                            accumulated_text.append(evt.get("text") or "")
+                            from ..services.mind_resonance_service import clean_guardrail_output
+                            raw_t = evt.get("text") or ""
+                            clean_t = clean_guardrail_output(raw_t)
+                            accumulated_text.append(clean_t)
+                            evt["text"] = clean_t
 
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
             except (asyncio.CancelledError, GeneratorExit):
@@ -532,8 +551,11 @@ async def ask(
                     accumulated_thinking.append(chunk.get("text") or "")
                     yield f"data: {json.dumps({'type': 'thinking', 'text': chunk.get('text') or ''}, ensure_ascii=False)}\n\n"
                 else:
-                    accumulated_text.append(chunk.get("text") or "")
-                    yield f"data: {json.dumps({'type': 'delta', 'text': chunk.get('text') or ''}, ensure_ascii=False)}\n\n"
+                    from ..services.mind_resonance_service import clean_guardrail_output
+                    raw_t = chunk.get("text") or ""
+                    clean_t = clean_guardrail_output(raw_t)
+                    accumulated_text.append(clean_t)
+                    yield f"data: {json.dumps({'type': 'delta', 'text': clean_t}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("ask stream failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"

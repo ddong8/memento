@@ -241,6 +241,9 @@ function normalizeMarkdownContent(content: string): string {
 
       let text = part;
 
+      // 0. 去除代码块外的 Markdown 加粗符号 **（保留代码块内部语法与标点）
+      text = text.replace(/\*\*([^\n*]+?)\*\*/g, "$1");
+
       // 1. 规范化 Unicode 圆点列表符 (• 或 · 或 ⁃ 或 ‣) 为标准 Markdown 列表符 (- )，保留已有行首缩进深度
       text = text.replace(/(^|\n)([ \t]*)[•·⁃‣][ \t]+/g, "$1$2- ");
 

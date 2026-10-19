@@ -325,10 +325,11 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         """Verify markdown bold asterisks are stripped outside code fences."""
         from server.services.mind_resonance_service import clean_guardrail_output
 
-        dirty_text = "这里是**加粗标题**，下面是代码：\n```python\nx = 2 ** 3\nprint('**keep this**')\n```\n结论是**完全成功**。"
+        dirty_text = "这里是**加粗标题**，还有未闭合的**测试，下面是代码：\n```python\nx = 2 ** 3\nprint('**keep this**')\n```\n结论是**完全成功**。"
         cleaned = clean_guardrail_output(dirty_text)
-        self.assertNotIn("**加粗标题**", cleaned)
-        self.assertIn("这里是加粗标题", cleaned)
+        self.assertNotIn("**", cleaned.split("```")[0])
+        self.assertNotIn("**", cleaned.split("```")[2])
+        self.assertIn("这里是加粗标题，还有未闭合的测试", cleaned)
         self.assertIn("结论是完全成功", cleaned)
         # Verify inside code block is preserved
         self.assertIn("2 ** 3", cleaned)

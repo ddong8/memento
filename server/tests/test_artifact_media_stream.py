@@ -94,6 +94,52 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.headers["Content-Type"], "video/mp4")
             self.assertEqual(resp.headers["Content-Length"], str(len(b"fake-video-content-1234567890")))
+            self.assertIn("ETag", resp.headers)
+            self.assertIn("Cache-Control", resp.headers)
+
+    async def test_stream_device_file_head_and_304_cache(self):
+        import os
+        import tempfile
+        from unittest.mock import MagicMock
+        from server.api.devices import stream_device_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            video_path = os.path.join(tmpdir, "岁末余晖_45秒.mp4")
+            payload = b"test-mp4-stream-cache-payload-9876543210"
+            with open(video_path, "wb") as f:
+                f.write(payload)
+
+            mock_user = MagicMock(role="admin", id=1)
+            mock_db = MagicMock()
+
+            # 1. Test HEAD request
+            head_req = MagicMock(method="HEAD", headers={})
+            head_resp = await stream_device_file(
+                device_id="auto",
+                path=video_path,
+                filename="岁末余晖_45秒.mp4",
+                request=head_req,
+                db=mock_db,
+                _user=mock_user,
+            )
+            self.assertEqual(head_resp.status_code, 200)
+            self.assertEqual(head_resp.headers["Content-Length"], str(len(payload)))
+            self.assertIn("ETag", head_resp.headers)
+            self.assertEqual(head_resp.headers["Cache-Control"], "public, max-age=604800, stale-while-revalidate=86400")
+            etag = head_resp.headers["ETag"]
+
+            # 2. Test 304 Not Modified on matching If-None-Match
+            cond_req = MagicMock(method="GET", headers={"if-none-match": etag})
+            cond_resp = await stream_device_file(
+                device_id="auto",
+                path=video_path,
+                filename="岁末余晖_45秒.mp4",
+                request=cond_req,
+                db=mock_db,
+                _user=mock_user,
+            )
+            self.assertEqual(cond_resp.status_code, 304)
+            self.assertEqual(cond_resp.headers["ETag"], etag)
 
 
 if __name__ == '__main__':

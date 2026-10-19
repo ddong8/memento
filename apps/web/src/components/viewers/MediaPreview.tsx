@@ -246,6 +246,11 @@ export function VideoPlayer({
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [hasSubtitles, setHasSubtitles] = useState<boolean>(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState<boolean>(true);
+  const [shouldPreload, setShouldPreload] = useState<boolean>(Boolean(autoPlay));
+
+  const markPreloadActive = useCallback(() => {
+    setShouldPreload(true);
+  }, []);
 
   // Auto-discover companion subtitle file (e.g. 岁末余晖_字幕.srt or *.vtt)
   useEffect(() => {
@@ -493,6 +498,7 @@ export function VideoPlayer({
   }, []);
 
   const togglePlay = useCallback(() => {
+    markPreloadActive();
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
@@ -500,7 +506,7 @@ export function VideoPlayer({
     } else {
       v.pause();
     }
-  }, []);
+  }, [markPreloadActive]);
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = videoRef.current;
@@ -765,11 +771,27 @@ export function VideoPlayer({
 
   const effectivePoster = poster || autoPoster || undefined;
 
+  const videoSrc = React.useMemo(() => {
+    if (!playUrl) return "";
+    if (playUrl.includes("#")) return playUrl;
+    // 仅在无封面且处于 iOS WebKit 环境下追加 #t=0.001 强制首帧渲染
+    // 桌面端及 Android 凭借 preload="metadata" 即可原生秒出首帧，避免引发二次 Range Seek
+    const isIOS =
+      typeof navigator !== "undefined" &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    if (!effectivePoster && isIOS) {
+      return `${playUrl}#t=0.001`;
+    }
+    return playUrl;
+  }, [playUrl, effectivePoster]);
+
   return (
     <div
       ref={containerRef}
       tabIndex={0}
       onMouseMove={triggerControlsActivity}
+      onMouseEnter={markPreloadActive}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       className={`relative group my-4 w-full overflow-hidden rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent)]/50 ${className}`}
       style={{
@@ -882,17 +904,20 @@ export function VideoPlayer({
           if (Date.now() - lastTapRef.current.time < 280) return;
           togglePlay();
         }}
-        onTouchStart={handleTouchStart}
+        onTouchStart={(e) => {
+          markPreloadActive();
+          handleTouchStart(e);
+        }}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
       >
         <video
           ref={videoRef}
-          src={!effectivePoster && playUrl && !playUrl.includes("#") ? `${playUrl}#t=0.001` : playUrl}
+          src={videoSrc}
           poster={effectivePoster}
           autoPlay={autoPlay}
           playsInline
-          preload="auto"
+          preload={shouldPreload ? "auto" : "metadata"}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}

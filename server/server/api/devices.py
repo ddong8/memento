@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
-import time
-import uuid
-from collections import defaultdict
-
 import mimetypes
 import os
+import tempfile
+import time
 import urllib.parse
-
+import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -376,8 +377,79 @@ async def ack_command(
     return {"status": "acked", "command_id": cmd_id}
 
 
-@router.get("/{device_id}/files/stream")
-@router.get("/{device_id}/files/stream/{filename}")
+# Active prefetch tasks and in-memory cache registry for media streaming acceleration
+_active_prefetch_tasks: dict[str, asyncio.Task] = {}
+_known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
+
+
+def _get_media_cache_dir() -> str:
+    """Resolve fast media cache directory on disk, preferring /data2 per architecture guidelines."""
+    for candidate in ("/data2/media_cache", "data/media_cache", os.path.join(tempfile.gettempdir(), "memento_media_cache")):
+        try:
+            os.makedirs(candidate, exist_ok=True)
+            test_file = os.path.join(candidate, f".test_{os.getpid()}")
+            with open(test_file, "w") as f:
+                f.write("ok")
+            os.remove(test_file)
+            return candidate
+        except Exception:
+            continue
+    return tempfile.gettempdir()
+
+
+async def _background_prefetch_media(
+    dev_token: str,
+    device_id: str,
+    target_machine_name: str | None,
+    clean_path: str,
+    total_size: int,
+    cached_path: str,
+    cache_key: str,
+) -> None:
+    """Asynchronously prefetch remote media file in 2MB chunks to local disk cache."""
+    part_path = f"{cached_path}.part"
+    try:
+        if os.path.exists(cached_path) and os.path.getsize(cached_path) == total_size:
+            return
+
+        chunk_size = 2 * 1024 * 1024  # 2 MB chunks for high-throughput background sync
+        curr = 0
+        if os.path.exists(part_path):
+            curr = os.path.getsize(part_path)
+            if curr > total_size:
+                curr = 0
+                try:
+                    os.remove(part_path)
+                except Exception:
+                    pass
+
+        with open(part_path, "ab" if curr > 0 else "wb") as f:
+            while curr < total_size:
+                read_len = min(chunk_size, total_size - curr)
+                chunk = await ws_manager.request_file_chunk(dev_token, clean_path, curr, read_len)
+                if not chunk and device_id != dev_token:
+                    chunk = await ws_manager.request_file_chunk(device_id, clean_path, curr, read_len)
+                if not chunk and target_machine_name:
+                    chunk = await ws_manager.request_file_chunk(target_machine_name, clean_path, curr, read_len)
+                if not chunk:
+                    logger.warning("Background prefetch interrupted at %d/%d for %s", curr, total_size, clean_path)
+                    return
+                f.write(chunk)
+                curr += len(chunk)
+                await asyncio.sleep(0.005)
+
+        if os.path.exists(part_path) and os.path.getsize(part_path) == total_size:
+            os.replace(part_path, cached_path)
+            logger.info("Successfully cached media file %s (%d bytes) at %s", clean_path, total_size, cached_path)
+            _known_cache_map[clean_path] = (total_size, cached_path)
+    except Exception as e:
+        logger.warning("Failed background prefetch for %s: %s", clean_path, e)
+    finally:
+        _active_prefetch_tasks.pop(cache_key, None)
+
+
+@router.api_route("/{device_id}/files/stream", methods=["GET", "HEAD"])
+@router.api_route("/{device_id}/files/stream/{filename}", methods=["GET", "HEAD"])
 async def stream_device_file(
     device_id: str,
     path: str = Query(..., description="Absolute path on the device or NAS"),
@@ -387,7 +459,7 @@ async def stream_device_file(
     db: AsyncSession = Depends(get_db),
     _user: User | None = Depends(get_optional_user),
 ):
-    """Stream a media or artifact file directly from the target device with HTTP 206 Range support."""
+    """Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining."""
     from ..services.user_filter import find_machine_by_id_or_hash
     from ..db.models import ShareLink
 
@@ -437,6 +509,7 @@ async def stream_device_file(
     if any(p == ".." for p in clean_path.split("/")):
         raise HTTPException(status_code=400, detail="Path traversal forbidden")
 
+    raw_clean_path = clean_path
     ext = os.path.splitext(clean_path)[1].lower()
     mime_type, _ = mimetypes.guess_type(clean_path)
     if not mime_type:
@@ -475,9 +548,20 @@ async def stream_device_file(
             clean_path = alt_path
             is_local = True
 
+    cache_dir = _get_media_cache_dir()
+
+    # Check in-memory fast registry for cached media on local SSD
+    if not is_local and raw_clean_path in _known_cache_map:
+        cached_size, cached_path = _known_cache_map[raw_clean_path]
+        if os.path.exists(cached_path) and os.path.getsize(cached_path) == cached_size:
+            clean_path = cached_path
+            is_local = True
+            total_size = cached_size
+
     dev_token = target_machine.collector_token_hash if target_machine else device_id
     if is_local:
-        total_size = os.path.getsize(clean_path)
+        if total_size <= 0:
+            total_size = os.path.getsize(clean_path)
     else:
         stat = await ws_manager.request_file_stat(dev_token, clean_path)
         if not stat.get("exists") and device_id != dev_token:
@@ -518,7 +602,47 @@ async def stream_device_file(
             raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
         total_size = stat.get("size") or stat.get("total_size") or 0
 
+        # Check if complete local cache exists for this clean_path and total_size
+        if total_size > 0:
+            cache_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()
+            cached_file_path = os.path.join(cache_dir, f"{cache_key}{ext}")
+            if os.path.exists(cached_file_path) and os.path.getsize(cached_file_path) == total_size:
+                clean_path = cached_file_path
+                is_local = True
+                _known_cache_map[raw_clean_path] = (total_size, cached_file_path)
+            elif total_size <= 250 * 1024 * 1024 and cache_key not in _active_prefetch_tasks:
+                # Trigger non-blocking background prefetch for medium-sized media
+                prefetch_task = asyncio.create_task(
+                    _background_prefetch_media(
+                        dev_token=dev_token,
+                        device_id=device_id,
+                        target_machine_name=target_machine.name if target_machine else None,
+                        clean_path=raw_clean_path,
+                        total_size=total_size,
+                        cached_path=cached_file_path,
+                        cache_key=cache_key,
+                    )
+                )
+                _active_prefetch_tasks[cache_key] = prefetch_task
+
+    etag_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()[:24]
+    etag = f'"{etag_key}"'
+
     range_header = request.headers.get("range") if request else None
+
+    # HTTP 304 Not Modified conditional response
+    if_none_match = request.headers.get("if-none-match") if request else None
+    if if_none_match and if_none_match.strip(' "') == etag_key and not range_header:
+        return Response(
+            status_code=304,
+            headers={
+                "ETag": etag,
+                "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400",
+                "Accept-Ranges": "bytes",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
     start = 0
     end = (total_size - 1) if total_size > 0 else 0
     status_code = 200
@@ -536,10 +660,29 @@ async def stream_device_file(
 
     content_length = (end - start + 1) if total_size > 0 else 0
 
+    quoted_fname = urllib.parse.quote(filename or os.path.basename(raw_clean_path) or "media-file")
+    headers = {
+        "Content-Type": mime_type,
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+        "Content-Disposition": f'inline; filename="{quoted_fname}"; filename*=UTF-8\'\'{quoted_fname}',
+        "ETag": etag,
+        "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Range, Authorization, Content-Type, If-None-Match",
+        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, Content-Disposition, ETag, Cache-Control",
+    }
+    if status_code == 206:
+        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+
+    if request and request.method == "HEAD":
+        return Response(status_code=status_code, headers=headers)
+
     async def chunk_generator():
         curr = start
-        chunk_size = 512 * 1024  # 512 KB chunks for smooth media buffering
         if is_local:
+            # 1 MB chunk for local SSD read
+            chunk_size = 1024 * 1024
             with open(clean_path, "rb") as f:
                 f.seek(curr)
                 while curr <= end:
@@ -550,30 +693,41 @@ async def stream_device_file(
                     curr += len(data)
                     yield data
         else:
+            # Remote streaming with adaptive chunking (512KB first chunk for instant TTFB, 2MB subsequent)
+            # and pipelined prefetch to eliminate RTT idle waiting
+            next_task = None
+
+            async def _fetch(offset: int, length: int) -> bytes | None:
+                c = await ws_manager.request_file_chunk(dev_token, clean_path, offset, length)
+                if not c and device_id != dev_token:
+                    c = await ws_manager.request_file_chunk(device_id, clean_path, offset, length)
+                if not c and target_machine and target_machine.name:
+                    c = await ws_manager.request_file_chunk(target_machine.name, clean_path, offset, length)
+                return c
+
             while curr <= end:
-                read_len = min(chunk_size, end - curr + 1)
-                chunk = await ws_manager.request_file_chunk(dev_token, clean_path, curr, read_len)
-                if not chunk and device_id != dev_token:
-                    chunk = await ws_manager.request_file_chunk(device_id, clean_path, curr, read_len)
-                if not chunk and target_machine and target_machine.name:
-                    chunk = await ws_manager.request_file_chunk(target_machine.name, clean_path, curr, read_len)
+                # 512 KB first chunk so browser decodes header/metadata in under 50ms, then 2 MB high throughput
+                current_chunk_size = (512 * 1024) if curr == start else (2 * 1024 * 1024)
+                read_len = min(current_chunk_size, end - curr + 1)
+
+                if next_task is not None:
+                    chunk = await next_task
+                    next_task = None
+                else:
+                    chunk = await _fetch(curr, read_len)
+
                 if not chunk:
                     break
-                curr += len(chunk)
-                yield chunk
 
-    quoted_fname = urllib.parse.quote(filename or os.path.basename(clean_path) or "media-file")
-    headers = {
-        "Content-Type": mime_type,
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(content_length),
-        "Content-Disposition": f'inline; filename="{quoted_fname}"; filename*=UTF-8\'\'{quoted_fname}',
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Range, Authorization, Content-Type",
-        "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges, Content-Disposition",
-    }
-    if status_code == 206:
-        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+                curr += len(chunk)
+
+                # Pipeline next chunk request concurrently while streaming current chunk to client
+                if curr <= end:
+                    next_chunk_size = 2 * 1024 * 1024
+                    next_read_len = min(next_chunk_size, end - curr + 1)
+                    next_task = asyncio.create_task(_fetch(curr, next_read_len))
+
+                yield chunk
 
     return StreamingResponse(chunk_generator(), status_code=status_code, headers=headers)
 

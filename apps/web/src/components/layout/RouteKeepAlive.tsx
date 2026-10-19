@@ -69,55 +69,83 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
   const pathname = usePathname();
   const currentKey = getRouteKeepAliveKey(pathname);
 
-  // Store rendered views keyed by route key synchronously during render (zero double-render lag)
-  const cachedViewsRef = useRef<Record<string, React.ReactNode>>({});
-  const lruOrderRef = useRef<string[]>([]);
+  // Managed list of mounted route keys to ensure safe React reconciliation
+  const [mountedKeys, setMountedKeys] = useState<string[]>(() => (currentKey ? [currentKey] : []));
+  const viewsCacheRef = useRef<Record<string, React.ReactNode>>({});
+  const lruOrderRef = useRef<string[]>(currentKey ? [currentKey] : []);
+  const scrollMapRef = useRef<Record<string, number>>({});
+  const activeKeyRef = useRef<string | null>(currentKey);
 
+  // Always update the cached view of the current active route with latest children
   if (currentKey) {
-    if (!cachedViewsRef.current[currentKey]) {
-      cachedViewsRef.current[currentKey] = children;
-    }
+    viewsCacheRef.current[currentKey] = children;
+  }
+
+  // Ensure currentKey is tracked immediately during render phase (zero blank frame)
+  if (currentKey && !mountedKeys.includes(currentKey)) {
+    setMountedKeys((prev) => (prev.includes(currentKey) ? prev : [...prev, currentKey]));
+  }
+
+  const effectiveMountedKeys =
+    currentKey && !mountedKeys.includes(currentKey) ? [...mountedKeys, currentKey] : mountedKeys;
+
+  // Safely update LRU order on route change
+  useIsomorphicLayoutEffect(() => {
+    if (!currentKey) return;
+
     lruOrderRef.current = [
       currentKey,
       ...lruOrderRef.current.filter((k) => k !== currentKey),
     ];
+  }, [currentKey]);
+
+  // Safely manage WebGL isolation and memory bounds in lifecycle commit phase (not during render)
+  useEffect(() => {
+    if (!currentKey) return;
 
     const isMobile =
       typeof window !== "undefined" &&
       (window.innerWidth < 768 || /Mobi|Android|iPhone/i.test(navigator.userAgent));
 
-    // 1. 全平台防显存溢出与 WebGL 上下文崩溃：最多保留 1 个重型 3D WebGL 路由驻留（全平台桌面端与移动端统一）
-    // 防止同时维持 3 个 WebGL 上下文导致 GPU 显存耗尽、GPU 进程崩溃或标签页彻底卡死
+    let updatedKeys = [...lruOrderRef.current];
+
+    // 1. WebGL heavy route isolation: keep at most 1 heavy 3D route mounted to prevent GPU memory exhaustion
     if (WEBGL_HEAVY_ROUTES.has(currentKey)) {
-      for (const k of Object.keys(cachedViewsRef.current)) {
-        if (k !== currentKey && WEBGL_HEAVY_ROUTES.has(k)) {
-          delete cachedViewsRef.current[k];
-          lruOrderRef.current = lruOrderRef.current.filter((item) => item !== k);
+      updatedKeys = updatedKeys.filter((k) => k === currentKey || !WEBGL_HEAVY_ROUTES.has(k));
+    }
+
+    // 2. Platform LRU capacity bounds: always keep /ask, plus top frequent tabs (desktop 6, mobile 4)
+    const maxCached = isMobile ? 4 : 6;
+    if (updatedKeys.length > maxCached) {
+      const retained: string[] = [];
+      for (const k of updatedKeys) {
+        if (k === currentKey || k === "/ask" || retained.length < maxCached) {
+          retained.push(k);
         }
+      }
+      updatedKeys = retained;
+    }
+
+    lruOrderRef.current = updatedKeys;
+
+    // Clean up cache objects for evicted routes
+    for (const key of Object.keys(viewsCacheRef.current)) {
+      if (!updatedKeys.includes(key) && key !== currentKey) {
+        delete viewsCacheRef.current[key];
+        delete scrollMapRef.current[key];
       }
     }
 
-    // 2. 全平台 LRU 容量上限：常驻保留 /ask 核心执事对话，其余保留最近高频菜单页（桌面端 6 页，移动端 4 页）
-    const maxCached = isMobile ? 4 : 6;
-    const keys = Object.keys(cachedViewsRef.current);
-    if (keys.length > maxCached) {
-      for (let i = lruOrderRef.current.length - 1; i >= 0; i--) {
-        const candidate = lruOrderRef.current[i];
-        if (candidate !== currentKey && candidate !== "/ask") {
-          delete cachedViewsRef.current[candidate];
-          lruOrderRef.current.splice(i, 1);
-          if (Object.keys(cachedViewsRef.current).length <= maxCached) {
-            break;
-          }
-        }
+    setMountedKeys((prev) => {
+      const next = prev.filter((k) => updatedKeys.includes(k) || k === currentKey);
+      if (next.length === prev.length && next.every((k, i) => k === prev[i])) {
+        return prev;
       }
-    }
-  }
+      return next;
+    });
+  }, [currentKey]);
 
   // Track window-level scroll position across route switches
-  const scrollMapRef = useRef<Record<string, number>>({});
-  const activeKeyRef = useRef<string | null>(currentKey);
-
   useIsomorphicLayoutEffect(() => {
     const prevKey = activeKeyRef.current;
     if (prevKey && typeof window !== "undefined") {
@@ -134,24 +162,27 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
 
   return (
     <>
-      {Object.entries(cachedViewsRef.current).map(([key, view]) => {
+      {effectiveMountedKeys.map((key) => {
         const isCurrent = key === currentKey;
+        // Current route always receives latest live children; dormant routes display their preserved cache
+        const content = isCurrent ? children : viewsCacheRef.current[key];
         return (
           <div
             key={key}
             id={`memento-keepalive-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`}
             data-memento-route-keepalive={key}
+            data-memento-dormant={!isCurrent ? "true" : undefined}
             style={{
               display: isCurrent ? "block" : "none",
               height: "100%",
               contain: "style",
             }}
           >
-            {view}
+            {content}
           </div>
         );
       })}
-      {/* Non-keepalive transient routes (e.g. /projects/[id], /profile) */}
+      {/* Non-keepalive transient routes (e.g. /projects/[id], /daily/[date], /profile) */}
       {!currentKey && (
         <div key={pathname} style={{ height: "100%" }}>
           {children}

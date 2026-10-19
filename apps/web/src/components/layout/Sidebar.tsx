@@ -120,8 +120,37 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     void check();
   }, []);
 
+  const [optimisticPath, setOptimisticPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOptimisticPath(null);
+  }, [pathname]);
+
+  const effectivePath = optimisticPath ?? pathname;
+
   const handleNavClick = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) onClose();
+  };
+
+  const handleItemClick = (targetHref: string) => {
+    setOptimisticPath(targetHref);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("memento:route-start", { detail: { href: targetHref } }));
+      try {
+        localStorage.setItem("memento_last_route", targetHref);
+        localStorage.setItem("memento_last_menu_route", targetHref);
+      } catch {}
+
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate(8);
+        } catch {}
+      }
+
+      if (window.innerWidth < 1024) {
+        onClose();
+      }
+    }
   };
 
   const handleOpenSearch = () => {
@@ -156,14 +185,14 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     };
   }, []);
 
-  const isAskActive = pathname === "/ask" || (pathname.startsWith("/ask/") && !pathname.startsWith("/ask/tools"));
-  const isOverviewActive = pathname === "/app";
-  const isPersonaActive = pathname.startsWith("/memory/persona");
-  const isMemoryActive = (pathname === "/memory" || pathname.startsWith("/memory/")) && !isPersonaActive;
-  const isSkillsActive = pathname === "/skills" || pathname.startsWith("/skills/");
-  const isDailyActive = pathname === "/daily" || pathname.startsWith("/daily/");
-  const isProjectsActive = pathname === "/projects" || pathname.startsWith("/projects/");
-  const isInboxActive = pathname === "/inbox" || pathname.startsWith("/inbox/");
+  const isAskActive = effectivePath === "/ask" || (effectivePath.startsWith("/ask/") && !effectivePath.startsWith("/ask/tools"));
+  const isOverviewActive = effectivePath === "/app";
+  const isPersonaActive = effectivePath.startsWith("/memory/persona");
+  const isMemoryActive = (effectivePath === "/memory" || effectivePath.startsWith("/memory/")) && !isPersonaActive;
+  const isSkillsActive = effectivePath === "/skills" || effectivePath.startsWith("/skills/");
+  const isDailyActive = effectivePath === "/daily" || effectivePath.startsWith("/daily/");
+  const isProjectsActive = effectivePath === "/projects" || effectivePath.startsWith("/projects/");
+  const isInboxActive = effectivePath === "/inbox" || effectivePath.startsWith("/inbox/");
 
   return (
     <>
@@ -194,7 +223,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <Link
             href={askHref}
             prefetch={true}
-            onClick={handleNavClick}
+            onClick={() => handleItemClick(askHref)}
             className={`flex items-center gap-2.5 min-w-0 app-region-no-drag ${
               collapsed ? "w-full justify-center" : "flex-1"
             }`}
@@ -323,7 +352,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="sparkles"
             active={isAskActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
           <NavRow
             href="/app"
@@ -331,7 +360,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="home"
             active={isOverviewActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
 
           {/* Section 2: 认知大脑 */}
@@ -346,7 +375,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="brain"
             active={isMemoryActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
           <NavRow
             href="/memory/persona"
@@ -354,7 +383,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="user"
             active={isPersonaActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
           <NavRow
             href="/skills"
@@ -362,7 +391,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="zap"
             active={isSkillsActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
 
           {/* Section 3: 任务与资产 (待办置顶) */}
@@ -378,7 +407,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isInboxActive}
             badge={todoCount > 0 ? String(todoCount) : undefined}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
           <NavRow
             href="/projects"
@@ -386,7 +415,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="folder"
             active={isProjectsActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
           <NavRow
             href="/daily"
@@ -394,7 +423,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             icon="calendar"
             active={isDailyActive}
             collapsed={collapsed}
-            onClick={handleNavClick}
+            onNavigate={handleItemClick}
           />
         </nav>
 
@@ -404,7 +433,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <Link
             href="/profile?tab=devices"
             prefetch={true}
-            onClick={handleNavClick}
+            onClick={() => handleItemClick("/profile?tab=devices")}
             className={`flex items-center rounded-xl text-xs transition-all hover:opacity-90 mb-1.5 ${
               collapsed ? "w-10 h-9 mx-auto justify-center" : "justify-between px-3 py-1.5"
             }`}
@@ -578,6 +607,7 @@ const NavRow = memo(function NavRow({
   badge,
   collapsed = false,
   onClick,
+  onNavigate,
 }: {
   href: string;
   label: string;
@@ -586,12 +616,23 @@ const NavRow = memo(function NavRow({
   badge?: string;
   collapsed?: boolean;
   onClick?: () => void;
+  onNavigate?: (href: string) => void;
 }) {
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (onNavigate) {
+      onNavigate(href);
+    }
+    if (onClick) {
+      onClick();
+    }
+  };
+
   return (
     <Link
       href={href}
       prefetch={true}
-      onClick={onClick}
+      onClick={handleClick}
       title={label + (badge ? ` (${badge})` : "")}
       className={`group flex items-center relative select-none transition-colors duration-150 ${
         collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-2 px-3.5 mx-2 my-0.5"

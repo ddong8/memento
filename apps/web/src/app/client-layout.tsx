@@ -11,6 +11,7 @@ import Header from "@/components/layout/Header";
 import { AuroraBackdrop } from "@/components/aurora/AuroraBackdrop";
 import CommandPalette from "@/components/CommandPalette";
 import ActiveRunsMonitor from "@/components/agent/ActiveRunsMonitor";
+import TopProgressBar from "@/components/layout/TopProgressBar";
 
 /** Detect the best initial locale: user's saved choice → browser preference → zh-CN default. */
 function detectInitialLocale(): Locale {
@@ -55,6 +56,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       <I18nContext.Provider value={{ locale, t, setLocale: handleSetLocale }}>
         <AuthProvider>
           <AuroraBackdrop />
+          <TopProgressBar />
           <AppShell>{children}</AppShell>
         </AuthProvider>
       </I18nContext.Provider>

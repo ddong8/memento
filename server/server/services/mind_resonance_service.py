@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Skill, User, UserMemory
+from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 

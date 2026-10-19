@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import unittest
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from server.db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory, UserProfile
+from server.db.models import KnowledgeEntity, User, UserMemory, UserProfile
 from server.services.mind_resonance_service import (
     detect_scenario,
     render_mind_resonance_markdown,

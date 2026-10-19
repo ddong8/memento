@@ -380,6 +380,7 @@ async def ack_command(
 # Active prefetch tasks and in-memory cache registry for media streaming acceleration
 _active_prefetch_tasks: dict[str, asyncio.Task] = {}
 _known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
+_initial_chunk_cache: dict[str, tuple[bytes, float]] = {}  # cache_key -> (initial_bytes, timestamp)
 
 
 def _get_media_cache_dir() -> str:
@@ -610,20 +611,6 @@ async def stream_device_file(
                 clean_path = cached_file_path
                 is_local = True
                 _known_cache_map[raw_clean_path] = (total_size, cached_file_path)
-            elif total_size <= 250 * 1024 * 1024 and cache_key not in _active_prefetch_tasks:
-                # Trigger non-blocking background prefetch for medium-sized media
-                prefetch_task = asyncio.create_task(
-                    _background_prefetch_media(
-                        dev_token=dev_token,
-                        device_id=device_id,
-                        target_machine_name=target_machine.name if target_machine else None,
-                        clean_path=raw_clean_path,
-                        total_size=total_size,
-                        cached_path=cached_file_path,
-                        cache_key=cache_key,
-                    )
-                )
-                _active_prefetch_tasks[cache_key] = prefetch_task
 
     etag_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()[:24]
     etag = f'"{etag_key}"'
@@ -659,6 +646,25 @@ async def stream_device_file(
         return Response(status_code=416, headers={"Content-Range": f"bytes */{total_size}"})
 
     content_length = (end - start + 1) if total_size > 0 else 0
+
+    # Trigger background full prefetch for non-local media unless this is an iOS 0-1 probe
+    if not is_local and total_size > 0 and total_size <= 250 * 1024 * 1024:
+        cache_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()
+        cached_file_path = os.path.join(cache_dir, f"{cache_key}{ext}")
+        is_probe = (start == 0 and end <= 1)
+        if not is_probe and cache_key not in _active_prefetch_tasks:
+            prefetch_task = asyncio.create_task(
+                _background_prefetch_media(
+                    dev_token=dev_token,
+                    device_id=device_id,
+                    target_machine_name=target_machine.name if target_machine else None,
+                    clean_path=raw_clean_path,
+                    total_size=total_size,
+                    cached_path=cached_file_path,
+                    cache_key=cache_key,
+                )
+            )
+            _active_prefetch_tasks[cache_key] = prefetch_task
 
     quoted_fname = urllib.parse.quote(filename or os.path.basename(raw_clean_path) or "media-file")
     headers = {
@@ -704,6 +710,29 @@ async def stream_device_file(
                 if not c and target_machine and target_machine.name:
                     c = await ws_manager.request_file_chunk(target_machine.name, clean_path, offset, length)
                 return c
+
+            # iOS AVPlayer probe fast-path (Range: bytes=0-1):
+            # Fetch 512KB to memory cache so the immediate follow-up Range request starts with 0ms latency
+            if curr == 0 and end <= 1:
+                probe_chunk = await _fetch(0, min(512 * 1024, total_size))
+                if probe_chunk:
+                    _initial_chunk_cache[cache_key] = (probe_chunk, time.time())
+                    yield probe_chunk[:end + 1]
+                    return
+
+            # Check in-memory initial chunk cache for instant first-frame playback
+            cached_init = _initial_chunk_cache.get(cache_key)
+            if cached_init and time.time() - cached_init[1] < 180 and curr == 0:
+                init_chunk = cached_init[0]
+                avail = min(len(init_chunk), end - curr + 1)
+                if avail > 0:
+                    yield init_chunk[:avail]
+                    curr += avail
+                    if curr > end:
+                        return
+                    next_chunk_size = 2 * 1024 * 1024
+                    next_read_len = min(next_chunk_size, end - curr + 1)
+                    next_task = asyncio.create_task(_fetch(curr, next_read_len))
 
             while curr <= end:
                 # 512 KB first chunk so browser decodes header/metadata in under 50ms, then 2 MB high throughput

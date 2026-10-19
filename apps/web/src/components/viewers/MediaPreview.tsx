@@ -247,6 +247,7 @@ export function VideoPlayer({
   const [hasSubtitles, setHasSubtitles] = useState<boolean>(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState<boolean>(true);
   const [shouldPreload, setShouldPreload] = useState<boolean>(Boolean(autoPlay));
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
 
   const markPreloadActive = useCallback(() => {
     setShouldPreload(true);
@@ -899,7 +900,10 @@ export function VideoPlayer({
 
       {/* Main Video Element */}
       <div
-        className="relative w-full aspect-video flex items-center justify-center bg-black cursor-pointer select-none"
+        className={`relative w-full flex items-center justify-center bg-black cursor-pointer select-none transition-all duration-300 ${
+          aspectRatio && aspectRatio < 0.9 ? "max-h-[75vh]" : "aspect-video"
+        }`}
+        style={aspectRatio && aspectRatio < 0.9 ? { aspectRatio: `${aspectRatio}` } : undefined}
         onClick={() => {
           if (Date.now() - lastTapRef.current.time < 280) return;
           togglePlay();
@@ -917,6 +921,7 @@ export function VideoPlayer({
           poster={effectivePoster}
           autoPlay={autoPlay}
           playsInline
+          {...({ "webkit-playsinline": "true", "x-webkit-airplay": "allow" } as any)}
           preload={shouldPreload ? "auto" : "metadata"}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
@@ -935,8 +940,12 @@ export function VideoPlayer({
             }
           }}
           onLoadedMetadata={() => {
-            if (videoRef.current) {
-              setDuration(videoRef.current.duration);
+            const v = videoRef.current;
+            if (v) {
+              setDuration(v.duration);
+              if (v.videoWidth && v.videoHeight) {
+                setAspectRatio(v.videoWidth / v.videoHeight);
+              }
               setIsLoading(false);
             }
           }}

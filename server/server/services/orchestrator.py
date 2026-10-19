@@ -259,11 +259,27 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "mind_resonance",
+            "description": "心领神会：主动感知用户场景、心智模型、前置激活图谱实体、召回历史避坑防御与铁律。在面对极简指令或任务展开前调用以达成深度默契。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "用户当前指令或任务描述，可选"},
+                    "project": {"type": "string", "description": "项目名，可选"},
+                    "action": {"type": "string", "description": "操作类型，可选"},
+                },
+            },
+        },
+    },
 ]
 
-MEMORY_TOOLS = {"search_memory", "check_rules", "use_skill", "remember_pitfall", "add_todo", "list_todos"}
+MEMORY_TOOLS = {"search_memory", "check_rules", "use_skill", "remember_pitfall", "add_todo", "list_todos", "mind_resonance"}
 
 ORCHESTRATOR_MEMORY = """【记忆工具】（不需要设备，随时可用）
+- mind_resonance：心领神会层，随时感知用户隐式心智模型、项目铁律、图谱实体与避雷经验。
 - search_memory：答案依赖用户过去的决定、配置、排障经过时，先检索历史资料。
 - check_rules：部署、发版、数据库迁移、删除或改数据、git push、改配置、重启服务之前必须先调用，照着返回的铁律和踩坑提醒做。
 - use_skill：下面「可用技能」里有对应做法时，先取出技能按步骤执行，不要自己重新摸索。
@@ -988,6 +1004,10 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
         if project:
             todos = [t for t in todos if project in (t.project or "").lower()]
         return {"todos": [todo_out(t) for t in todos[:30]]}
+    if name == "mind_resonance":
+        from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
+        res = await sense_resonance(db, user, query=args.get("query"), project=args.get("project"), action=args.get("action"))
+        return {"resonance": render_mind_resonance_markdown(res)}
     return {"error": f"unknown tool: {name}"}
 
 
@@ -1000,6 +1020,14 @@ async def agent_memory_prompt(
     from .profile_service import get_published_profile
 
     parts: list[str] = [ORCHESTRATOR_MEMORY]
+
+    # 0. Mind Resonance (前置心领神会与默契共鸣)
+    try:
+        from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
+        res = await sense_resonance(db, user, query=query, project=project, action="agent")
+        parts.append(render_mind_resonance_markdown(res))
+    except Exception as e:
+        logger.warning("Failed to load mind resonance in agent_memory_prompt: %s", e)
 
     # 1. Resident Profile (About Me)
     try:

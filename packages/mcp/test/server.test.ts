@@ -58,6 +58,7 @@ describe("memento MCP", () => {
         "memory_search",
         "memory_skill",
         "memory_store",
+        "mind_resonance",
         "todo_add",
         "todo_list",
         "todo_update",
@@ -65,6 +66,28 @@ describe("memento MCP", () => {
     );
     const resources = (await client.listResources()).resources.map((r) => r.uri).sort();
     expect(resources).toEqual(["memory://core", "memory://projects"]);
+  });
+
+  it("activates mind resonance with markdown output", async () => {
+    const calls: string[] = [];
+    const client = await connect(
+      new RemoteClient(
+        "http://m",
+        "ct-1",
+        undefined,
+        fakeFetch(
+          {
+            "GET /api/memory/resonance": (url) => ({
+              body: { markdown: `【心领神会】query=${url.searchParams.get("query")}` },
+            }),
+          },
+          calls,
+        ),
+      ),
+    );
+    const out = textOf(await client.callTool({ name: "mind_resonance", arguments: { query: "继续，发布", project: "memento" } }));
+    expect(out).toContain("【心领神会】query=继续，发布");
+    expect(calls).toContain("GET /api/memory/resonance?format=markdown&project=memento&query=%E7%BB%A7%E7%BB%AD%EF%BC%8C%E5%8F%91%E5%B8%83");
   });
 
   it("searches semantically and falls back to keyword search", async () => {

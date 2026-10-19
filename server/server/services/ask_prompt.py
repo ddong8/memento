@@ -199,6 +199,7 @@ def build_messages(
     core_memories: list[UserMemory] | None = None,
     user_profile_content: str | None = None,
     guidance_data: dict | None = None,
+    resonance_data: dict | None = None,
     device_id: str | None = None,
     user: User | None = None,
 ) -> list[dict]:
@@ -208,6 +209,13 @@ def build_messages(
     ) or "(没有检索到相关资料)"
 
     system_prompt = SYSTEM_PROMPT
+
+    # 0. Mind Resonance (前置心领神会与默契共鸣)
+    if resonance_data:
+        from .mind_resonance_service import render_mind_resonance_markdown
+        rendered_r = render_mind_resonance_markdown(resonance_data)
+        if rendered_r.strip():
+            system_prompt += f"\n\n{rendered_r.strip()}"
 
     # 1. Resident User Profile (Highest priority: About Me, Rules, Preferences)
     if user_profile_content and user_profile_content.strip():

@@ -5,6 +5,7 @@ import type { Json, RemoteClient } from "./remote.js";
 
 export const INSTRUCTIONS =
   "Personal AI memory — search conversations, recall knowledge, explore project context from your Memento data. " +
+  "For instant mental alignment (心领神会) with the user's implicit intent, domain mindset, scenario iron rules, active graph entities, and pitfalls, call mind_resonance. " +
   "Before deploying, releasing, migrating a database, deleting or changing data, pushing, or changing config, " +
   "call memory_check_rule: it returns the user's iron rules, pitfalls hit before on similar work, and skills to follow. " +
   "After a failure whose cause you found and fixed, call memory_pitfall. When the user says to do something later, " +
@@ -473,6 +474,34 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
   );
 
   // ---- learning loop ---------------------------------------------------------
+
+  server.registerTool(
+    "mind_resonance",
+    {
+      description:
+        "心领神会 (Mind Resonance): Achieve instant mental alignment and heart-to-heart understanding with the user before acting or answering. " +
+        "Pre-activates the user's implicit mental model, scenario-specific iron rules, active knowledge graph entities/decisions, and past pitfall defenses. " +
+        "Call this when the user gives concise requests or before embarking on complex engineering, chemistry, data, or release tasks.",
+      inputSchema: {
+        query: z.string().optional().describe("User instruction, prompt, or task summary"),
+        project: z.string().optional().describe("Project name or workspace context"),
+        action: z.string().optional().describe("Planned action type (e.g. 'coding', 'release', 'deploy', 'ui', 'chemistry')"),
+      },
+    },
+    async ({ query, project, action }) => {
+      try {
+        const data = await remote.get<Json>("/api/memory/resonance", {
+          action,
+          format: "markdown",
+          project,
+          query,
+        });
+        return text(s(data.markdown));
+      } catch (e) {
+        return failed("Mind resonance failed", e);
+      }
+    },
+  );
 
   server.registerTool(
     "memory_check_rule",

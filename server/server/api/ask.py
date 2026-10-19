@@ -303,6 +303,14 @@ async def ask(
     except Exception as e:
         logger.warning("Failed to load guidance in ask: %s", e)
 
+    # 3. Mind Resonance (前置心领神会与默契共鸣)
+    from ..services.mind_resonance_service import sense_resonance
+    resonance_data = None
+    try:
+        resonance_data = await sense_resonance(db, _user, query=question, project=body.project_id)
+    except Exception as e:
+        logger.warning("Failed to load mind resonance in ask: %s", e)
+
     messages = build_messages(
         question,
         sources,
@@ -315,6 +323,7 @@ async def ask(
         core_memories=core_mems,
         user_profile_content=user_prof_content,
         guidance_data=guidance_data,
+        resonance_data=resonance_data,
         device_id=device_id or None,
         user=_user,
     )

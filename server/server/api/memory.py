@@ -93,6 +93,41 @@ async def get_memory_stats(
     return payload
 
 
+@router.get("/resonance")
+async def get_resonance(
+    query: str | None = None,
+    project: str | None = None,
+    action: str | None = None,
+    format: str = "json",
+    limit_entities: int = Query(4, ge=1, le=20),
+    limit_pitfalls: int = Query(4, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """心领神会·默契前置激活层 (Mind Resonance).
+    主动与用户完成心智同频：推断领域场景、激活图谱实体、召回防御性避坑预警与专属铁律。
+    """
+    from ..services.mind_resonance_service import render_mind_resonance_markdown, sense_resonance
+
+    cache_key = f"memory:resonance:{_user.id}:{query or ''}:{project or ''}:{action or ''}:{format}:{limit_entities}:{limit_pitfalls}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    res = await sense_resonance(
+        db,
+        _user,
+        query=query,
+        project=project,
+        action=action,
+        limit_entities=limit_entities,
+        limit_pitfalls=limit_pitfalls,
+    )
+    result = {"markdown": render_mind_resonance_markdown(res)} if format == "markdown" else res
+    await cache_set(cache_key, result, ttl_seconds=30)
+    return result
+
+
 @router.get("/graph")
 async def get_knowledge_graph(
     limit: int = Query(100, ge=1, le=500),

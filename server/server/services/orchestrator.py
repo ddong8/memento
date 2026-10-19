@@ -636,6 +636,19 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["conversation_id"] = args["conversation_id"]
             if args.get("user_question"):
                 payload["user_question"] = args["user_question"]
+
+            # 动态心智穿透：自动感知场景并将心领神会与项目铁律注入至子 Agent 运行时
+            try:
+                from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
+                sub_proj = args.get("project_id") or args.get("cwd") or ""
+                sub_query = args.get("prompt") or ""
+                res = await sense_resonance(db, user, query=sub_query, project=str(sub_proj) if sub_proj else None, action="agent")
+                mind_md = render_mind_resonance_markdown(res)
+                if mind_md.strip():
+                    cur_append = payload.get("system_prompt_append") or ""
+                    payload["system_prompt_append"] = f"{cur_append}\n\n{mind_md}".strip() if cur_append else mind_md.strip()
+            except Exception as e:
+                logger.warning("Failed to auto-inject mind resonance to subagent in orchestrator: %s", e)
         raw_cwd = (args.get("cwd") or "").strip()
         proj_id_val = args.get("project_id") or payload.get("project_id")
         resolved_cwd = raw_cwd
@@ -856,6 +869,22 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             if task_q is not None:
                 await ws_manager.unsubscribe_task(task_id_str)
 
+        # 工具执行遇挫反思（Pitfall Reflex）：当失败或非零退出码时毫秒级检索相似避坑与解法
+        is_failed = False
+        err_candidate = ""
+        if done_ws:
+            if done_ws.get("status") in ("failed", "timeout") or (done_ws.get("exit_code") and done_ws.get("exit_code") != 0):
+                is_failed = True
+                err_candidate = str(done_ws.get("stderr") or done_ws.get("error") or "")
+        elif done_task:
+            if done_task.status in ("failed", "timeout") or (done_task.exit_code and done_task.exit_code != 0):
+                is_failed = True
+                err_candidate = str(done_task.stderr or done_task.error or "")
+
+        pitfall_hint = await _extract_pitfall_hint(
+            db, user, action=action, err_text=err_candidate, project_id=str(proj_id_val or "") if proj_id_val else None,
+        ) if is_failed else None
+
         if done_ws:
             ws_out = done_ws.get("stdout") or ""
             ws_err = done_ws.get("stderr") or ""
@@ -864,23 +893,26 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 m = re.search(r"session id:\s*([0-9a-fA-F-]+)", ws_out + "\n" + ws_err, re.I)
                 if m:
                     ext_sid = m.group(1)
+            ws_result: dict[str, Any] = {
+                "task_id": task_id_str,
+                "device_id": device_id,
+                "device_name": mach_name,
+                "action": action,
+                "status": done_ws.get("status", "succeeded"),
+                "exit_code": done_ws.get("exit_code"),
+                "stdout": ws_out if action == "agent" else compact_tool_output(ws_out),
+                "stderr": ws_err if action == "agent" else compact_tool_output(ws_err),
+                "error": done_ws.get("error"),
+                "session_id": ext_sid,
+                "alerts": await _load_alerts(task_id_str),
+                "events": (done_ws.get("events") or [])[:MAX_TASK_EVENTS],
+            }
+            if pitfall_hint:
+                ws_result["pitfall_hint"] = pitfall_hint
             yield {
                 "type": "tool_result",
                 "name": "run_on_device",
-                "result": {
-                    "task_id": task_id_str,
-                    "device_id": device_id,
-                    "device_name": mach_name,
-                    "action": action,
-                    "status": done_ws.get("status", "succeeded"),
-                    "exit_code": done_ws.get("exit_code"),
-                    "stdout": ws_out if action == "agent" else compact_tool_output(ws_out),
-                    "stderr": ws_err if action == "agent" else compact_tool_output(ws_err),
-                    "error": done_ws.get("error"),
-                    "session_id": ext_sid,
-                    "alerts": await _load_alerts(task_id_str),
-                    "events": (done_ws.get("events") or [])[:MAX_TASK_EVENTS],
-                },
+                "result": ws_result,
             }
             return
 
@@ -907,23 +939,27 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             if m:
                 task_sid = m.group(1)
 
+        task_result: dict[str, Any] = {
+            "task_id": str(done_task.id),
+            "device_id": device_id,
+            "device_name": mach_name,
+            "action": action,
+            "status": done_task.status,
+            "exit_code": done_task.exit_code,
+            "stdout": task_out if action == "agent" else compact_tool_output(task_out),
+            "stderr": task_err if action == "agent" else compact_tool_output(task_err),
+            "error": done_task.error,
+            "session_id": task_sid,
+            "alerts": done_task.alerts or [],
+            "events": (done_task.events or [])[:MAX_TASK_EVENTS],
+        }
+        if pitfall_hint:
+            task_result["pitfall_hint"] = pitfall_hint
+
         yield {
             "type": "tool_result",
             "name": "run_on_device",
-            "result": {
-                "task_id": str(done_task.id),
-                "device_id": device_id,
-                "device_name": mach_name,
-                "action": action,
-                "status": done_task.status,
-                "exit_code": done_task.exit_code,
-                "stdout": task_out if action == "agent" else compact_tool_output(task_out),
-                "stderr": task_err if action == "agent" else compact_tool_output(task_err),
-                "error": done_task.error,
-                "session_id": task_sid,
-                "alerts": done_task.alerts or [],
-                "events": (done_task.events or [])[:MAX_TASK_EVENTS],
-            },
+            "result": task_result,
         }
     except Exception as e:
         logger.exception("run_on_device failed: %s", e)
@@ -932,6 +968,35 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             "name": "run_on_device",
             "result": {"error": f"执行遇到异常: {e}"},
         }
+
+
+async def _extract_pitfall_hint(
+    db: AsyncSession, user: User, action: str, err_text: str, project_id: str | None = None,
+) -> str | None:
+    """If a tool failed, extract matching pitfalls to guide the next agent round."""
+    if not err_text or not err_text.strip():
+        return None
+    try:
+        from .guidance_service import guidance_for
+        clean_err = compact_tool_output(err_text, max_chars=300)
+        g = await guidance_for(db, user, action=action, project=project_id, query=clean_err)
+        pf_list = g.get("pitfalls") or []
+        if pf_list:
+            hints = []
+            for pf in pf_list[:2]:
+                title = getattr(pf, "title", None) or (pf.get("title") if isinstance(pf, dict) else "")
+                fix = getattr(pf, "fix", None) or (pf.get("fix") if isinstance(pf, dict) else "")
+                cause = getattr(pf, "cause", None) or (pf.get("cause") if isinstance(pf, dict) else "")
+                if title and fix:
+                    item_str = f"- 【{title}】解法：{fix}"
+                    if cause:
+                        item_str += f"（根因：{cause}）"
+                    hints.append(item_str)
+            if hints:
+                return "【心智避坑唤醒·历史上发生过类似错误】\n" + "\n".join(hints)
+    except Exception as e:
+        logger.debug("Failed to lookup pitfall reflex: %s", e)
+    return None
 
 
 async def _load_alerts(task_id: str) -> list:

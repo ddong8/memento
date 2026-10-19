@@ -8,6 +8,7 @@ import { discoverAntigravityEnv, ensureAgyCliInstalled } from "./antigravity.js"
 import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
+import { getOfflineMindSnapshot } from "./profile-inject.js";
 import { ensureWorkbuddyCliInstalled } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
@@ -558,7 +559,9 @@ export class TaskRunner {
     const sessionId = text("session_id");
     const model = text("model");
     const effort = text("effort");
-    const sysAppend = text("system_prompt_append");
+    const rawSysAppend = text("system_prompt_append");
+    const offlineMind = !rawSysAppend ? await getOfflineMindSnapshot() : null;
+    const sysAppend = rawSysAppend || offlineMind || "";
 
     // Materialize uploaded base64 images on the local device so local Agent CLI can view them
     if (Array.isArray(payload.images) && payload.images.length > 0) {

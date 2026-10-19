@@ -142,8 +142,9 @@ async def _fetch_graph_entities(
     user: User,
     terms: list[str],
     limit_entities: int,
+    target_project: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Batch fetch and activate relevant knowledge graph entities with 2-hop topology."""
+    """Batch fetch and activate relevant knowledge graph entities with 2-hop topology and project affinity decay."""
     entities_data: list[dict[str, Any]] = []
     if not terms:
         return entities_data
@@ -164,9 +165,20 @@ async def _fetch_graph_entities(
             .limit(limit_entities * 2)
         )
         ent_rows = (await db.execute(ent_q)).scalars().all()
+
+        def entity_affinity(ent: KnowledgeEntity) -> float:
+            base_score = float(score(f"{ent.name} {ent.summary or ''}", terms))
+            if target_project:
+                low_p = target_project.lower()
+                low_name = ent.name.lower()
+                low_sum = (ent.summary or "").lower()
+                if low_p in low_name or low_p in low_sum:
+                    base_score += 15.0
+            return base_score
+
         sorted_ents = sorted(
             ent_rows,
-            key=lambda e: score(f"{e.name} {e.summary or ''}", terms),
+            key=entity_affinity,
             reverse=True,
         )[:limit_entities]
 
@@ -295,7 +307,7 @@ async def sense_resonance(
 
     # Concurrently execute 3 dimensions: Profile rules, Graph entities (with 2-hop), Defensive pitfalls
     rules_task = _fetch_scoped_and_general_rules(db, user, terms, scenario, project)
-    entities_task = _fetch_graph_entities(db, user, terms, limit_entities)
+    entities_task = _fetch_graph_entities(db, user, terms, limit_entities, target_project=project)
     pitfalls_task = _fetch_pitfalls(db, user, terms, limit_pitfalls)
 
     (scoped_rules, general_rules), entities_data, pitfalls_data = await asyncio.gather(

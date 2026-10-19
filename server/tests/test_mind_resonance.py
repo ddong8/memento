@@ -210,3 +210,66 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
             tool_res = await _tool_memory(mock_db, user, "mind_resonance", {"query": "发布"})
             self.assertIn("resonance", tool_res)
             self.assertIn("【心领神会·默契前置激活层 (Mind Resonance)】", tool_res["resonance"])
+
+    async def test_target_project_affinity_weighting(self):
+        """Verify graph entities are boosted when matching target_project."""
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        mock_db = AsyncMock()
+
+        ent_pubchem = KnowledgeEntity(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            name="PubchemService",
+            entity_type="project",
+            summary="PubChem 化合物与逆合成服务",
+        )
+        ent_memento = KnowledgeEntity(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            name="MementoDesktop",
+            entity_type="project",
+            summary="Memento 桌面端记忆助手",
+        )
+
+        mock_ent_res = MagicMock()
+        mock_ent_res.scalars.return_value.all.return_value = [ent_pubchem, ent_memento]
+
+        mock_obs_res = MagicMock()
+        mock_obs_res.all.return_value = []
+        mock_rel_res = MagicMock()
+        mock_rel_res.all.return_value = []
+
+        async def fake_execute(statement, *args, **kwargs):
+            sql = str(statement)
+            if "knowledge_observations" in sql:
+                return mock_obs_res
+            if "knowledge_relations" in sql:
+                return mock_rel_res
+            return mock_ent_res
+
+        mock_db.execute = AsyncMock(side_effect=fake_execute)
+
+        from server.services.mind_resonance_service import _fetch_graph_entities
+        # When target_project is memento, MementoDesktop should be ranked first despite same term overlap
+        res = await _fetch_graph_entities(mock_db, user, ["service", "desktop"], limit_entities=2, target_project="memento")
+        self.assertEqual(len(res), 2)
+        self.assertEqual(res[0]["name"], "MementoDesktop")
+
+    async def test_extract_pitfall_hint_on_failure(self):
+        """Verify failure reflex retrieves and formats matching pitfall hints."""
+        from server.services.orchestrator import _extract_pitfall_hint
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        mock_db = AsyncMock()
+
+        dummy_pitfall = {
+            "title": "版本号未对齐导致升级死循环",
+            "fix": "更新 apps/desktop/package.json 版本号并重新打 tag",
+            "cause": "客户端报告版本与 version.json 不匹配",
+        }
+
+        with patch("server.services.guidance_service.guidance_for", new_callable=AsyncMock, return_value={"pitfalls": [dummy_pitfall]}):
+            hint = await _extract_pitfall_hint(mock_db, user, "shell", "Error: release version mismatch between tag and package.json", "memento")
+            self.assertIsNotNone(hint)
+            self.assertIn("【心智避坑唤醒·历史上发生过类似错误】", hint)
+            self.assertIn("版本号未对齐导致升级死循环", hint)
+            self.assertIn("更新 apps/desktop/package.json 版本号", hint)

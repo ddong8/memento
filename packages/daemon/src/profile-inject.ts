@@ -158,5 +158,31 @@ export async function applyProfileInjection(options: {
 
   await mkdir(dirname(statePath), { recursive: true });
   await writeFile(statePath, JSON.stringify(state, null, 2));
+
+  if (hasBlock && block) {
+    try {
+      const snapshotPath = join(mementoDir(), "mind_snapshot.json");
+      await writeFile(
+        snapshotPath,
+        JSON.stringify({ version: options.version ?? null, block, updatedAt: new Date().toISOString() }, null, 2),
+      );
+    } catch {
+      // Best-effort offline snapshot
+    }
+  }
+
   return results;
+}
+
+/** Retrieve the cached mind snapshot for offline subagent execution. */
+export async function getOfflineMindSnapshot(): Promise<string | null> {
+  try {
+    const snapshotPath = join(mementoDir(), "mind_snapshot.json");
+    if (!existsSync(snapshotPath)) return null;
+    const raw = await readFile(snapshotPath, "utf8");
+    const parsed = JSON.parse(raw) as { block?: string };
+    return parsed.block || null;
+  } catch {
+    return null;
+  }
 }

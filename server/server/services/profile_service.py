@@ -281,6 +281,12 @@ async def publish_profile(db: AsyncSession, user: User, content: str) -> UserPro
         db.add(profile)
     await db.commit()
     await db.refresh(profile)
+    try:
+        from .cache import cache_delete_prefix
+        await cache_delete_prefix(f"memory:resonance:{user.id}")
+        await cache_delete_prefix(f"learning:check:{user.id}")
+    except Exception as e:
+        logger.warning("Failed to invalidate resonance cache on publish_profile: %s", e)
     return profile
 
 

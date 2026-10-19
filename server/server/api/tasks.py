@@ -147,12 +147,26 @@ async def create_task(
     machine = await _authorize_device(db, device_id, _user)
     target_device_id = machine.collector_token_hash if machine else device_id
 
+    task_payload = dict(body.payload or {})
+    if body.action == "agent":
+        try:
+            from ..services.mind_resonance_service import render_mind_resonance_markdown, sense_resonance
+            sub_proj = task_payload.get("project_id") or task_payload.get("cwd") or ""
+            sub_query = task_payload.get("prompt") or ""
+            res = await sense_resonance(db, _user, query=sub_query, project=str(sub_proj) if sub_proj else None, action="agent")
+            mind_md = render_mind_resonance_markdown(res)
+            if mind_md.strip():
+                cur_append = task_payload.get("system_prompt_append") or ""
+                task_payload["system_prompt_append"] = f"{cur_append}\n\n{mind_md}".strip() if cur_append else mind_md.strip()
+        except Exception as e:
+            logger.warning("Failed to auto-inject mind resonance in tasks.create_task: %s", e)
+
     task = DeviceTask(
         device_id=target_device_id,
         machine_id=machine.id if machine else None,
         user_id=_user.id,
         action=body.action,
-        payload=body.payload,
+        payload=task_payload,
         timeout_seconds=body.timeout_seconds,
         status="queued",
     )

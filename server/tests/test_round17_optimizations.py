@@ -4,7 +4,7 @@ import asyncio
 import json
 import unittest
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from server.services.ask_runs import AskRun
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
@@ -18,6 +18,7 @@ type IconName = Parameters<typeof Icon>[0]["name"];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { t } = useI18n();
   const { user } = useAuth();
   const { collapsed, toggleCollapsed } = useSidebar();
@@ -128,11 +129,59 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
   const effectivePath = optimisticPath ?? pathname;
 
+  // Pre-warm primary top routes during browser idle time (zero delay on first visit)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prewarmRoutes = () => {
+      const routes = ["/ask", "/app", "/inbox", "/memory", "/projects", "/daily", "/skills"];
+      for (const r of routes) {
+        try {
+          router.prefetch(r);
+        } catch {}
+      }
+    };
+
+    if ("requestIdleCallback" in window) {
+      const handle = (
+        window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }
+      ).requestIdleCallback(prewarmRoutes, { timeout: 2500 });
+      return () => {
+        if ("cancelIdleCallback" in window) {
+          (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(handle);
+        }
+      };
+    } else {
+      const timer = setTimeout(prewarmRoutes, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [router]);
+
   const handleNavClick = () => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) onClose();
   };
 
+  const handleItemHover = (targetHref: string) => {
+    try {
+      router.prefetch(targetHref);
+    } catch {}
+
+    // Pre-warm data caches for specific modules on mouse hover
+    if (targetHref === "/inbox") {
+      void api.getTodos().catch(() => {});
+    } else if (targetHref === "/projects") {
+      void api.listProjects().catch(() => {});
+    } else if (targetHref === "/app") {
+      void api.getDevices().catch(() => {});
+    }
+  };
+
   const handleItemClick = (targetHref: string) => {
+    // Redundant click guard: prevent re-triggering concurrent transitions when already on route
+    if (effectivePath === targetHref) {
+      if (typeof window !== "undefined" && window.innerWidth < 1024) onClose();
+      return;
+    }
+
     setOptimisticPath(targetHref);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("memento:route-start", { detail: { href: targetHref } }));
@@ -353,6 +402,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isAskActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
           <NavRow
             href="/app"
@@ -361,6 +411,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isOverviewActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
 
           {/* Section 2: 认知大脑 */}
@@ -376,6 +427,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isMemoryActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
           <NavRow
             href="/memory/persona"
@@ -384,6 +436,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isPersonaActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
           <NavRow
             href="/skills"
@@ -392,6 +445,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isSkillsActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
 
           {/* Section 3: 任务与资产 (待办置顶) */}
@@ -408,6 +462,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             badge={todoCount > 0 ? String(todoCount) : undefined}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
           <NavRow
             href="/projects"
@@ -416,6 +471,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isProjectsActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
           <NavRow
             href="/daily"
@@ -424,6 +480,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             active={isDailyActive}
             collapsed={collapsed}
             onNavigate={handleItemClick}
+            onHover={handleItemHover}
           />
         </nav>
 
@@ -608,6 +665,7 @@ const NavRow = memo(function NavRow({
   collapsed = false,
   onClick,
   onNavigate,
+  onHover,
 }: {
   href: string;
   label: string;
@@ -617,6 +675,7 @@ const NavRow = memo(function NavRow({
   collapsed?: boolean;
   onClick?: () => void;
   onNavigate?: (href: string) => void;
+  onHover?: (href: string) => void;
 }) {
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -628,11 +687,19 @@ const NavRow = memo(function NavRow({
     }
   };
 
+  const handleMouseEnter = () => {
+    if (onHover) {
+      onHover(href);
+    }
+  };
+
   return (
     <Link
       href={href}
       prefetch={true}
       onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onTouchStart={handleMouseEnter}
       title={label + (badge ? ` (${badge})` : "")}
       className={`group flex items-center relative select-none transition-colors duration-150 ${
         collapsed ? "justify-center py-2 px-0 mx-2 my-0.5" : "justify-start py-2 px-3.5 mx-2 my-0.5"

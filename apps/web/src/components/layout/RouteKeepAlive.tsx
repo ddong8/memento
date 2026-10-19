@@ -172,10 +172,13 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
             id={`memento-keepalive-${key.replace(/[^a-zA-Z0-9_-]/g, "_")}`}
             data-memento-route-keepalive={key}
             data-memento-dormant={!isCurrent ? "true" : undefined}
+            aria-hidden={!isCurrent ? true : undefined}
+            tabIndex={!isCurrent ? -1 : undefined}
             style={{
               display: isCurrent ? "block" : "none",
               height: "100%",
-              contain: "style",
+              contain: isCurrent ? "style" : "strict",
+              pointerEvents: isCurrent ? "auto" : "none",
             }}
           >
             {content}

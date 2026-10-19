@@ -320,3 +320,16 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         # 3. Long query should remain untouched
         long_q = "这是一段非常详细具体的指令超过三十个字符所以不需要自动扩展语义锚点"
         self.assertEqual(expand_query_for_search(long_q), long_q)
+
+    def test_clean_guardrail_output(self):
+        """Verify markdown bold asterisks are stripped outside code fences."""
+        from server.services.mind_resonance_service import clean_guardrail_output
+
+        dirty_text = "这里是**加粗标题**，下面是代码：\n```python\nx = 2 ** 3\nprint('**keep this**')\n```\n结论是**完全成功**。"
+        cleaned = clean_guardrail_output(dirty_text)
+        self.assertNotIn("**加粗标题**", cleaned)
+        self.assertIn("这里是加粗标题", cleaned)
+        self.assertIn("结论是完全成功", cleaned)
+        # Verify inside code block is preserved
+        self.assertIn("2 ** 3", cleaned)
+        self.assertIn("'**keep this**'", cleaned)

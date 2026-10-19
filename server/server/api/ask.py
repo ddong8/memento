@@ -407,12 +407,12 @@ async def ask(
                 if saved:
                     return
                 saved = True
-                assistant_created_at_final = datetime.now(timezone.utc).isoformat()
-                duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
+                from ..services.mind_resonance_service import clean_guardrail_output
+                clean_reply = clean_guardrail_output("".join(accumulated_text))
                 await append_conversation_turns(
                     conv_id,
                     question,
-                    "".join(accumulated_text),
+                    clean_reply,
                     sources=sources,
                     tool_calls=list(tool_calls_map.values()),
                     thinking="".join(accumulated_thinking).strip() or None,
@@ -492,11 +492,12 @@ async def ask(
                 return
             saved = True
             assistant_created_at_final = datetime.now(timezone.utc).isoformat()
-            duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
+            from ..services.mind_resonance_service import clean_guardrail_output
+            clean_reply = clean_guardrail_output("".join(accumulated_text))
             await append_conversation_turns(
                 conv_id,
                 question,
-                "".join(accumulated_text),
+                clean_reply,
                 sources=sources,
                 tool_calls=None,
                 thinking="".join(accumulated_thinking).strip() or None,

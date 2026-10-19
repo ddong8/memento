@@ -85,6 +85,14 @@ export class IngestClient {
   private async uploadSingleDocument(doc: IngestDocument): Promise<boolean> {
     try {
       const sanitized = sanitizeDocumentContent(doc.content, doc.contentType);
+      const metadata = { ...(doc.metadata ?? {}) };
+      if (
+        typeof doc.content === "string" &&
+        /(?:以后|严禁|杜绝|不要|不能|必须|统一|切记|记住)(?:在|用|加|使用|包含|反问|回滚|删除)/.test(doc.content)
+      ) {
+        metadata.is_user_correction = true;
+      }
+
       const res = await this.request("/api/ingest/file", {
         method: "POST",
         timeoutMs: 30_000,
@@ -98,7 +106,7 @@ export class IngestClient {
           file_size: doc.fileSize ?? Buffer.byteLength(sanitized),
           mode: doc.mode ?? "full",
           offset: doc.offset ?? 0,
-          metadata: doc.metadata ?? {},
+          metadata,
         },
       });
       if (res.ok) return true;

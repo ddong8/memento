@@ -490,3 +490,13 @@ def expand_query_for_search(query: str, target_project: str | None = None) -> st
         if extras:
             return f"{clean_q} {' '.join(extras)}"
     return query
+
+
+def clean_guardrail_output(text: str) -> str:
+    """Sanitize model output to strictly enforce formatting rules (e.g. strip bold asterisks outside code blocks)."""
+    if not text:
+        return ""
+    parts = text.split("```")
+    for i in range(0, len(parts), 2):  # Prose sections outside of code blocks
+        parts[i] = re.sub(r"\*\*([^\n*]+?)\*\*", r"\1", parts[i])
+    return "```".join(parts)

@@ -65,7 +65,7 @@ describe("memento MCP", () => {
       ].sort(),
     );
     const resources = (await client.listResources()).resources.map((r) => r.uri).sort();
-    expect(resources).toEqual(["memory://core", "memory://projects"]);
+    expect(resources).toEqual(["memory://core", "memory://projects", "memory://resonance"]);
   });
 
   it("activates mind resonance with markdown output", async () => {
@@ -88,6 +88,23 @@ describe("memento MCP", () => {
     const out = textOf(await client.callTool({ name: "mind_resonance", arguments: { query: "继续，发布", project: "memento" } }));
     expect(out).toContain("【心领神会】query=继续，发布");
     expect(calls).toContain("GET /api/memory/resonance?format=markdown&project=memento&query=%E7%BB%A7%E7%BB%AD%EF%BC%8C%E5%8F%91%E5%B8%83");
+  });
+
+  it("reads memory://resonance resource cleanly", async () => {
+    const client = await connect(
+      new RemoteClient(
+        "http://m",
+        "ct-1",
+        undefined,
+        fakeFetch({
+          "GET /api/memory/resonance": () => ({
+            body: { markdown: "# Mind Resonance Snapshot\n- Rule: no bold" },
+          }),
+        }),
+      ),
+    );
+    const res = await client.readResource({ uri: "memory://resonance" });
+    expect(res.contents[0]?.text).toContain("# Mind Resonance Snapshot");
   });
 
   it("searches semantically and falls back to keyword search", async () => {

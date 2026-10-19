@@ -84,7 +84,25 @@ export const MindAnticipation = memo(function MindAnticipation({
     });
   }, [trimmed, isFocused]);
 
-  if (!matchedSuggestions.length) return null;
+  if (!matchedSuggestions.length) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "2px 8px",
+          marginBottom: "4px",
+          fontSize: "11px",
+          color: "rgba(255, 255, 255, 0.35)",
+          userSelect: "none",
+        }}
+      >
+        <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#10b981" }} />
+        <span>心领神会 · 场景心智就绪</span>
+      </div>
+    );
+  }
 
   return (
     <div

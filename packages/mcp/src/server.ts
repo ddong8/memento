@@ -684,5 +684,15 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
     resourceText(uri, await coreMemory(remote)),
   );
 
+  server.registerResource(
+    "resonance",
+    "memory://resonance",
+    { description: "Current mind resonance context (user intent, scenario iron rules, active graph entities, defensive pitfalls)", mimeType: "text/markdown" },
+    async (uri) => {
+      const data = await remote.get<Json>("/api/memory/resonance", { format: "markdown" });
+      return resourceText(uri, s(data.markdown));
+    },
+  );
+
   return server;
 }

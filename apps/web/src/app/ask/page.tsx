@@ -203,19 +203,23 @@ function AskPageContent() {
     lastPasteTimeRef.current = now;
     e.preventDefault();
 
-    // Windows 剪贴板常对单次截图同时生成多种格式（如 image/png 与 image/jpeg/bmp），相同字节大小视为同一张图，去重只保留首个
-    const imageFiles: File[] = [];
-    const seenSizes = new Set<number>();
-    for (const file of rawImageFiles) {
-      if (seenSizes.has(file.size)) continue;
-      seenSizes.add(file.size);
-      imageFiles.push(file);
+    // 剪贴板常对单次截图同时生成多种格式（如 image/png 与 image/jpeg/bmp/tiff）
+    // 若单次粘贴中包含多个图片项且是同次截屏，优先保留首个无损 PNG 避免重复生成两张图片
+    let imageFiles: File[] = [];
+    if (rawImageFiles.length > 1) {
+      const pngFile = rawImageFiles.find((f) => f.type === "image/png");
+      imageFiles = pngFile ? [pngFile] : [rawImageFiles[0]];
+    } else {
+      imageFiles = rawImageFiles;
     }
 
     const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
+    const seenDataUrls = new Set<string>();
     for (const file of imageFiles) {
       try {
         const dataUrl = await compressImageToDataUrl(file);
+        if (seenDataUrls.has(dataUrl)) continue;
+        seenDataUrls.add(dataUrl);
         newImgs.push({
           id: crypto.randomUUID(),
           name: file.name || "pasted_image.png",

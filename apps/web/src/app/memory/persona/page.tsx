@@ -416,8 +416,8 @@ export default function PersonaPage() {
     prompt: string;
   } | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: True for 100% 3D Digital Twin Avatar)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
+  // Fullscreen Theater & Panel Collapse State (Default: False so 3D is not exclusively selected, panels visible)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
@@ -888,10 +888,10 @@ export default function PersonaPage() {
       {/* ─────────────────────────────────────────────────────────────
           2. 一屏全景双翼驾驶舱 (Unified Single-Screen Twin Cockpit)
           ───────────────────────────────────────────────────────────── */}
-      <div ref={cockpitRef} className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0 overflow-hidden relative">
-        {/* ── 左翼: 3D 全息神经孪生体主舞台 (支持 100% 满屏沉浸与分屏联动) ── */}
-        <div className={`h-full flex flex-col min-h-0 transition-all duration-300 relative ${
-          isPanelCollapsed ? "lg:col-span-12 w-full" : "lg:col-span-5"
+      <div ref={cockpitRef} className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0 overflow-y-auto lg:overflow-hidden relative">
+        {/* ── 左翼: 3D 全息神经孪生体主舞台 (支持 100% 满屏沉浸与分屏联动，移动端自动缩放高度) ── */}
+        <div className={`flex flex-col min-h-0 transition-all duration-300 relative ${
+          isPanelCollapsed ? "lg:col-span-12 w-full h-full" : "lg:col-span-5 max-lg:h-[280px] sm:max-lg:h-[340px] max-lg:shrink-0 h-full"
         }`}>
           <DigitalTwinAvatar3D
             activeDimension={activeDimension}
@@ -1063,19 +1063,19 @@ export default function PersonaPage() {
           )}
         </div>
 
-        {/* ── 右翼 (7 列 / 58%): 特征矩阵与每日进化成长中枢 (移动端自适应全屏抽屉，桌面端双翼分屏) ── */}
+        {/* ── 右翼 (7 列 / 58%): 特征矩阵与每日进化成长中枢 (移动端自然流式承接，桌面端双翼分屏) ── */}
         {!isPanelCollapsed && (
-          <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
+          <div className="lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in duration-300 max-lg:min-h-[500px]">
           {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
           <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
-            {/* Mobile Back Button to 3D */}
+            {/* Mobile View Toggle */}
             <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
               <button
                 onClick={() => setIsPanelCollapsed(true)}
                 className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold flex items-center gap-1.5 shrink-0 text-white"
               >
-                <Icon name="arrow_left" size={14} />
-                <span>返回 3D 数字人</span>
+                <Icon name="cube" size={14} />
+                <span>3D 铺满全屏</span>
               </button>
               <span className="text-[11px] font-mono text-white/50">心智画像管理台</span>
             </div>

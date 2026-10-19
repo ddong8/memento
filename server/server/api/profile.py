@@ -120,7 +120,7 @@ async def get_profile(
     machines = (await db.execute(
         select(Machine)
         .options(defer(Machine.skill_status), defer(Machine.remote_exec_key))
-        .where(Machine.user_id == user.id, Machine.merged_into.is_(None))
+        .where(Machine.user_id == user.id, Machine.merged_into.is_(None), Machine.is_archived.is_(False))
         .order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     now = datetime.now(timezone.utc)

@@ -142,7 +142,7 @@ async def _profile(db: AsyncSession, user: User, now: datetime) -> dict[str, Any
     published = max((r for r in rows if r.status == "published"), key=lambda r: r.version or 0, default=None)
     draft = next((r for r in rows if r.status == "draft"), None)
 
-    machines = (await db.execute(select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None)))).scalars().all()
+    machines = (await db.execute(select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None), Machine.is_archived.is_(False)))).scalars().all()
     devices = []
     for m in machines:
         if not m.profile_targets:
@@ -183,7 +183,7 @@ async def _pipeline(db: AsyncSession, user: User) -> dict[str, int]:
 
 
 async def _devices(db: AsyncSession, user: User, now: datetime) -> dict[str, int]:
-    beats = (await db.execute(select(Machine.last_heartbeat).where(Machine.user_id == user.id, Machine.merged_into.is_(None)))).scalars().all()
+    beats = (await db.execute(select(Machine.last_heartbeat).where(Machine.user_id == user.id, Machine.merged_into.is_(None), Machine.is_archived.is_(False)))).scalars().all()
     return {"total": len(beats), "online": sum(1 for b in beats if b and now - b < ONLINE_WINDOW)}
 
 

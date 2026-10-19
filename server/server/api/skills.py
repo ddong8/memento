@@ -83,7 +83,7 @@ async def list_skills(
         .order_by(Skill.last_seen_at.desc().nulls_last(), Skill.created_at.desc())
     )).scalars().all()
     machines = (await db.execute(
-        select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
+        select(Machine).where(Machine.user_id == user.id, Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     payload = {
         "drafts": [skill_out(s) for s in rows if s.status == "draft"],

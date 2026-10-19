@@ -98,6 +98,8 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
     if user.role not in ("admin", "owner"):
         if not machine or machine.user_id != user.id:
             raise HTTPException(status_code=404, detail="Device not found")
+    if machine and bool(getattr(machine, "is_archived", False)):
+        raise HTTPException(status_code=400, detail="Device is unlinked/archived")
     return machine
 
 

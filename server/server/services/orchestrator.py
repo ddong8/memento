@@ -357,7 +357,7 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
 
 async def _tool_list_devices(db: AsyncSession, user: User) -> dict:
     try:
-        q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
+        q = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
         if user.role not in ("admin", "owner"):
             q = q.where(Machine.user_id == user.id)
         machines = (await db.execute(q)).scalars().all()
@@ -492,7 +492,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
     try:
         # If device_id is omitted by the model, fall back to the user's most recently active machine
         if not device_id:
-            mq = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
+            mq = select(Machine).where(Machine.merged_into.is_(None), Machine.is_archived.is_(False)).order_by(Machine.last_heartbeat.desc().nulls_last())
             if user.role not in ("admin", "owner"):
                 mq = mq.where(Machine.user_id == user.id)
             machines = (await db.execute(mq)).scalars().all()
@@ -519,14 +519,21 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 ).order_by(Machine.last_heartbeat.desc().nulls_last())
             )).scalars().first()
 
-        if user.role not in ("admin", "owner"):
-            if not machine or machine.user_id != user.id:
-                yield {
-                    "type": "tool_result",
-                    "name": "run_on_device",
-                    "result": {"error": "设备不存在或无权限"},
-                }
-                return
+        if not machine or (user.role not in ("admin", "owner") and machine.user_id != user.id):
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"error": "设备不存在或无权限"},
+            }
+            return
+
+        if bool(getattr(machine, "is_archived", False)):
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"error": f"设备「{machine.name}」已解绑/归档，无法执行远程任务。请选用活跃在线设备。"},
+            }
+            return
 
         # Normalize device_id to the machine's actual collector_token_hash
         if machine:

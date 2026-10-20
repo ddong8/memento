@@ -28,6 +28,7 @@ import {
   FiRepeat,
   FiRefreshCw,
   FiLayers,
+  FiCamera,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
@@ -261,7 +262,13 @@ export function VideoPlayer({
   const [resumeNotice, setResumeNotice] = useState<{ pos: number } | null>(null);
   const [flashAction, setFlashAction] = useState<{ label: string; icon: string; id: number } | null>(null);
   const [isRecovering, setIsRecovering] = useState<boolean>(false);
+  const [isCapturing, setIsCapturing] = useState<boolean>(false);
+  const [abLoop, setAbLoop] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
+  const [audioBoost, setAudioBoost] = useState<boolean>(false);
 
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
   const resumeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const gestureHideTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -704,12 +711,131 @@ export function VideoPlayer({
     triggerFlashAction(v.muted ? "静音" : `音量 ${Math.round(volume * 100)}%`, v.muted ? "🔇" : "🔊");
   };
 
+  const captureFrame = useCallback(async () => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth || !v.videoHeight) return;
+    try {
+      setIsCapturing(true);
+      const canvas = document.createElement("canvas");
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const timeStr = formatTime(v.currentTime).replace(":", "-");
+        const filename = `${displayTitle}_${timeStr}.png`;
+
+        if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+            showInAppToast("已复制截图", `已将 ${formatTime(v.currentTime)} 原画帧复制到剪贴板`);
+          } catch {
+            // fallback
+          }
+        }
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+
+        triggerFlashAction("已截取原画帧", "📸");
+        setTimeout(() => setIsCapturing(false), 300);
+      }, "image/png");
+    } catch (e) {
+      setIsCapturing(false);
+      console.warn("captureFrame failed", e);
+    }
+  }, [displayTitle, triggerFlashAction]);
+
+  const stepFrame = useCallback((deltaSec: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (!v.paused) v.pause();
+    const target = Math.max(0, Math.min(v.duration || Infinity, v.currentTime + deltaSec));
+    v.currentTime = target;
+    setCurrentTime(target);
+    triggerControlsActivity();
+    triggerFlashAction(`${deltaSec > 0 ? "+1帧" : "-1帧"} (${formatTime(target)})`, deltaSec > 0 ? "⏭" : "⏮");
+  }, [triggerControlsActivity, triggerFlashAction]);
+
+  const toggleAbPoint = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const cur = v.currentTime;
+    setAbLoop((prev) => {
+      if (prev.a === null) {
+        triggerFlashAction(`已设A点: ${formatTime(cur)}`, "🅰️");
+        return { a: cur, b: null };
+      }
+      if (prev.b === null) {
+        if (cur > prev.a) {
+          triggerFlashAction(`已开启 A-B 循环 (${formatTime(prev.a)} - ${formatTime(cur)})`, "🔁");
+          return { a: prev.a, b: cur };
+        } else {
+          triggerFlashAction(`已重设A点: ${formatTime(cur)}`, "🅰️");
+          return { a: cur, b: null };
+        }
+      }
+      triggerFlashAction("已清除 A-B 循环", "⚪");
+      return { a: null, b: null };
+    });
+    triggerControlsActivity();
+  }, [triggerControlsActivity, triggerFlashAction]);
+
+  const toggleAudioBoost = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const source = ctx.createMediaElementSource(v);
+          const gain = ctx.createGain();
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          audioCtxRef.current = ctx;
+          gainNodeRef.current = gain;
+        }
+      }
+      if (audioCtxRef.current?.state === "suspended") {
+        audioCtxRef.current.resume();
+      }
+      setAudioBoost((prev) => {
+        const next = !prev;
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.value = next ? 2.0 : 1.0;
+        }
+        triggerFlashAction(next ? "音量增强 200% (人声提亮)" : "标准音量 100%", next ? "⚡" : "🔉");
+        return next;
+      });
+    } catch (e) {
+      console.warn("AudioContext boost failed", e);
+    }
+  }, [triggerFlashAction]);
+
   const handleProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const percent = rect.width > 0 ? x / rect.width : 0;
     const time = (duration || 0) * percent;
     setHoverInfo({ time, x, percent });
+
+    const canvas = previewCanvasRef.current;
+    const v = videoRef.current;
+    if (canvas && v && v.videoWidth && v.videoHeight) {
+      try {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        }
+      } catch {}
+    }
   };
 
   const handleProgressMouseLeave = () => {
@@ -932,6 +1058,54 @@ export function VideoPlayer({
             triggerControlsActivity();
           }
           break;
+        case "s":
+          e.preventDefault();
+          captureFrame();
+          break;
+        case "[":
+          e.preventDefault();
+          if (v) {
+            const cur = v.currentTime;
+            setAbLoop((prev) => {
+              triggerFlashAction(`已设A点: ${formatTime(cur)}`, "🅰️");
+              return { a: cur, b: prev.b && prev.b > cur ? prev.b : null };
+            });
+            triggerControlsActivity();
+          }
+          break;
+        case "]":
+          e.preventDefault();
+          if (v) {
+            const cur = v.currentTime;
+            setAbLoop((prev) => {
+              if (prev.a !== null && cur > prev.a) {
+                triggerFlashAction(`已开启 A-B 循环 (${formatTime(prev.a)} - ${formatTime(cur)})`, "🔁");
+                return { a: prev.a, b: cur };
+              }
+              triggerFlashAction(`已设A点: ${formatTime(cur)}`, "🅰️");
+              return { a: cur, b: null };
+            });
+            triggerControlsActivity();
+          }
+          break;
+        case "\\":
+          e.preventDefault();
+          setAbLoop({ a: null, b: null });
+          triggerFlashAction("已清除 A-B 循环", "⚪");
+          triggerControlsActivity();
+          break;
+        case ",":
+          e.preventDefault();
+          stepFrame(-0.04);
+          break;
+        case ".":
+          e.preventDefault();
+          stepFrame(0.04);
+          break;
+        case "b":
+          e.preventDefault();
+          toggleAudioBoost();
+          break;
         default:
           if (e.key >= "0" && e.key <= "9" && !e.ctrlKey && !e.metaKey && !e.altKey) {
             e.preventDefault();
@@ -948,7 +1122,19 @@ export function VideoPlayer({
 
     container.addEventListener("keydown", handleKeyDown);
     return () => container.removeEventListener("keydown", handleKeyDown);
-  }, [togglePlay, toggleMute, toggleFullscreen, volume, hasSubtitles, triggerControlsActivity]);
+  }, [
+    togglePlay,
+    toggleMute,
+    toggleFullscreen,
+    volume,
+    hasSubtitles,
+    triggerControlsActivity,
+    captureFrame,
+    stepFrame,
+    toggleAudioBoost,
+    triggerFlashAction,
+    isFullscreen,
+  ]);
 
 
   return (
@@ -1008,6 +1194,15 @@ export function VideoPlayer({
               <FiFolder className="w-3.5 h-3.5" />
             </button>
           )}
+          <button
+            type="button"
+            onClick={captureFrame}
+            title="截取当前原画帧并复制到剪贴板 (快捷键 S)"
+            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
+          >
+            <FiCamera className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-[11px]">截图</span>
+          </button>
           <button
             type="button"
             onClick={handleCopyLink}
@@ -1101,6 +1296,9 @@ export function VideoPlayer({
           onTimeUpdate={() => {
             const v = videoRef.current;
             if (!v) return;
+            if (abLoop.a !== null && abLoop.b !== null && v.currentTime >= abLoop.b) {
+              v.currentTime = abLoop.a;
+            }
             setCurrentTime(v.currentTime);
             const now = Date.now();
             if (now - lastSavePosTimeRef.current > 2000) {
@@ -1177,6 +1375,11 @@ export function VideoPlayer({
             />
           )}
         </video>
+
+        {/* Shutter Flash Animation for Frame Capture */}
+        {isCapturing && (
+          <div className="absolute inset-0 bg-white/75 pointer-events-none z-35 animate-out fade-out duration-300" />
+        )}
 
         {/* Breakpoint Resume Notice Banner */}
         {resumeNotice && (
@@ -1350,20 +1553,28 @@ export function VideoPlayer({
           onMouseMove={handleProgressMouseMove}
           onMouseLeave={handleProgressMouseLeave}
         >
-          {/* Hover Time Bubble */}
+          {/* Hover Time Bubble with Canvas Preview */}
           {hoverInfo && duration > 0 && (
             <div
               className="absolute bottom-full mb-2 z-30 pointer-events-none -translate-x-1/2 flex flex-col items-center transition-all duration-75"
               style={{ left: hoverInfo.x }}
             >
-              <div className="px-2 py-0.5 rounded-md bg-black/90 border border-white/25 text-white text-[11px] font-mono shadow-2xl backdrop-blur-md whitespace-nowrap">
-                {formatTime(hoverInfo.time)}
+              <div className="p-1 rounded-lg bg-black/95 border border-white/25 shadow-2xl backdrop-blur-md flex flex-col items-center">
+                <canvas
+                  ref={previewCanvasRef}
+                  width={128}
+                  height={72}
+                  className="rounded bg-black/60 object-cover w-32 h-[72px] mb-1"
+                />
+                <span className="text-[11px] font-mono text-white/90 whitespace-nowrap px-1">
+                  {formatTime(hoverInfo.time)}
+                </span>
               </div>
-              <div className="w-1.5 h-1.5 bg-black/90 rotate-45 border-r border-b border-white/25 -mt-1" />
+              <div className="w-1.5 h-1.5 bg-black/95 rotate-45 border-r border-b border-white/25 -mt-1" />
             </div>
           )}
 
-          {/* Dual Layer Track: Background + Network Buffered + Current Played */}
+          {/* Dual Layer Track: Background + Network Buffered + Current Played + A-B Loop */}
           <div className="absolute inset-x-0 h-1.5 group-hover/progress:h-2 rounded-full bg-white/15 overflow-hidden transition-all pointer-events-none">
             {/* Network Buffered Track (浅白指示网络流已缓冲段) */}
             <div
@@ -1376,7 +1587,32 @@ export function VideoPlayer({
               className="absolute left-0 top-0 bottom-0 bg-[var(--aurora-accent)] rounded-full transition-all"
               style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
             />
+            {/* A-B Loop Highlight Range */}
+            {duration > 0 && abLoop.a !== null && (
+              <div
+                className="absolute top-0 bottom-0 bg-amber-400/50 rounded-xs transition-all"
+                style={{
+                  left: `${(abLoop.a / duration) * 100}%`,
+                  width: `${(Math.max(0, (abLoop.b ?? currentTime) - abLoop.a) / duration) * 100}%`,
+                }}
+              />
+            )}
           </div>
+          {/* A & B Markers */}
+          {duration > 0 && abLoop.a !== null && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3 bg-amber-400 rounded-xs pointer-events-none z-15 shadow-sm"
+              style={{ left: `${(abLoop.a / duration) * 100}%` }}
+              title={`A点: ${formatTime(abLoop.a)}`}
+            />
+          )}
+          {duration > 0 && abLoop.b !== null && (
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-1.5 h-3 bg-amber-400 rounded-xs pointer-events-none z-15 shadow-sm"
+              style={{ left: `${(abLoop.b / duration) * 100}%` }}
+              title={`B点: ${formatTime(abLoop.b)}`}
+            />
+          )}
           <input
             type="range"
             min={0}
@@ -1390,23 +1626,43 @@ export function VideoPlayer({
 
         {/* Buttons Row */}
         <div className="flex items-center justify-between text-white/90">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={togglePlay}
               className="p-1.5 rounded-lg text-white hover:text-[var(--aurora-accent)] hover:bg-white/10 transition-colors"
-              title={isPlaying ? "暂停" : "播放"}
+              title={isPlaying ? "暂停 (空格/K)" : "播放 (空格/K)"}
             >
               {isPlaying ? <FiPause className="w-4 h-4" /> : <FiPlay className="w-4 h-4" />}
             </button>
 
-            {/* Volume Control */}
+            {/* Frame Stepping */}
+            <div className="hidden sm:flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => stepFrame(-0.04)}
+                className="px-1.5 py-0.5 rounded text-[11px] font-mono text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                title="后退一帧 (快捷键 ,)"
+              >
+                -1帧
+              </button>
+              <button
+                type="button"
+                onClick={() => stepFrame(0.04)}
+                className="px-1.5 py-0.5 rounded text-[11px] font-mono text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+                title="前进一帧 (快捷键 .)"
+              >
+                +1帧
+              </button>
+            </div>
+
+            {/* Volume Control & Audio Boost */}
             <div className="flex items-center gap-1.5 group/vol">
               <button
                 type="button"
                 onClick={toggleMute}
                 className="p-1 rounded text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-                title={isMuted ? "取消静音" : "静音"}
+                title={isMuted ? "取消静音 (M)" : "静音 (M)"}
               >
                 {isMuted || volume === 0 ? <FiVolumeX className="w-4 h-4" /> : <FiVolume2 className="w-4 h-4" />}
               </button>
@@ -1419,6 +1675,18 @@ export function VideoPlayer({
                 onChange={handleVolumeChange}
                 className="w-14 h-1 rounded-lg appearance-none bg-white/30 accent-[var(--aurora-accent)] cursor-pointer"
               />
+              <button
+                type="button"
+                onClick={toggleAudioBoost}
+                title={audioBoost ? "关闭 200% 人声音量增强 (快捷键 B)" : "开启 200% 音量与人声清晰度增强 (快捷键 B)"}
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-tight transition-all ${
+                  audioBoost
+                    ? "bg-amber-400 text-black shadow-xs ring-1 ring-amber-300"
+                    : "text-white/50 hover:text-white/90 hover:bg-white/10"
+                }`}
+              >
+                {audioBoost ? "200%" : "BOOST"}
+              </button>
             </div>
 
             {/* Time Stamp */}
@@ -1535,6 +1803,31 @@ export function VideoPlayer({
               className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
             >
               <span className="text-[11px] font-mono border border-white/30 px-1 py-0.5 rounded">PiP</span>
+            </button>
+
+            {/* A-B Loop Button */}
+            <button
+              type="button"
+              onClick={toggleAbPoint}
+              title={
+                abLoop.a === null
+                  ? "设定 A 点 (快捷键 [)"
+                  : abLoop.b === null
+                  ? `已设A点 ${formatTime(abLoop.a)}，点击设B点 (快捷键 ])`
+                  : `正在 A-B 循环 (${formatTime(abLoop.a)} - ${formatTime(abLoop.b)})，点击清除 (快捷键 \\)`
+              }
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                abLoop.a !== null
+                  ? "text-amber-400 bg-amber-400/20 font-semibold"
+                  : "text-white/80 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <FiRepeat className="w-3.5 h-3.5" />
+              {abLoop.a !== null && (
+                <span className="text-[10px] font-mono">
+                  {abLoop.b !== null ? "A-B" : "A-"}
+                </span>
+              )}
             </button>
 
             {/* Aspect Ratio Fill Mode */}

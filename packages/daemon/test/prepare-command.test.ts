@@ -57,6 +57,26 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node
       args: ["/d", "/c", "call", "C:\\Program Files\\Some Vendor\\custom_tool.bat", "--flag", "value with spaces"],
     });
   });
+
+  it("wraps a .mjs or .js file directly with node on Windows", async () => {
+    const res = await prepareCommand("C:\\Users\\admin\\.workbuddy\\bin\\workbuddy_cli.mjs", ["-p", "hello"], {
+      isWindows: true,
+    });
+    expect(res).toEqual({
+      executable: "node",
+      args: ["C:\\Users\\admin\\.workbuddy\\bin\\workbuddy_cli.mjs", "-p", "hello"],
+    });
+  });
+
+  it("wraps a .py file directly with python on Windows", async () => {
+    const res = await prepareCommand("C:\\Users\\admin\\.gemini\\antigravity\\bin\\agy_cli.py", ["-p", "task"], {
+      isWindows: true,
+    });
+    expect(res).toEqual({
+      executable: "python",
+      args: ["C:\\Users\\admin\\.gemini\\antigravity\\bin\\agy_cli.py", "-p", "task"],
+    });
+  });
 });
 
 it("reads the API keys agents need from shell rc files", () => {

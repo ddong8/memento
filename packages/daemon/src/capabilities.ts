@@ -546,7 +546,7 @@ export async function probeCapabilities(home = homeDir(), options?: { force?: bo
   if (isWorkbuddyInstalled(home)) {
     await ensureWorkbuddyCliInstalled(home);
   }
-  const wb = await findExecutable(["workbuddy", "workbuddy_cli.mjs", "codebuddy"]);
+  const wb = await findExecutable(["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"]);
   if (wb && isWorkbuddyInstalled(home)) {
     caps.workbuddy = await workbuddyCapabilities(wb, home);
   }

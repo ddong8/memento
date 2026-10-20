@@ -144,12 +144,23 @@ export async function findExecutable(names: string[], env?: NodeJS.ProcessEnv): 
   const exts = isWin ? [".exe", ".cmd", ".bat", ".ps1", ""] : [""];
   const sep = isWin ? "\\" : "/";
   for (const name of names) {
-    for (const ext of exts) {
-      const target = name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
-      for (const dir of dirs) {
+    for (const dir of dirs) {
+      for (const ext of exts) {
+        const target = name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
         const file = `${dir}${sep}${target}`;
         try {
-          if (statSync(file).isFile()) return file;
+          if (statSync(file).isFile()) {
+            // Guard: WorkBuddy.exe is Tencent's Electron desktop GUI app, not a task CLI runner.
+            const lowerFile = file.toLowerCase();
+            if (
+              target.toLowerCase() === "workbuddy.exe" ||
+              lowerFile.endsWith("\\workbuddy.exe") ||
+              lowerFile.endsWith("/workbuddy.exe")
+            ) {
+              continue;
+            }
+            return file;
+          }
         } catch {
           // not here
         }
@@ -182,6 +193,12 @@ export async function prepareCommand(
   const isWindows = options.isWindows ?? process.platform === "win32";
   if (!isWindows) return { executable: exe, args };
   const lower = exe.toLowerCase();
+  if (lower.endsWith(".mjs") || lower.endsWith(".js")) {
+    return { executable: "node", args: [exe, ...args] };
+  }
+  if (lower.endsWith(".py")) {
+    return { executable: "python", args: [exe, ...args] };
+  }
   if (!lower.endsWith(".cmd") && !lower.endsWith(".bat")) return { executable: exe, args };
 
   const exists = options.exists ?? existsSync;

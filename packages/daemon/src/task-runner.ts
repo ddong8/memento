@@ -606,10 +606,11 @@ export class TaskRunner {
       const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
       if (isAntigravity) await ensureAgyCliInstalled();
       if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
-      const candidates = [binary];
-      if (binary === "agy") candidates.push("agy_cli.py", "agentapi");
-      else if (binary === "antigravity") candidates.push("agy", "agy_cli.py", "agentapi");
-      else if (binary === "workbuddy") candidates.push("workbuddy_cli.mjs", "codebuddy");
+      let candidates: string[] = [];
+      if (binary === "agy") candidates = ["agy", "agy_cli.py", "agentapi"];
+      else if (binary === "antigravity") candidates = ["agy", "agy_cli.py", "agentapi"];
+      else if (binary === "workbuddy") candidates = ["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"];
+      else candidates = [binary];
       const resolved = await findExecutable(candidates);
       if (!resolved) {
         let tip = "";
@@ -661,8 +662,8 @@ export class TaskRunner {
         args = codexArgs({ workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
         parser = new CodexStreamParser();
       } else if (isWorkbuddy) {
-        const isMjsRunner = exe.endsWith("workbuddy_cli.mjs");
-        if (isMjsRunner) {
+        const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
+        if (!isNativeCodebuddy) {
           args = [
             ...(sessionId ? ["--resume", sessionId] : []),
             ...(model ? ["--model", model] : []),
@@ -778,8 +779,8 @@ export class TaskRunner {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ workDir, effort, model, prompt }), parser });
         } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
-          const isMjsRunner = exe.endsWith("workbuddy_cli.mjs");
-          if (isMjsRunner) {
+          const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
+          if (!isNativeCodebuddy) {
             parser = new UniversalStreamParser();
             exitCode = await run({
               args: [

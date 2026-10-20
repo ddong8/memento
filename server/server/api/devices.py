@@ -457,9 +457,53 @@ _active_prefetch_tasks: dict[str, asyncio.Task] = {}
 _known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
 _initial_chunk_cache: dict[str, tuple[bytes, float]] = {}  # cache_key -> (initial_bytes, timestamp)
 _negative_stat_cache: dict[str, float] = {}  # f"{dev_token}:{clean_path}" -> timestamp
+_file_stat_cache: dict[str, tuple[int, str, float]] = {}  # clean_path -> (total_size, real_dev_token, timestamp)
+_FILE_STAT_CACHE_TTL = 600.0  # 10 minutes cache for file stat and owner device
 _MAX_INITIAL_CHUNKS = 50  # Max 50 chunks (approx 25 MB max in memory)
 _INITIAL_CHUNK_TTL_SECONDS = 300  # 5 minutes TTL
 _MAX_DISK_CACHE_BYTES = int(os.environ.get("MEMENTO_MEDIA_CACHE_MAX_BYTES", 5 * 1024 * 1024 * 1024))  # 5 GB default quota
+
+
+async def _get_cached_stat(path: str) -> tuple[int, str] | None:
+    """Retrieve positive file existence & size metadata from memory or cluster Redis."""
+    now = time.time()
+    if path in _file_stat_cache:
+        size, token, ts = _file_stat_cache[path]
+        if now - ts < _FILE_STAT_CACHE_TTL:
+            return size, token
+    r = cluster.redis
+    if r is not None:
+        try:
+            val = await r.get(f"{PREFIX}fstat:{hashlib.sha256(path.encode()).hexdigest()}")
+            if val:
+                d = json.loads(val)
+                size = int(d.get("size") or 0)
+                token = str(d.get("token") or "")
+                if size > 0 and token:
+                    _file_stat_cache[path] = (size, token, now)
+                    return size, token
+        except Exception:
+            pass
+    return None
+
+
+async def _set_cached_stat(path: str, size: int, token: str) -> None:
+    """Cache positive file existence & size metadata across all API replicas."""
+    now = time.time()
+    _file_stat_cache[path] = (size, token, now)
+    if len(_file_stat_cache) > 2000:
+        for k in [k for k, (_, _, ts) in list(_file_stat_cache.items()) if now - ts > _FILE_STAT_CACHE_TTL]:
+            _file_stat_cache.pop(k, None)
+    r = cluster.redis
+    if r is not None and size > 0 and token:
+        try:
+            await r.set(
+                f"{PREFIX}fstat:{hashlib.sha256(path.encode()).hexdigest()}",
+                json.dumps({"size": size, "token": token}),
+                ex=int(_FILE_STAT_CACHE_TTL),
+            )
+        except Exception:
+            pass
 
 
 def _set_initial_chunk(key: str, data: bytes) -> None:
@@ -724,60 +768,73 @@ async def stream_device_file(
         if total_size <= 0:
             total_size = os.path.getsize(clean_path)
     else:
-        neg_key = f"{dev_token}:{raw_clean_path}"
-        if neg_key in _negative_stat_cache and (time.time() - _negative_stat_cache[neg_key] < 60.0):
-            raise HTTPException(status_code=404, detail=f"File not found on device (cached 404): {raw_clean_path}")
+        # Fast path 1: Check positive stat cache across all replicas (avoids WebSocket RTT & timeouts on follow-up Ranges)
+        cached_stat = await _get_cached_stat(raw_clean_path)
+        if cached_stat:
+            cached_size, cached_dev_token = cached_stat
+            if cached_size > 0:
+                total_size = cached_size
+                if device_id == "auto" or not target_machine:
+                    dev_token = cached_dev_token
 
-        stat = await ws_manager.request_file_stat(dev_token, clean_path)
-        err_msg = str(stat.get("error") or "")
-        is_missing = "not found" in err_msg.lower() or "enoent" in err_msg.lower()
+        # Fast path 2: Check 404 negative cache if not already found
+        if total_size <= 0:
+            neg_key = f"{dev_token}:{raw_clean_path}"
+            if neg_key in _negative_stat_cache and (time.time() - _negative_stat_cache[neg_key] < 60.0):
+                raise HTTPException(status_code=404, detail=f"File not found on device (cached 404): {raw_clean_path}")
 
-        # If the device affirmatively returned ENOENT/not found, cache 404 and fail fast without alias retries
-        if not stat.get("exists") and is_missing:
-            _negative_stat_cache[neg_key] = time.time()
-            if len(_negative_stat_cache) > 2000:
-                now = time.time()
-                for k in [k for k, ts in list(_negative_stat_cache.items()) if now - ts > 60.0]:
-                    _negative_stat_cache.pop(k, None)
-            raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
+            stat = await ws_manager.request_file_stat(dev_token, clean_path)
+            err_msg = str(stat.get("error") or "")
+            is_missing = "not found" in err_msg.lower() or "enoent" in err_msg.lower()
 
-        if not stat.get("exists") and device_id != dev_token:
-            stat = await ws_manager.request_file_stat(device_id, clean_path)
-        if not stat.get("exists") and target_machine and target_machine.name:
-            stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
+            # If the device affirmatively returned ENOENT/not found, cache 404 and fail fast without alias retries
+            if not stat.get("exists") and is_missing:
+                _negative_stat_cache[neg_key] = time.time()
+                if len(_negative_stat_cache) > 2000:
+                    now = time.time()
+                    for k in [k for k, ts in list(_negative_stat_cache.items()) if now - ts > 60.0]:
+                        _negative_stat_cache.pop(k, None)
+                raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
 
-        # If not found or if device_id was "auto", discover which of the user's online devices hosts this file
-        if not stat.get("exists") and (device_id == "auto" or not target_machine):
-            query = select(Machine)
-            if _user.role not in ("admin", "owner") and mids is not None:
-                query = query.where(Machine.id.in_(mids))
-            user_machines = (await db.execute(query)).scalars().all()
+            if not stat.get("exists") and device_id != dev_token:
+                stat = await ws_manager.request_file_stat(device_id, clean_path)
+            if not stat.get("exists") and target_machine and target_machine.name:
+                stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
 
-            candidates: list[str] = []
-            for m in user_machines:
-                if m.collector_token_hash and m.collector_token_hash not in candidates:
-                    candidates.append(m.collector_token_hash)
-                if m.name and m.name not in candidates:
-                    candidates.append(m.name)
-            if _user.role in ("admin", "owner"):
-                for conn_id in ws_manager.connected_ids():
-                    if conn_id not in candidates:
-                        candidates.append(conn_id)
+            # If not found or if device_id was "auto", discover which of the user's online devices hosts this file
+            if not stat.get("exists") and (device_id == "auto" or not target_machine):
+                query = select(Machine)
+                if _user.role not in ("admin", "owner") and mids is not None:
+                    query = query.where(Machine.id.in_(mids))
+                user_machines = (await db.execute(query)).scalars().all()
 
-            for cand_token in candidates:
-                if ws_manager.has_device(cand_token) and cand_token != dev_token:
-                    cand_stat = await ws_manager.request_file_stat(cand_token, clean_path, timeout=3.5)
-                    if cand_stat.get("exists"):
-                        stat = cand_stat
-                        dev_token = cand_token
-                        break
+                candidates: list[str] = []
+                for m in user_machines:
+                    if m.collector_token_hash and m.collector_token_hash not in candidates:
+                        candidates.append(m.collector_token_hash)
+                    if m.name and m.name not in candidates:
+                        candidates.append(m.name)
+                if _user.role in ("admin", "owner"):
+                    for conn_id in ws_manager.connected_ids():
+                        if conn_id not in candidates:
+                            candidates.append(conn_id)
 
-        if not stat.get("exists"):
-            err_msg = stat.get("error") or "offline"
-            if err_msg == "offline":
-                raise HTTPException(status_code=404, detail=f"Target device is offline or disconnected from WebSocket: {device_id}")
-            raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
-        total_size = stat.get("size") or stat.get("total_size") or 0
+                for cand_token in candidates:
+                    if ws_manager.has_device(cand_token) and cand_token != dev_token:
+                        cand_stat = await ws_manager.request_file_stat(cand_token, clean_path, timeout=5.0)
+                        if cand_stat.get("exists"):
+                            stat = cand_stat
+                            dev_token = cand_token
+                            break
+
+            if not stat.get("exists"):
+                err_msg = stat.get("error") or "offline"
+                if err_msg == "offline":
+                    raise HTTPException(status_code=404, detail=f"Target device is offline or disconnected from WebSocket: {device_id}")
+                raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
+            total_size = stat.get("size") or stat.get("total_size") or 0
+            if total_size > 0 and dev_token:
+                await _set_cached_stat(raw_clean_path, total_size, dev_token)
 
         # Check if complete local cache exists for this clean_path and total_size
         if total_size > 0:
@@ -873,10 +930,13 @@ async def stream_device_file(
                     if not data:
                         break
                     curr += len(data)
-                    yield data
+                    try:
+                        yield data
+                    except (asyncio.CancelledError, Exception):
+                        break
         else:
-            # Remote streaming with adaptive chunking (512KB first chunk for instant TTFB, 2MB subsequent)
-            # and pipelined prefetch to eliminate RTT idle waiting
+            # Remote streaming with 512KB chunks for smooth playback and zero channel starvation
+            chunk_size = 512 * 1024
             next_task = None
 
             async def _fetch(offset: int, length: int) -> bytes | None:
@@ -888,12 +948,14 @@ async def stream_device_file(
                 return c
 
             # iOS AVPlayer probe fast-path (Range: bytes=0-1):
-            # Fetch 512KB to memory cache so the immediate follow-up Range request starts with 0ms latency
             if curr == 0 and end <= 1:
-                probe_chunk = await _fetch(0, min(512 * 1024, total_size))
+                probe_chunk = await _fetch(0, min(chunk_size, total_size))
                 if probe_chunk:
                     _set_initial_chunk(cache_key, probe_chunk)
-                    yield probe_chunk[:end + 1]
+                    try:
+                        yield probe_chunk[:end + 1]
+                    except (asyncio.CancelledError, Exception):
+                        pass
                     return
 
             # Check in-memory initial chunk cache for instant first-frame playback
@@ -901,24 +963,30 @@ async def stream_device_file(
             if init_chunk and curr == 0:
                 avail = min(len(init_chunk), end - curr + 1)
                 if avail > 0:
-                    yield init_chunk[:avail]
+                    try:
+                        yield init_chunk[:avail]
+                    except (asyncio.CancelledError, Exception):
+                        return
                     curr += avail
                     if curr > end:
                         return
-                    next_chunk_size = 2 * 1024 * 1024
-                    next_read_len = min(next_chunk_size, end - curr + 1)
+                    next_read_len = min(chunk_size, end - curr + 1)
                     next_task = asyncio.create_task(_fetch(curr, next_read_len))
 
             while curr <= end:
-                # 512 KB first chunk so browser decodes header/metadata in under 50ms, then 2 MB high throughput
-                current_chunk_size = (512 * 1024) if curr == start else (2 * 1024 * 1024)
-                read_len = min(current_chunk_size, end - curr + 1)
+                read_len = min(chunk_size, end - curr + 1)
 
                 if next_task is not None:
-                    chunk = await next_task
+                    try:
+                        chunk = await next_task
+                    except (asyncio.CancelledError, Exception):
+                        chunk = None
                     next_task = None
                 else:
-                    chunk = await _fetch(curr, read_len)
+                    try:
+                        chunk = await _fetch(curr, read_len)
+                    except (asyncio.CancelledError, Exception):
+                        chunk = None
 
                 if not chunk:
                     break
@@ -927,11 +995,15 @@ async def stream_device_file(
 
                 # Pipeline next chunk request concurrently while streaming current chunk to client
                 if curr <= end:
-                    next_chunk_size = 2 * 1024 * 1024
-                    next_read_len = min(next_chunk_size, end - curr + 1)
+                    next_read_len = min(chunk_size, end - curr + 1)
                     next_task = asyncio.create_task(_fetch(curr, next_read_len))
 
-                yield chunk
+                try:
+                    yield chunk
+                except (asyncio.CancelledError, Exception):
+                    if next_task and not next_task.done():
+                        next_task.cancel()
+                    break
 
     return StreamingResponse(chunk_generator(), status_code=status_code, headers=headers)
 

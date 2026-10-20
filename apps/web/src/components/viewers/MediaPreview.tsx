@@ -33,6 +33,7 @@ import {
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
+import { directConnect, DirectProbeResult, DirectConnectConfig } from "@/lib/direct-connect";
 import { useMediaInspector } from "./MediaInspectorContext";
 
 export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "subtitle" | "unknown";
@@ -189,9 +190,10 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
     const apiBase = getApiBase();
     const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
+    const finalStreamUrl = directConnect.rewriteStreamUrl(streamUrl);
     return {
-      playUrl: streamUrl,
-      downloadUrl: streamUrl,
+      playUrl: finalStreamUrl,
+      downloadUrl: finalStreamUrl,
       localPath: clean,
       filename,
       isLocal: true,
@@ -572,7 +574,22 @@ export function VideoPlayer({
     return src;
   }, [src, quality]);
 
+  const [directProbe, setDirectProbe] = useState<DirectProbeResult>(() => directConnect.getStatus());
+  const [directCfg, setDirectCfg] = useState<DirectConnectConfig>(() => directConnect.getConfig());
+
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(activeSrc));
+  useEffect(() => {
+    setDirectCfg(directConnect.getConfig());
+    const unsub = directConnect.subscribe((res) => {
+      setDirectProbe(res);
+      setResolved(resolveMediaUrl(activeSrc));
+    });
+    if (directConnect.getConfig().enabled && directConnect.getStatus().state === "untested") {
+      directConnect.probe();
+    }
+    return unsub;
+  }, [activeSrc]);
+
   useEffect(() => {
     setResolved(resolveMediaUrl(activeSrc));
     setHasError(false);
@@ -1243,6 +1260,53 @@ export function VideoPlayer({
           >
             <FiExternalLink className="w-3.5 h-3.5" />
           </button>
+          {/* IPv6 Direct Connect Indicator */}
+          {directCfg.enabled && directCfg.directHost && (
+            <button
+              type="button"
+              onClick={() => {
+                directConnect.probe(undefined, 2500).then((res) => {
+                  if (res.state === "connected") {
+                    showInAppToast("IPv6 直连畅通", `往返延迟 RTT: ${res.rttMs}ms，流媒体已走高速通道`);
+                  } else {
+                    showInAppToast("直连探测未通", res.error || "已自动安全回退至云端中继");
+                  }
+                });
+              }}
+              title={
+                directProbe.state === "connected"
+                  ? `当前已建立 IPv6 高速直连 (往返延迟 ${directProbe.rttMs}ms)，点击重新测速`
+                  : directProbe.state === "probing"
+                  ? "正在对 IPv6 直连通道进行探活测速..."
+                  : `直连通道未通 (${directProbe.error || "无法连通"})，已自动降级回退至云端中继，点击重试`
+              }
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all ${
+                directProbe.state === "connected"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30"
+                  : directProbe.state === "probing"
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse"
+                  : "bg-white/10 text-white/50 border border-white/10 hover:text-white/80"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  directProbe.state === "connected"
+                    ? "bg-emerald-400 animate-pulse"
+                    : directProbe.state === "probing"
+                    ? "bg-amber-400"
+                    : "bg-white/40"
+                }`}
+              />
+              <span className="text-[11px] font-mono">
+                {directProbe.state === "connected"
+                  ? `IPv6 ${directProbe.rttMs}ms`
+                  : directProbe.state === "probing"
+                  ? "探测中"
+                  : "中继"}
+              </span>
+            </button>
+          )}
+
           <a
             href={finalDownloadUrl}
             download={downloadFilename}

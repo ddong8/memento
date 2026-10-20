@@ -46,4 +46,23 @@ print("TRANSIENT_OK")
     const out = execFileSync("python3", ["-c", script, assetsDir], { encoding: "utf8" });
     expect(out.trim()).toBe("TRANSIENT_OK");
   });
+
+  it("keeps a live run going however long the model takes, with an honest status line", () => {
+    const script = `
+import sys
+sys.path.insert(0, sys.argv[1])
+from agy_cli import thinking_heartbeat
+
+assert thinking_heartbeat(25, []) == "⏳ [模型思考推理中（已用时 25s），请稍候...]"
+assert "远端模型可能在排队重试" in thinking_heartbeat(625, [])
+line = thinking_heartbeat(130, ["zsh -c npm run build && npm test"])
+assert line == "⏳ [命令执行中（已用时 130s）：npm run build && npm test]", line
+src = open(sys.argv[1] + "/agy_cli.py", encoding="utf-8").read()
+assert "模型思考超过 600s" not in src  # no more cutting off a live run for thinking long
+print("HEARTBEAT_OK")
+`;
+    const assetsDir = join(agyCliPath, "..");
+    const out = execFileSync("python3", ["-c", script, assetsDir], { encoding: "utf8" });
+    expect(out.trim()).toBe("HEARTBEAT_OK");
+  });
 });

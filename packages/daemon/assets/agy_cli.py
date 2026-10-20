@@ -141,6 +141,44 @@ def _is_antigravity_ls_alive():
         return False
 
 
+def ls_running_commands() -> list:
+    """Commands Antigravity is running right now: its language server's child
+    processes (a run_command shows up as `zsh -c <command>`). Empty where this
+    can't be told (no pgrep, e.g. Windows)."""
+    try:
+        pids = subprocess.run(
+            ["pgrep", "-f", "[Aa]ntigravity.*language_server"], capture_output=True, text=True, timeout=2
+        ).stdout.split()
+        cmds = []
+        for pid in pids:
+            for child in subprocess.run(
+                ["pgrep", "-P", pid], capture_output=True, text=True, timeout=2
+            ).stdout.split():
+                cmd = subprocess.run(
+                    ["ps", "-o", "command=", "-p", child], capture_output=True, text=True, timeout=2
+                ).stdout.strip()
+                if cmd:
+                    cmds.append(cmd)
+        return cmds
+    except Exception:
+        return []
+
+
+def thinking_heartbeat(elapsed_sec: int, running_cmds: list) -> str:
+    """Status line while the transcript is quiet and no tool call is known to be in flight."""
+    if running_cmds:
+        shown = running_cmds[0]
+        for prefix in ("/bin/zsh -c ", "zsh -c ", "/bin/bash -c ", "bash -c ", "sh -c "):
+            if shown.startswith(prefix):
+                shown = shown[len(prefix):]
+                break
+        return f"⏳ [命令执行中（已用时 {elapsed_sec}s）：{shown[:60]}]"
+    if elapsed_sec >= 600:
+        return (f"⏳ [模型仍在生成（已用时 {elapsed_sec}s），远端模型可能在排队重试；"
+                f"任务仍在进行，可随时停止]")
+    return f"⏳ [模型思考推理中（已用时 {elapsed_sec}s），请稍候...]"
+
+
 def get_model_candidates(requested_model: str) -> list:
     """Return ordered list of Antigravity model tiers (flash, pro, flash_lite) to attempt."""
     m = (requested_model or "").lower().strip()
@@ -427,7 +465,7 @@ def main():
                         sys.stderr.flush()
                     else:
                         el_sec = int(idle_count * 0.2)
-                        sys.stderr.write(f"\n\n⏳ [模型思考推理中（已用时 {el_sec}s），请稍候...]\n\n")
+                        sys.stderr.write(f"\n\n{thinking_heartbeat(el_sec, ls_running_commands())}\n\n")
                         sys.stderr.flush()
 
                 # 静默超过 20 秒后，每 10 秒探测 Antigravity 语言服务器存活状态
@@ -472,11 +510,10 @@ def main():
                         break
                     continue
 
-                # 4. 处于纯模型推理/无在途动作状态：放宽至 600s（10分钟）空闲超时
-                if idle_count > 3000:  # 600s (10 minutes)
-                    sys.stderr.write("\n[Agent timeout: 模型思考超过 600s 无响应]\n")
-                    sys.stderr.flush()
-                    sys.exit(124)
+                # 4. 纯模型生成、日志无新行：不按空闲时长结束。Antigravity 遇到 503 等容量问题会
+                #    静默重试，一步生成可能持续十几分钟、甚至一次容量故障持续 40 分钟，但它自己不会
+                #    放弃；在这里结束只会让 memento 报失败、而 Antigravity 在后台照常把活干完。
+                #    语言服务器断开（上面的存活探测）和任务总超时（args.timeout）仍然生效。
                 continue
 
             idle_count = 0

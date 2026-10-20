@@ -269,16 +269,11 @@ export function VideoPlayer({
         }
       }
 
-      // Auto-probing heuristics based on video path
-      const baseName = src.replace(/\.[a-zA-Z0-9]+$/, "");
-      candidates.push(`${baseName}_字幕.srt`);
-      candidates.push(`${baseName}.srt`);
-      candidates.push(`${baseName}.vtt`);
-      const strippedSuffix = baseName.replace(/_[^_/]+$/, "");
-      if (strippedSuffix !== baseName) {
-        candidates.push(`${strippedSuffix}_字幕.srt`);
-        candidates.push(`${strippedSuffix}.srt`);
-        candidates.push(`${strippedSuffix}.vtt`);
+      // Only auto-probe companion subtitle files if explicitly configured or if dealing with a clean local file path
+      if (candidates.length === 0 && isLocalFilePath(src)) {
+        const cleanPath = safeDecodePath(src).replace(/^file:\/\//, "");
+        const baseName = cleanPath.replace(/\.[a-zA-Z0-9]+$/, "");
+        candidates.push(`${baseName}_字幕.srt`, `${baseName}.vtt`, `${baseName}.srt`);
       }
 
       for (const cand of candidates) {
@@ -324,25 +319,20 @@ export function VideoPlayer({
 
   const [autoPoster, setAutoPoster] = useState<string | null>(null);
 
-  // Auto-discover companion cover poster (e.g. 封面.jpg or [baseName].jpg)
+  // Auto-discover companion cover poster (only for local files on desktop to avoid remote probing storms)
   useEffect(() => {
     if (poster) return;
+    const d = desktop();
+    // Only probe local companion files in desktop client with native filesystem access
+    if (!d || !isLocalFilePath(src)) return;
+
     let canceled = false;
 
     const probePoster = async () => {
       const candidates: string[] = [];
-      const baseName = src.replace(/\.[a-zA-Z0-9]+$/, "");
-      candidates.push(`${baseName}.jpg`);
-      candidates.push(`${baseName}_cover.jpg`);
-      candidates.push(`${baseName}_封面.jpg`);
-
-      const lastSlash = src.lastIndexOf("/");
-      if (lastSlash > 0) {
-        const dir = src.slice(0, lastSlash);
-        candidates.push(`${dir}/封面.jpg`);
-        candidates.push(`${dir}/cover.jpg`);
-        candidates.push(`${dir}/成片检查.jpg`);
-      }
+      const cleanPath = safeDecodePath(src).replace(/^file:\/\//, "");
+      const baseName = cleanPath.replace(/\.[a-zA-Z0-9]+$/, "");
+      candidates.push(`${baseName}.jpg`, `${baseName}_cover.jpg`, `${baseName}_封面.jpg`);
 
       for (const cand of candidates) {
         if (canceled) break;

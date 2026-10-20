@@ -456,6 +456,7 @@ async def ack_command(
 _active_prefetch_tasks: dict[str, asyncio.Task] = {}
 _known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
 _initial_chunk_cache: dict[str, tuple[bytes, float]] = {}  # cache_key -> (initial_bytes, timestamp)
+_negative_stat_cache: dict[str, float] = {}  # f"{dev_token}:{clean_path}" -> timestamp
 _MAX_INITIAL_CHUNKS = 50  # Max 50 chunks (approx 25 MB max in memory)
 _INITIAL_CHUNK_TTL_SECONDS = 300  # 5 minutes TTL
 _MAX_DISK_CACHE_BYTES = int(os.environ.get("MEMENTO_MEDIA_CACHE_MAX_BYTES", 5 * 1024 * 1024 * 1024))  # 5 GB default quota
@@ -566,6 +567,8 @@ async def _background_prefetch_media(
     """Asynchronously prefetch remote media file in 2MB chunks to local disk cache."""
     part_path = f"{cached_path}.part"
     try:
+        # Delay background prefetch by 3.5s to let the user's initial video Range stream start smoothly without contention
+        await asyncio.sleep(3.5)
         if os.path.exists(cached_path) and os.path.getsize(cached_path) == total_size:
             return
 
@@ -721,14 +724,30 @@ async def stream_device_file(
         if total_size <= 0:
             total_size = os.path.getsize(clean_path)
     else:
+        neg_key = f"{dev_token}:{raw_clean_path}"
+        if neg_key in _negative_stat_cache and (time.time() - _negative_stat_cache[neg_key] < 60.0):
+            raise HTTPException(status_code=404, detail=f"File not found on device (cached 404): {raw_clean_path}")
+
         stat = await ws_manager.request_file_stat(dev_token, clean_path)
+        err_msg = str(stat.get("error") or "")
+        is_missing = "not found" in err_msg.lower() or "enoent" in err_msg.lower()
+
+        # If the device affirmatively returned ENOENT/not found, cache 404 and fail fast without alias retries
+        if not stat.get("exists") and is_missing:
+            _negative_stat_cache[neg_key] = time.time()
+            if len(_negative_stat_cache) > 2000:
+                now = time.time()
+                for k in [k for k, ts in list(_negative_stat_cache.items()) if now - ts > 60.0]:
+                    _negative_stat_cache.pop(k, None)
+            raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
+
         if not stat.get("exists") and device_id != dev_token:
             stat = await ws_manager.request_file_stat(device_id, clean_path)
         if not stat.get("exists") and target_machine and target_machine.name:
             stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
 
         # If not found or if device_id was "auto", discover which of the user's online devices hosts this file
-        if not stat.get("exists"):
+        if not stat.get("exists") and (device_id == "auto" or not target_machine):
             query = select(Machine)
             if _user.role not in ("admin", "owner") and mids is not None:
                 query = query.where(Machine.id.in_(mids))

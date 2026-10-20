@@ -56,7 +56,7 @@ jobs:
         run: |
           echo "Waiting for CI on commit $SHA to complete successfully..."
           for i in $(seq 1 40); do
-            status_json=$(gh run list --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
+            status_json=$(gh run list --repo "${{ github.repository }}" --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
             if [ -n "$status_json" ]; then
               s=$(echo "$status_json" | jq -r .status)
               c=$(echo "$status_json" | jq -r .conclusion)

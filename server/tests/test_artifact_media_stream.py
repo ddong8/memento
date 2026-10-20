@@ -141,6 +141,59 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cond_resp.status_code, 304)
             self.assertEqual(cond_resp.headers["ETag"], etag)
 
+    def test_initial_chunk_cache_bounds_and_ttl(self):
+        """Verify _initial_chunk_cache enforces capacity and TTL."""
+        import time
+        from server.api.devices import (
+            _initial_chunk_cache,
+            _set_initial_chunk,
+            _get_initial_chunk,
+            _MAX_INITIAL_CHUNKS,
+        )
+
+        _initial_chunk_cache.clear()
+        # 1. Fill past capacity
+        for i in range(_MAX_INITIAL_CHUNKS + 10):
+            _set_initial_chunk(f"key_{i}", f"data_{i}".encode())
+
+        self.assertLessEqual(len(_initial_chunk_cache), _MAX_INITIAL_CHUNKS)
+        # Oldest keys should have been evicted
+        self.assertIsNone(_get_initial_chunk("key_0"))
+        self.assertEqual(_get_initial_chunk(f"key_{_MAX_INITIAL_CHUNKS + 9}"), f"data_{_MAX_INITIAL_CHUNKS + 9}".encode())
+
+        # 2. TTL expiration
+        _initial_chunk_cache["expired_key"] = (b"stale_bytes", time.time() - 400)
+        self.assertIsNone(_get_initial_chunk("expired_key"))
+
+    def test_disk_cache_quota_eviction(self):
+        """Verify _evict_disk_cache_if_needed evicts oldest files down to quota watermark."""
+        import os
+        import tempfile
+        import time
+        from server.api.devices import _evict_disk_cache_if_needed
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create 3 files: 100KB each
+            f1 = os.path.join(tmpdir, "video1.mp4")
+            f2 = os.path.join(tmpdir, "video2.mp4")
+            f3 = os.path.join(tmpdir, "video3.mp4")
+
+            with open(f1, "wb") as f: f.write(b"a" * 102400)
+            os.utime(f1, (time.time() - 300, time.time() - 300))
+
+            with open(f2, "wb") as f: f.write(b"b" * 102400)
+            os.utime(f2, (time.time() - 200, time.time() - 200))
+
+            with open(f3, "wb") as f: f.write(b"c" * 102400)
+            os.utime(f3, (time.time() - 100, time.time() - 100))
+
+            # Total = ~300KB. Limit = 200KB. Target watermark = 150KB.
+            _evict_disk_cache_if_needed(tmpdir, max_bytes=200 * 1024)
+
+            # Oldest f1 should be evicted first
+            self.assertFalse(os.path.exists(f1))
+            self.assertTrue(os.path.exists(f3))
+
 
 if __name__ == '__main__':
     unittest.main()

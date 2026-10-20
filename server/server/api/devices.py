@@ -456,6 +456,87 @@ async def ack_command(
 _active_prefetch_tasks: dict[str, asyncio.Task] = {}
 _known_cache_map: dict[str, tuple[int, str]] = {}  # clean_path -> (total_size, cached_file_path)
 _initial_chunk_cache: dict[str, tuple[bytes, float]] = {}  # cache_key -> (initial_bytes, timestamp)
+_MAX_INITIAL_CHUNKS = 50  # Max 50 chunks (approx 25 MB max in memory)
+_INITIAL_CHUNK_TTL_SECONDS = 300  # 5 minutes TTL
+_MAX_DISK_CACHE_BYTES = int(os.environ.get("MEMENTO_MEDIA_CACHE_MAX_BYTES", 5 * 1024 * 1024 * 1024))  # 5 GB default quota
+
+
+def _set_initial_chunk(key: str, data: bytes) -> None:
+    """Store initial media chunk with LRU eviction and memory bounds."""
+    now = time.time()
+    # Purge expired entries
+    expired = [k for k, (_, ts) in _initial_chunk_cache.items() if now - ts > _INITIAL_CHUNK_TTL_SECONDS]
+    for k in expired:
+        _initial_chunk_cache.pop(k, None)
+    # Evict oldest entry if size limit reached
+    if len(_initial_chunk_cache) >= _MAX_INITIAL_CHUNKS:
+        oldest_k = min(_initial_chunk_cache.keys(), key=lambda k: _initial_chunk_cache[k][1])
+        _initial_chunk_cache.pop(oldest_k, None)
+    _initial_chunk_cache[key] = (data, now)
+
+
+def _get_initial_chunk(key: str) -> bytes | None:
+    """Retrieve cached initial media chunk if not expired."""
+    entry = _initial_chunk_cache.get(key)
+    if not entry:
+        return None
+    data, ts = entry
+    if time.time() - ts > _INITIAL_CHUNK_TTL_SECONDS:
+        _initial_chunk_cache.pop(key, None)
+        return None
+    return data
+
+
+def _evict_disk_cache_if_needed(cache_dir: str, max_bytes: int = _MAX_DISK_CACHE_BYTES) -> None:
+    """Evict oldest cached media files when cache directory exceeds quota."""
+    try:
+        if not os.path.isdir(cache_dir):
+            return
+        files: list[tuple[str, int, float]] = []
+        total_bytes = 0
+        now = time.time()
+
+        for entry in os.scandir(cache_dir):
+            if not entry.is_file():
+                continue
+            # Also clean up stale partial downloads older than 2 hours
+            if entry.name.endswith(".part"):
+                try:
+                    if now - entry.stat().st_mtime > 7200:
+                        os.remove(entry.path)
+                except Exception:
+                    pass
+                continue
+
+            try:
+                st = entry.stat()
+                files.append((entry.path, st.st_size, st.st_mtime))
+                total_bytes += st.st_size
+            except Exception:
+                continue
+
+        if total_bytes <= max_bytes:
+            return
+
+        # Target 75% of limit after cleanup
+        target_bytes = int(max_bytes * 0.75)
+        # Sort by mtime ascending (oldest first)
+        files.sort(key=lambda x: x[2])
+
+        for path, size, _ in files:
+            try:
+                os.remove(path)
+                total_bytes -= size
+                for k, v in list(_known_cache_map.items()):
+                    if v[1] == path:
+                        _known_cache_map.pop(k, None)
+            except Exception:
+                pass
+            if total_bytes <= target_bytes:
+                break
+        logger.info("Evicted media cache in %s: now %d bytes (target <= %d)", cache_dir, total_bytes, target_bytes)
+    except Exception as e:
+        logger.warning("Error evicting disk media cache in %s: %s", cache_dir, e)
 
 
 def _get_media_cache_dir() -> str:
@@ -518,6 +599,7 @@ async def _background_prefetch_media(
             os.replace(part_path, cached_path)
             logger.info("Successfully cached media file %s (%d bytes) at %s", clean_path, total_size, cached_path)
             _known_cache_map[clean_path] = (total_size, cached_path)
+            _evict_disk_cache_if_needed(os.path.dirname(cached_path))
     except Exception as e:
         logger.warning("Failed background prefetch for %s: %s", clean_path, e)
     finally:
@@ -791,14 +873,13 @@ async def stream_device_file(
             if curr == 0 and end <= 1:
                 probe_chunk = await _fetch(0, min(512 * 1024, total_size))
                 if probe_chunk:
-                    _initial_chunk_cache[cache_key] = (probe_chunk, time.time())
+                    _set_initial_chunk(cache_key, probe_chunk)
                     yield probe_chunk[:end + 1]
                     return
 
             # Check in-memory initial chunk cache for instant first-frame playback
-            cached_init = _initial_chunk_cache.get(cache_key)
-            if cached_init and time.time() - cached_init[1] < 180 and curr == 0:
-                init_chunk = cached_init[0]
+            init_chunk = _get_initial_chunk(cache_key)
+            if init_chunk and curr == 0:
                 avail = min(len(init_chunk), end - curr + 1)
                 if avail > 0:
                     yield init_chunk[:avail]

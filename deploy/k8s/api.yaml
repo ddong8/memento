@@ -46,6 +46,13 @@ spec:
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "2", memory: 4Gi }
+          volumeMounts:
+            - name: media-cache
+              mountPath: /data2
+      volumes:
+        - name: media-cache
+          emptyDir:
+            sizeLimit: 10Gi
 ---
 apiVersion: v1
 kind: Service

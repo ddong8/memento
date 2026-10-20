@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.db.models import KnowledgeEntity, User, UserMemory, UserProfile
@@ -485,5 +486,62 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
             self.assertIn("发版 tag 必须等于 package.json 的 version", res["markdown"])
             self.assertIn("跨会话强化铁律", res["markdown"])
             self.assertIn("回复中不要用 ** 这类 Markdown 加粗符号", res["markdown"])
+
+    async def test_live_correction_extraction_and_safe_escalation(self):
+        """Verify queries/questions are excluded from live rules, and only explicit directives are learned."""
+        from server.services.mind_resonance_service import (
+            extract_live_correction_rules,
+            save_session_live_rules,
+            get_session_live_rules,
+            get_user_durable_corrections,
+        )
+
+        # 1. Questions must NOT be extracted
+        self.assertEqual(extract_live_correction_rules("这个页面为什么不能滚动？"), [])
+        self.assertEqual(extract_live_correction_rules("是不是必须先登录才能用？"), [])
+        self.assertEqual(extract_live_correction_rules("打包时提示不能找到模块，怎么处理"), [])
+        self.assertEqual(extract_live_correction_rules("为什么不要用这个方案呢？"), [])
+
+        # 2. Explicit behavioral instructions MUST be extracted
+        r1 = extract_live_correction_rules("以后不要用 ** 这类加粗符号")
+        self.assertIn("以后不要用 ** 这类加粗符号", r1)
+
+        r2 = extract_live_correction_rules("回答时统一用中文，交付前必须先自测")
+        self.assertIn("回答时统一用中文", r2)
+        self.assertIn("交付前必须先自测", r2)
+
+        r3 = extract_live_correction_rules("切记不要回滚代码")
+        self.assertIn("切记不要回滚代码", r3)
+
+        # 3. Test Redis-first sync and escalation logic
+        uid = uuid.uuid4()
+        conv_id = "test-conv-123"
+
+        redis_store: dict[str, Any] = {}
+        async def fake_get(k): return redis_store.get(k)
+        async def fake_set(k, v, ttl_seconds=None): redis_store[k] = v
+
+        with patch("server.services.cache.cache_get", side_effect=fake_get), \
+             patch("server.services.cache.cache_set", side_effect=fake_set):
+
+            # Session rule with explicit cross-session keyword ("切记不要回滚") escalates to durable
+            saved = await save_session_live_rules(uid, conv_id, ["切记不要回滚"])
+            self.assertIn("切记不要回滚", saved)
+
+            durable = await get_user_durable_corrections(uid)
+            self.assertIn("切记不要回滚", durable)
+
+            # Normal rule without explicit keyword ("回答时统一用中文") only stays in session on first occurrence
+            await save_session_live_rules(uid, conv_id, ["回答时统一用中文"])
+            sess = await get_session_live_rules(uid, conv_id)
+            self.assertIn("回答时统一用中文", sess)
+            durable2 = await get_user_durable_corrections(uid)
+            self.assertNotIn("回答时统一用中文", durable2)
+
+            # Once repeated across turns/sessions, it escalates
+            await save_session_live_rules(uid, "test-conv-456", ["回答时统一用中文"])
+            durable3 = await get_user_durable_corrections(uid)
+            self.assertIn("回答时统一用中文", durable3)
+
 
 

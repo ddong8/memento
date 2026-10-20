@@ -339,7 +339,7 @@ async def ask(
             save_session_live_rules,
         )
         new_live = extract_live_correction_rules(question)
-        conv_key = str(conv.id) if conv else (body.conversation_id or "default")
+        conv_key = str(conv_id) if conv_id else (body.conversation_id or "default")
         if new_live:
             await save_session_live_rules(_user.id, conv_key, new_live)
         live_rules = await get_session_live_rules(_user.id, conv_key)
@@ -426,6 +426,7 @@ async def ask(
                 if saved:
                     return
                 saved = True
+                duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
                 from ..services.mind_resonance_service import clean_guardrail_output
                 clean_reply = clean_guardrail_output("".join(accumulated_text))
                 await append_conversation_turns(
@@ -529,6 +530,7 @@ async def ask(
             if saved:
                 return
             saved = True
+            duration_ms_final = int((time.monotonic() - req_start_mono) * 1000)
             assistant_created_at_final = datetime.now(timezone.utc).isoformat()
             from ..services.mind_resonance_service import clean_guardrail_output
             clean_reply = clean_guardrail_output("".join(accumulated_text))

@@ -408,35 +408,86 @@ def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | 
 
 
 # Live Correction Patterns for In-Flight Learning
-_CORRECTION_PATTERNS = [
-    re.compile(r"(?:以后|严禁|杜绝|不要|不能|必须|统一|记住|切记)(?:在|用|加|使用|包含|反问|回滚|删除)?\s*([^\n。，；]{3,50})"),
-    re.compile(r"(?:不要|不能|严禁)\s*([^\n。，；]{2,30})"),
-    re.compile(r"(?:必须|统一|只能)\s*([^\n。，；]{2,30})"),
-]
+# Exclude interrogative/question clauses and only capture explicit behavioral directives
+_QUESTION_PARTICLES = (
+    "?", "？", "为什么", "怎么", "如何", "是不是", "能不能", "要不要", "有没有",
+    "行不行", "好不好", "能否", "可否", "请问", "吗", "呢", "吧", "为何",
+)
+
+_DIRECTIVE_PREFIXES = (
+    "以后", "今后", "后续", "下次", "切记", "记住", "务必", "千万", "所有对话", "每次",
+)
+
+_ACTION_DIRECTIVE_PREFIXES = (
+    "回答时", "回复时", "写代码时", "交付前", "交付时", "输出时", "排查时", "回答", "回复", "回复中", "回答中",
+    "发版", "发布", "部署", "提交", "改动", "重跑", "测试",
+)
 
 _session_live_rules_mem: dict[str, list[str]] = {}
+_user_durable_corrections_mem: dict[str, list[str]] = {}
 
 
 def extract_live_correction_rules(text: str) -> list[str]:
-    """Extract explicit developer/user behavioral corrections and negative constraints from prompt."""
+    """Extract explicit developer/user behavioral corrections and negative constraints from prompt.
+
+    Strictly ignores questions, bug descriptions, and inquiries (e.g. '为什么不能滚动', '是不是必须先登录').
+    Only extracts clear, directive instructions targeted at AI behavior.
+    """
     if not text:
         return []
     rules: list[str] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or len(line) < 4:
+    # Split text by newlines, punctuation, and clause delimiters
+    raw_clauses = re.split(r"[\n。；;！!，,]", text)
+    for clause in raw_clauses:
+        clause = clause.strip(" ，,、\t\r")
+        if not clause or len(clause) < 4 or len(clause) > 60:
             continue
-        for pat in _CORRECTION_PATTERNS:
-            for m in pat.finditer(line):
-                matched = m.group(0).strip("，。；、 ")
-                if any(k in matched for k in ("不要忘了", "能不能", "要不要", "是不是")):
-                    continue
-                if len(matched) >= 4 and matched not in rules:
-                    rules.append(matched)
+        # 1. Skip if it is any form of question or inquiry
+        if any(q in clause for q in _QUESTION_PARTICLES):
+            continue
+        # 2. Skip problem/error descriptions
+        if any(err in clause for err in ("报错", "异常", "失败原因", "为什么", "提示", "堆栈")):
+            continue
+
+        matched_rule: str | None = None
+
+        # Pattern 1: Explicit directive prefix (e.g. "以后不要用 **", "切记不要回滚", "记住必须用中文")
+        if any(clause.startswith(p) for p in _DIRECTIVE_PREFIXES):
+            if any(k in clause for k in ("不要", "别", "严禁", "杜绝", "必须", "统一", "只能", "只用")):
+                matched_rule = clause
+
+        # Pattern 2: Action-scoped directive (e.g. "回答时不要反问", "交付前必须先自测", "发版必须确认所有 pod 状态")
+        elif any(clause.startswith(p) for p in _ACTION_DIRECTIVE_PREFIXES):
+            if any(k in clause for k in ("不要", "别", "严禁", "杜绝", "必须", "统一", "只能")):
+                matched_rule = clause
+
+        # Pattern 3: Standalone direct imperative command without question context
+        elif re.search(r"(?:不要|别|严禁|杜绝)\s*(?:在|用|加|使用|包含|反问|回滚|删除|臆测|编造|截断|乱动)", clause):
+            matched_rule = clause
+        elif re.search(r"(?:必须|统一)\s*(?:用|在|按照|保持|使用|确认|检查|自测|先|打|记录)", clause):
+            matched_rule = clause
+
+        if matched_rule:
+            clean = matched_rule.strip(" ，,、*#- ")
+            if len(clean) >= 4 and clean not in rules:
+                rules.append(clean)
+
     return rules[:4]
 
 
-_user_durable_corrections_mem: dict[str, list[str]] = {}
+async def _increment_rule_frequency(user_id: Any, rule: str) -> int:
+    """Track how often a correction rule is repeated across conversations."""
+    import hashlib
+    rule_hash = hashlib.md5(rule.strip().encode()).hexdigest()[:12]
+    cache_key = f"rule_freq:{user_id}:{rule_hash}"
+    try:
+        from .cache import cache_get, cache_set
+        val = await cache_get(cache_key)
+        count = (int(val) if val is not None else 0) + 1
+        await cache_set(cache_key, count, ttl_seconds=86400 * 7)
+        return count
+    except Exception:
+        return 1
 
 
 async def save_user_durable_correction(user_id: Any, rule: str, weight: float = 1.0) -> list[str]:
@@ -450,20 +501,18 @@ async def save_user_durable_correction(user_id: Any, rule: str, weight: float = 
     if clean_r not in combined:
         combined.append(clean_r)
     combined = combined[-20:]
-    _user_durable_corrections_mem[cache_key] = combined
     try:
         from .cache import cache_set
         await cache_set(cache_key, combined, ttl_seconds=86400 * 7)
     except Exception as e:
         logger.debug("Failed to set redis user_durable_corrections: %s", e)
+    _user_durable_corrections_mem[cache_key] = combined
     return combined
 
 
 async def get_user_durable_corrections(user_id: Any) -> list[str]:
-    """Retrieve user-level reinforced correction rules."""
+    """Retrieve user-level reinforced correction rules from Redis first for multi-replica consistency."""
     cache_key = f"user_durable_corrections:{user_id}"
-    if cache_key in _user_durable_corrections_mem:
-        return _user_durable_corrections_mem[cache_key]
     try:
         from .cache import cache_get
         cached = await cache_get(cache_key)
@@ -472,11 +521,11 @@ async def get_user_durable_corrections(user_id: Any) -> list[str]:
             return _user_durable_corrections_mem[cache_key]
     except Exception as e:
         logger.debug("Failed to get redis user_durable_corrections: %s", e)
-    return []
+    return _user_durable_corrections_mem.get(cache_key, [])
 
 
 async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules: list[str]) -> list[str]:
-    """Save newly learned session live rules to cache and durable store."""
+    """Save newly learned session live rules to cache, escalating to durable rules only when repeated."""
     if not conversation_id or not new_rules:
         return []
     cache_key = f"session_live_rules:{user_id}:{conversation_id}"
@@ -485,25 +534,31 @@ async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules:
     for r in new_rules:
         if r not in combined:
             combined.append(r)
-        # Simultaneously reinforce across the user's durable mindset
-        await save_user_durable_correction(user_id, r)
+        # Escalation condition: explicit durable keywords ("以后", "今后", "记住", "切记", "所有对话")
+        # OR repeated at least 2 times across turns/sessions
+        is_explicit_durable = any(k in r for k in ("以后", "今后", "记住", "切记", "所有对话", "永久"))
+        if is_explicit_durable:
+            await save_user_durable_correction(user_id, r)
+        else:
+            freq = await _increment_rule_frequency(user_id, r)
+            if freq >= 2:
+                await save_user_durable_correction(user_id, r)
+
     combined = combined[-10:]
-    _session_live_rules_mem[cache_key] = combined
     try:
         from .cache import cache_set
         await cache_set(cache_key, combined, ttl_seconds=7200)
     except Exception as e:
         logger.debug("Failed to set redis session_live_rules: %s", e)
+    _session_live_rules_mem[cache_key] = combined
     return combined
 
 
 async def get_session_live_rules(user_id: Any, conversation_id: str) -> list[str]:
-    """Retrieve session live rules."""
+    """Retrieve session live rules, checking Redis first for multi-replica consistency."""
     if not conversation_id:
         return []
     cache_key = f"session_live_rules:{user_id}:{conversation_id}"
-    if cache_key in _session_live_rules_mem:
-        return _session_live_rules_mem[cache_key]
     try:
         from .cache import cache_get
         cached = await cache_get(cache_key)
@@ -512,7 +567,7 @@ async def get_session_live_rules(user_id: Any, conversation_id: str) -> list[str
             return _session_live_rules_mem[cache_key]
     except Exception as e:
         logger.debug("Failed to get redis session_live_rules: %s", e)
-    return []
+    return _session_live_rules_mem.get(cache_key, [])
 
 
 def expand_query_for_search(query: str, target_project: str | None = None) -> str:

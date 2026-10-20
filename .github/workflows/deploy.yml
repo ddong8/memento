@@ -37,14 +37,53 @@ concurrency:
 permissions:
   contents: write   # 回写镜像 tag 到 deploy/k8s
   packages: write   # 推送镜像到 GHCR
+  actions: read    # 查询 CI 状态
 
 env:
   REGISTRY: ghcr.io
   OWNER: ddong8
 
 jobs:
+  wait-ci:
+    name: wait for CI
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI workflow on this commit to pass
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "Waiting for CI on commit $SHA to complete successfully..."
+          for i in $(seq 1 40); do
+            status_json=$(gh run list --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
+            if [ -n "$status_json" ]; then
+              s=$(echo "$status_json" | jq -r .status)
+              c=$(echo "$status_json" | jq -r .conclusion)
+              echo "CI status: $s, conclusion: $c ($i/40)"
+              if [ "$s" = "completed" ]; then
+                if [ "$c" = "success" ]; then
+                  echo "CI passed!"
+                  exit 0
+                else
+                  echo "::error::CI failed with conclusion: $c. Aborting deployment."
+                  exit 1
+                fi
+              fi
+            else
+              echo "CI not found yet, waiting... ($i/40)"
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out waiting for CI to complete (10 minutes)."
+          exit 1
+
   build:
     name: build · ${{ matrix.target.name }}
+    needs: [wait-ci]
+    if: |
+      always() &&
+      (needs.wait-ci.result == 'success' || needs.wait-ci.result == 'skipped')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

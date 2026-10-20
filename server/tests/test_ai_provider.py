@@ -66,13 +66,13 @@ class AIProviderTests(unittest.TestCase):
     def test_background_model_goes_first_for_background_jobs(self) -> None:
         with patch.dict(os.environ, {
             "MEMENTO_AI_API_KEY": "primary-key",
-            "MEMENTO_AI_MODEL": "glm-5.2",
+            "MEMENTO_AI_MODEL": "glm-5.3",
             "MEMENTO_AI_BACKGROUND_MODEL": "deepseek-v4.1-flash",
         }, clear=True):
             background = get_ai_providers(background=True)
-            self.assertEqual([p.model for p in background][:3], ["deepseek-v4.1-flash", "glm-5.2", "qwen3.8-27b"])
+            self.assertEqual([p.model for p in background][:3], ["deepseek-v4.1-flash", "glm-5.3", "qwen3.8-27b"])
             self.assertEqual(background[0].api_key, "primary-key")
-            self.assertEqual(get_ai_providers()[0].model, "glm-5.2")  # interactive calls unchanged
+            self.assertEqual(get_ai_providers()[0].model, "glm-5.3")  # interactive calls unchanged
 
     def test_custom_providers_json(self) -> None:
         extra_json = json.dumps([

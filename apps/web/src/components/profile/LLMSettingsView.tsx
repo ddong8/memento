@@ -403,7 +403,7 @@ export function LLMSettingsView() {
                 type="text"
                 value={primaryModel}
                 onChange={(e) => setPrimaryModel(e.target.value)}
-                placeholder="例如 deepseek-chat 或 glm-5.2"
+                placeholder="例如 deepseek-chat 或 glm-5.3"
                 className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border focus:outline-none transition-all font-mono"
                 style={{
                   background: "var(--aurora-bg)",

@@ -40,7 +40,7 @@ class AggregateTests(unittest.TestCase):
                 "calls:background:failed": "1",
                 "model:primary_background|deepseek-v4.1-flash:ok": "3",
                 "model:primary_background|deepseek-v4.1-flash:ms": "3000",
-                "model:primary|glm-5.2:fail": "2",
+                "model:primary|glm-5.3:fail": "2",
                 "reason:reasoning_exhausted": "2",
             }),
             (h2, {"calls:stream:fallback": "2", "model:oneapi_fallback|qwen3.8-27b:ok": "2", "reason:timeout": "1"}),
@@ -49,7 +49,7 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(data["by_kind"]["background"], {"ok": 3, "fallback": 0, "failed": 1})
         first = data["models"][0]
         self.assertEqual((first["model"], first["ok"], first["avg_latency_ms"]), ("deepseek-v4.1-flash", 3, 1000))
-        glm = next(m for m in data["models"] if m["model"] == "glm-5.2")
+        glm = next(m for m in data["models"] if m["model"] == "glm-5.3")
         self.assertEqual((glm["ok"], glm["failed"], glm["avg_latency_ms"]), (0, 2, None))
         self.assertEqual(data["reasons"][0]["label"], "思考耗尽额度")
         self.assertEqual([h["failed"] for h in data["hourly"]], [1, 0])

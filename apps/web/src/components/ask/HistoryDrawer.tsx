@@ -1,0 +1,813 @@
+"use client";
+
+import React, { memo, useCallback, useMemo, useState } from "react";
+import { Icon } from "@/components/aurora/Icon";
+import { Btn } from "@/components/aurora/primitives";
+import type { AskConversationSummary, DeviceSummary } from "@/lib/api-client";
+
+interface HistoryDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  conversations: AskConversationSummary[];
+  activeConversationId: string | null;
+  selectedDevice: string;
+  devices: DeviceSummary[];
+  onSelectConversation: (id: string) => void;
+  onStartNewChat: () => void;
+  onDeleteConversation: (e: React.MouseEvent, id: string) => void;
+  onRenameConversation: (id: string, newTitle: string) => void;
+  onTogglePinConversation: (e: React.MouseEvent, id: string, pinned?: boolean) => void;
+  onOpenSingleShare: (id: string, title?: string) => void;
+  onOpenBatchShare: (selectedIds: string[]) => void;
+  onPrefetchTurns?: (id: string) => void;
+  onFilterDeviceChange?: (filterCurrent: boolean) => void;
+  isZh: boolean;
+  t: any;
+}
+
+const ConversationItem = memo(function ConversationItem({
+  conversation: c,
+  isActive,
+  isBatchMode,
+  isSelected,
+  onSelect,
+  onToggleBatch,
+  onPrefetch,
+  onTogglePin,
+  onShare,
+  onRename,
+  onDelete,
+  isZh,
+  t,
+}: {
+  conversation: AskConversationSummary;
+  isActive: boolean;
+  isBatchMode: boolean;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  onToggleBatch: (id: string) => void;
+  onPrefetch?: (id: string) => void;
+  onTogglePin: (e: React.MouseEvent, id: string, pinned?: boolean) => void;
+  onShare: (id: string, title?: string) => void;
+  onRename: (id: string, newTitle: string) => void;
+  onDelete: (e: React.MouseEvent, id: string) => void;
+  isZh: boolean;
+  t: any;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(c.title || "");
+
+  const dateStr = useMemo(() => {
+    if (!c.updated_at) return "";
+    try {
+      return new Date(c.updated_at).toLocaleString(undefined, {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  }, [c.updated_at]);
+
+  const handleSaveRename = () => {
+    if (editTitle.trim()) {
+      onRename(c.id, editTitle.trim());
+    }
+    setEditing(false);
+  };
+
+  return (
+    <div
+      onFocus={() => onPrefetch?.(c.id)}
+      onClick={() => {
+        if (isBatchMode) {
+          onToggleBatch(c.id);
+        } else {
+          onSelect(c.id);
+        }
+      }}
+      style={{
+        padding: "11px 13px",
+        borderRadius: 10,
+        background: isSelected
+          ? "var(--aurora-accent-soft)"
+          : isActive
+          ? "var(--aurora-chip)"
+          : "transparent",
+        border: "1px solid",
+        borderColor: isSelected
+          ? "var(--aurora-accent)"
+          : isActive
+          ? "var(--aurora-accent)"
+          : "transparent",
+        cursor: "pointer",
+        transition: "all 0.15s ease",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+      }}
+      onMouseEnter={(e) => {
+        onPrefetch?.(c.id);
+        if (!isActive && !isSelected) {
+          e.currentTarget.style.background = "var(--aurora-chip)";
+          e.currentTarget.style.borderColor = "var(--aurora-border)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive && !isSelected) {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.borderColor = "transparent";
+        }
+      }}
+    >
+      {isBatchMode && (
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleBatch(c.id)}
+          style={{
+            width: 16,
+            height: 16,
+            accentColor: "var(--aurora-accent)",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        />
+      )}
+      {editing ? (
+        <div
+          style={{ flex: 1, display: "flex", alignItems: "center", gap: 6 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="text"
+            autoFocus
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSaveRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setEditing(false);
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: "4px 8px",
+              borderRadius: 6,
+              fontSize: 12.5,
+              border: "1px solid var(--aurora-accent)",
+              background: "var(--aurora-surface-solid)",
+              color: "var(--aurora-fg1)",
+              outline: "none",
+              minWidth: 0,
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleSaveRename}
+            title="保存"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--aurora-accent)",
+              cursor: "pointer",
+              padding: 4,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name="check" size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            title="取消"
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--aurora-fg4)",
+              cursor: "pointer",
+              padding: 4,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13.5,
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                lineHeight: 1.4,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {c.config?.pinned && (
+                <span
+                  title={isZh ? "已置顶会话" : "Pinned"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    color: "#f59e0b",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="pin" size={12} />
+                </span>
+              )}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {c.title || t.ask.title}
+              </span>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 11.5,
+                color: "var(--aurora-fg4)",
+                marginTop: 4,
+              }}
+            >
+              <span>{dateStr}</span>
+              {c.device_id && (
+                <>
+                  <span>·</span>
+                  <span
+                    style={{
+                      padding: "1px 5px",
+                      borderRadius: 4,
+                      background: "var(--aurora-chip)",
+                      fontSize: 10,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {c.device_id.slice(0, 8)}
+                  </span>
+                </>
+              )}
+              <span>·</span>
+              <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={(e) => onTogglePin(e, c.id, c.config?.pinned)}
+              title={c.config?.pinned ? (isZh ? "取消置顶" : "Unpin") : (isZh ? "置顶会话" : "Pin to top")}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: c.config?.pinned ? "#f59e0b" : "var(--aurora-fg4)",
+                cursor: "pointer",
+                padding: 6,
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: c.config?.pinned ? 1 : 0.6,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#f59e0b";
+                e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = c.config?.pinned ? "#f59e0b" : "var(--aurora-fg4)";
+                e.currentTarget.style.opacity = c.config?.pinned ? "1" : "0.6";
+              }}
+            >
+              <Icon name="pin" size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onShare(c.id, c.title);
+              }}
+              title={isZh ? "分享此会话" : "Share conversation"}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--aurora-fg4)",
+                cursor: "pointer",
+                padding: 6,
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: 0.6,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--aurora-accent)";
+                e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--aurora-fg4)";
+                e.currentTarget.style.opacity = "0.6";
+              }}
+            >
+              <Icon name="share" size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+                setEditTitle(c.title || "");
+              }}
+              title={isZh ? "重命名会话" : "Rename"}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--aurora-fg4)",
+                cursor: "pointer",
+                padding: 6,
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: 0.6,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--aurora-accent)";
+                e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--aurora-fg4)";
+                e.currentTarget.style.opacity = "0.6";
+              }}
+            >
+              <Icon name="edit" size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => onDelete(e, c.id)}
+              title={t.ask.deleteConfirm}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--aurora-fg4)",
+                cursor: "pointer",
+                padding: 6,
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: 0.6,
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "#ef4444";
+                e.currentTarget.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--aurora-fg4)";
+                e.currentTarget.style.opacity = "0.6";
+              }}
+            >
+              <Icon name="trash" size={14} />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+});
+
+export const HistoryDrawer = memo(function HistoryDrawer({
+  open,
+  onClose,
+  conversations,
+  activeConversationId,
+  selectedDevice,
+  devices,
+  onSelectConversation,
+  onStartNewChat,
+  onDeleteConversation,
+  onRenameConversation,
+  onTogglePinConversation,
+  onOpenSingleShare,
+  onOpenBatchShare,
+  onPrefetchTurns,
+  onFilterDeviceChange,
+  isZh,
+  t,
+}: HistoryDrawerProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterDevice, setFilterDevice] = useState(false);
+  const [batchSelectMode, setBatchSelectMode] = useState(false);
+  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+
+  const handleToggleBatch = useCallback((id: string) => {
+    setSelectedConvIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const filteredConversations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = !q
+      ? conversations
+      : conversations.filter((c) => {
+          const matchTitle = (c.title || "").toLowerCase().includes(q);
+          const matchDev = (c.device_id || "").toLowerCase().includes(q);
+          const matchId = c.id.toLowerCase().includes(q);
+          return matchTitle || matchDev || matchId;
+        });
+
+    return [...list].sort((a, b) => {
+      const aPinned = a.config?.pinned ? 1 : 0;
+      const bPinned = b.config?.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [conversations, searchQuery]);
+
+  if (!open) return null;
+
+  const currentDevName = devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 60,
+        display: "flex",
+        justifyContent: "flex-end",
+      }}
+    >
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(0, 0, 0, 0.45)",
+          backdropFilter: "blur(4px)",
+        }}
+      />
+
+      {/* Drawer content */}
+      <div
+        style={{
+          position: "relative",
+          width: "min(380px, 90vw)",
+          height: "100%",
+          background: "var(--aurora-surface-solid)",
+          borderLeft: "1px solid var(--aurora-border)",
+          boxShadow: "-8px 0 32px rgba(0, 0, 0, 0.16)",
+          display: "flex",
+          flexDirection: "column",
+          zIndex: 1,
+        }}
+      >
+        {/* Drawer Header */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--aurora-border)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Icon name="clock" size={18} style={{ color: "var(--aurora-accent)" }} />
+              <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                {t.ask.historyTitle}
+              </span>
+              {conversations.length > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    background: "var(--aurora-chip)",
+                    color: "var(--aurora-fg3)",
+                  }}
+                >
+                  {searchQuery ? `${filteredConversations.length}/${conversations.length}` : conversations.length}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !batchSelectMode;
+                  setBatchSelectMode(next);
+                  if (!next) setSelectedConvIds(new Set());
+                }}
+                title={batchSelectMode ? (isZh ? "退出多选" : "Exit selection") : (isZh ? "多选分享" : "Batch share")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 4,
+                  padding: "0 8px",
+                  height: 30,
+                  borderRadius: 8,
+                  background: batchSelectMode ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                  border: batchSelectMode ? "1px solid var(--aurora-accent)" : "1px solid var(--aurora-border)",
+                  color: batchSelectMode ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                <Icon name="share" size={13} />
+                <span>{batchSelectMode ? (isZh ? "退出" : "Cancel") : (isZh ? "多选" : "Select")}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onStartNewChat();
+                }}
+                title={t.ask.newChat}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border)",
+                  color: "var(--aurora-fg2)",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="plus" size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--aurora-fg3)",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          </div>
+
+          {selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDevice(false);
+                  onFilterDeviceChange?.(false);
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 14,
+                  fontSize: 11.5,
+                  fontWeight: !filterDevice ? 600 : 400,
+                  cursor: "pointer",
+                  border: "1px solid",
+                  borderColor: !filterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
+                  background: !filterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                  color: !filterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                }}
+              >
+                🌐 全部设备
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDevice(true);
+                  onFilterDeviceChange?.(true);
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 14,
+                  fontSize: 11.5,
+                  fontWeight: filterDevice ? 600 : 400,
+                  cursor: "pointer",
+                  border: "1px solid",
+                  borderColor: filterDevice ? "var(--aurora-accent)" : "var(--aurora-border)",
+                  background: filterDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                  color: filterDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)",
+                }}
+              >
+                🖥️ 当前设备 ({currentDevName})
+              </button>
+            </div>
+          )}
+
+          {/* 会话过滤搜索框 */}
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 10,
+                display: "flex",
+                alignItems: "center",
+                pointerEvents: "none",
+                color: "var(--aurora-fg4)",
+              }}
+            >
+              <Icon name="search" size={13} />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={isZh ? "搜索会话标题或设备 ID..." : "Search sessions or device..."}
+              style={{
+                width: "100%",
+                padding: "6px 28px 6px 30px",
+                borderRadius: 8,
+                fontSize: 12.5,
+                border: "1px solid var(--aurora-border)",
+                background: "var(--aurora-chip)",
+                color: "var(--aurora-fg1)",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 18,
+                  height: 18,
+                  borderRadius: "50%",
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--aurora-fg4)",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="close" size={12} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Drawer List */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          {filteredConversations.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "48px 20px",
+                color: "var(--aurora-fg4)",
+                fontSize: 13,
+              }}
+            >
+              {searchQuery ? (isZh ? "未找到匹配的会话" : "No matching sessions found") : t.ask.noHistory}
+            </div>
+          ) : (
+            filteredConversations.map((c) => (
+              <ConversationItem
+                key={c.id}
+                conversation={c}
+                isActive={c.id === activeConversationId}
+                isBatchMode={batchSelectMode}
+                isSelected={selectedConvIds.has(c.id)}
+                onSelect={(id) => {
+                  onClose();
+                  onSelectConversation(id);
+                }}
+                onToggleBatch={handleToggleBatch}
+                onPrefetch={onPrefetchTurns}
+                onTogglePin={onTogglePinConversation}
+                onShare={onOpenSingleShare}
+                onRename={onRenameConversation}
+                onDelete={onDeleteConversation}
+                isZh={isZh}
+                t={t}
+              />
+            ))
+          )}
+          {batchSelectMode && (
+            <div
+              style={{
+                position: "sticky",
+                bottom: 0,
+                margin: "12px -16px -16px -16px",
+                padding: "12px 16px",
+                background: "var(--aurora-surface-solid)",
+                borderTop: "1px solid var(--aurora-border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+                zIndex: 10,
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <div style={{ fontSize: 12, color: "var(--aurora-fg2)", fontWeight: 500 }}>
+                {isZh ? "已选择 " : "Selected "}
+                <span style={{ color: "var(--aurora-accent)", fontWeight: 700 }}>{selectedConvIds.size}</span>
+                {isZh ? " 个对话" : " sessions"}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedConvIds.size === filteredConversations.length) {
+                      setSelectedConvIds(new Set());
+                    } else {
+                      setSelectedConvIds(new Set(filteredConversations.map((c) => c.id)));
+                    }
+                  }}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 8,
+                    fontSize: 11.5,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    color: "var(--aurora-fg2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  {selectedConvIds.size === filteredConversations.length
+                    ? (isZh ? "取消全选" : "Deselect")
+                    : (isZh ? "全选" : "Select all")}
+                </button>
+                <Btn
+                  variant="primary"
+                  size="sm"
+                  icon="share"
+                  disabled={selectedConvIds.size === 0}
+                  onClick={() => onOpenBatchShare(Array.from(selectedConvIds))}
+                >
+                  {isZh ? "生成多对话分享链接 ↗" : "Batch Share ↗"}
+                </Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});

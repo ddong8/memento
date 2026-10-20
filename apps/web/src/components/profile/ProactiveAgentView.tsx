@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ProactiveSettings, type AgentMissionItem } from "@/lib/api-client";
 import { Glass, Btn, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
@@ -11,6 +11,7 @@ export function ProactiveAgentView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [testingBrief, setTestingBrief] = useState(false);
   const [testingReflection, setTestingReflection] = useState(false);
@@ -46,30 +47,49 @@ export function ProactiveAgentView() {
 
   useEffect(() => {
     loadData();
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
   }, []);
+
+  const persistSettings = async (newSettings: ProactiveSettings) => {
+    try {
+      setSaving(true);
+      await api.updateProactiveSettings(newSettings);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch {
+      console.error("Auto-sync proactive settings failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const scheduleAutoSave = (newSettings: ProactiveSettings) => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      persistSettings(newSettings);
+    }, 400);
+  };
 
   const handleToggle = (key: keyof ProactiveSettings) => {
     if (!settings) return;
-    setSettings({ ...settings, [key]: !settings[key] });
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    scheduleAutoSave(next);
   };
 
   const handleChange = (key: keyof ProactiveSettings, val: unknown) => {
     if (!settings) return;
-    setSettings({ ...settings, [key]: val });
+    const next = { ...settings, [key]: val };
+    setSettings(next);
+    scheduleAutoSave(next);
   };
 
   const handleSave = async () => {
     if (!settings) return;
-    try {
-      setSaving(true);
-      await api.updateProactiveSettings(settings);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
-    } catch {
-      alert("保存失败，请检查网络");
-    } finally {
-      setSaving(false);
-    }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    await persistSettings(settings);
   };
 
   const handleTestBrief = async () => {
@@ -200,6 +220,22 @@ export function ProactiveAgentView() {
           </div>
 
           <div className="flex items-center gap-3">
+            {saving ? (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 flex items-center gap-1.5 animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                实时同步中...
+              </span>
+            ) : saveSuccess ? (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                已实时同步
+              </span>
+            ) : (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg4)] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                零延迟保活
+              </span>
+            )}
             <button
               type="button"
               onClick={() => handleToggle("enabled")}
@@ -391,7 +427,7 @@ export function ProactiveAgentView() {
 
         <div className="mt-5 flex justify-end">
           <Btn variant="primary" onClick={handleSave} disabled={saving} className="text-xs">
-            {saving ? "保存中..." : saveSuccess ? "✓ 设置已更新" : "保存全天候策略"}
+            {saving ? "实时同步中..." : saveSuccess ? "✓ 设置已更新" : "立即手动保存"}
           </Btn>
         </div>
       </Glass>

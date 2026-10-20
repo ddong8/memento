@@ -70,7 +70,40 @@ export function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<vo
   });
 }
 
-export function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+export async function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+  // 1. 优先使用 OffscreenCanvas 与 createImageBitmap，GPU/后台线程异步解码与绘制，0ms 阻塞 UI 主线程
+  if (typeof window !== "undefined" && "createImageBitmap" in window && "OffscreenCanvas" in window) {
+    try {
+      const bitmap = await createImageBitmap(file);
+      let { width, height } = bitmap;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        bitmap.close();
+        const blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
+        return await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch {
+      // 降级回退到标准 Image + Canvas
+    }
+  }
+
+  // 2. 经典 DOM Canvas 兜底
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {

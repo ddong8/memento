@@ -97,14 +97,23 @@ async def hybrid_rank(
 
     q_lower = q.lower().strip()
 
+    # Detect exact deterministic tokens (CAS numbers, git commits, code file paths)
+    is_exact_token = bool(
+        re.search(r"\b\d{2,7}-\d{2}-\d\b", q)  # CAS registry number
+        or re.search(r"\b[0-9a-f]{7,40}\b", q)  # Git commit hash
+        or re.search(r"\b[\w-]+\.(?:py|tsx?|jsx?|rs|go|ya?ml|json|md)\b", q)  # code file paths
+    )
+    kw_weight = 1.6 if is_exact_token else 1.0
+    sem_weight = 0.7 if is_exact_token else 1.0
+
     def rrf(d) -> float:
         score = 0.0
         in_kw = d.id in kw_rank
         in_sem = d.id in sem_rank
         if in_kw:
-            score += 1.0 / (RRF_K + kw_rank[d.id] + 1)
+            score += kw_weight / (RRF_K + kw_rank[d.id] + 1)
         if in_sem:
-            score += 1.0 / (RRF_K + sem_rank[d.id] + 1)
+            score += sem_weight / (RRF_K + sem_rank[d.id] + 1)
         # Dual-hit synergy bonus: strongly preferred when both channels agree
         if in_kw and in_sem:
             score *= 1.3

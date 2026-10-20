@@ -84,6 +84,25 @@ class AskRequest(BaseModel):
     attachments: list[dict] | None = None
 
 
+@router.post("/warmup")
+async def warmup_ask(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Pre-warm HTTP connection pools and mind resonance caches for near-zero TTFT."""
+    from ..services.profile_service import get_published_profile
+    from ..services.mind_resonance_service import get_user_durable_corrections
+    try:
+        await asyncio.gather(
+            get_published_profile(db, user),
+            get_user_durable_corrections(user.id),
+            return_exceptions=True,
+        )
+    except Exception:
+        pass
+    return {"warmed": True, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
 @router.get("/runs")
 async def list_active_runs(
     recent: int = 0,

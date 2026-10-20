@@ -322,15 +322,17 @@ async def sense_resonance(
     terms = terms_for(action, project, q_text)
     scenario = detect_scenario(terms, f"{q_text} {project or ''} {action or ''}")
 
-    # Concurrently execute 3 dimensions: Profile rules, Graph entities (with 2-hop), Defensive pitfalls
+    # Concurrently execute dimensions: Profile rules, Graph entities (with 2-hop), Defensive pitfalls, and Durable corrections
     rules_task = _fetch_scoped_and_general_rules(db, user, terms, scenario, project)
     entities_task = _fetch_graph_entities(db, user, terms, limit_entities, target_project=project)
     pitfalls_task = _fetch_pitfalls(db, user, terms, limit_pitfalls)
+    durable_task = get_user_durable_corrections(user.id)
 
-    (scoped_rules, general_rules), entities_data, pitfalls_data = await asyncio.gather(
+    (scoped_rules, general_rules), entities_data, pitfalls_data, durable_corrections = await asyncio.gather(
         rules_task,
         entities_task,
         pitfalls_task,
+        durable_task,
     )
 
     return {
@@ -340,6 +342,7 @@ async def sense_resonance(
         "general_rules": general_rules,
         "entities": entities_data,
         "pitfalls": pitfalls_data,
+        "durable_corrections": durable_corrections,
     }
 
 
@@ -357,6 +360,13 @@ def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | 
         lines.append("\n【当前会话实时纠偏与行为守则（用户在本会话中特别强调，必须绝对遵守）】：")
         for lr in active_live[:5]:
             lines.append(f"- {lr.strip('- * ')}")
+
+    # Durable Learned Corrections across sessions
+    durable_rules = res.get("durable_corrections") or []
+    if durable_rules:
+        lines.append("\n【用户历史多轮强化纠偏铁律（已通过自进化沉淀，必须严格遵守）】：")
+        for dr in durable_rules[-5:]:
+            lines.append(f"- {dr.strip('- * ')}")
 
     # Scoped rules
     scoped = res.get("scoped_rules") or []
@@ -426,8 +436,47 @@ def extract_live_correction_rules(text: str) -> list[str]:
     return rules[:4]
 
 
+_user_durable_corrections_mem: dict[str, list[str]] = {}
+
+
+async def save_user_durable_correction(user_id: Any, rule: str, weight: float = 1.0) -> list[str]:
+    """Persist user-level reinforced correction rules across conversations."""
+    clean_r = rule.strip("- *# \t\n")
+    if len(clean_r) < 3:
+        return []
+    cache_key = f"user_durable_corrections:{user_id}"
+    existing = await get_user_durable_corrections(user_id)
+    combined = list(existing)
+    if clean_r not in combined:
+        combined.append(clean_r)
+    combined = combined[-20:]
+    _user_durable_corrections_mem[cache_key] = combined
+    try:
+        from .cache import cache_set
+        await cache_set(cache_key, combined, ttl_seconds=86400 * 7)
+    except Exception as e:
+        logger.debug("Failed to set redis user_durable_corrections: %s", e)
+    return combined
+
+
+async def get_user_durable_corrections(user_id: Any) -> list[str]:
+    """Retrieve user-level reinforced correction rules."""
+    cache_key = f"user_durable_corrections:{user_id}"
+    if cache_key in _user_durable_corrections_mem:
+        return _user_durable_corrections_mem[cache_key]
+    try:
+        from .cache import cache_get
+        cached = await cache_get(cache_key)
+        if isinstance(cached, list):
+            _user_durable_corrections_mem[cache_key] = [str(x) for x in cached]
+            return _user_durable_corrections_mem[cache_key]
+    except Exception as e:
+        logger.debug("Failed to get redis user_durable_corrections: %s", e)
+    return []
+
+
 async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules: list[str]) -> list[str]:
-    """Save newly learned session live rules to cache."""
+    """Save newly learned session live rules to cache and durable store."""
     if not conversation_id or not new_rules:
         return []
     cache_key = f"session_live_rules:{user_id}:{conversation_id}"
@@ -436,6 +485,8 @@ async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules:
     for r in new_rules:
         if r not in combined:
             combined.append(r)
+        # Simultaneously reinforce across the user's durable mindset
+        await save_user_durable_correction(user_id, r)
     combined = combined[-10:]
     _session_live_rules_mem[cache_key] = combined
     try:
@@ -685,6 +736,7 @@ def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> st
     general = resonance.get("general_rules") or []
     entities = resonance.get("entities") or []
     pitfalls = resonance.get("pitfalls") or []
+    durable = resonance.get("durable_corrections") or []
 
     sections = [guidance_md.strip()]
 
@@ -702,8 +754,13 @@ def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> st
         for g in general[:3]:
             mind_lines.append(f"- {g.strip('- * ')}")
 
+    if durable:
+        mind_lines.append("\n【跨会话强化铁律（用户多轮纠偏记忆）】：")
+        for d in durable[:4]:
+            mind_lines.append(f"- {d.strip('- * ')}")
+
     if entities:
-        mind_lines.append("\n【相关知识图谱实体与历史决策决策】：")
+        mind_lines.append("\n【相关知识图谱实体与历史决策】：")
         for e in entities[:3]:
             obs_str = f"（{e['observations'][0]}）" if e.get("observations") else ""
             mind_lines.append(f"- {e['name']}{obs_str}")

@@ -148,6 +148,7 @@ function AskPageContent() {
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
+  const warmedAskRef = useRef<boolean>(false);
 
   const addFilesAsImages = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
@@ -6277,6 +6278,10 @@ function AskPageContent() {
                   onChange={handleInputChange}
                   onPaste={handlePaste}
                   onFocus={() => {
+                    if (!warmedAskRef.current) {
+                      warmedAskRef.current = true;
+                      api.warmupAsk().catch(() => {});
+                    }
                     setTimeout(() => {
                       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
                     }, 120);

@@ -148,7 +148,18 @@ async def check(
         return cached
 
     g = await guidance_for(db, user, action, project, query)
-    res = {"markdown": render_guidance(g)} if format == "markdown" else g
+    if format == "markdown":
+        base_md = render_guidance(g)
+        try:
+            from ..services.mind_resonance_service import enrich_check_rules_result, sense_resonance
+            res_obj = await sense_resonance(db, user, query=query, project=project, action=action)
+            full_md = enrich_check_rules_result(base_md, res_obj)
+            res = {"markdown": full_md, "guidance": g, "resonance": res_obj}
+        except Exception:
+            res = {"markdown": base_md}
+    else:
+        res = g
+
     await cache_set(cache_key, res, ttl_seconds=30)
     return res
 

@@ -458,3 +458,32 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Linux", enriched[1]["affinity"])
         self.assertTrue(enriched[1].get("scenario_best_match"))
 
+    async def test_learning_check_endpoint_mind_injection(self):
+        """Verify /api/learning/check injects mind resonance and durable rules."""
+        from server.api.learning import check
+        user = User(id=uuid.uuid4(), email="u@example.com")
+        mock_db = AsyncMock()
+
+        dummy_res = {
+            "scenario": {"name": "发布交付"},
+            "mindset": "发版前必查历史经验避免重踩坑",
+            "scoped_rules": ["发版 tag 必须等于 package.json 的 version"],
+            "general_rules": ["始终用中文回复"],
+            "durable_corrections": ["回复中不要用 ** 这类 Markdown 加粗符号"],
+            "entities": [],
+            "pitfalls": [],
+        }
+
+        with patch("server.api.learning.cache_get", AsyncMock(return_value=None)), \
+             patch("server.api.learning.cache_set", AsyncMock()), \
+             patch("server.api.learning.guidance_for", AsyncMock(return_value={"action": "release", "project": "memento", "rules": [], "pitfalls": [], "skills": []})), \
+             patch("server.services.mind_resonance_service.sense_resonance", AsyncMock(return_value=dummy_res)):
+
+            res = await check(action="release", project="memento", query="发版", format="markdown", db=mock_db, user=user)
+            self.assertIn("markdown", res)
+            self.assertIn("当前项目专项铁律", res["markdown"])
+            self.assertIn("发版 tag 必须等于 package.json 的 version", res["markdown"])
+            self.assertIn("跨会话强化铁律", res["markdown"])
+            self.assertIn("回复中不要用 ** 这类 Markdown 加粗符号", res["markdown"])
+
+

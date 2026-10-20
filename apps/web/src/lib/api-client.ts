@@ -873,6 +873,8 @@ export const api = {
   },
   listAskRuns: (recentSeconds = 0) =>
     fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
+  warmupAsk: () =>
+    apiFetch<{ warmed: boolean }>("/api/ask/warmup", { method: "POST" }),
   ensureConversationBySession: (body: {
     session_id: string;
     project_id?: string;

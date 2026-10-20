@@ -462,6 +462,12 @@ _FILE_STAT_CACHE_TTL = 600.0  # 10 minutes cache for file stat and owner device
 _MAX_INITIAL_CHUNKS = 50  # Max 50 chunks (approx 25 MB max in memory)
 _INITIAL_CHUNK_TTL_SECONDS = 300  # 5 minutes TTL
 _MAX_DISK_CACHE_BYTES = int(os.environ.get("MEMENTO_MEDIA_CACHE_MAX_BYTES", 5 * 1024 * 1024 * 1024))  # 5 GB default quota
+# The cache sits on an emptyDir with a hard sizeLimit (deploy/k8s/api.yaml): going past it
+# makes the kubelet evict the whole api pod. So room is reserved before a download starts,
+# in-flight downloads count at their full size, and big files are streamed without caching.
+_MAX_CACHED_FILE_BYTES = _MAX_DISK_CACHE_BYTES // 4
+_MAX_CONCURRENT_PREFETCH = 2
+_prefetch_reserved: dict[str, int] = {}  # cache_key -> bytes reserved for an in-flight download
 
 
 async def _get_cached_stat(path: str) -> tuple[int, str] | None:
@@ -532,56 +538,50 @@ def _get_initial_chunk(key: str) -> bytes | None:
     return data
 
 
-def _evict_disk_cache_if_needed(cache_dir: str, max_bytes: int = _MAX_DISK_CACHE_BYTES) -> None:
-    """Evict oldest cached media files when cache directory exceeds quota."""
+def _make_room_for(cache_dir: str, size: int, max_bytes: int | None = None) -> bool:
+    """Make room for a `size`-byte download within the cache quota, deleting the oldest
+    cached files (and leftover partial downloads) if needed. False when the file is too
+    big to cache, enough downloads are already running, or there's no room even then."""
+    max_bytes = _MAX_DISK_CACHE_BYTES if max_bytes is None else max_bytes
+    if size > max_bytes // 4 or len(_prefetch_reserved) >= _MAX_CONCURRENT_PREFETCH:
+        return False
+    budget = max_bytes - sum(_prefetch_reserved.values()) - size
+    if budget < 0:
+        return False
+    in_flight = set(_prefetch_reserved)
+    files: list[tuple[str, int, float]] = []
+    used = 0
     try:
-        if not os.path.isdir(cache_dir):
-            return
-        files: list[tuple[str, int, float]] = []
-        total_bytes = 0
-        now = time.time()
-
         for entry in os.scandir(cache_dir):
-            if not entry.is_file():
+            if not entry.is_file() or entry.name.startswith(".test_"):
                 continue
-            # Also clean up stale partial downloads older than 2 hours
-            if entry.name.endswith(".part"):
-                try:
-                    if now - entry.stat().st_mtime > 7200:
-                        os.remove(entry.path)
-                except Exception:
-                    pass
-                continue
-
+            if entry.name.endswith(".part") and entry.name.split(".", 1)[0] in in_flight:
+                continue  # already counted at full size through its reservation
             try:
                 st = entry.stat()
-                files.append((entry.path, st.st_size, st.st_mtime))
-                total_bytes += st.st_size
-            except Exception:
+            except OSError:
                 continue
-
-        if total_bytes <= max_bytes:
-            return
-
-        # Target 75% of limit after cleanup
-        target_bytes = int(max_bytes * 0.75)
-        # Sort by mtime ascending (oldest first)
-        files.sort(key=lambda x: x[2])
-
-        for path, size, _ in files:
-            try:
-                os.remove(path)
-                total_bytes -= size
-                for k, v in list(_known_cache_map.items()):
-                    if v[1] == path:
-                        _known_cache_map.pop(k, None)
-            except Exception:
-                pass
-            if total_bytes <= target_bytes:
-                break
-        logger.info("Evicted media cache in %s: now %d bytes (target <= %d)", cache_dir, total_bytes, target_bytes)
-    except Exception as e:
-        logger.warning("Error evicting disk media cache in %s: %s", cache_dir, e)
+            files.append((entry.path, st.st_size, st.st_mtime))
+            used += st.st_size
+    except OSError as e:
+        logger.warning("Cannot inspect media cache %s: %s", cache_dir, e)
+        return False
+    if used <= budget:
+        return True
+    files.sort(key=lambda f: f[2])  # oldest first
+    for path, fsize, _ in files:
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        used -= fsize
+        for k, v in list(_known_cache_map.items()):
+            if v[1] == path:
+                _known_cache_map.pop(k, None)
+        if used <= budget:
+            break
+    logger.info("Media cache %s trimmed to %d bytes to fit a %d-byte download", cache_dir, used, size)
+    return used <= budget
 
 
 def _get_media_cache_dir() -> str:
@@ -646,11 +646,11 @@ async def _background_prefetch_media(
             os.replace(part_path, cached_path)
             logger.info("Successfully cached media file %s (%d bytes) at %s", clean_path, total_size, cached_path)
             _known_cache_map[clean_path] = (total_size, cached_path)
-            _evict_disk_cache_if_needed(os.path.dirname(cached_path))
     except Exception as e:
         logger.warning("Failed background prefetch for %s: %s", clean_path, e)
     finally:
         _active_prefetch_tasks.pop(cache_key, None)
+        _prefetch_reserved.pop(cache_key, None)
 
 
 @router.api_route("/{device_id}/files/stream", methods=["GET", "HEAD"])
@@ -885,7 +885,8 @@ async def stream_device_file(
         cache_key = hashlib.sha256(f"{raw_clean_path}:{total_size}".encode()).hexdigest()
         cached_file_path = os.path.join(cache_dir, f"{cache_key}{ext}")
         is_probe = (start == 0 and end <= 1)
-        if not is_probe and cache_key not in _active_prefetch_tasks:
+        if not is_probe and cache_key not in _active_prefetch_tasks and _make_room_for(cache_dir, total_size):
+            _prefetch_reserved[cache_key] = total_size
             prefetch_task = asyncio.create_task(
                 _background_prefetch_media(
                     dev_token=dev_token,

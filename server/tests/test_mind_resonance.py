@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import unittest
 import uuid
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import fakeredis
 
 from server.db.models import KnowledgeEntity, User, UserMemory, UserProfile
 from server.services.mind_resonance_service import (
@@ -295,10 +296,11 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
 
         user_id = uuid.uuid4()
         conv_id = "test-conv-123"
-        saved = await save_session_live_rules(user_id, conv_id, rules)
-        self.assertGreater(len(saved), 0)
-
-        retrieved = await get_session_live_rules(user_id, conv_id)
+        shared = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+        with patch("server.services.cache.redis_client", return_value=shared):
+            saved = await save_session_live_rules(user_id, conv_id, rules)
+            self.assertGreater(len(saved), 0)
+            retrieved = await get_session_live_rules(user_id, conv_id)
         self.assertEqual(retrieved, saved)
 
         rendered = render_mind_resonance_markdown({"mindset": "测试心智"}, live_rules=retrieved)
@@ -517,12 +519,8 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         uid = uuid.uuid4()
         conv_id = "test-conv-123"
 
-        redis_store: dict[str, Any] = {}
-        async def fake_get(k): return redis_store.get(k)
-        async def fake_set(k, v, ttl_seconds=None): redis_store[k] = v
-
-        with patch("server.services.cache.cache_get", side_effect=fake_get), \
-             patch("server.services.cache.cache_set", side_effect=fake_set):
+        shared = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+        with patch("server.services.cache.redis_client", return_value=shared):
 
             # Session rule with explicit cross-session keyword ("切记不要回滚") escalates to durable
             saved = await save_session_live_rules(uid, conv_id, ["切记不要回滚"])
@@ -543,5 +541,33 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
             durable3 = await get_user_durable_corrections(uid)
             self.assertIn("回答时统一用中文", durable3)
 
+class TestLiveRulesAcrossReplicas(unittest.IsolatedAsyncioTestCase):
+    async def test_redis_decides_and_this_process_only_covers_outages(self):
+        from server.services import mind_resonance_service as mr
 
+        uid, conv = uuid.uuid4(), "conv-replicas"
+        shared = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+        with patch("server.services.cache.redis_client", return_value=shared):
+            await mr.save_session_live_rules(uid, conv, ["回答时统一用中文"])
+            self.assertEqual(await mr.get_session_live_rules(uid, conv), ["回答时统一用中文"])
+            # Expired (or removed) in Redis: gone for every replica, no stale copy here
+            await shared.delete(f"session_live_rules:{uid}:{conv}")
+            self.assertEqual(await mr.get_session_live_rules(uid, conv), [])
+            self.assertEqual(mr._rules_fallback, {})
+
+        down = MagicMock()  # a client whose every command fails, like a Redis outage
+        down.get = AsyncMock(side_effect=ConnectionError("redis down"))
+        down.set = AsyncMock(side_effect=ConnectionError("redis down"))
+        down.pipeline.side_effect = ConnectionError("redis down")
+        with patch("server.services.cache.redis_client", return_value=down):
+            await mr.save_session_live_rules(uid, conv, ["交付前必须先自测"])
+            self.assertEqual(await mr.get_session_live_rules(uid, conv), ["交付前必须先自测"])
+        mr._rules_fallback.clear()
+
+    def test_bie_inside_words_is_not_a_prohibition(self):
+        from server.services.mind_resonance_service import extract_live_correction_rules
+
+        self.assertEqual(extract_live_correction_rules("回复中区别对待新旧接口"), [])
+        self.assertEqual(extract_live_correction_rules("以后特别注意性能"), [])
+        self.assertEqual(extract_live_correction_rules("以后别用 sudo"), ["以后别用 sudo"])
 

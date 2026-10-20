@@ -165,34 +165,43 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
         _initial_chunk_cache["expired_key"] = (b"stale_bytes", time.time() - 400)
         self.assertIsNone(_get_initial_chunk("expired_key"))
 
-    def test_disk_cache_quota_eviction(self):
-        """Verify _evict_disk_cache_if_needed evicts oldest files down to quota watermark."""
+    def test_cache_room_is_reserved_before_a_download(self):
+        """Oldest files go first, in-flight downloads count at full size, and files too
+        big for the cache (or too many at once) are streamed without caching."""
         import os
         import tempfile
         import time
-        from server.api.devices import _evict_disk_cache_if_needed
+        from unittest.mock import patch
+        from server.api import devices
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create 3 files: 100KB each
-            f1 = os.path.join(tmpdir, "video1.mp4")
-            f2 = os.path.join(tmpdir, "video2.mp4")
-            f3 = os.path.join(tmpdir, "video3.mp4")
+        KB = 1024
+        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(devices._prefetch_reserved, clear=True):
+            paths = []
+            for i, age in enumerate((300, 200, 100)):
+                path = os.path.join(tmpdir, f"video{i}.mp4")
+                with open(path, "wb") as f:
+                    f.write(b"x" * 100 * KB)
+                os.utime(path, (time.time() - age, time.time() - age))
+                paths.append(path)
 
-            with open(f1, "wb") as f: f.write(b"a" * 102400)
-            os.utime(f1, (time.time() - 300, time.time() - 300))
+            # 300 KB cached, quota 400 KB: a 100 KB download fits as is
+            self.assertTrue(devices._make_room_for(tmpdir, 100 * KB, max_bytes=400 * KB))
+            self.assertTrue(all(os.path.exists(p) for p in paths))
 
-            with open(f2, "wb") as f: f.write(b"b" * 102400)
-            os.utime(f2, (time.time() - 200, time.time() - 200))
+            # One 100 KB download in flight: the next one needs the oldest file gone
+            devices._prefetch_reserved["inflight"] = 100 * KB
+            with open(os.path.join(tmpdir, "inflight.mp4.part"), "wb") as f:
+                f.write(b"y" * 50 * KB)  # counted through its reservation, not twice
+            self.assertTrue(devices._make_room_for(tmpdir, 100 * KB, max_bytes=400 * KB))
+            self.assertFalse(os.path.exists(paths[0]))
+            self.assertTrue(os.path.exists(paths[2]))
 
-            with open(f3, "wb") as f: f.write(b"c" * 102400)
-            os.utime(f3, (time.time() - 100, time.time() - 100))
+            # Bigger than a quarter of the quota: never cached
+            self.assertFalse(devices._make_room_for(tmpdir, 101 * KB, max_bytes=400 * KB))
 
-            # Total = ~300KB. Limit = 200KB. Target watermark = 150KB.
-            _evict_disk_cache_if_needed(tmpdir, max_bytes=200 * 1024)
-
-            # Oldest f1 should be evicted first
-            self.assertFalse(os.path.exists(f1))
-            self.assertTrue(os.path.exists(f3))
+            # Enough downloads already running
+            devices._prefetch_reserved["second"] = 10 * KB
+            self.assertFalse(devices._make_room_for(tmpdir, 10 * KB, max_bytes=400 * KB))
 
 
 if __name__ == '__main__':

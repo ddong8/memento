@@ -423,8 +423,53 @@ _ACTION_DIRECTIVE_PREFIXES = (
     "发版", "发布", "部署", "提交", "改动", "重跑", "测试",
 )
 
-_session_live_rules_mem: dict[str, list[str]] = {}
-_user_durable_corrections_mem: dict[str, list[str]] = {}
+# "别" only as a prohibition, not inside 特别/区别/识别/级别/个别/告别…
+_DIRECTIVE_WORDS = re.compile(r"不要|严禁|杜绝|必须|统一|只能|只用|(?<![特区识级个差告类性派分辨鉴])别(?![人的])")
+
+# Rules live in Redis, shared by every api replica. This process keeps a small copy
+# only to fall back on while Redis is unreachable.
+_RULES_FALLBACK_MAX = 500
+_rules_fallback: dict[str, list[str]] = {}
+
+
+def _remember_fallback(key: str, rules: list[str]) -> None:
+    _rules_fallback.pop(key, None)
+    _rules_fallback[key] = rules
+    while len(_rules_fallback) > _RULES_FALLBACK_MAX:
+        _rules_fallback.pop(next(iter(_rules_fallback)))
+
+
+async def _load_rules(key: str) -> list[str]:
+    """Rules stored under key: Redis decides (missing or expired means none); this
+    process's copy is used only when Redis can't be reached."""
+    import json
+    from .cache import redis_client
+    c = redis_client()
+    if c is not None:
+        try:
+            raw = await c.get(key)
+            _rules_fallback.pop(key, None)
+            if raw is None:
+                return []
+            value = json.loads(raw)
+            return [str(x) for x in value] if isinstance(value, list) else []
+        except Exception as e:
+            logger.debug("Reading %s from Redis failed, using this process's copy: %s", key, e)
+    return list(_rules_fallback.get(key, []))
+
+
+async def _store_rules(key: str, rules: list[str], ttl_seconds: int) -> None:
+    import json
+    from .cache import redis_client
+    c = redis_client()
+    if c is not None:
+        try:
+            await c.set(key, json.dumps(rules, ensure_ascii=False), ex=ttl_seconds)
+            _rules_fallback.pop(key, None)
+            return
+        except Exception as e:
+            logger.debug("Saving %s to Redis failed, keeping it in this process: %s", key, e)
+    _remember_fallback(key, rules)
 
 
 def extract_live_correction_rules(text: str) -> list[str]:
@@ -453,16 +498,16 @@ def extract_live_correction_rules(text: str) -> list[str]:
 
         # Pattern 1: Explicit directive prefix (e.g. "以后不要用 **", "切记不要回滚", "记住必须用中文")
         if any(clause.startswith(p) for p in _DIRECTIVE_PREFIXES):
-            if any(k in clause for k in ("不要", "别", "严禁", "杜绝", "必须", "统一", "只能", "只用")):
+            if _DIRECTIVE_WORDS.search(clause):
                 matched_rule = clause
 
         # Pattern 2: Action-scoped directive (e.g. "回答时不要反问", "交付前必须先自测", "发版必须确认所有 pod 状态")
         elif any(clause.startswith(p) for p in _ACTION_DIRECTIVE_PREFIXES):
-            if any(k in clause for k in ("不要", "别", "严禁", "杜绝", "必须", "统一", "只能")):
+            if _DIRECTIVE_WORDS.search(clause):
                 matched_rule = clause
 
         # Pattern 3: Standalone direct imperative command without question context
-        elif re.search(r"(?:不要|别|严禁|杜绝)\s*(?:在|用|加|使用|包含|反问|回滚|删除|臆测|编造|截断|乱动)", clause):
+        elif re.search(r"(?:不要|(?<![特区识级个差告类性派分辨鉴])别|严禁|杜绝)\s*(?:在|用|加|使用|包含|反问|回滚|删除|臆测|编造|截断|乱动)", clause):
             matched_rule = clause
         elif re.search(r"(?:必须|统一)\s*(?:用|在|按照|保持|使用|确认|检查|自测|先|打|记录)", clause):
             matched_rule = clause
@@ -476,16 +521,20 @@ def extract_live_correction_rules(text: str) -> list[str]:
 
 
 async def _increment_rule_frequency(user_id: Any, rule: str) -> int:
-    """Track how often a correction rule is repeated across conversations."""
+    """How many times this rule has been stated (across conversations, last 7 days)."""
     import hashlib
+    from .cache import redis_client
     rule_hash = hashlib.md5(rule.strip().encode()).hexdigest()[:12]
-    cache_key = f"rule_freq:{user_id}:{rule_hash}"
+    key = f"rule_freq:{user_id}:{rule_hash}"
+    c = redis_client()
+    if c is None:
+        return 1
     try:
-        from .cache import cache_get, cache_set
-        val = await cache_get(cache_key)
-        count = (int(val) if val is not None else 0) + 1
-        await cache_set(cache_key, count, ttl_seconds=86400 * 7)
-        return count
+        pipe = c.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.expire(key, 86400 * 7)
+        count, _ = await pipe.execute()
+        return int(count)
     except Exception:
         return 1
 
@@ -495,79 +544,43 @@ async def save_user_durable_correction(user_id: Any, rule: str, weight: float = 
     clean_r = rule.strip("- *# \t\n")
     if len(clean_r) < 3:
         return []
-    cache_key = f"user_durable_corrections:{user_id}"
-    existing = await get_user_durable_corrections(user_id)
-    combined = list(existing)
+    key = f"user_durable_corrections:{user_id}"
+    combined = await get_user_durable_corrections(user_id)
     if clean_r not in combined:
         combined.append(clean_r)
     combined = combined[-20:]
-    try:
-        from .cache import cache_set
-        await cache_set(cache_key, combined, ttl_seconds=86400 * 7)
-    except Exception as e:
-        logger.debug("Failed to set redis user_durable_corrections: %s", e)
-    _user_durable_corrections_mem[cache_key] = combined
+    await _store_rules(key, combined, 86400 * 7)
     return combined
 
 
 async def get_user_durable_corrections(user_id: Any) -> list[str]:
-    """Retrieve user-level reinforced correction rules from Redis first for multi-replica consistency."""
-    cache_key = f"user_durable_corrections:{user_id}"
-    try:
-        from .cache import cache_get
-        cached = await cache_get(cache_key)
-        if isinstance(cached, list):
-            _user_durable_corrections_mem[cache_key] = [str(x) for x in cached]
-            return _user_durable_corrections_mem[cache_key]
-    except Exception as e:
-        logger.debug("Failed to get redis user_durable_corrections: %s", e)
-    return _user_durable_corrections_mem.get(cache_key, [])
+    """User-level reinforced correction rules."""
+    return await _load_rules(f"user_durable_corrections:{user_id}")
 
 
 async def save_session_live_rules(user_id: Any, conversation_id: str, new_rules: list[str]) -> list[str]:
-    """Save newly learned session live rules to cache, escalating to durable rules only when repeated."""
+    """Save newly learned session live rules, escalating to durable rules only when
+    stated as lasting ("以后", "记住"…) or repeated."""
     if not conversation_id or not new_rules:
         return []
-    cache_key = f"session_live_rules:{user_id}:{conversation_id}"
-    existing = await get_session_live_rules(user_id, conversation_id)
-    combined = list(existing)
+    key = f"session_live_rules:{user_id}:{conversation_id}"
+    combined = await get_session_live_rules(user_id, conversation_id)
     for r in new_rules:
         if r not in combined:
             combined.append(r)
-        # Escalation condition: explicit durable keywords ("以后", "今后", "记住", "切记", "所有对话")
-        # OR repeated at least 2 times across turns/sessions
         is_explicit_durable = any(k in r for k in ("以后", "今后", "记住", "切记", "所有对话", "永久"))
-        if is_explicit_durable:
+        if is_explicit_durable or await _increment_rule_frequency(user_id, r) >= 2:
             await save_user_durable_correction(user_id, r)
-        else:
-            freq = await _increment_rule_frequency(user_id, r)
-            if freq >= 2:
-                await save_user_durable_correction(user_id, r)
-
     combined = combined[-10:]
-    try:
-        from .cache import cache_set
-        await cache_set(cache_key, combined, ttl_seconds=7200)
-    except Exception as e:
-        logger.debug("Failed to set redis session_live_rules: %s", e)
-    _session_live_rules_mem[cache_key] = combined
+    await _store_rules(key, combined, 7200)
     return combined
 
 
 async def get_session_live_rules(user_id: Any, conversation_id: str) -> list[str]:
-    """Retrieve session live rules, checking Redis first for multi-replica consistency."""
+    """Session live rules of this conversation."""
     if not conversation_id:
         return []
-    cache_key = f"session_live_rules:{user_id}:{conversation_id}"
-    try:
-        from .cache import cache_get
-        cached = await cache_get(cache_key)
-        if isinstance(cached, list):
-            _session_live_rules_mem[cache_key] = [str(x) for x in cached]
-            return _session_live_rules_mem[cache_key]
-    except Exception as e:
-        logger.debug("Failed to get redis session_live_rules: %s", e)
-    return _session_live_rules_mem.get(cache_key, [])
+    return await _load_rules(f"session_live_rules:{user_id}:{conversation_id}")
 
 
 def expand_query_for_search(query: str, target_project: str | None = None) -> str:

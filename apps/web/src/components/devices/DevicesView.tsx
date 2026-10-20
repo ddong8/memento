@@ -6,6 +6,7 @@ import { useNow } from "@/lib/use-now";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph, Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar } from "@/components/aurora/primitives";
+import { directConnect } from "@/lib/direct-connect";
 import { DirectConnectCard } from "./DirectConnectCard";
 
 export interface Device {
@@ -19,6 +20,7 @@ export interface Device {
   tools: string[];
   is_archived?: boolean;
   archived_at?: string | null;
+  direct_endpoints?: string[];
 }
 
 function useTimeAgo(t: ReturnType<typeof useI18n>["t"]) {
@@ -51,6 +53,18 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
       .then((devs: Device[]) => {
         if (!Array.isArray(devs)) return;
         setDevices(devs);
+        // Automatically feed discovered endpoints to direct-connect engine
+        const allEndpoints: string[] = [];
+        for (const d of devs) {
+          if (Array.isArray(d.direct_endpoints)) {
+            for (const ep of d.direct_endpoints) {
+              if (ep && !allEndpoints.includes(ep)) allEndpoints.push(ep);
+            }
+          }
+        }
+        if (allEndpoints.length > 0) {
+          directConnect.registerDeviceEndpoints(allEndpoints);
+        }
         for (const d of devs) {
           if (!discoveries[d.id]) {
             authFetch(`${getApiBase()}/api/devices/${d.id}/discovery`)

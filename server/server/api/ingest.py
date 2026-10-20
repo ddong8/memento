@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timezone
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,20 +142,53 @@ async def ingest_discovery(
 
 @router.post("/heartbeat")
 async def heartbeat(
+    request: Request,
     _collector_user: User = Depends(verify_collector_token),
     _throttle: None = Depends(throttle_ingest),
     db: AsyncSession = Depends(get_db),
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
     x_device_platform: str = Header("unknown"),
+    x_direct_endpoints: str | None = Header(None),
 ) -> dict:
     """Collector heartbeat — also registers/updates the device."""
     machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
+
+    # Auto-discover direct endpoints (IPv6 and LAN) without manual configuration
+    endpoints: list[str] = []
+    if x_direct_endpoints:
+        for ep in x_direct_endpoints.split(","):
+            ep = ep.strip()
+            if ep and ep not in endpoints:
+                endpoints.append(ep)
+
+    # Detect caller client IP
+    client_ip: str | None = None
+    if request:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            client_ip = xff.split(",")[0].strip()
+        elif request.client:
+            client_ip = request.client.host
+
+    if client_ip:
+        # Check if caller has public IPv6 (excluding link-local and loopback)
+        if ":" in client_ip and not client_ip.startswith(("fe80", "fc", "fd", "::1")):
+            ipv6_ep = f"https://[{client_ip}]:8443"
+            if ipv6_ep not in endpoints:
+                endpoints.append(ipv6_ep)
+
+    if endpoints:
+        status_dict = dict(machine.profile_status or {})
+        status_dict["direct_endpoints"] = endpoints
+        machine.profile_status = status_dict
+        await db.commit()
 
     resp = {
         "status": "ok",
         "device_id": str(machine.id),
         "received_at": datetime.now(timezone.utc).isoformat(),
+        "direct_endpoints": endpoints,
     }
 
     # Remote execution: mint this device's key on first heartbeat after the

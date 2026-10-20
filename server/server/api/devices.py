@@ -166,6 +166,7 @@ async def list_devices(
             "tools": tools_by_name.get(m.name, []),
             "is_archived": is_arch,
             "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
+            "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
         })
 
     return items

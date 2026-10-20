@@ -146,6 +146,7 @@ function AskPageContent() {
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
   const warmedAskRef = useRef<boolean>(false);
@@ -6206,6 +6207,7 @@ function AskPageContent() {
             {/* 心领神会前置预判胶囊 */}
             <MindAnticipation
               inputValue={input}
+              isFocused={isInputFocused}
               onSelectPrompt={(p) => {
                 setInput(p);
                 inputElRef.current?.focus();
@@ -6278,6 +6280,7 @@ function AskPageContent() {
                   onChange={handleInputChange}
                   onPaste={handlePaste}
                   onFocus={() => {
+                    setIsInputFocused(true);
                     if (!warmedAskRef.current) {
                       warmedAskRef.current = true;
                       api.warmupAsk().catch(() => {});
@@ -6285,6 +6288,9 @@ function AskPageContent() {
                     setTimeout(() => {
                       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
                     }, 120);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setIsInputFocused(false), 200);
                   }}
                   onKeyDown={onKeyDown}
                   placeholder={placeholderText}

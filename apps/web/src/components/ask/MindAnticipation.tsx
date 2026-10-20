@@ -85,23 +85,7 @@ export const MindAnticipation = memo(function MindAnticipation({
   }, [trimmed, isFocused]);
 
   if (!matchedSuggestions.length) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-          padding: "2px 8px",
-          marginBottom: "4px",
-          fontSize: "11px",
-          color: "rgba(255, 255, 255, 0.35)",
-          userSelect: "none",
-        }}
-      >
-        <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#10b981" }} />
-        <span>心领神会 · 场景心智就绪</span>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -111,7 +95,7 @@ export const MindAnticipation = memo(function MindAnticipation({
         alignItems: "center",
         gap: "6px",
         overflowX: "auto",
-        padding: "4px 8px",
+        padding: "4px 2px",
         marginBottom: "6px",
         scrollbarWidth: "none",
         animation: "fadeIn 0.15s ease-out",
@@ -120,14 +104,15 @@ export const MindAnticipation = memo(function MindAnticipation({
       <span
         style={{
           fontSize: "11px",
-          color: "rgba(255, 255, 255, 0.4)",
+          color: "var(--aurora-fg3)",
           display: "flex",
           alignItems: "center",
-          gap: "3px",
+          gap: "4px",
           userSelect: "none",
           flexShrink: 0,
         }}
       >
+        <span style={{ display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#10b981" }} />
         <span>心领神会预判:</span>
       </span>
       {matchedSuggestions.map((s) => (
@@ -142,23 +127,22 @@ export const MindAnticipation = memo(function MindAnticipation({
             padding: "3px 10px",
             borderRadius: "14px",
             fontSize: "12px",
-            color: "rgba(255, 255, 255, 0.85)",
-            background: "rgba(255, 255, 255, 0.06)",
-            border: "1px solid rgba(255, 255, 255, 0.12)",
+            color: "var(--aurora-fg2)",
+            background: "var(--aurora-chip)",
+            border: "1px solid var(--aurora-border)",
             cursor: "pointer",
             whiteSpace: "nowrap",
             transition: "all 0.15s ease",
-            backdropFilter: "blur(8px)",
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(99, 102, 241, 0.2)";
-            e.currentTarget.style.borderColor = "rgba(99, 102, 241, 0.4)";
-            e.currentTarget.style.color = "#fff";
+            e.currentTarget.style.background = "var(--aurora-accent-soft)";
+            e.currentTarget.style.borderColor = "var(--aurora-accent)";
+            e.currentTarget.style.color = "var(--aurora-accent)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
-            e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.12)";
-            e.currentTarget.style.color = "rgba(255, 255, 255, 0.85)";
+            e.currentTarget.style.background = "var(--aurora-chip)";
+            e.currentTarget.style.borderColor = "var(--aurora-border)";
+            e.currentTarget.style.color = "var(--aurora-fg2)";
           }}
           title={s.prompt}
         >

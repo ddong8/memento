@@ -338,9 +338,6 @@ function AskPageContent() {
   }, [activeConversationId]);
 
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
-  const [historySearchQuery, setHistorySearchQuery] = useState<string>("");
-  const [editingConvId, setEditingConvId] = useState<string | null>(null);
-  const [editingConvTitle, setEditingConvTitle] = useState<string>("");
   const promptHistoryIdxRef = useRef<number>(-1);
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
@@ -356,26 +353,16 @@ function AskPageContent() {
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
 
-  const filteredConversations = useMemo(() => {
-    const q = historySearchQuery.trim().toLowerCase();
-    const list = !q
-      ? conversations
-      : conversations.filter((c) => {
-          const matchTitle = (c.title || "").toLowerCase().includes(q);
-          const matchDev = (c.device_id || "").toLowerCase().includes(q);
-          const matchId = (c.id || "").toLowerCase().includes(q);
-          return matchTitle || matchDev || matchId;
-        });
-
-    return [...list].sort((a, b) => {
-      const aPinned = a.config?.pinned ? 1 : 0;
-      const bPinned = b.config?.pinned ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-      return bTime - aTime;
-    });
-  }, [conversations, historySearchQuery]);
+  const runningConversationIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (streaming && activeConversationId) {
+      ids.add(activeConversationId);
+    }
+    if (askCache?.streaming && askCache?.activeRun?.convId) {
+      ids.add(askCache.activeRun.convId);
+    }
+    return ids;
+  }, [streaming, activeConversationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1341,7 +1328,6 @@ function AskPageContent() {
     async (id: string, newTitle: string) => {
       const trimmed = newTitle.trim();
       if (!trimmed) {
-        setEditingConvId(null);
         return;
       }
       try {
@@ -1351,8 +1337,6 @@ function AskPageContent() {
         );
       } catch (err) {
         console.error("Failed to rename conversation:", err);
-      } finally {
-        setEditingConvId(null);
       }
     },
     []
@@ -6442,6 +6426,7 @@ function AskPageContent() {
         }}
         isZh={isZh}
         t={t}
+        runningConversationIds={runningConversationIds}
       />
 
       {/* Sources Drawer Overlay & Sidebar */}

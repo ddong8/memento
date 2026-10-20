@@ -1,9 +1,9 @@
 "use client";
 
-import React, { memo, useCallback, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn } from "@/components/aurora/primitives";
-import type { AskConversationSummary, DeviceSummary } from "@/lib/api-client";
+import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
 
 interface HistoryDrawerProps {
   open: boolean;
@@ -23,6 +23,7 @@ interface HistoryDrawerProps {
   onFilterDeviceChange?: (filterCurrent: boolean) => void;
   isZh: boolean;
   t: any;
+  runningConversationIds?: Set<string>;
 }
 
 const ConversationItem = memo(function ConversationItem({
@@ -30,6 +31,7 @@ const ConversationItem = memo(function ConversationItem({
   isActive,
   isBatchMode,
   isSelected,
+  isRunning,
   onSelect,
   onToggleBatch,
   onPrefetch,
@@ -44,6 +46,7 @@ const ConversationItem = memo(function ConversationItem({
   isActive: boolean;
   isBatchMode: boolean;
   isSelected: boolean;
+  isRunning?: boolean;
   onSelect: (id: string) => void;
   onToggleBatch: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -95,12 +98,16 @@ const ConversationItem = memo(function ConversationItem({
           ? "var(--aurora-accent-soft)"
           : isActive
           ? "var(--aurora-chip)"
+          : isRunning
+          ? "rgba(109, 40, 217, 0.05)"
           : "transparent",
         border: "1px solid",
         borderColor: isSelected
           ? "var(--aurora-accent)"
           : isActive
           ? "var(--aurora-accent)"
+          : isRunning
+          ? "rgba(109, 40, 217, 0.35)"
           : "transparent",
         cursor: "pointer",
         transition: "all 0.15s ease",
@@ -112,14 +119,22 @@ const ConversationItem = memo(function ConversationItem({
       onMouseEnter={(e) => {
         onPrefetch?.(c.id);
         if (!isActive && !isSelected) {
-          e.currentTarget.style.background = "var(--aurora-chip)";
-          e.currentTarget.style.borderColor = "var(--aurora-border)";
+          e.currentTarget.style.background = isRunning
+            ? "rgba(109, 40, 217, 0.08)"
+            : "var(--aurora-chip)";
+          e.currentTarget.style.borderColor = isRunning
+            ? "var(--aurora-accent)"
+            : "var(--aurora-border)";
         }
       }}
       onMouseLeave={(e) => {
         if (!isActive && !isSelected) {
-          e.currentTarget.style.background = "transparent";
-          e.currentTarget.style.borderColor = "transparent";
+          e.currentTarget.style.background = isRunning
+            ? "rgba(109, 40, 217, 0.05)"
+            : "transparent";
+          e.currentTarget.style.borderColor = isRunning
+            ? "rgba(109, 40, 217, 0.35)"
+            : "transparent";
         }
       }}
     >
@@ -220,6 +235,33 @@ const ConversationItem = memo(function ConversationItem({
                 gap: 6,
               }}
             >
+              {isRunning && (
+                <span
+                  title={isZh ? "任务正在运行中..." : "Task is running..."}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                    width: 14,
+                    height: 14,
+                    color: "var(--aurora-accent)",
+                  }}
+                >
+                  <span
+                    className="animate-spin"
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      border: "2px solid rgba(109, 40, 217, 0.2)",
+                      borderTopColor: "var(--aurora-accent)",
+                      display: "inline-block",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </span>
+              )}
               {c.config?.pinned && (
                 <span
                   title={isZh ? "已置顶会话" : "Pinned"}
@@ -247,7 +289,32 @@ const ConversationItem = memo(function ConversationItem({
                 marginTop: 4,
               }}
             >
-              <span>{dateStr}</span>
+              {isRunning ? (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4.5,
+                    color: "var(--aurora-accent)",
+                    fontWeight: 600,
+                  }}
+                >
+                  <span
+                    className="animate-spin"
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      border: "1.5px solid rgba(109, 40, 217, 0.2)",
+                      borderTopColor: "var(--aurora-accent)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>{isZh ? "执行中..." : "Running..."}</span>
+                </span>
+              ) : (
+                <span>{dateStr}</span>
+              )}
               {c.device_id && (
                 <>
                   <span>·</span>
@@ -413,11 +480,99 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   onFilterDeviceChange,
   isZh,
   t,
+  runningConversationIds,
 }: HistoryDrawerProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDevice, setFilterDevice] = useState(false);
   const [batchSelectMode, setBatchSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+
+  // 实时跟踪处于运行中的会话 ID 集合
+  const [liveRunningIds, setLiveRunningIds] = useState<Set<string>>(() => new Set(runningConversationIds || []));
+
+  // 当外部传入的 runningConversationIds 变化时，合并保持最新
+  useEffect(() => {
+    if (!runningConversationIds) return;
+    setLiveRunningIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of runningConversationIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [runningConversationIds]);
+
+  // 当抽屉打开时，立即向后端拉取最新的活跃任务列表，并在打开期间保持轻量轮询
+  useEffect(() => {
+    if (!open) return;
+
+    let mounted = true;
+    const fetchActiveRuns = async () => {
+      try {
+        const runs = await api.listAskRuns(0);
+        if (!mounted || !Array.isArray(runs)) return;
+        const activeIds = new Set<string>();
+        runs.forEach((r) => {
+          if (!r.done && !r.cancelled && !r.failed) {
+            activeIds.add(r.conversation_id);
+          }
+        });
+        if (runningConversationIds) {
+          runningConversationIds.forEach((id) => activeIds.add(id));
+        }
+        setLiveRunningIds(activeIds);
+      } catch {
+        // 静默兜底
+      }
+    };
+
+    void fetchActiveRuns();
+    const interval = setInterval(fetchActiveRuns, 2500);
+
+    // 监听实时任务启动、完成和全局广播事件，达成 0ms 零延迟更新
+    const handleStart = (e: any) => {
+      const convId = e?.detail?.conversation_id;
+      if (convId) {
+        setLiveRunningIds((prev) => new Set([...prev, convId]));
+      }
+    };
+    const handleDone = (e: any) => {
+      const convId = e?.detail?.conversation_id;
+      if (convId) {
+        setLiveRunningIds((prev) => {
+          const next = new Set(prev);
+          next.delete(convId);
+          return next;
+        });
+      }
+    };
+    const handleUpdate = (e: any) => {
+      const ids = e?.detail?.conversation_ids;
+      if (Array.isArray(ids)) {
+        const set = new Set<string>(ids);
+        if (runningConversationIds) {
+          runningConversationIds.forEach((id) => set.add(id));
+        }
+        setLiveRunningIds(set);
+      }
+    };
+
+    window.addEventListener("memento_ask_start", handleStart);
+    window.addEventListener("memento_ask_done", handleDone);
+    window.addEventListener("memento_active_runs_update", handleUpdate);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      window.removeEventListener("memento_ask_start", handleStart);
+      window.removeEventListener("memento_ask_done", handleDone);
+      window.removeEventListener("memento_active_runs_update", handleUpdate);
+    };
+  }, [open, runningConversationIds]);
 
   const handleToggleBatch = useCallback((id: string) => {
     setSelectedConvIds((prev) => {
@@ -443,11 +598,14 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const aPinned = a.config?.pinned ? 1 : 0;
       const bPinned = b.config?.pinned ? 1 : 0;
       if (aPinned !== bPinned) return bPinned - aPinned;
+      const aRunning = liveRunningIds.has(a.id) ? 1 : 0;
+      const bRunning = liveRunningIds.has(b.id) ? 1 : 0;
+      if (aRunning !== bRunning) return bRunning - aRunning;
       const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
       const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
       return bTime - aTime;
     });
-  }, [conversations, searchQuery]);
+  }, [conversations, searchQuery, liveRunningIds]);
 
   if (!open) return null;
 
@@ -521,6 +679,35 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                   }}
                 >
                   {searchQuery ? `${filteredConversations.length}/${conversations.length}` : conversations.length}
+                </span>
+              )}
+              {liveRunningIds.size > 0 && (
+                <span
+                  title={isZh ? `${liveRunningIds.size} 个任务正在运行中` : `${liveRunningIds.size} running`}
+                  style={{
+                    fontSize: 11,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background: "var(--aurora-accent-soft)",
+                    color: "var(--aurora-accent)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontWeight: 500,
+                  }}
+                >
+                  <span
+                    className="animate-spin"
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: "50%",
+                      border: "1.5px solid rgba(109, 40, 217, 0.25)",
+                      borderTopColor: "var(--aurora-accent)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span>{liveRunningIds.size} {isZh ? "运行中" : "running"}</span>
                 </span>
               )}
             </div>
@@ -733,6 +920,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                 isActive={c.id === activeConversationId}
                 isBatchMode={batchSelectMode}
                 isSelected={selectedConvIds.has(c.id)}
+                isRunning={liveRunningIds.has(c.id)}
                 onSelect={(id) => {
                   onClose();
                   onSelectConversation(id);

@@ -140,6 +140,13 @@ export default function ActiveRunsMonitor() {
 
       activeIdsRef.current = currentActiveIds;
       setRuns(sanitizedData);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("memento_active_runs_update", {
+            detail: { conversation_ids: Array.from(currentActiveIds) },
+          })
+        );
+      }
     } catch {
       // Ignore network errors during polling
     }
@@ -152,6 +159,13 @@ export default function ActiveRunsMonitor() {
       if (convId) {
         locallyFinishedMapRef.current.set(convId, Date.now());
         activeIdsRef.current.delete(convId);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("memento_active_runs_update", {
+              detail: { conversation_ids: Array.from(activeIdsRef.current) },
+            })
+          );
+        }
         const alreadyNotified = notifiedConvIdsRef.current.has(convId);
         notifiedConvIdsRef.current.add(convId);
         const isActivelyWatching =
@@ -188,6 +202,14 @@ export default function ActiveRunsMonitor() {
       const convId = e?.detail?.conversation_id;
       if (convId) {
         locallyFinishedMapRef.current.delete(convId);
+        activeIdsRef.current.add(convId);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("memento_active_runs_update", {
+              detail: { conversation_ids: Array.from(activeIdsRef.current) },
+            })
+          );
+        }
         notifiedConvIdsRef.current.delete(convId);
         seenFinishedWhileVisibleRef.current.delete(convId);
         setDismissedNotificationIds((prev) => {

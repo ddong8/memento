@@ -746,6 +746,15 @@ aside input,
   animation: breathingGlow 2.5s infinite ease-in-out;
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* =========================================================================
    Mobile Viewport & Keyboard Containment + Thermal / GPU Optimization
    Prevents iOS WebKit keyboard focus from auto-zooming and eliminates

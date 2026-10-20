@@ -24,6 +24,10 @@ import {
   FiFolder,
   FiSidebar,
   FiShare2,
+  FiSun,
+  FiRepeat,
+  FiRefreshCw,
+  FiLayers,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
@@ -249,6 +253,51 @@ export function VideoPlayer({
   const [shouldPreload, setShouldPreload] = useState<boolean>(Boolean(autoPlay));
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
 
+  // Advanced Video Player Enhancements
+  const [brightness, setBrightness] = useState<number>(1.0);
+  const [fitMode, setFitMode] = useState<"contain" | "cover" | "fill">("contain");
+  const [gestureOverlay, setGestureOverlay] = useState<{ type: "brightness" | "volume"; value: number } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ time: number; x: number; percent: number } | null>(null);
+  const [resumeNotice, setResumeNotice] = useState<{ pos: number } | null>(null);
+  const [flashAction, setFlashAction] = useState<{ label: string; icon: string; id: number } | null>(null);
+  const [isRecovering, setIsRecovering] = useState<boolean>(false);
+
+  const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const resumeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const gestureHideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavePosTimeRef = useRef<number>(0);
+  const retryCountRef = useRef<number>(0);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+    brightness: number;
+    volume: number;
+    mode: "none" | "vertical" | "horizontal";
+  }>({ x: 0, y: 0, time: 0, brightness: 1.0, volume: 1.0, mode: "none" });
+
+  const triggerFlashAction = useCallback((label: string, icon: string) => {
+    setFlashAction({ label, icon, id: Date.now() });
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashAction(null), 500);
+  }, []);
+
+  const cycleFitMode = useCallback(() => {
+    const modes: Array<"contain" | "cover" | "fill"> = ["contain", "cover", "fill"];
+    setFitMode((prev) => {
+      const nextIdx = (modes.indexOf(prev) + 1) % modes.length;
+      const nextMode = modes[nextIdx];
+      const labels = {
+        contain: "适应屏幕（原比例）",
+        cover: "居中裁剪铺满",
+        fill: "拉伸填满全屏",
+      };
+      triggerFlashAction(labels[nextMode], "📐");
+      return nextMode;
+    });
+  }, [triggerFlashAction]);
+
   const markPreloadActive = useCallback(() => {
     setShouldPreload(true);
   }, []);
@@ -358,7 +407,7 @@ export function VideoPlayer({
     };
   }, [src, poster]);
 
-  // Mobile Touch Gestures: Double-tap seek & Long-press 2x speed
+  // Mobile Touch Gestures: Double-tap seek, Long-press 2x speed, Vertical Swipe Brightness & Volume
   const [isLongPressing2x, setIsLongPressing2x] = useState<boolean>(false);
   const [seekFeedback, setSeekFeedback] = useState<{ text: string; direction: "left" | "right" } | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -371,6 +420,16 @@ export function VideoPlayer({
     const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
     const touchX = touch.clientX - rect.left;
+    const touchY = touch.clientY - rect.top;
+
+    touchStartRef.current = {
+      x: touchX,
+      y: touchY,
+      time: Date.now(),
+      brightness,
+      volume,
+      mode: "none",
+    };
 
     const now = Date.now();
     const timeDelta = now - lastTapRef.current.time;
@@ -389,11 +448,13 @@ export function VideoPlayer({
         v.currentTime = Math.max(0, v.currentTime - 5);
         setCurrentTime(v.currentTime);
         setSeekFeedback({ text: "-5秒", direction: "left" });
+        triggerFlashAction("-5秒", "⏪");
       } else if (touchX > rect.width * 0.62) {
         // Fast forward 5s
         v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 5);
         setCurrentTime(v.currentTime);
         setSeekFeedback({ text: "+5秒", direction: "right" });
+        triggerFlashAction("+5秒", "⏩");
       } else {
         // Center double tap: toggle fullscreen
         toggleFullscreen();
@@ -422,6 +483,54 @@ export function VideoPlayer({
     }
   };
 
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const rect = e.currentTarget.getBoundingClientRect();
+    const touchX = touch.clientX - rect.left;
+    const touchY = touch.clientY - rect.top;
+
+    const dx = touchX - touchStartRef.current.x;
+    const dy = touchY - touchStartRef.current.y;
+
+    if (touchStartRef.current.mode === "none") {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+        touchStartRef.current.mode = "vertical";
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      } else if (Math.abs(dx) > 15 && Math.abs(dx) > Math.abs(dy)) {
+        touchStartRef.current.mode = "horizontal";
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      }
+    }
+
+    if (touchStartRef.current.mode === "vertical") {
+      const v = videoRef.current;
+      const sensitivity = rect.height * 0.85 || 300;
+      const delta = (touchStartRef.current.y - touchY) / sensitivity;
+
+      if (touchStartRef.current.x < rect.width * 0.45) {
+        // Left side: Screen brightness
+        const nextB = Math.max(0.3, Math.min(1.5, touchStartRef.current.brightness + delta));
+        setBrightness(nextB);
+        const percent = Math.round(((nextB - 0.3) / 1.2) * 100);
+        setGestureOverlay({ type: "brightness", value: percent });
+      } else if (touchStartRef.current.x > rect.width * 0.55 && v) {
+        // Right side: Volume
+        const nextV = Math.max(0, Math.min(1, touchStartRef.current.volume + delta));
+        v.volume = nextV;
+        setVolume(nextV);
+        if (nextV === 0) {
+          v.muted = true;
+          setIsMuted(true);
+        } else if (isMuted) {
+          v.muted = false;
+          setIsMuted(false);
+        }
+        setGestureOverlay({ type: "volume", value: Math.round(nextV * 100) });
+      }
+    }
+  };
+
   const handleTouchEnd = () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
@@ -434,6 +543,11 @@ export function VideoPlayer({
       }
       setIsLongPressing2x(false);
     }
+    if (gestureHideTimerRef.current) clearTimeout(gestureHideTimerRef.current);
+    gestureHideTimerRef.current = setTimeout(() => {
+      setGestureOverlay(null);
+    }, 600);
+    touchStartRef.current.mode = "none";
   };
 
   const handleTouchCancel = handleTouchEnd;
@@ -468,6 +582,23 @@ export function VideoPlayer({
     downloadFilename = `${downloadFilename}.${ext}`;
   }
 
+  const effectivePoster = poster || autoPoster || undefined;
+
+  const videoSrc = React.useMemo(() => {
+    if (!playUrl) return "";
+    if (playUrl.includes("#")) return playUrl;
+    // 仅在无封面且处于 iOS WebKit 环境下追加 #t=0.001 强制首帧渲染
+    // 桌面端及 Android 凭借 preload="metadata" 即可原生秒出首帧，避免引发二次 Range Seek
+    const isIOS =
+      typeof navigator !== "undefined" &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+    if (!effectivePoster && isIOS) {
+      return `${playUrl}#t=0.001`;
+    }
+    return playUrl;
+  }, [playUrl, effectivePoster]);
+
   const hideControlsTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-hide controls during playback
@@ -488,16 +619,55 @@ export function VideoPlayer({
     };
   }, []);
 
+  const handleVideoError = useCallback(() => {
+    const v = videoRef.current;
+    const currentPos = v?.currentTime || currentTime;
+
+    if (retryCountRef.current < 3) {
+      retryCountRef.current += 1;
+      setIsRecovering(true);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        if (videoRef.current) {
+          const baseSrc = videoSrc.replace(/([?&])_retry=\d+/, "").replace(/([?&])_t=\d+/, "");
+          const sep = baseSrc.includes("?") ? "&" : "?";
+          const retryUrl = `${baseSrc}${sep}_retry=${retryCountRef.current}&_t=${Date.now()}`;
+          videoRef.current.src = retryUrl;
+          videoRef.current.load();
+
+          const onCanPlayOnce = () => {
+            if (videoRef.current) {
+              videoRef.current.currentTime = currentPos;
+              videoRef.current.play().catch(() => {});
+            }
+            setIsRecovering(false);
+            setHasError(false);
+            retryCountRef.current = 0;
+            videoRef.current?.removeEventListener("canplay", onCanPlayOnce);
+          };
+          videoRef.current.addEventListener("canplay", onCanPlayOnce, { once: true });
+        }
+      }, retryCountRef.current * 1000);
+      return;
+    }
+
+    setIsLoading(false);
+    setIsRecovering(false);
+    setHasError(true);
+  }, [currentTime, videoSrc]);
+
   const togglePlay = useCallback(() => {
     markPreloadActive();
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
       v.play().catch(() => {});
+      triggerFlashAction("播放", "▶");
     } else {
       v.pause();
+      triggerFlashAction("暂停", "⏸");
     }
-  }, [markPreloadActive]);
+  }, [markPreloadActive, triggerFlashAction]);
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = videoRef.current;
@@ -522,6 +692,7 @@ export function VideoPlayer({
       setIsMuted(false);
     }
     triggerControlsActivity();
+    triggerFlashAction(`音量 ${Math.round(val * 100)}%`, val === 0 ? "🔇" : "🔊");
   };
 
   const toggleMute = () => {
@@ -530,6 +701,19 @@ export function VideoPlayer({
     v.muted = !v.muted;
     setIsMuted(v.muted);
     triggerControlsActivity();
+    triggerFlashAction(v.muted ? "静音" : `音量 ${Math.round(volume * 100)}%`, v.muted ? "🔇" : "🔊");
+  };
+
+  const handleProgressMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percent = rect.width > 0 ? x / rect.width : 0;
+    const time = (duration || 0) * percent;
+    setHoverInfo({ time, x, percent });
+  };
+
+  const handleProgressMouseLeave = () => {
+    setHoverInfo(null);
   };
 
   const changeRate = (rate: number) => {
@@ -693,6 +877,7 @@ export function VideoPlayer({
           v.currentTime = Math.max(0, v.currentTime - 5);
           setCurrentTime(v.currentTime);
           triggerControlsActivity();
+          triggerFlashAction("-5秒", "⏪");
           break;
         case "arrowright":
         case "l":
@@ -700,6 +885,7 @@ export function VideoPlayer({
           v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 5);
           setCurrentTime(v.currentTime);
           triggerControlsActivity();
+          triggerFlashAction("+5秒", "⏩");
           break;
         case "arrowup": {
           e.preventDefault();
@@ -708,6 +894,7 @@ export function VideoPlayer({
           setVolume(newVol);
           setIsMuted(false);
           triggerControlsActivity();
+          triggerFlashAction(`音量 ${Math.round(newVol * 100)}%`, "🔊");
           break;
         }
         case "arrowdown": {
@@ -717,6 +904,7 @@ export function VideoPlayer({
           setVolume(newVol);
           if (newVol === 0) setIsMuted(true);
           triggerControlsActivity();
+          triggerFlashAction(`音量 ${Math.round(newVol * 100)}%`, newVol === 0 ? "🔇" : "🔊");
           break;
         }
         case "m":
@@ -726,6 +914,7 @@ export function VideoPlayer({
         case "f":
           e.preventDefault();
           toggleFullscreen();
+          triggerFlashAction(isFullscreen ? "退出全屏" : "全屏", "⛶");
           break;
         case "c":
           if (hasSubtitles) {
@@ -737,6 +926,7 @@ export function VideoPlayer({
                   v.textTracks[i].mode = next ? "showing" : "hidden";
                 }
               }
+              triggerFlashAction(next ? "开启字幕" : "关闭字幕", "💬");
               return next;
             });
             triggerControlsActivity();
@@ -760,22 +950,6 @@ export function VideoPlayer({
     return () => container.removeEventListener("keydown", handleKeyDown);
   }, [togglePlay, toggleMute, toggleFullscreen, volume, hasSubtitles, triggerControlsActivity]);
 
-  const effectivePoster = poster || autoPoster || undefined;
-
-  const videoSrc = React.useMemo(() => {
-    if (!playUrl) return "";
-    if (playUrl.includes("#")) return playUrl;
-    // 仅在无封面且处于 iOS WebKit 环境下追加 #t=0.001 强制首帧渲染
-    // 桌面端及 Android 凭借 preload="metadata" 即可原生秒出首帧，避免引发二次 Range Seek
-    const isIOS =
-      typeof navigator !== "undefined" &&
-      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-    if (!effectivePoster && isIOS) {
-      return `${playUrl}#t=0.001`;
-    }
-    return playUrl;
-  }, [playUrl, effectivePoster]);
 
   return (
     <div
@@ -902,6 +1076,7 @@ export function VideoPlayer({
           markPreloadActive();
           handleTouchStart(e);
         }}
+        onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchCancel}
       >
@@ -915,7 +1090,29 @@ export function VideoPlayer({
           preload={shouldPreload ? "auto" : "metadata"}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
-          onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
+          onEnded={() => {
+            setIsPlaying(false);
+            const posKey = `memento_vpos_${encodeURIComponent(safeDecodePath(src))}`;
+            try {
+              localStorage.removeItem(posKey);
+            } catch {}
+            setResumeNotice(null);
+          }}
+          onTimeUpdate={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            setCurrentTime(v.currentTime);
+            const now = Date.now();
+            if (now - lastSavePosTimeRef.current > 2000) {
+              lastSavePosTimeRef.current = now;
+              const cur = v.currentTime;
+              if (cur > 3 && v.duration && v.duration - cur > 5) {
+                try {
+                  localStorage.setItem(`memento_vpos_${encodeURIComponent(safeDecodePath(src))}`, String(Math.floor(cur)));
+                } catch {}
+              }
+            }
+          }}
           onProgress={() => {
             const v = videoRef.current;
             if (!v || !v.duration) return;
@@ -937,16 +1134,37 @@ export function VideoPlayer({
                 setAspectRatio(v.videoWidth / v.videoHeight);
               }
               setIsLoading(false);
+              // Resume playback check
+              const posKey = `memento_vpos_${encodeURIComponent(safeDecodePath(src))}`;
+              try {
+                const saved = localStorage.getItem(posKey);
+                if (saved) {
+                  const pos = parseFloat(saved);
+                  if (pos > 3 && (!v.duration || v.duration - pos > 5)) {
+                    v.currentTime = pos;
+                    setCurrentTime(pos);
+                    setResumeNotice({ pos });
+                    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+                    resumeTimerRef.current = setTimeout(() => setResumeNotice(null), 5000);
+                  }
+                }
+              } catch {}
             }
           }}
-          onCanPlay={() => setIsLoading(false)}
-          onWaiting={() => setIsLoading(true)}
-          onPlaying={() => setIsLoading(false)}
-          onError={() => {
+          onCanPlay={() => {
             setIsLoading(false);
-            setHasError(true);
+            setIsRecovering(false);
           }}
-          className="w-full h-full object-contain"
+          onWaiting={() => setIsLoading(true)}
+          onPlaying={() => {
+            setIsLoading(false);
+            setIsRecovering(false);
+          }}
+          onError={handleVideoError}
+          className={`w-full h-full transition-all duration-300 ${
+            fitMode === "cover" ? "object-cover" : fitMode === "fill" ? "object-fill" : "object-contain"
+          }`}
+          style={{ filter: brightness !== 1 ? `brightness(${brightness})` : undefined }}
         >
           {vttBlobUrl && (
             <track
@@ -959,6 +1177,70 @@ export function VideoPlayer({
             />
           )}
         </video>
+
+        {/* Breakpoint Resume Notice Banner */}
+        {resumeNotice && (
+          <div className="absolute top-14 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/85 border border-white/20 text-white text-xs backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300">
+            <span className="text-[var(--aurora-accent)] font-medium">已自动恢复上次播放：{formatTime(resumeNotice.pos)}</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (videoRef.current) {
+                  videoRef.current.currentTime = 0;
+                  setCurrentTime(0);
+                }
+                setResumeNotice(null);
+                showInAppToast("已从头播放", displayTitle);
+              }}
+              className="px-2 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white text-[11px] font-medium transition-colors"
+            >
+              从头播放
+            </button>
+            <button
+              type="button"
+              onClick={() => setResumeNotice(null)}
+              className="p-1 text-white/60 hover:text-white transition-colors"
+              title="关闭"
+            >
+              <FiX className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Center Flash Action Ripple Overlay */}
+        {flashAction && (
+          <div key={flashAction.id} className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+            <div className="flex flex-col items-center justify-center w-20 h-20 rounded-2xl bg-black/80 border border-white/20 text-white backdrop-blur-md shadow-2xl animate-in zoom-in-75 fade-in duration-200">
+              <span className="text-2xl">{flashAction.icon}</span>
+              <span className="text-[11px] font-medium tracking-wide mt-1 text-white/90">{flashAction.label}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Swipe Brightness / Volume Overlay */}
+        {gestureOverlay && (
+          <div className="absolute top-1/2 -translate-y-1/2 pointer-events-none z-30 inset-x-0 flex items-center justify-center">
+            <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-black/85 border border-white/20 text-white text-xs font-semibold backdrop-blur-md shadow-2xl">
+              <span className="text-base">{gestureOverlay.type === "brightness" ? "☀️" : "🔊"}</span>
+              <span className="text-white/80">{gestureOverlay.type === "brightness" ? "亮度" : "音量"}</span>
+              <div className="w-24 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                <div
+                  className="h-full bg-[var(--aurora-accent)] rounded-full transition-all duration-75"
+                  style={{ width: `${Math.max(0, Math.min(100, gestureOverlay.value))}%` }}
+                />
+              </div>
+              <span className="font-mono text-[11px] text-white/90 min-w-8 text-right">{gestureOverlay.value}%</span>
+            </div>
+          </div>
+        )}
+
+        {/* Auto Recovery / Reconnect Banner */}
+        {isRecovering && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none z-25 backdrop-blur-xs">
+            <div className="w-9 h-9 border-3 border-[var(--aurora-accent)]/30 border-t-[var(--aurora-accent)] rounded-full animate-spin mb-2" />
+            <div className="text-white text-xs font-medium">网络抖动，正在自愈恢复播放（{retryCountRef.current}/3）...</div>
+          </div>
+        )}
 
         {/* Long Press 2x Indicator Banner */}
         {isLongPressing2x && (
@@ -985,14 +1267,14 @@ export function VideoPlayer({
         )}
 
         {/* Loading Spinner */}
-        {isLoading && !hasError && (
+        {isLoading && !hasError && !isRecovering && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none z-10 backdrop-blur-xs">
             <div className="w-10 h-10 border-3 border-[var(--aurora-accent)]/30 border-t-[var(--aurora-accent)] rounded-full animate-spin" />
           </div>
         )}
 
         {/* Big Center Play Button (When Paused) */}
-        {!isPlaying && !isLoading && !hasError && (
+        {!isPlaying && !isLoading && !hasError && !isRecovering && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="w-16 h-16 rounded-full bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl transition-transform group-hover:scale-110">
               <FiPlay className="w-7 h-7 ml-1 fill-white" />
@@ -1062,8 +1344,25 @@ export function VideoPlayer({
           showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
-        {/* Progress Bar Slider with Network Buffered Range */}
-        <div className="relative flex items-center group/progress mb-2 cursor-pointer h-3">
+        {/* Progress Bar Slider with Network Buffered Range & Hover Time */}
+        <div
+          className="relative flex items-center group/progress mb-2 cursor-pointer h-3"
+          onMouseMove={handleProgressMouseMove}
+          onMouseLeave={handleProgressMouseLeave}
+        >
+          {/* Hover Time Bubble */}
+          {hoverInfo && duration > 0 && (
+            <div
+              className="absolute bottom-full mb-2 z-30 pointer-events-none -translate-x-1/2 flex flex-col items-center transition-all duration-75"
+              style={{ left: hoverInfo.x }}
+            >
+              <div className="px-2 py-0.5 rounded-md bg-black/90 border border-white/25 text-white text-[11px] font-mono shadow-2xl backdrop-blur-md whitespace-nowrap">
+                {formatTime(hoverInfo.time)}
+              </div>
+              <div className="w-1.5 h-1.5 bg-black/90 rotate-45 border-r border-b border-white/25 -mt-1" />
+            </div>
+          )}
+
           {/* Dual Layer Track: Background + Network Buffered + Current Played */}
           <div className="absolute inset-x-0 h-1.5 group-hover/progress:h-2 rounded-full bg-white/15 overflow-hidden transition-all pointer-events-none">
             {/* Network Buffered Track (浅白指示网络流已缓冲段) */}
@@ -1236,6 +1535,18 @@ export function VideoPlayer({
               className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
             >
               <span className="text-[11px] font-mono border border-white/30 px-1 py-0.5 rounded">PiP</span>
+            </button>
+
+            {/* Aspect Ratio Fill Mode */}
+            <button
+              type="button"
+              onClick={cycleFitMode}
+              title={`画面比例：${fitMode === "cover" ? "居中裁剪铺满" : fitMode === "fill" ? "拉伸填满" : "适应原比例"}`}
+              className={`p-1.5 rounded-lg transition-colors ${
+                fitMode !== "contain" ? "text-[var(--aurora-accent)] bg-white/10" : "text-white/80 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <FiLayers className="w-4 h-4" />
             </button>
 
             {/* Fullscreen Button */}

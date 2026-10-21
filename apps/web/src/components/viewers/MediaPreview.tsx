@@ -251,6 +251,139 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
 /*                          1. Video Player Component                        */
 /* ========================================================================= */
 
+/**
+ * Synchronize native MediaSession metadata and controls for iOS Dynamic Island,
+ * Lock Screen widgets, macOS Now Playing, and Android notification controls.
+ * Eliminates unsightly white borders by serving 100% full-bleed square artwork.
+ */
+function useMediaSessionIntegration({
+  mediaRef,
+  title,
+  poster,
+  isPlaying,
+  duration,
+  currentTime,
+  playbackRate = 1,
+}: {
+  mediaRef: React.RefObject<HTMLMediaElement | null>;
+  title?: string;
+  poster?: string | null;
+  isPlaying: boolean;
+  duration: number;
+  currentTime: number;
+  playbackRate?: number;
+}) {
+  // 1. Sync title, artist and full-bleed borderless artwork
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+
+    try {
+      const getAbsoluteUrl = (path: string) => {
+        if (!path) return "";
+        if (
+          path.startsWith("http://") ||
+          path.startsWith("https://") ||
+          path.startsWith("blob:") ||
+          path.startsWith("data:")
+        ) {
+          return path;
+        }
+        return new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).href;
+      };
+
+      const defaultArt512 = getAbsoluteUrl("/memento-artwork-512.png");
+      const defaultArt192 = getAbsoluteUrl("/memento-artwork-192.png");
+
+      const art512 = poster ? getAbsoluteUrl(poster) : defaultArt512;
+      const art192 = poster ? getAbsoluteUrl(poster) : defaultArt192;
+
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || "Memento 媒体",
+        artist: "Memento",
+        album: "AI 编程记忆",
+        artwork: [
+          { src: art512, sizes: "512x512", type: "image/png" },
+          { src: art192, sizes: "192x192", type: "image/png" },
+        ],
+      });
+    } catch {
+      // mediaSession metadata setup failed gracefully
+    }
+  }, [title, poster]);
+
+  // 2. Sync playback state (playing vs paused)
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    } catch {
+      // ignore
+    }
+  }, [isPlaying]);
+
+  // 3. Sync position state for native timeline slider on lock screen
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+    if (!duration || isNaN(duration) || duration <= 0) return;
+
+    try {
+      if (typeof navigator.mediaSession.setPositionState === "function") {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(duration, 0),
+          playbackRate: playbackRate > 0 ? playbackRate : 1,
+          position: Math.min(Math.max(currentTime, 0), duration),
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentTime, duration, playbackRate]);
+
+  // 4. Hook native hardware and lock screen controls
+  useEffect(() => {
+    if (typeof window === "undefined" || !("mediaSession" in navigator)) return;
+
+    const m = mediaRef.current;
+    if (!m) return;
+
+    const safeSetHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // unsupported action ignored
+      }
+    };
+
+    safeSetHandler("play", () => {
+      m.play().catch(() => {});
+    });
+    safeSetHandler("pause", () => {
+      m.pause();
+    });
+    safeSetHandler("seekto", (details) => {
+      if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
+        m.currentTime = details.seekTime;
+      }
+    });
+    safeSetHandler("seekbackward", (details) => {
+      const offset = details.seekOffset || 10;
+      m.currentTime = Math.max(0, m.currentTime - offset);
+    });
+    safeSetHandler("seekforward", (details) => {
+      const offset = details.seekOffset || 10;
+      m.currentTime = Math.min(m.duration || Infinity, m.currentTime + offset);
+    });
+
+    return () => {
+      safeSetHandler("play", null);
+      safeSetHandler("pause", null);
+      safeSetHandler("seekto", null);
+      safeSetHandler("seekbackward", null);
+      safeSetHandler("seekforward", null);
+    };
+  }, [mediaRef]);
+}
+
 export interface VideoPlayerProps {
   src: string;
   title?: string;
@@ -712,6 +845,17 @@ export function VideoPlayer({
     }
     return playUrl;
   }, [playUrl, effectivePoster]);
+
+  // Native MediaSession (Now Playing / Lock Screen / Dynamic Island) Integration
+  useMediaSessionIntegration({
+    mediaRef: videoRef,
+    title: displayTitle,
+    poster: effectivePoster,
+    isPlaying,
+    duration,
+    currentTime,
+    playbackRate: longPressSpeed || playbackRate,
+  });
 
   const hideControlsTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -2183,6 +2327,17 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
   if (ext && !downloadFilename.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
     downloadFilename = `${downloadFilename}.${ext}`;
   }
+
+  // Native MediaSession (Now Playing / Lock Screen / Dynamic Island) Integration
+  useMediaSessionIntegration({
+    mediaRef: audioRef,
+    title: displayTitle,
+    poster: null,
+    isPlaying,
+    duration,
+    currentTime,
+    playbackRate,
+  });
 
   const togglePlay = () => {
     const a = audioRef.current;

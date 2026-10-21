@@ -331,7 +331,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         </div>
 
         {/* Scrollable Main Content */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-2 sm:py-4 space-y-3 sm:space-y-4">
           {/* Main Media Player Viewport */}
           <div className="w-full rounded-2xl overflow-hidden shadow-xl border border-[var(--aurora-border)] bg-black/80">
             {renderPlayer()}

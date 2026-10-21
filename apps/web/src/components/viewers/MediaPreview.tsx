@@ -425,6 +425,9 @@ export function VideoPlayer({
     }
   });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isPseudoFullscreen, setIsPseudoFullscreen] = useState<boolean>(false);
+  const [isLandscapeRotated, setIsLandscapeRotated] = useState<boolean>(false);
+  const effectiveFullscreen = isFullscreen || isPseudoFullscreen;
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [hasError, setHasError] = useState<boolean>(false);
@@ -1149,44 +1152,142 @@ export function VideoPlayer({
     }, 150);
   };
 
-  const toggleFullscreen = async () => {
-    const v = videoRef.current;
-    const el = containerRef.current;
-    const isIOS =
-      typeof navigator !== "undefined" &&
-      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-
-    // iOS Safari / WebKit native system-level fullscreen
-    if (isIOS && (v as any)?.webkitEnterFullscreen) {
-      try {
-        (v as any).webkitEnterFullscreen();
-        return;
-      } catch {
-        // ignore and fallback
+  // Sync native fullscreen changes & lock body scroll on pseudo fullscreen
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isNativeFull = Boolean(
+        document.fullscreenElement ||
+          (document as any).webkitFullscreenElement ||
+          (document as any).mozFullScreenElement ||
+          (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isNativeFull);
+      if (!isNativeFull && !isPseudoFullscreen) {
+        setIsLandscapeRotated(false);
       }
+    };
+
+    const v = videoRef.current;
+    const onWebkitBegin = () => setIsFullscreen(true);
+    const onWebkitEnd = () => setIsFullscreen(false);
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    if (v) {
+      v.addEventListener("webkitbeginfullscreen", onWebkitBegin);
+      v.addEventListener("webkitendfullscreen", onWebkitEnd);
     }
 
-    if (!el) return;
-    if (!document.fullscreenElement) {
-      try {
-        await el.requestFullscreen();
-        setIsFullscreen(true);
-      } catch {
-        if ((v as any)?.webkitEnterFullscreen) {
-          try {
-            (v as any).webkitEnterFullscreen();
-          } catch {}
-        }
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      if (v) {
+        v.removeEventListener("webkitbeginfullscreen", onWebkitBegin);
+        v.removeEventListener("webkitendfullscreen", onWebkitEnd);
       }
-    } else {
+    };
+  }, [isPseudoFullscreen]);
+
+  useEffect(() => {
+    if (isPseudoFullscreen) {
+      const originalOverflow = document.body.style.overflow;
+      const originalTouchAction = document.body.style.touchAction;
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+      return () => {
+        document.body.style.overflow = originalOverflow;
+        document.body.style.touchAction = originalTouchAction;
+      };
+    }
+  }, [isPseudoFullscreen]);
+
+  const toggleLandscapeRotation = useCallback(() => {
+    triggerHapticFeedback();
+    setIsLandscapeRotated((prev) => {
+      const next = !prev;
+      triggerFlashAction(next ? "已切换为横屏满屏" : "已切换为竖屏模式", "🔄");
       try {
-        await document.exitFullscreen();
+        if (screen.orientation && typeof (screen.orientation as any).lock === "function") {
+          if (next) {
+            (screen.orientation as any).lock("landscape").catch(() => {});
+          } else if (typeof (screen.orientation as any).unlock === "function") {
+            (screen.orientation as any).unlock();
+          }
+        }
+      } catch {}
+      return next;
+    });
+  }, [triggerFlashAction]);
+
+  const toggleFullscreen = async () => {
+    triggerHapticFeedback();
+    const v = videoRef.current;
+    const el = containerRef.current;
+    const isTouchOrMobile =
+      typeof window !== "undefined" &&
+      (window.innerWidth < 1024 ||
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+    // 如果当前已经是视口全屏，则退出
+    if (isPseudoFullscreen) {
+      setIsPseudoFullscreen(false);
+      setIsLandscapeRotated(false);
+      triggerFlashAction("退出全屏", "⛶");
+      try {
+        if (screen.orientation && typeof (screen.orientation as any).unlock === "function") {
+          (screen.orientation as any).unlock();
+        }
+      } catch {}
+      return;
+    }
+
+    // 如果已经是原生全屏，则退出
+    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        }
         setIsFullscreen(false);
+        setIsLandscapeRotated(false);
+        triggerFlashAction("退出全屏", "⛶");
+        return;
       } catch {
         // ignore
       }
     }
+
+    // 移动端环境（iOS Safari、微信、Android WebView、PWA 等）优先进入视口伪全屏，保留全套自定义控制、字幕与横屏能力
+    if (isTouchOrMobile) {
+      setIsPseudoFullscreen(true);
+      triggerFlashAction("全屏播放", "⛶");
+      return;
+    }
+
+    // 桌面端环境优先尝试原生 Fullscreen API
+    if (el) {
+      try {
+        if (el.requestFullscreen) {
+          await el.requestFullscreen();
+          setIsFullscreen(true);
+          triggerFlashAction("全屏", "⛶");
+          return;
+        } else if ((el as any).webkitRequestFullscreen) {
+          await (el as any).webkitRequestFullscreen();
+          setIsFullscreen(true);
+          triggerFlashAction("全屏", "⛶");
+          return;
+        }
+      } catch (err) {
+        console.warn("requestFullscreen failed, falling back to pseudo-fullscreen", err);
+      }
+    }
+
+    // 降级兜底：无缝进入视口伪全屏
+    setIsPseudoFullscreen(true);
+    triggerFlashAction("全屏播放", "⛶");
   };
 
   const togglePiP = async () => {
@@ -1330,7 +1431,12 @@ export function VideoPlayer({
         case "f":
           e.preventDefault();
           toggleFullscreen();
-          triggerFlashAction(isFullscreen ? "退出全屏" : "全屏", "⛶");
+          break;
+        case "escape":
+          if (isPseudoFullscreen) {
+            e.preventDefault();
+            toggleFullscreen();
+          }
           break;
         case "c":
           if (hasSubtitles) {
@@ -1423,7 +1529,8 @@ export function VideoPlayer({
     stepFrame,
     toggleAudioBoost,
     triggerFlashAction,
-    isFullscreen,
+    effectiveFullscreen,
+    isPseudoFullscreen,
   ]);
 
 
@@ -1434,9 +1541,13 @@ export function VideoPlayer({
       onMouseMove={triggerControlsActivity}
       onMouseEnter={markPreloadActive}
       onMouseLeave={() => isPlaying && setShowControls(false)}
-      className={`relative group my-4 w-full overflow-hidden rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent)]/50 ${className}`}
+      className={`relative group w-full overflow-hidden transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent)]/50 ${
+        isPseudoFullscreen
+          ? "!fixed !inset-0 !z-[999999] !m-0 !w-screen !h-[100dvh] !max-w-none !max-h-none !rounded-none !border-0 bg-black flex flex-col justify-center items-center"
+          : `my-4 rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl ${className}`
+      }`}
       style={{
-        boxShadow: "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
+        boxShadow: isPseudoFullscreen ? "none" : "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
       }}
     >
       <style
@@ -1457,18 +1568,31 @@ export function VideoPlayer({
       />
       {/* Top Bar Overlay */}
       <div
-        className={`absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-300 ${
+        className={`absolute top-0 inset-x-0 z-20 flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-b from-black/85 via-black/40 to-transparent transition-opacity duration-300 ${
+          effectiveFullscreen ? "pt-[max(0.75rem,env(safe-area-inset-top))]" : ""
+        } ${
           !isScreenLocked && (showControls || !isPlaying) ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
-        <div className="flex items-center gap-2.5 min-w-0 pr-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[var(--aurora-accent)]/20 text-[var(--aurora-accent)] text-xs">
+        <div className="flex items-center gap-2 min-w-0 pr-2">
+          {effectiveFullscreen && (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title="退出全屏 (ESC)"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 text-white text-xs backdrop-blur-md transition-all shrink-0 mr-1"
+            >
+              <FiMinimize className="w-3.5 h-3.5" />
+              <span className="text-[11px] font-medium hidden xs:inline">返回</span>
+            </button>
+          )}
+          <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[var(--aurora-accent)]/20 text-[var(--aurora-accent)] text-xs shrink-0">
             <FiVideo className="w-3.5 h-3.5" />
           </span>
           <span className="text-xs font-medium text-white/90 truncate tracking-wide" title={displayTitle}>
             {displayTitle}
           </span>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/60 uppercase">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/60 uppercase shrink-0">
             {downloadFilename.split(".").pop() || "VIDEO"}
           </span>
         </div>
@@ -1579,9 +1703,28 @@ export function VideoPlayer({
       {/* Main Video Element */}
       <div
         className={`relative w-full flex items-center justify-center bg-black cursor-pointer select-none transition-all duration-300 ${
-          aspectRatio && aspectRatio < 0.9 ? "max-h-[75vh]" : "aspect-video"
+          effectiveFullscreen
+            ? "flex-1 h-full max-h-none w-full"
+            : aspectRatio && aspectRatio < 0.9
+            ? "max-h-[75vh]"
+            : "aspect-video"
         }`}
-        style={aspectRatio && aspectRatio < 0.9 ? { aspectRatio: `${aspectRatio}` } : undefined}
+        style={
+          isLandscapeRotated
+            ? {
+                transform: "rotate(90deg)",
+                transformOrigin: "center center",
+                width: "100dvh",
+                height: "100dvw",
+                maxWidth: "100dvh",
+                maxHeight: "100dvw",
+              }
+            : effectiveFullscreen
+            ? { height: "100%", width: "100%" }
+            : aspectRatio && aspectRatio < 0.9
+            ? { aspectRatio: `${aspectRatio}` }
+            : undefined
+        }
         onClick={() => {
           if (Date.now() - lastTapRef.current.time < 280) return;
           togglePlay();
@@ -1974,7 +2117,9 @@ export function VideoPlayer({
 
       {/* Bottom Floating Controls */}
       <div
-        className={`absolute bottom-0 inset-x-0 z-20 px-4 py-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 ${
+        className={`absolute bottom-0 inset-x-0 z-20 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 ${
+          effectiveFullscreen ? "pb-[max(0.75rem,env(safe-area-inset-bottom))]" : ""
+        } ${
           !isScreenLocked && (showControls || !isPlaying) ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
@@ -2294,14 +2439,31 @@ export function VideoPlayer({
               <FiLayers className="w-4 h-4" />
             </button>
 
+            {/* Fullscreen & Landscape Rotation Buttons */}
+            {effectiveFullscreen && (
+              <button
+                type="button"
+                onClick={toggleLandscapeRotation}
+                title={isLandscapeRotated ? "切换回竖屏" : "横屏满屏旋转"}
+                className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                  isLandscapeRotated
+                    ? "text-[var(--aurora-accent)] bg-white/20 font-semibold"
+                    : "text-white/80 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <FiRotateCw className={`w-4 h-4 transition-transform duration-300 ${isLandscapeRotated ? "rotate-90 text-[var(--aurora-accent)]" : ""}`} />
+                <span className="text-[10px] hidden sm:inline">{isLandscapeRotated ? "竖屏" : "横屏"}</span>
+              </button>
+            )}
+
             {/* Fullscreen Button */}
             <button
               type="button"
               onClick={toggleFullscreen}
-              title={isFullscreen ? "退出全屏" : "全屏"}
+              title={effectiveFullscreen ? "退出全屏" : "全屏"}
               className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
             >
-              {isFullscreen ? <FiMinimize className="w-4 h-4" /> : <FiMaximize className="w-4 h-4" />}
+              {effectiveFullscreen ? <FiMinimize className="w-4 h-4" /> : <FiMaximize className="w-4 h-4" />}
             </button>
           </div>
         </div>

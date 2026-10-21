@@ -7,7 +7,6 @@ import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph, Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar } from "@/components/aurora/primitives";
 import { directConnect } from "@/lib/direct-connect";
-import { DirectConnectCard } from "./DirectConnectCard";
 
 export interface Device {
   id: string;
@@ -138,8 +137,6 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
   return (
     <div className="w-full">
       {!hideTopBar && <TopBar title={t.devices.title} subtitle={t.devices.subtitle} />}
-
-      <DirectConnectCard />
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <Btn

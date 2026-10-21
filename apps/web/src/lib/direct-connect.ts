@@ -69,8 +69,8 @@ class DirectConnectManager {
       if (raw) {
         const parsed = JSON.parse(raw);
         this.config = {
-          enabled: parsed.enabled !== undefined ? Boolean(parsed.enabled) : true,
-          autoDiscovery: parsed.autoDiscovery !== undefined ? Boolean(parsed.autoDiscovery) : true,
+          enabled: true, // Always automatically enabled in zero-config mode
+          autoDiscovery: true,
           customHost: (parsed.customHost || parsed.directHost || "").trim().replace(/\/+$/, ""),
         };
       }

@@ -146,6 +146,23 @@ function AskPageContent() {
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
+  const [viewportBottomOffset, setViewportBottomOffset] = useState<number>(0);
+
+  // Mobile VisualViewport adaptive positioning for iOS/Android virtual keyboards
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const handleViewportChange = () => {
+      const keyboardHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setViewportBottomOffset(keyboardHeight > 40 ? Math.round(keyboardHeight) : 0);
+    };
+    vv.addEventListener("resize", handleViewportChange);
+    vv.addEventListener("scroll", handleViewportChange);
+    return () => {
+      vv.removeEventListener("resize", handleViewportChange);
+      vv.removeEventListener("scroll", handleViewportChange);
+    };
+  }, []);
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
@@ -4628,7 +4645,10 @@ function AskPageContent() {
   <footer
     className="shrink-0 px-2.5 pt-2 sm:px-3.5 sm:pt-2.5 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
     style={{
-      paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0.5rem))",
+      paddingBottom: viewportBottomOffset > 0
+        ? `${viewportBottomOffset + 6}px`
+        : "max(0.5rem, env(safe-area-inset-bottom, 0.5rem))",
+      transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
     }}
   >
     <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>

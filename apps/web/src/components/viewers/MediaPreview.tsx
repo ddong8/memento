@@ -35,7 +35,7 @@ import {
   FiSliders,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
-import { showInAppToast } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
 import { directConnect, DirectProbeResult, DirectConnectConfig } from "@/lib/direct-connect";
 import { useMediaInspector } from "./MediaInspectorContext";
@@ -673,9 +673,7 @@ export function VideoPlayer({
         v.playbackRate = targetRate;
         setLongPressSpeed(targetRate);
         setIsLongPressing2x(true);
-        if (typeof window !== "undefined" && typeof (window as any).__memento_haptic === "function") {
-          (window as any).__memento_haptic("medium");
-        }
+        triggerHapticFeedback(18);
       }, 350);
     }
   };
@@ -1858,6 +1856,7 @@ export function VideoPlayer({
             e.stopPropagation();
             setIsScreenLocked((v) => {
               const next = !v;
+              triggerHapticFeedback(next ? [20, 40, 20] : 15);
               triggerFlashAction(next ? "屏幕已锁定防误触" : "屏幕已解锁", next ? "🔒" : "🔓");
               return next;
             });

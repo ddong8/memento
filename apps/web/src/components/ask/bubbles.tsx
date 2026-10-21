@@ -9,6 +9,7 @@ import { ExecutionTabs } from "@/components/ExecutionCard";
 import { Source,Turn,formatTurnDuration,formatTurnTimestamp,parseTurnContent } from "@/lib/ask/turns";
 import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
 import { FiZoomIn } from "react-icons/fi";
+import { triggerHapticFeedback } from "@/lib/native-notify";
 
 function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
@@ -129,19 +130,36 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     </div>
   );
 }
+export interface UserBubbleProps {
+  index: number;
+  content: string;
+  images?: string[];
+  createdAt?: string;
+  onShareTurn?: (index: number) => void;
+}
+
+function areUserPropsEqual(prev: UserBubbleProps, next: UserBubbleProps) {
+  if (prev.content !== next.content) return false;
+  if (prev.createdAt !== next.createdAt) return false;
+  if (prev.index !== next.index) return false;
+  if (prev.images !== next.images) {
+    if (prev.images?.length !== next.images?.length) return false;
+    if (prev.images && next.images) {
+      for (let i = 0; i < prev.images.length; i++) {
+        if (prev.images[i] !== next.images[i]) return false;
+      }
+    }
+  }
+  return true;
+}
+
 export const UserBubble = memo(function UserBubble({
   index,
   content,
   images,
   createdAt,
   onShareTurn,
-}: {
-  index: number;
-  content: string;
-  images?: string[];
-  createdAt?: string;
-  onShareTurn?: (index: number) => void;
-}) {
+}: UserBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const timeInfo = formatTurnTimestamp(createdAt);
@@ -150,6 +168,7 @@ export const UserBubble = memo(function UserBubble({
     if (!content) return;
     navigator.clipboard.writeText(content).then(() => {
       setCopied(true);
+      triggerHapticFeedback(12);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
   };
@@ -290,7 +309,38 @@ export const UserBubble = memo(function UserBubble({
       </div>
     </div>
   );
-});
+}, areUserPropsEqual);
+
+export interface AssistantBubbleProps {
+  index: number;
+  turn: Turn;
+  isLast: boolean;
+  streaming: boolean;
+  isReconnecting?: boolean;
+  prevUserCreatedAt?: string;
+  onSourcesClick: (sources: Source[]) => void;
+  onSmartCompactAndRetry: (sid?: string) => void;
+  onRetry?: () => void;
+  onShareTurn?: (index: number) => void;
+  t: any;
+}
+
+function areAssistantPropsEqual(prev: AssistantBubbleProps, next: AssistantBubbleProps) {
+  if (prev.isLast !== next.isLast) return false;
+  if (prev.streaming !== next.streaming) return false;
+  if (prev.isReconnecting !== next.isReconnecting) return false;
+  if (prev.index !== next.index) return false;
+  if (prev.prevUserCreatedAt !== next.prevUserCreatedAt) return false;
+  if (prev.t !== next.t) return false;
+  if (prev.turn !== next.turn) {
+    if (prev.turn.content !== next.turn.content) return false;
+    if (prev.turn.thinking !== next.turn.thinking) return false;
+    if (prev.turn.duration_ms !== next.turn.duration_ms) return false;
+    if (prev.turn.toolCalls !== next.turn.toolCalls) return false;
+    if (prev.turn.created_at !== next.turn.created_at) return false;
+  }
+  return true;
+}
 
 export const AssistantBubble = memo(function AssistantBubble({
   index,
@@ -304,19 +354,7 @@ export const AssistantBubble = memo(function AssistantBubble({
   onRetry,
   onShareTurn,
   t,
-}: {
-  index: number;
-  turn: Turn;
-  isLast: boolean;
-  streaming: boolean;
-  isReconnecting?: boolean;
-  prevUserCreatedAt?: string;
-  onSourcesClick: (sources: Source[]) => void;
-  onSmartCompactAndRetry: (sid?: string) => void;
-  onRetry?: () => void;
-  onShareTurn?: (index: number) => void;
-  t: any;
-}) {
+}: AssistantBubbleProps) {
   const liveAgentStdout = useMemo(() => {
     if (turn.content && turn.content.trim().length > 0) return "";
     if (!turn.toolCalls || turn.toolCalls.length === 0) return "";
@@ -351,6 +389,7 @@ export const AssistantBubble = memo(function AssistantBubble({
     if (!content) return;
     navigator.clipboard.writeText(content).then(() => {
       setCopied(true);
+      triggerHapticFeedback(12);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
   };
@@ -564,4 +603,4 @@ export const AssistantBubble = memo(function AssistantBubble({
     </Glass>
   </div>
   );
-});
+}, areAssistantPropsEqual);

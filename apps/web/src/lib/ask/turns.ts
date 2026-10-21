@@ -70,7 +70,7 @@ export function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<vo
   });
 }
 
-export async function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.82): Promise<string> {
+export async function compressImageToDataUrl(file: File, maxDim = 1600, quality = 0.85): Promise<string> {
   // 1. 优先使用 OffscreenCanvas 与 createImageBitmap，GPU/后台线程异步解码与绘制，0ms 阻塞 UI 主线程
   if (typeof window !== "undefined" && "createImageBitmap" in window && "OffscreenCanvas" in window) {
     try {
@@ -90,12 +90,23 @@ export async function compressImageToDataUrl(file: File, maxDim = 1600, quality 
       if (ctx) {
         ctx.drawImage(bitmap, 0, 0, width, height);
         bitmap.close();
-        const blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
+
+        // 优先使用现代 WebP 格式（体积减少 35% 且保留透明通道），降级为 JPEG
+        let blob: Blob | null = null;
+        try {
+          blob = await canvas.convertToBlob({ type: "image/webp", quality });
+        } catch {
+          blob = null;
+        }
+        if (!blob || blob.type !== "image/webp") {
+          blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
+        }
+
         return await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
-          reader.readAsDataURL(blob);
+          reader.readAsDataURL(blob!);
         });
       }
     } catch {
@@ -128,9 +139,11 @@ export async function compressImageToDataUrl(file: File, maxDim = 1600, quality 
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
-        // 使用高质量 JPEG 编码，彻底避免 HTML5 Canvas 对 PNG 忽略 quality 参数造成的数兆级臃肿
-        const mime = "image/jpeg";
-        const dataUrl = canvas.toDataURL(mime, quality);
+        // 优先 WebP 编码，不支持则降级为 JPEG
+        let dataUrl = canvas.toDataURL("image/webp", quality);
+        if (!dataUrl.startsWith("data:image/webp")) {
+          dataUrl = canvas.toDataURL("image/jpeg", quality);
+        }
         resolve(dataUrl);
       };
       img.onerror = () => resolve(e.target?.result as string);

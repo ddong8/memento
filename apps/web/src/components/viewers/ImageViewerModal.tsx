@@ -13,7 +13,7 @@ import {
   FiMaximize2,
 } from "react-icons/fi";
 import { resolveMediaUrl, safeDecodePath, getFilenameFromUrl } from "./MediaPreview";
-import { showInAppToast } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 
 export interface ImageViewerItem {
   src: string;
@@ -115,12 +115,14 @@ export function ImageViewerModal({
 
   const handlePrev = useCallback(() => {
     if (normalizedList.length <= 1) return;
+    triggerHapticFeedback(12);
     setCurrentIndex((prev) => (prev > 0 ? prev - 1 : normalizedList.length - 1));
     resetTransform();
   }, [normalizedList.length, resetTransform]);
 
   const handleNext = useCallback(() => {
     if (normalizedList.length <= 1) return;
+    triggerHapticFeedback(12);
     setCurrentIndex((prev) => (prev < normalizedList.length - 1 ? prev + 1 : 0));
     resetTransform();
   }, [normalizedList.length, resetTransform]);
@@ -188,6 +190,7 @@ export function ImageViewerModal({
   // Double click / tap toggle zoom
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    triggerHapticFeedback(15);
     if (zoom > 1) {
       resetTransform();
     } else {
@@ -215,6 +218,7 @@ export function ImageViewerModal({
       const timeDelta = now - lastTapRef.current;
       if (timeDelta < 300) {
         // Double tap!
+        triggerHapticFeedback(15);
         if (zoom > 1) {
           resetTransform();
         } else {

@@ -259,13 +259,15 @@ async def search(
         # matched only by meaning and contain no literal occurrence.
         snippet = ""
         if d.content:
-            lower_content = d.content.lower()
+            # 限制在大文本前 120KB 内截取摘要，彻底杜绝对数兆级文档全量 lower() 造成的 CPU 与内存开销
+            sample = d.content[:120_000]
+            lower_sample = sample.lower()
             lower_q = clean_q.lower()
-            idx = lower_content.find(lower_q)
+            idx = lower_sample.find(lower_q)
             if idx >= 0:
                 start = max(0, idx - 100)
-                end = min(len(d.content), idx + len(clean_q) + 100)
-                snippet = d.content[start:end]
+                end = min(len(sample), idx + len(clean_q) + 100)
+                snippet = sample[start:end]
                 if start > 0:
                     snippet = "..." + snippet
                 if end < len(d.content):
@@ -293,5 +295,5 @@ async def search(
         "semantic_used": bool(sem_order),
         "results": items,
     }
-    await cache_set(cache_key, payload, ttl_seconds=20)
+    await cache_set(cache_key, payload, ttl_seconds=45)
     return payload

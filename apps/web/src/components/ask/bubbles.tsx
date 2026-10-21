@@ -16,9 +16,11 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   const { t } = useI18n();
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [manualExpanded, setManualExpanded] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [elapsedSec, setElapsedSec] = useState<number>(0);
   const startTimeRef = useRef<number | null>(null);
   const finalDurationRef = useRef<number | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isLive) {
@@ -36,7 +38,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     }
   }, [isLive]);
 
-  // 始终保持全屏铺满展开，除非用户手动点击折叠
+  // 始终保持铺满全屏展开，除非用户手动点击折叠
   const expanded = userToggled ? manualExpanded : true;
 
   if (!thinking && !isLive) return null;
@@ -48,87 +50,183 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   const speedLabel = (!isLive && duration > 0.5 && charCount > 10) ? `约 ${Math.round(charCount / duration)} 字/秒` : "";
 
   return (
-    <div
-      style={{
-        width: "100%",
-        marginBottom: 12,
-        borderRadius: 12,
-        border: "1px solid var(--aurora-border)",
-        background: "rgba(255, 255, 255, 0.02)",
-        overflow: "hidden",
-        maxWidth: "100%",
-        minWidth: 0,
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          setUserToggled(true);
-          setManualExpanded(!expanded);
-        }}
+    <>
+      <div
         style={{
           width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 12px",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          fontSize: 12.5,
-          color: "var(--aurora-fg3)",
-          textAlign: "left",
+          marginBottom: 12,
+          borderRadius: 12,
+          border: "1px solid var(--aurora-border)",
+          background: "rgba(255, 255, 255, 0.02)",
+          overflow: "hidden",
+          maxWidth: "100%",
+          minWidth: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <Icon
-            name="zap"
-            size={14}
-            style={{
-              color: isLive ? "var(--aurora-accent)" : "#F59E0B",
-              animation: isLive ? "pulse 1.5s infinite" : "none",
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
-            {isLive ? t.ask.thinking : t.ask.thinkingDone}
-          </span>
-          {isLive ? (
-            <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
-            </span>
-          ) : (
-            <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
-              ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
-            </span>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--aurora-fg4)" }}>
-          <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
-          <Icon name={expanded ? "chevron_up" : "chevron_down"} size={13} />
-        </div>
-      </button>
-      {expanded && (
-        <div
+        <button
+          type="button"
+          onClick={() => {
+            setUserToggled(true);
+            setManualExpanded(!expanded);
+          }}
           style={{
             width: "100%",
-            borderTop: "1px solid var(--aurora-border)",
-            padding: "10px 14px",
-            background: "rgba(0, 0, 0, 0.12)",
-            fontSize: 13,
-            lineHeight: 1.6,
-            color: "var(--aurora-fg2)",
-            overflowWrap: "anywhere",
-            wordBreak: "break-word",
-            maxWidth: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px 12px",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 12.5,
+            color: "var(--aurora-fg3)",
+            textAlign: "left",
           }}
         >
-          <div className="prose prose-sm max-w-none w-full text-xs" style={{ opacity: 0.9, width: "100%", maxWidth: "100%" }}>
-            <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+            <Icon
+              name="zap"
+              size={14}
+              style={{
+                color: isLive ? "var(--aurora-accent)" : "#F59E0B",
+                animation: isLive ? "pulse 1.5s infinite" : "none",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontWeight: 500, color: isLive ? "var(--aurora-accent)" : "var(--aurora-fg2)", whiteSpace: "nowrap" }}>
+              {isLive ? t.ask.thinking : t.ask.thinkingDone}
+            </span>
+            {isLive ? (
+              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+                ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+                ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
+              </span>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11.5, color: "var(--aurora-fg4)", flexShrink: 0 }}>
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsFullscreen(true);
+              }}
+              className="hover:text-[var(--aurora-accent)] transition-colors p-1 rounded hover:bg-white/5 cursor-pointer flex items-center gap-1"
+              title="沉浸式全屏查看完整思考推演"
+            >
+              <Icon name="maximize" size={12} />
+              <span className="hidden sm:inline">全屏查看</span>
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
+              <Icon name={expanded ? "chevron_up" : "chevron_down"} size={13} />
+            </div>
+          </div>
+        </button>
+        {expanded && (
+          <div
+            ref={scrollContainerRef}
+            style={{
+              width: "100%",
+              borderTop: "1px solid var(--aurora-border)",
+              padding: "10px 14px",
+              background: "rgba(0, 0, 0, 0.12)",
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: "var(--aurora-fg2)",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+              maxWidth: "100%",
+              maxHeight: 480,
+              overflowY: "auto",
+            }}
+          >
+            <div className="prose prose-sm max-w-none w-full text-xs" style={{ opacity: 0.9, width: "100%", maxWidth: "100%" }}>
+              <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 沉浸式全屏思考推演弹层 */}
+      {isFullscreen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            background: "rgba(10, 15, 29, 0.96)",
+            backdropFilter: "blur(18px)",
+            WebkitBackdropFilter: "blur(18px)",
+            display: "flex",
+            flexDirection: "column",
+            padding: "clamp(12px, 3vw, 24px)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingBottom: 12,
+              borderBottom: "1px solid var(--aurora-border)",
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon
+                name="zap"
+                size={18}
+                style={{
+                  color: isLive ? "var(--aurora-accent)" : "#F59E0B",
+                  animation: isLive ? "pulse 1.5s infinite" : "none",
+                }}
+              />
+              <span style={{ fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                {isLive ? "深度心智思考推演中..." : "深度心智思考推演记录"}
+              </span>
+              <span style={{ fontSize: 12, color: "var(--aurora-fg3)" }}>
+                {durLabel ? `(耗时 ${durLabel})` : ""} {countLabel ? `· ${countLabel}` : ""} {speedLabel ? `· ${speedLabel}` : ""}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(false)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 8,
+                background: "var(--aurora-chip)",
+                border: "1px solid var(--aurora-border)",
+                color: "var(--aurora-fg1)",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="close" size={14} />
+              <span>退出全屏</span>
+            </button>
+          </div>
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "16px 20px",
+              background: "rgba(0, 0, 0, 0.2)",
+              borderRadius: 14,
+              border: "1px solid var(--aurora-border)",
+            }}
+          >
+            <div className="prose prose-base max-w-4xl mx-auto w-full text-sm leading-relaxed" style={{ color: "var(--aurora-fg2)" }}>
+              <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 export interface UserBubbleProps {
@@ -163,7 +261,7 @@ export const UserBubble = memo(function UserBubble({
 }: UserBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const timeInfo = formatTurnTimestamp(createdAt);
+  const timeInfo = formatTurnTimestamp(createdAt) || (content ? { short: "刚刚", full: "提问时间已记录" } : null);
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!content) return;
@@ -381,9 +479,19 @@ export const AssistantBubble = memo(function AssistantBubble({
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
   const [copied, setCopied] = useState(false);
 
-  const replyTime = formatTurnTimestamp(turn.created_at);
+  const replyTime = formatTurnTimestamp(turn.created_at) || (turn.finished_at ? formatTurnTimestamp(turn.finished_at) : null);
   const startTime = formatTurnTimestamp(turn.started_at || prevUserCreatedAt);
-  const durationText = formatTurnDuration(turn.duration_ms, turn.started_at || prevUserCreatedAt, turn.created_at);
+  const durationText = formatTurnDuration(turn.duration_ms, turn.started_at || prevUserCreatedAt, turn.created_at || turn.finished_at);
+
+  const contentCharCount = content ? content.trim().length : 0;
+  const durSec = turn.duration_ms
+    ? turn.duration_ms / 1000
+    : (turn.started_at || prevUserCreatedAt) && turn.created_at
+    ? (new Date(turn.created_at).getTime() - new Date(turn.started_at || prevUserCreatedAt!).getTime()) / 1000
+    : 0;
+  const speedLabel = (!isCurrentlyStreaming && durSec > 0.5 && contentCharCount > 20)
+    ? `约 ${Math.round(contentCharCount / durSec)} 字/秒`
+    : "";
 
   const handleCopyContent = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -561,6 +669,15 @@ export const AssistantBubble = memo(function AssistantBubble({
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
         <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none flex-wrap">
           <div className="flex items-center gap-2 text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {startTime && (
+              <span
+                className="inline-flex items-center gap-1 opacity-75 hidden sm:inline-flex"
+                title={`发出提问时间: ${startTime.full}`}
+              >
+                <Icon name="clock" size={10.5} />
+                <span>提问于 {startTime.short}</span>
+              </span>
+            )}
             {replyTime && (
               <span
                 className="inline-flex items-center gap-1 opacity-85"
@@ -577,6 +694,15 @@ export const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
                 <span>耗时 {durationText}</span>
+              </span>
+            )}
+            {speedLabel && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] hidden md:inline-flex"
+                title="文字生成速率"
+              >
+                <Icon name="activity" size={10} style={{ color: "var(--aurora-accent)" }} />
+                <span>{speedLabel}</span>
               </span>
             )}
             {(turn.model || (turn.execution_mode && turn.execution_mode !== "ai")) && (

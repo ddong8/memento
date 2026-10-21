@@ -285,11 +285,19 @@ function TimelineView({ data, locale, t }: { data: TimelineData; locale: string;
                   <summary style={{ cursor: "pointer", color: "var(--aurora-fg2)" }}>
                     [{a.doc_type}] {a.title}
                   </summary>
-                  <pre style={{
-                    marginTop: 6, padding: 10, fontSize: 11, lineHeight: 1.5,
-                    background: "var(--aurora-chip)", borderRadius: 8,
-                    color: "var(--aurora-fg2)", overflowX: "auto", whiteSpace: "pre-wrap",
-                  }}>{a.content}</pre>
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: "10px 14px",
+                      background: "var(--aurora-chip)",
+                      borderRadius: 8,
+                      fontSize: 12.5,
+                      lineHeight: 1.6,
+                      overflowX: "auto",
+                    }}
+                  >
+                    <MarkdownViewer content={a.content || ""} />
+                  </div>
                 </details>
               ))}
             </div>

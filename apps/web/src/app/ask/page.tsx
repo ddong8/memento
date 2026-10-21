@@ -167,14 +167,20 @@ function AskPageContent() {
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPasteTimeRef = useRef<number>(0);
+  const recentPastedFingerprintsRef = useRef<Map<string, number>>(new Map());
   const warmedAskRef = useRef<boolean>(false);
 
   const addFilesAsImages = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
+    const now = Date.now();
     const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!file.type.startsWith("image/")) continue;
+      const fp = `${file.name || "image.png"}_${file.size}_${file.lastModified || 0}`;
+      const lastSeen = recentPastedFingerprintsRef.current.get(fp) || 0;
+      if (now - lastSeen < 1500) continue;
+      recentPastedFingerprintsRef.current.set(fp, now);
       try {
         const dataUrl = await compressImageToDataUrl(file);
         newImgs.push({ id: crypto.randomUUID(), name: file.name || "image.png", dataUrl, size: file.size });
@@ -215,28 +221,35 @@ function AskPageContent() {
     }
     if (rawImageFiles.length === 0) return;
 
-    // 防抖：400ms 内忽略重复触发（如 React SyntheticEvent 与原生 DOM 事件冒泡重叠）
+    // 防抖：600ms 内忽略原生与合成事件的重复交叉触发
     const now = Date.now();
-    if (now - lastPasteTimeRef.current < 400) {
+    if (now - lastPasteTimeRef.current < 600) {
       e.preventDefault();
       return;
     }
     lastPasteTimeRef.current = now;
     e.preventDefault();
 
-    // 剪贴板常对单次截图同时生成多种格式（如 image/png 与 image/jpeg/bmp/tiff）
-    // 若单次粘贴中包含多个图片项且是同次截屏，优先保留首个无损 PNG 避免重复生成两张图片
-    let imageFiles: File[] = [];
-    if (rawImageFiles.length > 1) {
-      const pngFile = rawImageFiles.find((f) => f.type === "image/png");
-      imageFiles = pngFile ? [pngFile] : [rawImageFiles[0]];
-    } else {
-      imageFiles = rawImageFiles;
+    // 剪贴板常对单次截图同时生成多种格式（如 image/png 与 image/jpeg/bmp/tiff）或同尺寸多项
+    // 若单次粘贴包含多个图片项，去重尺寸完全相同或默认同名项，优先保留首个无损 PNG 避免重复产生两张图片
+    const filteredFiles: File[] = [];
+    const seenSizes = new Set<number>();
+    for (const f of rawImageFiles) {
+      if (seenSizes.has(f.size)) continue;
+      seenSizes.add(f.size);
+      filteredFiles.push(f);
     }
+    const imageFiles = filteredFiles.length > 1 && rawImageFiles.some(f => f.name === "image.png")
+      ? [filteredFiles.find(f => f.type === "image/png") || filteredFiles[0]]
+      : filteredFiles;
 
     const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
     const seenDataUrls = new Set<string>();
     for (const file of imageFiles) {
+      const fp = `${file.name || "image.png"}_${file.size}_${file.lastModified || 0}`;
+      const lastSeen = recentPastedFingerprintsRef.current.get(fp) || 0;
+      if (now - lastSeen < 1500) continue;
+      recentPastedFingerprintsRef.current.set(fp, now);
       try {
         const dataUrl = await compressImageToDataUrl(file);
         if (seenDataUrls.has(dataUrl)) continue;

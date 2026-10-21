@@ -11,7 +11,7 @@ import re
 import uuid
 
 
-from sqlalchemy import or_, select, func
+from sqlalchemy import or_, select, func, case
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -151,6 +151,14 @@ async def hybrid_rank(
         path_lower = (d.relative_path or "").lower()
         if q_lower and (q_lower in title_lower or q_lower in path_lower):
             score *= 1.2
+
+        # P0 铁律与避坑经验动态加权（Dynamic Priority Boost: 1.8x）
+        # 命中规则文档（AGENTS.md, CLAUDE.md, rules, pitfall, 铁律, 避坑, 架构规范）时赋予 1.8x 加权，
+        # 确保工程铁律与历史避坑经验置顶于检索前置上下文，杜绝跨会话遗忘与重复踩坑
+        path_check = f"{title_lower} {path_lower}"
+        if any(term in path_check for term in ("agent", "rule", "claude.md", "pitfall", "铁律", "避坑", "规范", "guideline")):
+            score *= 1.8
+
         return score
 
     docs.sort(key=rrf, reverse=True)
@@ -372,17 +380,24 @@ async def retrieve_core_memories(
         for m in (await db.execute(proj_q)).scalars().all():
             _add_mem(m)
 
-    # 2. Global rules, guidelines & developer preferences (Always preserved)
+    # 2. Global rules, guidelines, pitfalls & developer preferences (Always preserved)
     rules_q = (
         select(UserMemory)
         .where(
             UserMemory.user_id == user.id,
             UserMemory.is_folder.is_(False),
             UserMemory.status == "active",
-            UserMemory.category.in_(["rule", "rules", "preference", "general"]),
+            UserMemory.category.in_(["rule", "rules", "pitfall", "iron_rule", "preference", "general"]),
         )
-        .order_by(UserMemory.confidence.desc(), UserMemory.updated_at.desc())
-        .limit(6)
+        .order_by(
+            case(
+                (UserMemory.category.in_(["rule", "rules", "iron_rule", "pitfall"]), 1),
+                else_=2,
+            ),
+            UserMemory.confidence.desc(),
+            UserMemory.updated_at.desc(),
+        )
+        .limit(8)
     )
     for m in (await db.execute(rules_q)).scalars().all():
         _add_mem(m)

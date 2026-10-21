@@ -28,6 +28,7 @@ export interface Turn {
   error?: boolean;
   created_at?: string;
   started_at?: string;
+  finished_at?: string;
   duration_ms?: number;
   model?: string;
   execution_mode?: string;

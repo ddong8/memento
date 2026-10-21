@@ -416,8 +416,8 @@ export default function PersonaPage() {
     prompt: string;
   } | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: False so 3D is not exclusively selected, panels visible)
-  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+  // Fullscreen Theater & Panel Collapse State (Default: True for 100% full-screen 3D Digital Twin Avatar animation)
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
@@ -827,6 +827,14 @@ export default function PersonaPage() {
         {/* Action Controls */}
         <div className="flex items-center gap-1.5 shrink-0">
           <Btn
+            variant={isPanelCollapsed ? "glass" : "primary"}
+            size="sm"
+            onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
+            title={isPanelCollapsed ? "展开画像特征管理面板" : "3D 数字人铺满全屏"}
+          >
+            {isPanelCollapsed ? "📋 画像规则" : "🎭 3D 满屏"}
+          </Btn>
+          <Btn
             variant="glass"
             size="sm"
             icon="sparkles"
@@ -888,8 +896,10 @@ export default function PersonaPage() {
       {/* ─────────────────────────────────────────────────────────────
           2. 一屏全景双翼驾驶舱 (Unified Single-Screen Twin Cockpit)
           ───────────────────────────────────────────────────────────── */}
-      <div ref={cockpitRef} className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0 overflow-y-auto lg:overflow-hidden relative">
-        {/* ── 左翼: 3D 全息神经孪生体主舞台 (支持 100% 满屏沉浸与分屏联动，移动端自动缩放高度) ── */}
+      <div ref={cockpitRef} className={`flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-0 relative ${
+        isPanelCollapsed ? "overflow-hidden" : "overflow-y-auto lg:overflow-hidden"
+      }`}>
+        {/* ── 左翼: 3D 全息神经孪生体主舞台 (默认 100% 满屏沉浸全屏动画展示，支持分屏展开管理面板) ── */}
         <div className={`flex flex-col min-h-0 transition-all duration-300 relative ${
           isPanelCollapsed ? "lg:col-span-12 w-full h-full" : "lg:col-span-5 max-lg:h-[280px] sm:max-lg:h-[340px] max-lg:shrink-0 h-full"
         }`}>

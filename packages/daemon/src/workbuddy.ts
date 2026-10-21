@@ -19,6 +19,7 @@ const RUNNER_MARKERS = [
   "session/set_config_option",
   "bypassPermissions",
   "agent_thought_chunk",
+  "SIGINT_SIGTERM_HANDLER",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */

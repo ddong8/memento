@@ -4,6 +4,16 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 
+// SIGINT_SIGTERM_HANDLER: Graceful cancellation on system interruption
+const cleanupAndExit = (sig) => {
+  try {
+    process.stderr.write(`\n⏹️ [收到终止信号 (${sig})，已主动停止 WorkBuddy 任务]\n\n`);
+  } catch {}
+  process.exit(130);
+};
+process.on("SIGINT", () => cleanupAndExit("SIGINT"));
+process.on("SIGTERM", () => cleanupAndExit("SIGTERM"));
+
 function parseArgs(argv) {
   const out = {
     resumeId: "",

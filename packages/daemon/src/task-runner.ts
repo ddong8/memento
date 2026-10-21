@@ -373,6 +373,9 @@ export class TaskRunner {
           if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
             shouldKill = true;
           }
+          if ((t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) && (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))) {
+            shouldKill = true;
+          }
 
           if (shouldKill) {
             this.log(`Terminating external agent process ${pid}: ${cmd.slice(0, 80)}`);

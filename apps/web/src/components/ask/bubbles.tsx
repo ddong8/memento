@@ -9,7 +9,8 @@ import { ExecutionTabs } from "@/components/ExecutionCard";
 import { Source,Turn,formatTurnDuration,formatTurnTimestamp,parseTurnContent } from "@/lib/ask/turns";
 import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
 import { FiZoomIn } from "react-icons/fi";
-import { triggerHapticFeedback } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
+import { api } from "@/lib/api-client";
 
 function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
@@ -394,6 +395,23 @@ export const AssistantBubble = memo(function AssistantBubble({
     }).catch(() => {});
   };
 
+  const [savedTodo, setSavedTodo] = useState(false);
+  const handleSaveToTodo = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!content || savedTodo) return;
+    try {
+      triggerHapticFeedback(15);
+      const firstLine = content.trim().split("\n")[0].replace(/^[#*\-\s]+/, "").slice(0, 60);
+      const title = firstLine || "来自 AI 执事的重要纪要";
+      await api.addTodo(title, { project: turn.model || "AI 执事" });
+      setSavedTodo(true);
+      showInAppToast("已存入工作待办", title);
+      setTimeout(() => setSavedTodo(false), 3000);
+    } catch {
+      showInAppToast("保存失败", "请稍后重试");
+    }
+  };
+
   return (
     <div
       style={{
@@ -595,6 +613,18 @@ export const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
                 <span>{copied ? "已复制" : "复制全文"}</span>
+              </button>
+            )}
+            {content && (
+              <button
+                type="button"
+                onClick={handleSaveToTodo}
+                disabled={savedTodo}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                title="一键将回答要点存入工作待办"
+              >
+                <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />
+                <span>{savedTodo ? "已存待办" : "存为待办"}</span>
               </button>
             )}
           </div>

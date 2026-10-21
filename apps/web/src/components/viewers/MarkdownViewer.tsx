@@ -17,6 +17,7 @@ import {
   safeDecodePath,
 } from "./MediaPreview";
 import { useMediaInspector, extractMediaFromMarkdown } from "./MediaInspectorContext";
+import { triggerHapticFeedback } from "@/lib/native-notify";
 
 interface MarkdownViewerProps {
   content: string;
@@ -64,6 +65,7 @@ function PreBlock({ children, ...props }: any) {
     if (text) {
       navigator.clipboard.writeText(text).then(() => {
         setCopied(true);
+        triggerHapticFeedback(12);
         setTimeout(() => setCopied(false), 2000);
       }).catch(() => {});
     }
@@ -77,6 +79,7 @@ function PreBlock({ children, ...props }: any) {
     const cmd = `git apply << 'EOF'\n${text.trim()}\nEOF`;
     navigator.clipboard.writeText(cmd).then(() => {
       setCopiedApply(true);
+      triggerHapticFeedback(12);
       setTimeout(() => setCopiedApply(false), 2000);
     }).catch(() => {});
   };

@@ -286,6 +286,13 @@ export function ImageViewerModal({
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
+    if (zoom < 1) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    } else if (zoom > 5) {
+      setZoom(5);
+    }
+
     if (isDragging && e.changedTouches.length === 1 && zoom === 1) {
       const touch = e.changedTouches[0];
       const dx = touch.clientX - touchStartRef.current.x;

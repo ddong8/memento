@@ -211,6 +211,13 @@ function createWindow(show: boolean): void {
     }
   });
 
+  win.on("minimize", () => {
+    // macOS: 点击黄色最小化按钮时直接隐藏至托盘菜单栏，符合“Mac 客户端要支持最小化到托盘”的铁律
+    if (process.platform === "darwin") {
+      win?.hide();
+    }
+  });
+
   void loadApp();
 }
 

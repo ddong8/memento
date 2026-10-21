@@ -411,16 +411,40 @@ export function saveToRecentConvTurnsCache(
   } catch {}
 }
 
-export async function prefetchConversationTurns(id: string) {
+const prefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Intelligent hover-debounced prefetch: only triggers network fetch when user's cursor
+ * hovers on the conversation for >140ms, eliminating request storms during fast scrolling.
+ */
+export function prefetchConversationTurns(id: string, delayMs = 140) {
   if (!id || conversationTurnsCache.has(id) || pendingPrefetchIds.has(id)) return;
-  pendingPrefetchIds.add(id);
-  try {
-    const data = await api.getAskConversation(id, 40);
-    if (data && data.id && Array.isArray(data.turns)) {
-      saveToRecentConvTurnsCache(data.id, data.turns, data);
+
+  const existing = prefetchTimers.get(id);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(async () => {
+    prefetchTimers.delete(id);
+    if (conversationTurnsCache.has(id) || pendingPrefetchIds.has(id)) return;
+    pendingPrefetchIds.add(id);
+    try {
+      const data = await api.getAskConversation(id, 40);
+      if (data && data.id && Array.isArray(data.turns)) {
+        saveToRecentConvTurnsCache(data.id, data.turns, data);
+      }
+    } catch {} finally {
+      pendingPrefetchIds.delete(id);
     }
-  } catch {} finally {
-    pendingPrefetchIds.delete(id);
+  }, delayMs);
+
+  prefetchTimers.set(id, timer);
+}
+
+export function cancelPrefetchConversationTurns(id: string) {
+  const existing = prefetchTimers.get(id);
+  if (existing) {
+    clearTimeout(existing);
+    prefetchTimers.delete(id);
   }
 }
 // Project and session lists belong to one device: a list cached for another device

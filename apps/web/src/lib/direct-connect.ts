@@ -59,6 +59,15 @@ class DirectConnectManager {
           this.probe();
         }
       });
+      // Re-validate direct connect when switching back to foreground
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          const now = Date.now();
+          if (now - this.probeResult.checkedAt > 60_000 && this.config.enabled) {
+            this.probe();
+          }
+        }
+      });
     }
   }
 

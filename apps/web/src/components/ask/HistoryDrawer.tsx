@@ -5,6 +5,7 @@ import { Icon } from "@/components/aurora/Icon";
 import { Btn } from "@/components/aurora/primitives";
 import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
 import { triggerHapticFeedback } from "@/lib/native-notify";
+import { cancelPrefetchConversationTurns } from "@/lib/ask/cache";
 
 interface HistoryDrawerProps {
   open: boolean;
@@ -130,6 +131,7 @@ const ConversationItem = memo(function ConversationItem({
         }
       }}
       onMouseLeave={(e) => {
+        cancelPrefetchConversationTurns(c.id);
         if (!isActive && !isSelected) {
           e.currentTarget.style.background = isRunning
             ? "rgba(109, 40, 217, 0.05)"

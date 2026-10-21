@@ -39,6 +39,9 @@ import { showInAppToast } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
 import { directConnect, DirectProbeResult, DirectConnectConfig } from "@/lib/direct-connect";
 import { useMediaInspector } from "./MediaInspectorContext";
+import { ImageViewerModal } from "./ImageViewerModal";
+
+export { ImageViewerModal };
 
 export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "subtitle" | "unknown";
 
@@ -2481,129 +2484,41 @@ export interface ImagePreviewProps {
 
 export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false);
-  const [zoom, setZoom] = useState<number>(1);
-  const [rotation, setRotation] = useState<number>(0);
-
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
+
   useEffect(() => {
     setResolved(resolveMediaUrl(src));
   }, [src]);
 
-  const { playUrl, downloadUrl: resolvedDownload, filename: resolvedFilename } = resolved;
+  const { playUrl, filename: resolvedFilename } = resolved;
   const displayTitle = alt || resolvedFilename || "image-preview";
-  const finalDownloadUrl = resolvedDownload || playUrl;
-
-  const handleOpen = () => {
-    setZoom(1);
-    setRotation(0);
-    setIsOpen(true);
-  };
-
-  const handleClose = () => {
-    setIsOpen(false);
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
-    };
-    if (isOpen) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen]);
 
   return (
     <>
-      <div className={`relative group my-3 inline-block overflow-hidden rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shadow-xs cursor-zoom-in transition-all hover:border-[var(--aurora-accent)] ${className}`}>
+      <div
+        onClick={() => setIsOpen(true)}
+        className={`relative group my-3 inline-block overflow-hidden rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shadow-xs cursor-zoom-in transition-all hover:border-[var(--aurora-accent)] hover:shadow-md ${className}`}
+        title="点击放大查看图片"
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={playUrl}
           alt={displayTitle}
           loading="lazy"
-          onClick={handleOpen}
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
         />
-        <div
-          onClick={handleOpen}
-          className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white gap-2 pointer-events-none"
-        >
-          <span className="p-2 rounded-full bg-black/60 backdrop-blur-md">
+        <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">
+          <span className="p-2.5 rounded-full bg-black/70 backdrop-blur-md shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
             <FiZoomIn className="w-4 h-4" />
           </span>
         </div>
       </div>
 
-      {isOpen && (
-        <div
-          onClick={handleClose}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-fadeIn"
-        >
-          {/* Top Bar Controls */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="absolute top-4 inset-x-6 flex items-center justify-between z-10 text-white"
-          >
-            <span className="text-sm font-medium truncate max-w-md">{displayTitle}</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(3, z + 0.25))}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
-                title="放大"
-              >
-                <FiZoomIn className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
-                title="缩小"
-              >
-                <FiZoomOut className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRotation((r) => (r + 90) % 360)}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
-                title="顺时针旋转"
-              >
-                <FiRotateCw className="w-4 h-4" />
-              </button>
-              <a
-                href={finalDownloadUrl}
-                download={displayTitle}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors"
-                title="下载原图"
-              >
-                <FiDownload className="w-4 h-4" />
-              </a>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="p-2 rounded-xl bg-white/10 hover:bg-red-500/80 transition-colors ml-2"
-                title="关闭 (Esc)"
-              >
-                <FiX className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Expanded Image */}
-          <div onClick={(e) => e.stopPropagation()} className="relative max-w-full max-h-[85vh] overflow-hidden flex items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={playUrl}
-              alt={displayTitle}
-              style={{
-                transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                transition: "transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-              }}
-              className="max-h-[85vh] max-w-[90vw] object-contain rounded-lg shadow-2xl select-none"
-            />
-          </div>
-        </div>
-      )}
+      <ImageViewerModal
+        images={[{ src: playUrl, alt: displayTitle, title: displayTitle }]}
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+      />
     </>
   );
 }

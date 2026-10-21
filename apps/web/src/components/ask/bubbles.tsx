@@ -7,6 +7,8 @@ import { Glass } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { ExecutionTabs } from "@/components/ExecutionCard";
 import { Source,Turn,formatTurnDuration,formatTurnTimestamp,parseTurnContent } from "@/lib/ask/turns";
+import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
+import { FiZoomIn } from "react-icons/fi";
 
 function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
@@ -141,6 +143,7 @@ export const UserBubble = memo(function UserBubble({
   onShareTurn?: (index: number) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const timeInfo = formatTurnTimestamp(createdAt);
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -191,21 +194,17 @@ export const UserBubble = memo(function UserBubble({
             {images.map((imgUrl, idx) => (
               <div
                 key={idx}
+                className="group/img relative overflow-hidden rounded-xl border border-white/20 shadow-md cursor-zoom-in transition-all hover:border-[var(--aurora-accent)] hover:shadow-lg hover:scale-[1.01]"
                 style={{
-                  position: "relative",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  border: "1px solid rgba(255, 255, 255, 0.18)",
-                  boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
                   maxWidth: images.length === 1 ? "100%" : 240,
                   maxHeight: 280,
-                  cursor: "pointer",
-                  background: "rgba(0,0,0,0.2)",
+                  background: "rgba(0,0,0,0.25)",
                 }}
-                onClick={() => {
-                  window.open(imgUrl, "_blank");
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex(idx);
                 }}
-                title="点击在新标签页查看高清原图"
+                title="点击就地放大查看高清图片"
               >
                 <img
                   src={imgUrl}
@@ -218,8 +217,22 @@ export const UserBubble = memo(function UserBubble({
                     borderRadius: 12,
                   }}
                 />
+                <div className="absolute inset-0 bg-black/25 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">
+                  <span className="p-2 rounded-full bg-black/60 backdrop-blur-md shadow-md transform scale-90 group-hover/img:scale-100 transition-transform">
+                    <FiZoomIn className="w-4 h-4 text-white" />
+                  </span>
+                </div>
               </div>
             ))}
+
+            {lightboxIndex !== null && (
+              <ImageViewerModal
+                images={images}
+                initialIndex={lightboxIndex}
+                isOpen={lightboxIndex !== null}
+                onClose={() => setLightboxIndex(null)}
+              />
+            )}
           </div>
         )}
         {content && (

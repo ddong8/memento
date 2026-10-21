@@ -55,6 +55,7 @@ class DeviceConnectionManager:
         cl.op("ws.send_json", self._op_send_json)
         cl.op("ws.send_task", self._op_send_task)
         cl.op("ws.send_cancel", self._op_send_cancel)
+        cl.op("ws.send_agent_kill", self._op_send_agent_kill)
         cl.op("ws.send_input", self._op_send_input)
         cl.op("ws.file_stat", self._op_file_stat)
         cl.op("ws.file_chunk", self._op_file_chunk)
@@ -264,6 +265,20 @@ class DeviceConnectionManager:
         except Exception as e:
             logger.warning("Failed to send cancel for %s via WebSocket: %s", tid, e)
             return False
+
+    async def send_agent_kill(self, device_id: str, tool: str = "all", cwd: str | None = None) -> bool:
+        """Send emergency agent kill instruction to terminate external/running agents on the device."""
+        payload = {"type": "agent_kill", "tool": tool, "cwd": cwd}
+        if device_id in self._connections:
+            return await self._send_json_local(device_id, payload)
+        pod = await self._owner(device_id)
+        if not pod:
+            logger.warning("Cannot send agent_kill: no WebSocket found for device %s", device_id)
+            return False
+        return await self._remote_call(pod, "ws.send_agent_kill", {"device_id": device_id, "tool": tool, "cwd": cwd}, 5.0, False)
+
+    async def _op_send_agent_kill(self, p: dict) -> bool:
+        return await self._send_json_local(p.get("device_id") or "", {"type": "agent_kill", "tool": p.get("tool"), "cwd": p.get("cwd")})
 
     async def send_input(self, device_id: str, task_id: str, input_text: str) -> bool:
         """Send input frame to the device to forward stdin into the running subprocess."""

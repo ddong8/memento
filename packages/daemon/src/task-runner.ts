@@ -30,7 +30,7 @@ export function parseTaskDispatch(json: Record<string, unknown>): TaskDispatch {
 
 export interface TaskFinished {
   taskId: string;
-  status: "succeeded" | "failed" | "timeout" | "still_running";
+  status: "succeeded" | "failed" | "timeout" | "still_running" | "cancelled";
   exitCode?: number;
   stdout?: string;
   stderr?: string;
@@ -317,11 +317,88 @@ export class TaskRunner {
 
   cancel(taskId: string): boolean {
     const proc = this.running.get(taskId);
-    if (!proc) return false;
-    this.log(`Cancelling task ${taskId}`);
+    this.log(`Cancelling task ${taskId} (proc running: ${Boolean(proc)})`);
     this.running.delete(taskId);
-    killProcessTree(proc);
+    this.steerInputs.delete(taskId);
+    this.claudeTasks.delete(taskId);
+    if (proc) {
+      killProcessTree(proc);
+    }
+    // 立即向服务端发送 task_finished (status: cancelled)，防止服务端、灵动岛挂死等待
+    this.send(
+      taskFinishedMessage({
+        taskId,
+        status: "cancelled",
+        exitCode: 130,
+        error: "任务已由用户手动停止",
+      }),
+    );
     return true;
+  }
+
+  /** Emergency process termination for external or orphan Claude Code, Antigravity, and Codex tasks. */
+  async killAgentProcesses(tool: string, targetCwd?: string): Promise<{ killed: number; pids: number[] }> {
+    const killedPids: number[] = [];
+    const t = tool.toLowerCase();
+
+    // 1. Cancel any active internal tasks matching this tool/cwd
+    for (const [tid, proc] of Array.from(this.running.entries())) {
+      this.cancel(tid);
+      if (proc.pid) killedPids.push(proc.pid);
+    }
+
+    // 2. Discover OS-level orphan / external agent processes
+    try {
+      const isWin = process.platform === "win32";
+      if (!isWin) {
+        const { execFile } = await import("node:child_process");
+        const { stdout } = await new Promise<{ stdout: string }>((res) => {
+          execFile("ps", ["-eo", "pid,command"], (err, out) => res({ stdout: err ? "" : String(out) }));
+        });
+        const lines = stdout.split("\n");
+        for (const line of lines) {
+          const match = line.trim().match(/^(\d+)\s+(.+)$/);
+          if (!match) continue;
+          const pid = parseInt(match[1]!, 10);
+          const cmd = match[2]!;
+          if (pid === process.pid || isNaN(pid)) continue;
+
+          let shouldKill = false;
+          if ((t === "all" || t.includes("claude")) && (cmd.includes("@anthropic-ai/claude-code") || cmd.includes("claude --output-format"))) {
+            shouldKill = true;
+          }
+          if ((t === "all" || t.includes("agy") || t.includes("antigravity")) && (cmd.includes("agy_cli.py") || cmd.includes("agentapi"))) {
+            shouldKill = true;
+          }
+          if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
+            shouldKill = true;
+          }
+
+          if (shouldKill) {
+            this.log(`Terminating external agent process ${pid}: ${cmd.slice(0, 80)}`);
+            try {
+              process.kill(-pid, "SIGTERM");
+            } catch {}
+            try {
+              process.kill(pid, "SIGTERM");
+            } catch {}
+            killedPids.push(pid);
+            setTimeout(() => {
+              try {
+                process.kill(-pid, "SIGKILL");
+              } catch {}
+              try {
+                process.kill(pid, "SIGKILL");
+              } catch {}
+            }, 300);
+          }
+        }
+      }
+    } catch (e) {
+      this.log(`killAgentProcesses error: ${e instanceof Error ? e.message : e}`);
+    }
+
+    return { killed: killedPids.length, pids: killedPids };
   }
 
   /** A follow-up from the user: steers a running Claude/Antigravity/WorkBuddy task or goes to process stdin. */

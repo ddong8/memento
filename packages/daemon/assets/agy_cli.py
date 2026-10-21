@@ -5,11 +5,25 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
+
+
+def _signal_handler(signum, frame):
+    sys.stderr.write(f"\n⏹️ [收到系统终止信号 ({signum})，已主动停止 Antigravity 任务]\n\n")
+    sys.stderr.flush()
+    sys.exit(130)
+
+
+try:
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+except Exception:
+    pass
 
 
 def _auto_discover_antigravity_ls():

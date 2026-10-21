@@ -367,6 +367,7 @@ const RUNNER_MARKERS = [
   "stream was interrupted",
   "get_model_candidates",
   "is_transient_error",
+  "_signal_handler",
   "自动退避重试",
   'if __name__ == "__main__":',
 ];

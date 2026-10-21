@@ -227,7 +227,35 @@ export async function prepareCommand(
   return { executable: comSpec, args: ["/d", "/c", "call", exe, ...args] };
 }
 
-/** Stops a task and everything it started (shells, test runners, dev servers). */
+/** Recursively collect all descendant PIDs of a process on Unix/macOS. */
+export function getUnixDescendantPids(rootPid: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    execFile("pgrep", ["-P", String(rootPid)], (err, stdout) => {
+      if (err || !stdout.trim()) {
+        resolve([]);
+        return;
+      }
+      const directChildren = stdout
+        .trim()
+        .split(/\s+/)
+        .map((s) => parseInt(s, 10))
+        .filter((n) => !isNaN(n) && n > 0);
+      if (directChildren.length === 0) {
+        resolve([]);
+        return;
+      }
+      Promise.all(directChildren.map((p) => getUnixDescendantPids(p))).then((nested) => {
+        const all = new Set<number>(directChildren);
+        for (const sub of nested) {
+          for (const sp of sub) all.add(sp);
+        }
+        resolve(Array.from(all));
+      });
+    });
+  });
+}
+
+/** Stops a task and everything it started (shells, test runners, dev servers, agent sub-processes). */
 export function killProcessTree(proc: ChildProcess | undefined): void {
   if (!proc?.pid || proc.exitCode !== null || proc.signalCode !== null) return;
   const pid = proc.pid;
@@ -237,21 +265,52 @@ export function killProcessTree(proc: ChildProcess | undefined): void {
     });
     return;
   }
-  try {
-    // Tasks start in their own process group (spawned detached), so this reaches the children too.
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    try {
-      proc.kill("SIGKILL");
-    } catch {
-      // already gone
-    }
-  }
-  try {
-    execFile("pkill", ["-9", "-P", String(pid)], () => {});
-  } catch {
-    // ignore
-  }
+
+  // Unix / macOS: First try graceful SIGTERM, then hard SIGKILL to the entire process tree
+  getUnixDescendantPids(pid)
+    .then((descendants) => {
+      // 1. Send SIGTERM to descendants and process group for graceful shutdown
+      try {
+        process.kill(-pid, "SIGTERM");
+      } catch {}
+      try {
+        proc.kill("SIGTERM");
+      } catch {}
+      for (const d of descendants) {
+        try {
+          process.kill(d, "SIGTERM");
+        } catch {}
+      }
+
+      // 2. Schedule hard SIGKILL after 350ms to clean up any stubborn agents (Claude, Codex, Antigravity, build tools)
+      setTimeout(() => {
+        try {
+          process.kill(-pid, "SIGKILL");
+        } catch {}
+        try {
+          proc.kill("SIGKILL");
+        } catch {}
+        for (const d of descendants) {
+          try {
+            process.kill(d, "SIGKILL");
+          } catch {}
+        }
+        try {
+          execFile("pkill", ["-9", "-P", String(pid)], () => {});
+        } catch {}
+      }, 350);
+    })
+    .catch(() => {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {}
+      try {
+        proc.kill("SIGKILL");
+      } catch {}
+      try {
+        execFile("pkill", ["-9", "-P", String(pid)], () => {});
+      } catch {}
+    });
 }
 
 /** Puts the executable's own directory first on PATH, so `#!/usr/bin/env node` shebangs resolve. */

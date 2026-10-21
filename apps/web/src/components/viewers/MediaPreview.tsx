@@ -29,6 +29,10 @@ import {
   FiRefreshCw,
   FiLayers,
   FiCamera,
+  FiLock,
+  FiUnlock,
+  FiSearch,
+  FiSliders,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
@@ -52,6 +56,40 @@ export function srtToVtt(srt: string): string {
   // Replace comma in timestamps: 00:00:01,000 --> 00:00:01.000
   const vttTimestamps = normalized.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
   return `WEBVTT\n\n${vttTimestamps}`;
+}
+
+export interface SubtitleCue {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** Parse WebVTT formatted string into structured subtitle cues */
+export function parseVttCues(vtt: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  if (!vtt) return cues;
+  const blocks = vtt.replace(/\r\n/g, "\n").split(/\n\s*\n/);
+  let id = 1;
+
+  for (const block of blocks) {
+    const lines = block.trim().split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const match = lines[i].match(/(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[.,](\d{3})/);
+      if (match) {
+        const parseSec = (h: string | undefined, m: string, s: string, ms: string) =>
+          (parseInt(h || "0", 10) * 3600) + (parseInt(m, 10) * 60) + parseInt(s, 10) + (parseInt(ms, 10) / 1000);
+        const start = parseSec(match[1], match[2], match[3], match[4]);
+        const end = parseSec(match[5], match[6], match[7], match[8]);
+        const text = lines.slice(i + 1).join(" ").replace(/<[^>]+>/g, "").trim();
+        if (text) {
+          cues.push({ id: id++, start, end, text });
+        }
+        break;
+      }
+    }
+  }
+  return cues;
 }
 
 /** Detect media type from URL or file name */
@@ -267,6 +305,12 @@ export function VideoPlayer({
   const [isCapturing, setIsCapturing] = useState<boolean>(false);
   const [abLoop, setAbLoop] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
   const [audioBoost, setAudioBoost] = useState<boolean>(false);
+  const [subtitleCues, setSubtitleCues] = useState<SubtitleCue[]>([]);
+  const [showTranscript, setShowTranscript] = useState<boolean>(false);
+  const [transcriptSearch, setTranscriptSearch] = useState<string>("");
+  const [isScreenLocked, setIsScreenLocked] = useState<boolean>(false);
+  const [longPressSpeed, setLongPressSpeed] = useState<number | null>(null);
+  const [filterMode, setFilterMode] = useState<"normal" | "vivid" | "warm">("normal");
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -348,6 +392,7 @@ export function VideoPlayer({
               createdUrl = URL.createObjectURL(blob);
               if (!canceled) {
                 setVttBlobUrl(createdUrl);
+                setSubtitleCues(parseVttCues(vttContent));
                 setHasSubtitles(true);
                 setSubtitlesVisible(true);
               }
@@ -361,6 +406,7 @@ export function VideoPlayer({
 
       if (!canceled) {
         setHasSubtitles(false);
+        setSubtitleCues([]);
         setVttBlobUrl(null);
       }
     };
@@ -425,6 +471,10 @@ export function VideoPlayer({
   const originalRateBeforeLongPressRef = useRef<number>(playbackRate);
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isScreenLocked) {
+      triggerFlashAction("屏幕已锁定", "🔒");
+      return;
+    }
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
@@ -476,14 +526,16 @@ export function VideoPlayer({
 
     lastTapRef.current = { time: now, x: touchX };
 
-    // Set up long-press for 2x speed (when playing)
+    // Dynamic long-press: left half 0.5x slow motion, right half 2.0x fast forward
     if (isPlaying) {
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = setTimeout(() => {
         const v = videoRef.current;
         if (!v) return;
         originalRateBeforeLongPressRef.current = v.playbackRate;
-        v.playbackRate = 2.0;
+        const targetRate = touchX < rect.width * 0.45 ? 0.5 : 2.0;
+        v.playbackRate = targetRate;
+        setLongPressSpeed(targetRate);
         setIsLongPressing2x(true);
         if (typeof window !== "undefined" && typeof (window as any).__memento_haptic === "function") {
           (window as any).__memento_haptic("medium");
@@ -493,6 +545,7 @@ export function VideoPlayer({
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isScreenLocked) return;
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     const rect = e.currentTarget.getBoundingClientRect();
@@ -551,6 +604,7 @@ export function VideoPlayer({
         v.playbackRate = originalRateBeforeLongPressRef.current;
       }
       setIsLongPressing2x(false);
+      setLongPressSpeed(null);
     }
     if (gestureHideTimerRef.current) clearTimeout(gestureHideTimerRef.current);
     gestureHideTimerRef.current = setTimeout(() => {
@@ -596,6 +650,42 @@ export function VideoPlayer({
     setIsLoading(true);
   }, [activeSrc]);
 
+  // Viewport Intersection Preload Pipeline (instant first frame playback)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting) {
+          markPreloadActive();
+          setShouldPreload(true);
+        }
+      },
+      { threshold: 0.25 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [markPreloadActive]);
+
+  const filteredCues = React.useMemo(() => {
+    if (!transcriptSearch.trim()) return subtitleCues;
+    const q = transcriptSearch.trim().toLowerCase();
+    return subtitleCues.filter((c) => c.text.toLowerCase().includes(q));
+  }, [subtitleCues, transcriptSearch]);
+
+  const videoFilterStyle = React.useMemo(() => {
+    const parts: string[] = [];
+    if (brightness !== 1) parts.push(`brightness(${brightness})`);
+    if (filterMode === "vivid") {
+      parts.push("contrast(1.24) saturate(1.16) brightness(1.02)");
+    } else if (filterMode === "warm") {
+      parts.push("sepia(0.25) hue-rotate(-12deg) brightness(0.94) contrast(1.06)");
+    }
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  }, [brightness, filterMode]);
+
   const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
   const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "video-file";
   const finalDownloadUrl = downloadUrl || resolvedDownload || playUrl;
@@ -636,6 +726,22 @@ export function VideoPlayer({
       }, 2500);
     }
   }, [isPlaying]);
+
+  const cycleFilterMode = useCallback(() => {
+    setFilterMode((prev) => {
+      if (prev === "normal") {
+        triggerFlashAction("代码对比度提亮", "✨");
+        return "vivid";
+      }
+      if (prev === "vivid") {
+        triggerFlashAction("夜间暖光护眼", "🌙");
+        return "warm";
+      }
+      triggerFlashAction("标准原画色彩", "🎨");
+      return "normal";
+    });
+    triggerControlsActivity();
+  }, [triggerControlsActivity, triggerFlashAction]);
 
   useEffect(() => {
     return () => {
@@ -889,8 +995,13 @@ export function VideoPlayer({
   const toggleFullscreen = async () => {
     const v = videoRef.current;
     const el = containerRef.current;
-    // iOS Safari / WebKit only supports fullscreen directly on the <video> element via webkitEnterFullscreen
-    if ((v as any)?.webkitEnterFullscreen) {
+    const isIOS =
+      typeof navigator !== "undefined" &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+    // iOS Safari / WebKit native system-level fullscreen
+    if (isIOS && (v as any)?.webkitEnterFullscreen) {
       try {
         (v as any).webkitEnterFullscreen();
         return;
@@ -898,13 +1009,18 @@ export function VideoPlayer({
         // ignore and fallback
       }
     }
+
     if (!el) return;
     if (!document.fullscreenElement) {
       try {
         await el.requestFullscreen();
         setIsFullscreen(true);
       } catch {
-        // ignore
+        if ((v as any)?.webkitEnterFullscreen) {
+          try {
+            (v as any).webkitEnterFullscreen();
+          } catch {}
+        }
       }
     } else {
       try {
@@ -1185,7 +1301,7 @@ export function VideoPlayer({
       {/* Top Bar Overlay */}
       <div
         className={`absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent transition-opacity duration-300 ${
-          showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none"
+          !isScreenLocked && (showControls || !isPlaying) ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -1260,6 +1376,24 @@ export function VideoPlayer({
           >
             <FiExternalLink className="w-3.5 h-3.5" />
           </button>
+          {hasSubtitles && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowTranscript((v) => !v);
+                triggerControlsActivity();
+              }}
+              title={showTranscript ? "收起字幕文稿" : "展开对白文稿快速定位"}
+              className={`p-1.5 rounded-lg transition-colors text-xs flex items-center gap-1 ${
+                showTranscript
+                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                  : "text-white/70 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <FiFileText className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">文稿</span>
+            </button>
+          )}
           {/* Direct Connect Speed Badge (Pure status display, no button click required) */}
           {directCfg.enabled && directProbe.state === "connected" && (
             <div
@@ -1390,7 +1524,7 @@ export function VideoPlayer({
           className={`w-full h-full transition-all duration-300 ${
             fitMode === "cover" ? "object-cover" : fitMode === "fill" ? "object-fill" : "object-contain"
           }`}
-          style={{ filter: brightness !== 1 ? `brightness(${brightness})` : undefined }}
+          style={{ filter: videoFilterStyle }}
         >
           {vttBlobUrl && (
             <track
@@ -1473,12 +1607,14 @@ export function VideoPlayer({
           </div>
         )}
 
-        {/* Long Press 2x Indicator Banner */}
+        {/* Dynamic Long Press Speed Indicator Banner (0.5x Slow / 2.0x Fast) */}
         {isLongPressing2x && (
           <div className="absolute top-4 inset-x-0 flex items-center justify-center pointer-events-none z-30">
-            <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-black/80 border border-amber-400/40 text-white text-xs font-semibold backdrop-blur-md shadow-2xl animate-pulse">
-              <span className="text-amber-400 font-bold">⚡ 2.0x</span>
-              <span>长按倍速播放中</span>
+            <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-black/85 border border-amber-400/40 text-white text-xs font-semibold backdrop-blur-md shadow-2xl animate-pulse">
+              <span className="text-amber-400 font-bold">
+                {longPressSpeed === 0.5 ? "🐢 0.5x" : "⚡ 2.0x"}
+              </span>
+              <span>{longPressSpeed === 0.5 ? "长按慢放细品中" : "长按倍速播放中"}</span>
             </div>
           </div>
         )}
@@ -1567,12 +1703,118 @@ export function VideoPlayer({
             </div>
           </div>
         )}
+
+        {/* Screen Lock Toggle Button (Mobile & Touch protection) */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsScreenLocked((v) => {
+              const next = !v;
+              triggerFlashAction(next ? "屏幕已锁定防误触" : "屏幕已解锁", next ? "🔒" : "🔓");
+              return next;
+            });
+            triggerControlsActivity();
+          }}
+          title={isScreenLocked ? "点击解锁屏幕触控" : "点击锁定屏幕防误触"}
+          className={`absolute left-3.5 top-1/2 -translate-y-1/2 z-35 p-2 rounded-full backdrop-blur-md border transition-all ${
+            isScreenLocked
+              ? "bg-amber-500/85 border-amber-300 text-black shadow-2xl scale-110"
+              : showControls || !isPlaying
+              ? "bg-black/60 border-white/20 text-white/80 hover:text-white"
+              : "opacity-0 pointer-events-none"
+          }`}
+        >
+          {isScreenLocked ? <FiLock className="w-4 h-4" /> : <FiUnlock className="w-4 h-4" />}
+        </button>
+
+        {/* Interactive Subtitles Transcript Drawer */}
+        {showTranscript && hasSubtitles && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-y-0 right-0 w-80 max-w-[85%] z-35 bg-gray-950/95 border-l border-white/15 backdrop-blur-xl flex flex-col shadow-2xl animate-in slide-in-from-right duration-300"
+          >
+            <div className="flex items-center justify-between px-3.5 py-3 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-2 text-white">
+                <FiFileText className="w-4 h-4 text-[var(--aurora-accent)]" />
+                <span className="text-xs font-semibold">字幕与发言速览</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/60">
+                  {filteredCues.length} 句
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTranscript(false)}
+                className="p-1 rounded text-white/60 hover:text-white transition-colors"
+                title="关闭字幕文稿"
+              >
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-2.5 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs">
+                <FiSearch className="w-3.5 h-3.5 text-white/40 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="搜索对白关键词快速跳跃..."
+                  value={transcriptSearch}
+                  onChange={(e) => setTranscriptSearch(e.target.value)}
+                  className="w-full bg-transparent text-white text-xs placeholder:text-white/30 focus:outline-none"
+                />
+                {transcriptSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTranscriptSearch("")}
+                    className="text-white/40 hover:text-white text-xs"
+                  >
+                    <FiX className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {filteredCues.map((cue) => {
+                const isActive = currentTime >= cue.start && currentTime <= cue.end;
+                return (
+                  <button
+                    key={cue.id}
+                    type="button"
+                    onClick={() => {
+                      if (videoRef.current) {
+                        videoRef.current.currentTime = cue.start;
+                        setCurrentTime(cue.start);
+                        if (videoRef.current.paused) videoRef.current.play().catch(() => {});
+                      }
+                      triggerControlsActivity();
+                    }}
+                    className={`w-full text-left p-2 rounded-lg text-xs transition-all flex flex-col gap-0.5 ${
+                      isActive
+                        ? "bg-[var(--aurora-accent)]/20 border border-[var(--aurora-accent)]/40 text-white shadow-xs"
+                        : "hover:bg-white/5 text-white/75 hover:text-white border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[10px] font-mono opacity-60">
+                      <span>{formatTime(cue.start)}</span>
+                      {isActive && <span className="text-[var(--aurora-accent)] font-bold">● 正在播放</span>}
+                    </div>
+                    <div className="line-clamp-2 leading-relaxed tracking-wide">{cue.text}</div>
+                  </button>
+                );
+              })}
+              {filteredCues.length === 0 && (
+                <div className="py-8 text-center text-xs text-white/40">无匹配字幕内容</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom Floating Controls */}
       <div
         className={`absolute bottom-0 inset-x-0 z-20 px-4 py-3 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 ${
-          showControls || !isPlaying ? "opacity-100" : "opacity-0 pointer-events-none"
+          !isScreenLocked && (showControls || !isPlaying) ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         {/* Progress Bar Slider with Network Buffered Range & Hover Time */}
@@ -1854,6 +2096,27 @@ export function VideoPlayer({
               {abLoop.a !== null && (
                 <span className="text-[10px] font-mono">
                   {abLoop.b !== null ? "A-B" : "A-"}
+                </span>
+              )}
+            </button>
+
+            {/* Picture Filter Mode Toggle (Normal / Vivid / Warm) */}
+            <button
+              type="button"
+              onClick={cycleFilterMode}
+              title={`画质模式：${
+                filterMode === "vivid" ? "代码对比度提亮" : filterMode === "warm" ? "夜间暖光护眼" : "标准原画"
+              }`}
+              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+                filterMode !== "normal"
+                  ? "text-amber-400 bg-amber-400/20 font-semibold shadow-xs"
+                  : "text-white/80 hover:text-white hover:bg-white/10"
+              }`}
+            >
+              <FiSliders className="w-4 h-4" />
+              {filterMode !== "normal" && (
+                <span className="text-[9px] font-mono uppercase">
+                  {filterMode === "vivid" ? "Code" : "Eye"}
                 </span>
               )}
             </button>

@@ -5,6 +5,39 @@ import { api } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Btn, Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { triggerHapticFeedback } from "@/lib/native-notify";
+
+function RenderTodoTitle({ title }: { title: string }) {
+  if (!title) return null;
+  if (title.includes("`")) {
+    const parts = title.split(/(`[^`]+`)/g);
+    return (
+      <span>
+        {parts.map((p, idx) => {
+          if (p.startsWith("`") && p.endsWith("`") && p.length >= 2) {
+            return (
+              <code
+                key={idx}
+                style={{
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  background: "rgba(255, 255, 255, 0.08)",
+                  fontSize: "0.92em",
+                  fontFamily: "monospace",
+                  color: "var(--aurora-accent)",
+                }}
+              >
+                {p.slice(1, -1)}
+              </code>
+            );
+          }
+          return <span key={idx}>{p}</span>;
+        })}
+      </span>
+    );
+  }
+  return <span>{title}</span>;
+}
 
 type Todo = Record<string, unknown>;
 const str = (v: unknown): string => (v == null ? "" : String(v));
@@ -132,7 +165,10 @@ export default function TodoPanel() {
           type="checkbox"
           checked={isClosed}
           disabled={busy !== null}
-          onChange={(e) => update(todo, { status: e.target.checked ? "done" : "open" })}
+          onChange={(e) => {
+            triggerHapticFeedback(15);
+            update(todo, { status: e.target.checked ? "done" : "open" });
+          }}
           style={{ marginTop: 4, width: 15, height: 15, accentColor: "var(--aurora-accent)" }}
           aria-label={d.markDone}
         />
@@ -147,7 +183,7 @@ export default function TodoPanel() {
               overflowWrap: "anywhere",
             }}
           >
-            {str(todo.title)}
+            <RenderTodoTitle title={str(todo.title)} />
           </div>
           <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 2 }}>
             {dueValue && !isClosed && (
@@ -172,7 +208,10 @@ export default function TodoPanel() {
               type="button"
               title={d.drop}
               disabled={busy !== null}
-              onClick={() => update(todo, { status: "dropped" })}
+              onClick={() => {
+                triggerHapticFeedback(10);
+                update(todo, { status: "dropped" });
+              }}
               style={{ background: "none", border: 0, cursor: "pointer", color: "var(--aurora-fg3)", padding: 4, display: "flex" }}
             >
               <Icon name="close" size={14} />

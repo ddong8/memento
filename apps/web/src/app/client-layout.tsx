@@ -51,6 +51,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     document.documentElement.lang = locale === "zh-CN" ? "zh" : "en";
   }, [locale, t.app.title, t.app.subtitle, pathname]);
 
+  // Register PWA Service Worker for cache-first static asset delivery
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+  }, []);
+
   return (
     <ThemeProvider>
       <I18nContext.Provider value={{ locale, t, setLocale: handleSetLocale }}>

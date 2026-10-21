@@ -385,6 +385,37 @@ function AskPageContent() {
       window.removeEventListener("online", handleOnline);
     };
   }, []);
+
+  // Universal Handoff: detect active runs on other devices
+  const [handoffTask, setHandoffTask] = useState<{ id: string; title: string; device?: string } | null>(null);
+
+  const checkUniversalHandoff = useCallback(async () => {
+    try {
+      const recent = await api.getRecentActiveConversation();
+      if (recent && recent.active_run && recent.id && recent.id !== activeConversationIdRef.current) {
+        setHandoffTask({
+          id: recent.id,
+          title: recent.title || "正在执行的长任务",
+          device: recent.device_id,
+        });
+      } else {
+        setHandoffTask(null);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    checkUniversalHandoff();
+    const interval = setInterval(checkUniversalHandoff, 12000);
+    const handleVis = () => {
+      if (document.visibilityState === "visible") checkUniversalHandoff();
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVis);
+    };
+  }, [checkUniversalHandoff]);
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
@@ -4239,6 +4270,79 @@ function AskPageContent() {
         >
           <Icon name="check" size={13} style={{ color: "#fff" }} />
           <span>网络已恢复连接</span>
+        </div>
+      )}
+      {/* 跨端任务接力悬浮胶囊 */}
+      {handoffTask && (
+        <div
+          style={{
+            position: "absolute",
+            top: 52,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 45,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "7px 16px",
+            borderRadius: 24,
+            background: "var(--aurora-surface-solid)",
+            border: "1px solid var(--aurora-accent)",
+            boxShadow: "0 6px 22px rgba(109, 40, 217, 0.28)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            color: "var(--aurora-fg1)",
+            fontSize: 12.5,
+            animation: "fadeIn 0.2s ease-out",
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--aurora-accent)", fontWeight: 600 }}>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+            <span>跨端任务接力</span>
+          </span>
+          <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>
+            {handoffTask.title}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              triggerHapticFeedback(15);
+              loadConversation(handoffTask.id, { force: true });
+              setHandoffTask(null);
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "3px 10px",
+              borderRadius: 14,
+              background: "var(--aurora-accent)",
+              border: "none",
+              color: "#fff",
+              fontSize: 11.5,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <Icon name="sparkles" size={12} />
+            <span>立即接力</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setHandoffTask(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--aurora-fg4)",
+              cursor: "pointer",
+              padding: "2px 4px",
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+            title="忽略"
+          >
+            <Icon name="close" size={12} />
+          </button>
         </div>
       )}
       {/* 主对话区与输入控制台 */}

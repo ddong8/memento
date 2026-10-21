@@ -36,7 +36,32 @@ async def hybrid_rank(
 ) -> tuple[list[Document], list[uuid.UUID], list[uuid.UUID], dict]:
     """Documents for `q`, best first, plus each channel's own order (keyword, semantic)
     and the semantically matched snippets. The retrieval evaluation scores exactly this."""
+    import hashlib
+    from .cache import cache_get, cache_set
     from ..services.tokenize import tokenize_for_query_any
+
+    clean_q = q.strip()
+    cache_key = f"hybrid_rank:{user.id}:{tool or 'all'}:{days or 'all'}:{hashlib.sha256(clean_q.lower().encode('utf-8')).hexdigest()[:16]}"
+    cached_payload = await cache_get(cache_key)
+    if cached_payload and isinstance(cached_payload, dict):
+        try:
+            doc_ids = [uuid.UUID(uid) for uid in cached_payload.get("doc_ids", [])]
+            kw_order = [uuid.UUID(uid) for uid in cached_payload.get("kw_order", [])]
+            sem_order = [uuid.UUID(uid) for uid in cached_payload.get("sem_order", [])]
+            sem_snippets = {uuid.UUID(k): v for k, v in cached_payload.get("sem_snippets", {}).items()}
+            if doc_ids:
+                reloaded_docs = (await db.execute(
+                    select(Document).options(
+                        defer(Document.content_tsv),
+                        defer(Document.rendered_html),
+                    ).where(Document.id.in_(doc_ids))
+                )).scalars().all()
+                doc_map = {d.id: d for d in reloaded_docs}
+                sorted_docs = [doc_map[did] for did in doc_ids if did in doc_map]
+                if len(sorted_docs) == len(doc_ids):
+                    return sorted_docs[:k], kw_order, sem_order, sem_snippets
+        except Exception:
+            pass
 
     mids = await user_machine_ids(db, user)
     # Questions are natural language: any content word may match, best matches first.
@@ -129,6 +154,15 @@ async def hybrid_rank(
         return score
 
     docs.sort(key=rrf, reverse=True)
+    try:
+        await cache_set(cache_key, {
+            "doc_ids": [str(d.id) for d in docs],
+            "kw_order": [str(d.id) for d in kw_docs],
+            "sem_order": [str(did) for did in sem_order],
+            "sem_snippets": {str(k): v for k, v in sem_snippets.items()},
+        }, ttl_seconds=60)
+    except Exception:
+        pass
     return docs[:k], [d.id for d in kw_docs], list(sem_order), sem_snippets
 
 

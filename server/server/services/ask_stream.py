@@ -153,7 +153,9 @@ async def direct_agent_stream(
                     ext = mime.split("/")[1] if "/" in mime else "png"
                     if ext == "jpeg":
                         ext = "jpg"
-                    img_dir = Path("/tmp/memento_images") / str(conv_id)
+                    import tempfile
+                    base_img_root = Path("/data2/memento/images") if Path("/data2").exists() else Path(tempfile.gettempdir()) / "memento_images"
+                    img_dir = base_img_root / str(conv_id)
                     img_dir.mkdir(parents=True, exist_ok=True)
                     img_path = img_dir / f"image_{idx + 1}.{ext}"
                     img_path.write_bytes(base64.b64decode(b64data))

@@ -6,9 +6,13 @@ import { Glass, Btn, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { sendLocalNotification } from "@/lib/native-notify";
 
+// Module-level in-memory cache to ensure zero-latency tab switching
+let _cachedSettingsSnapshot: ProactiveSettings | null = null;
+let _cachedMissionsSnapshot: AgentMissionItem[] | null = null;
+
 export function ProactiveAgentView() {
-  const [settings, setSettings] = useState<ProactiveSettings | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<ProactiveSettings | null>(() => _cachedSettingsSnapshot);
+  const [loading, setLoading] = useState<boolean>(() => !_cachedSettingsSnapshot);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -17,13 +21,15 @@ export function ProactiveAgentView() {
   const [testingReflection, setTestingReflection] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
 
-  const [missions, setMissions] = useState<AgentMissionItem[]>([]);
-  const [missionsLoading, setMissionsLoading] = useState(false);
+  const [missions, setMissions] = useState<AgentMissionItem[]>(() => _cachedMissionsSnapshot || []);
+  const [missionsLoading, setMissionsLoading] = useState<boolean>(() => !_cachedMissionsSnapshot);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  const loadData = async () => {
-    setLoading(true);
-    setMissionsLoading(true);
+  const loadData = async (silent: boolean = false) => {
+    if (!silent && !_cachedSettingsSnapshot) {
+      setLoading(true);
+      setMissionsLoading(true);
+    }
     try {
       const [settingsRes, missionsRes] = await Promise.allSettled([
         api.getProactiveSettings(),
@@ -31,11 +37,13 @@ export function ProactiveAgentView() {
       ]);
       if (settingsRes.status === "fulfilled") {
         setSettings(settingsRes.value);
+        _cachedSettingsSnapshot = settingsRes.value;
       } else {
         console.error("Failed to load proactive settings", settingsRes.reason);
       }
       if (missionsRes.status === "fulfilled") {
         setMissions(missionsRes.value);
+        _cachedMissionsSnapshot = missionsRes.value;
       } else {
         console.error("Failed to load missions", missionsRes.reason);
       }
@@ -46,7 +54,7 @@ export function ProactiveAgentView() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(Boolean(_cachedSettingsSnapshot));
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
@@ -55,6 +63,7 @@ export function ProactiveAgentView() {
   const persistSettings = async (newSettings: ProactiveSettings) => {
     try {
       setSaving(true);
+      _cachedSettingsSnapshot = newSettings;
       await api.updateProactiveSettings(newSettings);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);

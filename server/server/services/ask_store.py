@@ -430,6 +430,12 @@ async def append_conversation_turns(
                     cfg["device_id"] = effective_dev
                 conv.config = cfg
             await session.commit()
+            if conv.user_id:
+                try:
+                    from .cache import cache_delete_prefix
+                    await cache_delete_prefix(f"ask_conv_list:{conv.user_id}")
+                except Exception:
+                    pass
 
             # Sync non-CLI AskConversation turns (ai, agent, shell, rag, or sessions without a local daemon JSONL file)
             # into Document + ConversationMessage so RAG retrieval, daily digest, and session reviews all include them.

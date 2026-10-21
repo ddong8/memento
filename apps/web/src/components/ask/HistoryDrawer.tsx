@@ -28,12 +28,41 @@ interface HistoryDrawerProps {
   runningConversationIds?: Set<string>;
 }
 
+function HighlightMatch({ text, query }: { text: string; query?: string }) {
+  if (!query || !query.trim()) return <span>{text}</span>;
+  const q = query.trim();
+  const lowerText = text.toLowerCase();
+  const lowerQ = q.toLowerCase();
+  const index = lowerText.indexOf(lowerQ);
+  if (index === -1) return <span>{text}</span>;
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + q.length);
+  const after = text.slice(index + q.length);
+  return (
+    <span>
+      {before}
+      <mark
+        style={{
+          background: "rgba(245, 158, 11, 0.35)",
+          color: "var(--aurora-fg1)",
+          padding: "1px 2px",
+          borderRadius: 3,
+        }}
+      >
+        {match}
+      </mark>
+      <HighlightMatch text={after} query={query} />
+    </span>
+  );
+}
+
 const ConversationItem = memo(function ConversationItem({
   conversation: c,
   isActive,
   isBatchMode,
   isSelected,
   isRunning,
+  searchQuery,
   onSelect,
   onToggleBatch,
   onPrefetch,
@@ -49,6 +78,7 @@ const ConversationItem = memo(function ConversationItem({
   isBatchMode: boolean;
   isSelected: boolean;
   isRunning?: boolean;
+  searchQuery?: string;
   onSelect: (id: string) => void;
   onToggleBatch: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -280,7 +310,7 @@ const ConversationItem = memo(function ConversationItem({
                 </span>
               )}
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                {c.title || t.ask.title}
+                <HighlightMatch text={c.title || t.ask.title} query={searchQuery} />
               </span>
             </div>
             <div
@@ -614,6 +644,81 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     });
   }, [conversations, searchQuery, liveRunningIds]);
 
+  // Group conversations chronologically into distinct visual timeline sections
+  const conversationGroups = useMemo(() => {
+    if (!filteredConversations.length) return [];
+    if (searchQuery.trim()) {
+      return [
+        {
+          id: "search",
+          title: isZh ? "搜索结果" : "Search Results",
+          items: filteredConversations,
+        },
+      ];
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayStart = todayStart - 86400000;
+    const sevenDaysStart = todayStart - 6 * 86400000;
+    const thirtyDaysStart = todayStart - 29 * 86400000;
+
+    const runningItems: AskConversationSummary[] = [];
+    const pinnedItems: AskConversationSummary[] = [];
+    const todayItems: AskConversationSummary[] = [];
+    const yesterdayItems: AskConversationSummary[] = [];
+    const past7DaysItems: AskConversationSummary[] = [];
+    const past30DaysItems: AskConversationSummary[] = [];
+    const olderItems: AskConversationSummary[] = [];
+
+    for (const c of filteredConversations) {
+      if (liveRunningIds.has(c.id)) {
+        runningItems.push(c);
+        continue;
+      }
+      if (c.config?.pinned) {
+        pinnedItems.push(c);
+        continue;
+      }
+      const t = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+      if (t >= todayStart) {
+        todayItems.push(c);
+      } else if (t >= yesterdayStart) {
+        yesterdayItems.push(c);
+      } else if (t >= sevenDaysStart) {
+        past7DaysItems.push(c);
+      } else if (t >= thirtyDaysStart) {
+        past30DaysItems.push(c);
+      } else {
+        olderItems.push(c);
+      }
+    }
+
+    const groups: { id: string; title: string; items: AskConversationSummary[] }[] = [];
+    if (runningItems.length) groups.push({ id: "running", title: isZh ? "正在执行" : "Running", items: runningItems });
+    if (pinnedItems.length) groups.push({ id: "pinned", title: isZh ? "置顶会话" : "Pinned", items: pinnedItems });
+    if (todayItems.length) groups.push({ id: "today", title: isZh ? "今天" : "Today", items: todayItems });
+    if (yesterdayItems.length) groups.push({ id: "yesterday", title: isZh ? "昨天" : "Yesterday", items: yesterdayItems });
+    if (past7DaysItems.length) groups.push({ id: "past7", title: isZh ? "前 7 天" : "Past 7 Days", items: past7DaysItems });
+    if (past30DaysItems.length) groups.push({ id: "past30", title: isZh ? "近 30 天" : "Past 30 Days", items: past30DaysItems });
+    if (olderItems.length) groups.push({ id: "older", title: isZh ? "更早之前" : "Earlier", items: olderItems });
+
+    return groups;
+  }, [filteredConversations, searchQuery, liveRunningIds, isZh]);
+
+  // Keyboard shortcut: Escape to close drawer
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const currentDevName = devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8);
@@ -909,7 +1014,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
             gap: 8,
           }}
         >
-          {filteredConversations.length === 0 ? (
+          {conversationGroups.length === 0 ? (
             <div
               style={{
                 textAlign: "center",
@@ -921,27 +1026,65 @@ export const HistoryDrawer = memo(function HistoryDrawer({
               {searchQuery ? (isZh ? "未找到匹配的会话" : "No matching sessions found") : t.ask.noHistory}
             </div>
           ) : (
-            filteredConversations.map((c) => (
-              <ConversationItem
-                key={c.id}
-                conversation={c}
-                isActive={c.id === activeConversationId}
-                isBatchMode={batchSelectMode}
-                isSelected={selectedConvIds.has(c.id)}
-                isRunning={liveRunningIds.has(c.id)}
-                onSelect={(id) => {
-                  onClose();
-                  onSelectConversation(id);
-                }}
-                onToggleBatch={handleToggleBatch}
-                onPrefetch={onPrefetchTurns}
-                onTogglePin={onTogglePinConversation}
-                onShare={onOpenSingleShare}
-                onRename={onRenameConversation}
-                onDelete={onDeleteConversation}
-                isZh={isZh}
-                t={t}
-              />
+            conversationGroups.map((group) => (
+              <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 6px 4px 6px",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "var(--aurora-fg4)",
+                    letterSpacing: "0.02em",
+                    userSelect: "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: "50%",
+                      background:
+                        group.id === "running"
+                          ? "#10b981"
+                          : group.id === "pinned"
+                          ? "#f59e0b"
+                          : "var(--aurora-accent)",
+                      opacity: 0.85,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span>{group.title}</span>
+                  <span style={{ fontSize: 10.5, opacity: 0.6, fontVariantNumeric: "tabular-nums" }}>
+                    ({group.items.length})
+                  </span>
+                </div>
+                {group.items.map((c) => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    isActive={c.id === activeConversationId}
+                    isBatchMode={batchSelectMode}
+                    isSelected={selectedConvIds.has(c.id)}
+                    isRunning={liveRunningIds.has(c.id)}
+                    searchQuery={searchQuery}
+                    onSelect={(id) => {
+                      onClose();
+                      onSelectConversation(id);
+                    }}
+                    onToggleBatch={handleToggleBatch}
+                    onPrefetch={onPrefetchTurns}
+                    onTogglePin={onTogglePinConversation}
+                    onShare={onOpenSingleShare}
+                    onRename={onRenameConversation}
+                    onDelete={onDeleteConversation}
+                    isZh={isZh}
+                    t={t}
+                  />
+                ))}
+              </div>
             ))
           )}
           {batchSelectMode && (

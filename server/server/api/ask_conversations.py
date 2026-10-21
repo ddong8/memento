@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User, AskConversation
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
+from ..services.cache import cache_get, cache_set, cache_delete_prefix
 from ..services.user_filter import find_machine_by_id_or_hash
 from ..services.ask_runs import ask_runs
 from ..services.ask_store import (
@@ -36,6 +37,11 @@ async def list_conversations(
     _user: User = Depends(get_current_user),
 ):
     """List recent Ask conversations for the current user."""
+    cache_key = f"ask_conv_list:{_user.id}:{device_id or 'all'}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     cond = (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
     if device_id and device_id not in ("auto", "ask_only", "all"):
         target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
@@ -154,6 +160,8 @@ async def list_conversations(
             await db.commit()
         except Exception:
             await db.rollback()
+
+    await cache_set(cache_key, out_items, ttl_seconds=15)
     return out_items
 
 
@@ -480,6 +488,7 @@ async def update_conversation(
     conv.config = cfg
     conv.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    await cache_delete_prefix(f"ask_conv_list:{_user.id}")
     return {"ok": True, "config": cfg}
 
 
@@ -504,4 +513,5 @@ async def delete_conversation(
 
     await db.delete(conv)
     await db.commit()
+    await cache_delete_prefix(f"ask_conv_list:{_user.id}")
     return {"ok": True}

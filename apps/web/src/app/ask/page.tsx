@@ -9,7 +9,8 @@ import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
-import { showInAppToast } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
+import { directConnect } from "@/lib/direct-connect";
 import MarkdownViewer, { stripTransientStatusPrefix } from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
@@ -358,6 +359,32 @@ function AskPageContent() {
 
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
   const promptHistoryIdxRef = useRef<number>(-1);
+
+  // Global offline / online network state monitoring
+  const [isOffline, setIsOffline] = useState<boolean>(false);
+  const [offlineRecovered, setOfflineRecovered] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOffline = () => {
+      setIsOffline(true);
+      setOfflineRecovered(false);
+      triggerHapticFeedback(20);
+    };
+    const handleOnline = () => {
+      setIsOffline(false);
+      setOfflineRecovered(true);
+      triggerHapticFeedback(12);
+      directConnect.probe().catch(() => {});
+      setTimeout(() => setOfflineRecovered(false), 2500);
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
@@ -3348,6 +3375,13 @@ function AskPageContent() {
         return;
       }
 
+      // Cmd/Ctrl + Shift + H / S: 切换历史抽屉
+      if (hasModifier && e.shiftKey && (key === "h" || key === "s")) {
+        e.preventDefault();
+        setHistoryOpen((prev) => !prev);
+        return;
+      }
+
       // Cmd/Ctrl + K: 聚焦输入框或历史搜索框
       if (hasModifier && key === "k") {
         e.preventDefault();
@@ -4151,6 +4185,62 @@ function AskPageContent() {
 
   return (
     <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
+      {/* 离线状态全局浮动感知胶囊 */}
+      {isOffline && (
+        <div
+          style={{
+            position: "fixed",
+            top: 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 99999,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "6px 14px",
+            borderRadius: 20,
+            background: "rgba(220, 38, 38, 0.92)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 500,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+            animation: "pulse 2s infinite ease-in-out",
+            pointerEvents: "none",
+          }}
+        >
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff", display: "inline-block" }} />
+          <span>网络已断开，正在等待恢复...</span>
+        </div>
+      )}
+      {offlineRecovered && !isOffline && (
+        <div
+          style={{
+            position: "fixed",
+            top: 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 99999,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "6px 14px",
+            borderRadius: 20,
+            background: "rgba(16, 185, 129, 0.92)",
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 500,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+            pointerEvents: "none",
+          }}
+        >
+          <Icon name="check" size={13} style={{ color: "#fff" }} />
+          <span>网络已恢复连接</span>
+        </div>
+      )}
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}

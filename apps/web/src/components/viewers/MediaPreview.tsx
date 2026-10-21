@@ -414,7 +414,16 @@ export function VideoPlayer({
   const [duration, setDuration] = useState<number>(0);
   const [volume, setVolume] = useState<number>(1);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [playbackRate, setPlaybackRate] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    try {
+      const saved = localStorage.getItem("memento_media_playback_rate");
+      const parsed = saved ? parseFloat(saved) : 1;
+      return parsed > 0 && parsed <= 3 ? parsed : 1;
+    } catch {
+      return 1;
+    }
+  });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -1115,6 +1124,9 @@ export function VideoPlayer({
     if (!v) return;
     v.playbackRate = rate;
     setPlaybackRate(rate);
+    try {
+      localStorage.setItem("memento_media_playback_rate", String(rate));
+    } catch {}
     setShowRateMenu(false);
     triggerControlsActivity();
   };
@@ -1637,6 +1649,9 @@ export function VideoPlayer({
               setDuration(v.duration);
               if (v.videoWidth && v.videoHeight) {
                 setAspectRatio(v.videoWidth / v.videoHeight);
+              }
+              if (playbackRate && playbackRate !== 1) {
+                v.playbackRate = playbackRate;
               }
               setIsLoading(false);
               // Resume playback check

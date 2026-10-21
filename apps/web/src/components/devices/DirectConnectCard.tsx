@@ -196,10 +196,6 @@ export function DirectConnectCard() {
                 )}
               </div>
             </div>
-
-            <Btn size="sm" variant="ghost" onClick={handleAutoProbe} disabled={testing}>
-              {testing ? "探活中…" : "一键自检/重测"}
-            </Btn>
           </div>
 
           {notice && (

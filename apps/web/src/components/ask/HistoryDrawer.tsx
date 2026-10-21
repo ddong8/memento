@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn } from "@/components/aurora/primitives";
 import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
+import { triggerHapticFeedback } from "@/lib/native-notify";
 
 interface HistoryDrawerProps {
   open: boolean;
@@ -85,6 +86,7 @@ const ConversationItem = memo(function ConversationItem({
     <div
       onFocus={() => onPrefetch?.(c.id)}
       onClick={() => {
+        triggerHapticFeedback(12);
         if (isBatchMode) {
           onToggleBatch(c.id);
         } else {
@@ -338,7 +340,10 @@ const ConversationItem = memo(function ConversationItem({
           <div style={{ display: "flex", alignItems: "center", gap: 2 }} onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={(e) => onTogglePin(e, c.id, c.config?.pinned)}
+              onClick={(e) => {
+                triggerHapticFeedback([10, 30, 15]);
+                onTogglePin(e, c.id, c.config?.pinned);
+              }}
               title={c.config?.pinned ? (isZh ? "取消置顶" : "Unpin") : (isZh ? "置顶会话" : "Pin to top")}
               style={{
                 background: "transparent",
@@ -742,6 +747,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
               <button
                 type="button"
                 onClick={() => {
+                  triggerHapticFeedback(15);
                   onClose();
                   onStartNewChat();
                 }}

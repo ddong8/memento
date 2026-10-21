@@ -40,6 +40,21 @@ export function ImageViewerModal({
   const [rotation, setRotation] = useState(0);
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
+  const [zoomBadge, setZoomBadge] = useState<number | null>(null);
+  const zoomTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync zoom badge indicator
+  useEffect(() => {
+    if (!isOpen) return;
+    setZoomBadge(Math.round(zoom * 100));
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => {
+      setZoomBadge(null);
+    }, 1100);
+    return () => {
+      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    };
+  }, [zoom, isOpen]);
 
   // Dragging and touch tracking
   const dragStartRef = useRef<{ x: number; y: number; startPanX: number; startPanY: number }>({
@@ -396,6 +411,13 @@ export function ImageViewerModal({
           </button>
         </div>
       </div>
+
+      {/* Zoom Ratio Floating Badge */}
+      {zoomBadge !== null && (
+        <div className="absolute top-16 sm:top-20 z-30 pointer-events-none px-3 py-1 rounded-full bg-black/80 border border-white/20 backdrop-blur-xl text-white text-xs font-mono font-semibold shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+          {zoomBadge}%
+        </div>
+      )}
 
       {/* Left Navigation Arrow */}
       {normalizedList.length > 1 && (

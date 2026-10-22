@@ -25,6 +25,8 @@ interface MediaInspectorContextType {
   prevMedia: () => void;
   registerMedia: (item: { url: string; title?: string; type?: MediaType; localPath?: string | null; id?: string; content?: string | null }) => void;
   syncTurnsMedia: (turns: Array<{ content?: string | null; role?: string | null }>) => void;
+  refreshKey: number;
+  refreshActiveMedia: () => void;
 }
 
 const MediaInspectorContext = createContext<MediaInspectorContextType | null>(null);
@@ -74,6 +76,11 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
   const [mediaList, setMediaList] = useState<MediaItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [refreshKey, setRefreshKey] = useState<number>(0);
+
+  const refreshActiveMedia = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   const userManuallyClosedRef = useRef<boolean>(false);
 
@@ -106,13 +113,14 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
 
   const openMedia = useCallback((item: MediaItem) => {
     userManuallyClosedRef.current = false;
+    setRefreshKey((k) => k + 1);
     setMediaList((prev) => {
       const cleanUrl = safeDecodePath(item.url);
       const exists = prev.some((m) => safeDecodePath(m.url) === cleanUrl);
       if (exists) {
         setActiveId(item.id);
         setIsOpen(true);
-        return prev;
+        return [...prev];
       }
       setActiveId(item.id);
       setIsOpen(true);
@@ -122,16 +130,17 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
 
   const openMediaByUrl = useCallback((url: string, title?: string, content?: string | null) => {
     userManuallyClosedRef.current = false;
+    setRefreshKey((k) => k + 1);
     const cleanUrl = safeDecodePath(url);
     setMediaList((prev) => {
       const existing = prev.find((m) => safeDecodePath(m.url) === cleanUrl);
       if (existing) {
-        if (content && !existing.content) {
+        if (content) {
           existing.content = content;
         }
         setActiveId(existing.id);
         setIsOpen(true);
-        return prev; // 引用不变
+        return [...prev]; // 产生新引用并触发重新渲染
       }
       const type = detectMediaType(url);
       const newItem: MediaItem = {
@@ -269,6 +278,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       prevMedia,
       registerMedia,
       syncTurnsMedia,
+      refreshKey,
+      refreshActiveMedia,
     }),
     [
       mediaList,
@@ -283,6 +294,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       prevMedia,
       registerMedia,
       syncTurnsMedia,
+      refreshKey,
+      refreshActiveMedia,
     ]
   );
 

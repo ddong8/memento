@@ -22,6 +22,7 @@ import {
   FiEye,
   FiSend,
   FiRotateCcw,
+  FiRefreshCw,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
@@ -277,6 +278,18 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               </div>
             )}
 
+            <button
+              type="button"
+              onClick={() => {
+                inspector.refreshActiveMedia();
+                showInAppToast("已刷新", "正在重新加载最新文件内容");
+              }}
+              title="重新读取磁盘最新内容 (刷新)"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+            >
+              <FiRefreshCw className="w-3.5 h-3.5" />
+            </button>
+
             {resolved.localPath && (
               <button
                 type="button"
@@ -435,6 +448,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 }
 
 function MarkdownDocViewer({ item }: { item: MediaItem }) {
+  const inspector = useMediaInspector();
   const [content, setContent] = useState<string>(item.content || "");
   const [originalContent, setOriginalContent] = useState<string>(item.content || "");
   const [loading, setLoading] = useState<boolean>(!item.content);
@@ -442,9 +456,16 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [showWechatModal, setShowWechatModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [reloadTick, setReloadTick] = useState<number>(0);
+
+  const isLocal = isLocalFilePath(item.url);
+  const isModified = content !== originalContent;
+  const isModifiedRef = useRef(false);
+  isModifiedRef.current = isModified;
 
   useEffect(() => {
-    if (item.content) {
+    // 纯文本虚拟稿件且非本地文件时，若外部有 content 则直接使用
+    if (item.content && !isLocal && reloadTick === 0) {
       setContent(item.content);
       setOriginalContent(item.content);
       setLoading(false);
@@ -516,16 +537,17 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
         let res: Response | null = null;
         try {
+          const bustUrl = fetchUrl.includes("?") ? `${fetchUrl}&_t=${Date.now()}` : `${fetchUrl}?_t=${Date.now()}`;
           if (fetchUrl.startsWith("http://") || fetchUrl.startsWith("https://") || fetchUrl.startsWith("/")) {
-            res = await authFetch(fetchUrl);
+            res = await authFetch(bustUrl);
           } else {
-            res = await fetch(fetchUrl);
+            res = await fetch(bustUrl, { cache: "no-store" });
           }
         } catch (fetchErr) {
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
-              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}`;
+              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}&_t=${Date.now()}`;
               res = await authFetch(relayUrl);
             } catch {
               // ignore
@@ -541,7 +563,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
-              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}`;
+              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}&_t=${Date.now()}`;
               const relayRes = await authFetch(relayUrl);
               if (relayRes.ok) {
                 res = relayRes;
@@ -574,9 +596,19 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     return () => {
       active = false;
     };
-  }, [item.url, item.content]);
+  }, [item.url, item.content, isLocal, inspector?.refreshKey, reloadTick]);
 
-  const isModified = content !== originalContent;
+  useEffect(() => {
+    const handleFocus = () => {
+      // 窗口切回时若当前未进行本地润色修改，自动同步磁盘最新状态
+      if (!isModifiedRef.current && isLocal) {
+        setReloadTick((t) => t + 1);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [isLocal]);
+
   const wordCount = content.trim().length;
   const readingTime = Math.max(1, Math.ceil(wordCount / 400));
 
@@ -684,6 +716,19 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           <span className="text-[11px] text-[var(--aurora-fg4)] font-mono hidden sm:inline" style={{ fontVariantNumeric: "tabular-nums" }}>
             {wordCount.toLocaleString()} 字 · 约 {readingTime} 分
           </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              setReloadTick((t) => t + 1);
+              showInAppToast("已刷新", "已从本地磁盘重新加载最新内容");
+            }}
+            title="从本地磁盘重新加载最新内容 (刷新)"
+            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:border-white/20 transition-colors cursor-pointer text-xs"
+          >
+            <FiRefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[var(--aurora-accent)]" : ""}`} />
+            <span className="hidden sm:inline">重新读取</span>
+          </button>
 
           <button
             type="button"

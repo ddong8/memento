@@ -18,10 +18,15 @@ import {
   FiChevronRight,
   FiPlay,
   FiShare2,
+  FiEdit3,
+  FiEye,
+  FiSend,
+  FiRotateCcw,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
+import { WeChatPublishModal } from "./WeChatPublishModal";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
@@ -431,12 +436,17 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
 function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [content, setContent] = useState<string>(item.content || "");
+  const [originalContent, setOriginalContent] = useState<string>(item.content || "");
   const [loading, setLoading] = useState<boolean>(!item.content);
   const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [showWechatModal, setShowWechatModal] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     if (item.content) {
       setContent(item.content);
+      setOriginalContent(item.content);
       setLoading(false);
       setError(null);
       return;
@@ -457,7 +467,9 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           if (active) {
-            setContent(data.content || data.title || "");
+            const docText = data.content || data.title || "";
+            setContent(docText);
+            setOriginalContent(docText);
             setLoading(false);
           }
           return;
@@ -481,6 +493,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               if (ipcRes && typeof ipcRes.content === "string") {
                 if (active) {
                   setContent(ipcRes.content);
+                  setOriginalContent(ipcRes.content);
                   setLoading(false);
                 }
                 return;
@@ -509,8 +522,6 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             res = await fetch(fetchUrl);
           }
         } catch (fetchErr) {
-          // Fallback 1: If custom scheme or direct fetch failed (e.g. memento-media CORS in older client),
-          // seamlessly fallback to the device streaming relay API!
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
@@ -527,7 +538,6 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         }
 
         if (!res || !res.ok) {
-          // Fallback 2: If response was not OK, try streaming relay
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
@@ -549,6 +559,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         const text = await res.text();
         if (active) {
           setContent(text);
+          setOriginalContent(text);
           setLoading(false);
         }
       } catch (err: any) {
@@ -564,6 +575,26 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
       active = false;
     };
   }, [item.url, item.content]);
+
+  const isModified = content !== originalContent;
+  const wordCount = content.trim().length;
+  const readingTime = Math.max(1, Math.ceil(wordCount / 400));
+
+  const handleCopyContent = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      showInAppToast("已复制 Markdown 全文", `${wordCount} 字`);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleReset = () => {
+    setContent(originalContent);
+    showInAppToast("已重置", "已恢复为最初文档内容");
+  };
 
   if (loading) {
     return (
@@ -604,8 +635,108 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   }
 
   return (
-    <div className="p-4 sm:p-5 bg-[var(--aurora-surface-solid)]/95 rounded-xl border border-[var(--aurora-border)] overflow-x-hidden text-left">
-      <MarkdownViewer content={content} />
+    <div className="flex flex-col gap-2.5 text-left">
+      {/* 工作台文档操作工具栏 */}
+      <div className="flex items-center justify-between gap-2 p-1.5 sm:p-2 rounded-xl bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] flex-wrap text-xs select-none">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              !isEditing
+                ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+            }`}
+          >
+            <FiEye className="w-3.5 h-3.5" />
+            <span>排版预览</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              isEditing
+                ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+            }`}
+          >
+            <FiEdit3 className="w-3.5 h-3.5" />
+            <span>编辑润色</span>
+            {isModified && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="文本已调整" />
+            )}
+          </button>
+
+          {isModified && (
+            <button
+              type="button"
+              onClick={handleReset}
+              title="重置放弃本次修改"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--aurora-fg4)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+            >
+              <FiRotateCcw className="w-3 h-3" />
+              <span>重置</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+          <span className="text-[11px] text-[var(--aurora-fg4)] font-mono hidden sm:inline" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {wordCount.toLocaleString()} 字 · 约 {readingTime} 分
+          </span>
+
+          <button
+            type="button"
+            onClick={handleCopyContent}
+            title="复制全文 Markdown"
+            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:border-white/20 transition-colors cursor-pointer text-xs"
+          >
+            {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{copied ? "已复制" : "复制"}</span>
+          </button>
+
+          {/* 核心动作：推送到微信公众号草稿箱 */}
+          <button
+            type="button"
+            onClick={() => setShowWechatModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+            title="将工作台当前排版完成的图文一键推送到微信公众平台草稿箱"
+          >
+            <FiSend className="w-3.5 h-3.5" />
+            <span>推送到公众号草稿</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 主体展示区域 */}
+      {isEditing ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] px-1">
+            <span>正文实时编辑润色中，可多次调整；完成后切回「排版预览」检查</span>
+            <span className="font-mono text-[10.5px]">实时编辑模式</span>
+          </div>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={22}
+            placeholder="在工作台中直接调整与润色正文 Markdown..."
+            className="w-full p-4 rounded-xl bg-[var(--aurora-bg)] border border-[var(--aurora-border)] text-[var(--aurora-fg1)] font-mono text-[12.5px] leading-relaxed resize-y focus:outline-none focus:border-[var(--aurora-accent)] transition-colors select-text"
+            style={{ minHeight: "420px" }}
+          />
+        </div>
+      ) : (
+        <div className="p-4 sm:p-5 bg-[var(--aurora-surface-solid)]/95 rounded-xl border border-[var(--aurora-border)] overflow-x-hidden text-left">
+          <MarkdownViewer content={content} />
+        </div>
+      )}
+
+      {/* 微信公众号官方草稿发布弹层 */}
+      <WeChatPublishModal
+        isOpen={showWechatModal}
+        onClose={() => setShowWechatModal(false)}
+        markdown={content}
+        defaultTitle={item.title}
+      />
     </div>
   );
 }

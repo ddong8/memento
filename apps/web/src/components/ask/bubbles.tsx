@@ -11,6 +11,7 @@ import { ImageViewerModal } from "@/components/viewers/ImageViewerModal";
 import { FiZoomIn } from "react-icons/fi";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { api } from "@/lib/api-client";
+import { useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 
 function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolean }) {
   const { t } = useI18n();
@@ -473,6 +474,7 @@ export const AssistantBubble = memo(function AssistantBubble({
   const isThinkingActive = Boolean(isCurrentlyStreaming && !content);
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
   const [copied, setCopied] = useState(false);
+  const inspector = useMediaInspector();
 
   const { locale } = useI18n();
   const isZh = locale ? locale.startsWith("zh") : true;
@@ -762,6 +764,24 @@ export const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />
                 <span>{savedTodo ? "已存待办" : "存为待办"}</span>
+              </button>
+            )}
+            {content && content.length > 50 && inspector && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  inspector.openMediaByUrl(
+                    `workbench://${turn.created_at || Date.now()}.md`,
+                    "公众号推文稿件",
+                    content
+                  );
+                }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                title="在右侧工作台中润色调整，并一键推送到微信公众号草稿箱"
+              >
+                <Icon name="edit" size={11} style={{ color: "#34d399" }} />
+                <span>工作台发公众号</span>
               </button>
             )}
           </div>

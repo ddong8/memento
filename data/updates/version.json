@@ -1,7 +1,7 @@
 {
   "version": "1.0.70",
   "title": "Memento v1.0.70",
-  "release_notes": "1. 修复 Windows 通知中心大图与系统托盘图标模糊问题，升级为 512x512 超清通知图标与多尺寸高清 ICO\n2. 修复 iOS 灵动岛点击返回 App 报 Unmatched Route 问题并无缝跳转至对应对话底部",
+  "release_notes": "1. 适配 WorkBuddy 5.8：新版 WorkBuddy 不再提供本地网关，Memento 改用 WorkBuddy 自带的命令行在本机提供服务，Mac 和 Windows 上都能重新调用 WorkBuddy；首次使用按提示登录一次 WorkBuddy（浏览器已登录时自动完成）\n2. 停止 WorkBuddy 任务时同步停止它的后台会话，且不再误关 WorkBuddy 桌面端自己的对话",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.70-win-x64.zip",

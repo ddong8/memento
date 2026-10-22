@@ -737,7 +737,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                   onShareTurn(index);
                 }}
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="分享此问答"
+                title="分享与多平台分发 (微信公众号/知乎/微博/小红书)"
               >
                 <Icon name="share" size={12} />
                 <span>分享</span>
@@ -764,30 +764,6 @@ export const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />
                 <span>{savedTodo ? "已存待办" : "存为待办"}</span>
-              </button>
-            )}
-            {content && content.length > 50 && inspector && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const medias = extractMediaFromMarkdown(content);
-                  const linkedMd = medias.find((m) => m.type === "markdown");
-                  if (linkedMd) {
-                    inspector.openMediaByUrl(linkedMd.url, linkedMd.title);
-                  } else {
-                    inspector.openMediaByUrl(
-                      `workbench://${turn.created_at || Date.now()}.md`,
-                      "公众号推文稿件",
-                      content
-                    );
-                  }
-                }}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/25 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="在右侧工作台中润色调整，并一键推送到微信公众号草稿箱"
-              >
-                <Icon name="edit" size={11} style={{ color: "#34d399" }} />
-                <span>工作台发公众号</span>
               </button>
             )}
           </div>

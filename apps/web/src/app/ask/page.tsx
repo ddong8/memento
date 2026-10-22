@@ -440,6 +440,8 @@ function AskPageContent() {
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
   const [shareTargetId, setShareTargetId] = useState<string>("");
   const [shareTitle, setShareTitle] = useState<string>("");
+  const [shareContent, setShareContent] = useState<string>("");
+  const [shareInitialTab, setShareInitialTab] = useState<"link" | "publish">("link");
   const [batchSelectMode, setBatchSelectMode] = useState<boolean>(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
@@ -4207,10 +4209,13 @@ function AskPageContent() {
       assistantIndex > 0 && curTurns[assistantIndex - 1]?.role === "user"
         ? curTurns[assistantIndex - 1]
         : curTurns[assistantIndex];
+    const assistantTurn = curTurns[assistantIndex];
     const excerpt = questionTurn?.content?.trim().slice(0, 36) || "问答";
     const shareTitle = `${displayConvTitleRef.current || "Memento"} · 提问：${excerpt}${questionTurn?.content?.trim().length > 36 ? "..." : ""}`;
     setShareTargetId(`${convId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
+    setShareContent(assistantTurn?.content || "");
+    setShareInitialTab(assistantTurn?.content && assistantTurn.content.length > 50 ? "publish" : "link");
     setShareModalOpen(true);
   }, [getTurnAbsIndex]);
 
@@ -4227,6 +4232,8 @@ function AskPageContent() {
     const shareTitle = `${displayConvTitleRef.current || "Memento"} · 提问：${excerpt}${curTurns[userIndex]?.content?.trim().length > 36 ? "..." : ""}`;
     setShareTargetId(`${convId}:${turnIndices.join(",")}`);
     setShareTitle(shareTitle);
+    setShareContent(curTurns[userIndex]?.content || "");
+    setShareInitialTab("link");
     setShareModalOpen(true);
   }, [getTurnAbsIndex]);
 
@@ -6723,13 +6730,15 @@ function AskPageContent() {
         onDataChange={setQuotasData}
       />
 
-      {/* Conversation Share Modal (Single & Multiple) */}
+      {/* Conversation Share Modal (Single & Multiple with Multi-Platform Publishing Hub) */}
       <ShareModal
         open={shareModalOpen}
         onClose={() => setShareModalOpen(false)}
         kind="conversation"
         targetId={shareTargetId}
         title={shareTitle}
+        content={shareContent}
+        initialTab={shareInitialTab}
       />
 
       {/* History Drawer Overlay & Sidebar (Isolated with React.memo to prevent streaming re-render lag) */}

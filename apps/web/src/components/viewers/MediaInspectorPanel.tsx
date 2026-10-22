@@ -864,9 +864,10 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               type="button"
               onClick={() => setShowWechatModal(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+              title="多平台分发中心：推送到微信公众号草稿箱，或导出知乎、微博、小红书排版"
             >
-              <FiSend className="w-3.5 h-3.5" />
-              <span>推送到草稿</span>
+              <FiShare2 className="w-3.5 h-3.5" />
+              <span>多平台分发</span>
             </button>
           </div>
         </div>

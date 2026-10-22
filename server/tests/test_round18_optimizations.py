@@ -18,13 +18,6 @@ class TestRound18Optimizations(unittest.IsolatedAsyncioTestCase):
         mock_result.scalars.return_value.all.return_value = [fake_user]
         fake_session.execute.return_value = mock_result
 
-        run_result = {
-            "ok": True,
-            "promoted": 3,
-            "synthesized": 1,
-            "pruned": 0,
-        }
-
         with patch("server.tasks.dreaming_tasks.async_session_factory") as mock_sf, \
              patch("server.tasks.dreaming_tasks.run_dreaming_pipeline", new_callable=AsyncMock) as mock_dreaming, \
              patch("server.tasks.dreaming_tasks.build_profile_draft", new_callable=AsyncMock), \
@@ -50,7 +43,6 @@ class TestRound18Optimizations(unittest.IsolatedAsyncioTestCase):
 
     async def test_ask_cache_hit_emits_cached_delta_and_done(self):
         """Verify that ask stream returns cached response and avoids LLM call when cache hits."""
-        import json
         from server.api.ask import ask, AskRequest
         from server.db.models import User
 

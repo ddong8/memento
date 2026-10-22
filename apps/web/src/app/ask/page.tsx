@@ -5045,6 +5045,8 @@ function AskPageContent() {
                     gap: 6,
                     overflowX: "auto",
                     scrollbarWidth: "none",
+                    WebkitOverflowScrolling: "touch",
+                    touchAction: "pan-x",
                     minWidth: 0,
                     flex: 1,
                   }}
@@ -5263,6 +5265,7 @@ function AskPageContent() {
                   {/* Resumed Session Badge */}
                   {selectedSessionId && (
                     <span
+                      className="max-w-[130px] sm:max-w-[220px]"
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -5276,11 +5279,12 @@ function AskPageContent() {
                         fontWeight: 600,
                         whiteSpace: "nowrap",
                         flexShrink: 0,
+                        overflow: "hidden",
                       }}
                     >
-                      <Icon name="clock" size={11} />
-                      <span>
-                        {isZh ? "续接: " : "Resuming: "}
+                      <Icon name="clock" size={11} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {isZh ? "续: " : "Resuming: "}
                         {(() => {
                           const s = sessions.find((x) => (x.session_id || x.conversation_id) === selectedSessionId);
                           const isCurrentActive = Boolean(
@@ -5297,7 +5301,7 @@ function AskPageContent() {
                             || convTitle
                             || s?.title
                             || selectedSessionId;
-                          return t.length > 18 ? t.slice(0, 18) + "..." : t;
+                          return t;
                         })()}
                       </span>
                     </span>

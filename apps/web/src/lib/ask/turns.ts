@@ -271,7 +271,12 @@ export function formatTurnTimestamp(iso?: string): { short: string; full: string
   return { short, full };
 }
 
-export function formatTurnDuration(durationMs?: number, startedAtIso?: string, finishedAtIso?: string): string | null {
+export function formatTurnDuration(
+  durationMs?: number,
+  startedAtIso?: string,
+  finishedAtIso?: string,
+  isZh = true
+): string | null {
   let ms = typeof durationMs === "number" && durationMs > 0 ? durationMs : 0;
   if (!ms && startedAtIso && finishedAtIso) {
     const sNorm = normalizeIsoTimestamp(startedAtIso);
@@ -285,8 +290,11 @@ export function formatTurnDuration(durationMs?: number, startedAtIso?: string, f
   if (!ms || ms <= 0 || ms > 7 * 24 * 3600 * 1000) return null;
   if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
   const sec = ms / 1000;
-  if (sec < 60) return `${sec.toFixed(1)}s`;
+  if (sec < 60) return isZh ? `${sec.toFixed(1)}秒` : `${sec.toFixed(1)}s`;
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
-  return `${m}m ${s}s`;
+  if (isZh) {
+    return s > 0 ? `${m}分${s}秒` : `${m}分钟`;
+  }
+  return s > 0 ? `${m}m\u00A0${s}s` : `${m}m`;
 }

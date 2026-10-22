@@ -473,9 +473,11 @@ export const AssistantBubble = memo(function AssistantBubble({
   const hasTools = Boolean(turn.toolCalls && turn.toolCalls.length > 0);
   const [copied, setCopied] = useState(false);
 
+  const { locale } = useI18n();
+  const isZh = locale ? locale.startsWith("zh") : true;
   const replyTime = formatTurnTimestamp(turn.created_at) || (turn.finished_at ? formatTurnTimestamp(turn.finished_at) : null);
   const startTime = formatTurnTimestamp(turn.started_at || prevUserCreatedAt);
-  const durationText = formatTurnDuration(turn.duration_ms, turn.started_at || prevUserCreatedAt, turn.created_at || turn.finished_at);
+  const durationText = formatTurnDuration(turn.duration_ms, turn.started_at || prevUserCreatedAt, turn.created_at || turn.finished_at, isZh);
 
   const contentCharCount = content ? content.trim().length : 0;
   const durSec = turn.duration_ms
@@ -484,7 +486,9 @@ export const AssistantBubble = memo(function AssistantBubble({
     ? (new Date(turn.created_at).getTime() - new Date(turn.started_at || prevUserCreatedAt!).getTime()) / 1000
     : 0;
   const speedLabel = (!isCurrentlyStreaming && durSec > 0.5 && contentCharCount > 20)
-    ? `约 ${Math.round(contentCharCount / durSec)} 字/秒`
+    ? isZh
+      ? `约\u00A0${Math.round(contentCharCount / durSec)}\u00A0字/秒`
+      : `~${Math.round(contentCharCount / durSec)}\u00A0char/s`
     : "";
 
   const handleCopyContent = (e: React.MouseEvent) => {
@@ -655,11 +659,11 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
-        <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none flex-wrap">
-          <div className="flex items-center gap-2 text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
             {startTime && (
               <span
-                className="inline-flex items-center gap-1 opacity-75 hidden sm:inline-flex"
+                className="inline-flex items-center gap-1 opacity-75 whitespace-nowrap shrink-0 hidden sm:inline-flex"
                 title={`发出提问时间: ${startTime.full}`}
               >
                 <Icon name="clock" size={10.5} />
@@ -668,7 +672,7 @@ export const AssistantBubble = memo(function AssistantBubble({
             )}
             {replyTime && (
               <span
-                className="inline-flex items-center gap-1 opacity-85"
+                className="inline-flex items-center gap-1 opacity-85 whitespace-nowrap shrink-0"
                 title={`收到回复时间: ${replyTime.full}${startTime ? ` (提问于 ${startTime.full})` : ""}`}
               >
                 <Icon name="clock" size={11} />
@@ -677,7 +681,7 @@ export const AssistantBubble = memo(function AssistantBubble({
             )}
             {durationText && (
               <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)]"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
                 title="本轮响应耗时"
               >
                 <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
@@ -686,24 +690,33 @@ export const AssistantBubble = memo(function AssistantBubble({
             )}
             {speedLabel && (
               <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] hidden md:inline-flex"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
                 title="文字生成速率"
               >
                 <Icon name="activity" size={10} style={{ color: "var(--aurora-accent)" }} />
                 <span>{speedLabel}</span>
               </span>
             )}
-            {(turn.model || (turn.execution_mode && turn.execution_mode !== "ai")) && (
-              <span
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] font-mono"
-                title={`执行引擎/模型: ${turn.model || turn.execution_mode}`}
-              >
-                <Icon name="sparkles" size={10} style={{ color: "var(--aurora-accent)" }} />
-                <span>{turn.model || turn.execution_mode}</span>
-              </span>
-            )}
+            {(turn.model || (turn.execution_mode && turn.execution_mode !== "ai")) && (() => {
+              const rawName = turn.model || turn.execution_mode || "";
+              const formattedName =
+                rawName.toLowerCase() === "antigravity" ? "Antigravity"
+                : rawName.toLowerCase() === "claude" || rawName.toLowerCase() === "claude_code" ? "Claude Code"
+                : rawName.toLowerCase() === "codex" ? "Codex"
+                : rawName.toLowerCase() === "workbuddy" ? "WorkBuddy"
+                : rawName;
+              return (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-accent)]/30 text-[10.5px] text-[var(--aurora-accent)] font-medium whitespace-nowrap shrink-0"
+                  title={`执行引擎/模型: ${rawName}`}
+                >
+                  <Icon name="sparkles" size={10} style={{ color: "var(--aurora-accent)" }} />
+                  <span>{formattedName}</span>
+                </span>
+              );
+            })()}
           </div>
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1.5 self-end sm:self-auto sm:ml-auto shrink-0 flex-wrap">
             {onShareTurn && (
               <button
                 type="button"
@@ -711,7 +724,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                   e.stopPropagation();
                   onShareTurn(index);
                 }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="分享此问答"
               >
                 <Icon name="share" size={12} />
@@ -722,7 +735,7 @@ export const AssistantBubble = memo(function AssistantBubble({
               <button
                 type="button"
                 onClick={handleCopyContent}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="复制回答全文"
               >
                 <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
@@ -734,7 +747,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                 type="button"
                 onClick={handleSaveToTodo}
                 disabled={savedTodo}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="一键将回答要点存入工作待办"
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />

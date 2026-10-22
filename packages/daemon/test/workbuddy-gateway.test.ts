@@ -85,7 +85,7 @@ describe("memento's WorkBuddy gateway", () => {
       fake,
       `import { createServer } from "node:http";
 const pw = "pw-" + process.pid;
-if (process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY !== "1" || process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
+if (process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
 const server = createServer((req, res) => {
   if (req.headers.authorization !== "Bearer " + pw) { res.statusCode = 401; return res.end(); }
   res.setHeader("Content-Type", "application/json");

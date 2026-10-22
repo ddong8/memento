@@ -312,9 +312,9 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
       cwd: dir,
       env: {
         ...process.env,
+        // Keep credentials and config safely isolated inside ~/.memento/workbuddy-cli (0700).
+        // This persists login credentials across daemon and machine restarts so the user only signs in once.
         CODEBUDDY_CONFIG_DIR: dir,
-        // Never touch the desktop app's credential file: the login lives in this process only.
-        CODEBUDDY_CREDENTIALS_IN_MEMORY: "1",
         // 5.8 ships only the lite bundle; without this the CLI looks for the removed full one.
         CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1",
         SERVER__HOST: "127.0.0.1",

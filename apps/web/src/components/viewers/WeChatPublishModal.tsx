@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage } from "react-icons/fi";
+import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiExternalLink } from "react-icons/fi";
 
 export interface WeChatPublishModalProps {
   isOpen: boolean;
@@ -189,6 +189,17 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
               </p>
               <div className="p-2.5 rounded-lg bg-black/30 border border-white/5 font-mono text-[11px] text-[var(--aurora-fg3)] break-all select-text">
                 草稿 Media ID: {successMediaId}
+              </div>
+              <div className="pt-2 flex items-center justify-center gap-2 flex-wrap">
+                <a
+                  href="https://mp.weixin.qq.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition-colors cursor-pointer shadow-sm"
+                >
+                  <span>打开微信公众平台草稿箱</span>
+                  <FiExternalLink className="w-3.5 h-3.5" />
+                </a>
               </div>
             </div>
           ) : (

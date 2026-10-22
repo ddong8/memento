@@ -23,6 +23,7 @@ import {
   FiSend,
   FiRotateCcw,
   FiRefreshCw,
+  FiSmartphone,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
@@ -453,15 +454,42 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [originalContent, setOriginalContent] = useState<string>(item.content || "");
   const [loading, setLoading] = useState<boolean>(!item.content);
   const [error, setError] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<"preview" | "mobile" | "edit">("preview");
   const [showWechatModal, setShowWechatModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [copyingRich, setCopyingRich] = useState<boolean>(false);
   const [reloadTick, setReloadTick] = useState<number>(0);
 
   const isLocal = isLocalFilePath(item.url);
   const isModified = content !== originalContent;
   const isModifiedRef = useRef(false);
   isModifiedRef.current = isModified;
+
+  // 1. 初始化时尝试载入本地草稿缓存
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = localStorage.getItem(`memento_draft_${safeDecodePath(item.url)}`);
+      if (saved && saved !== content && saved.length > 20) {
+        setContent(saved);
+        showInAppToast("已载入本地草稿", "已为您自动恢复上次编辑的润色版本");
+      }
+    } catch {
+      // ignore
+    }
+  }, [item.url]);
+
+  // 2. 润色编辑发生变动时自动持久化到 localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isModified && content.trim()) {
+      try {
+        localStorage.setItem(`memento_draft_${safeDecodePath(item.url)}`, content);
+      } catch {
+        // ignore
+      }
+    }
+  }, [content, isModified, item.url]);
 
   useEffect(() => {
     // 纯文本虚拟稿件且非本地文件时，若外部有 content 则直接使用
@@ -623,9 +651,47 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     }
   };
 
+  const handleCopyRichText = async () => {
+    try {
+      setCopyingRich(true);
+      const res = await fetch("https://wx.ihasy.com/api/convert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: content, themeId: "tech", extractLinks: true }),
+      });
+      const data = await res.json();
+      if (data.success && data.html) {
+        const blob = new Blob([data.html], { type: "text/html" });
+        const textBlob = new Blob([content], { type: "text/plain" });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": blob,
+            "text/plain": textBlob,
+          }),
+        ]);
+        showInAppToast("已复制微信富文本", "可在微信公众号后台或笔记中直接 Ctrl+V 粘贴");
+      } else {
+        throw new Error(data.error || "富文本转换失败");
+      }
+    } catch (err: unknown) {
+      console.warn("copy rich text fallback", err);
+      await navigator.clipboard.writeText(content);
+      showInAppToast("已复制 Markdown 原文", "富文本服务稍有延迟，已复制全文内容");
+    } finally {
+      setCopyingRich(false);
+    }
+  };
+
   const handleReset = () => {
     setContent(originalContent);
-    showInAppToast("已重置", "已恢复为最初文档内容");
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(`memento_draft_${safeDecodePath(item.url)}`);
+      } catch {
+        // ignore
+      }
+    }
+    showInAppToast("已重置", "已放弃本地草稿并恢复为最初文档内容");
   };
 
   if (loading) {
@@ -673,9 +739,9 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setIsEditing(false)}
+            onClick={() => setViewMode("preview")}
             className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-              !isEditing
+              viewMode === "preview"
                 ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
                 : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
             }`}
@@ -685,9 +751,21 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           </button>
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
+            onClick={() => setViewMode("mobile")}
             className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-              isEditing
+              viewMode === "mobile"
+                ? "bg-emerald-500 text-slate-900 shadow-sm font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+            }`}
+          >
+            <FiSmartphone className="w-3.5 h-3.5" />
+            <span>微信真机</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("edit")}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              viewMode === "edit"
                 ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
                 : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
             }`}
@@ -703,7 +781,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             <button
               type="button"
               onClick={handleReset}
-              title="重置放弃本次修改"
+              title="放弃本地修改并恢复磁盘原版"
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--aurora-fg4)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
             >
               <FiRotateCcw className="w-3 h-3" />
@@ -712,7 +790,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-wrap">
           <span className="text-[11px] text-[var(--aurora-fg4)] font-mono hidden sm:inline" style={{ fontVariantNumeric: "tabular-nums" }}>
             {wordCount.toLocaleString()} 字 · 约 {readingTime} 分
           </span>
@@ -732,12 +810,13 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
           <button
             type="button"
-            onClick={handleCopyContent}
-            title="复制全文 Markdown"
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:border-white/20 transition-colors cursor-pointer text-xs"
+            onClick={handleCopyRichText}
+            disabled={copyingRich}
+            title="一键编译为微信富文本并复制到剪贴板，可直接在微信公众平台后台 Ctrl+V 粘贴"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer text-xs font-medium disabled:opacity-50"
           >
-            {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{copied ? "已复制" : "复制"}</span>
+            <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">{copyingRich ? "编译中..." : "复制富文本"}</span>
           </button>
 
           {/* 核心动作：推送到微信公众号草稿箱 */}
@@ -745,7 +824,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             type="button"
             onClick={() => setShowWechatModal(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-            title="将工作台当前排版完成的图文一键推送到微信公众平台草稿箱"
+            title="将工作台当前排版完成的图文一键推送到微信公众平台官方草稿箱"
           >
             <FiSend className="w-3.5 h-3.5" />
             <span>推送到公众号草稿</span>
@@ -754,11 +833,11 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
       </div>
 
       {/* 主体展示区域 */}
-      {isEditing ? (
+      {viewMode === "edit" ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] px-1">
-            <span>正文实时编辑润色中，可多次调整；完成后切回「排版预览」检查</span>
-            <span className="font-mono text-[10.5px]">实时编辑模式</span>
+            <span>正文实时编辑润色中，草稿已自动本地持久化；完成后可切回「排版预览」或「微信真机」检查</span>
+            <span className="font-mono text-[10.5px] text-emerald-400">● 实时编辑中</span>
           </div>
           <textarea
             value={content}
@@ -768,6 +847,40 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             className="w-full p-4 rounded-xl bg-[var(--aurora-bg)] border border-[var(--aurora-border)] text-[var(--aurora-fg1)] font-mono text-[12.5px] leading-relaxed resize-y focus:outline-none focus:border-[var(--aurora-accent)] transition-colors select-text"
             style={{ minHeight: "420px" }}
           />
+        </div>
+      ) : viewMode === "mobile" ? (
+        <div className="flex justify-center py-3 px-1 bg-black/25 rounded-2xl border border-[var(--aurora-border)]/50 select-text overflow-hidden">
+          <div className="w-full max-w-[380px] rounded-[36px] overflow-hidden border-[6px] border-slate-700 bg-white dark:bg-[#191919] text-slate-900 dark:text-slate-100 shadow-2xl flex flex-col transition-all">
+            {/* 仿真手机顶部微灵动岛 */}
+            <div className="h-6 bg-black flex items-center justify-center shrink-0">
+              <div className="w-20 h-3 bg-slate-900 rounded-full" />
+            </div>
+            {/* 微信文章头部真机仿真 */}
+            <div className="px-4 pt-3.5 pb-2.5 border-b border-black/5 dark:border-white/5 bg-inherit shrink-0">
+              <h2 className="text-base font-bold leading-snug line-clamp-2 text-slate-900 dark:text-white">
+                {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文预览"}
+              </h2>
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-2">
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Memento 心智体</span>
+                <span>•</span>
+                <span>刚刚</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">原创认证</span>
+              </div>
+            </div>
+            {/* 手机视口内正文排版（375px 真机折行模拟） */}
+            <div className="p-4 overflow-y-auto max-h-[620px] text-xs leading-relaxed prose prose-xs max-w-none dark:prose-invert select-text">
+              <MarkdownViewer content={content} />
+            </div>
+            {/* 微信底部互动状态栏 */}
+            <div className="px-4 py-2.5 border-t border-black/5 dark:border-white/5 text-[10px] text-slate-400 dark:text-slate-500 flex items-center justify-between bg-inherit shrink-0">
+              <span>阅读 10万+</span>
+              <div className="flex items-center gap-3">
+                <span>分享 982</span>
+                <span>赞 1,420</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">在看 860</span>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="p-4 sm:p-5 bg-[var(--aurora-surface-solid)]/95 rounded-xl border border-[var(--aurora-border)] overflow-x-hidden text-left">

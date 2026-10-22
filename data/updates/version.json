@@ -1,7 +1,7 @@
 {
   "version": "1.0.70",
   "title": "Memento v1.0.70",
-  "release_notes": "1. 适配 WorkBuddy 5.8：新版 WorkBuddy 不再提供本地网关，Memento 改用 WorkBuddy 自带的命令行在本机提供服务，Mac 和 Windows 上都能重新调用 WorkBuddy；首次使用按提示登录一次 WorkBuddy（浏览器已登录时自动完成）\n2. 停止 WorkBuddy 任务时同步停止它的后台会话，且不再误关 WorkBuddy 桌面端自己的对话",
+  "release_notes": "1. 优化 WorkBuddy 凭据持久化机制，从纯内存改为私有目录持久化存储，电脑重启后保持长期免登\n2. 修复任务执行过程中点击停止/取消无法即时终止的问题，完善守护进程任务中断拦截与优雅退出流程",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.70-win-x64.zip",

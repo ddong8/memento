@@ -770,124 +770,128 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
   return (
     <div className="flex flex-col gap-2.5 text-left">
-      {/* 工作台文档操作工具栏 */}
-      <div className="flex items-center justify-between gap-2 p-1.5 sm:p-2 rounded-xl bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] flex-wrap text-xs select-none">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setViewMode("preview")}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-              viewMode === "preview"
-                ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
-            }`}
-          >
-            <FiEye className="w-3.5 h-3.5" />
-            <span>排版预览</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("mobile")}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-              viewMode === "mobile"
-                ? "bg-emerald-500 text-slate-900 shadow-sm font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
-            }`}
-          >
-            <FiSmartphone className="w-3.5 h-3.5" />
-            <span>微信真机</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("edit")}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-              viewMode === "edit"
-                ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
-            }`}
-          >
-            <FiEdit3 className="w-3.5 h-3.5" />
-            <span>编辑润色</span>
-            {isModified && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="文本已调整" />
-            )}
-          </button>
-
-          {isModified && (
+      {/* 工作台精细化导航与操作栏 */}
+      <div className="flex flex-col gap-2 p-2 sm:p-2.5 rounded-2xl bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] text-xs select-none shadow-sm">
+        {/* Row 1: 核心视窗模式切换 与 动作按钮 */}
+        <div className="flex items-center justify-between gap-2">
+          {/* 模式选择器 (Segmented Control) */}
+          <div className="inline-flex p-0.5 rounded-xl bg-black/20 border border-[var(--aurora-border)]/60 text-xs shrink-0">
             <button
               type="button"
-              onClick={handleReset}
-              title="放弃本地修改并恢复磁盘原版"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--aurora-fg4)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+              onClick={() => setViewMode("preview")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                viewMode === "preview"
+                  ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+              }`}
             >
-              <FiRotateCcw className="w-3 h-3" />
-              <span>重置</span>
+              <FiEye className="w-3.5 h-3.5" />
+              <span>排版</span>
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => setViewMode("mobile")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                viewMode === "mobile"
+                  ? "bg-emerald-500 text-slate-900 shadow-sm font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+              }`}
+            >
+              <FiSmartphone className="w-3.5 h-3.5" />
+              <span>真机</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("edit")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                viewMode === "edit"
+                  ? "bg-[var(--aurora-accent)] text-slate-900 shadow-sm font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+              }`}
+            >
+              <FiEdit3 className="w-3.5 h-3.5" />
+              <span>润色</span>
+              {isModified && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="文本已调整" />
+              )}
+            </button>
+          </div>
 
-          {/* 排版主题快捷切换 */}
-          {viewMode !== "edit" && (
-            <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-[var(--aurora-surface-solid)]/60 border border-[var(--aurora-border)] text-[11px] ml-1">
-              <span className="text-[var(--aurora-fg4)] text-[10px] mr-0.5">主题:</span>
+          {/* 动作区 */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setReloadTick((t) => t + 1);
+                showInAppToast("已刷新", "已从磁盘重新加载最新文件");
+              }}
+              title="重新读取磁盘文件"
+              className="p-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer"
+            >
+              <FiRefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[var(--aurora-accent)]" : ""}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopyRichText}
+              disabled={copyingRich}
+              title="复制微信富文本"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer text-xs font-medium disabled:opacity-50"
+            >
+              <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{copyingRich ? "编译中" : "复制富文本"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowWechatModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+            >
+              <FiSend className="w-3.5 h-3.5" />
+              <span>推送到草稿</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: 主题色圆点选择器 与 统计元信息 */}
+        <div className="flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] pt-1 border-t border-[var(--aurora-border)]/40">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10.5px] text-[var(--aurora-fg4)]">主题色彩:</span>
+            <div className="flex items-center gap-1">
               {THEME_OPTIONS.map((th) => (
                 <button
                   key={th.id}
                   type="button"
                   onClick={() => setThemeId(th.id)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                  title={`${th.name} (${th.desc})`}
+                  className={`w-5 h-5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     themeId === th.id
-                      ? "bg-[var(--aurora-accent)] text-slate-900 font-semibold shadow-xs"
-                      : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+                      ? "ring-2 ring-offset-1 ring-offset-[var(--aurora-surface-solid)] ring-[var(--aurora-accent)] scale-110"
+                      : "opacity-60 hover:opacity-100 hover:scale-105"
                   }`}
-                  title={th.desc}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: th.color }} />
-                  <span>{th.name}</span>
+                  <span className="w-3.5 h-3.5 rounded-full shadow-inner" style={{ backgroundColor: th.color }} />
                 </button>
               ))}
             </div>
-          )}
-        </div>
+            <span className="text-[10px] text-[var(--aurora-fg4)] ml-1 font-mono">
+              {THEME_OPTIONS.find((t) => t.id === themeId)?.name}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-wrap">
-          <span className="text-[11px] text-[var(--aurora-fg4)] font-mono hidden sm:inline" style={{ fontVariantNumeric: "tabular-nums" }}>
-            {wordCount.toLocaleString()} 字 · 约 {readingTime} 分
-          </span>
-
-          <button
-            type="button"
-            onClick={() => {
-              setReloadTick((t) => t + 1);
-              showInAppToast("已刷新", "已从本地磁盘重新加载最新内容");
-            }}
-            title="从本地磁盘重新加载最新内容 (刷新)"
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:border-white/20 transition-colors cursor-pointer text-xs"
-          >
-            <FiRefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[var(--aurora-accent)]" : ""}`} />
-            <span className="hidden sm:inline">重新读取</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleCopyRichText}
-            disabled={copyingRich}
-            title="一键编译为微信富文本并复制到剪贴板，可直接在微信公众平台后台 Ctrl+V 粘贴"
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors cursor-pointer text-xs font-medium disabled:opacity-50"
-          >
-            <FiCopy className={`w-3.5 h-3.5 ${copyingRich ? "animate-spin" : ""}`} />
-            <span className="hidden sm:inline">{copyingRich ? "编译中..." : "复制富文本"}</span>
-          </button>
-
-          {/* 核心动作：推送到微信公众号草稿箱 */}
-          <button
-            type="button"
-            onClick={() => setShowWechatModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-md transition-all active:scale-95 cursor-pointer whitespace-nowrap"
-            title="将工作台当前排版完成的图文一键推送到微信公众平台官方草稿箱"
-          >
-            <FiSend className="w-3.5 h-3.5" />
-            <span>推送到公众号草稿</span>
-          </button>
+          <div className="flex items-center gap-2 text-[10.5px] text-[var(--aurora-fg4)] font-mono">
+            {isModified && (
+              <button
+                type="button"
+                onClick={handleReset}
+                title="放弃修改"
+                className="text-amber-400 hover:text-red-400 hover:underline cursor-pointer"
+              >
+                已修改 · 重置
+              </button>
+            )}
+            <span>{wordCount.toLocaleString()} 字 · 约 {readingTime} 分钟</span>
+          </div>
         </div>
       </div>
 
@@ -925,48 +929,83 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           />
         </div>
       ) : viewMode === "mobile" ? (
-        <div className="flex justify-center py-3 px-1 bg-black/25 rounded-2xl border border-[var(--aurora-border)]/50 select-text overflow-hidden">
-          <div className="w-full max-w-[380px] rounded-[36px] overflow-hidden border-[6px] border-slate-700 bg-white dark:bg-[#191919] text-slate-900 dark:text-slate-100 shadow-2xl flex flex-col transition-all">
-            {/* 仿真手机顶部微灵动岛 */}
-            <div className="h-6 bg-black flex items-center justify-center shrink-0">
-              <div className="w-20 h-3 bg-slate-900 rounded-full" />
+        <div className="flex justify-center py-4 px-2 bg-gradient-to-b from-black/40 via-black/20 to-black/40 rounded-3xl border border-[var(--aurora-border)]/40 select-text overflow-hidden">
+          {/* iPhone 16 Pro 机身模拟容器 */}
+          <div className="w-full max-w-[375px] rounded-[48px] overflow-hidden border-[8px] border-slate-800 bg-[#ffffff] text-[#222222] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] flex flex-col transition-all">
+            {/* 顶部灵动岛与状态栏 */}
+            <div className="pt-3 px-6 pb-2 bg-white flex items-center justify-between text-[11px] font-semibold text-black select-none shrink-0">
+              <span className="font-mono">09:41</span>
+              {/* 微灵动岛 */}
+              <div className="w-24 h-5 bg-black rounded-full flex items-center justify-end pr-2 gap-1.5 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-500/80 animate-pulse" />
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-800" />
+              </div>
+              <div className="flex items-center gap-1.5 text-xs">
+                <span>5G</span>
+                <span className="w-4 h-2 border border-black rounded-xs inline-block relative after:absolute after:inset-0.5 after:bg-black after:rounded-2xs" />
+              </div>
             </div>
-            {/* 微信文章头部真机仿真 */}
-            <div className="px-4 pt-3.5 pb-2.5 border-b border-black/5 dark:border-white/5 bg-inherit shrink-0">
-              <h2 className="text-base font-bold leading-snug line-clamp-2 text-slate-900 dark:text-white">
-                {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文预览"}
-              </h2>
-              <div className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-2">
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">Memento 心智体</span>
+
+            {/* 微信公众号文章顶部导航栏 */}
+            <div className="px-4 py-2 border-b border-black/5 flex items-center justify-between text-xs text-slate-800 select-none bg-white shrink-0">
+              <div className="flex items-center gap-1 text-[#576b95] font-medium cursor-pointer">
+                <span>‹</span>
+                <span>公众号</span>
+              </div>
+              <span className="font-semibold text-xs text-slate-900 truncate max-w-[160px]">
+                Memento 心智体
+              </span>
+              <span className="text-slate-500 tracking-widest font-bold">•••</span>
+            </div>
+
+            {/* 文章首部：大标题、作者、发布时间、原创标识 */}
+            <div className="px-5 pt-4 pb-2 bg-white text-left shrink-0">
+              <h1 className="text-xl font-bold leading-snug tracking-tight text-[#111111]">
+                {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
+              </h1>
+              <div className="text-[12px] text-slate-400 flex items-center gap-2 mt-3 flex-wrap">
+                <span className="font-medium text-[#576b95]">Memento</span>
                 <span>•</span>
-                <span>刚刚</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">原创认证</span>
+                <span>发表于北京</span>
+                <span className="text-[10.5px] px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 font-medium border border-emerald-200/60">
+                  原创
+                </span>
               </div>
             </div>
-            {/* 微信公众号大图封面真机呈现 (2.35:1 官方比例) */}
-            <div className="mx-4 mt-3 rounded-xl overflow-hidden shadow-sm relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-white/10 text-white p-3.5 min-h-[110px] flex flex-col justify-end shrink-0">
-              <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-[9px] text-white/70 font-mono">
-                公众号封面 · 2.35:1
+
+            {/* 2.35:1 官方首图卡片 */}
+            <div className="mx-5 my-3 rounded-2xl overflow-hidden shadow-md relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-4 min-h-[120px] flex flex-col justify-end shrink-0 border border-black/5">
+              <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md text-[9px] text-white/80 font-mono">
+                2.35:1 封面预演
               </div>
-              <div className="text-[10px] text-emerald-400 font-semibold mb-0.5">
-                ★ 深度技术特稿
+              <div className="text-[10px] text-emerald-400 font-semibold mb-1">
+                ★ 深度心智特稿
               </div>
-              <p className="text-xs font-bold text-white leading-snug drop-shadow line-clamp-2">
+              <p className="text-sm font-bold text-white leading-snug drop-shadow-md line-clamp-2">
                 {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
               </p>
             </div>
-            {/* 手机视口内正文排版（375px 真机折行模拟） */}
-            <div className="p-4 overflow-y-auto max-h-[620px] text-xs leading-relaxed prose prose-xs max-w-none dark:prose-invert select-text">
+
+            {/* 文章正文 (微信官方标准排版：白底深灰字，15px，1.75行高) */}
+            <div className="px-5 py-3 overflow-y-auto max-h-[580px] text-[14px] leading-[1.8] text-[#2c3e50] font-sans select-text text-left prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:my-2 prose-blockquote:my-3">
               <MarkdownViewer content={content} />
             </div>
-            {/* 微信底部互动状态栏 */}
-            <div className="px-4 py-2.5 border-t border-black/5 dark:border-white/5 text-[10px] text-slate-400 dark:text-slate-500 flex items-center justify-between bg-inherit shrink-0">
-              <span>阅读 10万+</span>
-              <div className="flex items-center gap-3">
-                <span>分享 982</span>
-                <span>赞 1,420</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-semibold">在看 860</span>
+
+            {/* 微信底部互动工具栏 */}
+            <div className="px-5 py-3 border-t border-black/5 bg-[#fafafa] text-[11px] text-slate-500 flex items-center justify-between select-none shrink-0">
+              <span className="text-slate-400">阅读 10万+</span>
+              <div className="flex items-center gap-4 text-slate-700">
+                <span className="hover:text-emerald-600 cursor-pointer">分享 1,280</span>
+                <span className="hover:text-emerald-600 cursor-pointer">赞 3,540</span>
+                <span className="font-semibold text-emerald-600 flex items-center gap-0.5 cursor-pointer">
+                  <span>在看 920</span>
+                </span>
               </div>
+            </div>
+
+            {/* iPhone 底部安全条 */}
+            <div className="h-4 bg-white flex items-center justify-center shrink-0">
+              <div className="w-32 h-1 bg-slate-300 rounded-full" />
             </div>
           </div>
         </div>

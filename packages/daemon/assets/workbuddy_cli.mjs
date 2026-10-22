@@ -16,7 +16,11 @@ const cleanupAndExit = async (sig) => {
     process.stderr.write(`\n⏹️ [收到终止信号 (${sig})，已主动停止 WorkBuddy 任务]\n\n`);
   } catch {}
   // memento's gateway outlives this process: tell it to stop the session as well.
-  if (activeCancel) await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
+  if (activeCancel) {
+    try {
+      await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+    } catch {}
+  }
   process.exit(130);
 };
 process.on("SIGINT", () => void cleanupAndExit("SIGINT"));

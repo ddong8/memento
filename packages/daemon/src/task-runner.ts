@@ -9,7 +9,7 @@ import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
-import { ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
+import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -299,6 +299,8 @@ export class TaskRunner {
   private readonly steerInputs = new Map<string, NodeJS.WritableStream & { writable: boolean }>();
   private readonly claudeTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
+  private readonly taskSessions = new Map<string, { binary: string; sessionId?: string }>();
+  private readonly cancelledTasks = new Set<string>();
   private hookBridge: HookBridge | undefined;
 
   constructor(
@@ -318,9 +320,19 @@ export class TaskRunner {
   cancel(taskId: string): boolean {
     const proc = this.running.get(taskId);
     this.log(`Cancelling task ${taskId} (proc running: ${Boolean(proc)})`);
+    this.cancelledTasks.add(taskId);
     this.running.delete(taskId);
     this.steerInputs.delete(taskId);
     this.claudeTasks.delete(taskId);
+
+    const sessionInfo = this.taskSessions.get(taskId);
+    if (sessionInfo && (sessionInfo.binary.includes("workbuddy") || sessionInfo.binary.includes("codebuddy")) && sessionInfo.sessionId) {
+      this.log(`Proactively cancelling WorkBuddy session ${sessionInfo.sessionId} for task ${taskId}`);
+      void cancelWorkbuddySession(sessionInfo.sessionId).catch((err) =>
+        this.log(`Failed to proactively cancel WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`),
+      );
+    }
+
     if (proc) {
       killProcessTree(proc);
     }
@@ -588,6 +600,10 @@ export class TaskRunner {
             this.emitEvent(taskId, e);
           }
         }
+        if (parser.sessionId) {
+          const sess = this.taskSessions.get(taskId);
+          if (sess && !sess.sessionId) sess.sessionId = parser.sessionId;
+        }
         if (parser instanceof ClaudeStreamParser && parser.finished && (parser.queuedTurns ?? 0) === 0) {
           const sink = this.steerInputs.get(taskId);
           this.steerInputs.delete(taskId);
@@ -599,6 +615,11 @@ export class TaskRunner {
     proc.stderr.on("data", (text: string) => {
       armTimer();
       out.stderr += text;
+      const m = /session id:\s*([0-9a-fA-F-]+)/i.exec(text);
+      if (m && m[1]) {
+        const sess = this.taskSessions.get(taskId);
+        if (sess) sess.sessionId = m[1];
+      }
       this.send(chunk(taskId, "stderr", text));
     });
 
@@ -643,6 +664,7 @@ export class TaskRunner {
     const binary = (text("binary") || "claude").toLowerCase();
     const prompt = text("prompt");
     const sessionId = text("session_id");
+    this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
     const model = text("model");
     const effort = text("effort");
     const rawSysAppend = text("system_prompt_append");
@@ -819,6 +841,10 @@ export class TaskRunner {
         this.runOnce(taskId, { exe, cwd: workDir, env, ...spec }, task.timeoutSeconds);
 
       let exitCode = await run({ args, parser, stdinPrompt });
+      if (this.cancelledTasks.has(taskId)) {
+        this.log(`Task ${taskId} was cancelled by user; skipping retries`);
+        return;
+      }
       // Errors can come on stderr or inside the JSON stream; retries look at both.
       const errScan = () => `${out.stderr}\n${parser?.errors ?? ""}`;
 
@@ -947,6 +973,11 @@ export class TaskRunner {
       const sessionFailedFinal = !fullOut && (isSessionNotFound(fullErr) || isSessionNotFound(streamErrors));
       const effectiveExitCode = sessionFailedFinal && exitCode === 0 ? 1 : exitCode;
 
+      if (this.cancelledTasks.has(taskId)) {
+        this.log(`Task ${taskId} was cancelled by user; skipping final task_finished overwrite`);
+        return;
+      }
+
       this.send(
         taskFinishedMessage({
           taskId,
@@ -965,7 +996,9 @@ export class TaskRunner {
         }),
       );
     } catch (e) {
-      this.send(taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: `Execution failed to start: ${e instanceof Error ? e.message : e}` }));
+      if (!this.cancelledTasks.has(taskId)) {
+        this.send(taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: `Execution failed to start: ${e instanceof Error ? e.message : e}` }));
+      }
     } finally {
       this.outputs.delete(taskId);
       this.eventLogs.delete(taskId);
@@ -973,6 +1006,8 @@ export class TaskRunner {
       this.steerInputs.get(taskId)?.end();
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);
+      this.taskSessions.delete(taskId);
+      setTimeout(() => this.cancelledTasks.delete(taskId), 5000);
     }
   }
 }

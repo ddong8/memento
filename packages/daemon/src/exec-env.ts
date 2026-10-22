@@ -290,7 +290,7 @@ export function killProcessTree(proc: ChildProcess | undefined): void {
         } catch {}
       }
 
-      // 2. Schedule hard SIGKILL after 350ms to clean up any stubborn agents (Claude, Codex, Antigravity, build tools)
+      // 2. Schedule hard SIGKILL after 800ms to clean up any stubborn agents (Claude, Codex, Antigravity, build tools)
       setTimeout(() => {
         try {
           process.kill(-pid, "SIGKILL");
@@ -306,7 +306,7 @@ export function killProcessTree(proc: ChildProcess | undefined): void {
         try {
           execFile("pkill", ["-9", "-P", String(pid)], () => {});
         } catch {}
-      }, 350);
+      }, 800);
     })
     .catch(() => {
       try {

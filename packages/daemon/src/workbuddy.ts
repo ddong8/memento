@@ -374,3 +374,56 @@ export async function ensureWorkbuddyGateway(
   });
   return gatewayStart;
 }
+
+/**
+ * Cancels an active session on WorkBuddy gateway.
+ * Directly called by daemon upon task cancellation so that abort doesn't depend on a dying child process.
+ */
+export async function cancelWorkbuddySession(sessionId: string, home = homeDir()): Promise<boolean> {
+  if (!sessionId) return false;
+  try {
+    const managed = await readGatewayFile(home);
+    let endpoint = "";
+    let authHeaders: Record<string, string> = {};
+    if (managed && (await gatewayHealthy(managed))) {
+      endpoint = managed.endpoint;
+      authHeaders = workbuddyGatewayHeaders(managed.password);
+    } else {
+      const native = await discoverWorkbuddyGateway(home);
+      if (native) {
+        endpoint = native.endpoint;
+      }
+    }
+    if (!endpoint) return false;
+
+    // Connect to obtain connectionId
+    const connRes = await fetch(`${endpoint}/api/v1/acp/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      signal: AbortSignal.timeout(1500),
+    }).catch(() => null);
+    const connData = (await connRes?.json().catch(() => null)) as { connectionId?: string } | null;
+    const connId = connData?.connectionId;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeaders,
+      ...(connId ? { "acp-connection-id": connId } : {}),
+    };
+
+    const res = await fetch(`${endpoint}/api/v1/acp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/cancel",
+        params: { sessionId },
+      }),
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => null);
+
+    return !!res?.ok;
+  } catch {
+    return false;
+  }
+}

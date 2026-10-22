@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  cancelWorkbuddySession,
   ensureWorkbuddyGateway,
   findWorkbuddyLiteCli,
   parseGatewayBanner,
@@ -235,4 +236,32 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(await closed).toBe(130);
     expect(cancelled).toEqual({ sessionId: "sess-9" });
   }, 30_000);
+
+  it("cancels session directly via cancelWorkbuddySession", async () => {
+    const home = await tempHome();
+    const password = "pw";
+    let cancelled: unknown = null;
+    const server = createServer(async (req, res) => {
+      const url = req.url ?? "";
+      if (url === "/api/v1/health") return res.end("ok");
+      if (url === "/api/v1/acp/connect") return res.end(JSON.stringify({ connectionId: "conn-cancel" }));
+      const b = await body(req);
+      if (!b) return res.end();
+      const msg = JSON.parse(b);
+      if (msg.method === "session/cancel") {
+        cancelled = msg.params;
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      res.end("{}");
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(join(home, ".memento", "workbuddy-gateway.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password, pid: process.pid }));
+
+    const ok = await cancelWorkbuddySession("sess-direct-cancel", home);
+    expect(ok).toBe(true);
+    expect(cancelled).toEqual({ sessionId: "sess-direct-cancel" });
+  });
 });

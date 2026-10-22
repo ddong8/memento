@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   FiX,
   FiVideo,
@@ -448,6 +448,13 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   );
 }
 
+const THEME_OPTIONS = [
+  { id: "tech", name: "科技蓝", color: "#2563eb", desc: "商务沉稳技术风" },
+  { id: "emerald", name: "墨绿雅致", color: "#059669", desc: "自然清新雅致风" },
+  { id: "minimalist", name: "黑白极简", color: "#1e293b", desc: "现代高冷极简风" },
+  { id: "red", name: "中国红韵", color: "#dc2626", desc: "喜庆醒目红韵风" },
+];
+
 function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const inspector = useMediaInspector();
   const [content, setContent] = useState<string>(item.content || "");
@@ -455,6 +462,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [loading, setLoading] = useState<boolean>(!item.content);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"preview" | "mobile" | "edit">("preview");
+  const [themeId, setThemeId] = useState<string>("tech");
   const [showWechatModal, setShowWechatModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [copyingRich, setCopyingRich] = useState<boolean>(false);
@@ -464,6 +472,34 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const isModified = content !== originalContent;
   const isModifiedRef = useRef(false);
   isModifiedRef.current = isModified;
+
+  // 章节目录快速索引提取
+  const headings = useMemo(() => {
+    const list: Array<{ raw: string; clean: string }> = [];
+    const lines = content.split("\n");
+    for (const line of lines) {
+      const match = line.match(/^#{2,3}\s+(.+)$/);
+      if (match) {
+        const raw = match[1].trim();
+        const clean = raw.replace(/^[【\[\s#]+|[】\]\s]+$/g, "").replace(/[*_~`]/g, "");
+        if (clean.length > 1 && clean.length < 24) {
+          list.push({ raw, clean });
+        }
+      }
+    }
+    return list;
+  }, [content]);
+
+  const handleScrollToHeading = (clean: string) => {
+    if (typeof document === "undefined") return;
+    const elements = document.querySelectorAll("h1, h2, h3");
+    for (const el of Array.from(elements)) {
+      if (el.textContent && el.textContent.includes(clean)) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        break;
+      }
+    }
+  };
 
   // 1. 初始化时尝试载入本地草稿缓存
   useEffect(() => {
@@ -657,7 +693,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
       const res = await fetch("https://wx.ihasy.com/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: content, themeId: "tech", extractLinks: true }),
+        body: JSON.stringify({ markdown: content, themeId, extractLinks: true }),
       });
       const data = await res.json();
       if (data.success && data.html) {
@@ -788,6 +824,29 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               <span>重置</span>
             </button>
           )}
+
+          {/* 排版主题快捷切换 */}
+          {viewMode !== "edit" && (
+            <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-[var(--aurora-surface-solid)]/60 border border-[var(--aurora-border)] text-[11px] ml-1">
+              <span className="text-[var(--aurora-fg4)] text-[10px] mr-0.5">主题:</span>
+              {THEME_OPTIONS.map((th) => (
+                <button
+                  key={th.id}
+                  type="button"
+                  onClick={() => setThemeId(th.id)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                    themeId === th.id
+                      ? "bg-[var(--aurora-accent)] text-slate-900 font-semibold shadow-xs"
+                      : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+                  }`}
+                  title={th.desc}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: th.color }} />
+                  <span>{th.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-wrap">
@@ -832,6 +891,23 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         </div>
       </div>
 
+      {/* 快速章节跳转锚点胶囊导航 */}
+      {viewMode !== "edit" && headings.length > 1 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 text-[11px] no-scrollbar shrink-0 select-none">
+          <span className="text-[var(--aurora-fg4)] text-[10px] shrink-0 font-medium">快速导览:</span>
+          {headings.map((h: { raw: string; clean: string }, i: number) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => handleScrollToHeading(h.clean)}
+              className="px-2 py-0.5 rounded-md bg-[var(--aurora-chip)]/60 hover:bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] border border-[var(--aurora-border)]/50 shrink-0 transition-colors cursor-pointer text-[10.5px]"
+            >
+              {h.clean}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 主体展示区域 */}
       {viewMode === "edit" ? (
         <div className="flex flex-col gap-2">
@@ -867,6 +943,18 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">原创认证</span>
               </div>
             </div>
+            {/* 微信公众号大图封面真机呈现 (2.35:1 官方比例) */}
+            <div className="mx-4 mt-3 rounded-xl overflow-hidden shadow-sm relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-white/10 text-white p-3.5 min-h-[110px] flex flex-col justify-end shrink-0">
+              <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-white/10 backdrop-blur-md text-[9px] text-white/70 font-mono">
+                公众号封面 · 2.35:1
+              </div>
+              <div className="text-[10px] text-emerald-400 font-semibold mb-0.5">
+                ★ 深度技术特稿
+              </div>
+              <p className="text-xs font-bold text-white leading-snug drop-shadow line-clamp-2">
+                {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
+              </p>
+            </div>
             {/* 手机视口内正文排版（375px 真机折行模拟） */}
             <div className="p-4 overflow-y-auto max-h-[620px] text-xs leading-relaxed prose prose-xs max-w-none dark:prose-invert select-text">
               <MarkdownViewer content={content} />
@@ -894,6 +982,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         onClose={() => setShowWechatModal(false)}
         markdown={content}
         defaultTitle={item.title}
+        initialThemeId={themeId}
       />
     </div>
   );

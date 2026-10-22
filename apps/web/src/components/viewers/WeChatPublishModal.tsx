@@ -8,6 +8,7 @@ export interface WeChatPublishModalProps {
   onClose: () => void;
   markdown: string;
   defaultTitle?: string;
+  initialThemeId?: string;
 }
 
 const DEFAULT_COVER_MEDIA_ID = "CaYoocON3zFj43tFOB-ctJe58evZROH9yeZgaaJHpkC2Bk9dtkZ3ehgSMHosD1Mk";
@@ -50,11 +51,12 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   onClose,
   markdown,
   defaultTitle,
+  initialThemeId,
 }: WeChatPublishModalProps) {
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("Memento");
   const [digest, setDigest] = useState("");
-  const [themeId, setThemeId] = useState("tech");
+  const [themeId, setThemeId] = useState(initialThemeId || "tech");
   const [thumbMediaId, setThumbMediaId] = useState(DEFAULT_COVER_MEDIA_ID);
   const [showCustomCover, setShowCustomCover] = useState(false);
 
@@ -68,13 +70,14 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
       const extracted = extractTitleAndDigest(markdown, defaultTitle);
       setTitle(extracted.title);
       setDigest(extracted.digest);
+      setThemeId(initialThemeId || "tech");
       setThumbMediaId(DEFAULT_COVER_MEDIA_ID);
       setError(null);
       setSuccessMediaId(null);
       setStepStatus("");
       setLoading(false);
     }
-  }, [isOpen, markdown, defaultTitle]);
+  }, [isOpen, markdown, defaultTitle, initialThemeId]);
 
   if (!isOpen) return null;
 

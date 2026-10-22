@@ -433,6 +433,7 @@ function AskPageContent() {
   }, [checkUniversalHandoff]);
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
+  const showScrollBottomRef = useRef<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
   const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || getLocalCachedQuotas(initSnap?.selectedDevice || selectedDevice));
@@ -4709,7 +4710,11 @@ function AskPageContent() {
                 askCache.scrollTop = el.scrollTop;
               }
               const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-              setShowScrollBottom(dist > 180);
+              const shouldShow = dist > 180;
+              if (shouldShow !== showScrollBottomRef.current) {
+                showScrollBottomRef.current = shouldShow;
+                setShowScrollBottom(shouldShow);
+              }
               if (dist > 80) {
                 userScrolledAwayRef.current = true;
               } else if (dist < 20) {
@@ -4725,6 +4730,8 @@ function AskPageContent() {
               overscrollBehaviorY: "contain",
               WebkitOverflowScrolling: "touch",
               touchAction: "pan-y",
+              transform: "translateZ(0)",
+              willChange: "scroll-position",
               userSelect: "text",
               WebkitUserSelect: "text",
             }}
@@ -6231,8 +6238,6 @@ function AskPageContent() {
                                   border: `1px solid ${isUser ? "var(--aurora-border)" : "var(--aurora-border)"}`,
                                   borderRadius: 8,
                                   padding: "6px 10px",
-                                  contentVisibility: "auto",
-                                  containIntrinsicSize: "0 60px",
                                 }}
                               >
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>

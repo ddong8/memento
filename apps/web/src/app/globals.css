@@ -314,6 +314,11 @@ body {
   transform: translateY(-2px);
   box-shadow: var(--aurora-card-shadow-hover);
 }
+@media (hover: none) {
+  .aurora-card-hover:hover {
+    transform: none;
+  }
+}
 .aurora-glass {
   background: var(--aurora-surface);
   backdrop-filter: var(--aurora-blur);

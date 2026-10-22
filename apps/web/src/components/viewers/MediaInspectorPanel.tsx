@@ -463,6 +463,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"preview" | "mobile" | "edit">("preview");
   const [themeId, setThemeId] = useState<string>("tech");
+  const [followed, setFollowed] = useState<boolean>(false);
   const [showWechatModal, setShowWechatModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [copyingRich, setCopyingRich] = useState<boolean>(false);
@@ -481,8 +482,14 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
       const match = line.match(/^#{2,3}\s+(.+)$/);
       if (match) {
         const raw = match[1].trim();
-        const clean = raw.replace(/^[【\[\s#]+|[】\]\s]+$/g, "").replace(/[*_~`]/g, "");
-        if (clean.length > 1 && clean.length < 24) {
+        let clean = raw.replace(/^[【\[\s#]+|[】\]\s]+$/g, "").replace(/[*_~`]/g, "");
+        const colonIdx = clean.search(/[：:]/);
+        if (colonIdx > 1 && colonIdx <= 18) {
+          clean = clean.slice(0, colonIdx).trim();
+        } else if (clean.length > 18) {
+          clean = clean.slice(0, 18).trim();
+        }
+        if (clean.length >= 1) {
           list.push({ raw, clean });
         }
       }
@@ -494,7 +501,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     if (typeof document === "undefined") return;
     const elements = document.querySelectorAll("h1, h2, h3");
     for (const el of Array.from(elements)) {
-      if (el.textContent && el.textContent.includes(clean)) {
+      if (el.textContent && (el.textContent.includes(clean) || clean.includes(el.textContent.slice(0, 6)))) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
         break;
       }
@@ -675,6 +682,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
   const wordCount = content.trim().length;
   const readingTime = Math.max(1, Math.ceil(wordCount / 400));
+  const activeTheme = THEME_OPTIONS.find((t) => t.id === themeId) || THEME_OPTIONS[0];
 
   const handleCopyContent = async () => {
     try {
@@ -833,6 +841,16 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
             <button
               type="button"
+              onClick={handleCopyContent}
+              title="复制 Markdown 全文源码"
+              className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/80 text-[var(--aurora-fg2)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 transition-colors cursor-pointer text-xs font-medium"
+            >
+              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiFileText className="w-3.5 h-3.5" />}
+              <span>{copied ? "已复制" : "复制源码"}</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleCopyRichText}
               disabled={copyingRich}
               title="复制微信富文本"
@@ -973,21 +991,79 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
               </div>
             </div>
 
+            {/* 微信公众号官方名片 / 关注条 */}
+            <div className="mx-5 my-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-black shadow-sm shrink-0"
+                  style={{ backgroundColor: activeTheme.color }}
+                >
+                  M
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-xs text-slate-900 truncate">Memento 官方</span>
+                    <span className="px-1 py-0.2 rounded text-[9px] bg-blue-50 text-blue-600 font-medium border border-blue-200/50">
+                      认证
+                    </span>
+                  </div>
+                  <div className="text-[10.5px] text-slate-400 truncate">
+                    数字心智孪生体 · 仿生昼夜节律
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFollowed((v) => !v);
+                  showInAppToast(followed ? "已取消关注" : "已关注 Memento 官方公众号", "在真机视口中仿真关注交互");
+                }}
+                className="px-2.5 py-1 rounded-full text-[11px] font-semibold border text-white shadow-xs shrink-0 transition-transform active:scale-95 cursor-pointer"
+                style={{
+                  backgroundColor: followed ? "#94a3b8" : activeTheme.color,
+                  borderColor: followed ? "#94a3b8" : activeTheme.color,
+                }}
+              >
+                {followed ? "已关注" : "+ 关注"}
+              </button>
+            </div>
+
             {/* 2.35:1 官方首图卡片 */}
-            <div className="mx-5 my-3 rounded-2xl overflow-hidden shadow-md relative bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-4 min-h-[120px] flex flex-col justify-end shrink-0 border border-black/5">
+            <div
+              className="mx-5 my-2 rounded-2xl overflow-hidden shadow-md relative text-white p-4 min-h-[120px] flex flex-col justify-end shrink-0 border border-black/5"
+              style={{
+                background: `linear-gradient(135deg, #090d16 0%, ${activeTheme.color}38 50%, #090d16 100%)`,
+                boxShadow: `0 10px 25px -5px ${activeTheme.color}22`,
+              }}
+            >
               <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md text-[9px] text-white/80 font-mono">
                 2.35:1 封面预演
               </div>
-              <div className="text-[10px] text-emerald-400 font-semibold mb-1">
-                ★ 深度心智特稿
+              <div
+                className="text-[10px] font-semibold mb-1"
+                style={{ color: activeTheme.color }}
+              >
+                ★ MEMENTO · 深度心智特稿
               </div>
               <p className="text-sm font-bold text-white leading-snug drop-shadow-md line-clamp-2">
                 {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
               </p>
             </div>
 
-            {/* 文章正文 (微信官方标准排版：白底深灰字，15px，1.75行高) */}
-            <div className="px-5 py-3 overflow-y-auto max-h-[580px] text-[14px] leading-[1.8] text-[#2c3e50] font-sans select-text text-left prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:my-2 prose-blockquote:my-3">
+            {/* 文章正文 (微信官方标准排版：白底深灰字，15px，1.75行高，CSS变量随所选主题动态注入) */}
+            <div
+              className="px-5 py-3 overflow-y-auto max-h-[580px] text-[14px] leading-[1.8] text-[#2c3e50] font-sans select-text text-left prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:my-2 prose-blockquote:my-3"
+              style={{
+                ["--aurora-accent" as any]: activeTheme.color,
+                ["--aurora-accent-soft" as any]: `${activeTheme.color}18`,
+                ["--aurora-border" as any]: "#e2e8f0",
+                ["--aurora-surface-solid" as any]: "#f8fafc",
+                ["--aurora-fg1" as any]: "#1e293b",
+                ["--aurora-fg2" as any]: "#334155",
+                ["--aurora-fg3" as any]: "#64748b",
+                ["--aurora-chip" as any]: "#f1f5f9",
+              }}
+            >
               <MarkdownViewer content={content} />
             </div>
 

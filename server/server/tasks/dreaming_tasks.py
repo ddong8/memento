@@ -98,6 +98,17 @@ async def _run_all_users_dreaming(days_back: int = 1) -> dict[str, int]:
             await ai_health.put_json(f"dreaming:{user.id}", run)
             await _alert_bad_night(user, run)
 
+            # 成功固化新记忆时，主动推送今日心智晨报通知
+            if run["ok"] and run.get("promoted", 0) and run.get("promoted", 0) > 0:
+                try:
+                    today_str = datetime.now().strftime("%m月%d日")
+                    promoted = run.get("promoted", 0)
+                    brief_title = f"🧠 Memento 心智晨报 · {today_str}"
+                    brief_msg = f"昨夜心智深度做梦提炼完成：固化沉淀了 {promoted} 条高价值业务记忆，个人画像已自进化更新。"
+                    await notify_user(user.id, "briefing", brief_title, brief_msg, url="/memory?tab=dreams")
+                except Exception as notify_err:
+                    logger.warning("Failed to send morning briefing notification: %s", notify_err)
+
         return {"processed": processed, "errors": errors}
 
 

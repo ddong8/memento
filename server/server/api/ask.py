@@ -13,6 +13,7 @@ token stream belonging to one caller.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -34,6 +35,7 @@ from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
 from ..services.ask_store import append_conversation_turns, get_or_create_conversation
 from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, run_response
+from ..services import ai_health
 from . import ask_conversations
 
 logger = logging.getLogger("server.ask")
@@ -560,6 +562,35 @@ async def ask(
             await asyncio.sleep(0.05)
             return
 
+        is_cacheable = (
+            not body.images
+            and not body.attachments
+            and not body.history
+            and not is_cont
+            and not is_action
+            and not question.startswith("__")
+        )
+        cache_key = f"ask_cache:{_user.id}:{hashlib.sha256((question.strip() + ':' + (body.model or '')).encode()).hexdigest()}" if is_cacheable else None
+
+        if is_cacheable and cache_key:
+            try:
+                cached = await ai_health.get_json(cache_key)
+                if isinstance(cached, dict) and cached.get("text"):
+                    logger.info("RAG ask cache hit for user %s: %s", _user.id, question[:40])
+                    cached_text = cached["text"]
+                    cached_thinking = cached.get("thinking")
+                    if cached_thinking:
+                        accumulated_thinking.append(cached_thinking)
+                        yield f"data: {json.dumps({'type': 'thinking', 'text': cached_thinking}, ensure_ascii=False)}\n\n"
+                    accumulated_text.append(cached_text)
+                    yield f"data: {json.dumps({'type': 'delta', 'text': cached_text}, ensure_ascii=False)}\n\n"
+                    await _persist()
+                    yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
+                    await asyncio.sleep(0.05)
+                    return
+            except Exception as cache_read_err:
+                logger.debug("Ask cache read exception: %s", cache_read_err)
+
         try:
             async for chunk in stream_chat_completion(
                 messages=messages,
@@ -577,6 +608,19 @@ async def ask(
                     clean_t = clean_guardrail_output(raw_t)
                     accumulated_text.append(clean_t)
                     yield f"data: {json.dumps({'type': 'delta', 'text': clean_t}, ensure_ascii=False)}\n\n"
+
+            if is_cacheable and cache_key and accumulated_text:
+                try:
+                    await ai_health.put_json(
+                        cache_key,
+                        {
+                            "text": "".join(accumulated_text),
+                            "thinking": "".join(accumulated_thinking).strip() or None,
+                        },
+                        ttl_seconds=600,
+                    )
+                except Exception as cache_write_err:
+                    logger.debug("Failed to store ask cache: %s", cache_write_err)
         except Exception as e:
             logger.exception("ask stream failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"

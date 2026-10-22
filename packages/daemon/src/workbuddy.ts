@@ -38,8 +38,9 @@ export async function ensureWorkbuddyCliInstalled(home = homeDir()): Promise<voi
     await mkdir(dir, { recursive: true });
     const script = join(dir, "workbuddy_cli.mjs");
     const current = await readFile(script, "utf8").catch(() => "");
-    if (!RUNNER_MARKERS.every((m) => current.includes(m))) {
-      await writeFile(script, await readFile(runnerAsset(), "utf8"));
+    const target = await readFile(runnerAsset(), "utf8");
+    if (current !== target || !RUNNER_MARKERS.every((m) => current.includes(m))) {
+      await writeFile(script, target);
       if (process.platform !== "win32") await chmod(script, 0o755);
     }
     if (process.platform === "win32") {
@@ -368,6 +369,13 @@ export async function ensureWorkbuddyGateway(
   gatewayStart ??= (async () => {
     const existing = await readGatewayFile(home);
     if (existing && (await gatewayHealthy(existing))) return existing;
+    if (existing?.pid && pidAlive(existing.pid)) {
+      try {
+        process.kill(existing.pid, "SIGKILL");
+      } catch {
+        // already stopped
+      }
+    }
     return startGateway(home, cli, options.timeoutMs ?? 45_000);
   })().finally(() => {
     gatewayStart = null;

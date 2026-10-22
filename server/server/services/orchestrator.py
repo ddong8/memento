@@ -912,7 +912,12 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
         if target_ws_id:
             if action == "agent" and args.get("images") and isinstance(args["images"], list):
                 conv_folder = str(payload.get("conversation_id") or task_id_str)
-                img_cmds: list[str] = [f"mkdir -p /tmp/memento_images/{conv_folder}"]
+                # 遵循铁律：数据/缓存优先放在 /data2 盘；若 /data2 存在则优先落盘至大盘并建立软链，防止挤爆根分区
+                img_cmds: list[str] = [
+                    f"TARGET_DIR=$([ -d /data2 ] && echo /data2/memento/images/{conv_folder} || echo /tmp/memento_images/{conv_folder}) && "
+                    f"mkdir -p \"$TARGET_DIR\" && mkdir -p /tmp/memento_images && "
+                    f"([ \"$TARGET_DIR\" != \"/tmp/memento_images/{conv_folder}\" ] && ln -sfn \"$TARGET_DIR\" \"/tmp/memento_images/{conv_folder}\" 2>/dev/null || true)"
+                ]
                 for idx, img_str in enumerate(args["images"]):
                     if isinstance(img_str, str) and img_str.startswith("data:image/") and "," in img_str:
                         hdr, b64_part = img_str.split(",", 1)

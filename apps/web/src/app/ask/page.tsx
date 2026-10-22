@@ -170,17 +170,19 @@ function AskPageContent() {
   const recentPastedFingerprintsRef = useRef<Map<string, number>>(new Map());
   const warmedAskRef = useRef<boolean>(false);
 
-  const addFilesAsImages = useCallback(async (files: FileList | File[] | null) => {
+  const addFilesAsImages = useCallback(async (files: FileList | File[] | null, isPaste = false) => {
     if (!files || files.length === 0) return;
     const now = Date.now();
     const newImgs: Array<{ id: string; name: string; dataUrl: string; size: number }> = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!file.type.startsWith("image/")) continue;
-      const fp = `${file.name || "image.png"}_${file.size}_${file.lastModified || 0}`;
-      const lastSeen = recentPastedFingerprintsRef.current.get(fp) || 0;
-      if (now - lastSeen < 1500) continue;
-      recentPastedFingerprintsRef.current.set(fp, now);
+      if (isPaste) {
+        const fp = `${file.name || "image.png"}_${file.size}_${file.lastModified || 0}`;
+        const lastSeen = recentPastedFingerprintsRef.current.get(fp) || 0;
+        if (now - lastSeen < 1500) continue;
+        recentPastedFingerprintsRef.current.set(fp, now);
+      }
       try {
         const dataUrl = await compressImageToDataUrl(file);
         newImgs.push({ id: crypto.randomUUID(), name: file.name || "image.png", dataUrl, size: file.size });
@@ -198,7 +200,7 @@ function AskPageContent() {
   }, []);
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await addFilesAsImages(e.target.files);
+    await addFilesAsImages(e.target.files, false);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [addFilesAsImages]);
 
@@ -739,7 +741,7 @@ function AskPageContent() {
   }, [historyFilterDevice, selectedDevice, conversations.length]);
 
   // Declared further down; loadConversation reaches it through this ref.
-  const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[]) => Promise<void>) | null>(null);
+  const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
 
   // Helper to persist updated configuration for current conversation if one is active
   const persistCurrentConfig = useCallback((patch: Record<string, any>) => {
@@ -1008,7 +1010,7 @@ function AskPageContent() {
 
       // Instantly attach live stream if task is still running on server
       if (runInfo && !runInfo.done && !runInfo.cancelled) {
-        attachRunRef.current?.(data.id, runInfo.question || "", loadedTurns);
+        attachRunRef.current?.(data.id, runInfo.question || "", loadedTurns, runInfo.images);
       } else {
         streamingRef.current = false;
         setStreaming(false);
@@ -3070,7 +3072,7 @@ function AskPageContent() {
   ]);
 
   // Show a run that is still going (opened from history, or after a reload).
-  const attachRun = useCallback(async (convId: string, question: string, baseTurns: Turn[]) => {
+  const attachRun = useCallback(async (convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => {
     abortRef.current?.abort();
     userCancelledRef.current = false;
     const ctrl = new AbortController();
@@ -3084,6 +3086,7 @@ function AskPageContent() {
     const runStartedIso = askCache?.activeRun?.startedAt
       ? new Date(normalizeEpochMs(askCache.activeRun.startedAt)).toISOString()
       : new Date().toISOString();
+    const effectiveImgs = (runImages && runImages.length > 0) ? runImages : undefined;
 
     if (last?.role === "assistant" && secondLast?.role === "user" && secondLast.content === question) {
       // Already ends with user question and assistant placeholder, reset assistant content and toolCalls for clean replay
@@ -3091,18 +3094,18 @@ function AskPageContent() {
       const normAsstStarted = normalizeIsoTimestamp(last.started_at) || normUserCreated;
       turnsToUse = [
         ...turnsToUse.slice(0, -2),
-        { ...secondLast, created_at: normUserCreated },
+        { ...secondLast, images: secondLast.images || effectiveImgs, created_at: normUserCreated },
         { role: "assistant", content: "", toolCalls: [], started_at: normAsstStarted },
       ];
     } else if (last?.role === "user" && last.content === question) {
       // Ends with user question, append assistant placeholder
       const normUserCreated = normalizeIsoTimestamp(last.created_at) || runStartedIso;
-      turnsToUse[turnsToUse.length - 1] = { ...last, created_at: normUserCreated };
+      turnsToUse[turnsToUse.length - 1] = { ...last, images: last.images || effectiveImgs, created_at: normUserCreated };
       turnsToUse.push({ role: "assistant", content: "", toolCalls: [], started_at: normUserCreated });
     } else {
       // Normal case: append both user and assistant
       turnsToUse.push(
-        { role: "user", content: question, created_at: runStartedIso },
+        { role: "user", content: question, images: effectiveImgs, created_at: runStartedIso },
         { role: "assistant", content: "", toolCalls: [], started_at: runStartedIso }
       );
     }
@@ -3209,6 +3212,12 @@ function AskPageContent() {
     ];
     turnsRef.current = initialTurns;
     setTurns(initialTurns);
+    if (activeConversationId) {
+      conversationTurnsCache.set(activeConversationId, {
+        turns: initialTurns,
+        config: { executionMode, model: selectedModel, effort: selectedEffort, cwd },
+      });
+    }
     streamingRef.current = true;
     setStreaming(true);
     if (typeof window !== "undefined" && activeConversationId) {

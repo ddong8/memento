@@ -87,10 +87,12 @@ class AskRun:
         model: str | None = None,
         device_name: str | None = None,
         title: str | None = None,
+        images: list[str] | None = None,
     ):
         self.conversation_id = conversation_id
         self.user_id = user_id
         self.question = question
+        self.images = images or []
         self.request_id = request_id
         self.execution_mode = execution_mode
         self.model = model
@@ -149,6 +151,7 @@ class AskRun:
             "conversation_id": self.conversation_id,
             "title": self.title or (self.question[:40] if self.question else ""),
             "question": self.question,
+            "images": self.images,
             "execution_mode": self.execution_mode,
             "model": self.model,
             "device_name": self.device_name,
@@ -501,6 +504,7 @@ class AskRunRegistry:
         model: str | None = None,
         device_name: str | None = None,
         title: str | None = None,
+        images: list[str] | None = None,
     ) -> AskRun:
         existing = self._runs.get(conversation_id)
         if existing and not existing.done:
@@ -514,6 +518,7 @@ class AskRunRegistry:
             model=model,
             device_name=device_name,
             title=title,
+            images=images,
         )
         run.claim_value = f"{self._cluster.pod_id}/{run.run_id}"
         if not await self._claim(run):

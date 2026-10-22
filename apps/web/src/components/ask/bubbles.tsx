@@ -241,13 +241,11 @@ function areUserPropsEqual(prev: UserBubbleProps, next: UserBubbleProps) {
   if (prev.content !== next.content) return false;
   if (prev.createdAt !== next.createdAt) return false;
   if (prev.index !== next.index) return false;
-  if (prev.images !== next.images) {
-    if (prev.images?.length !== next.images?.length) return false;
-    if (prev.images && next.images) {
-      for (let i = 0; i < prev.images.length; i++) {
-        if (prev.images[i] !== next.images[i]) return false;
-      }
-    }
+  const prevImgs = prev.images || [];
+  const nextImgs = next.images || [];
+  if (prevImgs.length !== nextImgs.length) return false;
+  for (let i = 0; i < prevImgs.length; i++) {
+    if (prevImgs[i] !== nextImgs[i]) return false;
   }
   return true;
 }

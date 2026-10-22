@@ -159,9 +159,12 @@ async def direct_agent_stream(
                     img_dir.mkdir(parents=True, exist_ok=True)
                     img_path = img_dir / f"image_{idx + 1}.{ext}"
                     img_path.write_bytes(base64.b64decode(b64data))
+                    # 设备端 Daemon 统一落盘到 /tmp/memento_images/{conv_id}/image_N.ext（或通过软链指向 /data2 大盘）
+                    # 因此提示给 Agent CLI 的本地查看路径统一为全平台兼容的 /tmp/memento_images 路径
+                    agent_file_path = f"/tmp/memento_images/{conv_id}/image_{idx + 1}.{ext}"
                     att_notes.append(
                         f"【用户上传了图片 #{idx + 1}】\n"
-                        f"本地文件路径: {img_path.as_posix()}\n"
+                        f"本地文件路径: {agent_file_path}\n"
                         f"提示: 你可以使用视觉/文件查看工具（如 view_file）直接读取该文件进行图像分析与代码实现。"
                     )
                 except Exception as e:
@@ -436,6 +439,7 @@ async def run_response(
     model: str | None = None,
     device_name: str | None = None,
     title: str | None = None,
+    images: list[str] | None = None,
 ) -> StreamingResponse:
     """Start the ask as a background run and stream it. The run survives the
     client disconnecting; see services/ask_runs.py."""
@@ -450,6 +454,7 @@ async def run_response(
             model=model,
             device_name=device_name,
             title=title,
+            images=images,
         )
     except RunConflict:
         raise HTTPException(status_code=409, detail="这个对话还有任务在运行，请等它结束或先停止")

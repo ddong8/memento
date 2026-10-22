@@ -267,6 +267,7 @@ async def ask(
             model=effective_model,
             device_name=resolved_device_name,
             title=conv_title,
+            images=body.images,
         )
 
     if not get_ai_providers():
@@ -514,6 +515,7 @@ async def ask(
             model=body.model,
             device_name=resolved_device_name,
             title=conv_title,
+            images=body.images,
         )
 
     async def stream(run_user: User = _user):
@@ -642,6 +644,7 @@ async def ask(
         model=body.model,
         device_name=None,
         title=conv_title,
+        images=body.images,
     )
 
 

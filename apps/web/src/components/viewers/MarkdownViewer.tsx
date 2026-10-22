@@ -250,15 +250,8 @@ function normalizeMarkdownContent(content: string): string {
       // 1. 规范化 Unicode 圆点列表符 (• 或 · 或 ⁃ 或 ‣) 为标准 Markdown 列表符 (- )，保留已有行首缩进深度
       text = text.replace(/(^|\n)([ \t]*)[•·⁃‣][ \t]+/g, "$1$2- ");
 
-      // 2. 规范化以 1) 2) 3) 等编号开头的独立单行标题为 ### 标题
-      // 匹配以数字加括号开头，长度在 2~40 字之间，且不以标点结尾的独立单行
-      text = text.replace(
-        /(^|\n\n|\n)([0-9]+[）\)])\s*([^\n:：。！？\r]{2,40})(?=\n|$)/g,
-        (match, prefix, num, title) => {
-          if (title.trim().startsWith("#")) return match;
-          return `${prefix}\n### ${num} ${title.trim()}\n`;
-        }
-      );
+      // 2. 保持 1) 2) 3) 序号为标准统一列表项，严禁随意将序号转为 ### 标题导致字号忽大忽小
+      // （移除历史遗留的将 2~40 字编号行强转为 ### 标题的错误逻辑）
 
       // 3. 剥离执行步骤行前误加的 blockquote 引用符 "> "，保留已有缩进
       text = text.replace(/(^|\n)([ \t]*)>[ \t]*(?=(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[)/gu, "$1$2");

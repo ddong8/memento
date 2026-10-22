@@ -1,22 +1,22 @@
 {
-  "version": "1.0.70",
-  "title": "Memento v1.0.70",
+  "version": "1.0.71",
+  "title": "Memento v1.0.71",
   "release_notes": "1. 优化 WorkBuddy 凭据持久化机制，从纯内存改为私有目录持久化存储，电脑重启后保持长期免登\n2. 修复任务执行过程中点击停止/取消无法即时终止的问题，完善守护进程任务中断拦截与优雅退出流程",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.70-win-x64.zip",
-      "size": 154642615,
-      "sha256": "a695db3e9b41cafb443364b80d2607514650e70a36c9abba9048ff1e2e9e313d"
+      "asset_name": "Memento-1.0.71-win-x64.zip",
+      "size": 154644820,
+      "sha256": "835c8bb0423c9d3e3bf05f382ad6023f721c309122a45bb89c9eed48348d3c1e"
     },
     "macos": {
-      "asset_name": "Memento-1.0.70-mac-arm64.zip",
-      "size": 128489862,
-      "sha256": "e6e2725e051ae0806dffabdf5b641f9b834541c17e1d91dc57dea3c3ad1078f7"
+      "asset_name": "Memento-1.0.71-mac-arm64.zip",
+      "size": 128491990,
+      "sha256": "f85addfadbd0b94ae696ae707b7b2e4732323dff98965f4e0b001f3e2e98012a"
     },
     "linux": {
-      "asset_name": "Memento-1.0.70-linux-x64.tar.gz",
-      "size": 120517835,
-      "sha256": "e8e662c953a55e29777ea6ae7af534201e999a93fa58189c7afa26cfdebe21aa"
+      "asset_name": "Memento-1.0.71-linux-x64.tar.gz",
+      "size": 120520030,
+      "sha256": "9d15966415cb88c87efe0cdbb2aa8e6c6d26088e6fa05660a6688612374c4d73"
     }
   }
 }

@@ -271,13 +271,7 @@ export const UserBubble = memo(function UserBubble({
   };
 
   return (
-    <div
-      className="group/user relative flex justify-end"
-      style={{
-        contentVisibility: "auto",
-        containIntrinsicSize: "auto 48px",
-      }}
-    >
+    <div className="group/user relative flex justify-end">
       <div
         className="select-text"
         style={{
@@ -519,13 +513,7 @@ export const AssistantBubble = memo(function AssistantBubble({
   };
 
   return (
-    <div
-      style={{
-        width: "100%",
-        contentVisibility: isLast ? "visible" : "auto",
-        containIntrinsicSize: "auto 120px",
-      }}
-    >
+    <div style={{ width: "100%" }}>
       <Glass padding="clamp(12px, 3vw, 20px)" radius={18} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
         {turn.sources && turn.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>

@@ -88,14 +88,14 @@ function AppShellInner({
   const isAskRoute = Boolean(pathname && (pathname === "/ask" || pathname.startsWith("/ask/")));
 
   return (
-    <div className="min-h-screen">
+    <div className={`min-h-screen ${isAskRoute ? "h-[100dvh] overflow-hidden" : ""}`}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0`}>
+      <div className={`transition-[margin-left] duration-200 ease-in-out ${collapsed ? "lg:ml-[68px]" : "lg:ml-60"} relative z-0 ${isAskRoute ? "h-full overflow-hidden" : ""}`}>
         <Header onMenuToggle={() => setSidebarOpen((v) => !v)} />
         <main
           className={
             isAskRoute
-              ? "pt-11 px-0 pb-0 sm:pt-[4.25rem] sm:px-3 sm:pb-3 md:pt-[4.5rem] md:px-4 md:pb-4"
+              ? "pt-11 px-0 pb-0 sm:pt-[4.25rem] sm:px-3 sm:pb-3 md:pt-[4.5rem] md:px-4 md:pb-4 h-full overflow-hidden"
               : "pt-13 px-2.5 pb-3 sm:pt-18 sm:px-4 sm:pb-4 md:pt-20 md:px-6 md:pb-6"
           }
         >

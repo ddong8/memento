@@ -2128,7 +2128,6 @@ function AskPageContent() {
 
   // Mobile touch gestures & smooth keyboard dismissal without interrupting iOS WebKit inertia
   const touchStartY = useRef<number | null>(null);
-  const touchMovedDistanceY = useRef<number>(0);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     isUserInteractingRef.current = true;
@@ -2144,45 +2143,33 @@ function AskPageContent() {
     }
 
     touchStartY.current = e.touches[0].clientY;
-    touchMovedDistanceY.current = 0;
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    isUserInteractingRef.current = true;
-    if (touchStartY.current !== null) {
-      touchMovedDistanceY.current = e.touches[0].clientY - touchStartY.current;
-    }
-    // 铁律：绝对不要在 touchmove 期间调用 active.blur()！
-    // 在 iOS WebKit 中，touchmove 中调用 blur() 会强行弹收软键盘引发 visualViewport 突变，
-    // 直接掐断 WebKit 的手势事件流与惯性滚动，造成手指在滑动但页面被硬生生卡死的阻滞体验。
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    const deltaY = touchMovedDistanceY.current;
-
-    // 仅在手势完成且手指向下划动显著（> 45px）时安全失焦收起键盘，不破坏滑动连续性
-    if (deltaY > 45) {
-      const active = document.activeElement;
-      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
-        (active as HTMLElement).blur();
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartY.current !== null && e.changedTouches && e.changedTouches[0]) {
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      // 仅在手势完成且手指向下划动显著（> 45px）时安全失焦收起键盘，不破坏滑动连续性
+      if (deltaY > 45) {
+        const active = document.activeElement;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+          (active as HTMLElement).blur();
+        }
       }
     }
 
     touchStartY.current = null;
-    touchMovedDistanceY.current = 0;
 
-    // 保留 400ms 的惯性保护窗口，等待 iOS 惯性滑动自然衰减完毕
+    // 保留 300ms 的惯性保护窗口，等待 iOS 惯性滑动自然衰减完毕
     if (touchInteractionTimeoutRef.current) {
       clearTimeout(touchInteractionTimeoutRef.current);
     }
     touchInteractionTimeoutRef.current = setTimeout(() => {
       isUserInteractingRef.current = false;
-    }, 400);
+    }, 300);
   }, []);
 
   const handleTouchCancel = useCallback(() => {
     touchStartY.current = null;
-    touchMovedDistanceY.current = 0;
     if (touchInteractionTimeoutRef.current) {
       clearTimeout(touchInteractionTimeoutRef.current);
     }
@@ -4239,15 +4226,7 @@ function AskPageContent() {
   }, [getTurnAbsIndex]);
 
   const renderedTurns = useMemo(() => {
-    const eagerThreshold = Math.max(0, turns.length - 4);
     return turns.map((turn, i) => {
-      const isRecentOrStreaming = i >= eagerThreshold || (i === turns.length - 1 && streaming);
-      const contentVisibilityStyle: React.CSSProperties = isRecentOrStreaming
-        ? {}
-        : {
-            contentVisibility: "auto",
-            containIntrinsicSize: turn.role === "user" ? "0 80px" : "0 140px",
-          };
       const prevUserCreatedAt =
         turn.role === "assistant" && i > 0 && turns[i - 1]?.role === "user"
           ? turns[i - 1].created_at
@@ -4259,7 +4238,6 @@ function AskPageContent() {
       return (
         <div
           key={stableKey}
-          style={contentVisibilityStyle}
           className={selectTurnsMode ? "flex items-start gap-2.5 my-1.5 transition-all group/turn-row" : ""}
         >
           {selectTurnsMode && (
@@ -4322,7 +4300,7 @@ function AskPageContent() {
   ]);
 
   return (
-    <div className="w-full flex h-[calc(100dvh-2.75rem)] sm:h-[calc(100dvh-5rem)] md:h-[calc(100dvh-5.5rem)] rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
+    <div className="w-full flex h-full rounded-none sm:rounded-2xl border-0 sm:border border-[var(--aurora-border-strong)] bg-[var(--aurora-bg)] sm:bg-[var(--aurora-surface-solid)]/40 sm:backdrop-blur-xl overflow-hidden sm:shadow-2xl relative">
       {/* 离线状态全局浮动感知胶囊 */}
       {isOffline && (
         <div
@@ -4739,13 +4717,12 @@ function AskPageContent() {
               }
             }}
             onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
             onWheel={handleWheel}
             className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
             style={{
-              overscrollBehaviorY: "auto",
+              overscrollBehaviorY: "contain",
               WebkitOverflowScrolling: "touch",
               touchAction: "pan-y",
               userSelect: "text",

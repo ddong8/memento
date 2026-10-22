@@ -190,6 +190,7 @@ const ExecutionCard = memo(function ExecutionCard({
   });
 
   const [copied, setCopied] = useState(false);
+  const [copiedResume, setCopiedResume] = useState(false);
   const [showAllLogs, setShowAllLogs] = useState(false);
 
   const rawStdout = result?.stdout || "";
@@ -572,6 +573,53 @@ const ExecutionCard = memo(function ExecutionCard({
                   📁 {cwd}
                 </span>
               )}
+              {(() => {
+                const sid = (result as any)?.session_id || (args?.session_id as string) || "";
+                if (!sid || !isAgent) return null;
+                const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
+                let cmd = "";
+                if (isWorkbuddy) {
+                  cmd = cwd ? `cd "${cwd}" && codebuddy --resume ${sid}` : `codebuddy --resume ${sid}`;
+                } else if (binary.includes("claude")) {
+                  cmd = cwd ? `cd "${cwd}" && claude -r ${sid}` : `claude -r ${sid}`;
+                } else if (binary.includes("codex")) {
+                  cmd = cwd ? `cd "${cwd}" && codex exec resume ${sid}` : `codex exec resume ${sid}`;
+                } else if (binary.includes("agy") || binary.includes("antigravity")) {
+                  cmd = cwd ? `cd "${cwd}" && agy resume ${sid}` : `agy resume ${sid}`;
+                }
+                if (!cmd) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        navigator.clipboard.writeText(cmd);
+                        setCopiedResume(true);
+                        setTimeout(() => setCopiedResume(false), 2000);
+                      }
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "2px 7px",
+                      borderRadius: 6,
+                      border: "1px solid var(--aurora-border)",
+                      background: "var(--aurora-chip)",
+                      color: copiedResume ? "var(--aurora-accent)" : "var(--aurora-fg2)",
+                      fontSize: 11,
+                      fontFamily: "monospace",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    title={`点击复制终端接力命令：\n${cmd}`}
+                  >
+                    <Icon name={copiedResume ? "check" : "terminal"} size={11} />
+                    <span>{copiedResume ? "已复制命令" : "终端接力"}</span>
+                  </button>
+                );
+              })()}
               {(isAgent || result?.stdout) && (
                 <div
                   style={{

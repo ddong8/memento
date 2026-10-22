@@ -10,6 +10,7 @@ miss — the caller still computes the live answer.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from typing import Any
@@ -87,3 +88,25 @@ async def cache_delete_prefix(prefix: str) -> int:
     except Exception as e:
         logger.debug("cache_delete_prefix(%s) failed: %s", prefix, e)
     return deleted
+
+
+async def get_hot_query_cache(query: str, model: str) -> dict | None:
+    """Check hot query semantic cache in Redis.
+
+    Only caches repeated hot queries with a bounded TTL to keep Redis
+    memory strictly controlled per system guidelines.
+    """
+    clean_q = query.strip().lower()
+    if len(clean_q) < 4 or len(clean_q) > 400:
+        return None
+    key = f"hot_query:{hashlib.sha256(f'{model}:{clean_q}'.encode()).hexdigest()}"
+    return await cache_get(key)
+
+
+async def set_hot_query_cache(query: str, model: str, thinking: str, content: str, ttl_seconds: int = 1800) -> None:
+    """Store hot query result in Redis with 30-min TTL."""
+    clean_q = query.strip().lower()
+    if len(clean_q) < 4 or len(clean_q) > 400 or not content:
+        return
+    key = f"hot_query:{hashlib.sha256(f'{model}:{clean_q}'.encode()).hexdigest()}"
+    await cache_set(key, {"thinking": thinking, "content": content}, ttl_seconds=ttl_seconds)

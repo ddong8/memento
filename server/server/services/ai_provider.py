@@ -411,6 +411,20 @@ async def stream_chat_completion(
     if not providers:
         raise RuntimeError("No AI API providers configured (missing API keys)")
 
+    # Check hot query semantic cache (Redis-backed, 30m TTL)
+    user_prompt = messages[-1].get("content") if messages and messages[-1].get("role") == "user" else ""
+    if isinstance(user_prompt, str) and len(messages) <= 2 and temperature <= 0.4:
+        try:
+            from .cache import get_hot_query_cache
+            cached = await get_hot_query_cache(user_prompt, providers[0].model)
+            if cached and cached.get("content"):
+                if cached.get("thinking"):
+                    yield {"type": "thinking", "text": cached["thinking"]}
+                yield {"type": "content", "text": cached["content"]}
+                return
+        except Exception as e:
+            logger.debug("Hot query cache check error: %s", e)
+
     errors: list[str] = []
     failures: list[dict[str, str]] = []
     for index, p in enumerate(providers):
@@ -464,6 +478,8 @@ async def stream_chat_completion(
 
                         started = True
                         in_think_tag = False
+                        full_thinking: list[str] = []
+                        full_content: list[str] = []
                         async for line in resp.aiter_lines():
                             if not line or not line.startswith("data: "):
                                 continue
@@ -475,6 +491,7 @@ async def stream_chat_completion(
                                 delta = (chunk.get("choices") or [{}])[0].get("delta", {})
                                 reasoning = delta.get("reasoning_content") or ""
                                 if reasoning:
+                                    full_thinking.append(reasoning)
                                     yield {"type": "thinking", "text": reasoning}
 
                                 content = delta.get("content") or ""
@@ -483,31 +500,51 @@ async def stream_chat_completion(
                                         if "</think>" in content:
                                             t_part, c_part = content.split("</think>", 1)
                                             if t_part:
+                                                full_thinking.append(t_part)
                                                 yield {"type": "thinking", "text": t_part}
                                             in_think_tag = False
                                             if c_part:
+                                                full_content.append(c_part)
                                                 yield {"type": "content", "text": c_part}
                                         else:
+                                            full_thinking.append(content)
                                             yield {"type": "thinking", "text": content}
                                     elif "<think>" in content:
                                         c_part, rest = content.split("<think>", 1)
                                         if c_part:
+                                            full_content.append(c_part)
                                             yield {"type": "content", "text": c_part}
                                         in_think_tag = True
                                         if "</think>" in rest:
                                             t_part, after = rest.split("</think>", 1)
                                             if t_part:
+                                                full_thinking.append(t_part)
                                                 yield {"type": "thinking", "text": t_part}
                                             in_think_tag = False
                                             if after:
+                                                full_content.append(after)
                                                 yield {"type": "content", "text": after}
                                         else:
                                             if rest:
+                                                full_thinking.append(rest)
                                                 yield {"type": "thinking", "text": rest}
                                     else:
+                                        full_content.append(content)
                                         yield {"type": "content", "text": content}
                             except Exception:
                                 continue
+
+                        if isinstance(user_prompt, str) and len(messages) <= 2 and full_content:
+                            try:
+                                from .cache import set_hot_query_cache
+                                await set_hot_query_cache(
+                                    user_prompt,
+                                    p.model,
+                                    "".join(full_thinking),
+                                    "".join(full_content),
+                                )
+                            except Exception:
+                                pass
 
                         await ai_health.record_call(
                             "stream", "ok" if index == 0 else "fallback",

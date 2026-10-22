@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -74,10 +74,11 @@ const chunk = (taskId: string, stream: "stdout" | "stderr", text: string) => ({ 
 const claudeUserMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
 
 /** Claude Code in print mode with stream-json in and out: every tool call is an event, the prompt goes in on stdin, and follow-ups can be written while it runs. */
-export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string } = {}): string[] {
+export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string; sessionName?: string } = {}): string[] {
   return [
     "-p",
     ...(o.sessionId ? ["-r", o.sessionId] : []),
+    ...(o.sessionName ? ["--name", o.sessionName] : []),
     ...(o.sysAppend ? ["--append-system-prompt", o.sysAppend] : []),
     "--input-format",
     "stream-json",
@@ -677,9 +678,18 @@ export class TaskRunner {
         text("conversation_id") ||
         prompt.match(/\/tmp\/memento_images\/([a-zA-Z0-9_-]+)\//)?.[1] ||
         taskId;
-      const imgDir = join("/tmp/memento_images", convId);
+      const baseDir = existsSync("/data2/memento/images") || existsSync("/data2")
+        ? "/data2/memento/images"
+        : "/tmp/memento_images";
+      const imgDir = join(baseDir, convId);
       try {
         mkdirSync(imgDir, { recursive: true });
+        // 若在 /data2 建立目录且 /tmp/memento_images 不存在，则建立软链接以兼容旧路径
+        if (baseDir.startsWith("/data2") && !existsSync("/tmp/memento_images")) {
+          try {
+            symlinkSync(baseDir, "/tmp/memento_images");
+          } catch {}
+        }
         for (let idx = 0; idx < payload.images.length; idx++) {
           const img = String(payload.images[idx] ?? "");
           if (img.startsWith("data:image/")) {
@@ -768,7 +778,8 @@ export class TaskRunner {
         const hooks = await this.hookBridge.claudeHooks(taskId);
         if (hooks) settings.hooks = hooks;
         claudeSettings = Object.keys(settings).length ? JSON.stringify(settings) : undefined;
-        args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings });
+        const sessionName = prompt ? `Memento: ${prompt.slice(0, 32).replace(/[\r\n\t]+/g, " ").trim()}` : undefined;
+        args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
         parser = new ClaudeStreamParser();
         stdinPrompt = prompt;
         this.claudeTasks.add(taskId);
@@ -894,7 +905,8 @@ export class TaskRunner {
         this.notice(taskId, "\n⚡ [自动自愈] 本地未找到历史会话（跨设备远程调度或会话过期常见），已自动重置为全新会话重新执行...\n\n");
         if (binary.includes("claude")) {
           parser = new ClaudeStreamParser();
-          exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings }), parser, stdinPrompt: prompt });
+          const sessionName = prompt ? `Memento: ${prompt.slice(0, 32).replace(/[\r\n\t]+/g, " ").trim()}` : undefined;
+          exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();
           exitCode = await run({ args: codexArgs({ workDir, effort, model, prompt }), parser });

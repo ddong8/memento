@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
-from ..services.notify_service import mask_push_url, parse_push_url
+from ..services.notify_service import mask_push_url, parse_push_url, send_apns_live_activity
 
 router = APIRouter(prefix="/api/notify", tags=["notify"])
 
@@ -188,6 +188,34 @@ async def register_live_activity_token(
         await db.commit()
 
     return {"status": "ok", "registered": changed}
+
+
+@router.post("/live-activity/clear")
+async def clear_live_activities(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Explicitly clean up all live activities on Dynamic Island for the user."""
+    prefs = dict(user.notify_settings or {})
+    act_map: dict = prefs.get("live_activity_tokens") or {}
+    cleared_count = len(act_map)
+    if act_map:
+        for cid, tok in list(act_map.items()):
+            try:
+                await send_apns_live_activity(
+                    [tok],
+                    "end",
+                    {"status": "done", "currentStep": "已完成", "stepCount": 1},
+                    dismissal_date=0,
+                    priority="10",
+                    user_id=user.id,
+                )
+            except Exception:
+                pass
+        prefs["live_activity_tokens"] = {}
+        user.notify_settings = prefs
+        await db.commit()
+    return {"status": "ok", "cleared": cleared_count}
 
 
 

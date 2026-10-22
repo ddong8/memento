@@ -4246,11 +4246,13 @@ function AskPageContent() {
 
       const isSelected = selectedTurnIndices.includes(i);
       const stableKey = (turn as any).id || (turn.created_at ? `${turn.role}-${turn.created_at}-${i}` : `turn-${i}`);
+      const isNearEnd = i >= turns.length - 3;
 
       return (
         <div
           key={stableKey}
           className={selectTurnsMode ? "flex items-start gap-2.5 my-1.5 transition-all group/turn-row" : ""}
+          style={!isNearEnd ? { contentVisibility: "auto", containIntrinsicSize: "0 140px" } : undefined}
         >
           {selectTurnsMode && (
             <div

@@ -148,6 +148,25 @@ export class TaskWorktree {
       }
     } catch {}
 
+    // 3. Clean stale temporary agent image folders (/data2/memento/images & /tmp/memento_images)
+    const imgDirs = ["/data2/memento/images", "/tmp/memento_images"];
+    for (const idir of imgDirs) {
+      try {
+        const entries = await readdir(idir, { withFileTypes: true });
+        const now = Date.now();
+        for (const entry of entries) {
+          const targetPath = join(idir, entry.name);
+          try {
+            const stats = await stat(targetPath);
+            if (now - stats.mtimeMs > maxAge) {
+              await rm(targetPath, { recursive: true, force: true });
+              cleaned++;
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
     return cleaned;
   }
 }

@@ -319,6 +319,8 @@ export const UserBubble = memo(function UserBubble({
                 <img
                   src={imgUrl}
                   alt={`Attachment ${idx + 1}`}
+                  loading="lazy"
+                  decoding="async"
                   style={{
                     display: "block",
                     maxWidth: "100%",

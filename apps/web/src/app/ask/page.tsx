@@ -1897,17 +1897,19 @@ function AskPageContent() {
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
-      if (isUserInteractingRef.current || userScrolledAwayRef.current) return;
-      if (streamingRef.current && chatScrollRef.current) {
-        const el = chatScrollRef.current;
-        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distFromBottom > 80) {
-          userScrolledAwayRef.current = true;
-          return;
+      requestAnimationFrame(() => {
+        if (isUserInteractingRef.current || userScrolledAwayRef.current) return;
+        if (streamingRef.current && chatScrollRef.current) {
+          const el = chatScrollRef.current;
+          const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (distFromBottom > 80) {
+            userScrolledAwayRef.current = true;
+            return;
+          }
+          el.scrollTop = el.scrollHeight;
         }
-        el.scrollTop = el.scrollHeight;
-      }
-    }, 80);
+      });
+    }, 60);
   }, [turns, activeConversationId, scrollConversationToBottom]);
 
   // Abort local reader if the user navigates away mid-answer, but preserve activeRun in askCache

@@ -2681,6 +2681,7 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
           src={playUrl}
           alt={displayTitle}
           loading="lazy"
+          decoding="async"
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
         />
         <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">

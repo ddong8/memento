@@ -617,45 +617,62 @@ function AskPageContent() {
   const pendingScrollToBottomRef = useRef<boolean>(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
 
-  const scrollConversationToBottom = useCallback((instant = true) => {
+  // 用户主动交互与手势防冲突状态跟踪（彻底消除移动端手势对抗与滑动阻滞）
+  const isUserInteractingRef = useRef<boolean>(false);
+  const touchInteractionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userScrolledAwayRef = useRef<boolean>(false);
+
+  const scrollConversationToBottom = useCallback((instant = true, force = false) => {
+    // 1. 如果用户正在手动滑动/触摸屏幕，且不是用户显式指令（如点击回到底部/发送消息），绝不抢夺滚动权
+    if (!force && isUserInteractingRef.current) {
+      scrollSettleTimersRef.current.forEach(clearTimeout);
+      scrollSettleTimersRef.current = [];
+      return;
+    }
+
+    if (force) {
+      userScrolledAwayRef.current = false;
+      isUserInteractingRef.current = false;
+    }
+
+    // 2. 清理先前的阶梯定时器
     scrollSettleTimersRef.current.forEach(clearTimeout);
     scrollSettleTimersRef.current = [];
 
     const doScroll = () => {
+      if (!force && isUserInteractingRef.current) {
+        scrollSettleTimersRef.current.forEach(clearTimeout);
+        scrollSettleTimersRef.current = [];
+        return;
+      }
       if (chatScrollRef.current && chatScrollRef.current.scrollHeight > 0) {
         chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
         if (askCache) {
           askCache.scrollTop = chatScrollRef.current.scrollTop;
         }
       }
-      if (bottomRef.current) {
-        try {
-          bottomRef.current.scrollIntoView({
-            behavior: instant ? "auto" : "smooth",
-            block: "end",
-          });
-        } catch {}
-      }
     };
 
     // 阶段1：立即执行首次滚动尝试
     doScroll();
 
-    // 阶段2：连续 5 帧 requestAnimationFrame 跟踪（对抗 React 18 异步调度与挂载）
+    // 阶段2：连续 4 帧 requestAnimationFrame 跟踪（对抗 React 18 异步调度与挂载）
     let frames = 0;
     const rafStep = () => {
+      if (!force && isUserInteractingRef.current) return;
       doScroll();
       frames++;
-      if (frames < 5) {
+      if (frames < 4) {
         requestAnimationFrame(rafStep);
       }
     };
     requestAnimationFrame(rafStep);
 
-    // 阶段3：阶梯定时器持续校准（对抗 Markdown AST 解析与布局动态展开）
-    const delays = [30, 80, 160, 300, 500, 800, 1200];
+    // 阶段3：阶梯定时器持续校准（紧凑防抖，一旦用户手指触碰立即被清除）
+    const delays = [40, 120, 260, 480];
     delays.forEach((ms) => {
       const timer = setTimeout(() => {
+        if (!force && isUserInteractingRef.current) return;
         doScroll();
       }, ms);
       scrollSettleTimersRef.current.push(timer);
@@ -666,6 +683,9 @@ function AskPageContent() {
   useEffect(() => {
     return () => {
       scrollSettleTimersRef.current.forEach(clearTimeout);
+      if (touchInteractionTimeoutRef.current) {
+        clearTimeout(touchInteractionTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -1847,7 +1867,9 @@ function AskPageContent() {
     // 1. 切换会话或新加载会话：全速多阶段锁定滚动到最新位置
     if (pendingScrollToBottomRef.current) {
       pendingScrollToBottomRef.current = false;
-      scrollConversationToBottom(true);
+      userScrolledAwayRef.current = false;
+      isUserInteractingRef.current = false;
+      scrollConversationToBottom(true, true);
       return;
     }
 
@@ -1868,19 +1890,21 @@ function AskPageContent() {
       }
     }
 
-    // 3. 流式生成过程中的防抖自动跟踪滚动（如果用户向上翻阅查看历史则锁定视图，不强行滚底）
+    // 3. 流式生成过程中的防抖自动跟踪滚动（若用户正在触摸或已向上滑看历史，则坚决锁定视图，绝不强行滚底对抗）
     if (!streamingRef.current) return;
+    if (isUserInteractingRef.current || userScrolledAwayRef.current) return;
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
+      if (isUserInteractingRef.current || userScrolledAwayRef.current) return;
       if (streamingRef.current && chatScrollRef.current) {
         const el = chatScrollRef.current;
         const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (distFromBottom > 160) return;
-        el.scrollTop = el.scrollHeight;
-        if (bottomRef.current) {
-          bottomRef.current.scrollIntoView({ behavior: "auto", block: "end" });
+        if (distFromBottom > 80) {
+          userScrolledAwayRef.current = true;
+          return;
         }
+        el.scrollTop = el.scrollHeight;
       }
     }, 80);
   }, [turns, activeConversationId, scrollConversationToBottom]);
@@ -2102,22 +2126,83 @@ function AskPageContent() {
     };
   }, [activeConversationId, scrollConversationToBottom]);
 
-  // Mobile swipe down on chat area to dismiss keyboard smoothly
+  // Mobile touch gestures & smooth keyboard dismissal without interrupting iOS WebKit inertia
   const touchStartY = useRef<number | null>(null);
+  const touchMovedDistanceY = useRef<number>(0);
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    isUserInteractingRef.current = true;
+    if (touchInteractionTimeoutRef.current) {
+      clearTimeout(touchInteractionTimeoutRef.current);
+      touchInteractionTimeoutRef.current = null;
+    }
+
+    // 用户一触碰屏幕，立即掐断所有后台滚动定时器，绝不人机对抗
+    if (scrollSettleTimersRef.current.length > 0) {
+      scrollSettleTimersRef.current.forEach(clearTimeout);
+      scrollSettleTimersRef.current = [];
+    }
+
     touchStartY.current = e.touches[0].clientY;
+    touchMovedDistanceY.current = 0;
   }, []);
+
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (touchStartY.current === null) return;
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - touchStartY.current;
-    if (deltaY > 35) {
+    isUserInteractingRef.current = true;
+    if (touchStartY.current !== null) {
+      touchMovedDistanceY.current = e.touches[0].clientY - touchStartY.current;
+    }
+    // 铁律：绝对不要在 touchmove 期间调用 active.blur()！
+    // 在 iOS WebKit 中，touchmove 中调用 blur() 会强行弹收软键盘引发 visualViewport 突变，
+    // 直接掐断 WebKit 的手势事件流与惯性滚动，造成手指在滑动但页面被硬生生卡死的阻滞体验。
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const deltaY = touchMovedDistanceY.current;
+
+    // 仅在手势完成且手指向下划动显著（> 45px）时安全失焦收起键盘，不破坏滑动连续性
+    if (deltaY > 45) {
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
         (active as HTMLElement).blur();
       }
-      touchStartY.current = null;
     }
+
+    touchStartY.current = null;
+    touchMovedDistanceY.current = 0;
+
+    // 保留 400ms 的惯性保护窗口，等待 iOS 惯性滑动自然衰减完毕
+    if (touchInteractionTimeoutRef.current) {
+      clearTimeout(touchInteractionTimeoutRef.current);
+    }
+    touchInteractionTimeoutRef.current = setTimeout(() => {
+      isUserInteractingRef.current = false;
+    }, 400);
+  }, []);
+
+  const handleTouchCancel = useCallback(() => {
+    touchStartY.current = null;
+    touchMovedDistanceY.current = 0;
+    if (touchInteractionTimeoutRef.current) {
+      clearTimeout(touchInteractionTimeoutRef.current);
+    }
+    touchInteractionTimeoutRef.current = setTimeout(() => {
+      isUserInteractingRef.current = false;
+    }, 300);
+  }, []);
+
+  const handleWheel = useCallback(() => {
+    isUserInteractingRef.current = true;
+    if (scrollSettleTimersRef.current.length > 0) {
+      scrollSettleTimersRef.current.forEach(clearTimeout);
+      scrollSettleTimersRef.current = [];
+    }
+    if (touchInteractionTimeoutRef.current) {
+      clearTimeout(touchInteractionTimeoutRef.current);
+    }
+    touchInteractionTimeoutRef.current = setTimeout(() => {
+      isUserInteractingRef.current = false;
+    }, 300);
   }, []);
 
   // Voice Input (Speech-to-Text) with real-time recognition & smart mobile fallback
@@ -3227,7 +3312,7 @@ function AskPageContent() {
         })
       );
     }
-    scrollConversationToBottom(false);
+    scrollConversationToBottom(false, true);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -4647,17 +4732,26 @@ function AskPageContent() {
               }
               const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
               setShowScrollBottom(dist > 180);
+              if (dist > 80) {
+                userScrolledAwayRef.current = true;
+              } else if (dist < 20) {
+                userScrolledAwayRef.current = false;
+              }
             }}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
+            onWheel={handleWheel}
             className="flex-1 overflow-y-auto px-2.5 sm:px-5 md:px-8 py-3 sm:py-6 select-text"
-          style={{
-            contain: "content",
-            overscrollBehaviorY: "contain",
-            userSelect: "text",
-            WebkitUserSelect: "text",
-          }}
-        >
+            style={{
+              overscrollBehaviorY: "auto",
+              WebkitOverflowScrolling: "touch",
+              touchAction: "pan-y",
+              userSelect: "text",
+              WebkitUserSelect: "text",
+            }}
+          >
           <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-3 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
       {turns.length === 0 && (
@@ -4790,6 +4884,8 @@ function AskPageContent() {
       <button
         type="button"
         onClick={() => {
+          userScrolledAwayRef.current = false;
+          isUserInteractingRef.current = false;
           chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
         }}
         className="absolute bottom-4 right-5 sm:right-8 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xl transition-all transform hover:scale-105 cursor-pointer backdrop-blur-md"

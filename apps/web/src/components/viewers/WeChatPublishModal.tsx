@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
-import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiEdit3 } from "react-icons/fi";
+import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage } from "react-icons/fi";
 
 export interface WeChatPublishModalProps {
   isOpen: boolean;
@@ -23,7 +23,7 @@ const THEMES = [
 function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: string; digest: string } {
   const lines = md.split("\n");
   let foundTitle = "";
-  let digestCandidates: string[] = [];
+  const digestCandidates: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -141,8 +141,9 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
 
       setSuccessMediaId(draftData.media_id);
       setStepStatus("");
-    } catch (err: any) {
-      setError(err?.message || "推送到微信草稿箱失败，请检查网络或配置");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "推送到微信草稿箱失败，请检查网络或配置";
+      setError(msg);
     } finally {
       setLoading(false);
     }

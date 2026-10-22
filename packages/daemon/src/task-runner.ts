@@ -9,7 +9,7 @@ import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
-import { ensureWorkbuddyCliInstalled } from "./workbuddy.js";
+import { ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -373,7 +373,13 @@ export class TaskRunner {
           if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
             shouldKill = true;
           }
-          if ((t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) && (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))) {
+          // Not the CLI the WorkBuddy app runs for its own conversations, nor memento's gateway on it
+          // (codebuddy-lite-wb.mjs): stopping memento's runner already cancels its session there.
+          if (
+            (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) &&
+            !cmd.includes("codebuddy-lite-wb.mjs") &&
+            (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))
+          ) {
             shouldKill = true;
           }
 
@@ -685,7 +691,13 @@ export class TaskRunner {
       isAntigravity = binary.includes("agy") || binary.includes("antigravity");
       const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
       if (isAntigravity) await ensureAgyCliInstalled();
-      if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
+      if (isWorkbuddy) {
+        await ensureWorkbuddyCliInstalled();
+        // WorkBuddy ≥ 5.8 has no gateway of its own any more: the runner uses the one memento serves.
+        await ensureWorkbuddyGateway().catch((err) =>
+          this.log(`WorkBuddy gateway failed to start: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
       let candidates: string[] = [];
       if (binary === "agy") candidates = ["agy", "agy_cli.py", "agentapi"];
       else if (binary === "antigravity") candidates = ["agy", "agy_cli.py", "agentapi"];
@@ -754,11 +766,13 @@ export class TaskRunner {
           ];
           parser = new UniversalStreamParser();
         } else {
-          // Native WorkBuddy / CodeBuddy CLI supports Claude-compatible stream-json
+          // Native WorkBuddy / CodeBuddy CLI supports Claude-compatible stream-json; headless tool use needs -y.
+          // A session missing on this device falls through to the "session not found" retry below.
           args = [
             "--output-format",
             "stream-json",
-            ...(sessionId ? ["--resume", sessionId, "--resume-create-missing"] : []),
+            "-y",
+            ...(sessionId ? ["--resume", sessionId] : []),
             ...(model ? ["--model", model] : []),
             ...(effort ? ["--effort", effort] : []),
             ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),
@@ -878,6 +892,7 @@ export class TaskRunner {
               args: [
                 "--output-format",
                 "stream-json",
+                "-y",
                 ...(model ? ["--model", model] : []),
                 ...(effort ? ["--effort", effort] : []),
                 ...(sysAppend ? ["--append-system-prompt", sysAppend] : []),

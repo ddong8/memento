@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 
 import { homeDir } from "./config.js";
+import { workbuddyBundledNode } from "./workbuddy.js";
 
 /** Keys a GUI-launched daemon doesn't inherit from the login shell but agents need. */
 const SHELL_KEYS = new Set([
@@ -106,6 +107,9 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
       }
     }
     for (const d of extra) if (!parts.includes(d) && isDir(d)) parts.unshift(d);
+    // Last resort for `node` (e.g. the WorkBuddy runner): the runtime WorkBuddy installs for its own CLI.
+    const wbNode = workbuddyBundledNode(home);
+    if (wbNode && !parts.includes(posix.dirname(wbNode))) parts.push(posix.dirname(wbNode));
     env.PATH = parts.join(":");
   } else if (process.platform === "win32") {
     const extra = [
@@ -129,6 +133,10 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
     const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path";
     const parts = (env[key] ?? "").split(";");
     for (const d of extra) if (!parts.some((p) => p.toLowerCase() === d.toLowerCase()) && isDir(d)) parts.unshift(d);
+    // Last resort for `node` (e.g. the WorkBuddy runner): the runtime WorkBuddy installs for its own CLI.
+    const wbNode = workbuddyBundledNode(home);
+    const wbNodeDir = wbNode ? win32.dirname(wbNode) : undefined;
+    if (wbNodeDir && !parts.some((p) => p.toLowerCase() === wbNodeDir.toLowerCase())) parts.push(wbNodeDir);
     env[key] = parts.join(";");
   }
   cachedEnv = env;

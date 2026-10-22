@@ -4,15 +4,23 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 
+// How long a task waits for the user to finish signing in through the printed link.
+const LOGIN_WAIT_MS = 10 * 60 * 1000;
+
+// Set once a session runs, so an interruption can stop it on the gateway too.
+let activeCancel = null;
+
 // SIGINT_SIGTERM_HANDLER: Graceful cancellation on system interruption
-const cleanupAndExit = (sig) => {
+const cleanupAndExit = async (sig) => {
   try {
     process.stderr.write(`\n⏹️ [收到终止信号 (${sig})，已主动停止 WorkBuddy 任务]\n\n`);
   } catch {}
+  // memento's gateway outlives this process: tell it to stop the session as well.
+  if (activeCancel) await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
   process.exit(130);
 };
-process.on("SIGINT", () => cleanupAndExit("SIGINT"));
-process.on("SIGTERM", () => cleanupAndExit("SIGTERM"));
+process.on("SIGINT", () => void cleanupAndExit("SIGINT"));
+process.on("SIGTERM", () => void cleanupAndExit("SIGTERM"));
 
 function parseArgs(argv) {
   const out = {
@@ -75,20 +83,21 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
-async function probeEndpoint(endpoint) {
+async function probeEndpoint(endpoint, authHeaders = {}) {
   try {
     const res = await fetch(`${endpoint}/api/v1/acp/connect`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json, text/event-stream",
+        ...authHeaders,
       },
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) return null;
     const data = await res.json();
     if (data && typeof data.connectionId === "string") {
-      return { endpoint, connectionId: data.connectionId };
+      return { endpoint, connectionId: data.connectionId, authHeaders, managed: Object.keys(authHeaders).length > 0 };
     }
   } catch {
     // unreachable
@@ -96,7 +105,28 @@ async function probeEndpoint(endpoint) {
   return null;
 }
 
+/** The gateway memento's daemon serves on WorkBuddy ≥ 5.8 (see src/workbuddy.ts). MEMENTO_GATEWAY_FILE */
+function mementoGateway(home) {
+  try {
+    const raw = JSON.parse(readFileSync(join(home, ".memento", "workbuddy-gateway.json"), "utf8"));
+    if (typeof raw?.endpoint === "string" && typeof raw?.password === "string") {
+      return {
+        endpoint: raw.endpoint.replace(/\/+$/, ""),
+        authHeaders: { Authorization: `Bearer ${raw.password}`, "x-codebuddy-request": "1" },
+      };
+    }
+  } catch {
+    // not serving one
+  }
+  return null;
+}
+
 async function discoverGateway(home) {
+  const managed = mementoGateway(home);
+  if (managed) {
+    const ok = await probeEndpoint(managed.endpoint, managed.authHeaders);
+    if (ok) return ok;
+  }
   const candidates = [];
   const lgState = join(home, ".workbuddy", "local-gateway", "state.json");
   try {
@@ -144,6 +174,8 @@ async function discoverGateway(home) {
 async function ensureGatewayRunning(home) {
   let gw = await discoverGateway(home);
   if (gw) return gw;
+  // WorkBuddy ≥ 5.8: memento's daemon serves the gateway; launching the app won't bring one up.
+  if (existsSync(join(home, ".memento", "workbuddy-gateway.json"))) return null;
 
   // Try launching WorkBuddy desktop app if installed so its local gateway boots up
   if (process.platform === "darwin") {
@@ -207,6 +239,58 @@ async function ensureGatewayRunning(home) {
   return null;
 }
 
+/** Asks memento's gateway for a WorkBuddy sign-in link, prints it, and waits until the user has signed in. */
+async function signIn(gw) {
+  const headers = { "Content-Type": "application/json", Accept: "application/json", ...gw.authHeaders };
+  let authUrl = "";
+  try {
+    const res = await fetch(`${gw.endpoint}/api/v1/auth/account/login`, {
+      method: "POST",
+      headers,
+      body: "{}",
+      signal: AbortSignal.timeout(30000),
+    });
+    authUrl = (await res.json())?.data?.authUrl ?? "";
+  } catch {
+    // reported below
+  }
+  if (!authUrl) {
+    process.stderr.write("WorkBuddy 需要登录，但没能取到登录链接，请稍后重试。\n");
+    return false;
+  }
+  const minutes = Math.round(LOGIN_WAIT_MS / 60000);
+  process.stdout.write(
+    `\n🔐 WorkBuddy 需要登录一次：新版 WorkBuddy（5.8 起）不再允许其他程序沿用桌面端的登录。\n` +
+      `已在这台设备的浏览器打开登录页，浏览器里已登录 WorkBuddy 时会自动完成；也可以在手机上打开下面的链接登录。` +
+      `登录后任务会自动继续（${minutes} 分钟内有效；设备重启后需要重新登录）：\n\n${authUrl}\n\n`,
+  );
+  const deadline = Date.now() + LOGIN_WAIT_MS;
+  let lastNote = Date.now();
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const res = await fetch(`${gw.endpoint}/api/v1/auth/account/status`, { headers, signal: AbortSignal.timeout(5000) });
+      const data = (await res.json())?.data;
+      if (data?.authenticated) {
+        process.stdout.write("✅ WorkBuddy 已登录，继续执行任务…\n\n");
+        return true;
+      }
+      if (data?.loginError) {
+        process.stderr.write(`WorkBuddy 登录没有完成：${data.loginError}\n`);
+        return false;
+      }
+    } catch {
+      // keep waiting
+    }
+    if (Date.now() - lastNote > 120000) {
+      lastNote = Date.now();
+      process.stdout.write("⏳ 仍在等待 WorkBuddy 登录…\n");
+    }
+  }
+  process.stderr.write("等待 WorkBuddy 登录超时，请重新发起任务。\n");
+  return false;
+}
+
 function parseSseFrames(rawText) {
   const results = [];
   for (const line of rawText.split("\n")) {
@@ -256,13 +340,18 @@ async function main() {
   const cwd = process.cwd();
   const gw = await ensureGatewayRunning(home);
   if (!gw) {
-    process.stderr.write("💡 未检测到正在运行的 WorkBuddy 本地网关服务。请先启动 WorkBuddy 客户端并登录账号后再试。\n");
+    process.stderr.write(
+      existsSync(join(home, ".memento", "workbuddy-gateway.json"))
+        ? "💡 memento 为 WorkBuddy 启动的本地服务没有响应，请稍后重试；仍不行请重启 Memento 客户端。\n"
+        : "💡 未检测到正在运行的 WorkBuddy 本地网关服务。请先启动 WorkBuddy 客户端并登录账号后再试。\n",
+    );
     process.exit(1);
   }
 
   const headers = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
+    ...gw.authHeaders,
     "acp-connection-id": gw.connectionId,
   };
 
@@ -290,40 +379,49 @@ async function main() {
     },
   });
 
-  let sessionId = "";
-  if (args.resumeId) {
-    const resumed = await rpcCall("session/resume", {
-      sessionId: args.resumeId,
-      cwd,
-    });
-    if (!resumed.reply?.error) {
-      sessionId = args.resumeId;
-    } else {
-      // If resume failed on this device, fall back to a new session
-      const created = await rpcCall("session/new", { cwd, mcpServers: [] });
-      for (const f of created.frames) {
-        const sid = f?.params?.sessionId ?? f?.result?.sessionId;
-        if (typeof sid === "string" && sid) {
-          sessionId = sid;
-          break;
-        }
-      }
-    }
-  } else {
+  const isAuthError = (reply) => {
+    const e = reply?.error;
+    return !!e && (e.data?.category === "auth" || /Authentication required/i.test(String(e.message ?? "")));
+  };
+  const newSession = async () => {
     const created = await rpcCall("session/new", { cwd, mcpServers: [] });
     for (const f of created.frames) {
       const sid = f?.params?.sessionId ?? f?.result?.sessionId;
-      if (typeof sid === "string" && sid) {
-        sessionId = sid;
-        break;
-      }
+      if (typeof sid === "string" && sid) return { sessionId: sid, reply: created.reply };
     }
-  }
+    return { sessionId: "", reply: created.reply };
+  };
+  const openSession = async () => {
+    if (args.resumeId) {
+      const resumed = await rpcCall("session/resume", {
+        sessionId: args.resumeId,
+        cwd,
+      });
+      if (!resumed.reply?.error) return { sessionId: args.resumeId, reply: resumed.reply };
+      if (isAuthError(resumed.reply)) return { sessionId: "", reply: resumed.reply };
+      // If resume failed on this device, fall back to a new session
+    }
+    return newSession();
+  };
 
+  let opened = await openSession();
+  // memento's own gateway (WorkBuddy ≥ 5.8) needs one sign-in; it lives until the gateway restarts.
+  if (!opened.sessionId && gw.managed && isAuthError(opened.reply) && (await signIn(gw))) {
+    opened = await openSession();
+  }
+  const sessionId = opened.sessionId;
   if (!sessionId) {
-    process.stderr.write("Error: failed to initialize WorkBuddy ACP session\n");
+    const why = opened.reply?.error?.message;
+    process.stderr.write(`Error: failed to initialize WorkBuddy ACP session${why ? `: ${why}` : ""}\n`);
     process.exit(1);
   }
+  activeCancel = () =>
+    fetch(`${gw.endpoint}/api/v1/acp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId } }),
+      signal: AbortSignal.timeout(1500),
+    });
 
   process.stderr.write(`session id: ${sessionId}\n`);
 

@@ -431,6 +431,7 @@ function areAssistantPropsEqual(prev: AssistantBubbleProps, next: AssistantBubbl
     if (prev.turn.duration_ms !== next.turn.duration_ms) return false;
     if (prev.turn.toolCalls !== next.turn.toolCalls) return false;
     if (prev.turn.created_at !== next.turn.created_at) return false;
+    if (prev.turn.cached !== next.turn.cached) return false;
   }
   return true;
 }
@@ -686,6 +687,15 @@ export const AssistantBubble = memo(function AssistantBubble({
               >
                 <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
                 <span>耗时 {durationText}</span>
+              </span>
+            )}
+            {turn.cached && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10.5px] text-emerald-400 whitespace-nowrap shrink-0 font-medium"
+                title="命中语义缓存网关，毫秒级瞬时响应"
+              >
+                <Icon name="zap" size={10} style={{ color: "#34d399" }} />
+                <span>{isZh ? "极速缓存" : "Cached"}</span>
               </span>
             )}
             {speedLabel && (

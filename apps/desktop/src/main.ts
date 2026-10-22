@@ -274,13 +274,25 @@ function toggleButlerWindow(): void {
   } else {
     win.show();
     win.focus();
-    void navigateApp("/ask");
-    win.webContents.executeJavaScript(`
-      setTimeout(() => {
-        const input = document.querySelector('input[type="text"], textarea');
-        if (input) input.focus();
-      }, 150);
-    `).catch(() => {});
+    const cur = win.webContents.getURL();
+    const isAlreadyAsk = cur.includes("/ask");
+    if (!isAlreadyAsk) {
+      void navigateApp("/ask");
+    }
+    win.webContents.executeJavaScript(`(() => {
+      const focusPrompt = () => {
+        const input = document.querySelector('textarea, input[type="text"]');
+        if (input && typeof (input as any).focus === "function") {
+          (input as any).focus();
+          return true;
+        }
+        return false;
+      };
+      if (!focusPrompt()) {
+        setTimeout(focusPrompt, 50);
+        setTimeout(focusPrompt, 150);
+      }
+    })()`).catch(() => {});
   }
 }
 

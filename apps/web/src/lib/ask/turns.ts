@@ -32,6 +32,7 @@ export interface Turn {
   duration_ms?: number;
   model?: string;
   execution_mode?: string;
+  cached?: boolean;
 }
 
 export function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {

@@ -564,6 +564,10 @@ async def ask(
             await asyncio.sleep(0.05)
             return
 
+        def _normalize_query_for_cache(q: str) -> str:
+            import re
+            return re.sub(r"[\s\?\？\!\！\.\。\,，]+$", "", q.strip().lower())
+
         is_cacheable = (
             not body.images
             and not body.attachments
@@ -572,7 +576,8 @@ async def ask(
             and not is_action
             and not question.startswith("__")
         )
-        cache_key = f"ask_cache:{_user.id}:{hashlib.sha256((question.strip() + ':' + (body.model or '')).encode()).hexdigest()}" if is_cacheable else None
+        norm_q = _normalize_query_for_cache(question)
+        cache_key = f"ask_cache:{_user.id}:{hashlib.sha256((norm_q + ':' + (body.model or '')).encode()).hexdigest()}" if is_cacheable else None
 
         if is_cacheable and cache_key:
             try:
@@ -587,7 +592,7 @@ async def ask(
                     accumulated_text.append(cached_text)
                     yield f"data: {json.dumps({'type': 'delta', 'text': cached_text}, ensure_ascii=False)}\n\n"
                     await _persist()
-                    yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'cached': True, 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
                     await asyncio.sleep(0.05)
                     return
             except Exception as cache_read_err:
@@ -619,7 +624,7 @@ async def ask(
                             "text": "".join(accumulated_text),
                             "thinking": "".join(accumulated_thinking).strip() or None,
                         },
-                        ttl_seconds=600,
+                        ttl_seconds=900,
                     )
                 except Exception as cache_write_err:
                     logger.debug("Failed to store ask cache: %s", cache_write_err)

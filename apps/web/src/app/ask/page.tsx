@@ -2544,6 +2544,7 @@ function AskPageContent() {
         user_created_at?: string;
         assistant_created_at?: string;
         duration_ms?: number;
+        cached?: boolean;
       };
       try {
         evt = JSON.parse(line.slice(6));
@@ -2883,6 +2884,7 @@ function AskPageContent() {
             started_at: startIso || x.started_at,
             created_at: doneIso,
             ...(computedDur !== undefined ? { duration_ms: computedDur } : {}),
+            ...(evt.cached ? { cached: true } : {}),
           };
         }, true);
       } else if (evt.type === "error") {

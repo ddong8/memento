@@ -362,7 +362,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
             if (type === "audio") {
               return <AudioPlayer src={src} title={alt} />;
             }
-            return <ImagePreview src={src} alt={alt} />;
+            return <ImagePreview src={src} alt={alt} className={compactText ? "my-1.5" : "my-2.5"} />;
           },
           a: ({ node, children, href, ...props }: any) => {
             if (!href) return <span {...props}>{children}</span>;

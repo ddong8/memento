@@ -55,12 +55,15 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           echo "Waiting for CI on commit $SHA to complete successfully..."
-          for i in $(seq 1 40); do
+          # Up to 40 minutes: a client release (v* tag) pushed together with main builds installers
+          # on three platforms first, and CI can sit in the queue behind them (2026-10-22: 6 min
+          # queued, the old 10-minute limit failed the deploy although CI passed).
+          for i in $(seq 1 160); do
             status_json=$(gh run list --repo "${{ github.repository }}" --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
             if [ -n "$status_json" ]; then
               s=$(echo "$status_json" | jq -r .status)
               c=$(echo "$status_json" | jq -r .conclusion)
-              echo "CI status: $s, conclusion: $c ($i/40)"
+              echo "CI status: $s, conclusion: $c ($i/160)"
               if [ "$s" = "completed" ]; then
                 if [ "$c" = "success" ]; then
                   echo "CI passed!"
@@ -71,11 +74,11 @@ jobs:
                 fi
               fi
             else
-              echo "CI not found yet, waiting... ($i/40)"
+              echo "CI not found yet, waiting... ($i/160)"
             fi
             sleep 15
           done
-          echo "::error::Timed out waiting for CI to complete (10 minutes)."
+          echo "::error::Timed out waiting for CI to complete (40 minutes)."
           exit 1
 
   build:

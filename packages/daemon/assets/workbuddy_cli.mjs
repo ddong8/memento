@@ -9,9 +9,11 @@ const LOGIN_WAIT_MS = 10 * 60 * 1000;
 
 // Set once a session runs, so an interruption can stop it on the gateway too.
 let activeCancel = null;
+let terminating = false;
 
 // SIGINT_SIGTERM_HANDLER: Graceful cancellation on system interruption
 const cleanupAndExit = async (sig) => {
+  terminating = true;
   try {
     process.stderr.write(`\n⏹️ [收到终止信号 (${sig})，已主动停止 WorkBuddy 任务]\n\n`);
   } catch {}
@@ -574,11 +576,13 @@ async function main() {
       }
     }
     if (printedText) process.stdout.write("\n");
-    try {
-      process.stdin.pause();
-      process.stdin.destroy();
-    } catch {}
-    process.exit(0);
+    if (!terminating) {
+      try {
+        process.stdin.pause();
+        process.stdin.destroy();
+      } catch {}
+      process.exit(0);
+    }
   } catch (err) {
     if (controller.signal.aborted) {
       process.stderr.write(`\n[Agent timeout: 任务执行已达到安全上限（${args.timeout}s）]\n`);
@@ -589,11 +593,6 @@ async function main() {
   } finally {
     clearTimeout(timeoutTimer);
   }
-  try {
-    process.stdin.pause();
-    process.stdin.destroy();
-  } catch {}
-  process.exit(0);
 }
 
 main();

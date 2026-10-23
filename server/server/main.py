@@ -621,3 +621,35 @@ async def root() -> dict:
 async def health() -> dict:
     # version = the commit this image was built from; the deploy workflow waits for it to go live
     return {"status": "ok", "version": os.environ.get("MEMENTO_BUILD_SHA", "dev")}
+
+
+@app.get("/health/deep")
+async def health_deep():
+    """Also checks Postgres and Redis, for the outside monitor: /health stays up while either is down.
+    Not the readiness probe: a database hiccup must not take every replica out of the Service at once."""
+    import asyncio
+
+    from fastapi.responses import JSONResponse
+    from sqlalchemy import text
+
+    from .services.cache import redis_client
+
+    async def db_ok() -> None:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+
+    async def redis_ok() -> None:
+        client = redis_client()
+        if client is None or not await client.ping():
+            raise RuntimeError("no redis client")
+
+    checks: dict[str, str] = {}
+    for name, probe in (("db", db_ok), ("redis", redis_ok)):
+        try:
+            await asyncio.wait_for(probe(), timeout=5)
+            checks[name] = "ok"
+        except Exception as e:
+            checks[name] = f"error: {type(e).__name__}"
+    ok = all(v == "ok" for v in checks.values())
+    body = {"status": "ok" if ok else "degraded", "version": os.environ.get("MEMENTO_BUILD_SHA", "dev"), **checks}
+    return JSONResponse(body, status_code=200 if ok else 503)

@@ -58,6 +58,7 @@ celery_app = Celery(
         "server.tasks.dreaming_tasks",
         "server.tasks.health_check",
         "server.tasks.learning_tasks",
+        "server.tasks.task_reaper",
     ],
 )
 
@@ -134,6 +135,11 @@ celery_app.conf.beat_schedule = {
     "health-check": {
         "task": "server.tasks.health_check.check_health",
         "schedule": crontab(minute="5,35"),
+    },
+    # Every 10 min — mark device tasks no device will report on any more as timed out.
+    "close-stale-tasks": {
+        "task": "server.tasks.task_reaper.close_stale_tasks",
+        "schedule": crontab(minute="9,19,29,39,49,59"),
     },
     # Every 10 min — turn the user's fresh corrections into topics to confirm,
     # and log each one for the repeat-correction rate on the health page.

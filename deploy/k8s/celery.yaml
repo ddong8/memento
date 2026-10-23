@@ -29,6 +29,15 @@ spec:
               valueFrom: { secretKeyRef: { name: memento-apns, key: team_id, optional: true } }
             - name: MEMENTO_APNS_BUNDLE_ID
               valueFrom: { secretKeyRef: { name: memento-apns, key: bundle_id, optional: true } }
+          # A hung worker (stuck event loop, lost broker connection) is restarted instead of
+          # silently running nothing; the ping itself takes under a second.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "celery -A server.tasks.celery_app inspect ping -d celery@$HOSTNAME --timeout 15"]
+            initialDelaySeconds: 120
+            periodSeconds: 120
+            timeoutSeconds: 40
+            failureThreshold: 3
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "2", memory: 2Gi }
@@ -51,6 +60,15 @@ spec:
           envFrom:
             - configMapRef: { name: memento-config }
             - secretRef: { name: memento-secret }
+          # Beat rewrites its schedule file as it sends tasks (one is due every minute); a file
+          # left alone for 10 minutes means beat stopped scheduling.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "test -n \"$(find /app/celerybeat-schedule -mmin -10)\""]
+            initialDelaySeconds: 300
+            periodSeconds: 120
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             requests: { cpu: 50m, memory: 128Mi }
             limits: { cpu: 500m, memory: 256Mi }

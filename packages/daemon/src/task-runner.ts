@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
 import { discoverAntigravityEnv, ensureAgyCliInstalled } from "./antigravity.js";
 import { homeDir } from "./config.js";
+import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
@@ -282,6 +283,8 @@ interface RunSpec {
   env: NodeJS.ProcessEnv;
   parser?: AgentStreamParser | undefined;
   stdinPrompt?: string | undefined;
+  /** Set for commands run in Windows PowerShell: lines that aren't UTF-8 are in this console encoding. */
+  consoleEncoding?: string | null | undefined;
 }
 
 const TIMED_OUT = -999;
@@ -490,9 +493,22 @@ export class TaskRunner {
     };
     armTimer();
 
+    // PowerShell writes the console code page (GBK on Chinese Windows) into the pipe, not UTF-8
+    const lineText = (stream: NodeJS.ReadableStream, onText: (text: string) => void) => {
+      const decoder = new LineDecoder(spec.consoleEncoding ?? null);
+      stream.on("data", (bytes: Buffer) => {
+        const text = decoder.push(bytes);
+        if (text) onText(text);
+      });
+      stream.on("end", () => {
+        const text = decoder.flush();
+        if (text) onText(text);
+      });
+    };
+    const consoleText = spec.consoleEncoding !== undefined;
+
     if (!parser) {
-      proc.stdout.setEncoding("utf8");
-      proc.stdout.on("data", (text: string) => {
+      const onStdout = (text: string) => {
         armTimer();
         if (out.stdout.length < 2_500_000) {
           out.stdout += text;
@@ -500,7 +516,13 @@ export class TaskRunner {
           out.stdout += "\n[...后续输出过大已转为实时流式传输...]\n";
         }
         this.send(chunk(taskId, "stdout", text));
-      });
+      };
+      if (consoleText) {
+        lineText(proc.stdout, onStdout);
+      } else {
+        proc.stdout.setEncoding("utf8");
+        proc.stdout.on("data", onStdout);
+      }
     } else {
       createInterface({ input: proc.stdout, crlfDelay: Infinity }).on("line", (line) => {
         armTimer();
@@ -540,8 +562,7 @@ export class TaskRunner {
         }
       });
     }
-    proc.stderr.setEncoding("utf8");
-    proc.stderr.on("data", (text: string) => {
+    const onStderr = (text: string) => {
       armTimer();
       out.stderr += text;
       // workbuddy_cli.mjs reports the session it actually runs (a failed resume opens a new one) as
@@ -550,7 +571,13 @@ export class TaskRunner {
       const sess = this.taskSessions.get(taskId);
       if (sid && sess) sess.sessionId = sid;
       this.send(chunk(taskId, "stderr", text));
-    });
+    };
+    if (consoleText) {
+      lineText(proc.stderr, onStderr);
+    } else {
+      proc.stderr.setEncoding("utf8");
+      proc.stderr.on("data", onStderr);
+    }
 
     return new Promise<number>((resolve, reject) => {
       proc.once("error", (e) => {
@@ -588,6 +615,7 @@ export class TaskRunner {
     let parser: AgentStreamParser | undefined;
     let stdinPrompt: string | undefined;
     let claudeSettings: string | undefined;
+    let consoleEncoding: string | null | undefined;
     let worktree: TaskWorktree | undefined;
 
     const binary = (text("binary") || "claude").toLowerCase();
@@ -648,6 +676,7 @@ export class TaskRunner {
       if (process.platform === "win32") {
         exe = "powershell.exe";
         args = ["-NoProfile", "-NonInteractive", "-Command", command];
+        consoleEncoding = await windowsConsoleEncoding();
       } else {
         exe = existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh";
         args = ["-c", command];
@@ -784,7 +813,7 @@ export class TaskRunner {
       const run = (spec: Omit<RunSpec, "exe" | "cwd" | "env">) =>
         this.runOnce(taskId, { exe, cwd: workDir, env, ...spec }, task.timeoutSeconds);
 
-      let exitCode = await run({ args, parser, stdinPrompt });
+      let exitCode = await run({ args, parser, stdinPrompt, consoleEncoding });
       if (this.cancelledTasks.has(taskId)) {
         this.log(`Task ${taskId} was cancelled by user; skipping retries`);
         return;

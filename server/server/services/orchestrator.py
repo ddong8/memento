@@ -157,7 +157,7 @@ TOOLS = [
                 "properties": {
                     "device_id": {"type": "string", "description": "目标设备的 device_id（UUID）或设备名称，来自 list_devices"},
                     "action": {"type": "string", "enum": ["shell", "agent"]},
-                    "command": {"type": "string", "description": "action=shell 时的命令行"},
+                    "command": {"type": "string", "description": "action=shell 时的命令行；Windows 设备由 Windows PowerShell 5.1 执行，要用 PowerShell 语法"},
                     "prompt": {"type": "string", "description": "action=agent 时给 agent 的任务描述"},
                     "binary": {
                         "type": "string",
@@ -358,12 +358,16 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
   * 若使用 `find`，必须限定具体的浅层目录（如 `~/Documents`、`~/Desktop`、`~/dev`）并加上 `-maxdepth 3`；
 - 端口与进程探查规范：
   * macOS: 使用 `lsof -nP -iTCP:8000 || true`
-  * Windows: 使用 `netstat -ano | findstr ":8000" || echo "port not in use"`
+  * Windows: 使用 `netstat -ano | findstr ":8000"; if (-not $?) { "port not in use" }`
   * Linux: 使用 `ss -tulpn | grep ":8000" || true`
   * 【重要退出码说明】：使用 grep、findstr、lsof 检查端口时，若端口未被占用（未匹配到任何内容），命令通常会返回退出码 1。这是系统的正常预期行为（1 = 无匹配），代表端口空闲/无该进程，绝对不可误报为命令执行故障，应如实告知用户端口未被占用。
 - 常见应用配置快速直达：
   * Obsidian 笔记库：直接读取配置文件 `cat "$HOME/Library/Application Support/obsidian/obsidian.json"`，里面记录了所有本地 Vault 路径，无需遍历磁盘！
   * VSCode/Cursor 配置：位于 `~/Library/Application Support/Code` 或 `Cursor`。
+- Windows 设备（名称带 Windows）上的 shell 命令由 Windows PowerShell 5.1 执行，必须用 PowerShell 写法：
+  * 不支持 `&&`、`||`：用 `;` 分隔，用 `if ($?) { ... }` 判断上一条是否成功；
+  * 没有 head / tail / grep / wc / ls -la / cat -n 等 Unix 命令：分别用 `Select-Object -First N`、`Select-Object -Last N`、`Select-String`、`Measure-Object`、`Get-ChildItem -Force`、`Get-Content`；
+  * 环境变量写 `$env:USERPROFILE`，路径用反斜杠或带引号的完整路径。
 - 严禁交互式命令：不要执行需要用户输入密码的 `sudo`、未加 `-y` 的包管理器安装等等待交互输入的命令。
 - 失败与超时处理：
   * 如果命令返回 timeout 或 still_running，绝对禁止在下一轮重复发送完全相同的命令！

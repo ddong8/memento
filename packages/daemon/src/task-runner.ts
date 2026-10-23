@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -9,7 +9,7 @@ import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
-import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway, stopWorkbuddyGateway } from "./workbuddy.js";
+import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -300,7 +300,7 @@ export class TaskRunner {
   private readonly steerInputs = new Map<string, NodeJS.WritableStream & { writable: boolean }>();
   private readonly claudeTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
-  private readonly taskSessions = new Map<string, { binary: string; sessionId?: string }>();
+  private readonly taskSessions = new Map<string, { binary: string; cwd?: string; sessionId?: string }>();
   private readonly cancelledTasks = new Set<string>();
   private hookBridge: HookBridge | undefined;
 
@@ -326,16 +326,13 @@ export class TaskRunner {
     this.steerInputs.delete(taskId);
     this.claudeTasks.delete(taskId);
 
+    // The session runs in memento's gateway, which outlives the runner (and on Windows the runner is
+    // killed outright, with no chance to cancel it itself): stop just this task's session there.
     const sessionInfo = this.taskSessions.get(taskId);
-    const isWb = sessionInfo && (sessionInfo.binary.includes("workbuddy") || sessionInfo.binary.includes("codebuddy"));
-    if (isWb) {
-      this.log(`Proactively cancelling WorkBuddy session ${sessionInfo.sessionId ?? "(unbound)"} for task ${taskId}`);
+    if (sessionInfo?.sessionId && /workbuddy|codebuddy/.test(sessionInfo.binary)) {
+      this.log(`Cancelling WorkBuddy session ${sessionInfo.sessionId} for task ${taskId}`);
       void cancelWorkbuddySession(sessionInfo.sessionId).catch((err) =>
-        this.log(`Failed to proactively cancel WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`),
-      );
-      // Hard stop the WorkBuddy gateway process to guarantee all in-flight inference, tool loops and child processes die
-      void stopWorkbuddyGateway().catch((err) =>
-        this.log(`Failed to stop WorkBuddy gateway on cancel: ${err instanceof Error ? err.message : String(err)}`),
+        this.log(`Failed to cancel WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
 
@@ -359,14 +356,16 @@ export class TaskRunner {
     const killedPids: number[] = [];
     const t = tool.toLowerCase();
 
-    // 1. Cancel any active internal tasks matching this tool/cwd
+    // 1. Cancel this device's tasks running that tool (in that directory, when one is given)
+    const toolKey = (binary: string) =>
+      /workbuddy|codebuddy/.test(binary) ? "workbuddy" : /agy|antigravity/.test(binary) ? "antigravity" : binary.includes("codex") ? "codex" : binary.includes("claude") ? "claude" : binary;
+    const wanted = t === "all" ? null : toolKey(t);
     for (const [tid, proc] of Array.from(this.running.entries())) {
+      const info = this.taskSessions.get(tid);
+      if (wanted && (!info || toolKey(info.binary) !== wanted)) continue;
+      if (targetCwd && info?.cwd !== targetCwd) continue;
       this.cancel(tid);
       if (proc.pid) killedPids.push(proc.pid);
-    }
-
-    if (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) {
-      await stopWorkbuddyGateway().catch(() => {});
     }
 
     // 2. Discover OS-level orphan / external agent processes
@@ -395,12 +394,12 @@ export class TaskRunner {
           if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
             shouldKill = true;
           }
+          // Not the CLI the WorkBuddy app runs for its own conversations, nor memento's gateway on it
+          // (codebuddy-lite-wb.mjs): stopping memento's runner already cancels its session there.
           if (
             (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) &&
-            (cmd.includes("workbuddy_cli.mjs") ||
-              cmd.includes("codebuddy-lite-wb.mjs") ||
-              cmd.includes("codebuddy") ||
-              cmd.includes("@tencent-ai/codebuddy-code"))
+            !cmd.includes("codebuddy-lite-wb.mjs") &&
+            (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))
           ) {
             shouldKill = true;
           }
@@ -585,11 +584,6 @@ export class TaskRunner {
     } else {
       createInterface({ input: proc.stdout, crlfDelay: Infinity }).on("line", (line) => {
         armTimer();
-        const m = /session id:\s*([^\s\r\n]+)/i.exec(line);
-        if (m && m[1]) {
-          const sess = this.taskSessions.get(taskId);
-          if (sess) sess.sessionId = m[1];
-        }
         const events = parser.feed(line);
         if (events === null) {
           if (!line.trim()) {
@@ -630,11 +624,11 @@ export class TaskRunner {
     proc.stderr.on("data", (text: string) => {
       armTimer();
       out.stderr += text;
-      const m = /session id:\s*([^\s\r\n]+)/i.exec(text);
-      if (m && m[1]) {
-        const sess = this.taskSessions.get(taskId);
-        if (sess) sess.sessionId = m[1];
-      }
+      // workbuddy_cli.mjs reports the session it actually runs (a failed resume opens a new one) as
+      // "session id: <id>" on stderr; the reply itself goes to stdout.
+      const sid = /^session id:\s*(\S+)/m.exec(text)?.[1];
+      const sess = this.taskSessions.get(taskId);
+      if (sid && sess) sess.sessionId = sid;
       this.send(chunk(taskId, "stderr", text));
     });
 
@@ -679,7 +673,7 @@ export class TaskRunner {
     const binary = (text("binary") || "claude").toLowerCase();
     const prompt = text("prompt");
     const sessionId = text("session_id");
-    this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
+    this.taskSessions.set(taskId, { binary, cwd: workDir, sessionId: sessionId || undefined });
     const model = text("model");
     const effort = text("effort");
     const rawSysAppend = text("system_prompt_append");
@@ -692,18 +686,23 @@ export class TaskRunner {
         text("conversation_id") ||
         prompt.match(/\/tmp\/memento_images\/([a-zA-Z0-9_-]+)\//)?.[1] ||
         taskId;
-      const baseDir = existsSync("/data2/memento/images") || existsSync("/data2")
-        ? "/data2/memento/images"
-        : "/tmp/memento_images";
-      const imgDir = join(baseDir, convId);
+      // The prompt names /tmp/memento_images/<conv>/…; on a machine with a /data2 disk the files live
+      // there behind a per-conversation link, and stay on /tmp when /data2 isn't writable.
+      const tmpDir = join("/tmp/memento_images", convId);
+      let imgDir = tmpDir;
+      if (existsSync("/data2")) {
+        try {
+          const bigDir = join("/data2/memento/images", convId);
+          mkdirSync(bigDir, { recursive: true });
+          mkdirSync("/tmp/memento_images", { recursive: true });
+          if (!existsSync(tmpDir)) symlinkSync(bigDir, tmpDir);
+          if (realpathSync(tmpDir) === realpathSync(bigDir)) imgDir = bigDir;
+        } catch {
+          // stay on /tmp
+        }
+      }
       try {
         mkdirSync(imgDir, { recursive: true });
-        // 若在 /data2 建立目录且 /tmp/memento_images 不存在，则建立软链接以兼容旧路径
-        if (baseDir.startsWith("/data2") && !existsSync("/tmp/memento_images")) {
-          try {
-            symlinkSync(baseDir, "/tmp/memento_images");
-          } catch {}
-        }
         for (let idx = 0; idx < payload.images.length; idx++) {
           const img = String(payload.images[idx] ?? "");
           if (img.startsWith("data:image/")) {

@@ -81,19 +81,12 @@ export async function testServerConnection(url: string): Promise<{ ok: boolean; 
     if (typeof window !== "undefined" && (window as unknown as { mementoDesktop?: { server?: { test: (u: string) => Promise<{ ok: boolean; latencyMs: number; status?: number; error?: string }> } } }).mementoDesktop?.server?.test) {
       return await (window as unknown as { mementoDesktop: { server: { test: (u: string) => Promise<{ ok: boolean; latencyMs: number; status?: number; error?: string }> } } }).mementoDesktop.server.test(clean);
     }
-    const res = await fetch(`${clean}/api/public/stats`, {
-      method: "GET",
-      signal: AbortSignal.timeout(5000),
-      mode: "cors",
-    }).catch(async () => {
-      return await fetch(`${clean}/`, {
-        method: "GET",
-        signal: AbortSignal.timeout(5000),
-        mode: "no-cors",
-      });
-    });
+    // A memento server answers /health with {"status":"ok"}; any other site, or one that is down, doesn't.
+    const res = await fetch(`${clean}/health`, { signal: AbortSignal.timeout(5000) });
     const latencyMs = Date.now() - startTime;
-    return { ok: res.ok || res.type === "opaque" || res.status < 500, latencyMs, status: res.status };
+    const body = (await res.json().catch(() => null)) as { status?: string } | null;
+    if (res.ok && body?.status === "ok") return { ok: true, latencyMs, status: res.status };
+    return { ok: false, latencyMs, status: res.status, error: res.ok ? "不是 memento 服务器" : `HTTP ${res.status}` };
   } catch (err: unknown) {
     const latencyMs = Date.now() - startTime;
     const errorMsg = err instanceof Error ? err.message : "连接失败或超时";

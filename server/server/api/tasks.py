@@ -263,17 +263,8 @@ async def cancel_task(
         return _serialize(task)
 
     # Notify running collector process immediately to kill process tree
+    # Only this task: agent_kill would also stop the device's other tasks and agents it didn't start.
     await ws_manager.send_cancel(task.device_id, str(task.id))
-    tool_type = "all"
-    if task.payload and isinstance(task.payload, dict):
-        binary = str(task.payload.get("binary") or "").lower()
-        if "workbuddy" in binary or "codebuddy" in binary:
-            tool_type = "workbuddy"
-        elif "claude" in binary:
-            tool_type = "claude"
-        elif "agy" in binary or "antigravity" in binary:
-            tool_type = "antigravity"
-    await ws_manager.send_agent_kill(task.device_id, tool=tool_type)
 
     task.status = "cancelled"
     task.finished_at = datetime.now(timezone.utc)

@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   type AppStateStatus,
   BackHandler,
@@ -549,9 +550,22 @@ export default function WebShell() {
           });
         } catch {}
       } else if (msg.type === "server:switch" && (msg as { server?: string }).server) {
-        const target = (msg as { server: string }).server;
+        // Only memento's own page may ask, and the user confirms natively, where a script on the page can't tap for them.
+        const from = (e.nativeEvent.url || "").match(/^https?:\/\/[^/]+/i)?.[0]?.toLowerCase();
+        const target = String((msg as { server: string }).server).trim().replace(/\/+$/, "");
         const reset = (msg as { resetAuth?: boolean }).resetAuth !== false;
-        void switchServer(target, reset);
+        if (from === origin.toLowerCase() && /^https?:\/\/[^/]/i.test(target)) {
+          Alert.alert(
+            `切换到 ${target}？`,
+            reset
+              ? "切换后需要在新服务器上重新登录。"
+              : "将保留当前登录：登录凭据会发给新服务器。只有新地址是同一台服务器的另一个地址时才应这样做。",
+            [
+              { text: "取消", style: "cancel" },
+              { text: "切换", onPress: () => void switchServer(target, reset) },
+            ],
+          );
+        }
       } else if (msg.type === "snapshot" && (msg.data || (msg as any).conversations)) {
         const payload = msg.data || (msg as any).conversations;
         const key = (msg as { key?: string }).key || SNAPSHOT_CONVOS_KEY;

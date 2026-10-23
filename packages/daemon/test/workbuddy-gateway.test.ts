@@ -76,16 +76,14 @@ describe("WorkBuddy ≥ 5.8 discovery", () => {
   });
 });
 
-describe("memento's WorkBuddy gateway", () => {
-  it("starts the bundled CLI once, records how to reach it, and reuses it", async () => {
-    const home = await tempHome();
-    // Stands in for `codebuddy-lite-wb.mjs --serve`: same banner, same password check.
-    const fake = join(home, "fake-cli.mjs");
-    await writeFile(
-      fake,
-      `import { createServer } from "node:http";
+/** Stands in for `codebuddy-lite-wb.mjs --serve`: same banner, same password check. */
+async function fakeCli(home: string): Promise<string> {
+  const fake = join(home, "fake-cli.mjs");
+  await writeFile(
+    fake,
+    `import { createServer } from "node:http";
 const pw = "pw-" + process.pid;
-if (process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
+if (process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY !== "1" || process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
 const server = createServer((req, res) => {
   if (req.headers.authorization !== "Bearer " + pw) { res.statusCode = 401; return res.end(); }
   res.setHeader("Content-Type", "application/json");
@@ -97,7 +95,14 @@ server.listen(0, "127.0.0.1", () => {
   console.log("  \\x1b[2mPassword\\x1b[0m    " + pw);
 });
 `,
-    );
+  );
+  return fake;
+}
+
+describe("memento's WorkBuddy gateway", () => {
+  it("starts the bundled CLI once, records how to reach it, and reuses it", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
     const cli = { node: process.execPath, entry: fake };
     const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
     expect(gw).not.toBeNull();
@@ -111,6 +116,51 @@ server.listen(0, "127.0.0.1", () => {
 
     const again = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
     expect(again?.pid).toBe(gw!.pid);
+  });
+
+  it("replaces a gateway from 1.0.71, which saved the login into the desktop's credential file", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const legacy = spawn(process.execPath, [fake, "--serve", "--host", "127.0.0.1"], {
+      env: { ...process.env, CODEBUDDY_CREDENTIALS_IN_MEMORY: "1", CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1" },
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    pids.push(legacy.pid!);
+    let banner = "";
+    await new Promise<void>((resolve) =>
+      legacy.stdout!.on("data", (c) => {
+        banner += String(c);
+        if (parseGatewayBanner(banner)) resolve();
+      }),
+    );
+    const old = { ...parseGatewayBanner(banner)!, pid: legacy.pid!, startedAt: Date.now() };
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(workbuddyGatewayFile(home), JSON.stringify(old));
+    const exited = new Promise((r) => legacy.once("exit", r));
+
+    const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
+    pids.push(gw!.pid);
+    expect(gw!.pid).not.toBe(legacy.pid);
+    expect(gw).toMatchObject({ credentials: "memory", entry: fake });
+    await exited;
+  }, 20_000);
+
+  it.skipIf(isWin)("leaves alone a process that reused a dead gateway's pid", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const other = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+    pids.push(other.pid!);
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(
+      workbuddyGatewayFile(home),
+      JSON.stringify({ endpoint: "http://127.0.0.1:9", password: "x", pid: other.pid, startedAt: 0, entry: fake, credentials: "memory" }),
+    );
+
+    const gw = await ensureWorkbuddyGateway(home, { cli: { node: process.execPath, entry: fake }, timeoutMs: 15_000 });
+    pids.push(gw!.pid);
+    expect(gw!.pid).not.toBe(other.pid);
+    expect(() => process.kill(other.pid!, 0)).not.toThrow();
   });
 
   it("returns null when WorkBuddy predates 5.8", async () => {
@@ -259,6 +309,10 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     const port = (server.address() as { port: number }).port;
     await mkdir(join(home, ".memento"), { recursive: true });
     await writeFile(join(home, ".memento", "workbuddy-gateway.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password, pid: process.pid }));
+
+    // No session to name: nothing is cancelled, so the device's other WorkBuddy tasks keep running.
+    expect(await cancelWorkbuddySession("", home)).toBe(false);
+    expect(cancelled).toBeNull();
 
     const ok = await cancelWorkbuddySession("sess-direct-cancel", home);
     expect(ok).toBe(true);

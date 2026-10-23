@@ -576,16 +576,13 @@ const ExecutionCard = memo(function ExecutionCard({
               {(() => {
                 const sid = (result as any)?.session_id || (args?.session_id as string) || "";
                 if (!sid || !isAgent) return null;
-                const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
+                // Only CLIs whose own interactive mode can pick the session up: WorkBuddy's live in memento's
+                // gateway and Antigravity's in its app, where no terminal command reaches them.
                 let cmd = "";
-                if (isWorkbuddy) {
-                  cmd = cwd ? `cd "${cwd}" && codebuddy --resume ${sid}` : `codebuddy --resume ${sid}`;
-                } else if (binary.includes("claude")) {
+                if (binary.includes("claude")) {
                   cmd = cwd ? `cd "${cwd}" && claude -r ${sid}` : `claude -r ${sid}`;
                 } else if (binary.includes("codex")) {
-                  cmd = cwd ? `cd "${cwd}" && codex exec resume ${sid}` : `codex exec resume ${sid}`;
-                } else if (binary.includes("agy") || binary.includes("antigravity")) {
-                  cmd = cwd ? `cd "${cwd}" && agy resume ${sid}` : `agy resume ${sid}`;
+                  cmd = cwd ? `cd "${cwd}" && codex resume ${sid}` : `codex resume ${sid}`;
                 }
                 if (!cmd) return null;
                 return (
@@ -593,11 +590,10 @@ const ExecutionCard = memo(function ExecutionCard({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (typeof navigator !== "undefined" && navigator.clipboard) {
-                        navigator.clipboard.writeText(cmd);
+                      void navigator.clipboard?.writeText(cmd).then(() => {
                         setCopiedResume(true);
                         setTimeout(() => setCopiedResume(false), 2000);
-                      }
+                      }, () => {});
                     }}
                     style={{
                       display: "inline-flex",

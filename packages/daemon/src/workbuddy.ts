@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -248,6 +248,10 @@ export interface MementoWorkbuddyGateway {
   password: string;
   pid: number;
   startedAt: number;
+  /** The CLI it runs, to tell it from an unrelated process that later got the same pid. */
+  entry?: string;
+  /** "memory" once it keeps the login in memory; gateways from 1.0.71 wrote it into the desktop's credential file. */
+  credentials?: "memory";
 }
 
 /** Where the runner finds the gateway memento serves (0600, it holds the gateway password). */
@@ -292,7 +296,14 @@ async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | 
   try {
     const gw = JSON.parse(await readFile(workbuddyGatewayFile(home), "utf8")) as Partial<MementoWorkbuddyGateway>;
     if (typeof gw.endpoint === "string" && typeof gw.password === "string" && typeof gw.pid === "number") {
-      return { endpoint: gw.endpoint, password: gw.password, pid: gw.pid, startedAt: gw.startedAt ?? 0 };
+      return {
+        endpoint: gw.endpoint,
+        password: gw.password,
+        pid: gw.pid,
+        startedAt: gw.startedAt ?? 0,
+        ...(typeof gw.entry === "string" ? { entry: gw.entry } : {}),
+        ...(gw.credentials === "memory" ? { credentials: "memory" as const } : {}),
+      };
     }
   } catch {
     // none yet
@@ -313,8 +324,9 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
       cwd: dir,
       env: {
         ...process.env,
-        // Keep credentials and config safely isolated inside ~/.memento/workbuddy-cli (0700).
-        // This persists login credentials across daemon and machine restarts so the user only signs in once.
+        // The CLI saves the login under the user's home (`CodeBuddyExtension/Data/Public/auth/`), the very file
+        // the desktop app signs in with, whatever CODEBUDDY_CONFIG_DIR says: writing it there signs the app out.
+        CODEBUDDY_CREDENTIALS_IN_MEMORY: "1",
         CODEBUDDY_CONFIG_DIR: dir,
         // 5.8 ships only the lite bundle; without this the CLI looks for the removed full one.
         CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1",
@@ -336,7 +348,7 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
     await new Promise((r) => setTimeout(r, 300));
     const banner = parseGatewayBanner(await readFile(logPath, "utf8").catch(() => ""));
     if (banner) {
-      const gw: MementoWorkbuddyGateway = { ...banner, pid, startedAt: Date.now() };
+      const gw: MementoWorkbuddyGateway = { ...banner, pid, startedAt: Date.now(), entry: cli.entry, credentials: "memory" };
       if (await gatewayHealthy(gw)) {
         const file = workbuddyGatewayFile(home);
         await writeFile(`${file}.tmp`, JSON.stringify(gw), { mode: 0o600 });
@@ -354,6 +366,44 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
   throw new Error(`WorkBuddy gateway did not come up (see ${logPath})`);
 }
 
+/** The process's command line ("" when it is gone or can't be read). */
+function processCommandLine(pid: number): Promise<string> {
+  return new Promise((resolve) => {
+    const done = (err: Error | null, out: string | Buffer) => resolve(err ? "" : String(out).trim());
+    if (process.platform === "win32") {
+      execFile(
+        "powershell",
+        ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`],
+        { windowsHide: true, timeout: 8000 },
+        done,
+      );
+    } else {
+      execFile("ps", ["-ww", "-p", String(pid), "-o", "command="], { timeout: 3000 }, done);
+    }
+  });
+}
+
+/** Stops a gateway memento started, after checking the pid still belongs to it (pids get reused after a reboot). */
+async function killGateway(gw: MementoWorkbuddyGateway, cli: WorkbuddyLiteCli): Promise<void> {
+  if (!pidAlive(gw.pid)) return;
+  const cmd = await processCommandLine(gw.pid);
+  // Gateways from before 1.0.72 didn't record their CLI: it was the one installed now.
+  if (!cmd.includes("--serve") || !cmd.includes(gw.entry ?? cli.entry)) return;
+  try {
+    process.kill(gw.pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  for (let i = 0; i < 10 && pidAlive(gw.pid); i++) await new Promise((r) => setTimeout(r, 100));
+  if (pidAlive(gw.pid)) {
+    try {
+      process.kill(gw.pid, "SIGKILL");
+    } catch {
+      // already stopped
+    }
+  }
+}
+
 let gatewayStart: Promise<MementoWorkbuddyGateway | null> | null = null;
 
 /**
@@ -369,13 +419,10 @@ export async function ensureWorkbuddyGateway(
   if (!cli) return null;
   gatewayStart ??= (async () => {
     const existing = await readGatewayFile(home);
-    if (existing && (await gatewayHealthy(existing))) return existing;
-    if (existing?.pid && pidAlive(existing.pid)) {
-      try {
-        process.kill(existing.pid, "SIGKILL");
-      } catch {
-        // already stopped
-      }
+    if (existing) {
+      if (existing.credentials === "memory" && (await gatewayHealthy(existing))) return existing;
+      // Hung, or one that saves its login into the desktop's credential file: replace it.
+      await killGateway(existing, cli);
     }
     return startGateway(home, cli, options.timeoutMs ?? 45_000);
   })().finally(() => {
@@ -388,7 +435,9 @@ export async function ensureWorkbuddyGateway(
  * Cancels an active session on WorkBuddy gateway.
  * Directly called by daemon upon task cancellation so that abort doesn't depend on a dying child process.
  */
-export async function cancelWorkbuddySession(sessionId?: string, home = homeDir()): Promise<boolean> {
+export async function cancelWorkbuddySession(sessionId: string, home = homeDir()): Promise<boolean> {
+  // Without an id there is nothing to name: an empty cancel could hit the device's other WorkBuddy tasks.
+  if (!sessionId) return false;
   try {
     const managed = await readGatewayFile(home);
     let endpoint = "";
@@ -434,7 +483,7 @@ export async function cancelWorkbuddySession(sessionId?: string, home = homeDir(
         method: "initialize",
         params: {
           protocolVersion: 1,
-          clientInfo: { name: "memento", version: "1.0.71" },
+          clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "0.0.0" },
           clientCapabilities: {},
         },
       }),
@@ -447,7 +496,7 @@ export async function cancelWorkbuddySession(sessionId?: string, home = homeDir(
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "session/cancel",
-        params: sessionId ? { sessionId } : {},
+        params: { sessionId },
       }),
       signal: AbortSignal.timeout(2000),
     }).catch(() => null);
@@ -456,30 +505,4 @@ export async function cancelWorkbuddySession(sessionId?: string, home = homeDir(
   } catch {
     return false;
   }
-}
-
-/**
- * Stops memento's managed WorkBuddy gateway process so that any hung inference,
- * child tools, or background processes are immediately and completely terminated.
- */
-export async function stopWorkbuddyGateway(home = homeDir()): Promise<void> {
-  const file = workbuddyGatewayFile(home);
-  try {
-    const gw = await readGatewayFile(home);
-    if (gw?.pid && pidAlive(gw.pid)) {
-      try {
-        process.kill(gw.pid, "SIGTERM");
-      } catch {}
-      await new Promise((r) => setTimeout(r, 200));
-      if (pidAlive(gw.pid)) {
-        try {
-          process.kill(gw.pid, "SIGKILL");
-        } catch {}
-      }
-    }
-  } catch {}
-  try {
-    const { rm } = await import("node:fs/promises");
-    await rm(file, { force: true });
-  } catch {}
 }

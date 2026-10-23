@@ -57,8 +57,8 @@ jobs:
           echo "Waiting for CI on commit $SHA to complete successfully..."
           # Up to 40 minutes: a client release (v* tag) pushed together with main builds installers
           # on three platforms first, and CI can sit in the queue behind them.
-          # Polling every 5s cuts waiting latency as soon as CI finishes.
-          for i in $(seq 1 480); do
+          # Every 10s: each poll is a GitHub API call, and GITHUB_TOKEN gets 1000 an hour per repository.
+          for i in $(seq 1 240); do
             status_json=$(gh run list --repo "${{ github.repository }}" --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
             if [ -n "$status_json" ]; then
               s=$(echo "$status_json" | jq -r .status)
@@ -72,15 +72,15 @@ jobs:
                   exit 1
                 fi
               fi
-              if [ $((i % 6)) -eq 1 ]; then
-                echo "CI status: $s, conclusion: $c ($i/480)"
+              if [ $((i % 3)) -eq 1 ]; then
+                echo "CI status: $s, conclusion: $c ($i/240)"
               fi
             else
-              if [ $((i % 6)) -eq 1 ]; then
-                echo "CI not found yet, waiting... ($i/480)"
+              if [ $((i % 3)) -eq 1 ]; then
+                echo "CI not found yet, waiting... ($i/240)"
               fi
             fi
-            sleep 5
+            sleep 10
           done
           echo "::error::Timed out waiting for CI to complete (40 minutes)."
           exit 1

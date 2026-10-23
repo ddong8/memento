@@ -32,6 +32,14 @@ const daemon = new DaemonHost();
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
+/** IPC that reaches local files or the login answers only memento's own page, not another site shown in the window. */
+const fromApp = (e: Electron.IpcMainInvokeEvent) => {
+  try {
+    return new URL(e.senderFrame?.url ?? "").origin === serverOrigin();
+  } catch {
+    return false;
+  }
+};
 
 function modeLabel(mode: DaemonMode): string {
   switch (mode) {
@@ -1104,32 +1112,42 @@ function setupIpc(): void {
     const clean = url.trim().replace(/\/+$/, "");
     const start = Date.now();
     try {
-      const res = await net.fetch(`${clean}/api/public/stats`, {
-        method: "GET",
-        signal: AbortSignal.timeout(5000),
-      }).catch(async () => {
-        return await net.fetch(`${clean}/`, {
-          method: "GET",
-          signal: AbortSignal.timeout(5000),
-        });
-      });
+      // A memento server answers /health with {"status":"ok"}; any other site, or one that is down, doesn't.
+      const res = await net.fetch(`${clean}/health`, { signal: AbortSignal.timeout(5000) });
       const latencyMs = Date.now() - start;
-      return { ok: res.ok || res.status < 500, latencyMs, status: res.status };
+      const body = (await res.json().catch(() => null)) as { status?: string } | null;
+      if (res.ok && body?.status === "ok") return { ok: true, latencyMs, status: res.status };
+      return { ok: false, latencyMs, status: res.status, error: res.ok ? "不是 memento 服务器" : `HTTP ${res.status}` };
     } catch (err: unknown) {
       const latencyMs = Date.now() - start;
       const errorMsg = err instanceof Error ? err.message : "连接失败或超时";
       return { ok: false, latencyMs, error: errorMsg };
     }
   });
-  ipcMain.handle("server:set", async (_e, options: unknown) => {
+  ipcMain.handle("server:set", async (e, options: unknown) => {
+    if (!fromApp(e)) return { ok: false, error: "无权限" };
     const opt = options as { url?: string; resetAuth?: boolean } | undefined;
     if (!opt?.url || typeof opt.url !== "string") {
       return { ok: false, error: "无效的服务器地址" };
     }
     const cleanUrl = opt.url.trim().replace(/\/+$/, "");
-    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+    if (!/^https?:\/\/[^/]/.test(cleanUrl) || !URL.canParse(cleanUrl)) {
       return { ok: false, error: "服务器地址必须以 http:// 或 https:// 开头" };
     }
+    // The page asks; the user confirms here, where a script on the page can't click for them.
+    const parent = BrowserWindow.fromWebContents(e.sender) ?? win;
+    const ask = {
+      type: "question" as const,
+      buttons: ["切换", "取消"],
+      defaultId: 1,
+      cancelId: 1,
+      message: `切换到 ${cleanUrl}？`,
+      detail: opt.resetAuth
+        ? "切换后需要在新服务器上重新登录，这台设备也会改为连接新服务器。"
+        : "将保留当前登录：登录凭据会发给新服务器。只有新地址是同一台服务器的另一个地址时才应这样做。",
+    };
+    const { response } = parent ? await dialog.showMessageBox(parent, ask) : await dialog.showMessageBox(ask);
+    if (response !== 0) return { ok: false, error: "已取消切换" };
 
     config.serverUrl = cleanUrl;
     config.webUrl = cleanUrl;
@@ -1179,7 +1197,8 @@ function setupIpc(): void {
       shell.showItemInFolder(filePath);
     }
   });
-  ipcMain.handle("fs:read-file", async (_e, filePath: unknown) => {
+  ipcMain.handle("fs:read-file", async (e, filePath: unknown) => {
+    if (!fromApp(e)) return { error: "无权限" };
     if (typeof filePath !== "string") {
       return { error: "Invalid file path" };
     }

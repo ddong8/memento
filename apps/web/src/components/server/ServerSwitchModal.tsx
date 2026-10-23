@@ -161,23 +161,20 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
         return;
       }
 
+      // Inside the mobile app: the app asks the user to confirm and reloads on the new server itself.
+      const rn = typeof window !== "undefined" ? (window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }).ReactNativeWebView : undefined;
+      if (rn?.postMessage) {
+        rn.postMessage(JSON.stringify({ type: "server:switch", server: clean, resetAuth }));
+        setSwitching(false);
+        return;
+      }
+
       // Web flow
       setCustomServerUrl(clean);
       if (resetAuth) {
         try {
           localStorage.removeItem("dr_token");
         } catch {}
-      }
-
-      // If inside React Native mobile app shell
-      if (typeof window !== "undefined" && (window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }).ReactNativeWebView?.postMessage) {
-        (window as unknown as { ReactNativeWebView: { postMessage: (data: string) => void } }).ReactNativeWebView.postMessage(
-          JSON.stringify({
-            type: "server:switch",
-            server: clean,
-            resetAuth,
-          })
-        );
       }
 
       setStatusMsg({ text: s.connectSuccess, tone: "success" });

@@ -20,7 +20,8 @@ const cleanupAndExit = async (sig) => {
   // memento's gateway outlives this process: tell it to stop the session as well.
   if (activeCancel) {
     try {
-      await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 1000))]);
+      // Inside the 800 ms the daemon allows before SIGKILL.
+      await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
     } catch {}
   }
   process.exit(130);
@@ -266,8 +267,9 @@ async function signIn(gw) {
   }
   const minutes = Math.round(LOGIN_WAIT_MS / 60000);
   process.stdout.write(
-    `\n🔐 WorkBuddy 需要初次授权：新版 WorkBuddy（5.8 起）强化了安全隔离，不再允许外部程序静默读取桌面端凭据。\n` +
-      `已在设备默认浏览器打开授权页（浏览器已登录时通常一键确认即可完成，登录状态将持久化保存，后续长期免登）：\n\n${authUrl}\n\n`,
+    `\n🔐 WorkBuddy 需要登录一次：新版 WorkBuddy（5.8 起）不再允许其他程序沿用桌面端的登录。\n` +
+      `已在这台设备的浏览器打开登录页，浏览器里已登录 WorkBuddy 时会自动完成；也可以在手机上打开下面的链接登录。` +
+      `登录后任务会自动继续（${minutes} 分钟内有效；设备重启后需要重新登录）：\n\n${authUrl}\n\n`,
   );
   const deadline = Date.now() + LOGIN_WAIT_MS;
   let lastNote = Date.now();
@@ -377,7 +379,7 @@ async function main() {
 
   await rpcCall("initialize", {
     protocolVersion: 1,
-    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.71" },
+    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.72" },
     clientCapabilities: {
       fs: { readTextFile: true, writeTextFile: true },
       terminal: true,
@@ -498,6 +500,7 @@ async function main() {
 
     const decoder = new TextDecoder("utf8");
     let buffer = "";
+    let answered = false;
     for await (const chunk of res.body) {
       buffer += decoder.decode(chunk, { stream: true });
       let nl;
@@ -570,10 +573,12 @@ async function main() {
             process.stderr.write(`\nWorkBuddy Error: ${obj.result.errorMessage}\n`);
             if (!printedText) process.exit(1);
           }
-          // 网关已返回最终 prompt 响应帧，代表回复流已全部产出完毕，立即跳出读取循环退出进程
+          // The prompt's own response is the last frame; the gateway may keep the stream open after it.
+          answered = true;
           break;
         }
       }
+      if (answered) break;
     }
     if (printedText) process.stdout.write("\n");
     if (!terminating) {

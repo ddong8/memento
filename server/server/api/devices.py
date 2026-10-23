@@ -1007,5 +1007,8 @@ async def stream_device_file(
                         next_task.cancel()
                     break
 
+    # A video can stream for many minutes: end this request's read transaction first rather than
+    # leave it open until the database cuts the connection (idle_in_transaction_session_timeout, 60 s).
+    await db.commit()
     return StreamingResponse(chunk_generator(), status_code=status_code, headers=headers)
 

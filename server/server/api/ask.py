@@ -217,6 +217,7 @@ async def ask(
             model=body.model or "opus",
             device_name="haixing-mac",
             title="Claude Code Agent Task",
+            request_db=db,
         )
 
     resolved_device_name: str | None = None
@@ -268,6 +269,7 @@ async def ask(
             device_name=resolved_device_name,
             title=conv_title,
             images=body.images,
+            request_db=db,
         )
 
     if not get_ai_providers():
@@ -516,6 +518,7 @@ async def ask(
             device_name=resolved_device_name,
             title=conv_title,
             images=body.images,
+            request_db=db,
         )
 
     async def stream(run_user: User = _user):
@@ -651,6 +654,7 @@ async def ask(
         device_name=None,
         title=conv_title,
         images=body.images,
+        request_db=db,
     )
 
 

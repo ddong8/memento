@@ -79,7 +79,7 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
             double_encoded_path = urllib.parse.quote(urllib.parse.quote(video_path))
 
             mock_user = MagicMock(role="admin", id=1)
-            mock_db = MagicMock()
+            mock_db = MagicMock(commit=AsyncMock())
             mock_req = MagicMock(headers={})
 
             resp = await stream_device_file(

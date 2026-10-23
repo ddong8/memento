@@ -444,9 +444,15 @@ async def run_response(
     device_name: str | None = None,
     title: str | None = None,
     images: list[str] | None = None,
+    request_db: AsyncSession | None = None,
 ) -> StreamingResponse:
     """Start the ask as a background run and stream it. The run survives the
-    client disconnecting; see services/ask_runs.py."""
+    client disconnecting; see services/ask_runs.py.
+
+    request_db is the request's own session: the run uses its own, so this one's transaction
+    ends here instead of staying open for the whole stream (the database cuts it after 60 s)."""
+    if request_db is not None:
+        await request_db.commit()
     try:
         run = await ask_runs.start(
             str(conv_id),

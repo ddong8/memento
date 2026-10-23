@@ -42,6 +42,14 @@ def decode_token(token: str) -> dict:
 # FastAPI dependencies
 # ---------------------------------------------------------------------------
 
+async def _signed_in(db: AsyncSession, user: User) -> User:
+    """Ends the read transaction the lookup began. A request that then streams for minutes
+    (an ask, an attached run, a video from a device) would otherwise hold it open until the
+    database cuts the connection (idle_in_transaction_session_timeout, 60 s)."""
+    await db.commit()
+    return user
+
+
 async def verify_collector_token(
     x_collector_token: str = Header(...),
     db: AsyncSession = Depends(get_db),
@@ -55,7 +63,7 @@ async def verify_collector_token(
     result = await db.execute(select(User).where(User.collector_token == x_collector_token))
     user = result.scalar_one_or_none()
     if user:
-        return user
+        return await _signed_in(db, user)
 
     # Fallback: legacy global token → owner user
     if secrets.compare_digest(x_collector_token, settings.collector_token):
@@ -64,7 +72,7 @@ async def verify_collector_token(
         )
         owner = result.scalar_one_or_none()
         if owner:
-            return owner
+            return await _signed_in(db, owner)
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid collector token")
 
@@ -88,7 +96,7 @@ async def get_current_user(
     if user is None or user.status != "active":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
-    return user
+    return await _signed_in(db, user)
 
 
 async def get_current_user_flexible(
@@ -119,7 +127,7 @@ async def get_current_user_flexible(
     if user is None or user.status != "active":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
-    return user
+    return await _signed_in(db, user)
 
 
 async def get_optional_user(

@@ -1,22 +1,22 @@
 {
-  "version": "1.0.73",
-  "title": "Memento v1.0.73",
+  "version": "1.0.74",
+  "title": "Memento v1.0.74",
   "release_notes": "1. Windows 设备上远程执行命令时，中文输出和报错不再显示为乱码",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.73-win-x64.zip",
-      "size": 154650683,
-      "sha256": "40ddb2e3ba3dbc6a8261810751b8e63edf101e50218c50ce8cbbed1fd5e28b6d"
+      "asset_name": "Memento-1.0.74-win-x64.zip",
+      "size": 154654934,
+      "sha256": "60d13e86b8bd90a8c2ec3258143d78585178df152f985431333f3a6de6aa7a77"
     },
     "macos": {
-      "asset_name": "Memento-1.0.73-mac-arm64.zip",
-      "size": 128497167,
-      "sha256": "1849bbef085f3aecedc3b54bb0d904e35b016802bf367f9b2904aff382a145bd"
+      "asset_name": "Memento-1.0.74-mac-arm64.zip",
+      "size": 128502388,
+      "sha256": "695aad13b4647e4a3d3010c279622354be893db22ef98451eb4bd20c3ffe66ff"
     },
     "linux": {
-      "asset_name": "Memento-1.0.73-linux-x64.tar.gz",
-      "size": 120525781,
-      "sha256": "a87f5bd3a1e3493a983edcc697fd761eb3db7d702c289f4631ea41f76a492703"
+      "asset_name": "Memento-1.0.74-linux-x64.tar.gz",
+      "size": 120530016,
+      "sha256": "9e6fe86aba00ebc666f176887c97977140c44501b220cd2876545c08f213d461"
     }
   }
 }

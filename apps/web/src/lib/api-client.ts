@@ -1035,6 +1035,7 @@ export const api = {
         file_size_bytes?: number;
         estimated_tokens?: number;
         compact_recommended?: boolean;
+        resume?: SessionResumeCost | null;
         /** The device the session ran on, as the device list names it */
         device_id?: string | null;
         device_name?: string | null;
@@ -1059,7 +1060,8 @@ export const api = {
       file_size_bytes: number;
       status: "normal" | "heavy" | "overflow_risk";
       compact_recommended: boolean;
-    }>(`/api/conversations/${sessionId}/stats`),
+      resume?: SessionResumeCost | Record<string, never>;
+    }>(`/api/conversations/${encodeURIComponent(sessionId)}/stats`),
 
   compactConversation: (sessionId: string, newPrompt = "", recentTurns = 6) =>
     apiFetch<{
@@ -1149,6 +1151,21 @@ export interface AgentModelOption {
   name: string;
   desc?: string;
   is_default?: boolean;
+}
+
+/** What continuing a Claude Code session from Memento costs, read from its own transcript. */
+export interface SessionResumeCost {
+  /** Context the next step carries (the latest request's input + cache tokens) */
+  context_tokens: number;
+  /** Above the server's MEMENTO_SESSION_HEAVY_TOKENS: resume from a compacted snapshot instead */
+  heavy: boolean;
+  /** "VS Code" / "终端" / "Memento" */
+  last_client: string | null;
+  minutes_since_activity: number | null;
+  /** Another client used it within the hour: its prompt cache isn't Memento's, the next step re-caches everything */
+  other_client_recent: boolean;
+  /** Unused for over an hour: the prompt cache has expired */
+  cache_cold: boolean;
 }
 
 export interface AgentEffortOption {

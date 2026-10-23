@@ -1400,6 +1400,18 @@ async def get_project_conversations(
         return msgs_by_doc.get(d.id, [])
 
     # Build session list — merge subagent messages into parent by timestamp
+    # Claude Code sessions synced before ingest recorded their real context: read it once from the stored tail
+    from ..services.claude_session import resume_cost, session_activity
+    backfill = [d.id for d in page_convs if d.tool_id == "claude_code" and "context_tokens" not in (d.metadata_ or {})][:10]
+    if backfill:
+        tails = await db.execute(
+            select(Document.id, func.right(Document.content, 2_000_000)).where(Document.id.in_(backfill))
+        )
+        found_by_id = {doc_id: session_activity(tail or "") for doc_id, tail in tails.all()}
+        for d in page_convs:
+            if found_by_id.get(d.id):
+                d.metadata_ = {**(d.metadata_ or {}), **found_by_id[d.id]}
+
     sessions = []
     for d in page_convs:
         session_id = (
@@ -1591,8 +1603,10 @@ async def get_project_conversations(
         conv_title = conv_title.strip()
 
         fs_bytes = d.file_size_bytes or 0
-        est_tokens = max(total_msgs * 250, fs_bytes // 4)
-        compact_rec = total_msgs > 35 or fs_bytes > 300_000
+        # Claude Code logs each request's real context; elsewhere it's estimated from the size
+        resume = resume_cost(d.metadata_) if d.tool_id == "claude_code" else {}
+        est_tokens = resume.get("context_tokens") or max(total_msgs * 250, fs_bytes // 4)
+        compact_rec = resume["heavy"] if resume else (total_msgs > 35 or fs_bytes > 300_000)
 
         sessions.append({
             "session_id": session_id,
@@ -1603,6 +1617,7 @@ async def get_project_conversations(
             "file_size_bytes": fs_bytes,
             "estimated_tokens": est_tokens,
             "compact_recommended": compact_rec,
+            "resume": resume or None,
             "messages": messages,
             "truncated": bool(max_messages_per_session and total_msgs > max_messages_per_session),
             "artifacts": artifacts,

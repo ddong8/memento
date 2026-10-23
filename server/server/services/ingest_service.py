@@ -757,6 +757,10 @@ async def ingest_file(
             sid = bm.group(1)
     if isinstance(metadata, dict) and sid and not metadata.get("session_id"):
         metadata["session_id"] = sid
+    if tool_id == "claude_code" and category == "conversation" and content and isinstance(metadata, dict):
+        # The context the next resumed step carries and the client that used it last
+        from .claude_session import session_activity
+        metadata.update(session_activity(content))
     is_title_junk = _is_junk_or_uuid_title(title, sid)
 
     if is_title_junk and content and category == "conversation":

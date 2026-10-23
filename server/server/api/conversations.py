@@ -264,8 +264,9 @@ async def get_conversation_stats(
 ) -> dict:
     """Get context token footprint and health stats for a conversation session."""
     from ..services.session_compactor import get_session_stats
+    from ..services.user_filter import user_machine_ids
 
-    stats = await get_session_stats(db, session_id)
+    stats = await get_session_stats(db, session_id, await user_machine_ids(db, _user))
     return stats.to_dict()
 
 

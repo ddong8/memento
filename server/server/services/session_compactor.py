@@ -15,10 +15,10 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage, Document
@@ -51,6 +51,8 @@ class SessionStats:
     base64_blobs_found: int
     status: str  # "normal" | "heavy" | "overflow_risk"
     compact_recommended: bool
+    # Claude Code sessions: the real context of the next step and what continuing it costs (see claude_session)
+    resume: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -287,24 +289,72 @@ def format_injected_context(
     return "\n".join(parts)
 
 
-async def get_session_stats(db: AsyncSession, session_id: str) -> SessionStats:
-    """Load session and calculate stats and health metrics."""
-    doc = (await db.execute(
-        select(Document).where(
-            (Document.metadata_.op("->>")("session_id") == session_id)
-            | (Document.metadata_.op("->>")("cascade_id") == session_id)
-        ).limit(1)
-    )).scalar_one_or_none()
+# Context a Claude Code session can still grow into before a resume risks running out of room
+OVERFLOW_CONTEXT_TOKENS = 500_000
+
+
+async def _claude_context(db: AsyncSession, doc: Document) -> dict[str, Any]:
+    """The session's real context from its transcript; read once from the stored tail for sessions
+    synced before ingest started recording it (ingest keeps it current from then on)."""
+    from .claude_session import session_activity
+
+    meta = dict(doc.metadata_ or {})
+    if "context_tokens" not in meta:
+        tail = (await db.execute(
+            select(func.right(Document.content, 2_000_000)).where(Document.id == doc.id)
+        )).scalar_one_or_none() or ""
+        found = session_activity(tail)
+        if found:
+            meta.update(found)
+            doc.metadata_ = meta
+    return meta
+
+
+async def get_session_stats(db: AsyncSession, session_id: str, machine_ids: list | None = None) -> SessionStats:
+    """Load session and calculate stats and health metrics. machine_ids limits the lookup to those
+    devices' sessions (None: every session, for owner / admin)."""
+    from .claude_session import HEAVY_CONTEXT_TOKENS, resume_cost
+
+    q = select(Document).where(
+        (Document.metadata_.op("->>")("session_id") == session_id)
+        | (Document.metadata_.op("->>")("cascade_id") == session_id)
+    )
+    if machine_ids is not None:
+        q = q.where(Document.machine_id.in_(machine_ids))
+    doc = (await db.execute(q.order_by(Document.synced_at.desc()).limit(1))).scalar_one_or_none()
 
     if not doc:
         try:
             doc_uuid = uuid.UUID(session_id)
-            doc = (await db.execute(select(Document).where(Document.id == doc_uuid))).scalar_one_or_none()
+            q = select(Document).where(Document.id == doc_uuid)
+            if machine_ids is not None:
+                q = q.where(Document.machine_id.in_(machine_ids))
+            doc = (await db.execute(q)).scalar_one_or_none()
         except Exception:
             pass
 
     messages: list[dict[str, Any]] = []
     file_size_bytes = 0
+
+    if doc and doc.tool_id == "claude_code":
+        resume = resume_cost(await _claude_context(db, doc))
+        if resume:
+            tokens = resume["context_tokens"]
+            status = "overflow_risk" if tokens > OVERFLOW_CONTEXT_TOKENS else ("heavy" if tokens > HEAVY_CONTEXT_TOKENS else "normal")
+            count = (await db.execute(
+                select(func.count()).select_from(ConversationMessage).where(ConversationMessage.document_id == doc.id)
+            )).scalar_one()
+            return SessionStats(
+                session_id=session_id,
+                message_count=count,
+                char_count=0,
+                estimated_tokens=tokens,
+                file_size_bytes=doc.file_size_bytes or 0,
+                base64_blobs_found=0,
+                status=status,
+                compact_recommended=status != "normal",
+                resume=resume,
+            )
 
     if doc:
         file_size_bytes = doc.file_size_bytes or 0

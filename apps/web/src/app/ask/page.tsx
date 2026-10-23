@@ -30,7 +30,7 @@ const ShareModal = dynamic(
 );
 
 
-import type { AgentCapabilities, AgentModelOption, AgentEffortOption } from "@/lib/api-client";
+import type { AgentCapabilities, AgentModelOption, AgentEffortOption, SessionResumeCost } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { MindAnticipation } from "@/components/ask/MindAnticipation";
 import { HistoryDrawer } from "@/components/ask/HistoryDrawer";
@@ -48,6 +48,12 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatE
 
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
+
+/** "约 66 万 token" / "~664k tokens" */
+function formatContextTokens(n: number, zh: boolean): string {
+  if (!zh) return `~${Math.max(1, Math.round(n / 1000))}k tokens`;
+  return n >= 10_000 ? `约 ${Math.round(n / 10_000)} 万 token` : `约 ${Math.max(1, Math.round(n / 1000))} 千 token`;
+}
 
 function AskPageContent() {
   const router = useRouter();
@@ -122,6 +128,7 @@ function AskPageContent() {
       file_size_bytes?: number;
       estimated_tokens?: number;
       compact_recommended?: boolean;
+      resume?: SessionResumeCost | null;
       device_id?: string | null;
       device_name?: string | null;
       messages?: Array<{
@@ -137,6 +144,10 @@ function AskPageContent() {
     () => (idParam ? (askCache?.selectedSessionId || initSnap?.selectedSessionId || "") : "")
   );
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
+  /** Real context size and resume-cost hints of Claude Code sessions, by session id */
+  const [sessionCosts, setSessionCosts] = useState<Record<string, SessionResumeCost>>({});
+  /** Sessions whose compact / raw resume the user picked: the heavy-session default leaves them alone */
+  const compactChosenRef = useRef<Set<string>>(new Set());
   const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
   const [totalTurns, setTotalTurns] = useState<number>(() => askCache?.totalTurns ?? initSnap?.totalTurns ?? (initSnap?.turns?.length || 0));
   const [loadingMoreTurns, setLoadingMoreTurns] = useState<boolean>(false);
@@ -600,6 +611,33 @@ function AskPageContent() {
 
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
+
+  // Each step of a resumed Claude Code session carries its whole context (one resumed from here was
+  // ~510k tokens a step). Above the server's threshold the resume starts from a compacted snapshot
+  // by default, said so in the banner; switching back to raw resume is remembered per session.
+  useEffect(() => {
+    const sid = selectedSessionId;
+    if (!sid || executionMode !== "claude") return;
+    let cancelled = false;
+    const apply = (cost: SessionResumeCost) => {
+      if (cancelled) return;
+      setSessionCosts((prev) => ({ ...prev, [sid]: cost }));
+      if (cost.heavy && !compactChosenRef.current.has(sid)) setCompactMode(true);
+    };
+    const listed = sessions.find((s) => (s.session_id || s.conversation_id) === sid)?.resume;
+    if (listed) {
+      apply(listed);
+    } else {
+      api.getSessionStats(sid)
+        .then((st) => {
+          if (st.resume && "context_tokens" in st.resume) apply(st.resume as SessionResumeCost);
+        })
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSessionId, sessions, executionMode]);
 
   const openSingleShare = useCallback((convId: string, title?: string) => {
     setShareTargetId(convId);
@@ -3853,7 +3891,7 @@ function AskPageContent() {
         return;
       }
 
-      // 默认保持原生接续（Raw Resume），绝不静默强制开启瘦身模式，仅在 UI 提供建议标记并由用户显式切换
+      // 先按原生接续；拿到会话真实上下文后，超过阈值的大会话会默认改为智能瘦身，并在横幅里写明原因（见上方的 effect）
       setCompactMode(false);
 
       let rawMsgs: Array<{
@@ -6025,8 +6063,9 @@ function AskPageContent() {
                       })()}
                       {sessions.map((s) => {
                         const sid = s.session_id || s.conversation_id;
-                        const isHeavy = s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000);
-                        const tag = isHeavy ? " [⚠️ 建议瘦身]" : "";
+                        const isHeavy = s.resume ? s.resume.heavy : (s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000));
+                        const size = s.resume ? ` · ${formatContextTokens(s.resume.context_tokens, isZh)}` : "";
+                        const tag = isHeavy ? (isZh ? " [⚠️ 建议瘦身]" : " [⚠️ compact]") : "";
                         const matched = conversations.find((c) => c.config?.session_id === sid || c.id === sid);
                         const cleanTitle = (!isJunkSessionTitle(matched?.title) ? matched?.title : undefined)
                           || (!isJunkSessionTitle(s.title) ? s.title : undefined)
@@ -6035,7 +6074,7 @@ function AskPageContent() {
                         const display = cleanTitle || (sid ? sid.slice(0, 10) + "..." : "会话");
                         return (
                           <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{tag}
+                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{size}{tag}
                           </option>
                         );
                       })}
@@ -6092,7 +6131,28 @@ function AskPageContent() {
               }
               const previewMsgs = msgs.slice(-5);
               const totalCount = activeSession?.message_count || (isCurrentActive ? (totalTurns || turns.length) : msgs.length);
-              const isHeavy = activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000);
+              const cost = sessionCosts[selectedSessionId] || activeSession?.resume || null;
+              const isHeavy = cost ? cost.heavy : (activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000));
+              const sizeText = cost ? formatContextTokens(cost.context_tokens, isZh) : "";
+              const costNotes: string[] = [];
+              if (cost && isZh) {
+                if (cost.other_client_recent) {
+                  costNotes.push(`${cost.minutes_since_activity ?? 0} 分钟前刚在 ${cost.last_client} 里用过：两边的缓存不通用，第一步要重新缓存全部上下文（${sizeText}）。`);
+                } else if (cost.cache_cold && cost.heavy) {
+                  costNotes.push(`已超过 1 小时没用，缓存已过期，第一步要重新缓存全部上下文（${sizeText}）。`);
+                }
+                if (cost.heavy) {
+                  costNotes.push(compactMode
+                    ? "已默认改为智能瘦身续接：先生成核心记忆快照，再开新会话接着做；确实需要完整上下文时可切回原生接续。"
+                    : `原生接续后每执行一步都要带上全部上下文（${sizeText}），额度消耗远高于新会话，建议智能瘦身续接。`);
+                }
+              } else if (cost) {
+                if (cost.other_client_recent) costNotes.push(`Used in ${cost.last_client} ${cost.minutes_since_activity ?? 0} min ago: caches aren't shared, the first step re-caches ${sizeText}.`);
+                else if (cost.cache_cold && cost.heavy) costNotes.push(`Idle for over an hour: the cache has expired, the first step re-caches ${sizeText}.`);
+                if (cost.heavy) costNotes.push(compactMode
+                  ? "Resuming from a compacted snapshot by default; switch to raw resume when the full context is needed."
+                  : `Every raw-resume step carries ${sizeText} of history; compact resume is recommended.`);
+              }
 
               return (
                 <div style={{ marginBottom: 10 }}>
@@ -6105,7 +6165,7 @@ function AskPageContent() {
                       padding: "6px 12px",
                       background: compactMode ? "rgba(16, 185, 129, 0.08)" : "var(--aurora-accent-soft)",
                       border: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
-                      borderRadius: showSessionContext ? "10px 10px 0 0" : 10,
+                      borderRadius: showSessionContext || costNotes.length > 0 ? "10px 10px 0 0" : 10,
                       fontSize: 12,
                       color: "var(--aurora-fg1)",
                     }}
@@ -6119,7 +6179,7 @@ function AskPageContent() {
                         {sessionTitle}
                       </span>
                       <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
-                        ({isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
+                        ({sizeText ? `${isZh ? "上下文" : "context "}${sizeText} · ` : ""}{isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
                       </span>
                       {isHeavy && (
                         <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
@@ -6132,6 +6192,7 @@ function AskPageContent() {
                         type="button"
                         onClick={() => {
                           const next = !compactMode;
+                          compactChosenRef.current.add(selectedSessionId);
                           setCompactMode(next);
                           persistCurrentConfig({ compact_mode: next });
                         }}
@@ -6198,6 +6259,27 @@ function AskPageContent() {
                       </button>
                     </div>
                   </div>
+
+                  {/* What continuing this session costs: its real context, and whether the cache is gone */}
+                  {costNotes.length > 0 && (
+                    <div
+                      style={{
+                        padding: "6px 12px",
+                        background: compactMode ? "rgba(16, 185, 129, 0.05)" : "rgba(245, 158, 11, 0.08)",
+                        borderLeft: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
+                        borderRight: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
+                        borderBottom: showSessionContext ? "none" : `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
+                        borderRadius: showSessionContext ? 0 : "0 0 10px 10px",
+                        fontSize: 11.5,
+                        lineHeight: 1.6,
+                        color: "var(--aurora-fg2)",
+                      }}
+                    >
+                      {costNotes.map((note) => (
+                        <div key={note}>{note}</div>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Context Preview Drawer */}
                   {showSessionContext && (

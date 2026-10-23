@@ -156,13 +156,6 @@ export class WsTaskClient {
         case "task_cancel":
           if (data.task_id != null) this.runner.cancel(String(data.task_id));
           break;
-        case "agent_kill": {
-          const tool = String(data.tool || "all").toLowerCase();
-          const cwd = data.cwd ? String(data.cwd) : undefined;
-          this.log(`Received agent_kill request: tool=${tool}, cwd=${cwd}`);
-          void this.runner.killAgentProcesses(tool, cwd);
-          break;
-        }
         case "task_input":
           if (data.task_id != null && data.input != null) this.runner.input(String(data.task_id), String(data.input));
           break;

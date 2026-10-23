@@ -32,7 +32,7 @@ const daemon = new DaemonHost();
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
-/** IPC that reaches local files or the login answers only memento's own page, not another site shown in the window. */
+/** Whether an IPC call comes from memento's own page rather than another site shown in the window. */
 const fromApp = (e: Electron.IpcMainInvokeEvent) => {
   try {
     return new URL(e.senderFrame?.url ?? "").origin === serverOrigin();
@@ -1056,8 +1056,33 @@ function setupUpdater(): void {
   setInterval(() => void checkForUpdates(false), UPDATE_CHECK_MS);
 }
 
+/** Files that run when opened with their default app (scripts, installers, app bundles, shortcuts). */
+const RUNNABLE =
+  /\.(app|command|tool|terminal|sh|bash|zsh|csh|ksh|fish|py|rb|pl|php|scpt|scptd|applescript|workflow|pkg|mpkg|exe|bat|cmd|com|msi|msp|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|scr|cpl|msc|jar|appimage|desktop|run|bin)$/i;
+
+async function runsWhenOpened(filePath: string): Promise<boolean> {
+  const clean = filePath.replace(/[\\/]+$/, "");
+  if (RUNNABLE.test(clean)) return true;
+  // With an extension the type decides (media on exFAT/NTFS drives carries the executable bit too).
+  if (process.platform === "win32" || /\.[^\\/.]+$/.test(clean)) return false;
+  try {
+    // A bare Unix executable opens in a terminal and runs.
+    const st = await stat(filePath);
+    return st.isFile() && (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
 function setupIpc(): void {
-  ipcMain.handle("daemon:status", async () => {
+  // Every channel answers memento's own page only: the window also shows github.com during sign-in,
+  // and nothing else loaded there may reach the daemon, local files, the login or the shell.
+  const handle = (channel: string, fn: (e: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, (e, ...args) => {
+      if (!fromApp(e)) throw new Error("not allowed");
+      return fn(e, ...args);
+    });
+  handle("daemon:status", async () => {
     const base = { mode: daemon.mode, label: modeLabel(daemon.mode) };
     try {
       return { ...base, status: await daemon.call("GET", "/status") };
@@ -1065,20 +1090,20 @@ function setupIpc(): void {
       return { ...base, status: null };
     }
   });
-  ipcMain.handle("daemon:logs", async () => {
+  handle("daemon:logs", async () => {
     try {
       return ((await daemon.call("GET", "/logs")) as { logs: string[] }).logs;
     } catch {
       return [...daemon.recentLogs];
     }
   });
-  ipcMain.handle("daemon:action", async (_e, action: unknown) => {
+  handle("daemon:action", async (_e, action: unknown) => {
     const paths: Record<string, string> = { resync: "/resync", rediscover: "/rediscover", "sync-profile": "/sync-profile" };
     const path = typeof action === "string" ? paths[action] : undefined;
     if (!path) throw new Error("unknown action");
     return daemon.call("POST", path);
   });
-  ipcMain.handle("app:info", () => ({
+  handle("app:info", () => ({
     version: app.getVersion(),
     platform: process.platform,
     openAtLogin: getOpenAtLogin(),
@@ -1090,11 +1115,11 @@ function setupIpc(): void {
       env: { ELECTRON_RUN_AS_NODE: "1" },
     },
   }));
-  ipcMain.handle("app:set-open-at-login", (_e, on: unknown) => {
+  handle("app:set-open-at-login", (_e, on: unknown) => {
     return setOpenAtLogin(on === true);
   });
-  ipcMain.handle("app:check-updates", () => checkForUpdates(true));
-  ipcMain.handle("app:notify", (_e, options: unknown) => {
+  handle("app:check-updates", () => checkForUpdates(true));
+  handle("app:notify", (_e, options: unknown) => {
     const opt = options as { title?: string; body?: string; url?: string } | undefined;
     if (opt?.title) {
       showNotification(opt.title, opt.body || "", opt.url);
@@ -1102,12 +1127,12 @@ function setupIpc(): void {
     }
     return false;
   });
-  ipcMain.handle("server:get", () => ({
+  handle("server:get", () => ({
     current: config?.serverUrl || "https://mem.ihasy.com",
     webUrl: config?.webUrl,
     defaultUrl: "https://mem.ihasy.com",
   }));
-  ipcMain.handle("server:test", async (_e, url: unknown) => {
+  handle("server:test", async (_e, url: unknown) => {
     if (typeof url !== "string") return { ok: false, latencyMs: 0, error: "无效的 URL" };
     const clean = url.trim().replace(/\/+$/, "");
     const start = Date.now();
@@ -1124,8 +1149,7 @@ function setupIpc(): void {
       return { ok: false, latencyMs, error: errorMsg };
     }
   });
-  ipcMain.handle("server:set", async (e, options: unknown) => {
-    if (!fromApp(e)) return { ok: false, error: "无权限" };
+  handle("server:set", async (e, options: unknown) => {
     const opt = options as { url?: string; resetAuth?: boolean } | undefined;
     if (!opt?.url || typeof opt.url !== "string") {
       return { ok: false, error: "无效的服务器地址" };
@@ -1182,23 +1206,25 @@ function setupIpc(): void {
     }
     return { ok: true };
   });
-  ipcMain.handle("shell:open-external", (_e, url: unknown) => {
+  handle("shell:open-external", (_e, url: unknown) => {
     if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:"))) {
       return shell.openExternal(url);
     }
   });
-  ipcMain.handle("shell:open-path", async (_e, filePath: unknown) => {
-    if (typeof filePath === "string") {
-      return shell.openPath(filePath);
+  handle("shell:open-path", async (_e, filePath: unknown) => {
+    if (typeof filePath !== "string") return "无效的路径";
+    if (await runsWhenOpened(filePath)) {
+      shell.showItemInFolder(filePath);
+      return "这是可执行文件，打开即会运行，已改为在文件夹中显示";
     }
+    return shell.openPath(filePath);
   });
-  ipcMain.handle("shell:show-item-in-folder", (_e, filePath: unknown) => {
+  handle("shell:show-item-in-folder", (_e, filePath: unknown) => {
     if (typeof filePath === "string") {
       shell.showItemInFolder(filePath);
     }
   });
-  ipcMain.handle("fs:read-file", async (e, filePath: unknown) => {
-    if (!fromApp(e)) return { error: "无权限" };
+  handle("fs:read-file", async (_e, filePath: unknown) => {
     if (typeof filePath !== "string") {
       return { error: "Invalid file path" };
     }

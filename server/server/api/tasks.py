@@ -225,22 +225,6 @@ class TaskInputRequest(BaseModel):
     input: str
 
 
-class KillAgentRequest(BaseModel):
-    device_id: str
-    tool: str = "all"
-    cwd: str | None = None
-
-
-@router.post("/kill-agent")
-async def kill_agent_processes(
-    body: KillAgentRequest,
-    _user: User = Depends(get_current_user),
-) -> dict:
-    """Emergency terminate agent processes (Claude Code, Antigravity, Codex) on a device."""
-    ok = await ws_manager.send_agent_kill(body.device_id, tool=body.tool, cwd=body.cwd)
-    return {"ok": ok, "device_id": body.device_id, "tool": body.tool}
-
-
 @router.post("/{task_id}/cancel")
 async def cancel_task(
     task_id: str,
@@ -263,7 +247,7 @@ async def cancel_task(
         return _serialize(task)
 
     # Notify running collector process immediately to kill process tree
-    # Only this task: agent_kill would also stop the device's other tasks and agents it didn't start.
+    # Only this task: the device's other tasks keep running.
     await ws_manager.send_cancel(task.device_id, str(task.id))
 
     task.status = "cancelled"

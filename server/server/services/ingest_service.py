@@ -1094,10 +1094,16 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
 
             # Knowledge graph extraction
             try:
-                from .graph_service import extract_knowledge_from_document
-                count = await extract_knowledge_from_document(db, doc)
-                if count > 0:
+                from .graph_service import extract_knowledge_from_document, extracted_recently
+                if extracted_recently(doc):
+                    # Still being written: the knowledge_retry beat extracts the version it settles on.
+                    doc.knowledge_status = "pending"
                     await db.commit()
+                    return
+                count = await extract_knowledge_from_document(db, doc)
+                # Also when nothing was extracted: the status and attempt count must stick.
+                await db.commit()
+                if count > 0:
                     logger.info("Extracted %d knowledge items from %s", count, doc.relative_path)
                 else:
                     logger.info("No knowledge extracted from %s", doc.relative_path)

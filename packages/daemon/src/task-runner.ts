@@ -300,7 +300,7 @@ export class TaskRunner {
   private readonly steerInputs = new Map<string, NodeJS.WritableStream & { writable: boolean }>();
   private readonly claudeTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
-  private readonly taskSessions = new Map<string, { binary: string; cwd?: string; sessionId?: string }>();
+  private readonly taskSessions = new Map<string, { binary: string; sessionId?: string }>();
   private readonly cancelledTasks = new Set<string>();
   private hookBridge: HookBridge | undefined;
 
@@ -349,86 +349,6 @@ export class TaskRunner {
       }),
     );
     return true;
-  }
-
-  /** Emergency process termination for external or orphan Claude Code, Antigravity, and Codex tasks. */
-  async killAgentProcesses(tool: string, targetCwd?: string): Promise<{ killed: number; pids: number[] }> {
-    const killedPids: number[] = [];
-    const t = tool.toLowerCase();
-
-    // 1. Cancel this device's tasks running that tool (in that directory, when one is given)
-    const toolKey = (binary: string) =>
-      /workbuddy|codebuddy/.test(binary) ? "workbuddy" : /agy|antigravity/.test(binary) ? "antigravity" : binary.includes("codex") ? "codex" : binary.includes("claude") ? "claude" : binary;
-    const wanted = t === "all" ? null : toolKey(t);
-    for (const [tid, proc] of Array.from(this.running.entries())) {
-      const info = this.taskSessions.get(tid);
-      if (wanted && (!info || toolKey(info.binary) !== wanted)) continue;
-      if (targetCwd && info?.cwd !== targetCwd) continue;
-      this.cancel(tid);
-      if (proc.pid) killedPids.push(proc.pid);
-    }
-
-    // 2. Discover OS-level orphan / external agent processes
-    try {
-      const isWin = process.platform === "win32";
-      if (!isWin) {
-        const { execFile } = await import("node:child_process");
-        const { stdout } = await new Promise<{ stdout: string }>((res) => {
-          execFile("ps", ["-eo", "pid,command"], (err, out) => res({ stdout: err ? "" : String(out) }));
-        });
-        const lines = stdout.split("\n");
-        for (const line of lines) {
-          const match = line.trim().match(/^(\d+)\s+(.+)$/);
-          if (!match) continue;
-          const pid = parseInt(match[1]!, 10);
-          const cmd = match[2]!;
-          if (pid === process.pid || isNaN(pid)) continue;
-
-          let shouldKill = false;
-          if ((t === "all" || t.includes("claude")) && (cmd.includes("@anthropic-ai/claude-code") || cmd.includes("claude --output-format"))) {
-            shouldKill = true;
-          }
-          if ((t === "all" || t.includes("agy") || t.includes("antigravity")) && (cmd.includes("agy_cli.py") || cmd.includes("agentapi"))) {
-            shouldKill = true;
-          }
-          if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
-            shouldKill = true;
-          }
-          // Not the CLI the WorkBuddy app runs for its own conversations, nor memento's gateway on it
-          // (codebuddy-lite-wb.mjs): stopping memento's runner already cancels its session there.
-          if (
-            (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) &&
-            !cmd.includes("codebuddy-lite-wb.mjs") &&
-            (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))
-          ) {
-            shouldKill = true;
-          }
-
-          if (shouldKill) {
-            this.log(`Terminating external agent process ${pid}: ${cmd.slice(0, 80)}`);
-            try {
-              process.kill(-pid, "SIGTERM");
-            } catch {}
-            try {
-              process.kill(pid, "SIGTERM");
-            } catch {}
-            killedPids.push(pid);
-            setTimeout(() => {
-              try {
-                process.kill(-pid, "SIGKILL");
-              } catch {}
-              try {
-                process.kill(pid, "SIGKILL");
-              } catch {}
-            }, 300);
-          }
-        }
-      }
-    } catch (e) {
-      this.log(`killAgentProcesses error: ${e instanceof Error ? e.message : e}`);
-    }
-
-    return { killed: killedPids.length, pids: killedPids };
   }
 
   /** A follow-up from the user: steers a running Claude/Antigravity/WorkBuddy task or goes to process stdin. */
@@ -673,7 +593,7 @@ export class TaskRunner {
     const binary = (text("binary") || "claude").toLowerCase();
     const prompt = text("prompt");
     const sessionId = text("session_id");
-    this.taskSessions.set(taskId, { binary, cwd: workDir, sessionId: sessionId || undefined });
+    this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
     const model = text("model");
     const effort = text("effort");
     const rawSysAppend = text("system_prompt_append");

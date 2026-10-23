@@ -352,7 +352,8 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_documents_project_category ON documents (project_id, category)",
         "CREATE INDEX IF NOT EXISTS idx_documents_title_trgm ON documents USING gin (title gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_documents_path_trgm ON documents USING gin (relative_path gin_trgm_ops)",
-        "CREATE INDEX IF NOT EXISTS idx_documents_content_trgm ON documents USING gin (content gin_trgm_ops)",
+        # Re-extracting a document's knowledge first clears its observations by source document.
+        "CREATE INDEX IF NOT EXISTS idx_observation_source_doc ON knowledge_observations (source_document_id)",
         # Vector ANN index for semantic search. Without this, /api/memory/semantic
         # seq-scans document_embeddings — fine at 50 rows, fatal at 1M. HNSW
         # preferred over IVFFlat: no training step, better recall, pgvector
@@ -366,6 +367,18 @@ def _run_migrations(conn) -> None:
             sp.commit()
         except Exception:
             sp.rollback()
+
+    # The trigram index on documents.content was never used by a query (search goes through
+    # content_tsv), yet every synced conversation turn rewrote it: 1.2 GB that kept Postgres reading
+    # from disk. Drop it where it still exists, without queueing behind busy writers for long.
+    sp = conn.begin_nested()
+    try:
+        conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+        conn.execute(text("DROP INDEX IF EXISTS idx_documents_content_trgm"))
+        conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
+        sp.commit()
+    except Exception:
+        sp.rollback()
 
 
 async def _schedule_daily_compaction():

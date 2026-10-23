@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any
 
@@ -99,10 +100,24 @@ async def _call_anthropic(prompt: str, api_key: str) -> dict | None:
     return None
 
 
+# A conversation still being written syncs after every turn. Extracting each version costs an LLM
+# call and rewrites the document's observations, so within this window after an extraction the
+# post-ingest hook leaves newer versions to the knowledge_retry beat (every 15 min).
+GRAPH_MIN_INTERVAL = 600
+
+
+def extracted_recently(doc: Document) -> bool:
+    at = (doc.metadata_ or {}).get("_graph_at")
+    return isinstance(at, (int, float)) and time.time() - at < GRAPH_MIN_INTERVAL
+
+
 async def extract_knowledge_from_document(
     db: AsyncSession, doc: Document, user_id: uuid.UUID | None = None,
 ) -> int:
     """Extract entities, relations, and observations from a document. Returns count of items created.
+
+    Commits ``db`` before calling the LLM, so the caller's session must hold nothing it
+    doesn't want committed; the caller commits the result.
 
     Side-effects on ``doc.knowledge_status`` / ``doc.knowledge_attempts``:
       * 'skipped' — content too short or wrong category; never tried.
@@ -133,12 +148,6 @@ async def extract_knowledge_from_document(
     if existing_obs and doc.metadata_.get("_graph_hash") == content_hash:
         doc.knowledge_status = "ok"
         return 0  # Already extracted for this content version
-
-    # Clear old observations from this document
-    from sqlalchemy import delete
-    await db.execute(
-        delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id == doc.id)
-    )
 
     # Content prep — expanded up to 12,000 chars with head + tail dual-window strategy.
     # Long conversations capture the initial goal/problem (head 4000) and final resolutions/code (tail 8000).
@@ -198,14 +207,38 @@ async def extract_knowledge_from_document(
     if user_id:
         user_obj = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
 
+    # One extraction per document at a time across replicas: concurrent syncs of the same
+    # conversation used to queue up behind each other's row locks for minutes.
+    from .cluster import cluster
+    lock = await cluster.mutex(f"graph-extract:{doc.id}", ttl=120.0)
+    if lock is None:
+        return 0  # another replica is on it; a later sync re-extracts if the content moved on
+    try:
+        return await _extract_and_store(db, doc, prompt, content_hash, user_id, user_obj)
+    finally:
+        await lock.release()
+
+
+async def _extract_and_store(
+    db: AsyncSession, doc: Document, prompt: str, content_hash: str,
+    user_id: uuid.UUID | None, user_obj: Any,
+) -> int:
     # Charge an attempt up front so a hung LLM still counts toward the
     # cap (otherwise a stuck call would never block subsequent retries).
     doc.knowledge_attempts = (doc.knowledge_attempts or 0) + 1
+    # The LLM takes tens of seconds to minutes: no transaction stays open meanwhile (it would hold
+    # its locks that long, and the database ends transactions left idle for 60 s).
+    await db.commit()
     result = await _call_llm(prompt, user=user_obj)
     if not result:
         doc.knowledge_status = "failed"
         return 0
 
+    # From here on one short transaction: replace this document's observations with the new ones.
+    from sqlalchemy import delete
+    await db.execute(
+        delete(KnowledgeObservation).where(KnowledgeObservation.source_document_id == doc.id)
+    )
     count = 0
 
     # Process entities
@@ -282,11 +315,14 @@ async def extract_knowledge_from_document(
             ))
             count += 1
 
-    # Mark this content version as extracted
+    # Mark this content version as extracted, on top of metadata ingest may have changed meanwhile
+    await db.refresh(doc, attribute_names=["metadata_"])
     meta = dict(doc.metadata_ or {})
     meta["_graph_hash"] = content_hash
+    meta["_graph_at"] = time.time()
     doc.metadata_ = meta
     doc.knowledge_status = "ok"
+    doc.knowledge_attempts = 0
 
     await db.flush()
     logger.info("Extracted %d knowledge items from %s/%s", count, doc.tool_id, doc.relative_path)

@@ -457,6 +457,7 @@ class KnowledgeObservation(Base):
 
     __table_args__ = (
         Index("idx_observation_entity", "entity_id"),
+        Index("idx_observation_source_doc", "source_document_id"),
     )
 
 

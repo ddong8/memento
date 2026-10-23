@@ -1,22 +1,22 @@
 {
-  "version": "1.0.71",
-  "title": "Memento v1.0.71",
+  "version": "1.0.72",
+  "title": "Memento v1.0.72",
   "release_notes": "1. WorkBuddy 的登录改回只保存在内存里，不再写入 WorkBuddy 桌面端的登录文件，修复 1.0.71 导致 WorkBuddy 桌面端被反复退出登录、反复弹出登录页的问题；升级后在 Memento 里使用 WorkBuddy 时需要重新登录一次，电脑重启后也需要重新登录\n2. 停止一个任务时只停这一个任务，不再连带停掉同一设备上的其他任务，也不会误关 WorkBuddy 桌面端自己的对话\n3. 切换服务器前会弹出确认（桌面端、安卓端），连通性测试会确认对方确实是 Memento 服务器\n4. 修复在带 /data2 磁盘的 Linux 设备上，任务里的图片可能找不到的问题",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.71-win-x64.zip",
-      "size": 154644820,
-      "sha256": "835c8bb0423c9d3e3bf05f382ad6023f721c309122a45bb89c9eed48348d3c1e"
+      "asset_name": "Memento-1.0.72-win-x64.zip",
+      "size": 154653033,
+      "sha256": "724bb34f00a331a7aa36a61c33be732a6ce8653ff7fa12091d2e47244846ef81"
     },
     "macos": {
-      "asset_name": "Memento-1.0.71-mac-arm64.zip",
-      "size": 128491990,
-      "sha256": "f85addfadbd0b94ae696ae707b7b2e4732323dff98965f4e0b001f3e2e98012a"
+      "asset_name": "Memento-1.0.72-mac-arm64.zip",
+      "size": 128499550,
+      "sha256": "ca9c629e0ebb1b199488679a9920edd6f5e15d19d88fecef54078b1ec7cb58fd"
     },
     "linux": {
-      "asset_name": "Memento-1.0.71-linux-x64.tar.gz",
-      "size": 120520030,
-      "sha256": "9d15966415cb88c87efe0cdbb2aa8e6c6d26088e6fa05660a6688612374c4d73"
+      "asset_name": "Memento-1.0.72-linux-x64.tar.gz",
+      "size": 120527525,
+      "sha256": "58b754f075beabdf6ac43d3eea935b1a3052b54354e823ba85d15fb122b37785"
     }
   }
 }

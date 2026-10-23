@@ -1,7 +1,7 @@
 {
   "version": "1.0.73",
   "title": "Memento v1.0.73",
-  "release_notes": "1. 桌面端的本地能力（读取文件、打开文件、切换服务器、守护进程控制等）只响应 Memento 自己的页面，登录过程中打开的其他网站无法调用\n2. 在桌面端打开脚本、安装包、应用程序等可执行文件时，改为在文件夹中显示，不再直接运行\n3. 移除设备上按命令行特征结束智能体进程的功能，不会再误关你在 VS Code 或终端里自己运行的 Claude Code、Codex",
+  "release_notes": "1. Windows 设备上远程执行命令时，中文输出和报错不再显示为乱码",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.73-win-x64.zip",

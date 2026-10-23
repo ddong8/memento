@@ -1,22 +1,22 @@
 {
-  "version": "1.0.72",
-  "title": "Memento v1.0.72",
+  "version": "1.0.73",
+  "title": "Memento v1.0.73",
   "release_notes": "1. 桌面端的本地能力（读取文件、打开文件、切换服务器、守护进程控制等）只响应 Memento 自己的页面，登录过程中打开的其他网站无法调用\n2. 在桌面端打开脚本、安装包、应用程序等可执行文件时，改为在文件夹中显示，不再直接运行\n3. 移除设备上按命令行特征结束智能体进程的功能，不会再误关你在 VS Code 或终端里自己运行的 Claude Code、Codex",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.72-win-x64.zip",
-      "size": 154653033,
-      "sha256": "724bb34f00a331a7aa36a61c33be732a6ce8653ff7fa12091d2e47244846ef81"
+      "asset_name": "Memento-1.0.73-win-x64.zip",
+      "size": 154650683,
+      "sha256": "40ddb2e3ba3dbc6a8261810751b8e63edf101e50218c50ce8cbbed1fd5e28b6d"
     },
     "macos": {
-      "asset_name": "Memento-1.0.72-mac-arm64.zip",
-      "size": 128499550,
-      "sha256": "ca9c629e0ebb1b199488679a9920edd6f5e15d19d88fecef54078b1ec7cb58fd"
+      "asset_name": "Memento-1.0.73-mac-arm64.zip",
+      "size": 128497167,
+      "sha256": "1849bbef085f3aecedc3b54bb0d904e35b016802bf367f9b2904aff382a145bd"
     },
     "linux": {
-      "asset_name": "Memento-1.0.72-linux-x64.tar.gz",
-      "size": 120527525,
-      "sha256": "58b754f075beabdf6ac43d3eea935b1a3052b54354e823ba85d15fb122b37785"
+      "asset_name": "Memento-1.0.73-linux-x64.tar.gz",
+      "size": 120525781,
+      "sha256": "a87f5bd3a1e3493a983edcc697fd761eb3db7d702c289f4631ea41f76a492703"
     }
   }
 }

@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
-import { api } from "@/lib/api-client";
+import { api, getApiBase, openServerSwitchModal } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { Btn, Chip, Glass, TopBar, SectionLabel, GhostInput } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
@@ -172,8 +172,26 @@ function AccountTab() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [currentServerUrl, setCurrentServerUrl] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const initServer = async () => {
+      const d = desktop();
+      if (d?.server?.get) {
+        try {
+          const info = await d.server.get();
+          if (info.current) {
+            setCurrentServerUrl(info.current.replace(/\/+$/, ""));
+            return;
+          }
+        } catch {}
+      }
+      setCurrentServerUrl(getApiBase().replace(/\/+$/, ""));
+    };
+    void initServer();
+  }, []);
 
   useEffect(() => {
     if (user?.name !== undefined) {
@@ -415,6 +433,23 @@ function AccountTab() {
             {profileMsg.text}
           </div>
         )}
+      </Glass>
+
+      <SectionLabel>服务器与网络连接</SectionLabel>
+      <Glass padding={20} radius={20} style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 3 }}>
+              当前连接服务器节点
+            </div>
+            <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {currentServerUrl || getApiBase()}
+            </div>
+          </div>
+          <Btn variant="primary" size="sm" icon="server" onClick={() => openServerSwitchModal()}>
+            切换服务器
+          </Btn>
+        </div>
       </Glass>
 
       <SectionLabel>{t.notify.title}</SectionLabel>

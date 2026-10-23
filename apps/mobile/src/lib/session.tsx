@@ -50,6 +50,7 @@ interface Session {
   signIn(server: string, email: string, password: string): Promise<void>;
   signInWithToken(server: string, token: string): Promise<void>;
   signOut(): Promise<void>;
+  switchServer(server: string, resetAuth?: boolean): Promise<void>;
   deleteAccount(confirmation: string): Promise<void>;
 }
 
@@ -155,6 +156,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToken(accessToken);
   }, []);
 
+  const switchServer = useCallback(async (newServerUrl: string, resetAuth = true) => {
+    const base = (newServerUrl.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
+    if (resetAuth) {
+      await Promise.all([
+        SecureStore.setItemAsync(SERVER_KEY, base),
+        SecureStore.deleteItemAsync(TOKEN_KEY),
+        SecureStore.deleteItemAsync(PUSH_TOKEN_KEY),
+      ]);
+      syncCredentialsToNative(base, null);
+      setServer(base);
+      setToken(null);
+    } else {
+      await SecureStore.setItemAsync(SERVER_KEY, base);
+      syncCredentialsToNative(base, token);
+      setServer(base);
+    }
+  }, [token]);
+
   const deleteAccount = useCallback(async (confirmation: string) => {
     if (!token) throw new ApiError("未登录", 401);
     const res = await fetch(`${server}/api/profile/account`, {
@@ -173,8 +192,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [server, token, signOut]);
 
   const value = useMemo(
-    () => ({ ready, server, token, signIn, signInWithToken, signOut, deleteAccount }),
-    [ready, server, token, signIn, signInWithToken, signOut, deleteAccount],
+    () => ({ ready, server, token, signIn, signInWithToken, signOut, switchServer, deleteAccount }),
+    [ready, server, token, signIn, signInWithToken, signOut, switchServer, deleteAccount],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -228,7 +228,7 @@ function isLoginPage(url: string, origin: string): boolean {
 export default function WebShell() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, server, token, signOut } = useSession();
+  const { ready, server, token, signOut, switchServer } = useSession();
   const web = useRef<WebView>(null);
   const canGoBack = useRef(false);
   const pendingUrlRef = useRef<string | null>(null);
@@ -548,6 +548,10 @@ export default function WebShell() {
             }),
           });
         } catch {}
+      } else if (msg.type === "server:switch" && (msg as { server?: string }).server) {
+        const target = (msg as { server: string }).server;
+        const reset = (msg as { resetAuth?: boolean }).resetAuth !== false;
+        void switchServer(target, reset);
       } else if (msg.type === "snapshot" && (msg.data || (msg as any).conversations)) {
         const payload = msg.data || (msg as any).conversations;
         const key = (msg as { key?: string }).key || SNAPSHOT_CONVOS_KEY;
@@ -559,7 +563,7 @@ export default function WebShell() {
     } catch {
       // not ours
     }
-  }, [origin]);
+  }, [origin, switchServer]);
 
   if (!ready) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
   if (!token || !start) return <Redirect href="/login" />;

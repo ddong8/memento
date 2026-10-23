@@ -169,6 +169,17 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
         } catch {}
       }
 
+      // If inside React Native mobile app shell
+      if (typeof window !== "undefined" && (window as unknown as { ReactNativeWebView?: { postMessage: (data: string) => void } }).ReactNativeWebView?.postMessage) {
+        (window as unknown as { ReactNativeWebView: { postMessage: (data: string) => void } }).ReactNativeWebView.postMessage(
+          JSON.stringify({
+            type: "server:switch",
+            server: clean,
+            resetAuth,
+          })
+        );
+      }
+
       setStatusMsg({ text: s.connectSuccess, tone: "success" });
 
       setTimeout(() => {

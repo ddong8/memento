@@ -414,11 +414,13 @@ async def direct_agent_stream(
             summary_text = "任务执行结束。"
 
         yield f"data: {json.dumps({'type': 'delta', 'text': summary_text}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
+        await asyncio.sleep(0.01)
     finally:
-        await _persist()
-
-    yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
-    await asyncio.sleep(0.05)
+        try:
+            await _persist()
+        except Exception as e:
+            logger.exception("Failed to persist direct agent stream: %s", e)
 
 
 SSE_HEADERS = {

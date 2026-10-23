@@ -254,6 +254,12 @@ export class AskStream {
         const frames = buffer.split("\n\n");
         buffer = frames.pop() ?? "";
         for (const frame of frames) processFrame(frame);
+        if (done) {
+          try {
+            await reader.cancel();
+          } catch {}
+          break;
+        }
       }
       buffer += decoder.decode();
       if (buffer.trim()) processFrame(buffer);

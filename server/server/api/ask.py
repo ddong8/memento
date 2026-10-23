@@ -491,18 +491,19 @@ async def ask(
                             evt["text"] = clean_t
 
                         yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
+                await asyncio.sleep(0.01)
             except (asyncio.CancelledError, GeneratorExit):
                 logger.info("agent stream cancelled by client")
-                await _persist()
                 return
             except Exception as e:
                 logger.exception("agent loop failed: %s", e)
                 yield f"data: {json.dumps({'type': 'error', 'message': f'调度失败: {e}'}, ensure_ascii=False)}\n\n"
             finally:
-                await _persist()
-
-            yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
-            await asyncio.sleep(0.05)
+                try:
+                    await _persist()
+                except Exception as e:
+                    logger.exception("Failed to persist agent stream: %s", e)
 
         return await run_response(
             conv_id,
@@ -631,11 +632,14 @@ async def ask(
             logger.exception("ask stream failed: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {e}'}, ensure_ascii=False)}\n\n"
             return
+        else:
+            yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
+            await asyncio.sleep(0.01)
         finally:
-            await _persist()
-
-        yield f"data: {json.dumps({'type': 'done', 'assistant_created_at': assistant_created_at_final, 'duration_ms': duration_ms_final})}\n\n"
-        await asyncio.sleep(0.05)
+            try:
+                await _persist()
+            except Exception as e:
+                logger.exception("Failed to persist ask stream: %s", e)
 
     # Plain answers need no database session of their own.
     return await run_response(

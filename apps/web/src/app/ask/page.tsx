@@ -2855,6 +2855,13 @@ function AskPageContent() {
         patchLast((x) => ({ ...x, content: x.content + evt.text }));
       } else if (evt.type === "done") {
         sawDone = true;
+        streamingRef.current = false;
+        setStreaming(false);
+        setIsReconnecting(false);
+        if (askCache) {
+          askCache.streaming = false;
+          askCache.activeRun = null;
+        }
         postLiveActivity("end", {
           status: "done",
           currentStep: "任务完成",
@@ -2889,7 +2896,22 @@ function AskPageContent() {
             ...(evt.cached ? { cached: true } : {}),
           };
         }, true);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("memento_ask_done", {
+              detail: { conversation_id: activeConversationIdRef.current || cursor.convId },
+            })
+          );
+        }
       } else if (evt.type === "error") {
+        sawDone = true;
+        streamingRef.current = false;
+        setStreaming(false);
+        setIsReconnecting(false);
+        if (askCache) {
+          askCache.streaming = false;
+          askCache.activeRun = null;
+        }
         postLiveActivity("end", {
           status: "error",
           currentStep: `发生错误: ${(evt.message || t.ask.error || "").slice(0, 36)}`,
@@ -2922,6 +2944,12 @@ function AskPageContent() {
         const frames = buffer.split("\n\n");
         buffer = frames.pop() ?? "";
         frames.forEach(handleFrame);
+        if (sawDone) {
+          try {
+            await reader.cancel();
+          } catch {}
+          break;
+        }
       }
       if (buffer.trim()) handleFrame(buffer);
     } catch {

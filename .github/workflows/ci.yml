@@ -37,14 +37,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
-          cache-dependency-path: ${{ matrix.package }}/pyproject.toml
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.10.0"
+          enable-cache: true
+          cache-dependency-glob: "server/uv.lock"
 
       - name: Install package + dev deps
         working-directory: ${{ matrix.package }}
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          uv pip install --system -e ".[dev]"
+          uv pip install --system ruff==0.13.0
 
       - name: AST syntax check
         working-directory: ${{ matrix.package }}
@@ -54,14 +58,12 @@ jobs:
       - name: Dependency lock is current
         working-directory: server
         run: |
-          pip install uv==0.10.0
           uv lock --check
           uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt | diff - requirements.lock
 
       # pyflakes rules: undefined names, unused imports/variables, shadowed definitions
       - name: Lint
         run: |
-          pip install ruff==0.13.0
           ruff check --isolated --select F server/server server/tests scripts embedding
 
       - name: pytest
@@ -75,8 +77,8 @@ jobs:
             echo "No tests in ${{ matrix.package }}/tests — skipping."
           fi
 
-  web:
-    name: ts · core + daemon + mcp + desktop + mobile + web
+  ts-client:
+    name: ts · core + daemon + mcp + desktop + mobile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -124,6 +126,33 @@ jobs:
           node -e "require.resolve('expo-router/package.json', { paths: [require.resolve('@expo/router-server/package.json')] })"
           npx tsc --noEmit
           npx expo export --platform android --output-dir /tmp/mobile-export
+
+  ts-web:
+    name: ts · web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: core · build dependency
+        run: npm run build -w @memento/core
+
+      - name: Next.js cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/apps/web/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('apps/web/**.[jt]s', 'apps/web/**.[jt]sx') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('**/package-lock.json') }}-
 
       - name: web · routes not shadowed by API paths in the proxies
         run: node scripts/check-web-routes.mjs

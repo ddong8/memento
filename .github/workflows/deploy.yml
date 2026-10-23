@@ -56,14 +56,13 @@ jobs:
         run: |
           echo "Waiting for CI on commit $SHA to complete successfully..."
           # Up to 40 minutes: a client release (v* tag) pushed together with main builds installers
-          # on three platforms first, and CI can sit in the queue behind them (2026-10-22: 6 min
-          # queued, the old 10-minute limit failed the deploy although CI passed).
-          for i in $(seq 1 160); do
+          # on three platforms first, and CI can sit in the queue behind them.
+          # Polling every 5s cuts waiting latency as soon as CI finishes.
+          for i in $(seq 1 480); do
             status_json=$(gh run list --repo "${{ github.repository }}" --workflow "CI" --commit "$SHA" --json status,conclusion --jq '.[0] // empty')
             if [ -n "$status_json" ]; then
               s=$(echo "$status_json" | jq -r .status)
               c=$(echo "$status_json" | jq -r .conclusion)
-              echo "CI status: $s, conclusion: $c ($i/160)"
               if [ "$s" = "completed" ]; then
                 if [ "$c" = "success" ]; then
                   echo "CI passed!"
@@ -73,10 +72,15 @@ jobs:
                   exit 1
                 fi
               fi
+              if [ $((i % 6)) -eq 1 ]; then
+                echo "CI status: $s, conclusion: $c ($i/480)"
+              fi
             else
-              echo "CI not found yet, waiting... ($i/160)"
+              if [ $((i % 6)) -eq 1 ]; then
+                echo "CI not found yet, waiting... ($i/480)"
+              fi
             fi
-            sleep 15
+            sleep 5
           done
           echo "::error::Timed out waiting for CI to complete (40 minutes)."
           exit 1
@@ -187,11 +191,13 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           SHA_SHORT="${SHA:0:12}"
-          for i in $(seq 1 60); do
-            live=$(curl -fsS --max-time 10 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
+          for i in $(seq 1 150); do
+            live=$(curl -fsS --max-time 6 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
             if [ "$live" = "$SHA_SHORT" ] || [[ "$live" == *"$SHA_SHORT"* ]]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
-            echo "线上版本 ${live:-无响应},等待 $SHA_SHORT ..."
-            sleep 15
+            if [ $((i % 5)) -eq 1 ]; then
+              echo "线上版本 ${live:-无响应},等待 $SHA_SHORT ... ($i/150)"
+            fi
+            sleep 6
           done
           echo "::error::15 分钟内线上没有切到 $SHA_SHORT。先看 kubectl -n fleet-local get gitrepo memento,Stalled 时按 CLAUDE.md 强制重同步(forceSyncGeneration+1)"
           exit 1

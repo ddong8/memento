@@ -19,4 +19,4 @@ spec:
   branch: main
   paths:
     - deploy/k8s
-  pollingInterval: 60s
+  pollingInterval: 15s

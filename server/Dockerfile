@@ -14,16 +14,17 @@ ARG PIP_INDEX_URL=""
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_DEFAULT_TIMEOUT=300
 
+# Dependencies first, pinned with hashes (server/uv.lock, exported to requirements.lock),
+# so builds are reproducible and code changes don't reinstall them.
+# Placing this layer before GeoIP guarantees 100% cache hits across code-only commits.
+COPY server/requirements.lock .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+
 # Share-view visitor location: DB-IP city-lite (CC BY 4.0) at the path geoip.py reads.
 # CI passes GEOIP_MONTH=YYYY-MM so this layer refreshes monthly; builds without it skip it.
 ARG GEOIP_MONTH=""
 COPY scripts/fetch_geoip.py /tmp/fetch_geoip.py
 RUN if [ -n "$GEOIP_MONTH" ]; then python /tmp/fetch_geoip.py /data/geoip/GeoLite2-City.mmdb "$GEOIP_MONTH"; fi
-
-# Dependencies first, pinned with hashes (server/uv.lock, exported to requirements.lock),
-# so builds are reproducible and code changes don't reinstall them
-COPY server/requirements.lock .
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # Install server
 COPY server/pyproject.toml .

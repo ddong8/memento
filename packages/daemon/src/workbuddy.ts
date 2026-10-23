@@ -29,6 +29,7 @@ const RUNNER_MARKERS = [
   "agent_thought_chunk",
   "SIGINT_SIGTERM_HANDLER",
   "MEMENTO_GATEWAY_FILE",
+  "process.stdin.destroy()",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */

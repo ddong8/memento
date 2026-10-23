@@ -568,10 +568,17 @@ async function main() {
             process.stderr.write(`\nWorkBuddy Error: ${obj.result.errorMessage}\n`);
             if (!printedText) process.exit(1);
           }
+          // 网关已返回最终 prompt 响应帧，代表回复流已全部产出完毕，立即跳出读取循环退出进程
+          break;
         }
       }
     }
     if (printedText) process.stdout.write("\n");
+    try {
+      process.stdin.pause();
+      process.stdin.destroy();
+    } catch {}
+    process.exit(0);
   } catch (err) {
     if (controller.signal.aborted) {
       process.stderr.write(`\n[Agent timeout: 任务执行已达到安全上限（${args.timeout}s）]\n`);
@@ -582,6 +589,11 @@ async function main() {
   } finally {
     clearTimeout(timeoutTimer);
   }
+  try {
+    process.stdin.pause();
+    process.stdin.destroy();
+  } catch {}
+  process.exit(0);
 }
 
 main();

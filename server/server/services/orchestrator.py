@@ -420,6 +420,7 @@ async def _await_task_stream(
     target_device_id = task.device_id
     task_action = task.action
     last_status = task.status
+    received_stdout: list[str] = []
 
     yield {
         "type": "task_progress",
@@ -439,11 +440,34 @@ async def _await_task_stream(
                 if itype == "task_chunk":
                     if deadline > 0 and server_wait > 0:
                         deadline = max(deadline, asyncio.get_event_loop().time() + server_wait)
+                    if item.get("stream") != "stderr":
+                        received_stdout.append(item.get("text") or "")
                     yield item
                     continue
-                elif itype in ("task_progress", "task_alert", "task_event"):
-                    if deadline > 0 and server_wait > 0:
-                        deadline = max(deadline, asyncio.get_event_loop().time() + server_wait)
+                elif itype == "task_progress":
+                    prog_status = str(item.get("status") or "")
+                    # 如果收到进程静默无新输出的保活告警，且前面已有实质性输出，说明大模型已回复完毕但 CLI 子进程未退出
+                    if any(kw in prog_status for kw in ("静默运行中", "无新输出")) and "".join(received_stdout).strip():
+                        logger.info("Task %s stalled after producing output; gracefully completing", task_id)
+                        try:
+                            from .ws_manager import ws_manager
+                            await ws_manager.send_cancel(target_device_id, str(task_id))
+                        except Exception:
+                            pass
+                        full_stdout = "".join(received_stdout).strip()
+                        yield {
+                            "type": "_task_finished_ws",
+                            "result": {
+                                "task_id": str(task_id),
+                                "status": "succeeded",
+                                "stdout": full_stdout,
+                                "exit_code": 0,
+                            },
+                        }
+                        return
+                    yield item
+                    continue
+                elif itype in ("task_alert", "task_event"):
                     yield item
                     continue
                 elif itype == "task_finished":

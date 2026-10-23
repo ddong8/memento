@@ -406,8 +406,11 @@ async def direct_agent_stream(
                 else:
                     if action == "shell":
                         summary_text = f"```\n{stdout}\n```"
+                    elif is_only_tool_calls:
+                        summary_text = f"{stdout}\n\n> 💡 *[阶段工具排查已完成，正在生成结论。如未显示完整回复，请发送“继续”]*"
                     else:
-                        summary_text = f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
+                        cleaned = _clean_agent_summary(stdout)
+                        summary_text = cleaned if cleaned.strip() else f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
             else:
                 summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
         else:

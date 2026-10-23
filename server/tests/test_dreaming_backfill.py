@@ -108,6 +108,7 @@ class TestDreamingBackfill(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress_events[0]["status"], "processed")
         self.assertEqual(progress_events[1]["status"], "skipped_empty")
 
+    @patch("server.services.dreaming_service.get_ai_providers", MagicMock(return_value=["configured"]))
     @patch("server.services.dreaming_service.call_plain_chat")
     async def test_bootstrap_memories_with_llm(self, mock_llm):
         user = User(id=uuid.uuid4(), email="dev@example.com")

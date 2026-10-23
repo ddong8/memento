@@ -150,15 +150,13 @@ def get_ai_providers(
             model=primary_model,
         ))
 
-    # 3. Fallback provider (OneAPI with self-deployed qwen3.8-27b)
+    # 3. Fallback provider (OneAPI with self-deployed qwen3.8-27b); its key comes from the
+    # environment only (the cluster Secret), never from this public repository.
     fallback_url = os.environ.get(
         "MEMENTO_AI_FALLBACK_BASE_URL",
         "https://oneapi.aiphacas.com/v1",
     ).rstrip("/")
-    fallback_key = os.environ.get(
-        "MEMENTO_AI_FALLBACK_API_KEY",
-        "sk-8RpD0Jo7Uk4ImKaGCF1Wb2dZ6cYerROdEUlzGoJt0qfMQL6a",
-    ).strip()
+    fallback_key = os.environ.get("MEMENTO_AI_FALLBACK_API_KEY", "").strip()
     fallback_model = os.environ.get("MEMENTO_AI_FALLBACK_MODEL", "qwen3.8-27b").strip()
 
     is_duplicate = any(p.api_key == fallback_key and p.base_url == fallback_url for p in providers)

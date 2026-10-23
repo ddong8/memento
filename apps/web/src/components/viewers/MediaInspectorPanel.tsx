@@ -172,7 +172,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
       case "image":
         return <ImagePreview key={activeMedia.url} src={activeMedia.url} alt={displayTitle} />;
       case "markdown":
-        return <MarkdownDocViewer key={activeMedia.url || activeMedia.id} item={activeMedia} />;
+        return <MarkdownDocViewer key={`${activeMedia.url || activeMedia.id}_${inspector.refreshKey}`} item={activeMedia} />;
       default:
         return <MediaAttachmentCard key={activeMedia.url} url={activeMedia.url} title={displayTitle} />;
     }
@@ -508,26 +508,27 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     }
   };
 
-  // 1. 初始化时尝试载入本地草稿缓存
+  // 1. 初始化时尝试载入本地草稿缓存；若缓存缺少高清插图，一律判定为落后过期草稿直接彻底清除，防止无图旧草稿覆盖真件
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const saved = localStorage.getItem(`memento_draft_${safeDecodePath(item.url)}`);
-      if (saved && saved !== content && saved.length > 20) {
-        // 若最新文档包含配图而本地缓存草稿缺少配图，优先保留最新配图版本并清理过期缓存
-        const currentHasImages = /!\[.*?\]\(.*?(?:memento_|article\/).*?\)/.test(content);
-        const savedHasImages = /!\[.*?\]\(.*?(?:memento_|article\/).*?\)/.test(saved);
-        if (currentHasImages && !savedHasImages) {
-          localStorage.removeItem(`memento_draft_${safeDecodePath(item.url)}`);
+      const key = `memento_draft_${safeDecodePath(item.url)}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const hasIllustrations = /https?:\/\/[^\s)]+\/article\/memento_|!\[.*?\]\(.*?(?:memento_|article\/)/i.test(saved);
+        if (!hasIllustrations) {
+          localStorage.removeItem(key);
           return;
         }
-        setContent(saved);
-        showInAppToast("已载入本地草稿", "已为您自动恢复上次编辑的润色版本");
+        if (saved !== content && saved.length > 20) {
+          setContent(saved);
+          showInAppToast("已载入本地草稿", "已为您自动恢复上次编辑的润色版本");
+        }
       }
     } catch {
       // ignore
     }
-  }, [item.url]);
+  }, [item.url, reloadTick]);
 
   // 2. 润色编辑发生变动时自动持久化到 localStorage
   useEffect(() => {
@@ -611,6 +612,11 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             const resolved = resolveMediaUrl(rawUrl);
             fetchUrl = resolved.playUrl;
           }
+        }
+
+        if (filename === "memento_introduction_article.md" || clean.endsWith("memento_introduction_article.md")) {
+          // 在生产与开发环境下均由静态根路由提供，保证跨平台秒级直达
+          fetchUrl = "/article/memento_introduction_article.md";
         }
 
         let res: Response | null = null;
@@ -1040,26 +1046,40 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             </div>
 
             {/* 2.35:1 官方首图卡片 */}
-            <div
-              className="mx-5 my-2 rounded-2xl overflow-hidden shadow-md relative text-white p-4 min-h-[120px] flex flex-col justify-end shrink-0 border border-black/5"
-              style={{
-                background: `linear-gradient(135deg, #090d16 0%, ${activeTheme.color}38 50%, #090d16 100%)`,
-                boxShadow: `0 10px 25px -5px ${activeTheme.color}22`,
-              }}
-            >
-              <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/40 backdrop-blur-md text-[9px] text-white/80 font-mono">
-                2.35:1 封面预演
-              </div>
-              <div
-                className="text-[10px] font-semibold mb-1"
-                style={{ color: activeTheme.color }}
-              >
-                ★ MEMENTO · 深度心智特稿
-              </div>
-              <p className="text-sm font-bold text-white leading-snug drop-shadow-md line-clamp-2">
-                {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
-              </p>
-            </div>
+            {(() => {
+              const coverMatch = content.match(/!\[.*?\]\((https?:\/\/[^\s)]+|\/article\/[^\s)]+|[^\s)]+\.(?:png|jpg|jpeg|webp))\)/i);
+              const coverUrl = coverMatch ? resolveMediaUrl(coverMatch[1]).playUrl : null;
+              return (
+                <div
+                  className="mx-5 my-2 rounded-2xl overflow-hidden shadow-md relative text-white p-4 min-h-[140px] flex flex-col justify-end shrink-0 border border-black/5"
+                  style={{
+                    background: coverUrl ? undefined : `linear-gradient(135deg, #090d16 0%, ${activeTheme.color}38 50%, #090d16 100%)`,
+                    boxShadow: `0 10px 25px -5px ${activeTheme.color}22`,
+                  }}
+                >
+                  {coverUrl && (
+                    <img
+                      src={coverUrl}
+                      alt="2.35:1 官方封面"
+                      className="absolute inset-0 w-full h-full object-cover brightness-[0.85] transition-transform duration-300 hover:scale-105"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-md text-[9px] text-white/90 font-mono z-10">
+                    2.35:1 封面预演
+                  </div>
+                  <div
+                    className="text-[10px] font-semibold mb-1 z-10"
+                    style={{ color: activeTheme.color }}
+                  >
+                    ★ MEMENTO · 深度心智特稿
+                  </div>
+                  <p className="text-sm font-bold text-white leading-snug drop-shadow-md line-clamp-2 z-10">
+                    {content.split("\n")[0].replace(/^[#\s]+/, "") || "公众号推文"}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* 文章正文 (微信官方标准排版：白底深灰字，15px，1.75行高，CSS变量随所选主题动态注入) */}
             <div

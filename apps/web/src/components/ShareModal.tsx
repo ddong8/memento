@@ -275,7 +275,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
       const medias = extractMediaFromMarkdown(content);
       const linkedMd = medias.find((m) => m.type === "markdown");
       if (linkedMd) {
-        inspector.openMediaByUrl(linkedMd.url, linkedMd.title);
+        inspector.openMediaByUrl(linkedMd.url, linkedMd.title, content);
       } else {
         inspector.openMediaByUrl(
           `workbench://${Date.now()}.md`,

@@ -175,8 +175,9 @@ async def ask(
 
     req_config = {
         "execution_mode": body.execution_mode or "ai",
-        "model": body.model or "",
-        "effort": body.effort or "",
+        # None when the client didn't say; "" is a choice: the CLI's own default
+        "model": body.model,
+        "effort": body.effort,
         "project_id": body.project_id or "",
         "session_id": body.session_id or "",
         "worktree": bool(body.worktree),
@@ -234,8 +235,14 @@ async def ask(
     if exec_mode in ("claude", "codex", "antigravity", "workbuddy", "shell"):
         effective_session_id = body.session_id or (effective_cfg.get("session_id") if body.conversation_id else None) or None
         effective_project_id = body.project_id or (effective_cfg.get("project_id") if body.conversation_id else None) or None
-        effective_model = body.model or (effective_cfg.get("model") if body.conversation_id else None) or None
-        effective_effort = body.effort or (effective_cfg.get("effort") if body.conversation_id else None) or None
+        def _chosen(sent: str | None, key: str) -> str | None:
+            # "" sent = the CLI's own default, so it must not fall back to what the conversation used before
+            if sent is not None:
+                return sent or None
+            return (effective_cfg.get(key) if body.conversation_id else None) or None
+
+        effective_model = _chosen(body.model, "model")
+        effective_effort = _chosen(body.effort, "effort")
         effective_cwd = body.cwd or (effective_cfg.get("cwd") if body.conversation_id else None) or None
 
         return await run_response(

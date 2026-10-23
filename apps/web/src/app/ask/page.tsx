@@ -99,10 +99,10 @@ function AskPageContent() {
 
 
   // Agent Context: Model, Project & Session selection
-  const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel || initSnap?.selectedModel || "");
+  const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel ?? initSnap?.selectedModel ?? "");
   /** Run agent tasks in their own git worktree and branch. */
   const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode ?? initSnap?.worktreeMode ?? false);
-  const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort || initSnap?.selectedEffort || "");
+  const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort ?? initSnap?.selectedEffort ?? "");
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(
     () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
   );
@@ -967,10 +967,11 @@ function AskPageContent() {
         if (cachedConv.config?.executionMode) {
           setExecutionMode(cachedConv.config.executionMode);
         }
-        if (cachedConv.config?.model) {
+        // "" is a choice here (the CLI's own default), so restore it too
+        if (cachedConv.config?.model != null) {
           setSelectedModel(cachedConv.config.model);
         }
-        if (cachedConv.config?.effort) {
+        if (cachedConv.config?.effort != null) {
           setSelectedEffort(cachedConv.config.effort);
         }
         if (cachedConv.config?.cwd) {
@@ -1045,8 +1046,9 @@ function AskPageContent() {
 
       // 2. Execution mode, model, effort, project, session
       let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
-      let targetModel = data.model || data.config?.model || "";
-      let targetEffort = data.effort || data.config?.effort || "";
+      // "" model / effort means the CLI's own default: never replaced by what earlier turns used
+      const targetModel = data.model ?? data.config?.model ?? "";
+      const targetEffort = data.effort ?? data.config?.effort ?? "";
       let targetProjId = data.project_id || data.config?.project_id || "";
       let targetSessionId = data.session_id || data.config?.session_id || "";
 
@@ -1066,8 +1068,6 @@ function AskPageContent() {
         if ((targetMode === "ai" || !targetMode) && inferred.executionMode) targetMode = inferred.executionMode;
         if (!targetProjId && inferred.projectId) targetProjId = inferred.projectId;
         if (!targetSessionId && inferred.sessionId) targetSessionId = inferred.sessionId;
-        if (!targetModel && inferred.model) targetModel = inferred.model;
-        if (!targetEffort && inferred.effort) targetEffort = inferred.effort;
         if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
         if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
 
@@ -1672,10 +1672,10 @@ function AskPageContent() {
           }
           const incomingMode = (data.execution_mode || data.config?.execution_mode) as ExecutionMode | undefined;
           if (incomingMode) setExecutionMode(incomingMode);
-          const incomingModel = data.model || data.config?.model;
-          if (incomingModel) setSelectedModel(incomingModel);
-          const incomingEffort = data.effort || data.config?.effort;
-          if (incomingEffort) setSelectedEffort(incomingEffort);
+          const incomingModel = data.model ?? data.config?.model;
+          if (incomingModel != null) setSelectedModel(incomingModel);
+          const incomingEffort = data.effort ?? data.config?.effort;
+          if (incomingEffort != null) setSelectedEffort(incomingEffort);
           const incomingProj = data.project_id || data.config?.project_id;
           if (incomingProj) {
             setSelectedProjectId(incomingProj);
@@ -3363,8 +3363,9 @@ function AskPageContent() {
           cwd: cwd.trim() || undefined,
           agent_mode: selectedDevice !== "ask_only",
           execution_mode: executionMode,
-          model: selectedModel || undefined,
-          effort: selectedEffort || undefined,
+          // Sent even when "": that is the choice of the CLI's own default, not "keep the last one"
+          model: selectedModel,
+          effort: selectedEffort,
           session_id: effectiveSessionId || undefined,
           compact_mode: effectiveCompact || undefined,
           project_id: selectedProjectId || undefined,

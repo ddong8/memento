@@ -368,8 +368,8 @@ export function saveToRecentConvTurnsCache(
     const d = data as (Partial<AskConversationDetail> & { config?: Record<string, any> }) | undefined;
     const config: CachedConversationConfig = {
       executionMode: (d?.execution_mode || d?.config?.execution_mode) as ExecutionMode | undefined,
-      model: d?.model || d?.config?.model,
-      effort: d?.effort || d?.config?.effort,
+      model: d?.model ?? d?.config?.model,
+      effort: d?.effort ?? d?.config?.effort,
       cwd: d?.cwd || d?.config?.cwd || undefined,
       selectedDevice: d?.device_id || d?.config?.device_id || undefined,
       selectedProjectId: d?.project_id || d?.config?.project_id,

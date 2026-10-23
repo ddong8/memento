@@ -166,6 +166,35 @@ class AskContinuationTests(unittest.TestCase):
         self.assertEqual(cfg["cwd"], "/Users/dev/react-native/my-game")
         self.assertEqual(cfg["device_id"], "haixingdeMac-mini.local")
 
+    def test_saved_default_effort_is_not_replaced_by_an_earlier_turn(self):
+        # The user switched back to "follow the CLI's own setting" ("") after running tasks at max:
+        # reopening the conversation must keep "", not bring max back from the old tool call.
+        from server.services.ask_store import _skip_config_value, infer_conversation_config
+        from server.db.models import AskConversation
+
+        conv = AskConversation(
+            id=uuid.uuid4(),
+            title="项目时间线记录功能",
+            config={"execution_mode": "claude", "model": "", "effort": ""},
+            turns=[{
+                "role": "assistant",
+                "content": "完成",
+                "toolCalls": [{
+                    "name": "run_on_device",
+                    "args": {"action": "agent", "binary": "claude", "model": "opus", "effort": "max"},
+                }],
+            }],
+        )
+        cfg, _ = infer_conversation_config(conv)
+        self.assertEqual(cfg["effort"], "")
+        self.assertEqual(cfg["model"], "")
+
+        # Sent "" overwrites the saved value; for other keys "" still means "not given"
+        self.assertFalse(_skip_config_value("effort", ""))
+        self.assertFalse(_skip_config_value("model", ""))
+        self.assertTrue(_skip_config_value("effort", None))
+        self.assertTrue(_skip_config_value("cwd", ""))
+
     def test_infer_conversation_config_json_string_args(self):
         import json
         from server.services.ask_store import infer_conversation_config

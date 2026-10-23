@@ -23,6 +23,14 @@ from ..db.session import async_session_factory
 
 logger = logging.getLogger("server.ask")
 
+# "" for model / effort is the user's choice of the CLI's own default; for the other keys it means "not given".
+_EMPTY_IS_A_CHOICE = ("model", "effort")
+
+
+def _skip_config_value(k: str, v) -> bool:
+    return v is None or (v == "" and k not in _EMPTY_IS_A_CHOICE)
+
+
 async def get_or_create_conversation(
     conv_id_str: str | None,
     user: User,
@@ -49,7 +57,7 @@ async def get_or_create_conversation(
                     cfg = dict(conv.config or {})
                     if config:
                         for k, v in config.items():
-                            if v is not None and v != "":
+                            if not _skip_config_value(k, v):
                                 if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                     continue
                                 if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
@@ -130,7 +138,7 @@ async def get_or_create_conversation(
                         cfg = dict(sess_conv.config or {})
                         if config:
                             for k, v in config.items():
-                                if v is not None and v != "":
+                                if not _skip_config_value(k, v):
                                     if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                         continue
                                     if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
@@ -420,7 +428,7 @@ async def append_conversation_turns(
                 cfg = dict(conv.config or {})
                 if config:
                     for k, v in config.items():
-                        if v is not None and v != "":
+                        if not _skip_config_value(k, v):
                             if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                 continue
                             if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
@@ -697,6 +705,9 @@ def infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
 
     for k in ("project_id", "session_id", "model", "effort", "cwd", "device_id"):
         cur_val = cfg.get(k)
+        # A saved "" model / effort is a choice (the CLI's own default): only fill these when never saved
+        if k in _EMPTY_IS_A_CHOICE and cur_val is not None:
+            continue
         if (not cur_val or (k == "device_id" and cur_val == "auto")) and inferred.get(k):
             cfg[k] = inferred[k]
 

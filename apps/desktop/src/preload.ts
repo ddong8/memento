@@ -24,6 +24,18 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
   showItemInFolder: (path: string) => ipcRenderer.invoke("shell:show-item-in-folder", path),
   readFile: (path: string) => ipcRenderer.invoke("fs:read-file", path),
   toMediaUrl: (path: string) => `memento-media://${path.startsWith("/") ? "" : "/"}${encodeURI(path)}`,
+  server: {
+    get: () => ipcRenderer.invoke("server:get"),
+    set: (options: { url: string; resetAuth?: boolean }) => ipcRenderer.invoke("server:set", options),
+    test: (url: string) => ipcRenderer.invoke("server:test", url),
+    onOpenSwitch: (cb: () => void) => {
+      const listener = () => cb();
+      ipcRenderer.on("server:open-switch", listener);
+      return () => {
+        ipcRenderer.removeListener("server:open-switch", listener);
+      };
+    },
+  },
   daemon: {
     status: () => ipcRenderer.invoke("daemon:status"),
     logs: () => ipcRenderer.invoke("daemon:logs"),
@@ -32,4 +44,8 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
     onLog: subscribe("daemon:log-event"),
     onMode: subscribe("daemon:mode-event"),
   },
+});
+
+ipcRenderer.on("server:open-switch", () => {
+  window.dispatchEvent(new CustomEvent("memento:open-server-switch"));
 });

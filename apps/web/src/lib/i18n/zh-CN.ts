@@ -1096,6 +1096,36 @@ const zhCN = {
     file_history: "文件历史",
     state: "状态",
   },
+
+  // Server Switcher
+  serverSwitch: {
+    title: "切换服务器",
+    subtitle: "连接官方云端、本地开发或自定义私有服务器",
+    currentServer: "当前连接服务器",
+    officialCloud: "官方云端服务",
+    officialCloudDesc: "Memento 官方多活云端，支持跨端全自动同步与智能推理",
+    localDev: "本地开发服务",
+    localDevDesc: "开发调试环境 (http://localhost:8001)",
+    customServer: "自定义服务器",
+    customServerDesc: "输入私有化部署或自建 Memento 服务端地址",
+    serverUrlPlaceholder: "https://your-server.com 或 http://localhost:8001",
+    ping: "测试延迟",
+    pinging: "测速中...",
+    switchToThis: "切换并连接",
+    switching: "切换中...",
+    clearAuth: "切换时清理旧登录状态（避免鉴权凭据冲突）",
+    history: "历史连接记录",
+    noHistory: "暂无历史连接记录",
+    clearHistory: "清空历史",
+    remove: "删除",
+    connected: "已连接",
+    connecting: "连接中...",
+    connectSuccess: "连接成功",
+    connectFailed: "无法连接到该服务器",
+    invalidUrl: "请输入以 http:// 或 https:// 开头的合法服务器地址",
+    currentActive: "当前使用中",
+    latency: "延迟",
+  },
 };
 
 export default zhCN;

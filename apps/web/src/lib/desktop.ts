@@ -41,6 +41,19 @@ export function mcpSnippets(mcp: NonNullable<DesktopInfo["mcp"]>): { claude: str
   };
 }
 
+export interface ServerInfo {
+  current: string;
+  webUrl?: string;
+  defaultUrl: string;
+}
+
+export interface ServerTestResult {
+  ok: boolean;
+  latencyMs: number;
+  status?: number;
+  error?: string;
+}
+
 export interface MementoDesktop {
   isDesktop: true;
   info(): Promise<DesktopInfo>;
@@ -52,6 +65,12 @@ export interface MementoDesktop {
   showItemInFolder?(path: string): Promise<void>;
   readFile?(path: string): Promise<{ content?: string; error?: string }>;
   toMediaUrl?(path: string): string;
+  server?: {
+    get(): Promise<ServerInfo>;
+    set(options: { url: string; resetAuth?: boolean }): Promise<{ ok: boolean; error?: string }>;
+    test(url: string): Promise<ServerTestResult>;
+    onOpenSwitch?(cb: () => void): () => void;
+  };
   daemon: {
     status(): Promise<DaemonState>;
     logs(): Promise<string[]>;

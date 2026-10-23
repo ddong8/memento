@@ -15,9 +15,10 @@ type IconName =
   | "settings" | "target" | "code" | "terminal" | "edit"
   | "activity" | "zap" | "grid" | "inbox" | "command"
   | "arrow_up" | "arrow_down" | "refresh" | "check" | "close"
-  | "menu" | "trash" | "link" | "copy" | "external_link" | "eye" | "camera" | "microphone" | "sidebar" | "image" | "paperclip" | "download" | "pin" | "star" | "share" | "more" | "maximize";
+  | "menu" | "trash" | "link" | "copy" | "external_link" | "eye" | "camera" | "microphone" | "sidebar" | "image" | "paperclip" | "download" | "pin" | "star" | "share" | "more" | "maximize" | "server";
 
 const PATHS: Record<IconName, React.ReactElement> = {
+  server: <><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></>,
   maximize: <><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></>,
   more: <><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/><circle cx="5" cy="12" r="1.2" fill="currentColor"/></>,
   share: <><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></>,

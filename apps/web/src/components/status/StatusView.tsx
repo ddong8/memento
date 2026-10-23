@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { api } from "@/lib/api-client";
+import { api, getApiBase, openServerSwitchModal, testServerConnection } from "@/lib/api-client";
+import { desktop } from "@/lib/desktop";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Btn, Glass, TopBar } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
@@ -221,7 +222,24 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
   const [allErrors, setAllErrors] = useState(false);
   const [showMisses, setShowMisses] = useState(false);
   const [evalJob, setEvalJob] = useState<Obj | null>(null);
+  const [activeServerUrl, setActiveServerUrl] = useState<string>("");
+  const [serverLatencyMs, setServerLatencyMs] = useState<number | null>(null);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const checkServerLatency = useCallback(async () => {
+    let url = getApiBase().replace(/\/+$/, "");
+    const d = desktop();
+    if (d?.server?.get) {
+      try {
+        const info = await d.server.get();
+        if (info.current) url = info.current.replace(/\/+$/, "");
+      } catch {}
+    }
+    setActiveServerUrl(url);
+    const res = await testServerConnection(url);
+    if (res.ok) setServerLatencyMs(res.latencyMs);
+    else setServerLatencyMs(null);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -235,10 +253,11 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
 
   useEffect(() => {
     load();
+    void checkServerLatency();
     return () => {
       if (poll.current) clearInterval(poll.current);
     };
-  }, [load]);
+  }, [load, checkServerLatency]);
 
   const runEval = async (rebuild: boolean) => {
     try {
@@ -290,6 +309,46 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
 
       {data && (
         <>
+          {/* Server Node Card */}
+          <Glass padding="clamp(14px, 3vw, 20px)" radius={18} style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 5,
+                    background: SUCCESS,
+                    boxShadow: `0 0 0 4px ${SUCCESS}2e`,
+                    flexShrink: 0,
+                  }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                    当前服务器节点
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "monospace", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {activeServerUrl || "..."}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                {serverLatencyMs !== null && (
+                  <span style={{ fontSize: 12, fontFamily: "monospace", color: SUCCESS }}>
+                    {serverLatencyMs}ms
+                  </span>
+                )}
+                <Btn variant="glass" size="sm" icon="refresh" onClick={checkServerLatency}>
+                  测速
+                </Btn>
+                <Btn variant="primary" size="sm" icon="server" onClick={() => openServerSwitchModal()}>
+                  切换服务器
+                </Btn>
+              </div>
+            </div>
+          </Glass>
+
           {/* Overall status */}
           <Glass padding="clamp(14px, 3vw, 20px)" radius={18} style={{ marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

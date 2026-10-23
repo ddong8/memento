@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { desktop } from "@/lib/desktop";
+import { openServerSwitchModal } from "@/lib/api-client";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
@@ -440,6 +441,16 @@ export function UserMenu({ variant = "sidebar", collapsed = false, onNavClick }:
           )}
 
           <div style={{ height: 1, background: "var(--aurora-border)", margin: "4px 8px" }} />
+
+          <MenuButton
+            icon="server"
+            onClick={() => {
+              setOpen(false);
+              openServerSwitchModal();
+            }}
+          >
+            {t.serverSwitch?.title || "切换服务器"}
+          </MenuButton>
 
           <MenuButton
             icon="log_out"

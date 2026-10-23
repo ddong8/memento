@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SearchHit, getApiBase, authFetch } from "@/lib/api-client";
+import { SearchHit, getApiBase, authFetch, openServerSwitchModal } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { useDevice } from "@/lib/device-context";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
@@ -230,6 +230,64 @@ export default function CommandPalette() {
 
         {/* results */}
         <div ref={listRef} style={{ overflowY: "auto", flex: 1 }}>
+          {query.trim() && /server|fuwuqi|服务器|节点|node|切换/i.test(query.trim()) && (
+            <div
+              onClick={() => {
+                setOpen(false);
+                openServerSwitchModal();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "11px 16px",
+                cursor: "pointer",
+                background: "rgba(16, 185, 129, 0.08)",
+                borderBottom: "1px solid var(--aurora-border)",
+                transition: "background .12s",
+              }}
+              className="hover:bg-emerald-500/15"
+            >
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  background: "linear-gradient(135deg, #10B981, #059669)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                  boxShadow: "0 2px 8px -1px rgba(16,185,129,0.4)",
+                  color: "#fff",
+                }}
+              >
+                <Icon name="server" size={14} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: "var(--aurora-fg1)", fontWeight: 500 }} className="truncate">
+                  切换服务器 / Switch Server
+                </div>
+                <div style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
+                  在官方云端、本地开发或自定义私有节点之间切换
+                </div>
+              </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: "var(--aurora-surface)",
+                  border: "1px solid var(--aurora-border)",
+                  color: "var(--aurora-fg3)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                打开 ↵
+              </span>
+            </div>
+          )}
+
           {query.trim() && (
             <div
               onClick={() => go(`/ask?q=${encodeURIComponent(query.trim())}`)}

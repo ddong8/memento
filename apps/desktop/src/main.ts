@@ -662,6 +662,16 @@ function setupAppMenu(): void {
               { role: "about" as const, label: "关于 Memento" },
               { type: "separator" as const },
               { label: "首选项 / 个人设置", accelerator: "CmdOrCtrl+,", click: () => void navigateApp("/profile") },
+              {
+                label: "切换服务器...",
+                accelerator: "CmdOrCtrl+Alt+S",
+                click: () => {
+                  if (win && !win.isDestroyed()) {
+                    showWindow();
+                    win.webContents.send("server:open-switch");
+                  }
+                },
+              },
               { type: "separator" as const },
               { role: "services" as const, label: "服务" },
               { type: "separator" as const },
@@ -680,7 +690,33 @@ function setupAppMenu(): void {
             ],
           },
         ]
-      : []),
+      : [
+          {
+            label: "文件",
+            submenu: [
+              { label: "首选项 / 个人设置", accelerator: "Ctrl+,", click: () => void navigateApp("/profile") },
+              {
+                label: "切换服务器...",
+                accelerator: "Ctrl+Alt+S",
+                click: () => {
+                  if (win && !win.isDestroyed()) {
+                    showWindow();
+                    win.webContents.send("server:open-switch");
+                  }
+                },
+              },
+              { type: "separator" as const },
+              {
+                label: "退出 Memento",
+                accelerator: "Ctrl+Q",
+                click: () => {
+                  quitting = true;
+                  app.quit();
+                },
+              },
+            ],
+          },
+        ]),
     {
       label: "编辑",
       submenu: [
@@ -823,6 +859,15 @@ function refreshTray(): void {
         click: () => void daemon.call("POST", "/sync-profile").catch(() => {}),
       },
       { type: "separator" },
+      {
+        label: "切换服务器...",
+        click: () => {
+          if (win && !win.isDestroyed()) {
+            showWindow();
+            win.webContents.send("server:open-switch");
+          }
+        },
+      },
       {
         label: "开机自动启动",
         type: "checkbox",
@@ -1048,6 +1093,76 @@ function setupIpc(): void {
       return true;
     }
     return false;
+  });
+  ipcMain.handle("server:get", () => ({
+    current: config?.serverUrl || "https://mem.ihasy.com",
+    webUrl: config?.webUrl,
+    defaultUrl: "https://mem.ihasy.com",
+  }));
+  ipcMain.handle("server:test", async (_e, url: unknown) => {
+    if (typeof url !== "string") return { ok: false, latencyMs: 0, error: "无效的 URL" };
+    const clean = url.trim().replace(/\/+$/, "");
+    const start = Date.now();
+    try {
+      const res = await net.fetch(`${clean}/api/public/stats`, {
+        method: "GET",
+        signal: AbortSignal.timeout(5000),
+      }).catch(async () => {
+        return await net.fetch(`${clean}/`, {
+          method: "GET",
+          signal: AbortSignal.timeout(5000),
+        });
+      });
+      const latencyMs = Date.now() - start;
+      return { ok: res.ok || res.status < 500, latencyMs, status: res.status };
+    } catch (err: unknown) {
+      const latencyMs = Date.now() - start;
+      const errorMsg = err instanceof Error ? err.message : "连接失败或超时";
+      return { ok: false, latencyMs, error: errorMsg };
+    }
+  });
+  ipcMain.handle("server:set", async (_e, options: unknown) => {
+    const opt = options as { url?: string; resetAuth?: boolean } | undefined;
+    if (!opt?.url || typeof opt.url !== "string") {
+      return { ok: false, error: "无效的服务器地址" };
+    }
+    const cleanUrl = opt.url.trim().replace(/\/+$/, "");
+    if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+      return { ok: false, error: "服务器地址必须以 http:// 或 https:// 开头" };
+    }
+
+    config.serverUrl = cleanUrl;
+    config.webUrl = cleanUrl;
+    if (opt.resetAuth) {
+      config.token = "";
+    }
+    await saveConfig(config);
+
+    try {
+      if (daemon.mode === "running" || daemon.mode === "starting") {
+        await daemon.stop();
+      }
+      if (config.token) {
+        await daemon.start();
+      } else {
+        daemon.mode = "no-token";
+      }
+    } catch (err) {
+      console.warn("Daemon restart on server switch error:", err);
+    }
+    refreshTray();
+
+    if (win && !win.isDestroyed()) {
+      try {
+        if (opt.resetAuth) {
+          await win.webContents.session.clearStorageData({
+            storages: ["cookies", "localstorage"],
+          });
+        }
+      } catch {}
+      await loadApp("/");
+    }
+    return { ok: true };
   });
   ipcMain.handle("shell:open-external", (_e, url: unknown) => {
     if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("mailto:"))) {

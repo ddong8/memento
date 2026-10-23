@@ -12,6 +12,7 @@ import { AuroraBackdrop } from "@/components/aurora/AuroraBackdrop";
 import CommandPalette from "@/components/CommandPalette";
 import ActiveRunsMonitor from "@/components/agent/ActiveRunsMonitor";
 import TopProgressBar from "@/components/layout/TopProgressBar";
+import ServerSwitchModal from "@/components/server/ServerSwitchModal";
 
 /** Detect the best initial locale: user's saved choice → browser preference → zh-CN default. */
 function detectInitialLocale(): Locale {
@@ -237,12 +238,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const isSharePage = pathname.startsWith("/s/") || pathname === "/s";
 
   if (isLanding || isSharePage || loading || !token) {
-    return <main className="min-h-screen">{children}</main>;
+    return (
+      <>
+        <ServerSwitchModal />
+        <main className="min-h-screen">{children}</main>
+      </>
+    );
   }
 
   return (
     <SidebarProvider>
       <DeviceProvider>
+        <ServerSwitchModal />
         {/* Global Cmd/Ctrl+K search. Inside DeviceProvider (it reads the device
             filter) and inside the authed branch, so it never mounts on the
             landing or public share pages. */}

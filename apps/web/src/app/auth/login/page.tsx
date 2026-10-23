@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, GhostInput } from "@/components/aurora/primitives";
+import { getApiBase, openServerSwitchModal } from "@/lib/api-client";
+import { desktop } from "@/lib/desktop";
 import { GithubLoginSection, useGithubEnabled, useOauthErrorMessage } from "../github-login";
 import { WechatLoginSection, WechatMark } from "../wechat-login";
 
@@ -15,11 +17,29 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [currentServer, setCurrentServer] = useState<string>("");
   const { login, token, loading } = useAuth();
   const { t } = useI18n();
   const router = useRouter();
   const githubEnabled = useGithubEnabled();
   const oauthError = useOauthErrorMessage();
+
+  useEffect(() => {
+    const initServer = async () => {
+      const d = desktop();
+      if (d?.server?.get) {
+        try {
+          const info = await d.server.get();
+          if (info.current) {
+            setCurrentServer(info.current.replace(/\/+$/, ""));
+            return;
+          }
+        } catch {}
+      }
+      setCurrentServer(getApiBase().replace(/\/+$/, ""));
+    };
+    void initServer();
+  }, []);
 
   // Auto-redirect if already authenticated
   useEffect(() => {
@@ -223,6 +243,30 @@ export default function LoginPage() {
             技术支持
           </Link>
         </p>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--aurora-border)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "var(--aurora-fg4)" }}>
+          <Icon name="server" size={13} style={{ color: "var(--aurora-fg3)" }} />
+          <span>服务器:</span>
+          <span style={{ color: "var(--aurora-fg2)", fontFamily: "monospace", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {currentServer || "..."}
+          </span>
+          <button
+            type="button"
+            onClick={() => openServerSwitchModal()}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--aurora-accent)",
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: "pointer",
+              padding: "0 2px",
+              textDecoration: "underline",
+            }}
+          >
+            切换
+          </button>
+        </div>
       </Glass>
     </div>
   );

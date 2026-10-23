@@ -1081,6 +1081,36 @@ const enUS: Translations = {
     file_history: "File History",
     state: "State",
   },
+
+  // Server Switcher
+  serverSwitch: {
+    title: "Switch Server",
+    subtitle: "Connect to official cloud, local dev, or private server",
+    currentServer: "Current Server",
+    officialCloud: "Official Cloud",
+    officialCloudDesc: "Memento multi-region cloud service with auto-sync and AI reasoning",
+    localDev: "Local Dev Server",
+    localDevDesc: "Local development environment (http://localhost:8001)",
+    customServer: "Custom Server",
+    customServerDesc: "Enter self-hosted or private Memento server address",
+    serverUrlPlaceholder: "https://your-server.com or http://localhost:8001",
+    ping: "Ping",
+    pinging: "Pinging...",
+    switchToThis: "Switch & Connect",
+    switching: "Switching...",
+    clearAuth: "Clear existing credentials on switch (prevent auth conflicts)",
+    history: "Recent Servers",
+    noHistory: "No recent server history",
+    clearHistory: "Clear History",
+    remove: "Remove",
+    connected: "Connected",
+    connecting: "Connecting...",
+    connectSuccess: "Connected successfully",
+    connectFailed: "Cannot connect to server",
+    invalidUrl: "Please enter a valid URL starting with http:// or https://",
+    currentActive: "Active",
+    latency: "Latency",
+  },
 };
 
 export default enUS;

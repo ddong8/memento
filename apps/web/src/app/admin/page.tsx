@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useI18n, fmt } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph } from "@/components/aurora/Icon";
-import { Btn, Chip, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
+import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
 import { TokenDisplay } from "@/components/TokenDisplay";
 
 // ──────────────────────────────────────────────────────────────────────────

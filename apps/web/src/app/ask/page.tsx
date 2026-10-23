@@ -1,19 +1,19 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AskConversationDetail, type AgentQuotasResponse, type ProjectDevice } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
-import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primitives";
+import { Btn, Glass } from "@/components/aurora/primitives";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { directConnect } from "@/lib/direct-connect";
-import MarkdownViewer, { stripTransientStatusPrefix } from "@/components/viewers/MarkdownViewer";
+import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
-import { ExecutionTabs, ToolCallItem } from "@/components/ExecutionCard";
+import { ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
 
 const MediaInspectorPanel = dynamic(

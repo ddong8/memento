@@ -18,7 +18,7 @@ const cleanupAndExit = async (sig) => {
   // memento's gateway outlives this process: tell it to stop the session as well.
   if (activeCancel) {
     try {
-      await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+      await Promise.race([activeCancel().catch(() => {}), new Promise((r) => setTimeout(r, 1000))]);
     } catch {}
   }
   process.exit(130);

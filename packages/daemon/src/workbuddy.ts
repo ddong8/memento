@@ -387,8 +387,7 @@ export async function ensureWorkbuddyGateway(
  * Cancels an active session on WorkBuddy gateway.
  * Directly called by daemon upon task cancellation so that abort doesn't depend on a dying child process.
  */
-export async function cancelWorkbuddySession(sessionId: string, home = homeDir()): Promise<boolean> {
-  if (!sessionId) return false;
+export async function cancelWorkbuddySession(sessionId?: string, home = homeDir()): Promise<boolean> {
   try {
     const managed = await readGatewayFile(home);
     let endpoint = "";
@@ -404,10 +403,14 @@ export async function cancelWorkbuddySession(sessionId: string, home = homeDir()
     }
     if (!endpoint) return false;
 
-    // Connect to obtain connectionId
+    // Connect to obtain connectionId (WorkBuddy ACP requires Accept header)
     const connRes = await fetch(`${endpoint}/api/v1/acp/connect`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...authHeaders,
+      },
       signal: AbortSignal.timeout(1500),
     }).catch(() => null);
     const connData = (await connRes?.json().catch(() => null)) as { connectionId?: string } | null;
@@ -415,9 +418,27 @@ export async function cancelWorkbuddySession(sessionId: string, home = homeDir()
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
       ...authHeaders,
       ...(connId ? { "acp-connection-id": connId } : {}),
     };
+
+    // WorkBuddy ACP protocol requires initialize handshake on new connections before accepting RPCs
+    await fetch(`${endpoint}/api/v1/acp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: 1,
+          clientInfo: { name: "memento", version: "1.0.71" },
+          clientCapabilities: {},
+        },
+      }),
+      signal: AbortSignal.timeout(1500),
+    }).catch(() => null);
 
     const res = await fetch(`${endpoint}/api/v1/acp`, {
       method: "POST",
@@ -425,7 +446,7 @@ export async function cancelWorkbuddySession(sessionId: string, home = homeDir()
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "session/cancel",
-        params: { sessionId },
+        params: sessionId ? { sessionId } : {},
       }),
       signal: AbortSignal.timeout(2000),
     }).catch(() => null);
@@ -434,4 +455,30 @@ export async function cancelWorkbuddySession(sessionId: string, home = homeDir()
   } catch {
     return false;
   }
+}
+
+/**
+ * Stops memento's managed WorkBuddy gateway process so that any hung inference,
+ * child tools, or background processes are immediately and completely terminated.
+ */
+export async function stopWorkbuddyGateway(home = homeDir()): Promise<void> {
+  const file = workbuddyGatewayFile(home);
+  try {
+    const gw = await readGatewayFile(home);
+    if (gw?.pid && pidAlive(gw.pid)) {
+      try {
+        process.kill(gw.pid, "SIGTERM");
+      } catch {}
+      await new Promise((r) => setTimeout(r, 200));
+      if (pidAlive(gw.pid)) {
+        try {
+          process.kill(gw.pid, "SIGKILL");
+        } catch {}
+      }
+    }
+  } catch {}
+  try {
+    const { rm } = await import("node:fs/promises");
+    await rm(file, { force: true });
+  } catch {}
 }

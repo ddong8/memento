@@ -601,8 +601,10 @@ class AskRunRegistry:
             from datetime import datetime, timezone
 
             cancelled_task_ids = set()
+            target_devices = set()
             if active_did and active_tid:
                 cancelled_task_ids.add(str(active_tid))
+                target_devices.add(active_did)
                 await ws_manager.send_cancel(active_did, str(active_tid))
 
             async with async_session_factory() as db:
@@ -622,12 +624,17 @@ class AskRunRegistry:
                     if conv_match or t_id_str == active_tid:
                         t.status = "cancelled"
                         t.finished_at = datetime.now(timezone.utc)
+                        target_devices.add(t.device_id)
                         if t_id_str not in cancelled_task_ids:
                             cancelled_task_ids.add(t_id_str)
                             await ws_manager.send_cancel(t.device_id, t_id_str)
                 await db.commit()
-                if cancelled_task_ids:
-                    logger.info("Successfully cancelled associated device tasks for conv %s: %s", conversation_id, cancelled_task_ids)
+
+            for did in target_devices:
+                await ws_manager.send_agent_kill(did, tool="all")
+
+            if cancelled_task_ids:
+                logger.info("Successfully cancelled associated device tasks for conv %s: %s", conversation_id, cancelled_task_ids)
         except Exception as e:
             logger.warning("Failed to cancel associated device tasks: %s", e)
 

@@ -9,7 +9,7 @@ import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
-import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
+import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway, stopWorkbuddyGateway } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -327,10 +327,15 @@ export class TaskRunner {
     this.claudeTasks.delete(taskId);
 
     const sessionInfo = this.taskSessions.get(taskId);
-    if (sessionInfo && (sessionInfo.binary.includes("workbuddy") || sessionInfo.binary.includes("codebuddy")) && sessionInfo.sessionId) {
-      this.log(`Proactively cancelling WorkBuddy session ${sessionInfo.sessionId} for task ${taskId}`);
+    const isWb = sessionInfo && (sessionInfo.binary.includes("workbuddy") || sessionInfo.binary.includes("codebuddy"));
+    if (isWb) {
+      this.log(`Proactively cancelling WorkBuddy session ${sessionInfo.sessionId ?? "(unbound)"} for task ${taskId}`);
       void cancelWorkbuddySession(sessionInfo.sessionId).catch((err) =>
         this.log(`Failed to proactively cancel WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`),
+      );
+      // Hard stop the WorkBuddy gateway process to guarantee all in-flight inference, tool loops and child processes die
+      void stopWorkbuddyGateway().catch((err) =>
+        this.log(`Failed to stop WorkBuddy gateway on cancel: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
 
@@ -360,6 +365,10 @@ export class TaskRunner {
       if (proc.pid) killedPids.push(proc.pid);
     }
 
+    if (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) {
+      await stopWorkbuddyGateway().catch(() => {});
+    }
+
     // 2. Discover OS-level orphan / external agent processes
     try {
       const isWin = process.platform === "win32";
@@ -386,12 +395,12 @@ export class TaskRunner {
           if ((t === "all" || t.includes("codex")) && (cmd.includes("@openai/codex") || cmd.includes("codex-cli"))) {
             shouldKill = true;
           }
-          // Not the CLI the WorkBuddy app runs for its own conversations, nor memento's gateway on it
-          // (codebuddy-lite-wb.mjs): stopping memento's runner already cancels its session there.
           if (
             (t === "all" || t.includes("workbuddy") || t.includes("codebuddy")) &&
-            !cmd.includes("codebuddy-lite-wb.mjs") &&
-            (cmd.includes("workbuddy_cli.mjs") || cmd.includes("codebuddy") || cmd.includes("@tencent-ai/codebuddy-code"))
+            (cmd.includes("workbuddy_cli.mjs") ||
+              cmd.includes("codebuddy-lite-wb.mjs") ||
+              cmd.includes("codebuddy") ||
+              cmd.includes("@tencent-ai/codebuddy-code"))
           ) {
             shouldKill = true;
           }
@@ -576,6 +585,11 @@ export class TaskRunner {
     } else {
       createInterface({ input: proc.stdout, crlfDelay: Infinity }).on("line", (line) => {
         armTimer();
+        const m = /session id:\s*([^\s\r\n]+)/i.exec(line);
+        if (m && m[1]) {
+          const sess = this.taskSessions.get(taskId);
+          if (sess) sess.sessionId = m[1];
+        }
         const events = parser.feed(line);
         if (events === null) {
           if (!line.trim()) {
@@ -616,7 +630,7 @@ export class TaskRunner {
     proc.stderr.on("data", (text: string) => {
       armTimer();
       out.stderr += text;
-      const m = /session id:\s*([0-9a-fA-F-]+)/i.exec(text);
+      const m = /session id:\s*([^\s\r\n]+)/i.exec(text);
       if (m && m[1]) {
         const sess = this.taskSessions.get(taskId);
         if (sess) sess.sessionId = m[1];

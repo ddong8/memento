@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory
 from .guidance_service import score, terms_for
-from .profile_service import get_published_profile, split_profile_scopes
+from .profile_service import get_published_profile, get_published_profile_content, split_profile_scopes
 
 logger = logging.getLogger("server.mind_resonance")
 
@@ -98,7 +98,8 @@ async def _fetch_scoped_and_general_rules(
     try:
         prof = await get_published_profile(db, user)
         if prof and prof.content:
-            scopes = split_profile_scopes(prof.content)
+            prof_content = prof.content
+            scopes = split_profile_scopes(prof_content)
             target_proj = (project or "").strip().lower()
             if not target_proj:
                 if scenario["id"] == "chemistry_pubchem":
@@ -116,7 +117,7 @@ async def _fetch_scoped_and_general_rules(
                 # Fallback: scan markdown headings (e.g. #### memento or ### pubchem)
                 if not scoped_rules:
                     in_target = False
-                    for line in prof.content.splitlines():
+                    for line in prof_content.splitlines():
                         h_match = re.match(r"^#{2,4}\s+([a-zA-Z0-9_\-\u4e00-\u9fa5]+)", line.strip())
                         if h_match:
                             h_name = h_match.group(1).lower()

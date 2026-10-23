@@ -248,6 +248,27 @@ async def get_published_profile(db: AsyncSession, user: User) -> UserProfile | N
     )).scalar_one_or_none()
 
 
+async def get_published_profile_content(db: AsyncSession, user: User) -> str | None:
+    """Fast-path cached content of the published resident profile for LLM prompt generation."""
+    try:
+        from .cache import cache_get, cache_set
+        cache_key = f"profile_content:{user.id}"
+        cached = await cache_get(cache_key)
+        if isinstance(cached, dict) and "content" in cached:
+            return cached["content"] if cached["content"] else None
+    except Exception:
+        pass
+
+    prof = await get_published_profile(db, user)
+    content = prof.content.strip() if prof and prof.content and prof.content.strip() else ""
+    try:
+        from .cache import cache_set
+        await cache_set(f"profile_content:{user.id}", {"content": content}, ttl_seconds=3600)
+    except Exception:
+        pass
+    return content if content else None
+
+
 async def get_draft_profile(db: AsyncSession, user: User) -> UserProfile | None:
     return (await db.execute(
         select(UserProfile)
@@ -285,6 +306,7 @@ async def publish_profile(db: AsyncSession, user: User, content: str) -> UserPro
         from .cache import cache_delete_prefix
         await cache_delete_prefix(f"memory:resonance:{user.id}")
         await cache_delete_prefix(f"learning:check:{user.id}")
+        await cache_delete_prefix(f"profile_content:{user.id}")
     except Exception as e:
         logger.warning("Failed to invalidate resonance cache on publish_profile: %s", e)
     return profile

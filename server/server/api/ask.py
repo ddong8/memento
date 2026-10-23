@@ -312,10 +312,9 @@ async def ask(
         limit=12,
     )
 
-    # 1. Fetch published resident profile (About Me & core rules)
-    from ..services.profile_service import get_published_profile
-    prof = await get_published_profile(db, _user)
-    user_prof_content = prof.content.strip() if prof and (prof.content or "").strip() else None
+    # 1. Fetch published resident profile (About Me & core rules) with Redis fast-path
+    from ..services.profile_service import get_published_profile_content
+    user_prof_content = await get_published_profile_content(db, _user)
 
     # 2. Fetch guidance (pitfalls, rules, verified skills)
     from ..services.guidance_service import guidance_for

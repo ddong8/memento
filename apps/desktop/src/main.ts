@@ -282,8 +282,8 @@ function toggleButlerWindow(): void {
     win.webContents.executeJavaScript(`(() => {
       const focusPrompt = () => {
         const input = document.querySelector('textarea, input[type="text"]');
-        if (input && typeof (input as any).focus === "function") {
-          (input as any).focus();
+        if (input && typeof input.focus === "function") {
+          input.focus();
           return true;
         }
         return false;

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory
 from .guidance_service import score, terms_for
-from .profile_service import get_published_profile, get_published_profile_content, split_profile_scopes
+from .profile_service import get_published_profile, split_profile_scopes
 
 logger = logging.getLogger("server.mind_resonance")
 

@@ -100,11 +100,15 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
     try {
       // 1. 样式转换与微信特化内联
       setStepStatus("正在进行微信专属排版与内联样式编译...");
+      const normalizedMarkdown = markdown
+        .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)")
+        .replace(/\(\/article\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)");
+
       const convertRes = await fetch(`${WX_API_BASE}/api/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          markdown,
+          markdown: normalizedMarkdown,
           themeId,
           extractLinks: true,
         }),

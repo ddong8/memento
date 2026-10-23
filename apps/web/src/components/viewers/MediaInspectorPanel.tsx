@@ -514,6 +514,13 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
     try {
       const saved = localStorage.getItem(`memento_draft_${safeDecodePath(item.url)}`);
       if (saved && saved !== content && saved.length > 20) {
+        // 若最新文档包含配图而本地缓存草稿缺少配图，优先保留最新配图版本并清理过期缓存
+        const currentHasImages = /!\[.*?\]\(.*?(?:memento_|article\/).*?\)/.test(content);
+        const savedHasImages = /!\[.*?\]\(.*?(?:memento_|article\/).*?\)/.test(saved);
+        if (currentHasImages && !savedHasImages) {
+          localStorage.removeItem(`memento_draft_${safeDecodePath(item.url)}`);
+          return;
+        }
         setContent(saved);
         showInAppToast("已载入本地草稿", "已为您自动恢复上次编辑的润色版本");
       }
@@ -698,10 +705,13 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const handleCopyRichText = async () => {
     try {
       setCopyingRich(true);
+      const normalizedContent = content
+        .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)")
+        .replace(/\(\/article\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)");
       const res = await fetch("https://wx.ihasy.com/api/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: content, themeId, extractLinks: true }),
+        body: JSON.stringify({ markdown: normalizedContent, themeId, extractLinks: true }),
       });
       const data = await res.json();
       if (data.success && data.html) {

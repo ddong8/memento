@@ -3,7 +3,7 @@
 > 💡 真正的个人专属 AI，绝不该在你关闭窗口的那一刻，就彻底遗忘与你共度的一切。
 > 当所有的工具都在教你怎么写 Prompt，真正决定你生产力上限的，是你与 AI 共同沉淀的专属认知资产。
 
-![Memento 个人数字心智孪生体](assets/memento_hero_cover.png)
+![Memento 个人数字心智孪生体](https://mem.ihasy.com/article/memento_hero_cover.png)
 
 ---
 
@@ -32,7 +32,7 @@
 
 如果 AI 工具永远处于「阅后即焚」的失忆状态，它就永远只是一个冷冰冰的代码打字机，无法成为你的个人心智延伸。
 
-![传统失忆对话框 vs Memento 终身心智孪生体](assets/memento_memory_contrast.png)
+![传统失忆对话框 vs Memento 终身心智孪生体](https://mem.ihasy.com/article/memento_memory_contrast.png)
 
 ---
 
@@ -68,7 +68,7 @@ Memento 不是又一个简单的套壳对话框，而是一个真正驻留在你
 
 通用大模型之所以常常产生混乱或遗忘，是因为它们缺乏人类大脑最核心的昼夜节律与深度睡眠重构机制。Memento 拥有完整的 24 小时仿生作息节律：
 
-![24 小时昼夜仿生节律流](assets/memento_circadian_cycle.png)
+![24 小时昼夜仿生节律流](https://mem.ihasy.com/article/memento_circadian_cycle.png)
 
 > ☀️ **08:30 · 晨光初醒（跨端晨报唤醒）**  
 > 提炼昨夜梦境沉淀成果，结合今日待办，在手机与桌面推送今日智能晨报。
@@ -99,7 +99,7 @@ Memento 不是又一个简单的套壳对话框，而是一个真正驻留在你
 
 很多开发者担心记忆多了之后模型会产生混淆。Memento 构筑了严格的三层立体认知阶梯，兼顾毫秒级响应与超高准确度：
 
-![三层立体认知阶梯与防踩坑加权](assets/memento_three_tier_architecture.png)
+![三层立体认知阶梯与防踩坑加权](https://mem.ihasy.com/article/memento_three_tier_architecture.png)
 
 > 🎯 **L1 动态即时纠偏层（最高裁决权）**  
 > 实时捕捉你在当前会话中的纠正指令与即时偏好，拥有瞬时最高裁决优先级。
@@ -128,7 +128,7 @@ Memento 不是又一个简单的套壳对话框，而是一个真正驻留在你
 ### 4) 沉浸式独立工作台与一键直推微信公众号
 研报或推文生成后，点击右侧展开独立工作台。自由在「排版预览」与「编辑润色」间无缝切换，实时统计字数与预计阅读时间。推敲满意后，点击「推送到公众号草稿」，全自动完成内联 CSS 编译、图片防盗链转存与 Media ID 交换，数秒内直达微信公众号官方后台。
 
-![全端灵动感知与沉浸式独立工作台](assets/memento_cross_device_workbench.png)
+![全端灵动感知与沉浸式独立工作台](https://mem.ihasy.com/article/memento_cross_device_workbench.png)
 
 ---
 

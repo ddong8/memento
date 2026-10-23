@@ -211,6 +211,24 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
   const decoded = safeDecodePath(rawUrl.trim());
   const filename = getFilenameFromUrl(decoded);
 
+  // Handle relative assets / article paths in markdown articles (e.g. assets/memento_*.png or /article/*.png)
+  if (
+    decoded.startsWith("assets/") ||
+    decoded.startsWith("./assets/") ||
+    decoded.startsWith("../assets/") ||
+    decoded.startsWith("/article/")
+  ) {
+    const assetFilename = getFilenameFromUrl(decoded);
+    const cdnUrl = `https://mem.ihasy.com/article/${encodeURIComponent(assetFilename)}`;
+    return {
+      playUrl: cdnUrl,
+      downloadUrl: cdnUrl,
+      localPath: null,
+      filename: assetFilename,
+      isLocal: false,
+    };
+  }
+
   if (isLocalFilePath(decoded)) {
     let clean = decoded.replace(/^file:\/\//, "");
     if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {

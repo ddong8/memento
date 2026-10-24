@@ -1337,11 +1337,9 @@ async def get_project_conversations(
             needed_ids.append(child.id)
     msgs_by_doc: dict = {}
     if needed_ids:
-        msg_order = (
-            ConversationMessage.line_number.desc()
-            if order == "desc"
-            else ConversationMessage.line_number.asc()
-        )
+        # Only what's shown: tool calls and outputs (role "tool") are ~60% of the rows and most of the
+        # text, and reading then sorting them all spilled 70+ MB to temp files per call. The order is
+        # applied below in Python, which needs no temp files.
         msg_q = (
             select(
                 ConversationMessage.document_id,
@@ -1353,7 +1351,7 @@ async def get_project_conversations(
                 ConversationMessage.metadata_,
             )
             .where(ConversationMessage.document_id.in_(needed_ids))
-            .order_by(ConversationMessage.document_id, msg_order)
+            .where(ConversationMessage.role.in_(("user", "assistant")))
         )
         if as_of is not None:
             # Either no timestamp recorded (legacy / parser miss — keep
@@ -1364,8 +1362,8 @@ async def get_project_conversations(
                 ConversationMessage.timestamp.is_(None),
                 ConversationMessage.timestamp <= as_of,
             ))
-        rows = await db.execute(msg_q)
-        for did, role, content, mtype, ts, _ln, meta in rows.all():
+        rows = sorted((await db.execute(msg_q)).all(), key=lambda r: (str(r[0]), r[5] or 0), reverse=order == "desc")
+        for did, role, content, mtype, ts, _ln, meta in rows:
             if role not in ("user", "assistant"):
                 continue
             if role == "user" and (

@@ -111,9 +111,24 @@ export function getApiBase(): string {
   return "http://localhost:8001";
 }
 
+/**
+ * Whether a URL is Memento's own (the page's origin or the API's). Only those get the login token: the
+ * workbench also fetches other sites' documents, which must never see it, and whose 401 is not ours.
+ */
+export function isOwnUrl(url: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const origin = new URL(url, window.location.href).origin;
+    return origin === window.location.origin || origin === new URL(getApiBase()).origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Authenticated fetch — wraps native fetch with JWT from localStorage. */
 export function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  const token = _getToken();
+  const own = isOwnUrl(url);
+  const token = own ? _getToken() : null;
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string>),
   };
@@ -121,7 +136,7 @@ export function authFetch(url: string, init?: RequestInit): Promise<Response> {
     headers["Authorization"] = `Bearer ${token}`;
   }
   return fetch(url, { ...init, headers }).then((res) => {
-    if (res.status === 401 && typeof window !== "undefined") {
+    if (res.status === 401 && own && typeof window !== "undefined") {
       const onAuthPage = window.location.pathname.startsWith("/auth/");
       localStorage.removeItem("dr_token");
       if (!onAuthPage) {

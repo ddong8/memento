@@ -29,9 +29,45 @@ import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
 import { WeChatPublishModal } from "./WeChatPublishModal";
-import { getApiBase, authFetch } from "@/lib/api-client";
+import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast } from "@/lib/native-notify";
+
+/**
+ * Another site's document as text. The desktop app reads it in its main process (no CORS); a browser
+ * asks the site itself, without credentials, and when the site doesn't allow that (most don't send
+ * CORS headers) the server fetches it.
+ */
+async function fetchExternalText(url: string): Promise<string> {
+  const d = desktop() as { fetchText?: (u: string) => Promise<{ content?: string; error?: string }> } | null;
+  if (d && typeof d.fetchText === "function") {
+    try {
+      const r = await d.fetchText(url);
+      if (typeof r?.content === "string") return r.content;
+    } catch {
+      // older desktop build or a network error: try the other ways
+    }
+  }
+  try {
+    const res = await fetch(url, { credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(8000) });
+    if (res.ok) return await res.text();
+  } catch {
+    // no CORS headers on that site
+  }
+  const res = await authFetch(`${getApiBase()}/api/documents/proxy-fetch?url=${encodeURIComponent(url)}`);
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail || "";
+    } catch {
+      // not JSON
+    }
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as { content?: string };
+  if (typeof data.content !== "string") throw new Error("文档内容为空");
+  return data.content;
+}
 
 interface MediaInspectorPanelProps {
   /** If provided, custom width for the docked split mode */
@@ -615,27 +651,19 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           }
         }
 
-        // 2. Desktop IPC external text fetch (bypasses browser CORS for remote markdown URLs)
-        if (isExternalHttp) {
-          const d = desktop();
-          if (d && typeof (d as any).fetchText === "function") {
-            try {
-              const ipcRes = await (d as any).fetchText(rawUrl);
-              if (ipcRes && typeof ipcRes.content === "string") {
-                if (active) {
-                  setContent(ipcRes.content);
-                  setOriginalContent(ipcRes.content);
-                  setLoading(false);
-                }
-                return;
-              }
-            } catch (e) {
-              console.warn("[MarkdownDocViewer] desktop fetchText fallback:", e);
-            }
+        const isIntroArticle = filename === "memento_introduction_article.md" || clean.endsWith("memento_introduction_article.md");
+        // 2. Another site's document (an Apple technote, a raw GitHub file …)
+        if (isExternalHttp && !isOwnUrl(rawUrl) && !isIntroArticle) {
+          const text = await fetchExternalText(rawUrl);
+          if (active) {
+            setContent(text);
+            setOriginalContent(text);
+            setLoading(false);
           }
+          return;
         }
 
-        if (filename === "memento_introduction_article.md" || clean.endsWith("memento_introduction_article.md")) {
+        if (isIntroArticle) {
           // 在生产与开发环境下均由静态根路由提供，保证跨平台秒级直达
           fetchUrl = "/article/memento_introduction_article.md";
         }
@@ -649,27 +677,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             res = await fetch(bustUrl, { cache: "no-store" });
           }
         } catch (fetchErr) {
-          // Fallback A: Remote CORS Proxy via server for external HTTP/HTTPS markdown
-          if (isExternalHttp) {
-            try {
-              const apiBase = getApiBase();
-              const proxyUrl = `${apiBase}/api/documents/proxy-fetch?url=${encodeURIComponent(rawUrl)}`;
-              const proxyRes = await authFetch(proxyUrl);
-              if (proxyRes.ok) {
-                const proxyData = await proxyRes.json();
-                if (proxyData?.content && active) {
-                  setContent(proxyData.content);
-                  setOriginalContent(proxyData.content);
-                  setLoading(false);
-                  return;
-                }
-              }
-            } catch (proxyErr) {
-              console.warn("[MarkdownDocViewer] server proxy-fetch failed:", proxyErr);
-            }
-          }
-
-          // Fallback B: Local file relay via device stream API
+          // Fallback: Local file relay via device stream API
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
@@ -686,26 +694,6 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         }
 
         if (!res || !res.ok) {
-          // Secondary fallback for external HTTP / remote proxy
-          if (isExternalHttp) {
-            try {
-              const apiBase = getApiBase();
-              const proxyUrl = `${apiBase}/api/documents/proxy-fetch?url=${encodeURIComponent(rawUrl)}`;
-              const proxyRes = await authFetch(proxyUrl);
-              if (proxyRes.ok) {
-                const proxyData = await proxyRes.json();
-                if (proxyData?.content && active) {
-                  setContent(proxyData.content);
-                  setOriginalContent(proxyData.content);
-                  setLoading(false);
-                  return;
-                }
-              }
-            } catch {
-              // ignore
-            }
-          }
-
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();

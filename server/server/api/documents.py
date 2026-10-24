@@ -43,49 +43,88 @@ async def _get_doc_with_permission(
     return doc
 
 
+_PROXY_MAX_BYTES = 5 * 1024 * 1024
+_PROXY_MAX_REDIRECTS = 5
+_PROXY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "text/markdown, text/plain, text/html, */*",
+}
+
+
+async def _resolve(host: str, port: int) -> list[str]:
+    import asyncio
+    import socket
+
+    infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [info[4][0] for info in infos]
+
+
+async def _public_address(host: str, port: int) -> str:
+    """An address of ``host`` on the public internet. A name that resolves to anything else (a cluster
+    service like ``minio``, the LAN, loopback, link-local metadata) is refused: every address it has."""
+    import ipaddress
+    import socket
+
+    try:
+        addrs = await _resolve(host, port)
+    except socket.gaierror:
+        raise HTTPException(status_code=502, detail=f"无法解析域名 {host}")
+    if not addrs or not all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addrs):
+        raise HTTPException(status_code=403, detail="不允许访问内网地址")
+    return addrs[0]
+
+
 @router.get("/proxy-fetch")
 async def proxy_fetch_document(
     url: str = Query(..., description="External document URL to proxy"),
     user: User = Depends(get_current_user),
 ) -> dict:
     """Proxy fetch an external documentation file (e.g. Apple technotes, GitHub raw, etc.)
-    to bypass browser CORS restrictions and render safely in the workbench inspector."""
-    import ipaddress
+    to bypass browser CORS restrictions and render safely in the workbench inspector.
+
+    Each hop (redirects included) connects to the address that was checked, so a name can't resolve to
+    a public address for the check and to an internal one for the request."""
+    from urllib.parse import urljoin, urlparse
+
     import httpx
-    from urllib.parse import urlparse
 
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise HTTPException(status_code=400, detail="Invalid URL protocol, must be http or https")
-
-    # SSRF protection: reject private/loopback IP addresses
-    hostname = parsed.hostname or ""
-    try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback:
-            raise HTTPException(status_code=403, detail="Access to private network IP is blocked")
-    except ValueError:
-        pass  # hostname is a domain name
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept": "text/markdown, text/plain, text/html, */*",
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code != 200:
-                raise HTTPException(status_code=resp.status_code, detail=f"Remote server returned HTTP {resp.status_code}")
-            # Max 5MB limit
-            content_bytes = resp.content[: 5 * 1024 * 1024]
-            text = content_bytes.decode("utf-8", errors="replace")
-            return {
-                "url": url,
-                "content": text,
-                "content_type": resp.headers.get("content-type", "text/markdown"),
-            }
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch remote document: {str(e)}")
+    current = url.strip()
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        for _ in range(_PROXY_MAX_REDIRECTS + 1):
+            parsed = urlparse(current)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                raise HTTPException(status_code=400, detail="只支持 http / https 地址")
+            if parsed.username or parsed.password:
+                raise HTTPException(status_code=400, detail="地址里不能带用户名密码")
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            ip = await _public_address(parsed.hostname, port)
+            pinned = parsed._replace(netloc=f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}").geturl()
+            host_header = parsed.hostname if parsed.port is None else f"{parsed.hostname}:{parsed.port}"
+            try:
+                async with client.stream(
+                    "GET", pinned, headers={**_PROXY_HEADERS, "Host": host_header},
+                    extensions={"sni_hostname": parsed.hostname},
+                ) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        current = urljoin(current, resp.headers["location"])
+                        continue
+                    if resp.status_code != 200:
+                        # Never passed through as is: a 401 from that site would log the user out here
+                        raise HTTPException(status_code=502, detail=f"对方网站返回 HTTP {resp.status_code}")
+                    body = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) >= _PROXY_MAX_BYTES:
+                            del body[_PROXY_MAX_BYTES:]
+                            break
+                    return {
+                        "url": current,
+                        "content": body.decode("utf-8", errors="replace"),
+                        "content_type": resp.headers.get("content-type", "text/markdown"),
+                    }
+            except httpx.RequestError as e:
+                raise HTTPException(status_code=502, detail=f"读取对方网站失败：{e}")
+    raise HTTPException(status_code=502, detail="重定向次数过多")
 
 
 @router.get("/{doc_id}")

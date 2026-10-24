@@ -720,7 +720,8 @@ export class TaskRunner {
       if (isWorkbuddy) {
         await ensureWorkbuddyCliInstalled();
         // WorkBuddy ≥ 5.8 has no gateway of its own any more: the runner uses the one memento serves.
-        await ensureWorkbuddyGateway().catch((err) =>
+        const busy = [...this.taskSessions].some(([id, s]) => id !== taskId && /workbuddy|codebuddy/.test(s.binary));
+        await ensureWorkbuddyGateway(undefined, { busy }).catch((err) =>
           this.log(`WorkBuddy gateway failed to start: ${err instanceof Error ? err.message : String(err)}`),
         );
       }

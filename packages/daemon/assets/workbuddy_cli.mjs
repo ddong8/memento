@@ -121,6 +121,8 @@ function mementoGateway(home) {
       return {
         endpoint: raw.endpoint.replace(/\/+$/, ""),
         authHeaders: { Authorization: `Bearer ${raw.password}`, "x-codebuddy-request": "1" },
+        // It saves the login in a credential file of its own, so signing in once lasts across restarts.
+        keepsLogin: raw.credentials === "own-file",
       };
     }
   } catch {
@@ -133,7 +135,7 @@ async function discoverGateway(home) {
   const managed = mementoGateway(home);
   if (managed) {
     const ok = await probeEndpoint(managed.endpoint, managed.authHeaders);
-    if (ok) return ok;
+    if (ok) return { ...ok, keepsLogin: managed.keepsLogin };
   }
   const candidates = [];
   const lgState = join(home, ".workbuddy", "local-gateway", "state.json");
@@ -270,7 +272,9 @@ async function signIn(gw) {
   process.stdout.write(
     `\n🔐 WorkBuddy 需要登录一次：新版 WorkBuddy（5.8 起）不再允许其他程序沿用桌面端的登录。\n` +
       `已在这台设备的浏览器打开登录页，浏览器里已登录 WorkBuddy 时会自动完成；也可以在手机上打开下面的链接登录。` +
-      `登录后任务会自动继续（${minutes} 分钟内有效；设备重启后需要重新登录）：\n\n${authUrl}\n\n`,
+      (gw.keepsLogin
+        ? `登录后任务会自动继续（${minutes} 分钟内有效）。登录会保存在这台设备上，之后 Memento 或电脑重启都不用再登录：\n\n${authUrl}\n\n`
+        : `登录后任务会自动继续（${minutes} 分钟内有效；设备重启后需要重新登录）：\n\n${authUrl}\n\n`),
   );
   const deadline = Date.now() + LOGIN_WAIT_MS;
   let lastNote = Date.now();

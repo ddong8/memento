@@ -12,7 +12,10 @@ import {
   ensureWorkbuddyGateway,
   findWorkbuddyLiteCli,
   parseGatewayBanner,
+  WORKBUDDY_GATEWAY_AUTH_ID,
   workbuddyBundledNode,
+  workbuddyCliKeepsOwnLogin,
+  workbuddyGatewayEnv,
   workbuddyGatewayFile,
 } from "../src/workbuddy.js";
 
@@ -76,17 +79,40 @@ describe("WorkBuddy ≥ 5.8 discovery", () => {
   });
 });
 
-/** Stands in for `codebuddy-lite-wb.mjs --serve`: same banner, same password check. */
-async function fakeCli(home: string): Promise<string> {
+/** What the real 5.8.3 bundle contains that lets the gateway keep its login in a file of its own. */
+const OWN_LOGIN_CODE = [
+  'credentialsInMemory(){return"1"===process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY}',
+  "async getAuthSavePath(){let t=this.productManager.configuration.getValue()?.authentication?.id;}",
+  "function readEnvProductAuthId(){for(let t of Oc){}}",
+  'let Oc=["ACC_PRODUCT_CONFIG_V3","ACC_PRODUCT_CONFIG_V2"];',
+  'return"ACC_PRODUCT_CONFIG"===i&&delete n.authentication;',
+].join("\n");
+
+/**
+ * Stands in for `codebuddy-lite-wb.mjs --serve`: same banner, same password check, the account status route.
+ * It writes the environment it got to `env-<pid>.json`; `signed-in` next to it makes it report a login.
+ */
+async function fakeCli(home: string, options: { ownLogin?: boolean } = {}): Promise<string> {
   const fake = join(home, "fake-cli.mjs");
   await writeFile(
     fake,
     `import { createServer } from "node:http";
+import { existsSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+const here = dirname(fileURLToPath(import.meta.url));
 const pw = "pw-" + process.pid;
-if (process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY !== "1" || process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
+if (process.env.CODEBUDDY_FORCE_LITE_WB_BUNDLE !== "1") process.exit(3);
+writeFileSync(join(here, "env-" + process.pid + ".json"), JSON.stringify({
+  inMemory: process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY ?? null,
+  productConfig: process.env.ACC_PRODUCT_CONFIG_V3 ?? null,
+}));
 const server = createServer((req, res) => {
   if (req.headers.authorization !== "Bearer " + pw) { res.statusCode = 401; return res.end(); }
   res.setHeader("Content-Type", "application/json");
+  if (req.url === "/api/v1/auth/account/status") {
+    return res.end(JSON.stringify({ data: { authenticated: existsSync(join(here, "signed-in")) } }));
+  }
   res.end(JSON.stringify({ data: { status: "ok" } }));
 });
 server.listen(0, "127.0.0.1", () => {
@@ -94,9 +120,35 @@ server.listen(0, "127.0.0.1", () => {
   console.log("  \\x1b[2mEndpoint\\x1b[0m    http://127.0.0.1:" + port);
   console.log("  \\x1b[2mPassword\\x1b[0m    " + pw);
 });
+${options.ownLogin === false ? "" : `/*\n${OWN_LOGIN_CODE}\n*/`}
 `,
   );
   return fake;
+}
+
+const envOf = async (home: string, pid: number) =>
+  JSON.parse(await readFile(join(home, `env-${pid}.json`), "utf8")) as { inMemory: string | null; productConfig: string | null };
+
+/** A gateway started the way 1.0.72 to 1.0.79 did: login in memory, recorded as such. */
+async function memoryGateway(home: string, fake: string): Promise<{ pid: number; exited: Promise<unknown> }> {
+  const child = spawn(process.execPath, [fake, "--serve", "--host", "127.0.0.1"], {
+    env: { ...process.env, CODEBUDDY_CREDENTIALS_IN_MEMORY: "1", CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1" },
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  pids.push(child.pid!);
+  let banner = "";
+  await new Promise<void>((resolve) =>
+    child.stdout!.on("data", (c) => {
+      banner += String(c);
+      if (parseGatewayBanner(banner)) resolve();
+    }),
+  );
+  await mkdir(join(home, ".memento"), { recursive: true });
+  await writeFile(
+    workbuddyGatewayFile(home),
+    JSON.stringify({ ...parseGatewayBanner(banner)!, pid: child.pid!, startedAt: Date.now(), entry: fake, credentials: "memory" }),
+  );
+  return { pid: child.pid!, exited: new Promise((r) => child.once("exit", r)) };
 }
 
 describe("memento's WorkBuddy gateway", () => {
@@ -111,39 +163,62 @@ describe("memento's WorkBuddy gateway", () => {
     expect(gw!.password).toBe(`pw-${gw!.pid}`);
 
     const saved = JSON.parse(await readFile(workbuddyGatewayFile(home), "utf8"));
-    expect(saved).toMatchObject({ endpoint: gw!.endpoint, password: gw!.password, pid: gw!.pid });
+    expect(saved).toMatchObject({ endpoint: gw!.endpoint, password: gw!.password, pid: gw!.pid, credentials: "own-file" });
     if (!isWin) expect((await stat(workbuddyGatewayFile(home))).mode & 0o777).toBe(0o600);
+    // The login goes to auth/memento-gateway.info, not the desktop's file, and not just into memory.
+    expect(await envOf(home, gw!.pid)).toEqual({
+      inMemory: null,
+      productConfig: JSON.stringify({ authentication: { id: WORKBUDDY_GATEWAY_AUTH_ID } }),
+    });
 
     const again = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
     expect(again?.pid).toBe(gw!.pid);
   });
 
+  it("keeps the login in memory on a CLI that can't name its own credential file", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home, { ownLogin: false });
+    const gw = await ensureWorkbuddyGateway(home, { cli: { node: process.execPath, entry: fake }, timeoutMs: 15_000 });
+    pids.push(gw!.pid);
+    expect(gw).toMatchObject({ credentials: "memory" });
+    expect(await envOf(home, gw!.pid)).toEqual({ inMemory: "1", productConfig: null });
+  });
+
+  it("moves a memory gateway to its own file only when nobody is signed in and no task is on it", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const old = await memoryGateway(home, fake);
+
+    // Signed in: replacing it would cost the user a login, so it stays until it exits.
+    await writeFile(join(home, "signed-in"), "");
+    expect((await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 }))?.pid).toBe(old.pid);
+    await rm(join(home, "signed-in"));
+    // Another task is on it (maybe waiting for that very login).
+    expect((await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, busy: true }))?.pid).toBe(old.pid);
+
+    const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
+    pids.push(gw!.pid);
+    expect(gw!.pid).not.toBe(old.pid);
+    expect(gw).toMatchObject({ credentials: "own-file" });
+    await old.exited;
+  }, 30_000);
+
   it("replaces a gateway from 1.0.71, which saved the login into the desktop's credential file", async () => {
     const home = await tempHome();
     const fake = await fakeCli(home);
     const cli = { node: process.execPath, entry: fake };
-    const legacy = spawn(process.execPath, [fake, "--serve", "--host", "127.0.0.1"], {
-      env: { ...process.env, CODEBUDDY_CREDENTIALS_IN_MEMORY: "1", CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1" },
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    pids.push(legacy.pid!);
-    let banner = "";
-    await new Promise<void>((resolve) =>
-      legacy.stdout!.on("data", (c) => {
-        banner += String(c);
-        if (parseGatewayBanner(banner)) resolve();
-      }),
-    );
-    const old = { ...parseGatewayBanner(banner)!, pid: legacy.pid!, startedAt: Date.now() };
-    await mkdir(join(home, ".memento"), { recursive: true });
+    const legacy = await memoryGateway(home, fake);
+    const { credentials: _, entry: __, ...old } = JSON.parse(await readFile(workbuddyGatewayFile(home), "utf8"));
     await writeFile(workbuddyGatewayFile(home), JSON.stringify(old));
-    const exited = new Promise((r) => legacy.once("exit", r));
+    // Even while signed in and with other tasks on it: every login it saves signs the desktop app out.
+    await writeFile(join(home, "signed-in"), "");
 
-    const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
+    const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, busy: true });
     pids.push(gw!.pid);
     expect(gw!.pid).not.toBe(legacy.pid);
-    expect(gw).toMatchObject({ credentials: "memory", entry: fake });
-    await exited;
+    expect(gw).toMatchObject({ credentials: "own-file", entry: fake });
+    await legacy.exited;
   }, 20_000);
 
   it.skipIf(isWin)("leaves alone a process that reused a dead gateway's pid", async () => {
@@ -165,6 +240,35 @@ describe("memento's WorkBuddy gateway", () => {
 
   it("returns null when WorkBuddy predates 5.8", async () => {
     expect(await ensureWorkbuddyGateway(await tempHome(), { cli: null })).toBeNull();
+  });
+
+  it("keeps the login in memory when memento inherited WorkBuddy's product config", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    expect(await workbuddyCliKeepsOwnLogin(fake, {})).toBe(true);
+    // The CLI would take the id from these before the one memento sets.
+    expect(await workbuddyCliKeepsOwnLogin(fake, { ACC_PRODUCT_CONFIG_PATH: join(home, "spill.json") })).toBe(false);
+    expect(await workbuddyCliKeepsOwnLogin(fake, { ACC_PRODUCT_CONFIG_V3: "{}" })).toBe(false);
+    expect(await workbuddyCliKeepsOwnLogin(join(home, "missing.mjs"), {})).toBe(false);
+  });
+
+  it("never passes the in-memory switch on when the login has its own file", () => {
+    const env = workbuddyGatewayEnv("/cfg", "own-file", { PATH: "/bin", CODEBUDDY_CREDENTIALS_IN_MEMORY: "1" });
+    expect(env).toEqual({
+      PATH: "/bin",
+      CODEBUDDY_CONFIG_DIR: "/cfg",
+      CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1",
+      SERVER__HOST: "127.0.0.1",
+      ACC_PRODUCT_CONFIG_V3: '{"authentication":{"id":"memento-gateway"}}',
+    });
+    expect(workbuddyGatewayEnv("/cfg", "memory", { PATH: "/bin" })).toMatchObject({ CODEBUDDY_CREDENTIALS_IN_MEMORY: "1" });
+    expect(workbuddyGatewayEnv("/cfg", "memory", { PATH: "/bin" }).ACC_PRODUCT_CONFIG_V3).toBeUndefined();
+  });
+
+  // Catches a WorkBuddy update that changes how the CLI names its credential file (machines with WorkBuddy only).
+  const installed = findWorkbuddyLiteCli();
+  it.skipIf(!installed)("recognises the installed WorkBuddy CLI", async () => {
+    expect(await workbuddyCliKeepsOwnLogin(installed!.entry, {})).toBe(true);
   });
 });
 
@@ -218,7 +322,7 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     await mkdir(join(home, ".memento"), { recursive: true });
     await writeFile(
       join(home, ".memento", "workbuddy-gateway.json"),
-      JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password, pid: process.pid, startedAt: Date.now() }),
+      JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password, pid: process.pid, startedAt: Date.now(), credentials: "own-file" }),
     );
 
     const child = spawn(process.execPath, [RUNNER, "-p", "在吗"], {
@@ -236,6 +340,7 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(stderr).toContain("session id: sess-1");
     expect(code).toBe(0);
     expect(stdout).toContain("https://www.workbuddy.cn/login?platform=workbuddy&state=s");
+    expect(stdout).toContain("之后 Memento 或电脑重启都不用再登录");
     expect(stdout).toContain("WorkBuddy 已登录");
     expect(stdout).toContain("你好，我在");
     expect(seen.filter((m) => m === "session/new")).toHaveLength(2);

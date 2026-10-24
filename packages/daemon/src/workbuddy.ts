@@ -14,9 +14,10 @@ import { homeDir, mementoDir } from "./config.js";
  * Up to 5.7 the desktop app kept such a gateway running (`~/.workbuddy/local-gateway`).
  * 5.8 removed it: each desktop conversation now runs its own CLI, which receives the
  * login over a private channel. So memento serves the gateway itself from the CLI the
- * app bundles (`cli/dist/codebuddy-lite-wb.mjs`), with credentials kept in that
- * process's memory only: it never reads or writes the desktop's credential file, and
- * the user signs in once through a link the task prints (again after a reboot).
+ * app bundles (`cli/dist/codebuddy-lite-wb.mjs`). The user signs in once through a link
+ * the task prints; the gateway keeps that login in a credential file of its own
+ * (`auth/memento-gateway.info`, next to the desktop's `workbuddy-desktop.info`), so it
+ * survives memento and device restarts without ever touching the desktop's login.
  */
 const runnerAsset = () =>
   process.env.MEMENTO_WORKBUDDY_RUNNER || fileURLToPath(new URL("../assets/workbuddy_cli.mjs", import.meta.url));
@@ -31,6 +32,7 @@ const RUNNER_MARKERS = [
   "MEMENTO_GATEWAY_FILE",
   "process.stdin.destroy()",
   "_codebuddy.ai/resolveInterruption",
+  "keepsLogin",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */
@@ -251,8 +253,70 @@ export interface MementoWorkbuddyGateway {
   startedAt: number;
   /** The CLI it runs, to tell it from an unrelated process that later got the same pid. */
   entry?: string;
-  /** "memory" once it keeps the login in memory; gateways from 1.0.71 wrote it into the desktop's credential file. */
-  credentials?: "memory";
+  /**
+   * Where it keeps the login: "own-file" in its own credential file (kept across restarts), "memory" in the
+   * process only (lost when it exits; 1.0.72 to 1.0.79, and CLIs that can't name their own file). Unset on
+   * gateways from 1.0.71, which wrote it into the desktop's credential file.
+   */
+  credentials?: "memory" | "own-file";
+}
+
+/** The `authentication.id` memento's gateway runs under: the CLI names its credential file after it. */
+export const WORKBUDDY_GATEWAY_AUTH_ID = "memento-gateway";
+
+/**
+ * What tells a CLI build names its credential file after the product's `authentication.id` (checked on 5.8.3)
+ * and lets an inline ACC_PRODUCT_CONFIG_V3 set that id: the env config is deep-merged into the product's, so
+ * the rest of it stays as shipped. A build missing any of these keeps the login in memory instead, since
+ * writing it under the default id would sign the desktop app out.
+ */
+const OWN_LOGIN_MARKERS: RegExp[] = [
+  /process\.env\.CODEBUDDY_CREDENTIALS_IN_MEMORY/,
+  /getAuthSavePath\(\)\{let \w+=this\.productManager\.configuration\.getValue\(\)\?\.authentication\?\.id/,
+  /function readEnvProductAuthId\(\)\{for\(let \w+ of \w+\)/,
+  /\["ACC_PRODUCT_CONFIG_V3","ACC_PRODUCT_CONFIG_V2"\]/,
+  /"ACC_PRODUCT_CONFIG"===\w+&&delete \w+\.authentication/,
+];
+
+/** Product config the CLI would take from memento's environment (set when memento itself runs under WorkBuddy). */
+const INHERITED_PRODUCT_CONFIG = ["ACC_PRODUCT_CONFIG_PATH", "ACC_PRODUCT_CONFIG_V3", "ACC_PRODUCT_CONFIG_V2", "ACC_PRODUCT_CONFIG"];
+
+const ownLoginSupport = new Map<string, boolean>();
+
+/** Whether the gateway on this CLI can keep its login in its own credential file (see OWN_LOGIN_MARKERS). */
+export async function workbuddyCliKeepsOwnLogin(entry: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  // Its id would lose to one inherited from WorkBuddy's own product config.
+  if (INHERITED_PRODUCT_CONFIG.some((k) => env[k])) return false;
+  const st = await stat(entry).catch(() => null);
+  if (!st) return false;
+  const key = `${entry}\0${st.mtimeMs}\0${st.size}`;
+  let ok = ownLoginSupport.get(key);
+  if (ok === undefined) {
+    const code = await readFile(entry, "utf8").catch(() => "");
+    ok = OWN_LOGIN_MARKERS.every((m) => m.test(code));
+    ownLoginSupport.set(key, ok);
+  }
+  return ok;
+}
+
+/** The environment the gateway runs with: its CLI config dir, and where it keeps the login. */
+export function workbuddyGatewayEnv(dir: string, credentials: "memory" | "own-file", env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {
+    ...env,
+    CODEBUDDY_CONFIG_DIR: dir,
+    // 5.8 ships only the lite bundle; without this the CLI looks for the removed full one.
+    CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1",
+    SERVER__HOST: "127.0.0.1",
+  };
+  if (credentials === "own-file") {
+    // The login goes to `<CodeBuddyExtension>/Data/Public/auth/<authentication.id>.info` whatever
+    // CODEBUDDY_CONFIG_DIR says; under the default id that is the desktop's own file, and writing it signs the app out.
+    delete out.CODEBUDDY_CREDENTIALS_IN_MEMORY;
+    out.ACC_PRODUCT_CONFIG_V3 = JSON.stringify({ authentication: { id: WORKBUDDY_GATEWAY_AUTH_ID } });
+  } else {
+    out.CODEBUDDY_CREDENTIALS_IN_MEMORY = "1";
+  }
+  return out;
 }
 
 /** Where the runner finds the gateway memento serves (0600, it holds the gateway password). */
@@ -303,7 +367,7 @@ async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | 
         pid: gw.pid,
         startedAt: gw.startedAt ?? 0,
         ...(typeof gw.entry === "string" ? { entry: gw.entry } : {}),
-        ...(gw.credentials === "memory" ? { credentials: "memory" as const } : {}),
+        ...(gw.credentials === "memory" || gw.credentials === "own-file" ? { credentials: gw.credentials } : {}),
       };
     }
   } catch {
@@ -312,7 +376,12 @@ async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | 
   return null;
 }
 
-async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: number): Promise<MementoWorkbuddyGateway> {
+async function startGateway(
+  home: string,
+  cli: WorkbuddyLiteCli,
+  credentials: "memory" | "own-file",
+  timeoutMs: number,
+): Promise<MementoWorkbuddyGateway> {
   const dir = workbuddyCliDir(home);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") await chmod(dir, 0o700);
@@ -323,16 +392,7 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
   try {
     const child = spawn(cli.node, [cli.entry, "--serve", "--host", "127.0.0.1"], {
       cwd: dir,
-      env: {
-        ...process.env,
-        // The CLI saves the login under the user's home (`CodeBuddyExtension/Data/Public/auth/`), the very file
-        // the desktop app signs in with, whatever CODEBUDDY_CONFIG_DIR says: writing it there signs the app out.
-        CODEBUDDY_CREDENTIALS_IN_MEMORY: "1",
-        CODEBUDDY_CONFIG_DIR: dir,
-        // 5.8 ships only the lite bundle; without this the CLI looks for the removed full one.
-        CODEBUDDY_FORCE_LITE_WB_BUNDLE: "1",
-        SERVER__HOST: "127.0.0.1",
-      },
+      env: workbuddyGatewayEnv(dir, credentials),
       detached: true,
       stdio: ["ignore", fd, fd],
       windowsHide: true,
@@ -349,7 +409,7 @@ async function startGateway(home: string, cli: WorkbuddyLiteCli, timeoutMs: numb
     await new Promise((r) => setTimeout(r, 300));
     const banner = parseGatewayBanner(await readFile(logPath, "utf8").catch(() => ""));
     if (banner) {
-      const gw: MementoWorkbuddyGateway = { ...banner, pid, startedAt: Date.now(), entry: cli.entry, credentials: "memory" };
+      const gw: MementoWorkbuddyGateway = { ...banner, pid, startedAt: Date.now(), entry: cli.entry, credentials };
       if (await gatewayHealthy(gw)) {
         const file = workbuddyGatewayFile(home);
         await writeFile(`${file}.tmp`, JSON.stringify(gw), { mode: 0o600 });
@@ -407,25 +467,49 @@ async function killGateway(gw: MementoWorkbuddyGateway, cli: WorkbuddyLiteCli): 
 
 let gatewayStart: Promise<MementoWorkbuddyGateway | null> | null = null;
 
+/** Whether the gateway has a WorkBuddy account signed in (null when it can't tell). */
+async function gatewaySignedIn(gw: MementoWorkbuddyGateway): Promise<boolean | null> {
+  const res = await fetch(`${gw.endpoint}/api/v1/auth/account/status`, {
+    headers: workbuddyGatewayHeaders(gw.password),
+    signal: AbortSignal.timeout(3000),
+  }).catch(() => null);
+  if (!res?.ok) return null;
+  const data = (await res.json().catch(() => null)) as { data?: { authenticated?: unknown } } | null;
+  return typeof data?.data?.authenticated === "boolean" ? data.data.authenticated : null;
+}
+
 /**
  * Makes sure memento's WorkBuddy gateway is running on WorkBuddy ≥ 5.8 and returns it
  * (null when WorkBuddy predates 5.8 or isn't installed). A gateway left by an earlier
- * daemon is reused, so a signed-in session survives memento restarts.
+ * daemon is reused, and a new one picks up the login its predecessor saved.
+ *
+ * `busy`: another task is on the gateway right now, so it must not be restarted just to
+ * move its login out of memory.
  */
 export async function ensureWorkbuddyGateway(
   home = homeDir(),
-  options: { cli?: WorkbuddyLiteCli | null; timeoutMs?: number } = {},
+  options: { cli?: WorkbuddyLiteCli | null; timeoutMs?: number; busy?: boolean } = {},
 ): Promise<MementoWorkbuddyGateway | null> {
   const cli = options.cli === undefined ? findWorkbuddyLiteCli(home) : options.cli;
   if (!cli) return null;
   gatewayStart ??= (async () => {
+    const credentials = (await workbuddyCliKeepsOwnLogin(cli.entry)) ? "own-file" : "memory";
     const existing = await readGatewayFile(home);
     if (existing) {
-      if (existing.credentials === "memory" && (await gatewayHealthy(existing))) return existing;
-      // Hung, or one that saves its login into the desktop's credential file: replace it.
+      if (existing.credentials && (await gatewayHealthy(existing))) {
+        // One holding the login in memory moves to its own file when that loses nothing: no task is on it and
+        // nobody is signed in. A signed-in one stays until it exits; from the next one on, logins are kept.
+        const move =
+          existing.credentials === "memory" &&
+          credentials === "own-file" &&
+          !options.busy &&
+          (await gatewaySignedIn(existing)) === false;
+        if (!move) return existing;
+      }
+      // Hung, one that saves its login into the desktop's credential file, or one moving its login out of memory.
       await killGateway(existing, cli);
     }
-    return startGateway(home, cli, options.timeoutMs ?? 45_000);
+    return startGateway(home, cli, credentials, options.timeoutMs ?? 45_000);
   })().finally(() => {
     gatewayStart = null;
   });

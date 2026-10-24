@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
   openPath: (path: string) => ipcRenderer.invoke("shell:open-path", path),
   showItemInFolder: (path: string) => ipcRenderer.invoke("shell:show-item-in-folder", path),
   readFile: (path: string) => ipcRenderer.invoke("fs:read-file", path),
+  fetchText: (url: string) => ipcRenderer.invoke("net:fetch-text", url),
   toMediaUrl: (path: string) => `memento-media://${path.startsWith("/") ? "" : "/"}${encodeURI(path)}`,
   server: {
     get: () => ipcRenderer.invoke("server:get"),

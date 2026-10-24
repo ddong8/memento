@@ -1257,6 +1257,26 @@ function setupIpc(): void {
       return { error: err?.message || String(err) };
     }
   });
+  handle("net:fetch-text", async (_e, targetUrl: unknown) => {
+    if (typeof targetUrl !== "string" || !/^https?:\/\//i.test(targetUrl)) {
+      return { error: "Invalid URL" };
+    }
+    try {
+      const res = await net.fetch(targetUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+          "Accept": "text/markdown, text/plain, text/html, */*",
+        },
+      });
+      if (!res.ok) {
+        return { error: `HTTP ${res.status}` };
+      }
+      const content = await res.text();
+      return { content };
+    } catch (err: any) {
+      return { error: err?.message || String(err) };
+    }
+  });
 
   const forward = (channel: string) => (payload: unknown) => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);

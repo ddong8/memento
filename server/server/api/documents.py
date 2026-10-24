@@ -43,6 +43,51 @@ async def _get_doc_with_permission(
     return doc
 
 
+@router.get("/proxy-fetch")
+async def proxy_fetch_document(
+    url: str = Query(..., description="External document URL to proxy"),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Proxy fetch an external documentation file (e.g. Apple technotes, GitHub raw, etc.)
+    to bypass browser CORS restrictions and render safely in the workbench inspector."""
+    import ipaddress
+    import httpx
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Invalid URL protocol, must be http or https")
+
+    # SSRF protection: reject private/loopback IP addresses
+    hostname = parsed.hostname or ""
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback:
+            raise HTTPException(status_code=403, detail="Access to private network IP is blocked")
+    except ValueError:
+        pass  # hostname is a domain name
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "text/markdown, text/plain, text/html, */*",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=f"Remote server returned HTTP {resp.status_code}")
+            # Max 5MB limit
+            content_bytes = resp.content[: 5 * 1024 * 1024]
+            text = content_bytes.decode("utf-8", errors="replace")
+            return {
+                "url": url,
+                "content": text,
+                "content_type": resp.headers.get("content-type", "text/markdown"),
+            }
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch remote document: {str(e)}")
+
+
 @router.get("/{doc_id}")
 async def get_document(
     doc_id: uuid.UUID,

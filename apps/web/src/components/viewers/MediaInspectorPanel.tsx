@@ -577,6 +577,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
         const decoded = safeDecodePath(rawUrl);
         const filename = getFilenameFromUrl(decoded);
+        const isExternalHttp = rawUrl.startsWith("http://") || rawUrl.startsWith("https://");
         let fetchUrl = rawUrl;
 
         let clean = "";
@@ -614,6 +615,26 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           }
         }
 
+        // 2. Desktop IPC external text fetch (bypasses browser CORS for remote markdown URLs)
+        if (isExternalHttp) {
+          const d = desktop();
+          if (d && typeof (d as any).fetchText === "function") {
+            try {
+              const ipcRes = await (d as any).fetchText(rawUrl);
+              if (ipcRes && typeof ipcRes.content === "string") {
+                if (active) {
+                  setContent(ipcRes.content);
+                  setOriginalContent(ipcRes.content);
+                  setLoading(false);
+                }
+                return;
+              }
+            } catch (e) {
+              console.warn("[MarkdownDocViewer] desktop fetchText fallback:", e);
+            }
+          }
+        }
+
         if (filename === "memento_introduction_article.md" || clean.endsWith("memento_introduction_article.md")) {
           // 在生产与开发环境下均由静态根路由提供，保证跨平台秒级直达
           fetchUrl = "/article/memento_introduction_article.md";
@@ -628,6 +649,27 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             res = await fetch(bustUrl, { cache: "no-store" });
           }
         } catch (fetchErr) {
+          // Fallback A: Remote CORS Proxy via server for external HTTP/HTTPS markdown
+          if (isExternalHttp) {
+            try {
+              const apiBase = getApiBase();
+              const proxyUrl = `${apiBase}/api/documents/proxy-fetch?url=${encodeURIComponent(rawUrl)}`;
+              const proxyRes = await authFetch(proxyUrl);
+              if (proxyRes.ok) {
+                const proxyData = await proxyRes.json();
+                if (proxyData?.content && active) {
+                  setContent(proxyData.content);
+                  setOriginalContent(proxyData.content);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (proxyErr) {
+              console.warn("[MarkdownDocViewer] server proxy-fetch failed:", proxyErr);
+            }
+          }
+
+          // Fallback B: Local file relay via device stream API
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();
@@ -644,6 +686,26 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         }
 
         if (!res || !res.ok) {
+          // Secondary fallback for external HTTP / remote proxy
+          if (isExternalHttp) {
+            try {
+              const apiBase = getApiBase();
+              const proxyUrl = `${apiBase}/api/documents/proxy-fetch?url=${encodeURIComponent(rawUrl)}`;
+              const proxyRes = await authFetch(proxyUrl);
+              if (proxyRes.ok) {
+                const proxyData = await proxyRes.json();
+                if (proxyData?.content && active) {
+                  setContent(proxyData.content);
+                  setOriginalContent(proxyData.content);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {
+              // ignore
+            }
+          }
+
           if (isLocalFilePath(decoded) && clean) {
             try {
               const apiBase = getApiBase();

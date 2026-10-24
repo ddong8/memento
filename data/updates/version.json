@@ -1,22 +1,22 @@
 {
-  "version": "1.0.74",
-  "title": "Memento v1.0.74",
+  "version": "1.0.75",
+  "title": "Memento v1.0.75",
   "release_notes": "1. 在 Memento 里续接或继续 Claude Code 对话时，命令行里看到的会话名统一用对话标题，不再每轮变化，也不再显示成记忆快照开头\n2. 本机 AI 工具查询核心记忆时不再一次性带上全部避坑记录，回答更快、占用上下文更少",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.74-win-x64.zip",
-      "size": 154654934,
-      "sha256": "60d13e86b8bd90a8c2ec3258143d78585178df152f985431333f3a6de6aa7a77"
+      "asset_name": "Memento-1.0.75-win-x64.zip",
+      "size": 154656040,
+      "sha256": "2c2f4fe255541ab15d9da8f0729ebf20941225184d525586eb7cb251ced8929f"
     },
     "macos": {
-      "asset_name": "Memento-1.0.74-mac-arm64.zip",
-      "size": 128502388,
-      "sha256": "695aad13b4647e4a3d3010c279622354be893db22ef98451eb4bd20c3ffe66ff"
+      "asset_name": "Memento-1.0.75-mac-arm64.zip",
+      "size": 128503829,
+      "sha256": "48929e0c278f6428497a82567ca4f4b605bb44265271018dd485f692125c6dc4"
     },
     "linux": {
-      "asset_name": "Memento-1.0.74-linux-x64.tar.gz",
-      "size": 120530016,
-      "sha256": "9e6fe86aba00ebc666f176887c97977140c44501b220cd2876545c08f213d461"
+      "asset_name": "Memento-1.0.75-linux-x64.tar.gz",
+      "size": 120531261,
+      "sha256": "76b449e20eb5d1140df5ec85a3983f704c5a5388715ffcb889d7911d56d171ae"
     }
   }
 }

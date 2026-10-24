@@ -1,22 +1,22 @@
 {
-  "version": "1.0.79",
-  "title": "Memento v1.0.79",
+  "version": "1.0.80",
+  "title": "Memento v1.0.80",
   "release_notes": "1. WorkBuddy 只需登录一次：登录会保存在这台设备上，之后 Memento 重启、电脑重启都不用再登录，也不会把 WorkBuddy 桌面端挤下线",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.79-win-x64.zip",
-      "size": 157850243,
-      "sha256": "e080e2a9ca4129c088ff43e04c5a944f2eb23942b8355ac554ca1eae8cceddbc"
+      "asset_name": "Memento-1.0.80-win-x64.zip",
+      "size": 157854116,
+      "sha256": "773a01274256f93125668b28aef4328860f93d9364c4637527cd21c528421503"
     },
     "macos": {
-      "asset_name": "Memento-1.0.79-mac-arm64.zip",
-      "size": 132319582,
-      "sha256": "f38efb0c5c830c2f1711ffa0ace32f8dd0ea6377e517d72e22ed250984e09f86"
+      "asset_name": "Memento-1.0.80-mac-arm64.zip",
+      "size": 132323740,
+      "sha256": "9e2e7493022912915e9c30656b60c7c86e8b27945cc6fe167a4596c8de3998f7"
     },
     "linux": {
-      "asset_name": "Memento-1.0.79-linux-x64.tar.gz",
-      "size": 131618340,
-      "sha256": "72ab2e8a313e533a6ca2c5615b330c12f70ad75633b88254fa18e8620ca9495d"
+      "asset_name": "Memento-1.0.80-linux-x64.tar.gz",
+      "size": 131623276,
+      "sha256": "9e3cdebaacbc8b9b89396873f07c0324b58ded2713a6707bd39f45a08262cf5e"
     }
   }
 }

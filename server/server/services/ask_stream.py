@@ -120,12 +120,16 @@ async def direct_agent_stream(
     if compact_mode and session_id and action == "agent":
         try:
             from ..services.session_compactor import build_compacted_continuation
-            comp_res = await build_compacted_continuation(db, session_id, question, recent_turns=6)
+            from ..services.user_filter import user_machine_ids
+            comp_res = await build_compacted_continuation(
+                db, session_id, question, recent_turns=6, machine_ids=await user_machine_ids(db, user),
+            )
             injected_ctx = comp_res.get("injected_context", "")
             if injected_ctx:
                 args["compact_mode"] = True
                 args["parent_session_id"] = session_id
-                args["system_prompt_append"] = injected_ctx
+                # Only in the prompt: it stays in the new session's history, and a copy in the system
+                # prompt as well would send it twice
                 args["prompt"] = f"{injected_ctx}\n\n当前用户指令：\n{question}"
                 args.pop("session_id", None)
                 session_id = None

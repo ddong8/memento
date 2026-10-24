@@ -285,7 +285,10 @@ async def ask(
     if body.compact_mode and body.session_id:
         try:
             from ..services.session_compactor import build_compacted_continuation
-            comp_res = await build_compacted_continuation(db, body.session_id, question, recent_turns=6)
+            from ..services.user_filter import user_machine_ids
+            comp_res = await build_compacted_continuation(
+                db, body.session_id, question, recent_turns=6, machine_ids=await user_machine_ids(db, _user),
+            )
             injected_ctx = comp_res.get("injected_context", "")
             if injected_ctx:
                 question = f"{injected_ctx}\n\n当前用户指令：\n{question}"

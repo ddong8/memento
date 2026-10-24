@@ -279,10 +279,15 @@ async def compact_conversation_session(
 ) -> dict:
     """Generate a sliding-window compacted checkpoint for a session."""
     from ..services.session_compactor import build_compacted_continuation
+    from ..services.user_filter import user_machine_ids
 
     recent = payload.recent_turns if payload else 6
     prompt = payload.new_prompt if payload else ""
-    result = await build_compacted_continuation(db, session_id, prompt, recent_turns=recent)
+    result = await build_compacted_continuation(
+        db, session_id, prompt, recent_turns=recent, machine_ids=await user_machine_ids(db, _user),
+    )
+    if not result["injected_context"]:
+        raise HTTPException(status_code=404, detail="session not found")
     return result
 
 

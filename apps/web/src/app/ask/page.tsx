@@ -4567,7 +4567,7 @@ function AskPageContent() {
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
         <header className="px-2 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
             <Btn
               variant="glass"
               size="sm"
@@ -4579,7 +4579,7 @@ function AskPageContent() {
               title={isZh ? "查看历史对话" : "View history"}
               className="shrink-0"
             >
-              <span className="hidden md:inline">{t.ask.historyTitle}</span>
+              <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
               {conversations.length > 0 && (
                 <span
                   style={{
@@ -4620,10 +4620,16 @@ function AskPageContent() {
                 <span className="flex items-center gap-1 sm:gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                   <span className="font-medium">
-                    <span className="hidden xl:inline">
-                      {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
-                    </span>
-                    <span className="inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
+                    {inspector.isOpen ? (
+                      <span className="hidden 2xl:inline">{isZh ? "工作台" : "Desk"}</span>
+                    ) : (
+                      <>
+                        <span className="hidden xl:inline">
+                          {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
+                        </span>
+                        <span className="hidden md:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
+                      </>
+                    )}
                   </span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
                     {inspector.mediaList.length}
@@ -4693,12 +4699,12 @@ function AskPageContent() {
               title={t.ask.newChat}
               className="shrink-0"
             >
-              <span className="hidden xl:inline">{t.ask.newChat}</span>
+              <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>{t.ask.newChat}</span>
             </Btn>
 
-            {/* 桌面端大屏幕平铺操作按钮 (>= md) */}
-            {activeConversationId && turns.length > 0 && (
-              <div className="hidden md:flex items-center gap-1 sm:gap-1.5">
+            {/* 桌面大屏幕且未展开工作台视窗时平铺操作按钮 (>= xl 屏幕)；工作台开启或中窄屏幕时收纳进更多操作菜单 */}
+            {activeConversationId && turns.length > 0 && !inspector?.isOpen && (
+              <div className="hidden xl:flex items-center gap-1 sm:gap-1.5">
                 <Btn
                   variant={selectTurnsMode ? "primary" : "glass"}
                   size="sm"
@@ -4710,7 +4716,7 @@ function AskPageContent() {
                   title={isZh ? "多选消息/问答分享" : "Select messages to share"}
                   className="shrink-0"
                 >
-                  <span className="hidden xl:inline">{isZh ? "多选" : "Select"}</span>
+                  <span className="hidden 2xl:inline">{isZh ? "多选" : "Select"}</span>
                 </Btn>
                 <Btn
                   variant="glass"
@@ -4720,7 +4726,7 @@ function AskPageContent() {
                   title={isZh ? "导出 Markdown 研报记录" : "Export Markdown report"}
                   className="shrink-0"
                 >
-                  <span className="hidden xl:inline">{isZh ? "导出" : "Export"}</span>
+                  <span className="hidden 2xl:inline">{isZh ? "导出" : "Export"}</span>
                 </Btn>
                 <Btn
                   variant="glass"
@@ -4730,11 +4736,11 @@ function AskPageContent() {
                   title={isZh ? "分享整场对话" : "Share full conversation"}
                   className="shrink-0"
                 >
-                  <span className="hidden xl:inline">{isZh ? "分享" : "Share"}</span>
+                  <span className="hidden 2xl:inline">{isZh ? "分享" : "Share"}</span>
                 </Btn>
               </div>
             )}
-            {turns.length > 0 && (
+            {turns.length > 0 && !inspector?.isOpen && (
               <Btn
                 variant="ghost"
                 size="sm"
@@ -4744,15 +4750,15 @@ function AskPageContent() {
                   abortRef.current?.abort();
                   setTurns([]);
                 }}
-                className="hidden md:inline-flex shrink-0"
+                className="hidden xl:inline-flex shrink-0"
               >
-                <span className="hidden xl:inline">{t.ask.clear}</span>
+                <span className="hidden 2xl:inline">{t.ask.clear}</span>
               </Btn>
             )}
 
-            {/* 移动端折叠更多菜单 (< md 屏幕) */}
+            {/* 折叠更多菜单：工作台开启时常驻收纳；工作台关闭时在移动端与中窄屏幕 (< xl) 收纳 */}
             {turns.length > 0 && (
-              <div className="relative md:hidden shrink-0">
+              <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
                 <Btn
                   variant={selectTurnsMode ? "primary" : "glass"}
                   size="sm"

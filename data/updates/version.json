@@ -1,22 +1,22 @@
 {
-  "version": "1.0.76",
-  "title": "Memento v1.0.76",
+  "version": "1.0.77",
+  "title": "Memento v1.0.77",
   "release_notes": "1. 和服务器在同一个局域网的设备会自动走内网连接，同步和上传不再绕公网，速度快很多；离开家会自动切回公网\n2. 看设备上的视频、大文件时，会优先从设备直接传到你的浏览器（点对点），不经过服务器：同一局域网走内网，在外面有 IPv6 时也能直连，播放器角上会显示“直连”；连不上时自动用原来的方式\n3. 直连途中断开会从当前位置接着用服务器中转播放",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.76-win-x64.zip",
-      "size": 154669903,
-      "sha256": "e898531cad1781d1b276d51a683b950570cdaea360899e491113f8fac05e28c2"
+      "asset_name": "Memento-1.0.77-win-x64.zip",
+      "size": 157846962,
+      "sha256": "424bfd043c6731075dff7b1af99fe24767d46100b9fba6a835ce9576b8bc51dd"
     },
     "macos": {
-      "asset_name": "Memento-1.0.76-mac-arm64.zip",
-      "size": 128517746,
-      "sha256": "0c05e6e1779f5bb16afcbcfc7c8a4c1e946f755b15871f47f365b07ac2fed2c5"
+      "asset_name": "Memento-1.0.77-mac-arm64.zip",
+      "size": 132316009,
+      "sha256": "862046fc6d46807cd3981f458374ead95473c25751c9fb5d9bb3e34656b425a9"
     },
     "linux": {
-      "asset_name": "Memento-1.0.76-linux-x64.tar.gz",
-      "size": 120543581,
-      "sha256": "3040998b89c9568128d9d36814c39e82f45406f8f0cf45674efa8b2eb1db4afc"
+      "asset_name": "Memento-1.0.77-linux-x64.tar.gz",
+      "size": 131616108,
+      "sha256": "ec5ed09816c5e3215f3a8e4d4235a114974496ecf7a9f5e60956285ef777c1a9"
     }
   }
 }

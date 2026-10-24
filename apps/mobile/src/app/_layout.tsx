@@ -10,7 +10,7 @@ function Root() {
   return (
     <>
       <StatusBar style={t.scheme === "dark" ? "light" : "dark"} />
-      <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: t.bg } }}>
+      <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: t.scheme === "dark" ? "#15151F" : "#FFFFFF" } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
       </Stack>

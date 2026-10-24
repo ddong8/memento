@@ -38,6 +38,25 @@ function applyAttrs(skin: Skin, theme: Theme) {
     document.head.appendChild(link);
   }
   if (link.href !== location.origin + href) link.href = href;
+
+  // Sync theme-color and native shell status bar
+  const isDark = theme === "dark";
+  const headerBg = isDark ? "#15151F" : "#FFFFFF";
+
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.appendChild(meta);
+  }
+  meta.content = headerBg;
+
+  const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
+  if (bridge?.postMessage) {
+    try {
+      bridge.postMessage(JSON.stringify({ type: "theme", bg: headerBg, dark: isDark }));
+    } catch {}
+  }
 }
 
 function readInitialTheme(): Theme {
@@ -60,6 +79,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Sync <html data-*> attrs + favicon link on mount and whenever theme/skin change.
   useEffect(() => {
     applyAttrs(skin, theme);
+    const onActive = () => applyAttrs(skin, theme);
+    window.addEventListener("focus", onActive);
+    window.addEventListener("memento_app_active", onActive);
+    return () => {
+      window.removeEventListener("focus", onActive);
+      window.removeEventListener("memento_app_active", onActive);
+    };
   }, [skin, theme]);
 
   const setTheme = (t: Theme) => {

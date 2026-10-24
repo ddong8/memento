@@ -658,6 +658,11 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 html.memento-native-shell body {
   padding-bottom: 0 !important;
 }
+html.memento-native-shell,
+html.memento-native-shell body {
+  background-color: var(--aurora-bg) !important;
+  color: var(--aurora-fg1) !important;
+}
 html.memento-native-shell .memento-shell-hide {
   display: none !important;
 }

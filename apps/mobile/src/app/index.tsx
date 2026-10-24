@@ -52,9 +52,10 @@ const INJECTED_CLIENT_HELPERS = `(() => {
   // 1. Theme tracking
   const postTheme = () => {
     const root = document.documentElement;
-    const bg = getComputedStyle(document.body || root).backgroundColor;
+    const isDark = root.getAttribute("data-theme") === "dark" || (root.getAttribute("data-theme") !== "light" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const bg = isDark ? "#15151F" : "#FFFFFF";
     if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg, dark: root.getAttribute("data-theme") === "dark" }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "theme", bg, dark: isDark }));
     }
   };
   postTheme();
@@ -123,8 +124,6 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       -webkit-touch-callout: none !important;
     }
     html, body {
-      background-color: #0b0f19 !important;
-      color: #f1f5f9 !important;
       -webkit-font-smoothing: antialiased !important;
       -moz-osx-font-smoothing: grayscale !important;
       text-rendering: optimizeLegibility !important;
@@ -148,8 +147,6 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       -webkit-touch-callout: default !important;
     }
     pre {
-      background-color: #0b0f19 !important;
-      color: #f1f5f9 !important;
       white-space: pre-wrap !important;
       word-break: break-word !important;
       padding: 16px !important;
@@ -582,8 +579,8 @@ export default function WebShell() {
   if (!ready) return <View style={{ flex: 1, backgroundColor: t.bg }} />;
   if (!token || !start) return <Redirect href="/login" />;
 
-  const bg = page?.bg ?? t.bg;
   const dark = page ? page.dark : t.scheme === "dark";
+  const bg = page?.bg ?? (dark ? "#15151F" : "#FFFFFF");
 
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>

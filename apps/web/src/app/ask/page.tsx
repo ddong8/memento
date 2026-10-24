@@ -481,6 +481,35 @@ function AskPageContent() {
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
   const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
 
+  const { conversationActiveTool, conversationRecentTools } = useMemo(() => {
+    const active = executionMode;
+    const recent: string[] = [];
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const turn = turns[i];
+      const calls = turn.toolCalls || (turn as any).tool_calls || [];
+      for (let j = calls.length - 1; j >= 0; j--) {
+        const call = calls[j];
+        if (!call) continue;
+        const b = (
+          (call.args as any)?.binary ||
+          (call as any).binary ||
+          (call as any).call?.binary ||
+          (call as any).result?.binary ||
+          ""
+        ).toLowerCase();
+        const name = (call.name || (call as any).call?.name || "").toLowerCase();
+        if (b.includes("claude") || name === "claude") recent.push("claude_code");
+        else if (b.includes("codex") || name === "codex") recent.push("codex");
+        else if (b.includes("agy") || b.includes("antigravity") || name === "antigravity") recent.push("antigravity");
+        else if (b.includes("workbuddy") || name === "workbuddy") recent.push("workbuddy");
+      }
+    }
+    return {
+      conversationActiveTool: active,
+      conversationRecentTools: recent,
+    };
+  }, [executionMode, turns]);
+
   const runningConversationIds = useMemo(() => {
     const ids = new Set<string>();
     if (streaming && activeConversationId) {
@@ -6943,6 +6972,8 @@ function AskPageContent() {
         deviceId={selectedDevice}
         initialData={quotasData}
         onDataChange={setQuotasData}
+        activeTool={conversationActiveTool}
+        recentTools={conversationRecentTools}
       />
 
       {/* Conversation Share Modal (Single & Multiple with Multi-Platform Publishing Hub) */}

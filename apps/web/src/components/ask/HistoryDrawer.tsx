@@ -2,10 +2,83 @@
 
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/aurora/Icon";
+import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
 import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
 import { triggerHapticFeedback } from "@/lib/native-notify";
 import { cancelPrefetchConversationTurns } from "@/lib/ask/cache";
+
+export interface ConversationAgentInfo {
+  id: "claude_code" | "antigravity" | "codex" | "workbuddy" | "shell" | "ai";
+  name: string;
+  brandId?: "claude_code" | "antigravity" | "codex" | "workbuddy";
+}
+
+export function resolveConversationAgent(c: AskConversationSummary): ConversationAgentInfo {
+  const cfg = c.config || {};
+  const rawMode = String(
+    cfg.executionMode ||
+    cfg.execution_mode ||
+    cfg.mode ||
+    cfg.agent ||
+    cfg.tool ||
+    ""
+  ).toLowerCase().trim();
+
+  const model = String(cfg.model || cfg.selectedModel || "").toLowerCase();
+  const title = (c.title || "").toLowerCase();
+
+  // 1. 明确匹配 Claude Code
+  if (
+    rawMode.includes("claude") ||
+    model.includes("claude") ||
+    title.includes("[claude") ||
+    title.includes("claude-")
+  ) {
+    return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
+  }
+
+  // 2. 明确匹配 Google Antigravity
+  if (
+    rawMode.includes("antigravity") ||
+    rawMode.includes("agy") ||
+    model.includes("gemini") ||
+    title.includes("[antigravity") ||
+    title.includes("[agy")
+  ) {
+    return { id: "antigravity", name: "Google Antigravity", brandId: "antigravity" };
+  }
+
+  // 3. 明确匹配 OpenAI Codex / ChatGPT
+  if (
+    rawMode.includes("codex") ||
+    rawMode.includes("openai") ||
+    model.includes("gpt") ||
+    model.includes("o1") ||
+    model.includes("o3") ||
+    model.includes("o4") ||
+    title.includes("[codex")
+  ) {
+    return { id: "codex", name: "OpenAI Codex", brandId: "codex" };
+  }
+
+  // 4. 明确匹配 Tencent WorkBuddy
+  if (
+    rawMode.includes("workbuddy") ||
+    rawMode.includes("codebuddy") ||
+    title.includes("[workbuddy")
+  ) {
+    return { id: "workbuddy", name: "WorkBuddy", brandId: "workbuddy" };
+  }
+
+  // 5. 终端 Shell
+  if (rawMode === "shell" || rawMode === "bash" || rawMode === "sh" || title.includes("[shell]")) {
+    return { id: "shell", name: "终端 Shell" };
+  }
+
+  // 6. 默认回退（系统主力 Agent 为 Claude Code）
+  return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
+}
 
 interface HistoryDrawerProps {
   open: boolean;
@@ -91,6 +164,7 @@ const ConversationItem = memo(function ConversationItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(c.title || "");
+  const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const dateStr = useMemo(() => {
     if (!c.updated_at) return "";
@@ -298,6 +372,46 @@ const ConversationItem = memo(function ConversationItem({
                   />
                 </span>
               )}
+              {/* Agent 智能体图标徽标 */}
+              <span
+                title={agent.name}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 18,
+                  height: 18,
+                  borderRadius: 5,
+                  background:
+                    agent.id === "claude_code"
+                      ? "rgba(217, 119, 87, 0.12)"
+                      : agent.id === "antigravity"
+                      ? "rgba(49, 134, 255, 0.12)"
+                      : agent.id === "codex"
+                      ? "rgba(16, 163, 127, 0.12)"
+                      : agent.id === "workbuddy"
+                      ? "rgba(14, 199, 168, 0.12)"
+                      : "var(--aurora-chip)",
+                  border:
+                    agent.id === "claude_code"
+                      ? "1px solid rgba(217, 119, 87, 0.25)"
+                      : agent.id === "antigravity"
+                      ? "1px solid rgba(49, 134, 255, 0.25)"
+                      : agent.id === "codex"
+                      ? "1px solid rgba(16, 163, 127, 0.25)"
+                      : agent.id === "workbuddy"
+                      ? "1px solid rgba(14, 199, 168, 0.25)"
+                      : "1px solid var(--aurora-border)",
+                  flexShrink: 0,
+                }}
+              >
+                {agent.brandId ? (
+                  <BrandMark id={agent.brandId} size={12} colored />
+                ) : (
+                  <Icon name="terminal" size={11} style={{ color: "var(--aurora-fg3)" }} />
+                )}
+              </span>
+
               {c.config?.pinned && (
                 <span
                   title={isZh ? "已置顶会话" : "Pinned"}

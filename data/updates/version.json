@@ -1,7 +1,7 @@
 {
   "version": "1.0.79",
   "title": "Memento v1.0.79",
-  "release_notes": "1. 工作台预览网上的文档（比如 Apple 的技术文档）时，由桌面端直接读取，不再出现“Failed to fetch”\n2. 智能体长时间工作时，大会话改为最多每 15 秒同步一次，服务器压力明显减轻，其他页面更流畅\n3. Claude Code 任务结束时，中间的过程输出完整保留，不会被最后的简短总结覆盖\n4. 手机端刘海屏顶部不再出现黑色遮挡，状态栏颜色跟随主题",
+  "release_notes": "1. WorkBuddy 只需登录一次：登录会保存在这台设备上，之后 Memento 重启、电脑重启都不用再登录，也不会把 WorkBuddy 桌面端挤下线",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.79-win-x64.zip",

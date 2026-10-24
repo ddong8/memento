@@ -169,75 +169,24 @@ async def list_conversations(
 async def get_recent_active_conversation(
     _user: User = Depends(get_current_user),
 ):
-    """Get the most relevant active or recent conversation to restore seamlessly on client startup."""
+    """The run going on for the user right now (on any device), for the page's handoff banner and its
+    startup restore, which then load the conversation itself.
+
+    Every open page polls this every 12 s, so it reads no conversation at all: it used to return the
+    latest conversation with every turn, 1–2 MB per call even gzipped, which made it 91% of the traffic
+    through the 3 Mbps public entry and kept reading the turns column from the database.
+    """
     active_runs = await ask_runs.active_for_user(_user.id)
-    target_conv_id = None
-    if active_runs:
-        target_conv_id = active_runs[0].conversation_id
-
-    async with async_session_factory() as session:
-        if target_conv_id:
-            try:
-                cid = uuid.UUID(target_conv_id)
-                conv = (await session.execute(
-                    select(AskConversation).where(
-                        (AskConversation.id == cid) &
-                        ((AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None)))
-                    )
-                )).scalars().first()
-                if conv:
-                    cfg, inferred = infer_conversation_config(conv)
-                    resolved_dev = await resolve_concrete_device_for_conv(session, conv, cfg, inferred)
-                    if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
-                        cfg["device_id"] = resolved_dev
-                    pid_str = cfg.get("project_id", "")
-                    ptitle = await lookup_project_title(session, pid_str)
-                    fb_iso = (conv.updated_at or conv.created_at).isoformat() if (conv.updated_at or conv.created_at) else None
-                    return {
-                        "id": str(conv.id),
-                        "title": conv.title,
-                        "turns": sanitize_turns_for_response(list(conv.turns or []), fallback_iso=fb_iso),
-                        "device_id": resolved_dev or conv.device_id,
-                        "cwd": conv.cwd,
-                        "execution_mode": cfg.get("execution_mode", "ai"),
-                        "session_id": cfg.get("session_id", ""),
-                        "project_id": pid_str,
-                        "project_title": ptitle or "",
-                        "config": cfg,
-                        "active_run": True,
-                    }
-            except Exception:
-                pass
-
-        recent_conv = (await session.execute(
-            select(AskConversation).where(
-                ((AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None)))
-            ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)
-        )).scalars().first()
-
-        if recent_conv:
-            cfg, inferred = infer_conversation_config(recent_conv)
-            resolved_dev = await resolve_concrete_device_for_conv(session, recent_conv, cfg, inferred)
-            if resolved_dev and resolved_dev not in ("auto", "ask_only", "all"):
-                cfg["device_id"] = resolved_dev
-            pid_str = cfg.get("project_id", "")
-            ptitle = await lookup_project_title(session, pid_str)
-            fb_iso = (recent_conv.updated_at or recent_conv.created_at).isoformat() if (recent_conv.updated_at or recent_conv.created_at) else None
-            return {
-                "id": str(recent_conv.id),
-                "title": recent_conv.title,
-                "turns": sanitize_turns_for_response(list(recent_conv.turns or []), fallback_iso=fb_iso),
-                "device_id": resolved_dev or recent_conv.device_id,
-                "cwd": recent_conv.cwd,
-                "execution_mode": cfg.get("execution_mode", "ai"),
-                "session_id": cfg.get("session_id", ""),
-                "project_id": pid_str,
-                "project_title": ptitle or "",
-                "config": cfg,
-                "active_run": False,
-            }
-
-        return {"id": None}
+    if not active_runs:
+        return {"id": None, "active_run": False}
+    run = active_runs[0].summary()
+    return {
+        "id": str(active_runs[0].conversation_id),
+        "title": run.get("title") or "",
+        "device_id": run.get("device_name"),
+        "execution_mode": run.get("execution_mode") or "ai",
+        "active_run": True,
+    }
 
 
 @router.get("/conversations/{conv_id}")

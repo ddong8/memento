@@ -987,17 +987,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  /** The task running for this user right now (any device); polled, so it carries no turns. */
   getRecentActiveConversation: () =>
     apiFetch<{
       id: string | null;
       title?: string;
-      turns?: any[];
       device_id?: string;
-      cwd?: string;
       execution_mode?: string;
-      session_id?: string;
-      project_id?: string;
-      config?: Record<string, any>;
       active_run?: boolean;
     }>("/api/ask/conversations/recent-active"),
   cancelAskRun: (convId: string) =>

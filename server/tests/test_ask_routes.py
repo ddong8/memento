@@ -35,7 +35,23 @@ class RecentActiveRouteTests(unittest.TestCase):
         finally:
             app.dependency_overrides.pop(get_current_user, None)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json(), {"id": None})
+        self.assertEqual(r.json(), {"id": None, "active_run": False})
+
+    def test_recent_active_reads_no_conversation(self) -> None:
+        # Polled every 12 s by every open page: returning the latest conversation with all its turns
+        # made it 91% of the public link's traffic. Only the running task's id, title and device go out.
+        run = MagicMock(conversation_id="c-1")
+        run.summary.return_value = {"title": "项目时间线", "device_name": "Mac mini", "execution_mode": "claude"}
+        factory = MagicMock()
+        app.dependency_overrides[get_current_user] = lambda: MagicMock(id=uuid.uuid4())
+        try:
+            with patch.object(ask_conversations, "async_session_factory", factory), \
+                 patch.object(ask_runs, "active_for_user", return_value=[run]):
+                r = TestClient(app).get("/api/ask/conversations/recent-active")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+        self.assertEqual(r.json(), {"id": "c-1", "title": "项目时间线", "device_id": "Mac mini", "execution_mode": "claude", "active_run": True})
+        factory.assert_not_called()
 
     def test_new_conversation_never_hijacked_by_session_id(self) -> None:
         import asyncio

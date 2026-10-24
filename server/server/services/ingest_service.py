@@ -1071,8 +1071,8 @@ async def ingest_file(
     # as before (a long conversation growing past the indexed start); the
     # tokenizing (100+ ms of jieba) runs in a thread, not on the event loop
     # every request and stream of this replica shares.
+    from sqlalchemy import func as _func, update as _update  # also used further down
     if not (index_unchanged and doc.title == prev_title):
-        from sqlalchemy import func as _func, update as _update
         from .tokenize import tokenize_for_index as _tok
         tsv_input = await asyncio.to_thread(_tok, f"{doc.title or ''} {doc.content or ''}")
         await db.execute(

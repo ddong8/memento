@@ -112,7 +112,9 @@ cat > /dev/null
       .map((l) => (JSON.parse(l) as { message: { content: string } }).message.content);
     expect(sent).toEqual(["列一下文件", "顺便看看 README"]);
 
-    rmSync(tmp, { recursive: true, force: true });
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {}
   },
   45_000,
 );
@@ -180,7 +182,9 @@ cat > /dev/null
       response: { subtype: "success", request_id: "req-1", response: { behavior: "allow", updatedInput: { ...ask.request.input, answers: { "喜欢哪个颜色？": "蓝" } } } },
     });
     expect(done).toMatchObject({ status: "succeeded", stdout: "你选了蓝" });
-    rmSync(tmp, { recursive: true, force: true });
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {}
   },
   45_000,
 );

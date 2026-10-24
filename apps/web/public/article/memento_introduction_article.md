@@ -3,7 +3,7 @@
 > 💡 真正的个人专属 AI，绝不该在你关闭窗口的那一刻，就彻底遗忘与你共度的一切。
 > 当所有的工具都在教你怎么写 Prompt，真正决定你生产力上限的，是你与 AI 共同沉淀的专属认知资产。
 
-![Memento 个人数字心智孪生体](https://mem.ihasy.com/article/memento_hero_cover.png)
+![Memento 官方 2.35:1 微信大图封面](https://mem.ihasy.com/article/memento_wechat_cover_235.png)
 
 ---
 
@@ -47,6 +47,8 @@
 > 3. 自动注入 3 周前你在 PR 中修正过的 Token 防泄露守则。」
 
 Memento 不是又一个简单的套壳对话框，而是一个真正驻留在你私有设备中、具备仿生昼夜节律与终身进化能力的数字心智孪生体。它越用越懂你的习惯，越用越熟悉你的代码，将你日常所有碎片化的思考与灵感，持续沉淀为你终身不可替代的个人认知资产。
+
+![拥有终身进化能力的数字心智孪生体](https://mem.ihasy.com/article/memento_hero_cover.png)
 
 ---
 

@@ -114,9 +114,31 @@ const ExecutionCard = memo(function ExecutionCard({
   // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
   const cleanStderr = useMemo(() => {
     if (!result?.stderr) return "";
+    const noisePatterns = [
+      /^\s*session id:\s*[0-9a-fA-F-]+\s*$/i,
+      /Tool is running as a background task/i,
+      /The command was sent to the background as a task/i,
+      /running as a background task with task id/i,
+      /Command running in background/i,
+      /Task running in background/i,
+      /Task logs are available at:/i,
+      /Task timed out after/i,
+      /\b(?:timed?\s*out|timeout)\b/i,
+      /\bbackground task\b/i,
+      /(?:已转入|仍在|正在|已置于|提交至)后台(?:运行|执行|持续执行)/i,
+      /(?:后台任务|后台进程)(?:已启动|正在执行|仍在运行|未完成)/i,
+      /⏳\s*\[(?:等待后台任务|后台任务启动|后台任务运行中)/i,
+      /⚡\s*\[(?:环境自愈|模型容灾降级|自动重试|自动自愈)\]/i,
+      /STATUS_STILL_RUNNING/i,
+      /No capacity available/i,
+    ];
     return result.stderr
       .split("\n")
-      .filter((line) => !/^\s*session id:\s*[0-9a-fA-F-]+\s*$/i.test(line))
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        return !noisePatterns.some((pattern) => pattern.test(trimmed));
+      })
       .join("\n")
       .trim();
   }, [result?.stderr]);
@@ -144,6 +166,15 @@ const ExecutionCard = memo(function ExecutionCard({
     hasParentContent
   );
   const hasStructuredEvents = Boolean(result?.events && result.events.length > 0);
+
+  // 当已有主回复内容 (hasParentContent)、或属于 Agent 回复场景、或任务正常成功时，彻底屏蔽 stderr 输出
+  // 仅在任务真正彻底失败且无主回复内容时才展示实质性错误信息
+  const shouldShowStderr = Boolean(
+    cleanStderr &&
+    !hasParentContent &&
+    !isSuccess &&
+    isFailed
+  );
 
   // 严格比对：当父级主回复已包含或实时呈现卡片 stdout 时，避免在卡片内重复渲染窄框
   const isOutputInParentContent = Boolean(
@@ -213,7 +244,7 @@ const ExecutionCard = memo(function ExecutionCard({
     const parts: string[] = [];
     if (command) parts.push(isAgent ? `[prompt] ${command}` : `$ ${command}`);
     if (result?.stdout) parts.push(result.stdout);
-    if (cleanStderr) parts.push(`[stderr]\n${cleanStderr}`);
+    if (shouldShowStderr && cleanStderr) parts.push(`[stderr]\n${cleanStderr}`);
     if (result?.error) parts.push(`[error] ${result.error}`);
     if (parts.length > 0) {
       navigator.clipboard.writeText(parts.join("\n"));
@@ -805,7 +836,7 @@ const ExecutionCard = memo(function ExecutionCard({
                 )
               ) : null}
 
-              {cleanStderr && (
+              {shouldShowStderr && (
                 <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>
                   <span style={{ opacity: 0.7 }}>[stderr]</span>
                   <br />
@@ -922,7 +953,7 @@ const ExecutionCard = memo(function ExecutionCard({
               <div>{displayedStdout}</div>
             )}
 
-            {cleanStderr && (
+            {shouldShowStderr && (
               <div style={{ color: "#f87171", marginTop: 4 }}>
                 <span style={{ opacity: 0.7 }}>[stderr]</span>
                 <br />

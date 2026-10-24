@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -451,6 +451,58 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(await closed).toBe(0);
     expect(resolved).toEqual({ sessionId: "s1", toolCallId: "tc1", decision: "allow", answers: { "选哪个颜色？": "蓝" } });
     expect(stdout).toContain("你选了蓝");
+  }, 30_000);
+
+  // WorkBuddy hands Read/Write/Edit/Bash to a client that claims fs/terminal and waits for it; one left
+  // unanswered hung the task for good (2026-10-25, a Write on memento's gateway).
+  it.skipIf(isWin)("claims no fs/terminal, refuses client requests it doesn't serve and names the task's directory", async () => {
+    const home = await tempHome();
+    let capabilities: unknown = null;
+    let promptText = "";
+    let refused: Record<string, unknown> | null = null;
+    let finish: (() => void) | null = null;
+    const server = createServer(async (req, res) => {
+      const url = req.url ?? "";
+      if (url === "/api/v1/acp/connect") return res.end(JSON.stringify({ connectionId: "c1" }));
+      const msg = JSON.parse(await body(req));
+      if (msg.id === 91 && !msg.method) {
+        refused = msg;
+        res.end();
+        finish?.();
+        return;
+      }
+      res.setHeader("Content-Type", "text/event-stream");
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      if (msg.method === "initialize") capabilities = msg.params.clientCapabilities;
+      if (msg.method === "session/new") return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } })}\n\n`);
+      if (msg.method === "session/prompt") {
+        promptText = msg.params.prompt.map((b: { text?: string }) => b.text ?? "").join("");
+        send({ jsonrpc: "2.0", id: 91, method: "fs/write_text_file", params: { sessionId: "s1", path: "/x/a.md", content: "hi" } });
+        finish = () => {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "写不了，改用别的办法" } } } });
+          res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } })}\n\n`);
+        };
+        return;
+      }
+      res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} })}\n\n`);
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(join(home, ".memento", "workbuddy-gateway.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password: "pw", pid: process.pid }));
+
+    const child = spawn(process.execPath, [RUNNER, "-p", "写个文件"], { cwd: home, env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    const code = await new Promise<number | null>((r) => child.on("close", r));
+
+    expect(code).toBe(0);
+    expect(capabilities).toEqual({});
+    expect(refused).toMatchObject({ jsonrpc: "2.0", id: 91, error: { code: -32601 } });
+    expect(promptText).toContain(`本任务的工作目录是 ${await realpath(home)}`);
+    expect(promptText).toContain("写个文件");
+    expect(stdout).toContain("写不了，改用别的办法");
   }, 30_000);
 
   it("cancels session directly via cancelWorkbuddySession", async () => {

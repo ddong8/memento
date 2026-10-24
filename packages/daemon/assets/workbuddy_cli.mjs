@@ -385,10 +385,10 @@ async function main() {
   await rpcCall("initialize", {
     protocolVersion: 1,
     clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.80" },
-    clientCapabilities: {
-      fs: { readTextFile: true, writeTextFile: true },
-      terminal: true,
-    },
+    // NO_CLIENT_FS_TERMINAL: whatever the client claims, WorkBuddy hands its Read/Write/Edit/Bash to it
+    // (fs/*, terminal/* requests) instead of running them itself. This runner doesn't serve those, so it
+    // claims none and WorkBuddy runs every tool on its own, in the session's cwd.
+    clientCapabilities: {},
   });
 
   const isAuthError = (reply) => {
@@ -462,7 +462,10 @@ async function main() {
     }).catch(() => {});
   }
 
-  const finalPrompt = args.sysAppend ? `${args.sysAppend}\n\n${prompt}` : prompt;
+  // TASK_CWD_NOTE: the gateway runs every session in its own directory (session/new's cwd is ignored), so the
+  // model is told where the task really is.
+  const cwdNote = `【工作目录】本任务的工作目录是 ${cwd}。读写文件请用这个目录下的绝对路径，执行命令前先 cd 到这个目录。`;
+  const finalPrompt = [args.sysAppend, cwdNote, prompt].filter(Boolean).join("\n\n");
   const promptBlocks = [...extractImageBlocks(finalPrompt), { type: "text", text: finalPrompt }];
 
   const promptId = reqId++;
@@ -484,6 +487,13 @@ async function main() {
       method: "POST",
       headers,
       body: JSON.stringify({ jsonrpc: "2.0", id, result }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+  const replyError = (id, error) =>
+    fetch(`${gw.endpoint}/api/v1/acp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id, error }),
       signal: AbortSignal.timeout(10_000),
     }).catch(() => null);
 
@@ -622,6 +632,11 @@ async function main() {
 
         if (obj.method === "session/request_permission" && obj.id != null) {
           onPermissionRequest(obj);
+          continue;
+        }
+        // UNHANDLED_CLIENT_REQUEST: any other request waits on this client for good unless refused.
+        if (typeof obj.method === "string" && obj.id != null) {
+          void replyError(obj.id, { code: -32601, message: `Method not found: ${obj.method} (memento does not serve it)` });
           continue;
         }
 

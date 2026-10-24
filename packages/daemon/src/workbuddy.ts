@@ -33,6 +33,9 @@ const RUNNER_MARKERS = [
   "process.stdin.destroy()",
   "_codebuddy.ai/resolveInterruption",
   "keepsLogin",
+  "NO_CLIENT_FS_TERMINAL",
+  "UNHANDLED_CLIENT_REQUEST",
+  "TASK_CWD_NOTE",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */

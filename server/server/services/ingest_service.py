@@ -403,6 +403,27 @@ def _is_invalid_project_name(name: str | None) -> bool:
     return False
 
 
+_FILE_LIKE_NAME = re.compile(
+    r"\.(jsonl?|log|txt|md|py|tsx?|jsx?|mjs|cjs|ya?ml|toml|lock|csv|xml|html?|sh|ps1|bat|png|jpe?g|gif|pdf|zip|tar|gz)$",
+    re.IGNORECASE,
+)
+# Folders the tools keep their own state in; no project lives there.
+_TOOL_STATE_MARKERS = ("/.gemini/antigravity/brain/", "/.system_generated/", "/.claude/projects/", "/.codex/sessions/")
+_ROOT_LIKE_PATH = re.compile(r"^(?:[a-z]:)?/?(?:users|home)?/?$", re.IGNORECASE)
+
+
+def is_junk_project(title: str | None, source_path: str | None) -> bool:
+    """A file, a tool's own state folder or a bare home root picked up as a project."""
+    if title and _FILE_LIKE_NAME.search(title.strip()):
+        return True
+    sp = (source_path or "").replace("\\", "/").strip()
+    if not sp:
+        return False
+    if any(marker in sp.lower().rstrip("/") + "/" for marker in _TOOL_STATE_MARKERS):
+        return True
+    return bool(_ROOT_LIKE_PATH.match(sp.rstrip("/")))
+
+
 def _prettify_project_name(raw: str) -> str:
     """Convert path-encoded project hash to a human-readable project name.
 
@@ -494,6 +515,14 @@ def _clean_source_path(path: str | None) -> str | None:
     return cleaned or None
 
 
+async def _has_real_project(db: AsyncSession, doc: Document) -> bool:
+    """Whether a document is already filed under a project worth keeping."""
+    if not doc.project_id:
+        return False
+    proj = await db.get(Project, doc.project_id)
+    return proj is not None and not _is_invalid_project_name(proj.title) and not is_junk_project(proj.title, proj.source_path)
+
+
 async def ensure_project(
     db: AsyncSession, tool_id: str, project_hash: str,
     source_path: str | None = None,
@@ -529,7 +558,9 @@ async def ensure_project(
     elif source_path:
         old_sp = project.source_path or ""
         old_last = old_sp.replace("\\", "/").rstrip("/").split("/")[-1].lower()
-        if not old_sp or old_sp == project.title or len(old_sp) < 10 or _is_invalid_project_name(old_last):
+        # Or one that ran on into the JSON around it (…/memento/",\n "repository": {…)
+        dirty = bool(re.search(r'["\r\n]', old_sp))
+        if not old_sp or old_sp == project.title or len(old_sp) < 10 or _is_invalid_project_name(old_last) or dirty:
             project.source_path = source_path
     return project
 
@@ -597,7 +628,11 @@ async def ingest_file(
                 existing_doc.machine_id = mach_uuid
                 await db.flush()
             incoming_hash = metadata.get("project_hash")
-            if not incoming_hash and metadata.get("project_path"):
+            if is_junk_project(incoming_hash, metadata.get("project_path")) or (
+                mode == "delta" and await _has_real_project(db, existing_doc)
+            ):
+                incoming_hash = None
+            elif not incoming_hash and metadata.get("project_path"):
                 cand_path = str(metadata.get("project_path")).replace("\\", "/").rstrip("/")
                 incoming_hash = cand_path.split("/")[-1]
             if incoming_hash and not _is_invalid_project_name(incoming_hash):
@@ -714,6 +749,11 @@ async def ingest_file(
     # Extract project if present in metadata
     project_id = None
     project_hash = metadata.get("project_hash")
+    meta_project_path: str | None = metadata.get("project_path")
+    # Older collectors filed Antigravity sessions under files of its own brain (…/steps/2/output.txt)
+    if is_junk_project(project_hash, meta_project_path):
+        project_hash = None
+        meta_project_path = None
 
     # Server-side project extraction fallback
     # Trigger if: no hash, UUID-like, contains --, or looks like a path-encoded hash (Users-xxx or drive--)
@@ -726,7 +766,7 @@ async def ingest_file(
         or len(project_hash) > 20
     ))
     _needs_extract = not project_hash or _looks_like_hash or _is_invalid_project_name(project_hash)
-    project_path: str | None = metadata.get("project_path")
+    project_path: str | None = meta_project_path
 
     if _needs_extract and content and category == "conversation":
         # Universal: extract cwd from first occurrence in content (Claude Code, Codex, Cursor all have it)
@@ -775,9 +815,11 @@ async def ingest_file(
     if project_hash:
         # Sanitize: strip control characters, null bytes, and quotes
         project_hash = re.sub(r"[\x00-\x1f].*", "", project_hash).strip("-\"'` ")
+    if project_hash and is_junk_project(project_hash, project_path):
+        project_hash = None
     if project_hash:
         if not project_path:
-            project_path = metadata.get("project_path")
+            project_path = meta_project_path
         project = await ensure_project(db, tool_id, project_hash, source_path=project_path)
         project_id = project.id
 
@@ -968,7 +1010,18 @@ async def ingest_file(
         from .embedding_service import EMBED_CATEGORIES
         if category in EMBED_CATEGORIES:
             doc.embedding_status = "pending"
-        doc.metadata_ = {**doc.metadata_, **metadata}
+        # A session stays in the project it was filed under. A delta carries the latest lines, and older
+        # collectors took the project from them: the agent running `cd server` moved the whole session to
+        # a project "server" (and back on the next turn). Only a document without a real project takes one.
+        keep_project = mode == "delta" and await _has_real_project(db, doc)
+        new_md = {**(doc.metadata_ or {}), **metadata}
+        if keep_project:
+            for k in ("project_path", "project_hash"):
+                if k in (doc.metadata_ or {}):
+                    new_md[k] = doc.metadata_[k]
+                else:
+                    new_md.pop(k, None)
+        doc.metadata_ = new_md
         doc.needs_review = doc.needs_review or had_sensitive
         doc.synced_at = now
         if machine_id and not doc.machine_id:
@@ -979,7 +1032,7 @@ async def ingest_file(
             doc.title = title
         # Backfill project_id when newly resolved (was NULL, or changed).
         # Don't overwrite an existing link with NULL — keep last good value.
-        if project_id and doc.project_id != project_id:
+        if project_id and doc.project_id != project_id and not keep_project:
             should_replace = True
             if doc.project_id:
                 old_p = await db.get(Project, doc.project_id)

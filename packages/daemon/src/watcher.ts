@@ -10,6 +10,7 @@ import { contentHash } from "./sanitizer.js";
 
 const MAX_BATCH = 512 * 1024; // bytes per upload
 const MAX_LINE = 128 * 1024; // a longer line (base64 dump) keeps its head and tail
+const HEAD_BYTES = 64 * 1024; // where a session log says which folder it was started in
 const DEBOUNCE_MS = 2000;
 const RESCAN_MS = 60_000;
 
@@ -114,6 +115,18 @@ function relativePathFor(filePath: string, toolId: string, extraDirs: string[] =
   return basename(filePath);
 }
 
+/** The first lines of a log, whole lines only. */
+async function readHead(handle: Awaited<ReturnType<typeof open>>): Promise<string[]> {
+  const buf = Buffer.alloc(HEAD_BYTES);
+  const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
+  let text = buf.subarray(0, bytesRead).toString("utf8");
+  if (bytesRead === HEAD_BYTES) {
+    const nl = text.lastIndexOf("\n");
+    if (nl > 0) text = text.slice(0, nl);
+  }
+  return text.trim() ? cleanLines(text) : [];
+}
+
 /** Lines of a slice, with giant lines cut down to their head and tail. */
 function cleanLines(raw: string): string[] {
   const out: string[] = [];
@@ -127,19 +140,43 @@ function cleanLines(raw: string): string[] {
   return out;
 }
 
-/** Session id, title and project a slice of a session log belongs to. */
+/**
+ * Files of the agents themselves (Antigravity's brain, step outputs, logs): a path in there is
+ * never a project, though sessions mention them all the time.
+ */
+export function isAgentInternalPath(path: string): boolean {
+  const p = path.replace(/\\/g, "/").toLowerCase();
+  return /\/\.(gemini|antigravity|claude|codex|codebuddy|workbuddy)(\/|$)/.test(p) || p.includes("/.system_generated/");
+}
+
+/** A workspace path quoted in a transcript, cut where the quoting ends (a JSON string keeps going). */
+function quotedPath(raw: string): string {
+  return raw
+    .split(/(?<!\\)\\[nrt]|["\r\n]/)[0]!
+    .replace(/\\\\/g, "\\")
+    .trim()
+    .replace(/[\\/]+$/, "");
+}
+
+/**
+ * Session id, title and project a slice of a session log belongs to. The title comes from the slice
+ * (the latest one wins); the project from `head`, the start of the whole log, so the session stays in
+ * the folder it was started in: the agent changing directory later (cd server) used to move it.
+ */
 function sessionMetadata(
   filePath: string,
   toolId: string,
   relPath: string,
   lines: string[],
   home = homeDir(),
+  head: string[] = lines,
 ): Record<string, unknown> {
   let sessionId = basename(filePath, extname(filePath));
   let title: string | undefined;
   let cwd: string | undefined;
   let project: string | undefined;
   const setProject = (candidate: string) => {
+    if (!candidate || /["\r\n]/.test(candidate) || isAgentInternalPath(candidate)) return false;
     const name = basename(candidate);
     if (!isInvalidProjectName(name)) {
       cwd = candidate;
@@ -184,11 +221,14 @@ function sessionMetadata(
     if (!cwd) {
       try {
         const db = readFileSync(join(home, ".gemini", "antigravity", "conversations", `${sessionId}.db`)).toString("utf8");
-        const ws = /file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/.exec(db);
-        if (ws) {
+        // The first folder it mentions outside Antigravity's own files: the db also names files the agent
+        // wrote (brain/<id>/.system_generated/steps/2/output.txt became a project "output.txt")
+        for (const ws of db.matchAll(/file:\/\/(\/[a-zA-Z]:\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*|\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*)/g)) {
           let raw = ws[1]!;
           if (/^\/[a-zA-Z]:/.test(raw)) raw = raw.slice(1);
-          setProject(cleanPath(raw));
+          const candidate = cleanPath(raw);
+          if (/\.[a-zA-Z0-9]{1,8}$/.test(basename(candidate))) continue; // a file, not a workspace
+          if (setProject(candidate)) break;
         }
       } catch {
         // no conversation db
@@ -203,7 +243,7 @@ function sessionMetadata(
       cwd = cleanPath(realPath);
       if (!isInvalidProjectName(name)) project = name;
     }
-    for (const line of lines.slice(0, 10)) {
+    for (const line of head.slice(0, 10)) {
       if (!line.includes('"cwd"')) continue;
       try {
         const obj = JSON.parse(line) as { cwd?: unknown };
@@ -248,10 +288,10 @@ function sessionMetadata(
     }
   }
 
-  if (lines.length) {
+  if (head.length) {
     // Codex puts the working directory in its session_meta line.
     try {
-      const first = JSON.parse(lines[0]!) as { payload?: { cwd?: unknown } };
+      const first = JSON.parse(head[0]!) as { payload?: { cwd?: unknown } };
       if (first?.payload?.cwd != null) {
         const c = cleanPath(String(first.payload.cwd));
         if (c) {
@@ -264,11 +304,12 @@ function sessionMetadata(
       // not JSON
     }
     if (cwd === undefined && toolId === "antigravity") {
-      const top = lines.slice(0, 50).join("\n");
-      const user = /Active Workspaces:\s*\n\s*-\s*((?:[a-zA-Z]:[/\\]|\/)[^\r\n]+)/.exec(top)
+      const top = head.slice(0, 50).join("\n");
+      // Inside a JSON string the line breaks are "\\n": the path ends there, not at the end of the line
+      const user = /Active Workspaces:\s*(?:\\n|\n)\s*-\s*((?:[a-zA-Z]:[/\\]|\/)[^\r\n]+)/.exec(top)
         ?? /Command Working Directory:\s*((?:[a-zA-Z]:[/\\]|\/)[^\r\n]+)/.exec(top)
         ?? /<user_information>[\s\S]*?((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.-]+(?:[/\\][a-zA-Z0-9_.-]+)*)\s*->/.exec(top);
-      if (user) setProject(cleanPath(user[1]!));
+      if (user) setProject(cleanPath(quotedPath(user[1]!)));
       if (cwd === undefined) {
         const m = /"(?:[Cc]wd|DirectoryPath|AbsolutePath)"\s*:\s*"?\\?"?((?:[a-zA-Z]:[/\\]|\/)[a-zA-Z0-9_.-]+(?:[/\\][a-zA-Z0-9_.-]+)*)/.exec(top);
         if (m) {
@@ -313,7 +354,7 @@ export class FileWatcher {
     private readonly config: CollectorConfig,
     private readonly ingest: IngestClient,
     private readonly log: Log = () => {},
-    home = homeDir(),
+    private readonly home: string = homeDir(),
   ) {
     this.offsetsPath = join(home, ".memento", "offsets.json");
   }
@@ -457,6 +498,8 @@ export class FileWatcher {
         const slice = buf.subarray(0, valid);
         const raw = slice.toString("utf8");
         const lines = raw.trim() ? cleanLines(raw) : [];
+        // A later slice still belongs to the folder the session was started in
+        const head = offset > 0 ? await readHead(handle) : lines;
         if (!lines.length) {
           offset += slice.length;
           this.offsets.set(file, offset);
@@ -475,7 +518,7 @@ export class FileWatcher {
           fileSize: size,
           offset,
           mode,
-          metadata: sessionMetadata(file, toolId, relPath, lines),
+          metadata: sessionMetadata(file, toolId, relPath, lines, this.home, head),
         } as const;
         let ok = await this.ingest.ingestDocument(doc);
         if (!ok && !this.disposed) {

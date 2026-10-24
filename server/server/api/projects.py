@@ -179,7 +179,7 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
             if not p_cand:
                 continue
             prettified = _prettify_project_name(str(p_cand)).strip("-\"'` ")
-            if not prettified or _is_invalid_project_name(prettified):
+            if not prettified or _is_invalid_project_name(prettified) or is_junk_project(prettified, doc_metadata.get("project_path")):
                 continue
             cur_slug_name = cur_proj_slug.split("/")[-1].lower()
             cand_lower = prettified.lower()

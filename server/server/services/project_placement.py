@@ -11,7 +11,6 @@ synced and from each machine's discovery report.
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,30 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
 from ..db.models import Document, Machine, User
-from .ingest_service import _clean_source_path, _is_invalid_project_name, _prettify_project_name
+from .ingest_service import _clean_source_path, _is_invalid_project_name, _prettify_project_name, is_junk_project
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
-
-_FILE_LIKE_NAME = re.compile(
-    r"\.(jsonl?|log|txt|md|py|tsx?|jsx?|mjs|cjs|ya?ml|toml|lock|csv|xml|html?|sh|ps1|bat|png|jpe?g|gif|pdf|zip|tar|gz)$",
-    re.IGNORECASE,
-)
-# Folders the tools keep their own state in; no project lives there.
-_TOOL_STATE_MARKERS = ("/.gemini/antigravity/brain/", "/.system_generated/", "/.claude/projects/", "/.codex/sessions/")
-_ROOT_LIKE_PATH = re.compile(r"^(?:[a-z]:)?/?(?:users|home)?/?$", re.IGNORECASE)
-
-
-def is_junk_project(title: str | None, source_path: str | None) -> bool:
-    """A file, a tool's own state folder or a bare home root picked up as a project."""
-    if title and _FILE_LIKE_NAME.search(title.strip()):
-        return True
-    sp = (source_path or "").replace("\\", "/").strip()
-    if not sp:
-        return False
-    if any(marker in sp.lower().rstrip("/") + "/" for marker in _TOOL_STATE_MARKERS):
-        return True
-    return bool(_ROOT_LIKE_PATH.match(sp.rstrip("/")))
-
 
 @dataclass(frozen=True)
 class Placement:

@@ -148,6 +148,8 @@ const ConversationItem = memo(function ConversationItem({
         alignItems: "center",
         justifyContent: "space-between",
         gap: 10,
+        contentVisibility: "auto",
+        containIntrinsicSize: "0 54px",
       }}
       onMouseEnter={(e) => {
         onPrefetch?.(c.id);

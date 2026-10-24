@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -252,14 +252,22 @@ async def search_memory(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
-    """Search entities and observations."""
+    """Search entities and observations: entities named q first, then names starting with or containing
+    it, then those that only mention it in their summary."""
     admin = _is_admin(_user)
     pattern = f"%{q}%"
+    name_rank = case(
+        (func.lower(KnowledgeEntity.name) == q.lower(), 0),
+        (KnowledgeEntity.name.ilike(f"{q}%"), 1),
+        (KnowledgeEntity.name.ilike(pattern), 2),
+        else_=3,
+    )
 
     # Search entities
     ent_search_q = (
         select(KnowledgeEntity)
         .where(KnowledgeEntity.name.ilike(pattern) | KnowledgeEntity.summary.ilike(pattern))
+        .order_by(name_rank, KnowledgeEntity.updated_at.desc().nulls_last())
         .limit(limit)
     )
     if not admin:
@@ -282,6 +290,7 @@ async def search_memory(
             select(KnowledgeObservation, KnowledgeEntity.name)
             .join(KnowledgeEntity, KnowledgeObservation.entity_id == KnowledgeEntity.id)
             .where(KnowledgeObservation.content.ilike(pattern))
+            .order_by(KnowledgeObservation.observed_at.desc().nulls_last())
             .limit(limit - len(results))
         )
         if not admin:
@@ -799,18 +808,20 @@ async def get_core_memory_tree(
 
 @router.get("/core/markdown")
 async def get_core_memory_markdown(
+    exclude: str | None = Query(None, description="Comma-separated categories to leave out, e.g. pitfall"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Export current user's core memories as formatted MEMORY.md."""
     from ..services.dreaming_service import export_core_memory_markdown
 
-    cache_key = f"memory:markdown:{_user.id}:"
+    skip = sorted({c.strip().lower() for c in (exclude or "").split(",") if c.strip()})
+    cache_key = f"memory:markdown:{_user.id}:{','.join(skip)}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
-    md = await export_core_memory_markdown(db, _user)
+    md = await export_core_memory_markdown(db, _user, exclude=skip)
     payload = {"markdown": md}
     await cache_set(cache_key, payload, ttl_seconds=60)
     return payload

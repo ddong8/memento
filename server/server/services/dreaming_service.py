@@ -1372,8 +1372,9 @@ async def run_dreaming_pipeline(
     return journal
 
 
-async def export_core_memory_markdown(db: AsyncSession, user: User) -> str:
-    """Render the user's UserMemory items into a unified MEMORY.md file."""
+async def export_core_memory_markdown(db: AsyncSession, user: User, exclude: list[str] | None = None) -> str:
+    """Render the user's UserMemory items into a unified MEMORY.md file, leaving out the exclude
+    categories (noted at the top with their count)."""
     from sqlalchemy.orm import load_only
 
     res = await db.execute(
@@ -1390,6 +1391,15 @@ async def export_core_memory_markdown(db: AsyncSession, user: User) -> str:
         .order_by(UserMemory.category, UserMemory.key)
     )
     memories = res.scalars().all() if hasattr(res, "scalars") else res.all()
+    left_out: dict[str, int] = {}
+    if exclude:
+        kept = []
+        for m in memories:
+            if m.category in exclude:
+                left_out[m.category] = left_out.get(m.category, 0) + 1
+            else:
+                kept.append(m)
+        memories = kept
 
     if not memories:
         return (
@@ -1414,8 +1424,10 @@ async def export_core_memory_markdown(db: AsyncSession, user: User) -> str:
         "",
         "> 由 Memento 做梦机制 (Dreaming Consolidation) 自动萃取并保持同步。",
         f"> 最后更新时间：{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} | 记忆条目总数：{len(memories)}",
-        "",
     ]
+    if left_out:
+        lines.append(f"> 未列出：{'、'.join(f'{c} {n} 条' for c, n in left_out.items())}")
+    lines.append("")
 
     for cat_code, cat_title in category_titles.items():
         items = categories_map.get(cat_code)

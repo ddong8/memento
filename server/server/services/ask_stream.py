@@ -115,6 +115,9 @@ async def direct_agent_stream(
         args["fork"] = fork
     if worktree and action == "agent":
         args["worktree"] = True
+    if conv_title and action == "agent":
+        # The device names the agent's session after the conversation, so it reads the same everywhere
+        args["title"] = conv_title
 
     orig_session_id = session_id
     if compact_mode and session_id and action == "agent":

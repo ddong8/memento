@@ -257,6 +257,93 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(res), 2)
         self.assertEqual(res[0]["name"], "MementoDesktop")
 
+    async def test_one_session_is_never_used_concurrently(self):
+        """The queries share the request's session, which refuses concurrent operations."""
+        import asyncio
+
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        ent = KnowledgeEntity(id=uuid.uuid4(), user_id=user.id, name="Fleet", entity_type="tool", summary="GitOps 部署")
+        p_mem = UserMemory(
+            id=uuid.uuid4(), user_id=user.id, key="fleet_stalled", category="pitfall",
+            content="Fleet 部署卡住时强制重同步", status="active", is_folder=False,
+        )
+        in_flight = 0
+        seen_sql: list[str] = []
+
+        async def fake_execute(statement, *args, **kwargs):
+            nonlocal in_flight
+            in_flight += 1
+            try:
+                if in_flight > 1:
+                    raise RuntimeError("concurrent operations are not permitted")
+                await asyncio.sleep(0)
+                sql = str(statement)
+                seen_sql.append(sql)
+                res = MagicMock()
+                if "user_memories" in sql:
+                    res.scalars.return_value.all.return_value = [p_mem]
+                elif "knowledge_entities" in sql and "knowledge_relations" not in sql and "knowledge_observations" not in sql:
+                    res.scalars.return_value.all.return_value = [ent]
+                else:
+                    res.all.return_value = []
+                return res
+            finally:
+                in_flight -= 1
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(side_effect=fake_execute)
+        with patch("server.services.mind_resonance_service.get_published_profile", new_callable=AsyncMock, return_value=None), \
+             patch("server.services.mind_resonance_service.get_user_durable_corrections", new_callable=AsyncMock, return_value=[]):
+            res = await sense_resonance(mock_db, user, query="Fleet 部署完了吗", project="memento", action="agent")
+
+        self.assertEqual([e["name"] for e in res["entities"]], ["Fleet"])
+        self.assertEqual([p["key"] for p in res["pitfalls"]], ["fleet_stalled"])
+
+    async def test_matches_what_the_user_asked(self):
+        """The dispatch action, single characters and a continuation's carried context aren't search terms;
+        a project id resolves to the project's name."""
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        captured: dict = {}
+
+        async def fake_entities(db, u, terms, limit, target_project=None):
+            captured["terms"], captured["project"] = terms, target_project
+            return []
+
+        project_res = MagicMock()
+        project_res.scalar_one_or_none.return_value = "memento"
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=project_res)
+        continued = "【前序会话核心记忆快照（原会话 ID: aa549791...）】\n- Hermes Agent 旧事\n\n【执行规则】\nx\n\n当前用户指令：\n部署完了吗"
+        with patch("server.services.mind_resonance_service._fetch_graph_entities", side_effect=fake_entities), \
+             patch("server.services.mind_resonance_service._fetch_pitfalls", new_callable=AsyncMock, return_value=[]), \
+             patch("server.services.mind_resonance_service._fetch_scoped_and_general_rules", new_callable=AsyncMock, return_value=([], [])), \
+             patch("server.services.mind_resonance_service.get_user_durable_corrections", new_callable=AsyncMock, return_value=[]):
+            res = await sense_resonance(mock_db, user, query=continued, project=str(uuid.uuid4()), action="agent")
+
+        self.assertEqual(captured["project"], "memento")
+        self.assertIn("部署", captured["terms"])
+        self.assertNotIn("agent", captured["terms"])
+        self.assertNotIn("hermes", captured["terms"])
+        self.assertTrue(all(len(t) >= 2 for t in captured["terms"]))
+        self.assertEqual(res["scenario"]["id"], "devops_release")
+
+    async def test_scoped_rules_most_relevant_first(self):
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        prof = UserProfile(
+            id=uuid.uuid4(), user_id=user.id, status="published",
+            content=(
+                "## 关于我\n- 中文回复\n\n### 只在对应项目里适用\n\n#### memento\n"
+                "- 技术选型参考 Paseo。\n- 客户端界面需美化。\n- 发布等操作直接帮我做完，部署后确认状态。\n"
+            ),
+        )
+        with patch("server.services.mind_resonance_service.get_published_profile", new_callable=AsyncMock, return_value=prof):
+            from server.services.mind_resonance_service import _fetch_scoped_and_general_rules
+            scoped, _ = await _fetch_scoped_and_general_rules(
+                AsyncMock(), user, ["部署", "发布"], {"id": "devops_release"}, "memento",
+            )
+        self.assertTrue(scoped[0].startswith("发布等操作直接帮我做完"))
+        self.assertEqual(len(scoped), 3)
+
     async def test_extract_pitfall_hint_on_failure(self):
         """Verify failure reflex retrieves and formats matching pitfall hints."""
         from server.services.orchestrator import _extract_pitfall_hint

@@ -76,6 +76,9 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     # continued...". Match the prefix (the full text runs on for paragraphs).
     if t_lower.startswith("this session is being continued from a previous conversation"):
         return True
+    # Memento's own continuation / multi-turn context in front of the prompt (see _strip_injected_context)
+    if t.startswith(("【前序会话核心记忆快照", "【前文对话历史】", "Memento: 【前序会话核心记忆快照")):
+        return True
     # Codex guardian / review subagent preamble
     if t_lower.startswith("the following is the codex agent history"):
         return True
@@ -108,6 +111,22 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     return False
 
 
+_INJECTED_CONTEXT_RES = (
+    re.compile(r"^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*"),
+    re.compile(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*"),
+    re.compile(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*"),
+)
+
+
+def _strip_injected_context(content: str) -> str:
+    """What the user typed, without the context Memento put in front of it when continuing a session."""
+    for pattern in _INJECTED_CONTEXT_RES:
+        stripped = pattern.sub("", content, count=1)
+        if stripped != content:
+            return stripped
+    return content
+
+
 def _title_from_user_messages(contents: list[str | None], session_id: str | None = None) -> str | None:
     """Pick a title from a sequence of user-message contents.
 
@@ -119,10 +138,53 @@ def _title_from_user_messages(contents: list[str | None], session_id: str | None
     for content in contents:
         if not content:
             continue
-        cand = content.strip().split("\n")[0].strip()[:60]
+        cand = _strip_injected_context(content.strip()).strip().split("\n")[0].strip()[:60]
         if cand and not _is_junk_or_uuid_title(cand, session_id):
             return cand
     return None
+
+
+_CUSTOM_TITLE_RE = re.compile(r'"customTitle"\s*:\s*"((?:[^"\\]|\\.)+)"')
+
+
+def _extract_custom_title(content: str | None, session_id: str | None = None) -> str | None:
+    """The name a Claude Code session was given (`--name` / `/rename`): the first usable one, so a
+    session named after each prompt keeps one title. Memento's own "Memento: " prefix is dropped."""
+    if not content or '"customTitle"' not in content:
+        return None
+    for raw in _CUSTOM_TITLE_RE.findall(content):
+        try:
+            cand = json.loads(f'"{raw}"').strip()
+        except ValueError:
+            cand = raw.strip()
+        if _is_junk_or_uuid_title(cand, session_id):
+            continue
+        cand = cand.removeprefix("Memento: ").strip()
+        if cand and not _is_junk_or_uuid_title(cand, session_id):
+            return cand[:60]
+    return None
+
+
+# Watched files the desktop daemon files as conversations though they aren't transcripts
+_NON_TRANSCRIPT_TOOLS = ("claude_code", "workbuddy", "cursor")
+
+
+def _infer_category(tool_id: str, category: str, content_type: str, relative_path: str) -> str:
+    """The category a file's place gives it when the client sent every file of a tool as a conversation:
+    Claude Code / WorkBuddy project memory (projects/<dir>/memory/*.md) is memory and plans/*.md a plan,
+    Cursor's MCP instructions are memory and its JSON files config, as the earlier collectors filed them."""
+    if category != "conversation" or tool_id not in _NON_TRANSCRIPT_TOOLS:
+        return category
+    path = relative_path.replace("\\", "/")
+    low = path.lower()
+    if low.endswith(".md"):
+        if tool_id == "cursor" or "/memory/" in f"/{low}":
+            return "memory"
+        if low.startswith("plans/"):
+            return "plan"
+    elif tool_id == "cursor" and low.endswith(".json"):
+        return "config"
+    return category
 
 
 def _parent_session_id_from_content(content: str | None) -> str | None:
@@ -489,6 +551,7 @@ async def ingest_file(
     user_id: str | None = None,
 ) -> Document:
     """Process and store an ingested file."""
+    category = _infer_category(tool_id, category, content_type, relative_path)
     # Fast-path dedup: if this exact (tool_id, relative_path, content_hash,
     # offset) was already ingested on this machine, skip everything. Common in multi-collector
     # setups where pip + Tauri sidecar both watch the same .jsonl and resend
@@ -889,6 +952,8 @@ async def ingest_file(
         db.add(doc)
     else:
         # Update existing document
+        if doc.category != category and doc.category == "conversation":
+            doc.category = category  # filed as a conversation before its category was inferred
         if mode == "delta" and doc.content:
             # For large files, replace instead of append to avoid unbounded growth
             if len(doc.content) + len(content) > 10_000_000:
@@ -1244,10 +1309,13 @@ async def _extract_messages(
     ai_cand = _extract_latest_ai_title(content)
     if ai_cand and not _is_junk_or_uuid_title(ai_cand, sid):
         doc.title = ai_cand
-    elif _is_junk_or_uuid_title(doc.title, sid) and user_messages_for_title:
-        # Scan all user messages, not just the first: a compacted session
-        # leads with the continuation preamble, so the real prompt is later.
-        cand = _title_from_user_messages(user_messages_for_title, sid)
+    elif _is_junk_or_uuid_title(doc.title, sid):
+        # The session's name (Memento names the sessions it starts after their conversation), else the
+        # first prompt. Scan all user messages, not just the first: a compacted session leads with the
+        # continuation preamble, so the real prompt is later.
+        cand = _extract_custom_title(content, sid) or (
+            _title_from_user_messages(user_messages_for_title, sid) if user_messages_for_title else None
+        )
         if cand:
             doc.title = cand
 

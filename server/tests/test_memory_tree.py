@@ -85,3 +85,32 @@ class TestMemoryTree(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoreMarkdownExcludeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_excluded_categories_are_left_out_and_counted(self):
+        import uuid as _uuid
+        from unittest.mock import AsyncMock, MagicMock
+
+        from server.db.models import User, UserMemory
+        from server.services.dreaming_service import export_core_memory_markdown
+
+        user = User(id=_uuid.uuid4(), email="u@example.com", role="owner")
+        mems = [
+            UserMemory(category="rule", key="reply_in_chinese", content="始终用中文回复", confidence=1.0, is_folder=False),
+            UserMemory(category="pitfall", key="fleet_stalled", content="Fleet 卡住", confidence=1.0, is_folder=False),
+            UserMemory(category="pitfall", key="configmap_patch", content="ConfigMap 覆盖代码", confidence=1.0, is_folder=False),
+        ]
+        res = MagicMock()
+        res.scalars.return_value.all.return_value = mems
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=res)
+
+        md = await export_core_memory_markdown(db, user, exclude=["pitfall"])
+        self.assertIn("reply_in_chinese", md)
+        self.assertNotIn("fleet_stalled", md)
+        self.assertIn("未列出：pitfall 2 条", md)
+
+        full = await export_core_memory_markdown(db, user)
+        self.assertIn("fleet_stalled", full)
+        self.assertNotIn("未列出", full)

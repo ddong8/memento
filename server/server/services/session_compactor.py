@@ -46,6 +46,9 @@ _CC_SUMMARY_MARK = "This session is being continued from a previous conversation
 _CC_SUMMARY_TAIL_RE = re.compile(r"\n\s*If you need specific details from before compaction[\s\S]*$")
 # What a compacted continuation put in front of the first prompt of the session it started
 _INJECTED_CONTEXT_RE = re.compile(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*")
+_INJECTED_HEAD_RE = re.compile(r"^【前序会话核心记忆快照[^】]*】\s*")
+_INJECTED_RULES_MARK = "【执行规则】"
+_INJECTED_PROMPT_RE = re.compile(r"\n\s*当前用户指令[：:]\s*")
 _NOISE_TAG_RE = re.compile(r"<system-reminder>[\s\S]*?</system-reminder>|<artifact-content-authored-by-others/>")
 # Assistant rows holding reasoning rather than a reply
 _THINKING_TYPES = {"pb_thinking", "reasoning", "thinking"}
@@ -212,18 +215,44 @@ def _stamp(ts: Any) -> str:
         return ""
 
 
+def split_injected_context(content: str) -> tuple[str, str] | None:
+    """A prompt that started a compacted continuation: (the context it carried over, without its header
+    and rules; what the user asked). None for any other prompt."""
+    if not _INJECTED_HEAD_RE.match(content):
+        return None
+    rules = content.find(_INJECTED_RULES_MARK)
+    if rules >= 0:
+        ask = _INJECTED_PROMPT_RE.search(content, rules)
+        carried, prompt = content[:rules], (content[ask.end():] if ask else "")
+    else:
+        m = _INJECTED_CONTEXT_RE.match(content)
+        if not m:
+            return None
+        carried, prompt = _INJECTED_PROMPT_RE.sub("", content[:m.end()]), content[m.end():]
+    return _INJECTED_HEAD_RE.sub("", carried).strip(), prompt.strip()
+
+
 def split_at_latest_summary(messages: list[dict[str, Any]]) -> tuple[str, str, list[dict[str, Any]]]:
-    """Split at the last summary Claude Code wrote when it compacted the session.
+    """Split at the latest summary of what came before: the one Claude Code wrote when it compacted the
+    session, or the context a compacted continuation carried into the session's first prompt (so a chain
+    of continuations keeps the history from before the previous one).
 
     Returns (summary, when it was written, messages after it); the summary covers everything before it.
     Without one: ("", "", messages).
     """
     for i in range(len(messages) - 1, -1, -1):
-        if _is_cc_summary(messages[i]):
-            text = str(messages[i].get("content") or "")
+        m = messages[i]
+        if _is_cc_summary(m):
+            text = str(m.get("content") or "")
             pos = text.find("Summary:")
             body = text[pos + len("Summary:"):] if pos >= 0 else text[text.find(_CC_SUMMARY_MARK):]
-            return _CC_SUMMARY_TAIL_RE.sub("", body).strip(), _stamp(messages[i].get("timestamp")), messages[i + 1:]
+            return _CC_SUMMARY_TAIL_RE.sub("", body).strip(), _stamp(m.get("timestamp")), messages[i + 1:]
+        if m.get("role") == "user":
+            injected = split_injected_context(str(m.get("content") or ""))
+            if injected and injected[0]:
+                carried, prompt = injected
+                rest = messages[i + 1:]
+                return carried, _stamp(m.get("timestamp")), ([{**m, "content": prompt}, *rest] if prompt else rest)
     return "", "", messages
 
 
@@ -320,8 +349,9 @@ async def generate_checkpoint_summary(
 ) -> str:
     """Generate a high-density structured Markdown checkpoint of the session.
 
-    messages: the user/assistant messages to digest, oldest first. earlier_summary: Claude Code's own
-    summary of what came before them (see split_at_latest_summary). The digest is budgeted from the
+    messages: the user/assistant messages to digest, oldest first. earlier_summary: the summary of what
+    came before them, Claude Code's own or the context a previous continuation carried (see
+    split_at_latest_summary). The digest is budgeted from the
     newest message back, so the checkpoint reflects where the session actually stands.
     """
     if not messages and not earlier_summary:
@@ -336,7 +366,7 @@ async def generate_checkpoint_summary(
         sections = []
         if earlier_summary:
             sections.append(
-                f"【第一部分：截至 {earlier_until or '压缩时'} 的早期历史摘要（Claude Code 自动压缩生成）】\n"
+                f"【第一部分：截至 {earlier_until or '压缩时'} 的早期历史摘要】\n"
                 f"{_clip(earlier_summary, EARLIER_SUMMARY_CHARS)}"
             )
         if messages:
@@ -398,7 +428,7 @@ async def generate_checkpoint_summary(
         latest = "；".join(f"{n}) {p}" for n, p in enumerate(user_prompts[-3:], 1))
         summary_md += f"\n- 最近的用户指令：{latest}"
     if earlier_summary:
-        summary_md += f"\n- 更早历史（Claude Code 压缩摘要，截至 {earlier_until or '压缩时'}）：\n{_clip(earlier_summary, 4000)}"
+        summary_md += f"\n- 更早历史（截至 {earlier_until or '压缩时'} 的摘要）：\n{_clip(earlier_summary, 4000)}"
 
     return summary_md
 

@@ -105,7 +105,8 @@ export async function projectContext(remote: RemoteClient, projectName: string):
 }
 
 async function coreMemory(remote: RemoteClient, category?: string): Promise<string> {
-  if (!category) return s((await remote.get<Json>("/api/memory/core/markdown")).markdown);
+  // Pitfalls are most of it and memory_check_rule picks the ones that fit the work at hand
+  if (!category) return s((await remote.get<Json>("/api/memory/core/markdown", { exclude: "pitfall" })).markdown);
   const memories = (await remote.get<Json[]>("/api/memory/core", { active_only: "true", recall: "true", category })).filter((m) => !m.is_folder);
   if (!memories.length) return `No core memories found for category '${category}'.`;
   return [`# Core Memories (${category})`, ...memories.map((m) => `- **[${s(m.key)}]** (${s(m.confidence ?? 1)}): ${s(m.content)}`)].join("\n");
@@ -435,8 +436,9 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
     "memory_core",
     {
       description:
-        "Get the user's permanent core memory (MEMORY.md) consolidated by dreaming: distilled engineering rules, architecture decisions, project knowledge, and personal preferences.",
-      inputSchema: { category: z.string().optional().describe("Optional filter ('rule', 'architecture', 'preference', 'project', 'general')") },
+        "Get the user's permanent core memory (MEMORY.md) consolidated by dreaming: distilled engineering rules, architecture decisions, project knowledge, and personal preferences. " +
+        "Past pitfalls are left out (memory_check_rule returns the ones relevant to a task; category 'pitfall' lists them all).",
+      inputSchema: { category: z.string().optional().describe("Optional filter ('rule', 'architecture', 'preference', 'project', 'general', 'pitfall')") },
     },
     async ({ category }) => {
       try {

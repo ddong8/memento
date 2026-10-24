@@ -152,7 +152,7 @@ async def create_task(
         try:
             from ..services.mind_resonance_service import render_mind_resonance_markdown, sense_resonance
             sub_proj = task_payload.get("project_id") or task_payload.get("cwd") or ""
-            sub_query = task_payload.get("prompt") or ""
+            sub_query = task_payload.get("user_question") or task_payload.get("prompt") or ""
             res = await sense_resonance(db, _user, query=sub_query, project=str(sub_proj) if sub_proj else None, action="agent")
             mind_md = render_mind_resonance_markdown(res)
             if mind_md.strip():

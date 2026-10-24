@@ -92,6 +92,31 @@ export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: 
   ];
 }
 
+// Context the server puts in front of the user's prompt when continuing a session or a conversation
+const INJECTED_CONTEXT_RES = [
+  /^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*/,
+  /^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*/,
+  /^【前文对话历史】[\s\S]*?【当前用户指令】\s*/,
+];
+
+/** The name Claude Code shows for a session Memento runs: the conversation's title, so it reads the same
+ * every turn and after a continuation; else what the user asked, not the context put in front of it. */
+export function claudeSessionName(title: string, question: string, prompt: string): string | undefined {
+  let base = title.trim() || question.trim();
+  if (!base) {
+    base = prompt;
+    for (const re of INJECTED_CONTEXT_RES) {
+      const stripped = base.replace(re, "");
+      if (stripped !== base) {
+        base = stripped;
+        break;
+      }
+    }
+  }
+  const name = base.replace(/[\r\n\t]+/g, " ").trim().slice(0, 32).trim();
+  return name ? `Memento: ${name}` : undefined;
+}
+
 const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
 
 /** `codex exec` (or `exec resume|fork <id>`) with JSON events, no approvals. */
@@ -740,7 +765,7 @@ export class TaskRunner {
         const hooks = await this.hookBridge.claudeHooks(taskId);
         if (hooks) settings.hooks = hooks;
         claudeSettings = Object.keys(settings).length ? JSON.stringify(settings) : undefined;
-        const sessionName = prompt ? `Memento: ${prompt.slice(0, 32).replace(/[\r\n\t]+/g, " ").trim()}` : undefined;
+        const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
         args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
         parser = new ClaudeStreamParser();
         stdinPrompt = prompt;
@@ -867,7 +892,7 @@ export class TaskRunner {
         this.notice(taskId, "\n⚡ [自动自愈] 本地未找到历史会话（跨设备远程调度或会话过期常见），已自动重置为全新会话重新执行...\n\n");
         if (binary.includes("claude")) {
           parser = new ClaudeStreamParser();
-          const sessionName = prompt ? `Memento: ${prompt.slice(0, 32).replace(/[\r\n\t]+/g, " ").trim()}` : undefined;
+          const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
           exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();

@@ -161,6 +161,27 @@ describe("memento MCP", () => {
     expect(loads).toBe(1);
   });
 
+  it("leaves pitfalls out of the core memory unless asked for", async () => {
+    const calls: string[] = [];
+    const client = await connect(
+      new RemoteClient(
+        "http://m",
+        "ct-1",
+        undefined,
+        fakeFetch(
+          {
+            "GET /api/memory/core/markdown": () => ({ body: { markdown: "# MEMORY.md" } }),
+            "GET /api/memory/core": () => ({ body: [{ key: "fleet_stalled", content: "Fleet 卡住", confidence: 1 }] }),
+          },
+          calls,
+        ),
+      ),
+    );
+    expect(textOf(await client.callTool({ name: "memory_core", arguments: {} }))).toBe("# MEMORY.md");
+    expect(calls).toContain("GET /api/memory/core/markdown?exclude=pitfall");
+    expect(textOf(await client.callTool({ name: "memory_core", arguments: { category: "pitfall" } }))).toContain("fleet_stalled");
+  });
+
   it("reports API errors as tool text instead of failing the call", async () => {
     const client = await connect(new RemoteClient("http://m", "ct-1", undefined, fakeFetch({})));
     const out = textOf(await client.callTool({ name: "memory_open", arguments: { doc_id: "missing" } }));

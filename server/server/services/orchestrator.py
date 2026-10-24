@@ -767,12 +767,14 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["conversation_id"] = args["conversation_id"]
             if args.get("user_question"):
                 payload["user_question"] = args["user_question"]
+            if args.get("title"):
+                payload["title"] = args["title"]
 
             # 动态心智穿透：自动感知场景并将心领神会与项目铁律注入至子 Agent 运行时
             try:
                 from .mind_resonance_service import render_mind_resonance_markdown, sense_resonance
                 sub_proj = args.get("project_id") or args.get("cwd") or ""
-                sub_query = args.get("prompt") or ""
+                sub_query = args.get("user_question") or args.get("prompt") or ""
                 res = await sense_resonance(db, user, query=sub_query, project=str(sub_proj) if sub_proj else None, action="agent")
                 mind_md = render_mind_resonance_markdown(res)
                 if mind_md.strip():

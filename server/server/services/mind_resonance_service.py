@@ -12,12 +12,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 import re
+import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User, UserMemory
+from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -130,6 +131,11 @@ async def _fetch_scoped_and_general_rules(
                             elif stripped.startswith("#"):
                                 in_target = False
 
+            # Most relevant to the request first (stable for ties), so the top five aren't just the first lines
+            scoped_rules = [line for _, line in sorted(
+                enumerate(scoped_rules), key=lambda il: (-score(il[1], terms), il[0])
+            )]
+
             # Pick general rules with top resonance to query
             gen_lines = [line.strip("- * \t") for line in scopes.general.splitlines() if line.strip().startswith("-")]
             scored_gen = sorted(gen_lines, key=lambda l: score(l, terms), reverse=True)
@@ -152,19 +158,19 @@ async def _fetch_graph_entities(
         return entities_data
 
     try:
-        or_conditions = []
-        for t in terms[:8]:
-            pattern = f"%{t}%"
-            or_conditions.append(KnowledgeEntity.name.ilike(pattern))
-            or_conditions.append(KnowledgeEntity.summary.ilike(pattern))
+        name_conditions = [KnowledgeEntity.name.ilike(f"%{t}%") for t in terms[:12]]
+        summary_conditions = [KnowledgeEntity.summary.ilike(f"%{t}%") for t in terms[:12]]
 
-        if not or_conditions:
+        if not name_conditions:
             return entities_data
 
+        # Rank in Python over a wide candidate set, entities named by a term first; a limit straight on
+        # the match picks arbitrary rows
         ent_q = (
             select(KnowledgeEntity)
-            .where(KnowledgeEntity.user_id == user.id, or_(*or_conditions))
-            .limit(limit_entities * 2)
+            .where(KnowledgeEntity.user_id == user.id, or_(*name_conditions, *summary_conditions))
+            .order_by(case((or_(*name_conditions), 0), else_=1), KnowledgeEntity.updated_at.desc().nulls_last())
+            .limit(ENTITY_CANDIDATES)
         )
         ent_rows = (await db.execute(ent_q)).scalars().all()
 
@@ -173,7 +179,8 @@ async def _fetch_graph_entities(
         now = datetime.now(timezone.utc)
 
         def entity_affinity(ent: KnowledgeEntity) -> float:
-            base_score = float(score(f"{ent.name} {ent.summary or ''}", terms))
+            # A term in the name says more than one somewhere in the summary
+            base_score = float(score(f"{ent.name} {ent.summary or ''}", terms) + 2 * score(ent.name, terms))
             # 艾宾浩斯时间与频次衰减（半衰期 7 天，越近越活跃）
             ent_time = getattr(ent, "updated_at", None) or getattr(ent, "created_at", None)
             if ent_time:
@@ -276,6 +283,7 @@ async def _fetch_pitfalls(
     user: User,
     terms: list[str],
     limit_pitfalls: int,
+    target_project: str | None = None,
 ) -> list[dict[str, str]]:
     """Fetch defensive pitfall memories ranked by contextual relevance."""
     pitfalls_data: list[dict[str, str]] = []
@@ -290,8 +298,10 @@ async def _fetch_pitfalls(
         scored_pitfalls = []
         for m in all_mems:
             sc = score(f"{m.key} {m.tree_path or ''} {m.content}", terms)
-            if m.category == "pitfall":
+            if sc > 0 and m.category == "pitfall":
                 sc += 2  # boost explicit pitfalls
+            if sc > 0 and target_project and target_project.lower() in (m.tree_path or "").lower():
+                sc += 2  # filed under the project being worked on
             if sc > 0 or not terms:
                 scored_pitfalls.append((sc, m))
 
@@ -307,6 +317,28 @@ async def _fetch_pitfalls(
     return pitfalls_data
 
 
+# Entities matched in the database before ranking
+ENTITY_CANDIDATES = 200
+# Actions naming how a request runs rather than what it is about
+_DISPATCH_ACTIONS = {"agent", "ask", "chat"}
+
+
+async def _project_name(db: AsyncSession, project: str | None) -> str | None:
+    """A project id resolved to its title, a working directory to its last segment."""
+    p = (project or "").strip()
+    if not p:
+        return None
+    try:
+        pid = uuid.UUID(p)
+    except ValueError:
+        return p.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or p
+    try:
+        return (await db.execute(select(Project.title).where(Project.id == pid))).scalar_one_or_none()
+    except Exception as e:
+        logger.warning("Could not resolve project %s in mind resonance: %s", p, e)
+        return None
+
+
 async def sense_resonance(
     db: AsyncSession,
     user: User,
@@ -316,25 +348,35 @@ async def sense_resonance(
     limit_entities: int = 4,
     limit_pitfalls: int = 4,
 ) -> dict[str, Any]:
-    """Execute mind resonance sensing concurrently across user profile, knowledge graph, and pitfalls."""
+    """Sense the user's profile rules, knowledge graph entities and pitfalls relevant to the request.
+
+    project may be a name, a project id or a working directory. action "agent" / "ask" only says how the
+    request runs, so it isn't matched against memories.
+    """
     import asyncio
 
-    q_text = query or ""
-    terms = terms_for(action, project, q_text)
-    scenario = detect_scenario(terms, f"{q_text} {project or ''} {action or ''}")
+    from .session_compactor import clean_text
 
-    # Concurrently execute dimensions: Profile rules, Graph entities (with 2-hop), Defensive pitfalls, and Durable corrections
-    rules_task = _fetch_scoped_and_general_rules(db, user, terms, scenario, project)
-    entities_task = _fetch_graph_entities(db, user, terms, limit_entities, target_project=project)
-    pitfalls_task = _fetch_pitfalls(db, user, terms, limit_pitfalls)
-    durable_task = get_user_durable_corrections(user.id)
+    # What the user asked, not the context a continuation put in front of it
+    q_text = clean_text(query or "")
+    project = await _project_name(db, project)
+    topic_action = None if (action or "").lower() in _DISPATCH_ACTIONS else action
+    terms = terms_for(topic_action, project, q_text)
+    # Single characters (了, 吗, ...) match nearly everything
+    match_terms = [t for t in terms if len(t) >= 2]
+    # The request decides the scenario; the project's name only when the request says nothing about it
+    scenario = detect_scenario(terms_for(topic_action, q_text), f"{q_text} {topic_action or ''}")
+    if scenario["id"] == "general_engineering" and project:
+        scenario = detect_scenario(terms, f"{q_text} {project} {topic_action or ''}")
 
-    (scoped_rules, general_rules), entities_data, pitfalls_data, durable_corrections = await asyncio.gather(
-        rules_task,
-        entities_task,
-        pitfalls_task,
-        durable_task,
-    )
+    # Redis lookup alongside; the database queries share one session, which can't run them concurrently
+    durable_task = asyncio.ensure_future(get_user_durable_corrections(user.id))
+    try:
+        scoped_rules, general_rules = await _fetch_scoped_and_general_rules(db, user, match_terms, scenario, project)
+        entities_data = await _fetch_graph_entities(db, user, match_terms, limit_entities, target_project=project)
+        pitfalls_data = await _fetch_pitfalls(db, user, match_terms, limit_pitfalls, target_project=project)
+    finally:
+        durable_corrections = await durable_task
 
     return {
         "scenario": scenario,

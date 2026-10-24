@@ -142,6 +142,35 @@ class CompactionCoverageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(until, "10-23 15:12")
         self.assertEqual([m["content"] for m in after], ["new ask", "new reply"])
 
+    def test_a_continued_session_carries_the_previous_context_forward(self):
+        injected = format_injected_context(
+            "### 核心记忆快照\n- CARRIED-CHECKPOINT",
+            [{"role": "user", "content": "继续"}, {"role": "assistant", "content": "CARRIED-REPLY"}],
+            original_session_id="aa549791-3f81",
+        )
+        messages = [
+            {"role": "user", "content": f"{injected}\n\n当前用户指令：\n部署完了吗", "timestamp": "2026-10-24T01:10:00+00:00"},
+            {"role": "assistant", "content": "部署完了"},
+        ]
+        earlier, until, after = split_at_latest_summary(messages)
+
+        self.assertIn("CARRIED-CHECKPOINT", earlier)
+        self.assertIn("CARRIED-REPLY", earlier)
+        self.assertNotIn("前序会话核心记忆快照", earlier)
+        self.assertNotIn("执行规则", earlier)
+        self.assertEqual(until, "10-24 09:10")
+        self.assertEqual([m["content"] for m in after], ["部署完了吗", "部署完了"])
+
+    def test_a_later_claude_code_summary_wins_over_the_carried_context(self):
+        messages = [
+            {"role": "user", "content": "【前序会话核心记忆快照】\n- old\n\n【执行规则】\nx\n\n当前用户指令：\nfirst"},
+            {"role": "user", "content": _CC_SUMMARY.format(body="CC-SUMMARY")},
+            {"role": "user", "content": "next"},
+        ]
+        earlier, _, after = split_at_latest_summary(messages)
+        self.assertIn("CC-SUMMARY", earlier)
+        self.assertEqual([m["content"] for m in after], ["next"])
+
     def test_without_a_claude_code_summary_everything_is_digested(self):
         messages = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
         self.assertEqual(split_at_latest_summary(messages), ("", "", messages))

@@ -8,7 +8,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
 from server.services.ingest_service import (
+    _extract_custom_title,
     _extract_latest_ai_title,
+    _infer_category,
     _is_junk_or_uuid_title,
     _parent_session_id_from_content,
     _title_from_user_messages,
@@ -144,6 +146,55 @@ class ExtractLatestAiTitleTests(unittest.TestCase):
         self.assertIsNone(_extract_latest_ai_title(content))
         self.assertIsNone(_extract_latest_ai_title(None))
         self.assertIsNone(_extract_latest_ai_title(""))
+
+
+_CONTINUED = (
+    "【前序会话核心记忆快照（原会话 ID: aa549791...）】\n### 核心记忆快照\n- 旧\n\n"
+    "【执行规则】\n你已完整继承以上前序会话的全部背景。\n\n当前用户指令：\n部署完了吗"
+)
+
+
+class ContinuedSessionTitleTests(unittest.TestCase):
+    def test_injected_context_is_junk(self):
+        self.assertTrue(_is_junk_or_uuid_title("【前序会话核心记忆快照（原会话 ID: 5c3f46c6...）】"))
+        self.assertTrue(_is_junk_or_uuid_title("【前文对话历史】"))
+        self.assertTrue(_is_junk_or_uuid_title("Memento: 【前序会话核心记忆快照（原会话 ID: aa549791...）"))
+
+    def test_title_is_what_the_user_asked(self):
+        self.assertEqual(_title_from_user_messages([_CONTINUED]), "部署完了吗")
+        history = "【前文对话历史】\n用户: 在吗\n\n助手: 在\n--------------------\n【当前用户指令】\n查看设备"
+        self.assertEqual(_title_from_user_messages([history]), "查看设备")
+
+    def test_custom_title_first_usable_without_prefix(self):
+        content = (
+            '{"type":"custom-title","customTitle":"Memento: 【前序会话核心记忆快照（原会话 ID: aa549791...）","sessionId":"s"}\n'
+            '{"type":"custom-title","customTitle":"Memento: 项目时间线记录功能","sessionId":"s"}\n'
+            '{"type":"custom-title","customTitle":"Memento: 中文回复啊","sessionId":"s"}\n'
+        )
+        self.assertEqual(_extract_custom_title(content), "项目时间线记录功能")
+        self.assertEqual(_extract_custom_title('{"type":"custom-title","customTitle":"say \\"hi\\""}'), 'say "hi"')
+        self.assertIsNone(_extract_custom_title('{"type":"user"}'))
+
+
+class InferCategoryTests(unittest.TestCase):
+    def test_memory_plans_and_cursor_files(self):
+        cases = [
+            ("claude_code", "md", "projects/-Users-x-dev-memento/memory/feedback_reply_in_chinese.md", "memory"),
+            ("claude_code", "md", "projects/-Users-x-dev-memento/memory/MEMORY.md", "memory"),
+            ("workbuddy", "md", "projects/x/memory/a.md", "memory"),
+            ("claude_code", "md", "plans/refactor-auth.md", "plan"),
+            ("cursor", "json", "SERVER_METADATA.json", "config"),
+            ("cursor", "md", "projects/x/mcps/user-memento-memory/INSTRUCTIONS.md", "memory"),
+            ("claude_code", "jsonl", "projects/x/aa549791.jsonl", "conversation"),
+            ("cursor", "jsonl", "projects/x/agent-transcripts/a.jsonl", "conversation"),
+            ("claude_code", "json", "projects/x/sid/subagents/agent-a.meta.json", "conversation"),
+            ("codex", "md", "memory/a.md", "conversation"),
+        ]
+        for tool, ctype, path, want in cases:
+            self.assertEqual(_infer_category(tool, "conversation", ctype, path), want, path)
+
+    def test_a_category_the_client_chose_is_kept(self):
+        self.assertEqual(_infer_category("claude_code", "identity", "md", "projects/x/memory/a.md"), "identity")
 
 
 class ConversationPatchTests(unittest.IsolatedAsyncioTestCase):

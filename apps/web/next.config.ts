@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
   turbopack: { root: repoRoot },
   compress: true,
   poweredByHeader: false,
+  compiler: {
+    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
+  },
   // The image build passes the commit (apps/web/Dockerfile); elsewhere Next picks a random id
   generateBuildId: async () => process.env.GIT_SHA || null,
   experimental: {

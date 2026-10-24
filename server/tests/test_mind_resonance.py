@@ -305,8 +305,8 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
         user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
         captured: dict = {}
 
-        async def fake_entities(db, u, terms, limit, target_project=None):
-            captured["terms"], captured["project"] = terms, target_project
+        async def fake_entities(db, u, terms, limit, target_project=None, rank_terms=None):
+            captured["terms"], captured["project"], captured["rank_terms"] = terms, target_project, rank_terms
             return []
 
         project_res = MagicMock()
@@ -322,10 +322,31 @@ class TestMindResonance(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(captured["project"], "memento")
         self.assertIn("部署", captured["terms"])
+        # The project's name finds candidates but doesn't count as a match when ranking them
+        self.assertIn("memento", captured["terms"])
+        self.assertNotIn("memento", captured["rank_terms"])
         self.assertNotIn("agent", captured["terms"])
         self.assertNotIn("hermes", captured["terms"])
         self.assertTrue(all(len(t) >= 2 for t in captured["terms"]))
         self.assertEqual(res["scenario"]["id"], "devops_release")
+
+    async def test_rare_terms_outrank_common_ones_in_pitfalls(self):
+        from server.services.mind_resonance_service import _fetch_pitfalls
+
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        mems = [
+            UserMemory(id=uuid.uuid4(), user_id=user.id, key=f"stuck_{i}", category="pitfall", tree_path="/pitfall/memento/x",
+                       content=f"脚本卡住了 {i}", status="active", is_folder=False)
+            for i in range(5)
+        ] + [UserMemory(id=uuid.uuid4(), user_id=user.id, key="fleet_stalled", category="pitfall", tree_path="/pitfall/memento/y",
+                        content="Fleet 不部署：代理单出口", status="active", is_folder=False)]
+        res = MagicMock()
+        res.scalars.return_value.all.return_value = mems
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=res)
+
+        out = await _fetch_pitfalls(db, user, ["fleet", "卡住"], 2, target_project="memento")
+        self.assertEqual(out[0]["key"], "fleet_stalled")
 
     async def test_scoped_rules_most_relevant_first(self):
         user = User(id=uuid.uuid4(), email="user@example.com", role="owner")

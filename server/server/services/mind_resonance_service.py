@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import math
 import re
 import uuid
 from typing import Any
@@ -53,7 +54,7 @@ DOMAIN_SCENARIOS = [
     {
         "id": "devops_release",
         "name": "发布交付与无故障上线",
-        "keywords": ("发布", "部署", "k8s", "pod", "release", "tag", "更新", "发版", "构建", "docker"),
+        "keywords": ("发布", "部署", "k8s", "pod", "release", "tag", "更新", "发版", "构建", "docker", "fleet", "gitops", "kubectl", "流水线", "上线", "镜像"),
         "mindset": "发版前必查历史经验避免重踩坑；代码发版打tag并确认所有pod状态；CI/CD零停机更新；帮用户做完勿让用户手动敲命令。",
     },
     {
@@ -151,8 +152,13 @@ async def _fetch_graph_entities(
     terms: list[str],
     limit_entities: int,
     target_project: str | None = None,
+    rank_terms: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Batch fetch and activate relevant knowledge graph entities with 2-hop topology and project affinity decay."""
+    """Batch fetch and activate relevant knowledge graph entities with 2-hop topology and project affinity decay.
+
+    terms find the candidates; rank_terms (default: terms) rank them, so the project's name, which
+    already earns its own boost, doesn't also count as a match."""
+    rank_terms = rank_terms or terms
     entities_data: list[dict[str, Any]] = []
     if not terms:
         return entities_data
@@ -180,7 +186,7 @@ async def _fetch_graph_entities(
 
         def entity_affinity(ent: KnowledgeEntity) -> float:
             # A term in the name says more than one somewhere in the summary
-            base_score = float(score(f"{ent.name} {ent.summary or ''}", terms) + 2 * score(ent.name, terms))
+            base_score = float(score(f"{ent.name} {ent.summary or ''}", rank_terms) + 2 * score(ent.name, rank_terms))
             # 艾宾浩斯时间与频次衰减（半衰期 7 天，越近越活跃）
             ent_time = getattr(ent, "updated_at", None) or getattr(ent, "created_at", None)
             if ent_time:
@@ -295,9 +301,12 @@ async def _fetch_pitfalls(
             UserMemory.category.in_(("pitfall", "rule", "architecture")),
         )
         all_mems = (await db.execute(mem_q)).scalars().all()
+        texts = [f"{m.key} {m.tree_path or ''} {m.content}".lower() for m in all_mems]
+        # A term few memories share (fleet) says more than a common one (卡住)
+        weight = {t: 1.0 + math.log((len(texts) + 1) / (1 + sum(t in x for x in texts))) for t in terms}
         scored_pitfalls = []
-        for m in all_mems:
-            sc = score(f"{m.key} {m.tree_path or ''} {m.content}", terms)
+        for m, text in zip(all_mems, texts):
+            sc = sum(w for t, w in weight.items() if t in text)
             if sc > 0 and m.category == "pitfall":
                 sc += 2  # boost explicit pitfalls
             if sc > 0 and target_project and target_project.lower() in (m.tree_path or "").lower():
@@ -364,6 +373,8 @@ async def sense_resonance(
     terms = terms_for(topic_action, project, q_text)
     # Single characters (了, 吗, ...) match nearly everything
     match_terms = [t for t in terms if len(t) >= 2]
+    # What the request is about; the project's name gets its own boost wherever it ranks
+    topic_terms = [t for t in terms_for(topic_action, q_text) if len(t) >= 2] or match_terms
     # The request decides the scenario; the project's name only when the request says nothing about it
     scenario = detect_scenario(terms_for(topic_action, q_text), f"{q_text} {topic_action or ''}")
     if scenario["id"] == "general_engineering" and project:
@@ -373,8 +384,10 @@ async def sense_resonance(
     durable_task = asyncio.ensure_future(get_user_durable_corrections(user.id))
     try:
         scoped_rules, general_rules = await _fetch_scoped_and_general_rules(db, user, match_terms, scenario, project)
-        entities_data = await _fetch_graph_entities(db, user, match_terms, limit_entities, target_project=project)
-        pitfalls_data = await _fetch_pitfalls(db, user, match_terms, limit_pitfalls, target_project=project)
+        entities_data = await _fetch_graph_entities(
+            db, user, match_terms, limit_entities, target_project=project, rank_terms=topic_terms,
+        )
+        pitfalls_data = await _fetch_pitfalls(db, user, topic_terms, limit_pitfalls, target_project=project)
     finally:
         durable_corrections = await durable_task
 

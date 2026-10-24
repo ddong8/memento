@@ -1,12 +1,17 @@
 name: Build & Deploy (k3s via Fleet)
 
-# 推送到 main 且改了服务端/前端代码时:云端构建 server/web 镜像 → 推 GHCR →
+# 推送到 main 且改了进镜像的文件时:云端构建 server/web 镜像 → 推 GHCR →
 # 回写 deploy/k8s/kustomization.yaml 的镜像 tag。集群里的 Rancher Fleet 监听
 # 本仓库 deploy/k8s/,检测到 tag 改动后自动部署到 NAS k3s(pull 式,适配家庭 NAT)。
 #
+# 快在哪:镜像和 CI 同时构建(只有回写 tag 等 CI 通过);每个镜像只在它自己的输入文件
+# 有改动时才构建,没改的镜像保持原 tag、pod 不重启。
+#
 # 安全说明(公开仓库):构建跑在 GitHub 托管 runner 上,不在自家网络;只在
 # push 到 main 触发(没有 pull_request,fork PR 不会触发),因此只会构建已合入
-# main 的代码。集群密钥不在本仓库——Secret 留在 k3s 内,清单只用 secretKeyRef 引用。
+# main 的代码。CI 没过的提交镜像也会推到 GHCR(只带提交号 tag),但不会回写、不会部署,
+# latest 也只在 CI 通过后才指过去。集群密钥不在本仓库——Secret 留在 k3s 内,清单只用
+# secretKeyRef 引用。
 #
 # 防递归:bump job 用默认 GITHUB_TOKEN 提交回写,GitHub 对 GITHUB_TOKEN 推送
 # 的 commit 不会再触发 workflow(这才是真正的防循环机制;[skip ci] 对 GitHub
@@ -19,14 +24,20 @@ name: Build & Deploy (k3s via Fleet)
 on:
   push:
     branches: [main]
+    # 只列进镜像的文件(和 changes job 里的 SERVER_PATHS / WEB_PATHS 一致):只改测试、客户端不触发
     paths:
-      - "server/**"
+      - "server/Dockerfile"
+      - "server/pyproject.toml"
+      - "server/requirements.lock"
+      - "server/server/**"
+      - "scripts/fetch_geoip.py"
       - "deploy/bootstrap/**"
+      - "data/updates/**"
       - "apps/web/**"
-      - "packages/**"
+      - "packages/core/**"
       - "package.json"
       - "package-lock.json"
-      - "data/updates/**"
+      - ".dockerignore"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -44,6 +55,54 @@ env:
   OWNER: ddong8
 
 jobs:
+  # 每个镜像和线上正在跑的那个提交(kustomization.yaml 里它的 tag)比:输入文件有改动才构建。
+  # 中间被取消的 run、连着几次 push 的改动都包含在内;找不到那个提交或手动触发时全部构建。
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.diff.outputs.targets }}
+      server: ${{ steps.diff.outputs.server }}
+      web: ${{ steps.diff.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
+          WEB_PATHS="apps/web packages/core package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
+          deployed_tag() {
+            awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml
+          }
+          changed() {
+            local image=$1; shift
+            local base; base=$(deployed_tag "$image")
+            if [ "$EVENT" != "push" ] || [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              echo "$image: 全部构建(线上 tag: ${base:-无})" >&2; echo true; return
+            fi
+            if git diff --quiet "$base" HEAD -- "$@"; then
+              echo "$image: 线上 $base 之后没有改动,不构建" >&2; echo false
+            else
+              echo "$image: 线上 $base 之后有改动:$(git diff --shortstat "$base" HEAD -- "$@")" >&2; echo true
+            fi
+          }
+          server=$(changed memento-server $SERVER_PATHS)
+          web=$(changed memento-web $WEB_PATHS)
+          # web 不用 GitHub Actions 缓存:它的依赖层 600 多 MB,从缓存下载要 4 分钟、导出要 1.5 分钟,
+          # 比直接 npm ci(约 40 秒)慢得多
+          targets=$(jq -cn --argjson s "$server" --argjson w "$web" '[
+            (if $s then {name: "server", file: "server/Dockerfile", image: "memento-server", has_geoip: true, cache: true} else empty end),
+            (if $w then {name: "web", file: "apps/web/Dockerfile", image: "memento-web", has_geoip: false, cache: false} else empty end)
+          ]')
+          {
+            echo "server=$server"
+            echo "web=$web"
+            echo "targets=$targets"
+          } >> "$GITHUB_OUTPUT"
+
   wait-ci:
     name: wait for CI
     if: github.event_name == 'push'
@@ -85,25 +144,16 @@ jobs:
           echo "::error::Timed out waiting for CI to complete (40 minutes)."
           exit 1
 
+  # 和 wait-ci 同时跑,不等 CI
   build:
     name: build · ${{ matrix.target.name }}
-    needs: [wait-ci]
-    if: |
-      always() &&
-      (needs.wait-ci.result == 'success' || needs.wait-ci.result == 'skipped')
+    needs: [changes]
+    if: needs.changes.outputs.targets != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - name: server
-            file: server/Dockerfile
-            image: memento-server
-            has_geoip: true
-          - name: web
-            file: apps/web/Dockerfile
-            image: memento-web
-            has_geoip: false
+        target: ${{ fromJSON(needs.changes.outputs.targets) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -129,17 +179,25 @@ jobs:
           build-args: |
             GIT_SHA=${{ steps.vars.outputs.sha }}
             ${{ matrix.target.has_geoip && format('GEOIP_MONTH={0}', steps.vars.outputs.geoip_month) || '' }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:latest
-          cache-from: type=gha,scope=${{ matrix.target.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.target.name }}
+          # 只推提交号 tag;latest 等 CI 通过后在 bump 里指过去
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.target.image }}:${{ steps.vars.outputs.sha }}
+          cache-from: ${{ matrix.target.cache && format('type=gha,scope={0}', matrix.target.name) || '' }}
+          cache-to: ${{ matrix.target.cache && format('type=gha,mode=max,scope={0}', matrix.target.name) || '' }}
 
   bump:
-    needs: build
+    needs: [changes, wait-ci, build]
+    if: |
+      !cancelled() && needs.build.result == 'success' &&
+      (needs.wait-ci.result == 'success' || needs.wait-ci.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install kustomize
         run: |
@@ -152,22 +210,34 @@ jobs:
       - name: Pin image tags & push (triggers Fleet)
         env:
           SHA: ${{ github.sha }}
+          SERVER: ${{ needs.changes.outputs.server }}
+          WEB: ${{ needs.changes.outputs.web }}
         run: |
           SHA_SHORT="${SHA:0:12}"
+          images=()
+          [ "$SERVER" = true ] && images+=(memento-server)
+          [ "$WEB" = true ] && images+=(memento-web)
+          # CI 已通过:latest 指向这次的镜像(只改清单,不重新推层)
+          for image in "${images[@]}"; do
+            docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${image}:latest" "${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}"
+          done
           git config user.name  'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          ( cd deploy/k8s && kustomize edit set image \
-              "${REGISTRY}/${OWNER}/memento-server=${REGISTRY}/${OWNER}/memento-server:${SHA_SHORT}" \
-              "${REGISTRY}/${OWNER}/memento-web=${REGISTRY}/${OWNER}/memento-web:${SHA_SHORT}" )
+          # 只改这次构建了的镜像,没构建的保持原 tag
+          ( cd deploy/k8s && for image in "${images[@]}"; do
+              kustomize edit set image "${REGISTRY}/${OWNER}/${image}=${REGISTRY}/${OWNER}/${image}:${SHA_SHORT}"
+            done )
           # 断言 tag 确实回写成功
-          grep -q "memento-server" deploy/k8s/kustomization.yaml && grep -q "${SHA_SHORT}" deploy/k8s/kustomization.yaml \
-            || { echo "镜像 tag 回写失败"; exit 1; }
+          for image in "${images[@]}"; do
+            tag=$(awk -v n="${REGISTRY}/${OWNER}/$image" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml)
+            [ "$tag" = "$SHA_SHORT" ] || { echo "$image 镜像 tag 回写失败(现在是 ${tag:-空})"; exit 1; }
+          done
           git add deploy/k8s/kustomization.yaml
           if git diff --cached --quiet; then
             echo "镜像 tag 未变,跳过提交"
             exit 0
           fi
-          git commit -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} [skip ci]"
+          git commit -m "ci(deploy): memento 镜像 -> ${SHA_SHORT} (${images[*]#memento-}) [skip ci]"
           # 串行 run 之间可能有新 commit 落到 main,push 前先 rebase,失败重试
           for i in 1 2 3; do
             if git pull --rebase origin main && git push; then
@@ -179,23 +249,39 @@ jobs:
           done
           echo "回写 push 失败"; exit 1
 
-  # 回写 tag 只说明"该部署了"。等线上 /health 报出这次的提交号才算真正上线;
+  # 回写 tag 只说明"该部署了"。等线上真正跑上这次的提交才算上线:server 看 /health 的 version,
+  # web 看页面里的 build id(就是提交号,见 apps/web/next.config.ts)。
   # Fleet 卡住(gitrepo Stalled)等情况会在这里超时失败,不再静默。
   verify:
-    needs: [build, bump]
+    needs: [changes, bump]
+    # 手动触发时 wait-ci 是 skipped,默认的 success() 会因为上游有 skipped 把这里也跳过
+    if: ${{ !cancelled() && needs.bump.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Wait for production to run this commit
         env:
           SHA: ${{ github.sha }}
+          SERVER: ${{ needs.changes.outputs.server }}
+          WEB: ${{ needs.changes.outputs.web }}
         run: |
           SHA_SHORT="${SHA:0:12}"
-          for i in $(seq 1 150); do
+          server_live() {
+            [ "$SERVER" != true ] && return 0
             live=$(curl -fsS --max-time 6 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
-            if [ "$live" = "$SHA_SHORT" ] || [[ "$live" == *"$SHA_SHORT"* ]]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
+            [[ "$live" == *"$SHA_SHORT"* ]]
+          }
+          web_live() {
+            [ "$WEB" != true ] && return 0
+            curl -fsS --max-time 8 https://mem.ihasy.com/auth/login 2>/dev/null | grep -q "$SHA_SHORT"
+          }
+          for i in $(seq 1 150); do
+            s=未切换; w=未切换
+            server_live && s=已切换
+            web_live && w=已切换
+            if [ "$s" = 已切换 ] && [ "$w" = 已切换 ]; then echo "线上已是 $SHA_SHORT"; exit 0; fi
             if [ $((i % 5)) -eq 1 ]; then
-              echo "线上版本 ${live:-无响应},等待 $SHA_SHORT ... ($i/150)"
+              echo "等待线上切到 $SHA_SHORT:server $s,web $w(本次构建 server=$SERVER web=$WEB)... ($i/150)"
             fi
             sleep 6
           done

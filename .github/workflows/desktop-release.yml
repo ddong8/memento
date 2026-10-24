@@ -40,10 +40,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # npm cache on Linux only: a run for a tag can only restore caches saved on main, and only CI
+      # on Linux saves one there. On macOS/Windows each release just stored ~170 MB that no later
+      # release could read, crowding the repository's 10 GB of caches.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
+          cache: ${{ matrix.os == 'ubuntu-latest' && 'npm' || '' }}
           cache-dependency-path: package-lock.json
 
       - name: Install
@@ -85,92 +88,29 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  # Expo mobile app (apps/mobile): Android APK built here.
-  build-android:
-    name: Build Android (Expo)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Install
-        run: npm ci --workspace @memento/mobile --workspace @memento/core --include-workspace-root
-
-      - name: Version from tag
-        shell: bash
-        run: |
-          VERSION="${{ github.event.inputs.tag_name }}"
-          if [ -z "$VERSION" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then VERSION="${{ github.ref_name }}"; fi
-          VERSION="${VERSION#v}"
-          if [ -z "$VERSION" ]; then
-            VERSION=$(node -p "require('./apps/mobile/package.json').version")
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-      - name: Stamp version
-        working-directory: apps/mobile
-        run: |
-          node -e '
-            const fs = require("fs");
-            const v = process.env.VERSION;
-            const [a, b, c] = v.split(".").map((n) => parseInt(n, 10) || 0);
-            const cfg = JSON.parse(fs.readFileSync("app.json", "utf8"));
-            cfg.expo.version = v;
-            cfg.expo.android = { ...cfg.expo.android, versionCode: a * 10000 + b * 100 + c };
-            fs.writeFileSync("app.json", JSON.stringify(cfg, null, 2));
-          '
-
-      - name: Build shared package
-        run: npm run build -w @memento/core
-
-      - name: Generate the Android project
-        working-directory: apps/mobile
-        run: npx expo prebuild --platform android --no-install
-
-      - name: Gradle assembleRelease
-        working-directory: apps/mobile/android
-        run: |
-          GRADLE_OPTS="-Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000"
-          ./gradlew app:assembleRelease --no-daemon $GRADLE_OPTS || ./gradlew app:assembleRelease --no-daemon $GRADLE_OPTS
-
-      - name: Collect APK
-        run: |
-          mkdir -p out
-          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "out/Memento-${VERSION}-android.apk"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: out/*.apk
-          if-no-files-found: error
-          retention-days: 2
+  # Android APK (apps/mobile), in its own workflow so main can warm its Gradle cache. The release
+  # doesn't wait for it: the desktop downloads go out first and attach-apk adds the APK after.
+  android:
+    uses: ./.github/workflows/android.yml
+    with:
+      version: ${{ github.event.inputs.tag_name || github.ref_name }}
 
   publish-release:
     name: Publish GitHub Release & Update Version Metadata
-    needs: [build-electron, build-android]
-    if: always() && needs.build-electron.result == 'success'
+    needs: [build-electron]
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release_meta.outputs.tag }}
     steps:
       - name: Checkout repo for version metadata update
         uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Download all artifacts
+      - name: Download desktop artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: electron-*
           path: dist
 
       - name: Prepare Release Tag
@@ -185,6 +125,20 @@ jobs:
             echo "tag=v${DEFAULT_VER}" >> $GITHUB_OUTPUT
           fi
 
+      # The release commit writes this version's notes into data/updates/version.json (the in-app
+      # updater shows them too): use them as the release body, GitHub's commit list only without them
+      - name: Release notes
+        id: notes
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          meta = json.loads(pathlib.Path("data/updates/version.json").read_text(encoding="utf-8"))
+          notes = str(meta.get("release_notes") or "").strip()
+          pathlib.Path("release-notes.md").write_text(notes + "\n" if notes else "", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"has_notes={'true' if notes else 'false'}\n")
+          PY
+
       - name: Upload Assets & Publish Release
         uses: softprops/action-gh-release@v2
         env:
@@ -192,11 +146,11 @@ jobs:
         with:
           tag_name: ${{ steps.release_meta.outputs.tag }}
           name: Memento ${{ steps.release_meta.outputs.tag }}
-          generate_release_notes: true
+          body_path: release-notes.md
+          generate_release_notes: ${{ steps.notes.outputs.has_notes != 'true' }}
           make_latest: true
           files: |
             dist/electron-*/*
-            dist/android-apk/*
 
       - name: Update data/updates/version.json
         run: |
@@ -337,3 +291,19 @@ jobs:
               sleep 3
             done
           fi
+
+  attach-apk:
+    name: Attach Android APK
+    needs: [android, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: apk
+
+      - name: Upload the APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.publish-release.outputs.tag }}
+        run: gh release upload "$TAG" apk/*.apk --clobber --repo "${{ github.repository }}"

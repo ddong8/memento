@@ -14,10 +14,12 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
+          # 启动不到 1 秒就绪;容忍时间不变(连续失败 30 秒才摘流量)
           readinessProbe:
             httpGet: { path: /, port: 3000 }
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 6
           lifecycle:
             # 同 api:先等网关摘掉再停,滚动更新时不出 502
             preStop:

@@ -1,0 +1,111 @@
+name: Android APK
+
+# Builds the Expo app (apps/mobile) into an APK artifact. A client release (desktop-release.yml)
+# calls this and attaches the APK once it's built, without holding up the desktop downloads.
+#
+# Runs on main too (native dependencies changed, weekly, or by hand) to fill the Gradle cache:
+# setup-gradle only writes the cache on main, and a release, triggered by a tag, can only read
+# what main wrote.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "App version, e.g. 1.0.78 (a leading v is dropped)"
+        type: string
+        default: ""
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/package.json"
+      - "apps/mobile/app.json"
+      - "apps/mobile/plugins/**"
+      - "package-lock.json"
+      - ".github/workflows/android.yml"
+  schedule:
+    - cron: "23 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    name: Build Android (Expo)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Dependencies, the wrapper and the build cache (compiled Kotlin/Java of the Expo and RN modules)
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Install
+        run: npm ci --workspace @memento/mobile --workspace @memento/core --include-workspace-root
+
+      - name: Version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION=$(node -p "require('./apps/mobile/package.json').version")
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Stamp version
+        working-directory: apps/mobile
+        run: |
+          node -e '
+            const fs = require("fs");
+            const v = process.env.VERSION;
+            const [a, b, c] = v.split(".").map((n) => parseInt(n, 10) || 0);
+            const cfg = JSON.parse(fs.readFileSync("app.json", "utf8"));
+            cfg.expo.version = v;
+            cfg.expo.android = { ...cfg.expo.android, versionCode: a * 10000 + b * 100 + c };
+            fs.writeFileSync("app.json", JSON.stringify(cfg, null, 2));
+          '
+
+      - name: Build shared package
+        run: npm run build -w @memento/core
+
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        run: npx expo prebuild --platform android --no-install
+
+      # arm64-v8a only: every phone of the last several years. The native (C++) code of RN and the
+      # Expo modules was compiled once per ABI, x86/x86_64 (emulators) and 32-bit arm included,
+      # which was most of the build and half the APK.
+      # lintVital (Android lint's fatal checks, run on every module, mostly third-party) is skipped:
+      # it cost about 3 minutes a release; the app's own code is typechecked and bundled in CI.
+      - name: Gradle assembleRelease
+        working-directory: apps/mobile/android
+        run: |
+          ARGS="app:assembleRelease --build-cache -PreactNativeArchitectures=arm64-v8a -x lintVitalRelease"
+          GRADLE_OPTS="-Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.http.connectionTimeout=120000"
+          ./gradlew $ARGS $GRADLE_OPTS || ./gradlew $ARGS $GRADLE_OPTS
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "out/Memento-${VERSION}-android.apk"
+          ls -l out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 2

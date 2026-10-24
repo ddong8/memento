@@ -8,7 +8,9 @@
 #   kubectl -n fleet-local get gitrepo,bundle,bundledeployment
 #
 # 公开仓库,无需 clientSecretName。NAS 在 NAT 后无法收 GitHub webhook,
-# 因此靠 pollingInterval 轮询(部署延迟 ≈ 一个轮询周期)。
+# 因此靠 pollingInterval 轮询(部署延迟 ≈ 一个轮询周期)。15s 是 Fleet 的默认值,
+# 每次只是一次 git ls-remote;改这里后要在集群里同步(这个对象不归 Fleet 管):
+#   kubectl -n fleet-local patch gitrepo memento --type merge -p '{"spec":{"pollingInterval":"15s"}}'
 apiVersion: fleet.cattle.io/v1alpha1
 kind: GitRepo
 metadata:
@@ -19,4 +21,4 @@ spec:
   branch: main
   paths:
     - deploy/k8s
-  pollingInterval: 60s
+  pollingInterval: 15s

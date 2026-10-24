@@ -34,11 +34,13 @@ spec:
               valueFrom: { secretKeyRef: { name: memento-apns, key: bundle_id, optional: true } }
           ports:
             - containerPort: 8000
+          # 启动约 2 秒就能接请求:早点开始探测,滚动更新时每个副本少等十几秒(两个副本逐个替换)。
+          # 摘流量的容忍时间不变,仍是连续失败 2 分钟
           readinessProbe:
             httpGet: { path: /health, port: 8000 }
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            failureThreshold: 12
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 24
           lifecycle:
             # 先等网关(Traefik)把这个 pod 从后端摘掉再停:滚动更新时旧 pod 继续接请求,不再有几秒的 502
             preStop:

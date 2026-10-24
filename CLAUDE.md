@@ -7,13 +7,18 @@
 
 正确流程:**改代码 → push 到 main → GitHub Actions 自动构建镜像推 GHCR → 自动回写 kustomization 镜像 tag → Fleet 检测到 → 集群拉新镜像滚动。** 你只需提交代码。
 
-- 触发路径:push main 改 `server/**` / `apps/web/**` / `packages/**` / `deploy/bootstrap/**` 等(完整列表见 deploy.yml 的 `on.push.paths`)。
+- 触发路径:push main 改了进镜像的文件(`server/server/**`、`apps/web/**`、`packages/core/**`、`deploy/bootstrap/**`、`data/updates/**` 等,完整列表见 deploy.yml 的 `on.push.paths`)。只改测试、桌面端/手机端/daemon 不触发。
+- 镜像和 CI 同时构建,回写 tag 才等 CI 通过;每个镜像和线上 tag 对应的提交比,自己的输入文件有改动才构建,没构建的镜像保持原 tag、pod 不重启(changes job)。所以 kustomization 里 server 和 web 的 tag 可以不一样。
+- verify 等线上真正切到本次提交:server 看 `/health` 的 version,web 看 `/auth/login` 页面里的 build id(就是提交号,见 apps/web/next.config.ts 的 generateBuildId)。
 - 构建镜像:`ghcr.io/ddong8/memento-{server,web}`(**公开** GHCR)。
 - **公开仓库 → 不要往仓库里放任何 Secret**;postgres / redis / minio 与 Secret 都在集群内手工维护、不进仓库,deploy/k8s 里只引用。
 
 ### 关键约束(改 CI/部署相关时务必遵守)
 - Fleet 克隆 github 走集群内的代理 `fleet-proxy`(`cattle-fleet-system` 命名空间,gitjob 的 HTTP(S)_PROXY 指向它),不再经 Mac 上的 Clash。拉 GHCR 镜像以集群实际配置为准(2026-10-17 旧的 Mac 代理地址已不通,拉镜像照常)。代理地址等不写进公开仓库。
-- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍每分钟轮询一次,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。
+- web 镜像不用 GitHub Actions 缓存(依赖层 600 多 MB,下载/导出缓存要几分钟,比直接 npm ci 慢),不要加回去。仓库的 Actions 缓存上限 10GB,tag 触发的 run 只能读 main 存的缓存,不要在发版 job 里存只有该 tag 能用的缓存。
+- Android APK 在单独的 android.yml 里构建(发版时被调用,不挡桌面端发布,APK 构建好后补传到 Release);main 上原生依赖变了或每周一会跑一次,给发版预热 Gradle 缓存。
+- Fleet 每 15 秒轮询一次(deploy/fleet/gitrepo.yaml,这个对象不归 Fleet 管,改了要在集群里同步)。
+- gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍在定时轮询,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。
 - CI 装 kustomize 用「release CDN 直接下载固定版」(`releases/download/.../kustomize_v5.4.3_...`),**不要改回 `install_kustomize.sh`**——它查 GitHub API,共享 runner 上会撞限流导致部署失败。
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
 - 服务端 Python 依赖锁在 `server/uv.lock`,Docker 安装的是由它导出的 `server/requirements.lock`(带哈希)。改了 `server/pyproject.toml` 的依赖后:`cd server && uv lock && uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o requirements.lock`;升级依赖用 `uv lock --upgrade` 再导出。CI 会检查两者一致。

@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   turbopack: { root: repoRoot },
   compress: true,
   poweredByHeader: false,
+  // The image build passes the commit (apps/web/Dockerfile); elsewhere Next picks a random id
+  generateBuildId: async () => process.env.GIT_SHA || null,
   experimental: {
     optimizePackageImports: ["react-icons", "three", "highlight.js", "lowlight"],
   },

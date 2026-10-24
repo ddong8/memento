@@ -10,6 +10,9 @@ RUN npm ci --workspace web --workspace @memento/core --include-workspace-root
 
 COPY packages/core packages/core
 COPY apps/web apps/web
+# The commit becomes the build id (next.config.ts), which every page carries: the deploy job
+# checks for it to know this build is live
+ARG GIT_SHA=""
 # Don't set NEXT_PUBLIC_API_URL — frontend auto-detects from window.location
 RUN npm run build -w web
 

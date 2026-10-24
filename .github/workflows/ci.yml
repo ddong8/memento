@@ -173,8 +173,9 @@ jobs:
       - name: web · routes not shadowed by API paths in the proxies
         run: node scripts/check-web-routes.mjs
 
-      - name: web · typecheck & build & lint
+      - name: web · typecheck & build & lint & test
         run: |
           npm run build -w web
           npm run typecheck -w web
           npm run lint -w web
+          npm run test -w web

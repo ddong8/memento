@@ -23,12 +23,20 @@ from ..db.session import async_session_factory
 
 logger = logging.getLogger("server.ask")
 
-# "" for model / effort is the user's choice of the CLI's own default; for the other keys it means "not given".
-_EMPTY_IS_A_CHOICE = ("model", "effort")
+# What the user sends or saves: "" for model / effort is the CLI's own default, for project / session
+# "none" (a new session): the user cleared them, so they are neither kept nor inferred back from earlier
+# turns. For the other keys "" means "not given".
+_EMPTY_IS_A_CHOICE = ("model", "effort", "project_id", "session_id")
+# What a finished run reports: no session there means none came back (the device was offline, say),
+# not that the user dropped it
+_RUN_EMPTY_IS_A_CHOICE = ("model", "effort")
+
+# The tool whose sessions an execution mode resumes
+MODE_TOOL = {"claude": "claude_code", "codex": "codex", "antigravity": "antigravity", "workbuddy": "workbuddy"}
 
 
-def _skip_config_value(k: str, v) -> bool:
-    return v is None or (v == "" and k not in _EMPTY_IS_A_CHOICE)
+def _skip_config_value(k: str, v, choices: tuple[str, ...] = _EMPTY_IS_A_CHOICE) -> bool:
+    return v is None or (v == "" and k not in choices)
 
 
 async def get_or_create_conversation(
@@ -428,7 +436,7 @@ async def append_conversation_turns(
                 cfg = dict(conv.config or {})
                 if config:
                     for k, v in config.items():
-                        if not _skip_config_value(k, v):
+                        if not _skip_config_value(k, v, _RUN_EMPTY_IS_A_CHOICE):
                             if k == "execution_mode" and v == "ai" and cfg.get("execution_mode") and cfg.get("execution_mode") != "ai":
                                 continue
                             if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
@@ -838,6 +846,63 @@ async def resolve_concrete_device_for_conv(
         pass
 
     return candidate
+
+
+async def _live_machine(db: AsyncSession, machine: Machine | None) -> Machine | None:
+    """The machine itself, or the one it was merged into."""
+    if machine is not None and machine.merged_into:
+        return await db.get(Machine, machine.merged_into) or machine
+    return machine
+
+
+async def _session_home(db: AsyncSession, user: User, session_id: str) -> tuple[str | None, Machine] | None:
+    """The tool and the machine of a synced agent session (None: not synced yet, or not the user's)."""
+    from .user_filter import user_machine_ids
+
+    q = select(Document.tool_id, Document.machine_id).where(
+        Document.machine_id.is_not(None),
+        (Document.metadata_.op("->>")("session_id") == session_id)
+        | (Document.metadata_.op("->>")("cascade_id") == session_id),
+    )
+    mids = await user_machine_ids(db, user)
+    if mids is not None:
+        q = q.where(Document.machine_id.in_(mids))
+    row = (await db.execute(q.order_by(Document.updated_at.desc().nulls_last()).limit(1))).first()
+    if row is None:
+        return None
+    machine = await _live_machine(db, await db.get(Machine, row[1]))
+    return (row[0], machine) if machine is not None else None
+
+
+async def reconcile_session(
+    db: AsyncSession, user: User, exec_mode: str, device_id: str | None, session_id: str | None
+) -> tuple[str | None, str | None]:
+    """The session to resume and the device to run on, made to belong together.
+
+    A session lives with one tool on one machine. The page sends what it shows, and a slow reply or a
+    quick switch could leave it showing one conversation's session with another mode or device: resuming
+    that fails (the device doesn't have it) or picks up unrelated work. Such a session isn't resumed;
+    with no device picked ("auto") the run goes to the machine holding the session.
+    """
+    from .user_filter import find_machine_by_id_or_hash
+
+    tool = MODE_TOOL.get(exec_mode)
+    if not session_id or not tool:
+        return session_id, device_id
+    home = await _session_home(db, user, session_id)
+    if home is None:
+        return session_id, device_id
+    session_tool, holder = home
+    if session_tool in MODE_TOOL.values() and session_tool != tool:
+        logger.warning("Not resuming %s session %s in %s mode", session_tool, session_id, exec_mode)
+        return None, device_id
+    if device_id and device_id not in ("auto", "ask_only", "all"):
+        target = await _live_machine(db, await find_machine_by_id_or_hash(db, device_id, user))
+        if target is not None and target.id != holder.id:
+            logger.warning("Not resuming session %s on %s: it is on %s", session_id, target.name, holder.name)
+            return None, device_id
+        return session_id, device_id
+    return session_id, holder.collector_token_hash or device_id
 
 
 def _fix_iso_timestamp(val: Any) -> str | None:

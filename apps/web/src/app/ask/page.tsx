@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse } from "@/lib/api-client";
+import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
@@ -35,6 +35,7 @@ import { MindAnticipation } from "@/components/ask/MindAnticipation";
 import { HistoryDrawer } from "@/components/ask/HistoryDrawer";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
+import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatExcerpt, formatRelativeTime, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
 
 
@@ -319,6 +320,11 @@ function AskPageContent() {
 
   const projectsRef = useRef<ProjectSummary[]>([]);
   projectsRef.current = projects;
+  const devicesRef = useRef<DeviceSummary[]>(devices);
+  if (devices.length > 0 || devicesRef.current.length === 0) devicesRef.current = devices;
+  // Settles when the device list has arrived (or failed): a restore waits for it to tell a registered
+  // device from one that is gone
+  const devicesLoadedRef = useRef<Promise<DeviceSummary[]> | null>(null);
   const selectedDeviceRef = useRef<string>(selectedDevice);
   selectedDeviceRef.current = selectedDevice;
   const cwdRef = useRef<string>(cwd);
@@ -368,6 +374,24 @@ function AskPageContent() {
   );
   const streamingRef = useRef<boolean>(Boolean(askCache?.streaming || askCache?.activeRun));
   const isRestoringRef = useRef<boolean>(false);
+  // Who owns the device / project / session cascade. Opening a conversation and every change the user
+  // makes take it over: a restore still waiting on the network then writes nothing, so an older
+  // conversation's device, project or session can't land on top of what is showing now.
+  const cascadeGenRef = useRef(0);
+  const beginRestore = useCallback(() => {
+    isRestoringRef.current = true;
+    return ++cascadeGenRef.current;
+  }, []);
+  // Effects that follow the restored state still see it as a restore for a moment
+  const endRestore = useCallback((gen: number) => {
+    setTimeout(() => {
+      if (gen === cascadeGenRef.current) isRestoringRef.current = false;
+    }, 600);
+  }, []);
+  const takeOverCascade = useCallback(() => {
+    ++cascadeGenRef.current;
+    isRestoringRef.current = false;
+  }, []);
   const isNewChatModeRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
   const isUnmountedRef = useRef<boolean>(false);
@@ -817,7 +841,8 @@ function AskPageContent() {
         .replace(/\s*\([^)]*\)\s*$/, "")
         .replace(/\.local$/i, "")
         .toLowerCase();
-      const found = devices.find(
+      // The current list, also for callbacks created before it arrived
+      const found = devicesRef.current.find(
         (d) =>
           d.device_id === devStr ||
           d.id === devStr ||
@@ -830,7 +855,7 @@ function AskPageContent() {
       );
       return found ? found.device_id : devStr;
     },
-    [devices]
+    []
   );
 
   // Defensive extraction helper to infer executionMode, model, effort, project, session, cwd, device from turns
@@ -962,6 +987,245 @@ function AskPageContent() {
     return res;
   }, []);
 
+  // Shows a cached conversation's whole cascade at once, with the lists cached for its device, so no
+  // device, project or session of the conversation shown before stays on screen while fresh ones load
+  const applyCachedCascade = useCallback(
+    (c: Cascade, mode: ExecutionMode) => {
+      const dev = usableDevice(normalizeDeviceId(c.device) || "auto", devicesRef.current);
+      setSelectedDevice(dev);
+      selectedDeviceRef.current = dev;
+      setCwd(c.cwd);
+      setShowCwd(Boolean(c.cwd));
+      setSelectedProjectId(c.projectId);
+      selectedProjectIdRef.current = c.projectId;
+      setSelectedProjectTitle(c.projectTitle);
+      selectedProjectTitleRef.current = c.projectTitle;
+      setSelectedSessionId(c.sessionId);
+      const toolId = AGENT_TOOL_ID[mode];
+      const devForQuery = isConcreteDevice(dev) ? dev : undefined;
+      setProjects(toolId ? getCachedProjects(toolId, devForQuery) : []);
+      setSessions(toolId && c.projectId ? getCachedSessions(c.projectId, devForQuery) : []);
+    },
+    [normalizeDeviceId]
+  );
+
+  // A conversation's device, cwd, mode, model and effort, then its project and session with the lists
+  // they are picked from. `gen` is the restore that owns the cascade: once the user or another
+  // conversation takes it over, nothing more is written.
+  const restoreCascade = useCallback(
+    async (data: AskConversationDetail, loadedTurns: Turn[], gen: number) => {
+      const stale = () => gen !== cascadeGenRef.current;
+      const cfg = data.config || {};
+      let targetDev = data.device_id || cfg.device_id || "";
+      let targetCwd = data.cwd || cfg.cwd || "";
+      let targetMode = ((data.execution_mode || cfg.execution_mode || "ai") as ExecutionMode);
+      // "" model / effort means the CLI's own default: never replaced by what earlier turns used
+      const targetModel = data.model ?? cfg.model ?? "";
+      const targetEffort = data.effort ?? cfg.effort ?? "";
+      let targetProjId = data.project_id || cfg.project_id || "";
+      let targetSessionId = data.session_id || cfg.session_id || "";
+
+      // Defensive infer if returned mode was generic "ai" or deviceId/cwd/sessionId was missing/'auto'
+      const needsInfer =
+        targetMode === "ai" ||
+        !targetMode ||
+        !targetDev ||
+        targetDev === "auto" ||
+        !targetProjId ||
+        !targetSessionId ||
+        !targetCwd;
+      if (needsInfer) {
+        const inferred = inferConfigFromTurns(loadedTurns);
+        const prevMode = targetMode;
+        const prevDev = targetDev;
+        if ((targetMode === "ai" || !targetMode) && inferred.executionMode) targetMode = inferred.executionMode;
+        // A project / session the server has an answer for ("" too: the user cleared it) isn't guessed again
+        if (!targetProjId && inferred.projectId && !configHas(cfg, "project_id")) targetProjId = inferred.projectId;
+        if (!targetSessionId && inferred.sessionId && !configHas(cfg, "session_id")) targetSessionId = inferred.sessionId;
+        if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
+        if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
+
+        // Persist inferred configuration back to server DB if repaired
+        if (targetMode !== prevMode || (targetDev && targetDev !== "auto" && targetDev !== prevDev)) {
+          api.updateAskConversation(data.id, {
+            execution_mode: targetMode,
+            // Unknown isn't saved as "": that would read as "cleared by the user"
+            ...(targetProjId ? { project_id: targetProjId } : {}),
+            ...(targetSessionId ? { session_id: targetSessionId } : {}),
+            model: targetModel,
+            effort: targetEffort,
+            cwd: targetCwd,
+            device_id: targetDev,
+          }).catch(() => {});
+        }
+      }
+
+      setExecutionMode(targetMode);
+      executionModeRef.current = targetMode;
+      setSelectedModel(targetModel);
+      setIsCustomModel(Boolean(targetModel && !FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)));
+      setSelectedEffort(targetEffort);
+
+      const isWorktree = Boolean(data.worktree ?? cfg.worktree ?? false);
+      setWorktreeMode(isWorktree);
+
+      setCompactMode(false);
+
+      const incomingProjTitle = data.project_title || "";
+      if (incomingProjTitle && !isUuidOrHash(incomingProjTitle)) {
+        setSelectedProjectTitle(incomingProjTitle);
+        selectedProjectTitleRef.current = incomingProjTitle;
+      }
+
+      // A device that isn't registered any more is auto: the session's device is picked below. Before the
+      // device list has arrived that can't be told, so wait for it (only then)
+      if (isConcreteDevice(targetDev) && devicesRef.current.length === 0 && devicesLoadedRef.current) {
+        await devicesLoadedRef.current;
+        if (stale()) return;
+      }
+      const devToUse = usableDevice(normalizeDeviceId(targetDev) || "auto", devicesRef.current);
+      setSelectedDevice(devToUse);
+      selectedDeviceRef.current = devToUse;
+      if (targetCwd) {
+        setCwd(targetCwd);
+        setShowCwd(true);
+      } else {
+        setCwd("");
+      }
+
+      const hasMore = Boolean(data.has_more);
+      const total = data.total_turns ?? loadedTurns.length;
+      const snapshot = (projectId: string) =>
+        saveLocalConvSnapshot({
+          id: data.id,
+          turns: loadedTurns,
+          executionMode: targetMode,
+          selectedModel: targetModel,
+          selectedEffort: targetEffort,
+          cwd: targetCwd,
+          selectedDevice: devToUse,
+          selectedProjectId: projectId,
+          selectedProjectTitle: incomingProjTitle || selectedProjectTitleRef.current,
+          selectedSessionId: targetSessionId,
+          worktreeMode: isWorktree,
+          hasMoreTurns: hasMore,
+          totalTurns: total,
+          etag: data._etag,
+          convDetail: data,
+        });
+      snapshot(targetProjId);
+
+      const clearProjectAndSession = (sessionId: string) => {
+        setSelectedProjectId("");
+        selectedProjectIdRef.current = "";
+        setSessions([]);
+        setSelectedSessionId(sessionId);
+      };
+
+      const toolId = AGENT_TOOL_ID[targetMode];
+      if (!toolId) {
+        setProjects([]);
+        clearProjectAndSession("");
+        return;
+      }
+      try {
+        const devForQuery = isConcreteDevice(devToUse) ? devToUse : undefined;
+        const projTicket = ++projectsReqRef.current;
+        const sessTicket = ++sessionsReqRef.current;
+        // 0ms instant hydration from this device's cache
+        setProjects(getCachedProjects(toolId, devForQuery));
+        setSelectedProjectId(targetProjId);
+        selectedProjectIdRef.current = targetProjId;
+        setSessions(targetProjId ? getCachedSessions(targetProjId, devForQuery) : []);
+        setSelectedSessionId(targetSessionId);
+        let projList = await api.listProjects(toolId, devForQuery);
+        if (stale() || projTicket !== projectsReqRef.current) return;
+        if (targetProjId && (!projList || !projList.some((p) => p.id === targetProjId))) {
+          try {
+            const single = await api.getProject(targetProjId);
+            if (stale()) return;
+            if (single && single.id) {
+              projList = [...(projList || []), single];
+              if (single.title && !isUuidOrHash(single.title)) {
+                setSelectedProjectTitle(single.title);
+                selectedProjectTitleRef.current = single.title;
+              }
+            }
+          } catch {}
+        }
+        const projs = projList || [];
+        setProjects(projs);
+        saveCachedProjects(toolId, devForQuery, projs);
+
+        let matchedProj = targetProjId ? projs.find((p) => p.id === targetProjId) : undefined;
+        if (!matchedProj && targetCwd) {
+          const cleanCwd = targetCwd.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+          const folderName = cleanCwd.split("/").filter(Boolean).pop();
+          matchedProj = projs.find((p) => {
+            if (!p.source_path) return false;
+            const sp = p.source_path.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+            if (sp === cleanCwd) return true;
+            if (sp.endsWith(cleanCwd) || cleanCwd.endsWith(sp)) return true;
+            if (sp.includes(cleanCwd) || cleanCwd.includes(sp)) return true;
+            if (folderName && (p.title?.toLowerCase() === folderName || p.slug?.toLowerCase() === folderName)) return true;
+            return false;
+          });
+        }
+
+        if (matchedProj && matchedProj.title && !isUuidOrHash(matchedProj.title)) {
+          setSelectedProjectTitle(matchedProj.title);
+          selectedProjectTitleRef.current = matchedProj.title;
+        }
+
+        const effectiveProjId = matchedProj ? matchedProj.id : targetProjId;
+        if (!effectiveProjId) {
+          clearProjectAndSession(targetSessionId);
+          return;
+        }
+        setSelectedProjectId(effectiveProjId);
+        selectedProjectIdRef.current = effectiveProjId;
+        if (effectiveProjId !== targetProjId) snapshot(effectiveProjId);
+        const cachedSess = getCachedSessions(effectiveProjId, devForQuery);
+        setSessions(cachedSess);
+        setLoadingSessions(cachedSess.length === 0);
+        try {
+          const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
+          if (stale() || sessTicket !== sessionsReqRef.current) return;
+          const sessList = res?.sessions || [];
+          setSessions(sessList);
+          saveCachedSessions(effectiveProjId, devForQuery, sessList);
+          setSelectedSessionId(targetSessionId);
+          // A conversation saved without a device runs where its session ran
+          const ranOn = sessList.find((x) => (x.session_id || x.conversation_id) === targetSessionId)?.device_id;
+          const pinned = ranOn ? normalizeDeviceId(ranOn) : "";
+          if (!devForQuery && isConcreteDevice(pinned)) {
+            setSelectedDevice(pinned);
+            selectedDeviceRef.current = pinned;
+            const folder = targetCwd || projectPathOn(matchedProj, pinned);
+            if (folder) {
+              setCwd(folder);
+              setShowCwd(true);
+            }
+            api.updateAskConversation(data.id, { device_id: pinned, ...(folder ? { cwd: folder } : {}) }).catch(() => {});
+          }
+        } catch (e) {
+          if (stale() || sessTicket !== sessionsReqRef.current) return;
+          console.error("Failed to restore project sessions:", e);
+          setSessions([]);
+          setSelectedSessionId(targetSessionId);
+        } finally {
+          if (sessTicket === sessionsReqRef.current) setLoadingSessions(false);
+        }
+      } catch (e) {
+        if (stale()) return;
+        console.error("Failed to load projects for mode:", e);
+        setProjects([]);
+        clearProjectAndSession(targetSessionId);
+      }
+    },
+    [inferConfigFromTurns, normalizeDeviceId]
+  );
+
   // Load single conversation
   const loadConversation = useCallback(async (id: string, options?: { limit?: number; preserveScroll?: boolean; force?: boolean }) => {
     if (!id) return;
@@ -971,7 +1235,7 @@ function AskPageContent() {
     isNewChatModeRef.current = false;
     const limitToUse = options?.limit !== undefined ? options.limit : 40;
     const preserveScroll = options?.preserveScroll ?? false;
-    isRestoringRef.current = true;
+    const gen = beginRestore();
     lastRestoredIdRef.current = id;
     try {
       // 若指定了 force，或者在流式运行中切换到了不同会话：立即断开前端对当前旧会话的流式监听，释放前端主线程
@@ -1000,8 +1264,10 @@ function AskPageContent() {
         setTurns(cachedConv.turns);
         activeConversationIdRef.current = id;
         setActiveConversationId(id);
-        if (cachedConv.config?.executionMode) {
-          setExecutionMode(cachedConv.config.executionMode);
+        const cachedMode = cachedConv.config?.executionMode;
+        if (cachedMode) {
+          setExecutionMode(cachedMode);
+          executionModeRef.current = cachedMode;
         }
         // "" is a choice here (the CLI's own default), so restore it too
         if (cachedConv.config?.model != null) {
@@ -1010,21 +1276,7 @@ function AskPageContent() {
         if (cachedConv.config?.effort != null) {
           setSelectedEffort(cachedConv.config.effort);
         }
-        if (cachedConv.config?.cwd) {
-          setCwd(cachedConv.config.cwd);
-        }
-        if (cachedConv.config?.selectedProjectId) {
-          setSelectedProjectId(cachedConv.config.selectedProjectId);
-        }
-        if (cachedConv.config?.selectedProjectTitle) {
-          setSelectedProjectTitle(cachedConv.config.selectedProjectTitle);
-        }
-        if (cachedConv.config?.selectedSessionId) {
-          setSelectedSessionId(cachedConv.config.selectedSessionId);
-        }
-        if (cachedConv.config?.selectedDevice) {
-          setSelectedDevice(cachedConv.config.selectedDevice);
-        }
+        applyCachedCascade(cascadeOf(cachedConv.config), cachedMode || executionModeRef.current);
         setHistoryOpen(false);
         setSourcesOpen(false);
         if (!preserveScroll) {
@@ -1040,6 +1292,8 @@ function AskPageContent() {
           .catch(() => null),
         api.getAskConversation(id, limitToUse),
       ]);
+      // Another conversation (or a new chat) was opened meanwhile: this reply is for nothing on screen
+      if (lastRestoredIdRef.current !== id) return;
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
       window.history.replaceState(null, "", `/ask?id=${data.id}`);
@@ -1047,14 +1301,9 @@ function AskPageContent() {
         localStorage.setItem("memento_last_ask_conv_id", data.id);
       } catch {}
 
-      // 1. Device, cwd, and turns
-      let targetDev = data.device_id || data.config?.device_id || "";
-      let targetCwd = data.cwd || data.config?.cwd || "";
       const loadedTurns = data.turns || [];
-      const hasMore = Boolean(data.has_more);
-      const total = data.total_turns ?? loadedTurns.length;
-      setHasMoreTurns(hasMore);
-      setTotalTurns(total);
+      setHasMoreTurns(Boolean(data.has_more));
+      setTotalTurns(data.total_turns ?? loadedTurns.length);
 
       if (askCache && (askCache.activeConversationId !== data.id || !preserveScroll)) {
         delete askCache.scrollTop;
@@ -1079,239 +1328,17 @@ function AskPageContent() {
           askCache.activeRun = null;
         }
       }
-
-      // 2. Execution mode, model, effort, project, session
-      let targetMode = ((data.execution_mode || data.config?.execution_mode || "ai") as ExecutionMode);
-      // "" model / effort means the CLI's own default: never replaced by what earlier turns used
-      const targetModel = data.model ?? data.config?.model ?? "";
-      const targetEffort = data.effort ?? data.config?.effort ?? "";
-      let targetProjId = data.project_id || data.config?.project_id || "";
-      let targetSessionId = data.session_id || data.config?.session_id || "";
-
-      // Defensive infer if returned mode was generic "ai" or deviceId/cwd/sessionId was missing/'auto'
-      const needsInfer =
-        targetMode === "ai" ||
-        !targetMode ||
-        !targetDev ||
-        targetDev === "auto" ||
-        !targetProjId ||
-        !targetSessionId ||
-        !targetCwd;
-      if (needsInfer) {
-        const inferred = inferConfigFromTurns(loadedTurns);
-        const prevMode = targetMode;
-        const prevDev = targetDev;
-        if ((targetMode === "ai" || !targetMode) && inferred.executionMode) targetMode = inferred.executionMode;
-        if (!targetProjId && inferred.projectId) targetProjId = inferred.projectId;
-        if (!targetSessionId && inferred.sessionId) targetSessionId = inferred.sessionId;
-        if (!targetCwd && inferred.cwd) targetCwd = inferred.cwd;
-        if ((!targetDev || targetDev === "auto") && inferred.deviceId) targetDev = inferred.deviceId;
-
-        // Persist inferred configuration back to server DB if repaired
-        if (targetMode !== prevMode || (targetDev && targetDev !== "auto" && targetDev !== prevDev)) {
-          api.updateAskConversation(data.id, {
-            execution_mode: targetMode,
-            project_id: targetProjId,
-            session_id: targetSessionId,
-            model: targetModel,
-            effort: targetEffort,
-            cwd: targetCwd,
-            device_id: targetDev,
-          }).catch(() => {});
-        }
-      }
-
-      const devToUse = normalizeDeviceId(targetDev) || "auto";
-      setSelectedDevice(devToUse);
-      if (targetCwd) {
-        setCwd(targetCwd);
-        setShowCwd(true);
-      } else {
-        setCwd("");
-      }
-
-      setExecutionMode(targetMode);
-      setSelectedModel(targetModel);
-      setIsCustomModel(Boolean(targetModel && !FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)));
-      setSelectedEffort(targetEffort);
-
-      const isWorktree = Boolean(data.worktree ?? data.config?.worktree ?? false);
-      setWorktreeMode(isWorktree);
-
-      setCompactMode(false);
-
-      const incomingProjTitle = data.project_title || "";
-      if (incomingProjTitle && !isUuidOrHash(incomingProjTitle)) {
-        setSelectedProjectTitle(incomingProjTitle);
-        selectedProjectTitleRef.current = incomingProjTitle;
-      }
-
-      saveLocalConvSnapshot({
-        id: data.id,
-        turns: loadedTurns,
-        executionMode: targetMode,
-        selectedModel: targetModel,
-        selectedEffort: targetEffort,
-        cwd: targetCwd,
-        selectedDevice: devToUse,
-        selectedProjectId: targetProjId,
-        selectedProjectTitle: incomingProjTitle || selectedProjectTitleRef.current,
-        selectedSessionId: targetSessionId,
-        worktreeMode: isWorktree,
-        hasMoreTurns: hasMore,
-        totalTurns: total,
-        etag: data._etag,
-        convDetail: data,
-      });
       saveToRecentConvTurnsCache(data.id, loadedTurns, data);
 
-      // 3. Project and Session restoration
-      if (["codex", "claude", "antigravity", "workbuddy"].includes(targetMode)) {
-        const toolMap: Record<string, string> = {
-          codex: "codex",
-          claude: "claude_code",
-          antigravity: "antigravity",
-          workbuddy: "workbuddy",
-        };
-        const toolId = toolMap[targetMode];
-        if (toolId) {
-          try {
-            const devForQuery = isConcreteDevice(devToUse) ? devToUse : undefined;
-            const projTicket = ++projectsReqRef.current;
-            const sessTicket = ++sessionsReqRef.current;
-            // 0ms instant hydration from this device's cache
-            setProjects(getCachedProjects(toolId, devForQuery));
-            if (targetProjId) {
-              const cachedSess = getCachedSessions(targetProjId, devForQuery);
-              if (cachedSess.length > 0) {
-                setSessions(cachedSess);
-                setSelectedSessionId(targetSessionId);
-              }
-            }
-            let projList = await api.listProjects(toolId, devForQuery);
-            if (projTicket !== projectsReqRef.current) return;
-            if (targetProjId && (!projList || !projList.some((p) => p.id === targetProjId))) {
-              try {
-                const single = await api.getProject(targetProjId);
-                if (single && single.id) {
-                  projList = [...(projList || []), single];
-                  if (single.title && !isUuidOrHash(single.title)) {
-                    setSelectedProjectTitle(single.title);
-                    selectedProjectTitleRef.current = single.title;
-                  }
-                }
-              } catch {}
-            }
-            const projs = projList || [];
-            setProjects(projs);
-            saveCachedProjects(toolId, devForQuery, projs);
-
-            let matchedProj = targetProjId ? projs.find((p) => p.id === targetProjId) : undefined;
-            if (!matchedProj && targetCwd) {
-              const cleanCwd = targetCwd.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-              const folderName = cleanCwd.split("/").filter(Boolean).pop();
-              matchedProj = projs.find((p) => {
-                if (!p.source_path) return false;
-                const sp = p.source_path.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-                if (sp === cleanCwd) return true;
-                if (sp.endsWith(cleanCwd) || cleanCwd.endsWith(sp)) return true;
-                if (sp.includes(cleanCwd) || cleanCwd.includes(sp)) return true;
-                if (folderName && (p.title?.toLowerCase() === folderName || p.slug?.toLowerCase() === folderName)) return true;
-                return false;
-              });
-            }
-
-            if (matchedProj && matchedProj.title && !isUuidOrHash(matchedProj.title)) {
-              setSelectedProjectTitle(matchedProj.title);
-              selectedProjectTitleRef.current = matchedProj.title;
-            }
-
-            const effectiveProjId = matchedProj ? matchedProj.id : targetProjId;
-            if (effectiveProjId) {
-              setSelectedProjectId(effectiveProjId);
-              selectedProjectIdRef.current = effectiveProjId;
-              if (effectiveProjId !== targetProjId) {
-                saveLocalConvSnapshot({
-                  id: data.id,
-                  turns: loadedTurns,
-                  executionMode: targetMode,
-                  selectedModel: targetModel,
-                  selectedEffort: targetEffort,
-                  cwd: targetCwd,
-                  selectedDevice: devToUse,
-                  selectedProjectId: effectiveProjId,
-                  selectedProjectTitle: selectedProjectTitleRef.current,
-                  selectedSessionId: targetSessionId,
-                  worktreeMode: isWorktree,
-                  hasMoreTurns: hasMore,
-                  totalTurns: total,
-                  etag: data._etag,
-                  convDetail: data,
-                });
-              }
-              const cachedSess = getCachedSessions(effectiveProjId, devForQuery);
-              if (cachedSess.length > 0) {
-                setSessions(cachedSess);
-              }
-              setLoadingSessions(cachedSess.length === 0);
-              try {
-                const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
-                if (sessTicket !== sessionsReqRef.current) return;
-                const sessList = res?.sessions || [];
-                setSessions(sessList);
-                saveCachedSessions(effectiveProjId, devForQuery, sessList);
-                setSelectedSessionId(targetSessionId);
-                // A conversation saved without a device runs where its session ran
-                const ranOn = sessList.find((x) => (x.session_id || x.conversation_id) === targetSessionId)?.device_id;
-                const pinned = ranOn ? normalizeDeviceId(ranOn) : "";
-                if (!devForQuery && isConcreteDevice(pinned)) {
-                  setSelectedDevice(pinned);
-                  selectedDeviceRef.current = pinned;
-                  const folder = targetCwd || projectPathOn(matchedProj, pinned);
-                  if (folder) {
-                    setCwd(folder);
-                    setShowCwd(true);
-                  }
-                  api.updateAskConversation(data.id, { device_id: pinned, ...(folder ? { cwd: folder } : {}) }).catch(() => {});
-                }
-              } catch (e) {
-                if (sessTicket !== sessionsReqRef.current) return;
-                console.error("Failed to restore project sessions:", e);
-                setSessions([]);
-                setSelectedSessionId(targetSessionId);
-              } finally {
-                if (sessTicket === sessionsReqRef.current) setLoadingSessions(false);
-              }
-            } else {
-              setSelectedProjectId("");
-              selectedProjectIdRef.current = "";
-              setSessions([]);
-              setSelectedSessionId(targetSessionId);
-            }
-          } catch (e) {
-            console.error("Failed to load projects for mode:", e);
-            setProjects([]);
-            setSelectedProjectId("");
-            selectedProjectIdRef.current = "";
-            setSessions([]);
-            setSelectedSessionId(targetSessionId);
-          }
-        }
-      } else {
-        setProjects([]);
-        setSelectedProjectId("");
-        selectedProjectIdRef.current = "";
-        setSessions([]);
-        setSelectedSessionId("");
-      }
+      // The user changed the device, project or session while this loaded: theirs stays
+      if (gen !== cascadeGenRef.current) return;
+      await restoreCascade(data, loadedTurns, gen);
     } catch (e) {
       console.error("Failed to load conversation:", e);
     } finally {
-      setTimeout(() => {
-        isRestoringRef.current = false;
-      }, 600);
+      endRestore(gen);
     }
-  }, [inferConfigFromTurns, normalizeDeviceId]);
+  }, [applyCachedCascade, beginRestore, endRestore, restoreCascade]);
 
   // Load full history for long conversation
   const loadAllHistoryTurns = useCallback(async () => {
@@ -1345,6 +1372,8 @@ function AskPageContent() {
 
   // Start fresh chat
   const startNewChat = useCallback(() => {
+    // A conversation still loading must not fill the new chat with its device, project or session
+    takeOverCascade();
     isNewChatModeRef.current = true;
     abortRef.current?.abort();
     streamingRef.current = false;
@@ -1393,7 +1422,7 @@ function AskPageContent() {
     askCache = null;
     setHistoryOpen(false);
     setSourcesOpen(false);
-  }, [router]);
+  }, [router, takeOverCascade]);
 
   const [exportingMd, setExportingMd] = useState(false);
 
@@ -1534,12 +1563,18 @@ function AskPageContent() {
 
   // Fetch online/registered devices
   useEffect(() => {
-    authFetch(`${getApiBase()}/api/devices`)
+    devicesLoadedRef.current = authFetch(`${getApiBase()}/api/devices`)
       .then((r) => r.json())
       .then((d: DeviceSummary[]) => {
-        setDevices(d || []);
+        const list = Array.isArray(d) ? d : [];
+        devicesRef.current = list;
+        setDevices(list);
+        return list;
       })
-      .catch(() => setDevices([]));
+      .catch(() => {
+        setDevices([]);
+        return [] as DeviceSummary[];
+      });
   }, []);
 
   // Normalize selectedDevice once devices load; a conversation stuck on 'auto' takes the device its turns ran on.
@@ -1551,6 +1586,12 @@ function AskPageContent() {
         setSelectedDevice(norm);
         return;
       }
+      // One that isn't registered any more (old conversations name merged / removed ids) has no
+      // projects and can't run anything: the selector showed its raw id with empty lists
+      if (usableDevice(norm, devices) !== norm) {
+        setSelectedDevice("auto");
+        return;
+      }
     }
 
     if (selectedDevice === "auto") {
@@ -1560,7 +1601,7 @@ function AskPageContent() {
           const norm = normalizeDeviceId(inferred.deviceId);
           // Once per conversation and device: choosing auto again afterwards stays auto
           const pinKey = `${activeConversationIdRef.current}|${norm}`;
-          if (norm && norm !== "auto" && autoPinnedRef.current !== pinKey) {
+          if (norm && norm !== "auto" && usableDevice(norm, devices) === norm && autoPinnedRef.current !== pinKey) {
             autoPinnedRef.current = pinKey;
             setSelectedDevice(norm);
             persistCurrentConfig({ device_id: norm });
@@ -1579,6 +1620,8 @@ function AskPageContent() {
 
   const loadConversationRef = useRef(loadConversation);
   loadConversationRef.current = loadConversation;
+  const restoreCascadeRef = useRef(restoreCascade);
+  restoreCascadeRef.current = restoreCascade;
   const loadConversationsRef = useRef(loadConversations);
   loadConversationsRef.current = loadConversations;
 
@@ -1692,37 +1735,21 @@ function AskPageContent() {
         let baseTurns = (activeConversationIdRef.current === targetConvId && turns.length > 0)
           ? turns
           : (askCache && askCache.activeConversationId === targetConvId && askCache.turns.length > 0 ? askCache.turns : []);
+        // The running conversation's whole cascade, with its device's project and session lists: setting
+        // only the fields it has left the previous conversation's lists (and empty fields) on screen
+        const gen = beginRestore();
+        let restoring: Promise<void> = Promise.resolve();
         try {
           const data = await api.getAskConversation(targetConvId, 40);
           if (data.turns && data.turns.length > 0 && (baseTurns.length === 0 || baseTurns.some((t) => !t.created_at))) {
             baseTurns = data.turns;
           }
-          const incomingDev = data.device_id || data.config?.device_id;
-          if (incomingDev && incomingDev !== "auto") {
-            setSelectedDevice(normalizeDeviceId(incomingDev));
-          }
-          const incomingCwd = data.cwd || data.config?.cwd;
-          if (incomingCwd) {
-            setCwd(incomingCwd);
-            setShowCwd(true);
-          }
-          const incomingMode = (data.execution_mode || data.config?.execution_mode) as ExecutionMode | undefined;
-          if (incomingMode) setExecutionMode(incomingMode);
-          const incomingModel = data.model ?? data.config?.model;
-          if (incomingModel != null) setSelectedModel(incomingModel);
-          const incomingEffort = data.effort ?? data.config?.effort;
-          if (incomingEffort != null) setSelectedEffort(incomingEffort);
-          const incomingProj = data.project_id || data.config?.project_id;
-          if (incomingProj) {
-            setSelectedProjectId(incomingProj);
-            selectedProjectIdRef.current = incomingProj;
-          }
-          const incomingSess = data.session_id || data.config?.session_id;
-          if (incomingSess) setSelectedSessionId(incomingSess);
+          if (gen === cascadeGenRef.current) restoring = restoreCascadeRef.current(data, baseTurns, gen);
         } catch {}
         attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
         pendingScrollToBottomRef.current = true;
         scrollConversationToBottom(true);
+        void restoring.catch(() => {}).finally(() => endRestore(gen));
         return;
       }
 
@@ -1786,7 +1813,7 @@ function AskPageContent() {
     };
 
     checkAndRestore();
-  }, [idParam, qParam, scrollConversationToBottom]);
+  }, [idParam, qParam, scrollConversationToBottom, beginRestore, endRestore]);
 
   // Support instantaneous chat navigation / switching via notifications or banners
   useEffect(() => {
@@ -3356,9 +3383,20 @@ function AskPageContent() {
     turnsRef.current = initialTurns;
     setTurns(initialTurns);
     if (activeConversationId) {
+      // The whole cascade: opening this conversation from the cache sets every field from it
       conversationTurnsCache.set(activeConversationId, {
         turns: initialTurns,
-        config: { executionMode, model: selectedModel, effort: selectedEffort, cwd },
+        config: {
+          executionMode,
+          model: selectedModel,
+          effort: selectedEffort,
+          cwd,
+          selectedDevice,
+          selectedProjectId,
+          selectedProjectTitle: selectedProjectTitleRef.current,
+          selectedSessionId: effectiveSessionId,
+          worktreeMode,
+        },
       });
     }
     streamingRef.current = true;
@@ -3396,15 +3434,17 @@ function AskPageContent() {
           conversation_id: activeConversationId || undefined,
           history,
           device_id: selectedDevice,
-          cwd: cwd.trim() || undefined,
+          // What the selectors show, "" included (no folder / project / session): left out, the server
+          // would fall back to what the conversation used before, a cleared or switched one too
+          cwd: cwd.trim(),
           agent_mode: selectedDevice !== "ask_only",
           execution_mode: executionMode,
           // Sent even when "": that is the choice of the CLI's own default, not "keep the last one"
           model: selectedModel,
           effort: selectedEffort,
-          session_id: effectiveSessionId || undefined,
+          session_id: effectiveSessionId,
           compact_mode: effectiveCompact || undefined,
-          project_id: selectedProjectId || undefined,
+          project_id: selectedProjectId,
           worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
         }),
         signal: ctrl.signal,
@@ -3806,6 +3846,7 @@ function AskPageContent() {
   loadProjectsRef.current = loadProjectsForMode;
 
   const handleDeviceChange = (newDev: string) => {
+    takeOverCascade();
     setSelectedDevice(newDev);
     selectedDeviceRef.current = newDev;
     try {
@@ -3828,6 +3869,9 @@ function AskPageContent() {
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
+    takeOverCascade();
+    // A session list still loading belongs to the previous mode
+    ++sessionsReqRef.current;
     setExecutionMode(mode);
     executionModeRef.current = mode;
     try {
@@ -3852,6 +3896,9 @@ function AskPageContent() {
 
   const handleSelectSession = useCallback(
     async (sid: string) => {
+      takeOverCascade();
+      const gen = cascadeGenRef.current;
+      const superseded = () => gen !== cascadeGenRef.current;
       setSelectedSessionId(sid);
       persistCurrentConfig({ session_id: sid });
       if (!sid) {
@@ -3906,6 +3953,8 @@ function AskPageContent() {
       if (targetSession.conversation_id) {
         try {
           const full = await api.getMessages(targetSession.conversation_id, 0, 100);
+          // Another session or conversation was picked meanwhile
+          if (superseded()) return;
           if (full?.messages && full.messages.length > 0) {
             rawMsgs = full.messages.map((m: any) => ({
               role: m.role || "user",
@@ -4056,6 +4105,7 @@ function AskPageContent() {
         }
       }
 
+      if (superseded()) return;
       abortRef.current?.abort();
       streamingRef.current = false;
       // 优先从已有的 AskConversations 中寻找关联该底层 session 的真正 Ask 会话，避免将 Document ID 误作为 AskConversation ID
@@ -4071,6 +4121,7 @@ function AskPageContent() {
         } catch {}
         try {
           const detail = await api.getAskConversation(matchedAskConv.id, 40);
+          if (superseded()) return;
           if (detail?.device_id && detail.device_id !== "auto") {
             setSelectedDevice(normalizeDeviceId(detail.device_id));
           }
@@ -4081,13 +4132,15 @@ function AskPageContent() {
         } catch {}
       } else {
         try {
+          // The device and folder just switched to the session's (state above is a render behind)
           const ensured = await api.ensureConversationBySession({
             session_id: sid,
-            project_id: selectedProjectIdRef.current || selectedProjectId || undefined,
-            execution_mode: executionMode,
-            device_id: selectedDevice,
-            cwd: cwd.trim() || undefined,
+            project_id: selectedProjectIdRef.current || undefined,
+            execution_mode: executionModeRef.current,
+            device_id: selectedDeviceRef.current,
+            cwd: cwdRef.current.trim() || undefined,
           });
+          if (superseded()) return;
           if (ensured && ensured.id) {
             activeConversationIdRef.current = ensured.id;
             setActiveConversationId(ensured.id);
@@ -4107,9 +4160,10 @@ function AskPageContent() {
           console.warn("Failed to ensure conversation by session:", e);
         }
       }
+      if (superseded()) return;
       setTurns(loadedTurns);
     },
-    [conversations, cwd, executionMode, normalizeDeviceId, selectedDevice, selectedProjectId, sessions, startNewChat]
+    [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade]
   );
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
@@ -5647,6 +5701,7 @@ function AskPageContent() {
                       type="text"
                       value={cwd}
                       onChange={(e) => {
+                        takeOverCascade();
                         setCwd(e.target.value);
                         persistCurrentConfig({ cwd: e.target.value });
                       }}
@@ -5954,7 +6009,10 @@ function AskPageContent() {
                   <Icon name="code" size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
                   <select
                     value={selectedProjectId}
-                    onChange={(e) => handleSelectProject(e.target.value)}
+                    onChange={(e) => {
+                      takeOverCascade();
+                      handleSelectProject(e.target.value);
+                    }}
                     style={{
                       background: "transparent",
                       border: "none",

@@ -33,7 +33,7 @@ from ..services.ai_provider import get_ai_providers, stream_chat_completion
 from ..services.ask_runs import ask_runs
 from ..services.ask_prompt import build_messages, classify_continuation
 from ..services.ask_retrieval import retrieve, retrieve_core_memories
-from ..services.ask_store import append_conversation_turns, get_or_create_conversation
+from ..services.ask_store import append_conversation_turns, get_or_create_conversation, reconcile_session
 from ..services.ask_stream import SSE_HEADERS, direct_agent_stream, run_response
 from ..services import ai_health
 from . import ask_conversations
@@ -178,8 +178,9 @@ async def ask(
         # None when the client didn't say; "" is a choice: the CLI's own default
         "model": body.model,
         "effort": body.effort,
-        "project_id": body.project_id or "",
-        "session_id": body.session_id or "",
+        # None when the client didn't say; "" is a choice too: no project, a new session
+        "project_id": body.project_id,
+        "session_id": body.session_id,
         "worktree": bool(body.worktree),
         "compact_mode": bool(body.compact_mode),
     }
@@ -221,29 +222,35 @@ async def ask(
             request_db=db,
         )
 
-    resolved_device_name: str | None = None
-    if device_id and device_id not in ("auto", "ask_only"):
+    async def _device_display_name(dev: str) -> str | None:
+        if not dev or dev in ("auto", "ask_only"):
+            return None
         from ..services.task_alerts import display_device_name
         mach_lookup = (await db.execute(
             select(Machine).where(
-                (Machine.collector_token_hash == device_id) | (Machine.name == device_id)
+                (Machine.collector_token_hash == dev) | (Machine.name == dev)
             ).order_by(Machine.last_heartbeat.desc().nulls_last())
         )).scalars().first()
-        resolved_device_name = display_device_name(mach_lookup.name if mach_lookup else device_id)
+        return display_device_name(mach_lookup.name if mach_lookup else dev)
 
     exec_mode = (body.execution_mode or effective_cfg.get("execution_mode") or "ai").lower().strip()
     if exec_mode in ("claude", "codex", "antigravity", "workbuddy", "shell"):
-        effective_session_id = body.session_id or (effective_cfg.get("session_id") if body.conversation_id else None) or None
-        effective_project_id = body.project_id or (effective_cfg.get("project_id") if body.conversation_id else None) or None
         def _chosen(sent: str | None, key: str) -> str | None:
-            # "" sent = the CLI's own default, so it must not fall back to what the conversation used before
+            # Sent "" is a choice (the CLI's own default, no project, a new session, the device's own
+            # folder), so it must not fall back to what the conversation used before; not sent, it does
             if sent is not None:
                 return sent or None
             return (effective_cfg.get(key) if body.conversation_id else None) or None
 
+        # A shell command has no session to resume
+        effective_session_id = _chosen(body.session_id, "session_id") if exec_mode != "shell" else None
+        effective_project_id = _chosen(body.project_id, "project_id")
         effective_model = _chosen(body.model, "model")
         effective_effort = _chosen(body.effort, "effort")
-        effective_cwd = body.cwd or (effective_cfg.get("cwd") if body.conversation_id else None) or None
+        effective_cwd = _chosen(body.cwd, "cwd")
+        effective_session_id, routed_device = await reconcile_session(db, _user, exec_mode, device_id or None, effective_session_id)
+        device_id = routed_device or ""
+        resolved_device_name = await _device_display_name(device_id)
 
         return await run_response(
             conv_id,
@@ -281,6 +288,8 @@ async def ask(
 
     if not get_ai_providers():
         raise HTTPException(status_code=503, detail="AI provider not configured")
+
+    resolved_device_name = await _device_display_name(device_id)
 
     if body.compact_mode and body.session_id:
         try:

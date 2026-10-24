@@ -37,9 +37,14 @@ describe("turns utility functions", () => {
   });
 
   it("formats turn duration correctly across ms, s, and m", () => {
+    // Chinese by default
     expect(formatTurnDuration(450)).toBe("450ms");
-    expect(formatTurnDuration(3500)).toBe("3.5s");
-    expect(formatTurnDuration(65000)).toBe("1m 5s");
+    expect(formatTurnDuration(3500)).toBe("3.5秒");
+    expect(formatTurnDuration(65000)).toBe("1分5秒");
+    expect(formatTurnDuration(120000)).toBe("2分钟");
+    // English keeps minutes and seconds together on one line
+    expect(formatTurnDuration(3500, undefined, undefined, false)).toBe("3.5s");
+    expect(formatTurnDuration(65000, undefined, undefined, false)).toBe("1m 5s");
   });
 
   it("supports interruptible sleep with early abort", async () => {

@@ -614,6 +614,10 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
         return
 
     device_id = args.get("device_id") or ""
+    # "Auto dispatch" from the page means the same as no device: pick one. It used to be looked up as a
+    # machine named "auto" and every such run failed with 设备不存在或无权限.
+    if device_id in ("auto", "ask_only", "all"):
+        device_id = ""
     action = args.get("action") or ""
     if action not in EXEC_ACTIONS:
         yield {

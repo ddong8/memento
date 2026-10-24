@@ -126,5 +126,56 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.project_of(doc)).title, "video-tool")
 
 
+    async def test_the_index_is_left_alone_when_a_delta_cannot_change_it(self) -> None:
+        from sqlalchemy import select
+
+        from server.db.models import Document
+        from server.services import tokenize
+
+        calls: list[int] = []
+        real = tokenize.tokenize_for_index
+
+        def counting(text: str) -> str:
+            calls.append(len(text))
+            return real(text)
+
+        rel = "projects/-Users-me-dev-memento/long.jsonl"
+        meta = {"session_id": "long", "project_path": "/Users/me/dev/memento", "project_hash": "memento"}
+        start = '{"type":"user","message":{"content":"开头的问题"}}\n' * 6000  # > 200k chars: past what the index reads
+        with patch.object(tokenize, "tokenize_for_index", counting):
+            await self.ingest("claude_code", rel, start, "full", 0, dict(meta))
+            self.assertEqual(len(calls), 1)
+            async with self.Session() as db:
+                before = (await db.execute(select(Document.content_tsv).where(Document.relative_path == rel))).scalar()
+            await self.ingest("claude_code", rel, '{"type":"user","message":{"content":"后来的话"}}', "delta", len(start), dict(meta))
+            self.assertEqual(len(calls), 1)  # not tokenized again
+            async with self.Session() as db:
+                after = (await db.execute(select(Document.content_tsv).where(Document.relative_path == rel))).scalar()
+            self.assertEqual(before, after)
+
+            # A short document still gets every delta indexed
+            short = "projects/-Users-me-dev-memento/short.jsonl"
+            await self.ingest("claude_code", short, '{"type":"user"}', "full", 0, {**meta, "session_id": "short"})
+            await self.ingest("claude_code", short, '{"type":"user","message":{"content":"新词汇"}}', "delta", 16, {**meta, "session_id": "short"})
+            self.assertEqual(len(calls), 3)
+
+
+class HeartbeatTests(unittest.TestCase):
+    def test_written_at_most_once_a_minute(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from server.db.models import Machine
+        from server.services.device_service import touch_heartbeat
+
+        now = datetime.now(timezone.utc)
+        m = Machine(name="mini", collector_token_hash="t", last_heartbeat=now - timedelta(seconds=20))
+        touch_heartbeat(m, now)
+        self.assertEqual(m.last_heartbeat, now - timedelta(seconds=20))
+        touch_heartbeat(m, now + timedelta(seconds=41))
+        self.assertEqual(m.last_heartbeat, now + timedelta(seconds=41))
+        m.last_heartbeat = None
+        touch_heartbeat(m, now)
+        self.assertEqual(m.last_heartbeat, now)
+
 if __name__ == "__main__":
     unittest.main()

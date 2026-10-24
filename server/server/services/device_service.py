@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Machine
+
+# Devices report several times a minute (every sync call, every WebSocket ping); "online" means a heartbeat
+# within 180 s. Writing it on every report was a quarter of all database statements.
+HEARTBEAT_WRITE_EVERY = timedelta(seconds=60)
+
+
+def touch_heartbeat(machine: Machine, now: datetime) -> None:
+    hb = machine.last_heartbeat
+    if hb is not None and hb.tzinfo is None:
+        hb = hb.replace(tzinfo=timezone.utc)
+    if hb is None or now - hb >= HEARTBEAT_WRITE_EVERY:
+        machine.last_heartbeat = now
 
 
 async def ensure_device(
@@ -30,7 +42,7 @@ async def ensure_device(
         from .device_merge import resolve_merged
         machine = await resolve_merged(db, machine)
         if machine is not None:
-            machine.last_heartbeat = now
+            touch_heartbeat(machine, now)
             return machine
 
     # If not found by collector_token_hash, check if an existing record exists for this user and machine name
@@ -60,7 +72,7 @@ async def ensure_device(
         await db.flush()
     else:
         machine.name = device_name
-        machine.last_heartbeat = now
+        touch_heartbeat(machine, now)
         if getattr(machine, "is_archived", False):
             machine.is_archived = False
             machine.archived_at = None

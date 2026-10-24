@@ -21,6 +21,7 @@ from server.middleware.auth import get_current_user  # noqa: E402
 
 APPLE = "https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy.md"
 PUBLIC = {"developer.apple.com": "17.253.144.10", "raw.githubusercontent.com": "185.199.108.133"}
+RAW_ADDRS = ["2606:50c0:8000::154", "185.199.108.133", "185.199.109.133"]
 INTERNAL = {"minio": "10.43.12.7", "localhost": "127.0.0.1", "metadata": "169.254.169.254", "nas.lan": "192.168.0.20"}
 
 
@@ -31,6 +32,8 @@ async def fake_resolve(host: str, port: int) -> list[str]:
         return [str(ipaddress.ip_address(host))]  # as getaddrinfo does for a literal address
     except ValueError:
         pass
+    if host == "raw.githubusercontent.com":
+        return list(RAW_ADDRS)
     addr = PUBLIC.get(host) or INTERNAL.get(host)
     if addr is None:
         import socket
@@ -101,6 +104,16 @@ class ProxyFetchTests(unittest.TestCase):
         r = self.get(APPLE, lambda req: httpx.Response(200, content=b"a" * (documents._PROXY_MAX_BYTES + 1000)))
         self.assertEqual(len(r.json()["content"]), documents._PROXY_MAX_BYTES)
 
+
+    def test_an_unreachable_address_falls_through_to_the_next_ipv4_first(self) -> None:
+        def handler(req: httpx.Request) -> httpx.Response:
+            if req.url.host == "185.199.108.133":
+                raise httpx.ConnectError("reset")
+            return httpx.Response(200, text="readme")
+
+        r = self.get("https://raw.githubusercontent.com/a/b/README.md", handler)
+        self.assertEqual(r.json()["content"], "readme")
+        self.assertEqual([q.url.host for q in self.seen], ["185.199.108.133", "185.199.109.133"])
 
 if __name__ == "__main__":
     unittest.main()

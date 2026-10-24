@@ -432,13 +432,14 @@ async def get_commands(
 ) -> list[dict]:
     """Collector polls this to get pending commands. Also updates heartbeat + version."""
     from datetime import datetime, timezone
+    from ..services.device_service import touch_heartbeat
     result = await db.execute(
         select(Machine).where(Machine.collector_token_hash == x_device_id)
     )
     machine = result.scalar_one_or_none()
     if machine:
-        machine.last_heartbeat = datetime.now(timezone.utc)
-        if x_collector_version:
+        touch_heartbeat(machine, datetime.now(timezone.utc))
+        if x_collector_version and machine.collector_version != x_collector_version:
             machine.collector_version = x_collector_version
 
     return await _pending_commands(x_device_id)

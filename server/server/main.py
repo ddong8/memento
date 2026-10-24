@@ -380,6 +380,26 @@ def _run_migrations(conn) -> None:
     except Exception:
         sp.rollback()
 
+    # These columns are rewritten whole on every synced turn (a 5 MB transcript ~1400 times in 9 hours).
+    # Compressing one such value took pglz ~120 ms and lz4 ~22 ms, a third smaller too (measured on
+    # production data, 2026-10-25). Only values written from now on use lz4; nothing is rewritten here.
+    for table, column in (
+        ("documents", "content"), ("documents", "content_tsv"), ("documents", "rendered_html"),
+        ("ask_conversations", "turns"), ("conversation_messages", "content"),
+    ):
+        sp = conn.begin_nested()
+        try:
+            current = conn.execute(text(
+                "SELECT attcompression::text FROM pg_attribute WHERE attrelid = CAST(:t AS regclass) AND attname = :c"
+            ), {"t": table, "c": column}).scalar()
+            if current is not None and current != "l":
+                conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} SET COMPRESSION lz4"))
+                conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
+            sp.commit()
+        except Exception:
+            sp.rollback()
+
     # The desktop daemon filed every watched file as a conversation (project memory, Cursor's MCP files),
     # and sessions Memento continued were titled after the context it put in front of their first prompt.
     # Ingest gets both right from now on; refile and retitle what is already stored, once, after saving

@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +45,7 @@ from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
 from ..services import device_reports, notify_service, task_alerts
 from ..services.ws_manager import ws_manager
+from ..services.device_service import HEARTBEAT_WRITE_EVERY
 
 logger = logging.getLogger("server.tasks_api")
 
@@ -373,12 +374,17 @@ async def device_websocket_endpoint(
             msg_type = data.get("type")
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
-                # Touch heartbeat in db
+                # Touch heartbeat in db, at most once per HEARTBEAT_WRITE_EVERY: online means a heartbeat
+                # within 180 s, and a row rewritten on every ping was a quarter of all statements
+                now = datetime.now(timezone.utc)
                 async with async_session_factory() as db:
                     await db.execute(
                         update(Machine)
-                        .where(Machine.id == machine.id)
-                        .values(last_heartbeat=datetime.now(timezone.utc))
+                        .where(
+                            Machine.id == machine.id,
+                            or_(Machine.last_heartbeat.is_(None), Machine.last_heartbeat < now - HEARTBEAT_WRITE_EVERY),
+                        )
+                        .values(last_heartbeat=now)
                     )
                     await db.commit()
             elif msg_type == "agent_capabilities":

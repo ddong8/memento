@@ -39,6 +39,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .profile_service import strip_profile_block
+from .tokenize import _MAX_INPUT_CHARS as _MAX_INDEX_INPUT_CHARS
 from ..db.models import (
     ConversationMessage, Document, DocumentVersion, Project, SyncState, Tool,
 )
@@ -583,6 +584,8 @@ async def ingest_file(
 ) -> Document:
     """Process and store an ingested file."""
     category = _infer_category(tool_id, category, content_type, relative_path)
+    index_unchanged = False  # set when a delta can't change what the full-text index reads
+    prev_title: str | None = None
     # Fast-path dedup: if this exact (tool_id, relative_path, content_hash,
     # offset) was already ingested on this machine, skip everything. Common in multi-collector
     # setups where pip + Tauri sidecar both watch the same .jsonl and resend
@@ -996,11 +999,14 @@ async def ingest_file(
         # Update existing document
         if doc.category != category and doc.category == "conversation":
             doc.category = category  # filed as a conversation before its category was inferred
+        prev_title = doc.title
         if mode == "delta" and doc.content:
             # For large files, replace instead of append to avoid unbounded growth
             if len(doc.content) + len(content) > 10_000_000:
                 doc.content = content  # Replace with latest delta
             else:
+                # The index reads only the start of title + content: appending past that changes nothing
+                index_unchanged = len(doc.content) >= _MAX_INDEX_INPUT_CHARS
                 doc.content = doc.content + "\n" + content
         else:
             doc.content = content
@@ -1061,18 +1067,22 @@ async def ingest_file(
     # Refresh the content_tsv full-text index from the current (possibly
     # delta-appended) content + title. Runs inside the ingest transaction
     # via a bound SQL expression so the tokenized string is passed as a
-    # parameter, not compiled into SQL.
-    from sqlalchemy import func as _func, update as _update
-    from .tokenize import tokenize_for_index as _tok
-    tsv_input = _tok(f"{doc.title or ''} {doc.content or ''}")
-    await db.execute(
-        _update(Document)
-        .where(Document.id == doc.id)
-        .values(content_tsv=_func.to_tsvector("simple", tsv_input))
-        .execution_options(synchronize_session=False)
-    )
+    # parameter, not compiled into SQL. Skipped when its input is the same
+    # as before (a long conversation growing past the indexed start); the
+    # tokenizing (100+ ms of jieba) runs in a thread, not on the event loop
+    # every request and stream of this replica shares.
+    if not (index_unchanged and doc.title == prev_title):
+        from sqlalchemy import func as _func, update as _update
+        from .tokenize import tokenize_for_index as _tok
+        tsv_input = await asyncio.to_thread(_tok, f"{doc.title or ''} {doc.content or ''}")
+        await db.execute(
+            _update(Document)
+            .where(Document.id == doc.id)
+            .values(content_tsv=_func.to_tsvector("simple", tsv_input))
+            .execution_options(synchronize_session=False)
+        )
 
-    await db.flush()
+        await db.flush()
 
     # If this is an Antigravity annotation file, update the parent conversation doc title
     if tool_id == "antigravity" and "annotations" in relative_path:
@@ -1175,7 +1185,6 @@ async def ingest_file(
 
     # Generate embeddings + extract knowledge graph (async, non-blocking)
     # Must keep a reference to the task to prevent GC
-    import asyncio
     try:
         loop = asyncio.get_running_loop()
         task = loop.create_task(_run_post_ingest(doc.id, doc.tool_id, category))

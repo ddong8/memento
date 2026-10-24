@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CollectorConfig } from "../src/config.js";
 import type { IngestClient } from "../src/ingest.js";
@@ -87,5 +87,45 @@ describe("the project a session log is filed under", () => {
     expect(isAgentInternalPath("/Users/me/.gemini/antigravity/brain/x/.system_generated/steps/2/output.txt")).toBe(true);
     expect(isAgentInternalPath("C:\\Users\\Admin\\.gemini\\antigravity\\brain\\x")).toBe(true);
     expect(isAgentInternalPath("/Users/me/dev/memento")).toBe(false);
+  });
+});
+
+describe("how often a changing session log is uploaded", () => {
+  it("uploads a small file once it settles, a large one at most every 15 s however busy it is", async () => {
+    vi.useFakeTimers();
+    try {
+      const { watcher } = await setup();
+      const w = watcher as unknown as {
+        schedule(file: string, toolId: string): void;
+        enqueue: (file: string, toolId: string) => void;
+        offsets: Map<string, number>;
+        lastUpload: Map<string, number>;
+      };
+      const runs: string[] = [];
+      w.enqueue = (file) => runs.push(file);
+
+      // Small: trailing debounce of 2 s
+      w.schedule("small.jsonl", "claude_code");
+      vi.advanceTimersByTime(1500);
+      w.schedule("small.jsonl", "claude_code");
+      vi.advanceTimersByTime(1500);
+      expect(runs).toEqual([]);
+      vi.advanceTimersByTime(600);
+      expect(runs).toEqual(["small.jsonl"]);
+
+      // Large, uploaded just now, written to every second: one upload 15 s after the last
+      runs.length = 0;
+      w.offsets.set("big.jsonl", 5 * 1024 * 1024);
+      w.lastUpload.set("big.jsonl", Date.now());
+      for (let i = 0; i < 14; i++) {
+        w.schedule("big.jsonl", "claude_code");
+        vi.advanceTimersByTime(1000);
+      }
+      expect(runs).toEqual([]);
+      vi.advanceTimersByTime(1100);
+      expect(runs).toEqual(["big.jsonl"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

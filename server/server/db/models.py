@@ -139,13 +139,14 @@ class Document(Base):
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Full-text search index: space-joined jieba tokens of title + content,
     # fed through to_tsvector('simple', ...). Populated in ingest_service.
-    content_tsv: Mapped[object | None] = mapped_column(TSVECTOR, nullable=True)
+    # Deferred: only SQL uses it, and every select(Document) used to fetch it (up to 50k tokens a row).
+    content_tsv: Mapped[object | None] = mapped_column(TSVECTOR, nullable=True, deferred=True)
 
     # Parsed metadata (tool-specific)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
 
-    # Rendering
-    rendered_html: Mapped[str | None] = mapped_column(Text)
+    # Rendering (never read by the app: deferred so select(Document) doesn't fetch it)
+    rendered_html: Mapped[str | None] = mapped_column(Text, deferred=True)
 
     # AI summary
     ai_summary: Mapped[str | None] = mapped_column(Text)

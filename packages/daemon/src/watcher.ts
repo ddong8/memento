@@ -12,6 +12,10 @@ const MAX_BATCH = 512 * 1024; // bytes per upload
 const MAX_LINE = 128 * 1024; // a longer line (base64 dump) keeps its head and tail
 const HEAD_BYTES = 64 * 1024; // where a session log says which folder it was started in
 const DEBOUNCE_MS = 2000;
+// A large session log is rewritten whole on the server for every upload (5 MB, every few seconds while an
+// agent works): upload it at most this often, and on a timer that writes to it don't keep pushing back
+const LARGE_FILE_BYTES = 1024 * 1024;
+const LARGE_FILE_GAP_MS = 15_000;
 const RESCAN_MS = 60_000;
 
 type Log = (message: string) => void;
@@ -340,6 +344,7 @@ export class FileWatcher {
   private readonly mtimes = new Map<string, number>();
   private readonly failures = new Map<string, number>();
   private readonly debounce = new Map<string, NodeJS.Timeout>();
+  private readonly lastUpload = new Map<string, number>();
   private readonly queue: [string, string][] = [];
   private readonly queued = new Set<string>();
   private readonly watchers: FSWatcher[] = [];
@@ -401,17 +406,30 @@ export class FileWatcher {
     await this.saveOffsets(true);
   }
 
+  /** Upload a changed file after it settles; a large one at most every LARGE_FILE_GAP_MS. */
+  private schedule(file: string, toolId: string): void {
+    const large = (this.offsets.get(file) ?? 0) >= LARGE_FILE_BYTES;
+    const pending = this.debounce.get(file);
+    if (pending && large) return; // already due: it reads up to the end when it runs
+    clearTimeout(pending);
+    const sinceLast = Date.now() - (this.lastUpload.get(file) ?? 0);
+    const delay = large ? Math.max(DEBOUNCE_MS, LARGE_FILE_GAP_MS - sinceLast) : DEBOUNCE_MS;
+    this.debounce.set(
+      file,
+      setTimeout(() => {
+        this.debounce.delete(file);
+        this.enqueue(file, toolId);
+      }, delay),
+    );
+  }
+
   private watchDir(dir: string, toolId: string): void {
     try {
       const w = watch(dir, { recursive: true, persistent: false }, (_event, file) => {
         if (this.disposed || !file) return;
         const full = join(dir, file.toString());
         if (!isWatchedFile(full, toolId)) return;
-        clearTimeout(this.debounce.get(full));
-        this.debounce.set(
-          full,
-          setTimeout(() => this.enqueue(full, toolId), DEBOUNCE_MS),
-        );
+        this.schedule(full, toolId);
       });
       w.on("error", (e) => this.log(`Watch error on ${dir}: ${e.message}`));
       this.watchers.push(w);
@@ -527,6 +545,7 @@ export class FileWatcher {
         }
         uploaded = true;
         if (ok) {
+          this.lastUpload.set(file, Date.now());
           this.failures.delete(file);
           offset += slice.length;
           this.offsets.set(file, offset);

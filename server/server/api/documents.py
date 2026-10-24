@@ -59,9 +59,9 @@ async def _resolve(host: str, port: int) -> list[str]:
     return [info[4][0] for info in infos]
 
 
-async def _public_address(host: str, port: int) -> str:
-    """An address of ``host`` on the public internet. A name that resolves to anything else (a cluster
-    service like ``minio``, the LAN, loopback, link-local metadata) is refused: every address it has."""
+async def _public_addresses(host: str, port: int) -> list[str]:
+    """The addresses of ``host``, IPv4 first, all on the public internet. A name that resolves to anything
+    else (a cluster service like ``minio``, the LAN, loopback, link-local metadata) is refused."""
     import ipaddress
     import socket
 
@@ -71,7 +71,7 @@ async def _public_address(host: str, port: int) -> str:
         raise HTTPException(status_code=502, detail=f"无法解析域名 {host}")
     if not addrs or not all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addrs):
         raise HTTPException(status_code=403, detail="不允许访问内网地址")
-    return addrs[0]
+    return sorted(dict.fromkeys(addrs), key=lambda a: ":" in a)
 
 
 @router.get("/proxy-fetch")
@@ -97,34 +97,46 @@ async def proxy_fetch_document(
             if parsed.username or parsed.password:
                 raise HTTPException(status_code=400, detail="地址里不能带用户名密码")
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            ip = await _public_address(parsed.hostname, port)
-            pinned = parsed._replace(netloc=f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}").geturl()
+            addrs = await _public_addresses(parsed.hostname, port)
             host_header = parsed.hostname if parsed.port is None else f"{parsed.hostname}:{parsed.port}"
-            try:
-                async with client.stream(
-                    "GET", pinned, headers={**_PROXY_HEADERS, "Host": host_header},
-                    extensions={"sni_hostname": parsed.hostname},
-                ) as resp:
-                    if resp.is_redirect and resp.headers.get("location"):
-                        current = urljoin(current, resp.headers["location"])
-                        continue
-                    if resp.status_code != 200:
-                        # Never passed through as is: a 401 from that site would log the user out here
-                        raise HTTPException(status_code=502, detail=f"对方网站返回 HTTP {resp.status_code}")
-                    body = bytearray()
-                    async for chunk in resp.aiter_bytes():
-                        body.extend(chunk)
-                        if len(body) >= _PROXY_MAX_BYTES:
-                            del body[_PROXY_MAX_BYTES:]
-                            break
-                    return {
-                        "url": current,
-                        "content": body.decode("utf-8", errors="replace"),
-                        "content_type": resp.headers.get("content-type", "text/markdown"),
-                    }
-            except httpx.RequestError as e:
-                raise HTTPException(status_code=502, detail=f"读取对方网站失败：{e}")
+            last_error: Exception | None = None
+            for ip in addrs[:4]:
+                pinned = parsed._replace(netloc=f"[{ip}]:{port}" if ":" in ip else f"{ip}:{port}").geturl()
+                try:
+                    result = await _fetch_pinned(client, pinned, host_header, parsed.hostname)
+                except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                    last_error = e  # some sites' addresses are unreachable from here: try the next one
+                    continue
+                except httpx.RequestError as e:
+                    raise HTTPException(status_code=502, detail=f"读取对方网站失败：{type(e).__name__} {e}")
+                break
+            else:
+                raise HTTPException(status_code=502, detail=f"连不上对方网站：{type(last_error).__name__}")
+            if isinstance(result, str):
+                current = urljoin(current, result)  # a redirect
+                continue
+            return {"url": current, **result}
     raise HTTPException(status_code=502, detail="重定向次数过多")
+
+
+async def _fetch_pinned(client, url: str, host: str, sni: str) -> str | dict:
+    """GET from one address: the redirect target, or {content, content_type}."""
+    async with client.stream("GET", url, headers={**_PROXY_HEADERS, "Host": host}, extensions={"sni_hostname": sni}) as resp:
+        if resp.is_redirect and resp.headers.get("location"):
+            return resp.headers["location"]
+        if resp.status_code != 200:
+            # Never passed through as is: a 401 from that site would log the user out here
+            raise HTTPException(status_code=502, detail=f"对方网站返回 HTTP {resp.status_code}")
+        body = bytearray()
+        async for chunk in resp.aiter_bytes():
+            body.extend(chunk)
+            if len(body) >= _PROXY_MAX_BYTES:
+                del body[_PROXY_MAX_BYTES:]
+                break
+        return {
+            "content": body.decode("utf-8", errors="replace"),
+            "content_type": resp.headers.get("content-type", "text/markdown"),
+        }
 
 
 @router.get("/{doc_id}")

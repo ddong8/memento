@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
@@ -31,6 +32,10 @@ from .celery_app import celery_app
 logger = logging.getLogger("title_backfill")
 
 BATCH_SIZE = 200
+# Full transcripts are only read for documents that changed since the runs before (hourly, with margin):
+# reading every Claude Code transcript each hour was a third of all the database's disk reads, for titles
+# ingest already takes from the lines as they arrive.
+CONTENT_WINDOW = timedelta(hours=3)
 # How many user messages to pull per doc when hunting for a real title. The
 # usable prompt is at the top; a compacted session buries it behind at most a
 # couple of preamble/system turns, so a small window is plenty.
@@ -44,10 +49,11 @@ async def _run() -> dict:
     # cursor: filtering only on "junk title" would re-select it every batch.
     last_id = None
 
+    recent_since = datetime.now(timezone.utc) - CONTENT_WINDOW
     async with async_session_factory() as db:
         while True:
             q = select(
-                Document.id, Document.title, Document.metadata_, Document.relative_path
+                Document.id, Document.title, Document.metadata_, Document.relative_path, Document.updated_at
             ).order_by(Document.id).limit(BATCH_SIZE)
             if last_id is not None:
                 q = q.where(Document.id > last_id)
@@ -55,8 +61,9 @@ async def _run() -> dict:
             if not rows:
                 break
 
-            for did, title, meta, rel_path in rows:
+            for did, title, meta, rel_path, updated_at in rows:
                 last_id = did
+                recent = updated_at is not None and updated_at >= recent_since
                 sid = (meta or {}).get("session_id") if isinstance(meta, dict) else None
 
                 cand = None
@@ -71,7 +78,7 @@ async def _run() -> dict:
                 # transcript — this heals existing subagent docs without waiting
                 # for a re-ingest. Only pull the (large) content for paths that
                 # look like a subagent transcript, to avoid loading 1MB per doc.
-                if not parent_sid and rel_path and ("agent-" in rel_path or "rollout-" in rel_path):
+                if not parent_sid and recent and rel_path and ("agent-" in rel_path or "rollout-" in rel_path):
                     doc_content = (await db.execute(
                         select(Document.content).where(Document.id == did)
                     )).scalar_one_or_none()
@@ -104,7 +111,7 @@ async def _run() -> dict:
 
                 # Claude Code main conversation: check if document has an aiTitle
                 # in content that should take precedence over a raw user prompt
-                if not cand and rel_path and "projects/" in rel_path and rel_path.endswith(".jsonl") and not parent_sid:
+                if not cand and recent and rel_path and "projects/" in rel_path and rel_path.endswith(".jsonl") and not parent_sid:
                     doc_content = (await db.execute(
                         select(Document.content).where(Document.id == did)
                     )).scalar_one_or_none()

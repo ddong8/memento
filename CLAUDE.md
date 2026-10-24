@@ -28,6 +28,6 @@
 ### 查状态 / 排障
 - 构建:`gh run list --workflow=deploy.yml`
 - 集群:`kubectl -n fleet-local get gitrepo memento`、`kubectl -n memento get pods`
-- 已部署但改动没生效:先看 api 有没有被挂载覆盖,`kubectl -n memento get deploy api -o jsonpath='{.spec.template.spec.volumes}'`,正常为空。
+- 已部署但改动没生效:先看 api 有没有被挂载覆盖,`kubectl -n memento get deploy api -o jsonpath='{.spec.template.spec.volumes}'`,正常只有 api.yaml 里定义的 `media-cache`(emptyDir),出现 configMap 卷就是被覆盖了。
 - push 后迟迟不部署(gitrepo 显示 `Stalled` / `GitPolling=False`),强制重同步:
   `kubectl -n fleet-local patch gitrepo memento --type merge -p '{"spec":{"forceSyncGeneration":<当前值+1>}}'`

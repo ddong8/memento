@@ -1,7 +1,7 @@
 {
   "version": "1.0.78",
   "title": "Memento v1.0.78",
-  "release_notes": "1. 智能体在会话中途进入子文件夹（比如 cd server）后，这个会话仍然留在原来的项目里，不会被挪到以子文件夹命名的项目\n2. Antigravity 没有打开工作区的会话不再被归到 output.txt、transcript.jsonl 这类以文件命名的“项目”\n3. Antigravity 会话记录的工作区路径不再混进多余的文字",
+  "release_notes": "1. 工作台预览网上的文档（比如 Apple 的技术文档）时，由桌面端直接读取，不再出现“Failed to fetch”\n2. 智能体长时间工作时，大会话改为最多每 15 秒同步一次，服务器压力明显减轻，其他页面更流畅\n3. Claude Code 任务结束时，中间的过程输出完整保留，不会被最后的简短总结覆盖\n4. 手机端刘海屏顶部不再出现黑色遮挡，状态栏颜色跟随主题",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.78-win-x64.zip",

@@ -1,7 +1,7 @@
 {
   "version": "1.0.74",
   "title": "Memento v1.0.74",
-  "release_notes": "1. Windows 设备上远程执行命令时，中文输出和报错不再显示为乱码",
+  "release_notes": "1. 在 Memento 里续接或继续 Claude Code 对话时，命令行里看到的会话名统一用对话标题，不再每轮变化，也不再显示成记忆快照开头\n2. 本机 AI 工具查询核心记忆时不再一次性带上全部避坑记录，回答更快、占用上下文更少",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.74-win-x64.zip",

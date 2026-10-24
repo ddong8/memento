@@ -1,22 +1,22 @@
 {
-  "version": "1.0.78",
-  "title": "Memento v1.0.78",
+  "version": "1.0.79",
+  "title": "Memento v1.0.79",
   "release_notes": "1. 工作台预览网上的文档（比如 Apple 的技术文档）时，由桌面端直接读取，不再出现“Failed to fetch”\n2. 智能体长时间工作时，大会话改为最多每 15 秒同步一次，服务器压力明显减轻，其他页面更流畅\n3. Claude Code 任务结束时，中间的过程输出完整保留，不会被最后的简短总结覆盖\n4. 手机端刘海屏顶部不再出现黑色遮挡，状态栏颜色跟随主题",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.78-win-x64.zip",
-      "size": 157848422,
-      "sha256": "a7cf15616324e5f44490b8ebc03900c1362740fb0026966e6857c270e966506c"
+      "asset_name": "Memento-1.0.79-win-x64.zip",
+      "size": 157850243,
+      "sha256": "e080e2a9ca4129c088ff43e04c5a944f2eb23942b8355ac554ca1eae8cceddbc"
     },
     "macos": {
-      "asset_name": "Memento-1.0.78-mac-arm64.zip",
-      "size": 132317991,
-      "sha256": "17da4b9f8f9a3408c0bc31672dbfe4756d23c9f60bd9be81dbce9322645b0f86"
+      "asset_name": "Memento-1.0.79-mac-arm64.zip",
+      "size": 132319582,
+      "sha256": "f38efb0c5c830c2f1711ffa0ace32f8dd0ea6377e517d72e22ed250984e09f86"
     },
     "linux": {
-      "asset_name": "Memento-1.0.78-linux-x64.tar.gz",
-      "size": 131616853,
-      "sha256": "8ac49b6aa6ac484a9c3ed1ebb5beea719d38903ea2014929798dc80258dd910f"
+      "asset_name": "Memento-1.0.79-linux-x64.tar.gz",
+      "size": 131618340,
+      "sha256": "72ab2e8a313e533a6ca2c5615b330c12f70ad75633b88254fa18e8620ca9495d"
     }
   }
 }

@@ -16,6 +16,8 @@ interface QuestionPromptProps {
   questionEvent: TaskEvent & {
     id?: string;
     tool?: string;
+    /** Short label the agent gives the question (Claude Code / Codex) */
+    header?: string;
     question?: string;
     options?: Array<{ label: string; description?: string; value?: string } | string>;
     is_multi_select?: boolean;
@@ -63,7 +65,8 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
       const res = await authFetch(`${getApiBase()}/api/tasks/${taskId}/input`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: val }),
+        // The id routes the answer to this question; the device sends it back the way the agent takes answers
+        body: JSON.stringify({ input: val, question_id: questionEvent.id }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
       if (data.ok) {
@@ -192,6 +195,23 @@ export function QuestionPrompt({ questionEvent, taskId, disabled, onAnswered }: 
           fontWeight: 500,
         }}
       >
+        {questionEvent.header && (
+          <span
+            style={{
+              display: "inline-block",
+              marginRight: 6,
+              padding: "1px 6px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              background: "var(--aurora-chip)",
+              color: "var(--aurora-fg2)",
+              verticalAlign: "1px",
+            }}
+          >
+            {questionEvent.header}
+          </span>
+        )}
         {qText}
       </div>
 

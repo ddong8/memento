@@ -136,31 +136,55 @@ describe("Background task detection", () => {
 });
 
 describe("Interactive questions", () => {
-  it("Claude AskFollowupQuestion emits question event and resolves on answer", () => {
+  it("Claude AskUserQuestion: asks over the control channel and gets the answers back in updatedInput", () => {
     const parser = new ClaudeStreamParser();
-    const qEvents = parser.feed(
-      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q1","name":"AskFollowupQuestion","input":{"question":"选择包管理器","options":["npm","pnpm","yarn"]}}]}}',
-    )!;
-    expect(qEvents).toHaveLength(2);
-    const q = qEvents.find((e) => e.kind === "question");
-    expect(q).toMatchObject({
-      id: "q1",
-      tool: "AskFollowupQuestion",
-      question: "选择包管理器",
-      options: ["npm", "pnpm", "yarn"],
-      status: "waiting",
-    });
+    const input = {
+      questions: [
+        { question: "选哪个包管理器？", header: "包管理", options: [{ label: "npm", description: "默认" }, { label: "pnpm" }], multiSelect: false },
+        { question: "要哪些检查？", header: "检查", options: [{ label: "lint" }, { label: "test" }], multiSelect: true },
+      ],
+    };
+    const asked = parser.feed(JSON.stringify({ type: "control_request", request_id: "r1", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input } }))!;
+    expect(asked).toEqual([
+      expect.objectContaining({ kind: "question", id: "r1:0", header: "包管理", question: "选哪个包管理器？", options: [{ label: "npm", description: "默认" }, { label: "pnpm" }], is_multi_select: false, status: "waiting" }),
+      expect.objectContaining({ kind: "question", id: "r1:1", is_multi_select: true, status: "waiting" }),
+    ]);
 
-    const ansEvents = parser.feed(
-      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"q1","content":"pnpm"}]}}',
-    )!;
-    expect(ansEvents).toHaveLength(2);
-    const ans = ansEvents.find((e) => e.kind === "question");
-    expect(ans).toMatchObject({
-      id: "q1",
-      status: "answered",
-      answer: "pnpm",
-    });
+    // The CLI only hears back once every question of the call is answered
+    expect(parser.answer("r1:1", "lint, test")).toEqual([{ kind: "question", id: "r1:1", status: "answered", answer: "lint, test" }]);
+    expect(parser.takeReplies()).toEqual([]);
+    expect(parser.answer(undefined, "pnpm")).toEqual([{ kind: "question", id: "r1:0", status: "answered", answer: "pnpm" }]);
+    expect(parser.takeReplies()).toEqual([
+      {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: "r1",
+          response: { behavior: "allow", updatedInput: { ...input, answers: { "选哪个包管理器？": "pnpm", "要哪些检查？": "lint, test" } } },
+        },
+      },
+    ]);
+    expect(parser.answer(undefined, "again")).toBeNull();
+  });
+
+  it("Claude: other tools the CLI asks about are allowed as-is, and a cancelled question closes", () => {
+    const parser = new ClaudeStreamParser();
+    expect(parser.feed(JSON.stringify({ type: "control_request", request_id: "r2", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" } } }))).toEqual([]);
+    expect(parser.takeReplies()).toEqual([
+      { type: "control_response", response: { subtype: "success", request_id: "r2", response: { behavior: "allow", updatedInput: { command: "ls" } } } },
+    ]);
+
+    parser.feed(JSON.stringify({ type: "control_request", request_id: "r3", request: { subtype: "can_use_tool", tool_name: "AskUserQuestion", input: { questions: [{ question: "继续吗？", options: [{ label: "是" }, { label: "否" }] }] } } }));
+    expect(parser.feed(JSON.stringify({ type: "control_cancel_request", request_id: "r3" }))).toEqual([
+      { kind: "question", id: "r3:0", status: "answered", answer: "（已取消）" },
+    ]);
+    expect(parser.answer(undefined, "是")).toBeNull();
+  });
+
+  it("Codex: passes through the question events memento's runner prints", () => {
+    const parser = new CodexStreamParser();
+    const ev = { kind: "question", id: "codex_0_1:0", tool: "request_user_input", header: "颜色", question: "喜欢哪种颜色？", options: ["红", "蓝"], status: "waiting" };
+    expect(parser.feed(JSON.stringify({ type: "memento_event", event: ev }))).toEqual([ev]);
   });
 
   it("UniversalStreamParser handles structured memento_event and CLI confirmation prompts", () => {

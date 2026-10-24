@@ -265,16 +265,16 @@ class DeviceConnectionManager:
             logger.warning("Failed to send cancel for %s via WebSocket: %s", tid, e)
             return False
 
-    async def send_input(self, device_id: str, task_id: str, input_text: str) -> bool:
-        """Send input frame to the device to forward stdin into the running subprocess."""
+    async def send_input(self, device_id: str, task_id: str, input_text: str, question_id: str | None = None) -> bool:
+        """Send input frame to the device: an answer to the agent's question (question_id), else a steer."""
         tid = str(task_id)
         if tid in self._task_connections or device_id in self._connections:
-            return await self._send_input_local(device_id, tid, input_text)
+            return await self._send_input_local(device_id, tid, input_text, question_id)
         pod = self._remote_tasks.get(tid) or await self._owner(device_id)
         return await self._remote_call(pod, "ws.send_input",
-                                       {"device_id": device_id, "task_id": tid, "input": str(input_text)}, 5.0, False)
+                                       {"device_id": device_id, "task_id": tid, "input": str(input_text), "question_id": question_id}, 5.0, False)
 
-    async def _send_input_local(self, device_id: str, tid: str, input_text: str) -> bool:
+    async def _send_input_local(self, device_id: str, tid: str, input_text: str, question_id: str | None = None) -> bool:
         ws = self._task_connections.get(tid) or self._connections.get(device_id)
         if not ws:
             logger.warning("Cannot forward input to task %s: no WebSocket connection found for device %s or task", tid, device_id)
@@ -284,6 +284,7 @@ class DeviceConnectionManager:
                 "type": "task_input",
                 "task_id": tid,
                 "input": str(input_text),
+                **({"question_id": question_id} if question_id else {}),
             })
             logger.info("Sent task_input for %s via WebSocket: %s", tid, input_text)
             return True
@@ -439,7 +440,7 @@ class DeviceConnectionManager:
         return await self._send_cancel_local(p["device_id"], p["task_id"])
 
     async def _op_send_input(self, p: dict) -> bool:
-        return await self._send_input_local(p["device_id"], p["task_id"], p["input"])
+        return await self._send_input_local(p["device_id"], p["task_id"], p["input"], p.get("question_id"))
 
     async def _op_file_stat(self, p: dict) -> dict:
         return await self._file_stat_local(p["device_id"], p["path"], float(p.get("timeout") or 8.0))

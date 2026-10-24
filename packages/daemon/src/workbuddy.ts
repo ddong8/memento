@@ -30,6 +30,7 @@ const RUNNER_MARKERS = [
   "SIGINT_SIGTERM_HANDLER",
   "MEMENTO_GATEWAY_FILE",
   "process.stdin.destroy()",
+  "_codebuddy.ai/resolveInterruption",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */

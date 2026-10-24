@@ -32,6 +32,8 @@ export type TaskEvent = { at?: string } & (
       kind: "question";
       id?: string;
       tool?: string;
+      /** Short label for the question (Claude Code's AskUserQuestion, Codex's request_user_input) */
+      header?: string;
       question: string;
       options?: Array<TaskQuestionOption | string>;
       is_multi_select?: boolean;

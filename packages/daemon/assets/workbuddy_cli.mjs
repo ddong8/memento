@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
+import { createInterface } from "node:readline";
 
 // How long a task waits for the user to finish signing in through the printed link.
 const LOGIN_WAIT_MS = 10 * 60 * 1000;
@@ -467,10 +468,108 @@ async function main() {
   let printedText = false;
   let lastToolId = "";
   let thoughtShown = false;
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", async (chunk) => {
-    const text = String(chunk).trim();
-    if (!text) return;
+
+  // Questions WorkBuddy holds open for the user. Its AskUserQuestion comes as session/request_permission
+  // (the questions in toolCall.rawInput) and is answered through _codebuddy.ai/resolveInterruption, as the
+  // WorkBuddy app answers it; other permission requests take the option the user picks.
+  const asks = new Map(); // ask id -> { rpcId, toolCallId, kind, questions, options, answers }
+  const openQuestions = []; // [question id, ask id, index]
+  const emit = (event) => process.stdout.write(`\n${JSON.stringify({ type: "memento_event", event })}\n`);
+  const reply = (id, result) =>
+    fetch(`${gw.endpoint}/api/v1/acp`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id, result }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+
+  const onPermissionRequest = (obj) => {
+    const p = obj.params ?? {};
+    const tc = p.toolCall ?? {};
+    const toolName = String(tc._meta?.["codebuddy.ai/toolName"] ?? "");
+    const askId = `wb_${String(tc.toolCallId ?? obj.id)}`;
+    const options = Array.isArray(p.options) ? p.options : [];
+    const questions = toolName === "AskUserQuestion" && Array.isArray(tc.rawInput?.questions) ? tc.rawInput.questions : [];
+    if (questions.length) {
+      asks.set(askId, { rpcId: obj.id, toolCallId: tc.toolCallId, kind: "ask", questions, options, answers: {} });
+      questions.forEach((q, i) => {
+        openQuestions.push([`${askId}:${i}`, askId, i]);
+        emit({
+          kind: "question",
+          id: `${askId}:${i}`,
+          tool: "AskUserQuestion",
+          ...(q.header ? { header: String(q.header) } : {}),
+          question: String(q.question ?? "请选择或确认下一步操作"),
+          options: (q.options ?? []).map((o) =>
+            typeof o === "string" ? o : { label: String(o.label ?? ""), ...(o.description ? { description: String(o.description) } : {}) },
+          ),
+          is_multi_select: Boolean(q.multiSelect),
+          status: "waiting",
+        });
+      });
+      return;
+    }
+    asks.set(askId, { rpcId: obj.id, kind: "permission", options, answers: {} });
+    openQuestions.push([`${askId}:0`, askId, 0]);
+    const detail = tc.rawInput?.command ?? tc.rawInput?.target ?? tc.title ?? "";
+    emit({
+      kind: "question",
+      id: `${askId}:0`,
+      tool: toolName || "permission",
+      question: `WorkBuddy 请求授权：${toolName || "操作"}${detail ? `\n${detail}` : ""}`,
+      options: options.map((o) => String(o.name ?? o.optionId)),
+      is_multi_select: false,
+      status: "waiting",
+    });
+  };
+
+  const answerQuestion = async (questionId, text) => {
+    const at = openQuestions.findIndex(([id]) => !questionId || id === questionId);
+    if (at < 0) return false;
+    const [, askId, index] = openQuestions.splice(at, 1)[0];
+    const a = asks.get(askId);
+    a.answers[index] = text;
+    if (a.kind === "permission") {
+      asks.delete(askId);
+      const chosen = a.options.find((o) => String(o.name ?? o.optionId) === text.trim()) ?? a.options.find((o) => String(o.kind ?? "").startsWith("reject"));
+      await reply(a.rpcId, chosen ? { outcome: { outcome: "selected", optionId: chosen.optionId } } : { outcome: { outcome: "cancelled" } });
+      return true;
+    }
+    if (Object.keys(a.answers).length < a.questions.length) return true;
+    asks.delete(askId);
+    const answers = {};
+    a.questions.forEach((q, i) => {
+      answers[String(q.question ?? `q_${i}`)] = a.answers[i];
+    });
+    const { reply: r } = await rpcCall("_codebuddy.ai/resolveInterruption", { sessionId, toolCallId: a.toolCallId, decision: "allow", answers }).catch(
+      () => ({}),
+    );
+    if (!r?.result?.resolved) {
+      // Answers not taken: decline the request rather than leave WorkBuddy waiting on it
+      process.stderr.write(`\n⚠️ [WorkBuddy 没有收下这次回答${r?.error?.message ? `：${r.error.message}` : ""}]\n`);
+      await reply(a.rpcId, { outcome: { outcome: "cancelled" } });
+    }
+    return true;
+  };
+
+  // stdin, one line each: a memento_answer for a question above, else a follow-up for the session
+  createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", async (line) => {
+    const raw = line.trim();
+    if (!raw) return;
+    let qid;
+    let text = raw;
+    if (raw.startsWith("{")) {
+      try {
+        const m = JSON.parse(raw);
+        if (m?.type === "memento_answer") {
+          qid = m.question_id || undefined;
+          text = String(m.answer ?? "");
+        }
+      } catch {
+        // plain text after all
+      }
+    }
+    if (await answerQuestion(qid, text)) return;
     await rpcCall("session/prompt", {
       sessionId,
       prompt: [{ type: "text", text }],
@@ -517,6 +616,11 @@ async function main() {
           continue;
         }
 
+        if (obj.method === "session/request_permission" && obj.id != null) {
+          onPermissionRequest(obj);
+          continue;
+        }
+
         if (obj.method === "session/update" && obj.params?.update) {
           const upd = obj.params.update;
           const kind = upd.sessionUpdate;
@@ -537,23 +641,6 @@ async function main() {
               const title = upd.title && upd.title !== toolName ? `${toolName}: ${upd.title}` : toolName;
               process.stdout.write(`\n⚡ [${String(title).replace(/[\r\n]+/g, " ").slice(0, 120)}]\n`);
             }
-          } else if (kind === "elicitation" || upd.elicitation) {
-            const el = upd.elicitation || upd;
-            const qText = el.prompt || el.question || el.message || "请确认下一步操作";
-            const qOptions = Array.isArray(el.options) ? el.options : undefined;
-            const qEvent = {
-              type: "memento_event",
-              event: {
-                kind: "question",
-                id: el.id || `wb_q_${Date.now()}`,
-                tool: "elicitation",
-                question: qText,
-                options: qOptions,
-                is_multi_select: Boolean(el.multiple),
-                status: "waiting",
-              },
-            };
-            process.stdout.write(`\n${JSON.stringify(qEvent)}\n`);
           } else if (kind === "agent_message_chunk") {
             const t = upd.content?.text ?? "";
             if (t) {

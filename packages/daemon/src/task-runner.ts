@@ -10,6 +10,7 @@ import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
+import { codexRunner } from "./codex.js";
 import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
@@ -87,6 +88,10 @@ export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: 
     "stream-json",
     "--verbose",
     "--dangerously-skip-permissions",
+    // AskUserQuestion only exists when something can answer it: with this the CLI asks over stdin/stdout
+    // (control_request / control_response), and every other tool stays allowed by the flag above.
+    "--permission-prompt-tool",
+    "stdio",
     ...(o.model ? ["--model", o.model] : []),
     ...(o.settingsJson ? ["--settings", o.settingsJson] : []),
   ];
@@ -120,18 +125,27 @@ export function claudeSessionName(title: string, question: string, prompt: strin
 const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
 
 /** `codex exec` (or `exec resume|fork <id>`) with JSON events, no approvals. */
-export function codexArgs(o: { workDir?: string; sessionId?: string; fork?: boolean; effort?: string; model?: string; prompt: string }): string[] {
+/** assets/codex_app.mjs on the given Codex binary: it drives `codex app-server`, so Codex can ask the user mid-task. */
+export function codexArgs(o: {
+  runner: string;
+  codex: string;
+  workDir?: string;
+  sessionId?: string;
+  fork?: boolean;
+  effort?: string;
+  model?: string;
+  prompt: string;
+}): string[] {
   const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? o.sessionId) : "";
   return [
+    o.runner,
+    "--codex",
+    o.codex,
     ...(o.workDir ? ["-C", o.workDir] : []),
-    "exec",
-    ...(sid ? [o.fork ? "fork" : "resume"] : []),
-    "--json",
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--skip-git-repo-check",
-    ...(o.effort ? ["-c", `model_reasoning_effort="${o.effort}"`] : []),
-    ...(o.model ? ["-m", o.model] : []),
-    ...(sid ? [sid] : []),
+    ...(sid ? ["--resume", sid, ...(o.fork ? ["--fork"] : [])] : []),
+    ...(o.effort ? ["--effort", o.effort] : []),
+    ...(o.model ? ["--model", o.model] : []),
+    "--",
     o.prompt,
   ];
 }
@@ -327,6 +341,10 @@ export class TaskRunner {
   /** Claude tasks keep stdin open for follow-up instructions until their run ends. */
   private readonly steerInputs = new Map<string, NodeJS.WritableStream & { writable: boolean }>();
   private readonly claudeTasks = new Set<string>();
+  /** Claude tasks: answers one of the questions Claude asked; false when none is waiting. */
+  private readonly answerers = new Map<string, (questionId: string | undefined, text: string) => boolean>();
+  /** Tasks run by memento's own runners (Codex, Antigravity, WorkBuddy), which take answers as memento_answer lines. */
+  private readonly runnerTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
   private readonly taskSessions = new Map<string, { binary: string; sessionId?: string }>();
   private readonly cancelledTasks = new Set<string>();
@@ -380,66 +398,39 @@ export class TaskRunner {
   }
 
   /** A follow-up from the user: steers a running Claude/Antigravity/WorkBuddy task or goes to process stdin. */
-  input(taskId: string, text: string): void {
-    const steer = this.steerInputs.get(taskId);
-    if (steer) {
-      if (steer.writable) {
-        if (this.claudeTasks.has(taskId)) {
-          steer.write(`${JSON.stringify(claudeUserMessage(text))}\n`);
-        } else {
-          steer.write(`${text}\n`);
-        }
-        // Mark any waiting question in this task's event log as answered
-        const eventLog = this.eventLogs.get(taskId);
-        if (eventLog) {
-          const waitingQ = eventLog.events.find(
-            (e) => e.kind === "question" && (e.status === "waiting" || !e.status),
-          );
-          if (waitingQ && waitingQ.id) {
-            this.emitEvent(taskId, {
-              kind: "question",
-              id: waitingQ.id,
-              status: "answered",
-              answer: text,
-            });
-          }
-        }
-        this.emitEvent(taskId, { kind: "steer", text, status: "sent" });
-        const echo = `\n[输入] ${text}\n`;
-        const out = this.outputs.get(taskId);
-        if (out) out.stdout += echo;
-        this.send(chunk(taskId, "stdout", echo));
-      } else {
-        this.emitEvent(taskId, { kind: "steer", text, status: "late" });
-      }
+  /**
+   * A reply from the user. When it answers a question the agent asked (by id, or the one waiting), it goes
+   * back the way that agent takes answers: Claude Code over its control channel, memento's runners as a
+   * memento_answer line. Anything else steers the running task.
+   */
+  input(taskId: string, text: string, questionId?: string): void {
+    if (this.answerers.get(taskId)?.(questionId, text)) return this.echoInput(taskId, text);
+    const sink = this.steerInputs.get(taskId) ?? this.running.get(taskId)?.stdin;
+    if (!sink?.writable) {
+      this.emitEvent(taskId, { kind: "steer", text, status: "late" });
       return;
     }
-    const proc = this.running.get(taskId);
-    if (proc?.stdin?.writable) {
-      proc.stdin.write(`${text}\n`);
-      const eventLog = this.eventLogs.get(taskId);
-      if (eventLog) {
-        const waitingQ = eventLog.events.find(
-          (e) => e.kind === "question" && (e.status === "waiting" || !e.status),
-        );
-        if (waitingQ && waitingQ.id) {
-          this.emitEvent(taskId, {
-            kind: "question",
-            id: waitingQ.id,
-            status: "answered",
-            answer: text,
-          });
-        }
-      }
+    const waiting = this.eventLogs
+      .get(taskId)
+      ?.events.find((e) => e.kind === "question" && (questionId ? e.id === questionId : e.status === "waiting" || !e.status));
+    if (waiting?.id && this.runnerTasks.has(taskId)) {
+      sink.write(`${JSON.stringify({ type: "memento_answer", question_id: waiting.id, answer: text })}\n`);
+      this.emitEvent(taskId, { kind: "question", id: waiting.id, status: "answered", answer: text });
+    } else {
+      sink.write(this.claudeTasks.has(taskId) ? `${JSON.stringify(claudeUserMessage(text))}\n` : `${text}\n`);
+      if (waiting?.id) this.emitEvent(taskId, { kind: "question", id: waiting.id, status: "answered", answer: text });
       this.emitEvent(taskId, { kind: "steer", text, status: "sent" });
-      const echo = `\n[输入] ${text}\n`;
-      const out = this.outputs.get(taskId);
-      if (out) out.stdout += echo;
-      this.send(chunk(taskId, "stdout", echo));
-      return;
     }
-    this.emitEvent(taskId, { kind: "steer", text, status: "late" });
+    this.echoInput(taskId, text);
   }
+
+  private echoInput(taskId: string, text: string): void {
+    const echo = `\n[输入] ${text}\n`;
+    const out = this.outputs.get(taskId);
+    if (out) out.stdout += echo;
+    this.send(chunk(taskId, "stdout", echo));
+  }
+
 
   dispose(): void {
     for (const proc of this.running.values()) killProcessTree(proc);
@@ -466,6 +457,19 @@ export class TaskRunner {
 
     proc.stdin.on("error", () => {});
     this.steerInputs.set(taskId, proc.stdin);
+    const flushReplies = () => {
+      if (!(parser instanceof ClaudeStreamParser)) return;
+      for (const reply of parser.takeReplies()) if (proc.stdin.writable) proc.stdin.write(`${JSON.stringify(reply)}\n`);
+    };
+    if (parser instanceof ClaudeStreamParser) {
+      this.answerers.set(taskId, (questionId, text) => {
+        const events = parser.answer(questionId, text);
+        if (!events) return false;
+        for (const e of events) this.emitEvent(taskId, e);
+        flushReplies();
+        return true;
+      });
+    }
     if (spec.stdinPrompt !== undefined && parser instanceof ClaudeStreamParser) {
       proc.stdin.write(`${JSON.stringify(claudeUserMessage(spec.stdinPrompt))}\n`);
     }
@@ -576,6 +580,7 @@ export class TaskRunner {
             this.emitEvent(taskId, e);
           }
         }
+        flushReplies();
         if (parser.sessionId) {
           const sess = this.taskSessions.get(taskId);
           if (sess && !sess.sessionId) sess.sessionId = parser.sessionId;
@@ -642,6 +647,8 @@ export class TaskRunner {
     let claudeSettings: string | undefined;
     let consoleEncoding: string | null | undefined;
     let worktree: TaskWorktree | undefined;
+    /** Set for Codex tasks: memento's runner and the Codex binary it drives. */
+    let codex: { runner: string; codex: string } | undefined;
 
     const binary = (text("binary") || "claude").toLowerCase();
     const prompt = text("prompt");
@@ -771,8 +778,11 @@ export class TaskRunner {
         stdinPrompt = prompt;
         this.claudeTasks.add(taskId);
       } else if (binary.includes("codex")) {
-        args = codexArgs({ workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
+        codex = { runner: await codexRunner(), codex: exe };
+        exe = process.execPath;
+        args = codexArgs({ ...codex, workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
         parser = new CodexStreamParser();
+        this.runnerTasks.add(taskId);
       } else if (isWorkbuddy) {
         const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
         if (!isNativeCodebuddy) {
@@ -785,6 +795,7 @@ export class TaskRunner {
             prompt,
           ];
           parser = new UniversalStreamParser();
+          this.runnerTasks.add(taskId);
         } else {
           // Native WorkBuddy / CodeBuddy CLI supports Claude-compatible stream-json; headless tool use needs -y.
           // A session missing on this device falls through to the "session not found" retry below.
@@ -810,6 +821,7 @@ export class TaskRunner {
           prompt,
         ];
         parser = new UniversalStreamParser();
+        if (isAntigravity) this.runnerTasks.add(taskId);
       }
     }
 
@@ -818,7 +830,9 @@ export class TaskRunner {
     this.outputs.set(taskId, out);
 
     try {
-      const env = withExeDirOnPath(await executionEnvironment(), exe);
+      // The Codex runner runs on this process's own runtime (Electron as Node in the desktop app)
+      const env = withExeDirOnPath(await executionEnvironment(), codex?.codex ?? exe);
+      if (codex) env.ELECTRON_RUN_AS_NODE = "1";
       if (isAntigravity) {
         const ag = await discoverAntigravityEnv();
         if (!ag) {
@@ -883,7 +897,7 @@ export class TaskRunner {
       if (exitCode !== 0 && binary.includes("codex") && sessionId && payload.fork !== true && errScan().includes("already has an active writer")) {
         this.notice(taskId, "\n⚡ [自动重试] 该会话当前正被 ChatGPT 客户端占用锁定，已自动无缝切换为 Fork 分支模式重新执行（完整继承上下文记忆）...\n\n");
         parser = new CodexStreamParser();
-        exitCode = await run({ args: codexArgs({ workDir, sessionId, fork: true, effort, model, prompt }), parser });
+        exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: true, effort, model, prompt }), parser });
       }
 
       // Retry 2: the session to resume isn't on this device (common when dispatching across devices): start fresh.
@@ -896,7 +910,7 @@ export class TaskRunner {
           exitCode = await run({ args: claudeArgs({ sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
         } else if (binary.includes("codex")) {
           parser = new CodexStreamParser();
-          exitCode = await run({ args: codexArgs({ workDir, effort, model, prompt }), parser });
+          exitCode = await run({ args: codexArgs({ ...codex!, workDir, effort, model, prompt }), parser });
         } else if (binary.includes("workbuddy") || binary.includes("codebuddy")) {
           const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
           if (!isNativeCodebuddy) {
@@ -1002,6 +1016,8 @@ export class TaskRunner {
       this.outputs.delete(taskId);
       this.eventLogs.delete(taskId);
       this.claudeTasks.delete(taskId);
+      this.answerers.delete(taskId);
+      this.runnerTasks.delete(taskId);
       this.steerInputs.get(taskId)?.end();
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);

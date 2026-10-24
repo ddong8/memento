@@ -8,8 +8,10 @@
  *   {kind: usage, cost_usd?, input_tokens?, output_tokens?, duration_ms?, turns?}
  *   {kind: error, message}
  *
- * Claude Code: `claude -p --output-format stream-json --verbose`.
- * Codex: `codex exec --json`.
+ *   {kind: question, id, tool, header?, question, options, is_multi_select, status: waiting | answered, answer?}
+ *
+ * Claude Code: `claude -p --output-format stream-json --verbose --permission-prompt-tool stdio`.
+ * Codex: `codex exec --json`, or assets/codex_app.mjs, which prints the same lines.
  */
 export type AgentEvent = Record<string, unknown> & { kind: string };
 
@@ -67,16 +69,59 @@ export abstract class AgentStreamParser {
   }
 }
 
+/** An AskUserQuestion call Claude Code is holding open until the user answers (over its stdio control channel). */
+interface PendingAsk {
+  requestId: string;
+  input: Json;
+  questions: Json[];
+  answers: Record<string, string>;
+}
+
+const allowTool = (requestId: string, updatedInput: Json): Json => ({
+  type: "control_response",
+  response: { subtype: "success", request_id: requestId, response: { behavior: "allow", updatedInput } },
+});
+
 export class ClaudeStreamParser extends AgentStreamParser {
   private result: string | undefined;
   private readonly texts: string[] = [];
-  private readonly activeQuestionIds = new Set<string>();
+  private readonly asks: PendingAsk[] = [];
+  private replies: Json[] = [];
   /** Set by the result event: user messages still waiting to be read. Zero means the run is done and stdin can be closed. */
   queuedTurns: number | undefined;
   finished = false;
 
   get finalText(): string | undefined {
     return this.result ?? (this.texts.length ? this.texts.join("\n\n") : undefined);
+  }
+
+  /** Control responses for the CLI's stdin, in order; each is handed out once. */
+  takeReplies(): Json[] {
+    const r = this.replies;
+    this.replies = [];
+    return r;
+  }
+
+  /**
+   * The user's answer to one of the questions Claude asked (the oldest open one when no id is given).
+   * Returns the events to show, or null when no question is waiting. Once every question of a call has
+   * its answer, the reply to the CLI is queued for takeReplies().
+   */
+  answer(questionId: string | undefined, text: string): AgentEvent[] | null {
+    for (const ask of this.asks) {
+      // Claude reads the answers keyed by question text
+      const key = (i: number) => str(ask.questions[i]!.question) ?? String(i);
+      const index = ask.questions.findIndex((_, i) => (!questionId || `${ask.requestId}:${i}` === questionId) && ask.answers[key(i)] === undefined);
+      if (index < 0) continue;
+      ask.answers[key(index)] = text;
+      const events: AgentEvent[] = [{ kind: "question", id: `${ask.requestId}:${index}`, status: "answered", answer: clip(text, 200) }];
+      if (Object.keys(ask.answers).length >= ask.questions.length) {
+        this.asks.splice(this.asks.indexOf(ask), 1);
+        this.replies.push(allowTool(ask.requestId, { ...ask.input, answers: ask.answers }));
+      }
+      return events;
+    }
+    return null;
   }
 
   feed(line: string): AgentEvent[] | null {
@@ -115,20 +160,6 @@ export class ClaudeStreamParser extends AgentStreamParser {
                 detail: claudeToolDetail(name, input),
                 status: "running",
               });
-              if (name === "AskFollowupQuestion" || name === "ask_question") {
-                if (blockId) this.activeQuestionIds.add(blockId);
-                const qText = str(input.question) || str(input.prompt) || "请选择或确认下一步操作";
-                const qOptions = Array.isArray(input.options) ? input.options : undefined;
-                events.push({
-                  kind: "question",
-                  id: blockId,
-                  tool: name,
-                  question: qText,
-                  options: qOptions,
-                  is_multi_select: Boolean(input.is_multi_select),
-                  status: "waiting",
-                });
-              }
             }
           }
         }
@@ -154,16 +185,44 @@ export class ClaudeStreamParser extends AgentStreamParser {
               status: block.is_error === true ? "failed" : "done",
               output: clip(resText, 400),
             });
-            if (toolUseId && this.activeQuestionIds.has(toolUseId)) {
-              this.activeQuestionIds.delete(toolUseId);
-              events.push({
-                kind: "question",
-                id: toolUseId,
-                status: "answered",
-                answer: clip(resText, 200),
-              });
-            }
           }
+        }
+        break;
+      }
+      case "control_request": {
+        // Tools that need the user: AskUserQuestion (answers go back in updatedInput.answers), and any
+        // other tool the permission mode leaves to a prompt, which memento's flags would have allowed.
+        const req = isObject(d.request) ? d.request : {};
+        const requestId = str(d.request_id);
+        if (req.subtype !== "can_use_tool" || !requestId) break;
+        const input = isObject(req.input) ? req.input : {};
+        const questions = req.tool_name === "AskUserQuestion" && Array.isArray(input.questions) ? input.questions.filter(isObject) : [];
+        if (!questions.length) {
+          this.replies.push(allowTool(requestId, input));
+          break;
+        }
+        this.asks.push({ requestId, input, questions, answers: {} });
+        questions.forEach((q, i) => {
+          const options = Array.isArray(q.options) ? q.options.filter(isObject) : [];
+          events.push({
+            kind: "question",
+            id: `${requestId}:${i}`,
+            tool: "AskUserQuestion",
+            ...(q.header != null ? { header: String(q.header) } : {}),
+            question: str(q.question) ?? "请选择或确认下一步操作",
+            options: options.map((o) => ({ label: String(o.label ?? ""), ...(o.description != null ? { description: String(o.description) } : {}) })),
+            is_multi_select: q.multiSelect === true,
+            status: "waiting",
+          });
+        });
+        break;
+      }
+      case "control_cancel_request": {
+        const requestId = str(d.request_id);
+        const at = this.asks.findIndex((a) => a.requestId === requestId);
+        if (at >= 0) {
+          const [ask] = this.asks.splice(at, 1);
+          ask!.questions.forEach((_, i) => events.push({ kind: "question", id: `${requestId}:${i}`, status: "answered", answer: "（已取消）" }));
         }
         break;
       }
@@ -268,6 +327,7 @@ export class CodexStreamParser extends AgentStreamParser {
   feed(line: string): AgentEvent[] | null {
     const d = decode(line);
     if (!d) return null;
+    if (d.type === "memento_event" && isObject(d.event)) return [d.event as AgentEvent];
     const events: AgentEvent[] = [];
     const item = isObject(d.item) ? d.item : undefined;
     switch (d.type) {

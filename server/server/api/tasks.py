@@ -223,6 +223,8 @@ async def get_task(
 
 class TaskInputRequest(BaseModel):
     input: str
+    # Set when this answers a question the agent asked (the question event's id); else the input steers the task
+    question_id: str | None = None
 
 
 @router.post("/{task_id}/cancel")
@@ -279,7 +281,7 @@ async def send_task_input(
     if task.status not in ("queued", "running"):
         return {"ok": False, "reason": f"task status is {task.status}, not running"}
 
-    sent = await ws_manager.send_input(task.device_id, str(task.id), body.input)
+    sent = await ws_manager.send_input(task.device_id, str(task.id), body.input, body.question_id)
     return {"ok": sent}
 
 

@@ -92,7 +92,10 @@ class DeviceAcrossReplicas(TwoReplicas):
         self.assertTrue(await self.wb.send_cancel("dev-hash", "t1"))
         self.assertEqual(ws.send_json.await_args.args[0], {"type": "task_cancel", "task_id": "t1"})
         self.assertTrue(await self.wb.send_input("dev-hash", "t1", "y"))
-        self.assertEqual(ws.send_json.await_args.args[0]["type"], "task_input")
+        self.assertEqual(ws.send_json.await_args.args[0], {"type": "task_input", "task_id": "t1", "input": "y"})
+        # An answer to the agent's question carries the question's id across replicas
+        self.assertTrue(await self.wb.send_input("dev-hash", "t1", "蓝", "r1:0"))
+        self.assertEqual(ws.send_json.await_args.args[0], {"type": "task_input", "task_id": "t1", "input": "蓝", "question_id": "r1:0"})
 
         await self.wb.unsubscribe_task("t1")
         self.assertFalse(await self.wa.is_watched("t1"))

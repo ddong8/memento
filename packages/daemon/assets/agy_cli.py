@@ -155,6 +155,27 @@ def _is_antigravity_ls_alive():
         return False
 
 
+def _ls_rpc(method, body, timeout=10):
+    """Call the language server's Connect RPC with JSON, as the Antigravity app does; None on failure."""
+    addr = os.environ.get("ANTIGRAVITY_LS_ADDRESS")
+    if not addr:
+        return None
+    req = urllib.request.Request(
+        f"http://{addr}/exa.language_server_pb.LanguageServerService/{method}",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-codeium-csrf-token": os.environ.get("ANTIGRAVITY_CSRF_TOKEN", "")},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read() or b"{}")
+    except Exception:
+        return None
+
+
+_YES = re.compile(r"^\s*(允许|是|好|确认|同意|yes|y|ok|allow|accept|approve)", re.IGNORECASE)
+
+
 def ls_running_commands() -> list:
     """Commands Antigravity is running right now: its language server's child
     processes (a run_command shows up as `zsh -c <command>`). Empty where this
@@ -373,12 +394,128 @@ def main():
         "tool_start_time": None,
     }
 
+    # Steps Antigravity holds for the user (ask_question, command and file approvals). Answers go back
+    # through HandleCascadeUserInteraction, as the app sends them: an agentapi send-message only queues
+    # behind the open question and arrives as a stray message once it's resolved some other way.
+    interactions = {}  # step index -> {"kind", "trajectory_id", "step", "items", "answers"}
+    open_questions = []  # (question id, step index, item index), in the order shown
+    lock = threading.Lock()
+
+    def _emit(event):
+        sys.stdout.write("\n" + json.dumps({"type": "memento_event", "event": event}, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+
+    def poll_interactions():
+        """Show each step Antigravity is waiting on as a question (once). False when the RPC isn't reachable."""
+        traj = _ls_rpc("GetCascadeTrajectory", {"cascadeId": conv_id})
+        if traj is None:
+            return False
+        t = traj.get("trajectory") or {}
+        for idx, step in enumerate(t.get("steps") or []):
+            if step.get("status") != "CORTEX_STEP_STATUS_WAITING" or idx in interactions:
+                continue
+            req = step.get("requestedInteraction") or {}
+            if "askQuestion" in req or step.get("askQuestion"):
+                kind = "ask_question"
+                qs = (step.get("askQuestion") or req.get("askQuestion") or {}).get("questions") or []
+                items = [{
+                    "question": q.get("question") or "请选择或确认下一步操作",
+                    "options": [o.get("text", "") for o in q.get("options") or []],
+                    "multi": bool(q.get("isMultiSelect")),
+                } for q in qs]
+            elif "runCommand" in req:
+                kind = "run_command"
+                rc = step.get("runCommand") or {}
+                cmd = rc.get("proposedCommandLine") or rc.get("commandLine") or ""
+                items = [{"question": f"Antigravity 请求执行命令：{cmd}", "options": ["允许", "拒绝"], "multi": False, "command": cmd}]
+            elif "filePermission" in req:
+                kind = "file_permission"
+                uri = (req.get("filePermission") or {}).get("absolutePathUri", "")
+                items = [{"question": f"Antigravity 请求访问：{uri}", "options": ["允许", "拒绝"], "multi": False, "uri": uri}]
+            else:
+                kind = next(iter(req.keys()), "interaction")
+                items = [{"question": f"Antigravity 正在等待你在应用里处理（{kind}），memento 无法代为回复", "options": [], "multi": False}]
+            if not items:
+                continue
+            with lock:
+                interactions[idx] = {"kind": kind, "trajectory_id": t.get("trajectoryId"), "step": step, "items": items, "answers": {}}
+                for i in range(len(items)):
+                    open_questions.append((f"agy_{conv_id[:8]}_{idx}_{i}", idx, i))
+            for i, it in enumerate(items):
+                _emit({
+                    "kind": "question",
+                    "id": f"agy_{conv_id[:8]}_{idx}_{i}",
+                    "tool": kind,
+                    "question": it["question"],
+                    "options": it["options"],
+                    "is_multi_select": it["multi"],
+                    "status": "waiting",
+                })
+            state["waiting_user_input"] = True
+        return True
+
+    def submit(idx):
+        entry = interactions[idx]
+        kind = entry["kind"]
+        if kind == "ask_question":
+            qs = ((entry["step"].get("askQuestion") or (entry["step"].get("requestedInteraction") or {}).get("askQuestion") or {}).get("questions")) or []
+            responses = []
+            for i, q in enumerate(qs):
+                ans = str(entry["answers"].get(i, ""))
+                labels = [x.strip() for x in ans.split(",")] if q.get("isMultiSelect") else [ans.strip()]
+                ids = [o.get("id") for o in q.get("options") or [] if o.get("text", "").strip() in labels]
+                r = dict(q)
+                if ids:
+                    r["selectedOptionIds"] = ids
+                else:
+                    r["writeInResponse"] = ans
+                responses.append(r)
+            interaction = {"askQuestion": {"responses": responses}}
+        elif kind == "run_command":
+            cmd = entry["items"][0].get("command", "")
+            interaction = {"runCommand": {"confirm": bool(_YES.match(entry["answers"].get(0, ""))), "proposedCommandLine": cmd, "submittedCommandLine": cmd}}
+        elif kind == "file_permission":
+            interaction = {"filePermission": {
+                "allow": bool(_YES.match(entry["answers"].get(0, ""))),
+                "scope": "PERMISSION_SCOPE_ONCE",
+                "absolutePathUri": entry["items"][0].get("uri", ""),
+            }}
+        else:
+            return True
+        body = {"cascadeId": conv_id, "interaction": {"trajectoryId": entry["trajectory_id"], "stepIndex": idx, **interaction}}
+        return _ls_rpc("HandleCascadeUserInteraction", body) is not None
+
     def _listen_stdin(cid, agentapi_bin):
         try:
             for line in sys.stdin:
-                ans = line.strip()
-                if not ans:
+                raw = line.strip()
+                if not raw:
                     continue
+                qid, ans = None, raw
+                if raw.startswith("{"):
+                    try:
+                        m = json.loads(raw)
+                        if m.get("type") == "memento_answer":
+                            qid, ans = m.get("question_id") or None, str(m.get("answer") or "")
+                    except Exception:
+                        pass
+                with lock:
+                    hit = next((q for q in open_questions if qid is None or q[0] == qid), None)
+                    if hit:
+                        open_questions.remove(hit)
+                if hit:
+                    _, idx, i = hit
+                    entry = interactions[idx]
+                    entry["answers"][i] = ans
+                    if len(entry["answers"]) >= len(entry["items"]):
+                        if not submit(idx):
+                            sys.stderr.write("\n⚠️ [回答没能提交给 Antigravity，请在 Antigravity 应用里回答]\n")
+                            sys.stderr.flush()
+                    with lock:
+                        if not open_questions:
+                            state["waiting_user_input"] = False
+                    continue
+                # Not an answer: a follow-up for the running conversation
                 state["waiting_user_input"] = False
                 cmd_send = [str(agentapi_bin), "send-message", cid, ans]
                 try:
@@ -435,6 +572,10 @@ def main():
             if not line:
                 time.sleep(0.2)
                 idle_count += 1
+
+                # A question not shown yet, or quiet for 10 s (possibly an approval Antigravity waits on)
+                if (state.get("waiting_user_input") and not open_questions and idle_count % 5 == 0) or (idle_count >= 50 and idle_count % 50 == 0):
+                    poll_interactions()
 
                 # 若存在后台任务，检查其 log 产出以判断是否仍在活跃运行或定时器是否已触发/提前终止
                 if active_background_tasks and tasks_dir.exists():
@@ -646,10 +787,12 @@ def main():
                 if tool_calls:
                     t_names = [tc.get("name", "tool") for tc in tool_calls]
                     has_ask = any(tc.get("name") == "ask_question" for tc in tool_calls)
+                    rpc_ok = False
                     if has_ask:
                         state["waiting_user_input"] = True
                         state["in_flight_tools"] = []
                         state["tool_start_time"] = None
+                        rpc_ok = poll_interactions()
                     else:
                         state["in_flight_tools"] = t_names
                         state["tool_start_time"] = time.time()
@@ -672,8 +815,8 @@ def main():
                                     sys.stderr.flush()
                                     idle_count = 0
 
-                        if tc_name == "ask_question":
-                            # ask_question_interactive marker
+                        if tc_name == "ask_question" and not rpc_ok:
+                            # No RPC (older Antigravity): show it from the transcript; the answer goes as a message
                             q_args = tc_args.get("questions") or []
                             if q_args and isinstance(q_args, list):
                                 q_item = q_args[0]

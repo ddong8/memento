@@ -157,7 +157,9 @@ export class WsTaskClient {
           if (data.task_id != null) this.runner.cancel(String(data.task_id));
           break;
         case "task_input":
-          if (data.task_id != null && data.input != null) this.runner.input(String(data.task_id), String(data.input));
+          if (data.task_id != null && data.input != null) {
+            this.runner.input(String(data.task_id), String(data.input), data.question_id != null ? String(data.question_id) : undefined);
+          }
           break;
         case "file_stat_req":
           void this.handleFileStat(String(data.req_id ?? ""), String(data.path ?? ""));

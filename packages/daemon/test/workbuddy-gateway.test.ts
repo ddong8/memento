@@ -287,6 +287,67 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(cancelled).toEqual({ sessionId: "sess-9" });
   }, 30_000);
 
+  it.skipIf(isWin)("shows WorkBuddy's AskUserQuestion and returns the answers through resolveInterruption", async () => {
+    const home = await tempHome();
+    let resolved: Record<string, unknown> | null = null;
+    let finish: (() => void) | null = null;
+    const server = createServer(async (req, res) => {
+      const url = req.url ?? "";
+      if (url === "/api/v1/acp/connect") return res.end(JSON.stringify({ connectionId: "c1" }));
+      const msg = JSON.parse(await body(req));
+      res.setHeader("Content-Type", "text/event-stream");
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      if (msg.method === "session/new") return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } })}\n\n`);
+      if (msg.method === "_codebuddy.ai/resolveInterruption") {
+        resolved = msg.params;
+        res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { resolved: true, queued: false } })}\n\n`);
+        finish?.();
+        return;
+      }
+      if (msg.method === "session/prompt") {
+        // As WorkBuddy does: the question is a permission request inside the prompt's stream
+        send({
+          jsonrpc: "2.0",
+          id: 77,
+          method: "session/request_permission",
+          params: {
+            sessionId: "s1",
+            options: [{ kind: "allow", name: "Yes", optionId: "allow_once" }],
+            toolCall: {
+              toolCallId: "tc1",
+              _meta: { "codebuddy.ai/toolName": "AskUserQuestion" },
+              rawInput: { questions: [{ question: "选哪个颜色？", header: "颜色", options: [{ label: "红" }, { label: "蓝" }], multiSelect: false }] },
+            },
+          },
+        });
+        finish = () => {
+          send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "你选了蓝" } } } });
+          res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } })}\n\n`);
+        };
+        return;
+      }
+      res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} })}\n\n`);
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(join(home, ".memento", "workbuddy-gateway.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password: "pw", pid: process.pid }));
+
+    const child = spawn(process.execPath, [RUNNER, "-p", "ask me"], { cwd: home, env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    const closed = new Promise<number | null>((r) => child.on("close", r));
+    while (!stdout.includes('"kind":"question"')) await new Promise((r) => setTimeout(r, 50));
+    const question = JSON.parse(stdout.split("\n").find((l) => l.includes('"kind":"question"'))!).event;
+    expect(question).toMatchObject({ id: "wb_tc1:0", tool: "AskUserQuestion", header: "颜色", question: "选哪个颜色？", options: [{ label: "红" }, { label: "蓝" }], status: "waiting" });
+
+    child.stdin.write(`${JSON.stringify({ type: "memento_answer", question_id: question.id, answer: "蓝" })}\n`);
+    expect(await closed).toBe(0);
+    expect(resolved).toEqual({ sessionId: "s1", toolCallId: "tc1", decision: "allow", answers: { "选哪个颜色？": "蓝" } });
+    expect(stdout).toContain("你选了蓝");
+  }, 30_000);
+
   it("cancels session directly via cancelWorkbuddySession", async () => {
     const home = await tempHome();
     const password = "pw";

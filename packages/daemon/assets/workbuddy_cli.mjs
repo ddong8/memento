@@ -380,7 +380,7 @@ async function main() {
 
   await rpcCall("initialize", {
     protocolVersion: 1,
-    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.75" },
+    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.76" },
     clientCapabilities: {
       fs: { readTextFile: true, writeTextFile: true },
       terminal: true,

@@ -956,7 +956,7 @@ export class TaskRunner {
 
       let fullOut = out.stdout.trim();
       const fullErr = out.stderr.trim();
-      // A structured run's answer is its final message, not everything said along the way.
+      // A structured run's answer includes all intermediate thoughts and final conclusions from the parser
       const answer = parser?.finalText?.trim();
       if (answer) {
         fullOut = answer;

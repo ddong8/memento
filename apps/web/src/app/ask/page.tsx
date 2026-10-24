@@ -2846,9 +2846,49 @@ function AskPageContent() {
           if (idx !== undefined && idx >= 0) {
             // The final result carries the whole event log; keep the live one if it doesn't.
             const events = evt.result?.events ?? calls[idx].result?.events;
-            calls[idx] = { ...calls[idx], result: evt.result && { ...evt.result, ...(events ? { events } : {}) } };
+            const liveStdout = calls[idx].result?.stdout;
+            let finalStdout = evt.result?.stdout;
+            if (liveStdout && liveStdout.trim()) {
+              if (!finalStdout || !finalStdout.trim()) {
+                finalStdout = liveStdout;
+              } else if (liveStdout.length > finalStdout.length && !finalStdout.includes(liveStdout.trim())) {
+                if (!liveStdout.includes(finalStdout.trim())) {
+                  finalStdout = `${liveStdout}\n\n${finalStdout}`;
+                } else {
+                  finalStdout = liveStdout;
+                }
+              }
+            }
+            calls[idx] = {
+              ...calls[idx],
+              result: evt.result && {
+                ...evt.result,
+                ...(finalStdout !== undefined ? { stdout: finalStdout } : {}),
+                ...(events ? { events } : {}),
+              },
+            };
           } else if (calls.length > 0) {
-            calls[calls.length - 1] = { ...calls[calls.length - 1], result: evt.result };
+            const lastIdx = calls.length - 1;
+            const liveStdout = calls[lastIdx].result?.stdout;
+            let finalStdout = evt.result?.stdout;
+            if (liveStdout && liveStdout.trim()) {
+              if (!finalStdout || !finalStdout.trim()) {
+                finalStdout = liveStdout;
+              } else if (liveStdout.length > finalStdout.length && !finalStdout.includes(liveStdout.trim())) {
+                if (!liveStdout.includes(finalStdout.trim())) {
+                  finalStdout = `${liveStdout}\n\n${finalStdout}`;
+                } else {
+                  finalStdout = liveStdout;
+                }
+              }
+            }
+            calls[lastIdx] = {
+              ...calls[lastIdx],
+              result: evt.result && {
+                ...evt.result,
+                ...(finalStdout !== undefined ? { stdout: finalStdout } : {}),
+              },
+            };
           }
           return { ...x, toolCalls: calls };
         });

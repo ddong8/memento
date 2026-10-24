@@ -62,6 +62,21 @@ describe("Claude stream-json", () => {
   it("non-JSON lines pass through", () => {
     expect(new ClaudeStreamParser().feed("plain text")).toBeNull();
   });
+
+  it("preserves intermediate texts when result event has summary or task completion", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed('{"type":"assistant","message":{"content":[{"type":"text","text":"步骤1：正在分析代码架构..."}]}}');
+    parser.feed('{"type":"assistant","message":{"content":[{"type":"text","text":"步骤2：发现关键瓶颈并完成修复。"}]}}');
+    parser.feed('{"type":"result","subtype":"success","is_error":false,"result":"任务完成"}');
+    expect(parser.finalText).toBe("步骤1：正在分析代码架构...\n\n步骤2：发现关键瓶颈并完成修复。\n\n任务完成");
+  });
+
+  it("does not duplicate result when already included in texts", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed('{"type":"assistant","message":{"content":[{"type":"text","text":"所有用例已通过，全部完成。"}]}}');
+    parser.feed('{"type":"result","subtype":"success","is_error":false,"result":"所有用例已通过，全部完成。"}');
+    expect(parser.finalText).toBe("所有用例已通过，全部完成。");
+  });
 });
 
 describe("Codex exec --json", () => {

@@ -92,7 +92,12 @@ export class ClaudeStreamParser extends AgentStreamParser {
   finished = false;
 
   get finalText(): string | undefined {
-    return this.result ?? (this.texts.length ? this.texts.join("\n\n") : undefined);
+    const combinedTexts = this.texts.map((t) => t.trim()).filter(Boolean).join("\n\n").trim();
+    const res = this.result?.trim();
+    if (!combinedTexts) return res || undefined;
+    if (!res) return combinedTexts;
+    if (combinedTexts.includes(res)) return combinedTexts;
+    return `${combinedTexts}\n\n${res}`;
   }
 
   /** Control responses for the CLI's stdin, in order; each is handed out once. */

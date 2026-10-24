@@ -1,7 +1,7 @@
 {
   "version": "1.0.80",
   "title": "Memento v1.0.80",
-  "release_notes": "1. WorkBuddy 只需登录一次：登录会保存在这台设备上，之后 Memento 重启、电脑重启都不用再登录，也不会把 WorkBuddy 桌面端挤下线",
+  "release_notes": "1. WorkBuddy 任务需要读写文件或执行命令时不再一直卡住，能正常做完并返回结果\n2. WorkBuddy 任务会被告知你选的项目目录，按这个目录读写文件和执行命令",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.80-win-x64.zip",

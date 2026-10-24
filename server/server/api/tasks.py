@@ -409,7 +409,7 @@ async def device_websocket_endpoint(
                 # Classified and pushed off the receive loop: a slow push must
                 # never stall chunk streaming.
                 notify_service.spawn(task_alerts.handle_agent_tool_use(machine.id, machine.name, data))
-            elif msg_type in ("file_stat_resp", "file_chunk_resp"):
+            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer"):
                 ws_manager.handle_file_response(data)
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")

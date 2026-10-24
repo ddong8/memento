@@ -12,6 +12,7 @@ files:
 asarUnpack:
   - dist/daemon.mjs
   - dist/mcp.mjs
+  - dist/node_modules/**
   - assets/**
 publish:
   provider: generic

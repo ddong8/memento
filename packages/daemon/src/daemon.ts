@@ -5,6 +5,7 @@ import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { IngestClient } from "./ingest.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
+import { ServerRoute } from "./server-route.js";
 import { applySkillInjection } from "./skill-inject.js";
 import { FileWatcher } from "./watcher.js";
 import { TaskWorktree } from "./worktree.js";
@@ -89,6 +90,9 @@ export class Daemon extends EventEmitter {
 
     const ingest = new IngestClient(config, this.log);
     this.ingest = ingest;
+    // On the server's LAN (as the heartbeat tells), uploads and the task socket skip the public entry
+    const route = new ServerRoute(config.serverUrl, config.deviceId, this.log, () => this.ws?.reroute());
+    ingest.useRoute(route);
 
     this.log(`Discovering installed AI tools on ${config.deviceName}...`);
     this.tools = await discoverAll();
@@ -112,7 +116,14 @@ export class Daemon extends EventEmitter {
       this.online = online;
       this.notify();
     });
+    this.ws.useRoute(route);
     void this.ws.start();
+    // Back onto the LAN when it reappears, and move the socket over once no task is running
+    this.timers.push(
+      setInterval(() => {
+        void route.maybeProbe().then(() => this.ws?.reroute());
+      }, 60_000),
+    );
 
     // Control commands over HTTP, the secondary channel.
     this.timers.push(setInterval(() => void this.pollCommands(), COMMAND_POLL_MS));

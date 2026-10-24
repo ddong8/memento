@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     wechat_token: str = ""
     wechat_token_previous: str = ""
 
+    # Devices on the same LAN as the server talk to it directly instead of through the public entry
+    # (comma-separated base URLs, e.g. http://<lan address>:<port>; requests carry the public host).
+    # Kept in the cluster's config, never in this repository.
+    lan_urls: str = ""
+    # STUN servers for direct (WebRTC) file transfer between the browser and a device; ones that answer
+    # from mainland China. No TURN: relaying would go through the same small public link.
+    stun_urls: str = "stun:stun.miwifi.com:3478,stun:stun.chat.bilibili.com:3478,stun:stun.cloudflare.com:3478"
+
     # Apple Push Notification Service (APNs) for iOS offline background & lock-screen pushes
     apns_auth_key: str = ""  # Raw PEM content of AuthKey_xxx.p8
     apns_key_id: str = "JMF779PKS9"

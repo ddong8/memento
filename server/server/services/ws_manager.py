@@ -58,6 +58,7 @@ class DeviceConnectionManager:
         cl.op("ws.send_input", self._op_send_input)
         cl.op("ws.file_stat", self._op_file_stat)
         cl.op("ws.file_chunk", self._op_file_chunk)
+        cl.op("ws.p2p_offer", self._op_p2p_offer)
         cl.on_start(self._start)
         cl.on_stop(self._stop)
 
@@ -421,6 +422,32 @@ class DeviceConnectionManager:
         finally:
             self._pending_file_requests.pop(req_id, None)
 
+    async def request_p2p_answer(self, device_id: str, sdp: str, ice_servers: list[str], timeout: float = 12.0) -> dict[str, Any]:
+        """Hand the device a browser's WebRTC offer for a direct file channel; {"sdp": answer} or {"error"}."""
+        if device_id in self._connections:
+            return await self._p2p_offer_local(device_id, sdp, ice_servers, timeout)
+        res = await self._remote_call(await self._owner(device_id), "ws.p2p_offer",
+                                      {"device_id": device_id, "sdp": sdp, "ice_servers": ice_servers, "timeout": timeout},
+                                      timeout + 3, None)
+        return res if isinstance(res, dict) else {"error": f"device {device_id} not connected"}
+
+    async def _p2p_offer_local(self, device_id: str, sdp: str, ice_servers: list[str], timeout: float) -> dict[str, Any]:
+        ws = self._connections.get(device_id)
+        if not ws:
+            return {"error": f"device {device_id} not connected"}
+        req_id = uuid.uuid4().hex
+        fut = asyncio.get_running_loop().create_future()
+        self._pending_file_requests[req_id] = fut
+        try:
+            await ws.send_json({"type": "p2p_offer", "req_id": req_id, "sdp": sdp, "ice_servers": ice_servers})
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            return {"error": "device did not answer the offer in time"}
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            self._pending_file_requests.pop(req_id, None)
+
     def handle_file_response(self, data: dict[str, Any]) -> None:
         """Dispatch incoming file_stat_resp or file_chunk_resp to awaiting futures."""
         req_id = data.get("req_id")
@@ -444,6 +471,9 @@ class DeviceConnectionManager:
 
     async def _op_file_stat(self, p: dict) -> dict:
         return await self._file_stat_local(p["device_id"], p["path"], float(p.get("timeout") or 8.0))
+
+    async def _op_p2p_offer(self, p: dict) -> dict:
+        return await self._p2p_offer_local(p["device_id"], p["sdp"], list(p.get("ice_servers") or []), float(p.get("timeout") or 12.0))
 
     async def _op_file_chunk(self, p: dict) -> dict | None:
         return await self._file_chunk_local(p["device_id"], p["path"], int(p["offset"]), int(p["length"]),

@@ -1,6 +1,7 @@
 import type { CollectorConfig } from "./config.js";
 import { toolReport, type DiscoveredTool } from "./discovery.js";
 import { sanitizeDocumentContent } from "./sanitizer.js";
+import { hostFetch, type LanInfo, type ServerRoute } from "./server-route.js";
 
 export const DAEMON_VERSION = "node-0.1.0";
 
@@ -21,6 +22,8 @@ type Log = (message: string) => void;
 
 /** HTTP calls a device makes as itself (collector token + device id), not as the user. */
 export class IngestClient {
+  private route: ServerRoute | undefined;
+
   constructor(
     private config: CollectorConfig,
     private readonly log: Log = () => {},
@@ -29,6 +32,11 @@ export class IngestClient {
 
   updateConfig(config: CollectorConfig): void {
     this.config = config;
+  }
+
+  /** Requests go to the server's LAN address while the route has one, else to the public URL. */
+  useRoute(route: ServerRoute): void {
+    this.route = route;
   }
 
   get headers(): Record<string, string> {
@@ -42,12 +50,19 @@ export class IngestClient {
   }
 
   private async request(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<Response> {
-    return this.fetchImpl(`${this.config.serverUrl}${path}`, {
-      method: init.method ?? "GET",
-      headers: { ...this.headers, ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-      signal: AbortSignal.timeout(init.timeoutMs ?? 20_000),
-    });
+    const method = init.method ?? "GET";
+    const headers = { ...this.headers, ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) };
+    const body = init.body !== undefined ? JSON.stringify(init.body) : undefined;
+    const timeoutMs = init.timeoutMs ?? 20_000;
+    const lan = this.route?.target();
+    if (lan?.host) {
+      try {
+        return await hostFetch(`${lan.base}${path}`, { method, headers, body, timeoutMs }, lan.host);
+      } catch (e) {
+        this.route?.drop(`内网请求失败（${e instanceof Error ? e.message : e}）`);
+      }
+    }
+    return this.fetchImpl(`${this.config.serverUrl}${path}`, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
   }
 
   private readonly offlineBuffer: IngestDocument[] = [];
@@ -59,7 +74,8 @@ export class IngestClient {
       const res = await this.request("/api/ingest/heartbeat", { method: "POST", body: {} });
       if (res.ok) {
         void this.flushOfflineBuffer();
-        const data = (await res.json()) as { remote_exec_key?: string };
+        const data = (await res.json()) as { remote_exec_key?: string; lan?: LanInfo };
+        await this.route?.update(data.lan);
         if (data.remote_exec_key) return data.remote_exec_key;
       }
     } catch (e) {

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -654,6 +655,122 @@ async def _background_prefetch_media(
         _prefetch_reserved.pop(cache_key, None)
 
 
+async def _stat_on_devices(
+    db: AsyncSession, _user: User, mids, device_id: str, target_machine, dev_token: str, clean_path: str,
+) -> tuple[dict, str]:
+    """Stat a file on the device it names, by its other aliases, or (for "auto" / unknown devices) on
+    whichever of the user's online devices has it. Returns the stat and the device token that answered."""
+    stat = await ws_manager.request_file_stat(dev_token, clean_path)
+    err_msg = str(stat.get("error") or "").lower()
+    if not stat.get("exists") and ("not found" in err_msg or "enoent" in err_msg):
+        return stat, dev_token
+    if not stat.get("exists") and device_id != dev_token:
+        stat = await ws_manager.request_file_stat(device_id, clean_path)
+    if not stat.get("exists") and target_machine and target_machine.name:
+        stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
+    if not stat.get("exists") and (device_id == "auto" or not target_machine):
+        query = select(Machine)
+        if _user.role not in ("admin", "owner") and mids is not None:
+            query = query.where(Machine.id.in_(mids))
+        candidates: list[str] = []
+        for m in (await db.execute(query)).scalars().all():
+            for alias in (m.collector_token_hash, m.name):
+                if alias and alias not in candidates:
+                    candidates.append(alias)
+        if _user.role in ("admin", "owner"):
+            candidates += [c for c in ws_manager.connected_ids() if c not in candidates]
+        for cand_token in candidates:
+            if ws_manager.has_device(cand_token) and cand_token != dev_token:
+                cand_stat = await ws_manager.request_file_stat(cand_token, clean_path, timeout=5.0)
+                if cand_stat.get("exists"):
+                    return cand_stat, cand_token
+    return stat, dev_token
+
+
+def _clean_device_path(path: str) -> str:
+    """The absolute path the client meant: unquoted (also when double-encoded), forward slashes, no file://."""
+    clean_path = path.strip()
+    for _ in range(3):
+        unquoted = urllib.parse.unquote(clean_path)
+        if unquoted == clean_path:
+            break
+        clean_path = unquoted
+    clean_path = clean_path.replace("\\", "/")
+    if clean_path.startswith("file://"):
+        clean_path = clean_path.replace("file://", "")
+        if clean_path.startswith("/") and len(clean_path) > 3 and clean_path[2] == ":":
+            clean_path = clean_path[1:]
+    if any(p == ".." for p in clean_path.split("/")):
+        raise HTTPException(status_code=400, detail="Path traversal forbidden")
+    return clean_path
+
+
+async def _authorized_machine(db: AsyncSession, device_id: str, _user: User):
+    from ..services.user_filter import find_machine_by_id_or_hash
+    target_machine = await find_machine_by_id_or_hash(db, device_id, _user)
+    mids = await user_machine_ids(db, _user)
+    if _user.role not in ("admin", "owner") and target_machine and mids is not None and target_machine.id not in mids:
+        raise HTTPException(status_code=403, detail="Device access denied")
+    return target_machine, mids
+
+
+def _ice_servers() -> list[str]:
+    from ..config import settings
+    return [u.strip() for u in settings.stun_urls.split(",") if u.strip()]
+
+
+@router.get("/{device_id}/files/locate")
+async def locate_device_file(
+    device_id: str,
+    path: str = Query(..., description="Absolute path on the device"),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Which of the user's devices holds a file, so the page can fetch it from that device directly over
+    WebRTC instead of through the server: {"device", "size", "ice_servers"}, or {"local": true} when the
+    server has it itself (on its disk or in its media cache)."""
+    target_machine, mids = await _authorized_machine(db, device_id, _user)
+    clean_path = _clean_device_path(path)
+    if (os.path.isfile(clean_path) and os.path.exists(clean_path)) or clean_path in _known_cache_map:
+        return {"local": True}
+    cached = await _get_cached_stat(clean_path)
+    if cached and cached[0] > 0 and (device_id == "auto" or not target_machine):
+        return {"device": cached[1], "size": cached[0], "ice_servers": _ice_servers()}
+    dev_token = target_machine.collector_token_hash if target_machine else device_id
+    stat, dev_token = await _stat_on_devices(db, _user, mids, device_id, target_machine, dev_token, clean_path)
+    if not stat.get("exists"):
+        raise HTTPException(status_code=404, detail=f"File not found on any online device: {stat.get('error') or 'offline'}")
+    size = int(stat.get("size") or stat.get("total_size") or 0)
+    if size > 0:
+        await _set_cached_stat(clean_path, size, dev_token)
+    return {"device": dev_token, "size": size, "ice_servers": _ice_servers()}
+
+
+class P2POffer(BaseModel):
+    sdp: str
+
+
+@router.post("/{device_id}/p2p/offer")
+async def p2p_offer(
+    device_id: str,
+    body: P2POffer,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Relays the page's WebRTC offer to its device and returns the device's answer: only this exchange
+    (a few KB) goes through the server; the file data then flows between the two directly."""
+    target_machine, _ = await _authorized_machine(db, device_id, _user)
+    if not target_machine and _user.role not in ("admin", "owner"):
+        raise HTTPException(status_code=404, detail="Unknown device")
+    token = target_machine.collector_token_hash if target_machine and target_machine.collector_token_hash else device_id
+    if not ws_manager.has_device(token):
+        raise HTTPException(status_code=409, detail="Device is offline")
+    res = await ws_manager.request_p2p_answer(token, body.sdp, _ice_servers())
+    if res.get("error") or not res.get("sdp"):
+        raise HTTPException(status_code=502, detail=str(res.get("error") or "no answer from device"))
+    return {"sdp": res["sdp"]}
+
+
 @router.api_route("/{device_id}/files/stream", methods=["GET", "HEAD"])
 @router.api_route("/{device_id}/files/stream/{filename}", methods=["GET", "HEAD"])
 async def stream_device_file(
@@ -784,49 +901,15 @@ async def stream_device_file(
             if neg_key in _negative_stat_cache and (time.time() - _negative_stat_cache[neg_key] < 60.0):
                 raise HTTPException(status_code=404, detail=f"File not found on device (cached 404): {raw_clean_path}")
 
-            stat = await ws_manager.request_file_stat(dev_token, clean_path)
+            stat, dev_token = await _stat_on_devices(db, _user, mids, device_id, target_machine, dev_token, clean_path)
             err_msg = str(stat.get("error") or "")
-            is_missing = "not found" in err_msg.lower() or "enoent" in err_msg.lower()
-
-            # If the device affirmatively returned ENOENT/not found, cache 404 and fail fast without alias retries
-            if not stat.get("exists") and is_missing:
+            if not stat.get("exists") and ("not found" in err_msg.lower() or "enoent" in err_msg.lower()):
+                # The device affirmatively returned ENOENT: cache the 404 so follow-up Ranges fail fast
                 _negative_stat_cache[neg_key] = time.time()
                 if len(_negative_stat_cache) > 2000:
                     now = time.time()
                     for k in [k for k, ts in list(_negative_stat_cache.items()) if now - ts > 60.0]:
                         _negative_stat_cache.pop(k, None)
-                raise HTTPException(status_code=404, detail=f"File not found on device ({clean_path}): {err_msg}")
-
-            if not stat.get("exists") and device_id != dev_token:
-                stat = await ws_manager.request_file_stat(device_id, clean_path)
-            if not stat.get("exists") and target_machine and target_machine.name:
-                stat = await ws_manager.request_file_stat(target_machine.name, clean_path)
-
-            # If not found or if device_id was "auto", discover which of the user's online devices hosts this file
-            if not stat.get("exists") and (device_id == "auto" or not target_machine):
-                query = select(Machine)
-                if _user.role not in ("admin", "owner") and mids is not None:
-                    query = query.where(Machine.id.in_(mids))
-                user_machines = (await db.execute(query)).scalars().all()
-
-                candidates: list[str] = []
-                for m in user_machines:
-                    if m.collector_token_hash and m.collector_token_hash not in candidates:
-                        candidates.append(m.collector_token_hash)
-                    if m.name and m.name not in candidates:
-                        candidates.append(m.name)
-                if _user.role in ("admin", "owner"):
-                    for conn_id in ws_manager.connected_ids():
-                        if conn_id not in candidates:
-                            candidates.append(conn_id)
-
-                for cand_token in candidates:
-                    if ws_manager.has_device(cand_token) and cand_token != dev_token:
-                        cand_stat = await ws_manager.request_file_stat(cand_token, clean_path, timeout=5.0)
-                        if cand_stat.get("exists"):
-                            stat = cand_stat
-                            dev_token = cand_token
-                            break
 
             if not stat.get("exists"):
                 err_msg = stat.get("error") or "offline"

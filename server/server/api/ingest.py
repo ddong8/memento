@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import ipaddress
 import json
 import re
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.tasks import REMOTE_EXEC_ENABLED
+from ..config import settings
 from ..db.models import User
 from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
@@ -149,47 +152,19 @@ async def heartbeat(
     x_device_id: str = Header("unknown"),
     x_device_name: str = Header("unknown"),
     x_device_platform: str = Header("unknown"),
-    x_direct_endpoints: str | None = Header(None),
 ) -> dict:
     """Collector heartbeat — also registers/updates the device."""
     machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-
-    # Auto-discover direct endpoints (IPv6 and LAN) without manual configuration
-    endpoints: list[str] = []
-    if x_direct_endpoints:
-        for ep in x_direct_endpoints.split(","):
-            ep = ep.strip()
-            if ep and ep not in endpoints:
-                endpoints.append(ep)
-
-    # Detect caller client IP
-    client_ip: str | None = None
-    if request:
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            client_ip = xff.split(",")[0].strip()
-        elif request.client:
-            client_ip = request.client.host
-
-    if client_ip:
-        # Check if caller has public IPv6 (excluding link-local and loopback)
-        if ":" in client_ip and not client_ip.startswith(("fe80", "fc", "fd", "::1")):
-            ipv6_ep = f"https://[{client_ip}]:8443"
-            if ipv6_ep not in endpoints:
-                endpoints.append(ipv6_ep)
-
-    if endpoints:
-        status_dict = dict(machine.profile_status or {})
-        status_dict["direct_endpoints"] = endpoints
-        machine.profile_status = status_dict
-        await db.commit()
 
     resp = {
         "status": "ok",
         "device_id": str(machine.id),
         "received_at": datetime.now(timezone.utc).isoformat(),
-        "direct_endpoints": endpoints,
     }
+    # On the server's LAN the device can skip the public entry; lan-hello lets it check it reached this server
+    lan_urls = [u.strip().rstrip("/") for u in settings.lan_urls.split(",") if u.strip()]
+    if lan_urls:
+        resp["lan"] = {"urls": lan_urls, "key": _lan_key(x_device_id)}
 
     # Remote execution: mint this device's key on first heartbeat after the
     # operator turns the feature on, and hand it back over this already
@@ -205,3 +180,30 @@ async def heartbeat(
         resp["remote_exec_key"] = machine.remote_exec_key
 
     return resp
+
+
+def _lan_key(device_id: str) -> str:
+    """Per-device key the heartbeat hands out over TLS; only this server can derive it."""
+    return hmac.new(settings.secret_key.encode(), f"lan:{device_id}".encode(), hashlib.sha256).hexdigest()
+
+
+def _came_from_lan(request: Request) -> bool:
+    """Every hop private: a request through the public entry carries the caller's public address in
+    X-Forwarded-For (the entry's nginx appends it, so the caller can't scrub it)."""
+    hops = [h.strip() for h in (request.headers.get("x-forwarded-for") or "").split(",") if h.strip()]
+    if not hops and request.client and request.client.host:
+        hops.append(request.client.host)  # straight to the pod, inside the cluster
+    try:
+        return bool(hops) and all(ipaddress.ip_address(h).is_private or ipaddress.ip_address(h).is_loopback for h in hops)
+    except ValueError:
+        return False
+
+
+@router.get("/lan-hello")
+async def lan_hello(device: str, challenge: str, request: Request) -> dict:
+    """Proves to a device on the LAN that it reached this server before it sends its token over plain
+    HTTP: HMAC of its challenge under the key its heartbeat got. Only answered for LAN callers, so a
+    host posing as the server on another network can't fetch proofs through the public entry."""
+    if not _came_from_lan(request) or not (8 <= len(challenge) <= 128):
+        raise HTTPException(status_code=404)
+    return {"proof": hmac.new(_lan_key(device).encode(), challenge.encode(), hashlib.sha256).hexdigest()}

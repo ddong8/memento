@@ -4,7 +4,9 @@ import WebSocket from "ws";
 
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
+import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
+import type { ServerRoute } from "./server-route.js";
 import { parseTaskDispatch, TaskRunner } from "./task-runner.js";
 
 type Log = (message: string) => void;
@@ -32,6 +34,12 @@ export class WsTaskClient {
   private wakeUp: (() => void) | undefined;
   private readonly pendingOutbox: Record<string, unknown>[] = [];
   readonly runner: TaskRunner;
+  /** Direct (WebRTC) file transfer to pages; the server only relays its offer and answer. */
+  private readonly p2p: P2PHost;
+
+  private route: ServerRoute | undefined;
+  /** Whether the open connection goes over the LAN address. */
+  private viaLan = false;
 
   constructor(
     private config: CollectorConfig,
@@ -39,10 +47,26 @@ export class WsTaskClient {
     private readonly onConnection: (online: boolean) => void = () => {},
   ) {
     this.runner = new TaskRunner((m) => this.sendJson(m), log);
+    this.p2p = new P2PHost(log);
   }
 
   updateConfig(config: CollectorConfig): void {
     this.config = config;
+  }
+
+  useRoute(route: ServerRoute): void {
+    this.route = route;
+  }
+
+  /**
+   * The route changed: move the connection over. Leaving the LAN, the old connection is likely dead
+   * already; moving onto it, wait until no task is running so nothing streams through a reconnect.
+   */
+  reroute(): void {
+    if (!this.ws || this.viaLan === Boolean(this.route?.onLan)) return;
+    if (this.route?.onLan && this.runner.runningTaskIds.length) return;
+    this.log(`Reconnecting ${this.route?.onLan ? "over the LAN" : "through the public URL"}`);
+    this.ws.close(1000, "route changed");
   }
 
   get connected(): boolean {
@@ -55,6 +79,7 @@ export class WsTaskClient {
     this.ws?.close();
     this.wakeUp?.();
     this.runner.dispose();
+    this.p2p.dispose();
   }
 
   /** Connects and stays connected until disposed. */
@@ -89,10 +114,13 @@ export class WsTaskClient {
 
   /** One connection's lifetime; resolves with the close code. */
   private connectOnce(onOpen: () => void): Promise<number> {
-    const url = taskSocketUrl(this.config.serverUrl, this.config.deviceId);
+    const target = this.route?.target() ?? { base: this.config.serverUrl };
+    const url = taskSocketUrl(target.base, this.config.deviceId);
+    this.viaLan = Boolean(target.host);
     this.log(`Connecting to WebSocket: ${url}`);
     const ws = new WebSocket(url, {
       headers: {
+        ...(target.host ? { host: target.host } : {}),
         "x-collector-token": this.config.token,
         "x-device-id": this.config.deviceId,
         ...(this.config.remoteExecKey ? { "x-remote-exec-key": this.config.remoteExecKey } : {}),
@@ -116,6 +144,7 @@ export class WsTaskClient {
         resolve(code);
       });
       ws.on("error", (e) => {
+        if (!opened && this.viaLan) this.route?.drop(`内网 WebSocket 连不上（${e.message}）`);
         if (!opened) reject(e);
         else this.log(`WebSocket error: ${e.message}`);
       });
@@ -161,6 +190,12 @@ export class WsTaskClient {
             this.runner.input(String(data.task_id), String(data.input), data.question_id != null ? String(data.question_id) : undefined);
           }
           break;
+        case "p2p_offer": {
+          const reqId = String(data.req_id ?? "");
+          const ice = Array.isArray(data.ice_servers) ? data.ice_servers.map(String) : [];
+          void this.p2p.answer(String(data.sdp ?? ""), ice).then((res) => this.sendJson({ type: "p2p_answer", req_id: reqId, ...res }));
+          break;
+        }
         case "file_stat_req":
           void this.handleFileStat(String(data.req_id ?? ""), String(data.path ?? ""));
           break;

@@ -10,7 +10,6 @@ import { Icon, ToolGlyph } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Glass } from "@/components/aurora/primitives";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
-import { directConnect } from "@/lib/direct-connect";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { ToolCallItem } from "@/components/ExecutionCard";
@@ -401,7 +400,6 @@ function AskPageContent() {
       setIsOffline(false);
       setOfflineRecovered(true);
       triggerHapticFeedback(12);
-      directConnect.probe().catch(() => {});
       setTimeout(() => setOfflineRecovered(false), 2500);
     };
     window.addEventListener("offline", handleOffline);

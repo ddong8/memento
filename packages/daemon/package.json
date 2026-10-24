@@ -30,6 +30,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
+    "node-datachannel": "^0.33.4",
     "ws": "^8.18.3"
   },
   "devDependencies": {

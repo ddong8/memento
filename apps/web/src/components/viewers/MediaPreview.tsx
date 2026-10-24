@@ -37,7 +37,7 @@ import {
 import { desktop } from "@/lib/desktop";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { getApiBase } from "@/lib/api-client";
-import { directConnect, DirectProbeResult, DirectConnectConfig } from "@/lib/direct-connect";
+import { directMediaUrl, markDirectFailed } from "@/lib/p2p";
 import { useMediaInspector } from "./MediaInspectorContext";
 import { ImageViewerModal } from "./ImageViewerModal";
 
@@ -249,10 +249,9 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
     const apiBase = getApiBase();
     const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
-    const finalStreamUrl = directConnect.rewriteStreamUrl(streamUrl);
     return {
-      playUrl: finalStreamUrl,
-      downloadUrl: finalStreamUrl,
+      playUrl: streamUrl,
+      downloadUrl: streamUrl,
       localPath: clean,
       filename,
       isLocal: true,
@@ -792,26 +791,30 @@ export function VideoPlayer({
     return src;
   }, [src, quality]);
 
-  const [directProbe, setDirectProbe] = useState<DirectProbeResult>(() => directConnect.getStatus());
-  const [directCfg, setDirectCfg] = useState<DirectConnectConfig>(() => directConnect.getConfig());
-
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(activeSrc));
+  // A file on one of the user's devices plays straight from it over WebRTC when a direct path exists
+  // (same LAN, IPv6, punched NAT), else through the server's stream URL. Briefly held back while trying.
+  const [direct, setDirect] = useState<"trying" | "on" | "off">("off");
+  const resumeAtRef = useRef<number | null>(null);
   useEffect(() => {
-    setDirectCfg(directConnect.getConfig());
-    const unsub = directConnect.subscribe((res) => {
-      setDirectProbe(res);
-      setResolved(resolveMediaUrl(activeSrc));
-    });
-    if (directConnect.getConfig().enabled && directConnect.getStatus().state === "untested") {
-      directConnect.probe();
-    }
-    return unsub;
-  }, [activeSrc]);
-
-  useEffect(() => {
-    setResolved(resolveMediaUrl(activeSrc));
+    const relay = resolveMediaUrl(activeSrc);
+    setResolved(relay);
     setHasError(false);
     setIsLoading(true);
+    if (!relay.playUrl.includes("/files/stream/")) {
+      setDirect("off");
+      return;
+    }
+    let cancelled = false;
+    setDirect("trying");
+    void directMediaUrl(relay.playUrl).then((url) => {
+      if (cancelled) return;
+      if (url) setResolved({ ...relay, playUrl: url });
+      setDirect(url ? "on" : "off");
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activeSrc]);
 
   // Viewport Intersection Preload Pipeline (instant first frame playback)
@@ -863,7 +866,7 @@ export function VideoPlayer({
   const effectivePoster = poster || autoPoster || undefined;
 
   const videoSrc = React.useMemo(() => {
-    if (!playUrl) return "";
+    if (!playUrl || direct === "trying") return "";
     if (playUrl.includes("#")) return playUrl;
     // 仅在无封面且处于 iOS WebKit 环境下追加 #t=0.001 强制首帧渲染
     // 桌面端及 Android 凭借 preload="metadata" 即可原生秒出首帧，避免引发二次 Range Seek
@@ -875,7 +878,21 @@ export function VideoPlayer({
       return `${playUrl}#t=0.001`;
     }
     return playUrl;
-  }, [playUrl, effectivePoster]);
+  }, [playUrl, effectivePoster, direct]);
+
+  // After switching from the direct path back to the server mid-play, carry on from the same spot
+  useEffect(() => {
+    const v = videoRef.current;
+    const at = resumeAtRef.current;
+    if (!v || at === null || !videoSrc) return;
+    const onMeta = () => {
+      v.currentTime = at;
+      v.play().catch(() => {});
+      resumeAtRef.current = null;
+    };
+    v.addEventListener("loadedmetadata", onMeta, { once: true });
+    return () => v.removeEventListener("loadedmetadata", onMeta);
+  }, [videoSrc]);
 
   // Native MediaSession (Now Playing / Lock Screen / Dynamic Island) Integration
   useMediaSessionIntegration({
@@ -928,6 +945,15 @@ export function VideoPlayer({
     const v = videoRef.current;
     const currentPos = v?.currentTime || currentTime;
 
+    if (direct === "on") {
+      // The direct path broke (device left the network, say): continue through the server
+      markDirectFailed(resolved.playUrl);
+      resumeAtRef.current = currentPos;
+      setDirect("off");
+      setResolved(resolveMediaUrl(activeSrc));
+      return;
+    }
+
     if (retryCountRef.current < 3) {
       retryCountRef.current += 1;
       setIsRecovering(true);
@@ -959,7 +985,7 @@ export function VideoPlayer({
     setIsLoading(false);
     setIsRecovering(false);
     setHasError(true);
-  }, [currentTime, videoSrc]);
+  }, [currentTime, videoSrc, direct, resolved.playUrl, activeSrc]);
 
   const togglePlay = useCallback(() => {
     markPreloadActive();
@@ -1693,14 +1719,14 @@ export function VideoPlayer({
               <span className="hidden sm:inline text-[11px]">文稿</span>
             </button>
           )}
-          {/* Direct Connect Speed Badge (Pure status display, no button click required) */}
-          {directCfg.enabled && directProbe.state === "connected" && (
+          {/* Playing straight from the device (WebRTC), not through the server */}
+          {direct === "on" && (
             <div
-              title={`已自动命中极速直连通道 (延迟 ${directProbe.rttMs}ms，节点 ${directProbe.activeEndpoint})`}
+              title="视频直接从设备传过来（点对点），不经过服务器"
               className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 select-none"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>极速直连 {directProbe.rttMs}ms</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>直连</span>
             </div>
           )}
 

@@ -1,22 +1,22 @@
 {
-  "version": "1.0.77",
-  "title": "Memento v1.0.77",
+  "version": "1.0.78",
+  "title": "Memento v1.0.78",
   "release_notes": "1. 智能体在会话中途进入子文件夹（比如 cd server）后，这个会话仍然留在原来的项目里，不会被挪到以子文件夹命名的项目\n2. Antigravity 没有打开工作区的会话不再被归到 output.txt、transcript.jsonl 这类以文件命名的“项目”\n3. Antigravity 会话记录的工作区路径不再混进多余的文字",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.77-win-x64.zip",
-      "size": 157846962,
-      "sha256": "424bfd043c6731075dff7b1af99fe24767d46100b9fba6a835ce9576b8bc51dd"
+      "asset_name": "Memento-1.0.78-win-x64.zip",
+      "size": 157848422,
+      "sha256": "a7cf15616324e5f44490b8ebc03900c1362740fb0026966e6857c270e966506c"
     },
     "macos": {
-      "asset_name": "Memento-1.0.77-mac-arm64.zip",
-      "size": 132316009,
-      "sha256": "862046fc6d46807cd3981f458374ead95473c25751c9fb5d9bb3e34656b425a9"
+      "asset_name": "Memento-1.0.78-mac-arm64.zip",
+      "size": 132317991,
+      "sha256": "17da4b9f8f9a3408c0bc31672dbfe4756d23c9f60bd9be81dbce9322645b0f86"
     },
     "linux": {
-      "asset_name": "Memento-1.0.77-linux-x64.tar.gz",
-      "size": 131616108,
-      "sha256": "ec5ed09816c5e3215f3a8e4d4235a114974496ecf7a9f5e60956285ef777c1a9"
+      "asset_name": "Memento-1.0.78-linux-x64.tar.gz",
+      "size": 131616853,
+      "sha256": "8ac49b6aa6ac484a9c3ed1ebb5beea719d38903ea2014929798dc80258dd910f"
     }
   }
 }

@@ -816,22 +816,16 @@ function AskPageContent() {
   const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(false);
 
   // Load conversation list
-  const loadConversations = useCallback(async (filterDev?: boolean) => {
+  const loadConversations = useCallback(async () => {
     try {
       if (conversations.length === 0) {
         setLoadingHistory(true);
       }
-      const shouldFilter = filterDev !== undefined ? filterDev : historyFilterDevice;
-      const devId = (shouldFilter && selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only")
-        ? selectedDevice
-        : undefined;
-      const list = await api.listAskConversations(devId);
+      const list = await api.listAskConversations();
       const safeList = list || [];
       setConversations(safeList);
       try {
-        if (!devId) {
-          localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 100)));
-        }
+        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 100)));
       } catch {}
 
       // Idle prefetch: warm top recent conversations in background for true 0ms clicks
@@ -854,7 +848,7 @@ function AskPageContent() {
     } finally {
       setLoadingHistory(false);
     }
-  }, [historyFilterDevice, selectedDevice, conversations.length]);
+  }, [conversations.length]);
 
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
@@ -7134,7 +7128,6 @@ function AskPageContent() {
         onPrefetchTurns={prefetchConversationTurns}
         onFilterDeviceChange={(filterCurrent) => {
           setHistoryFilterDevice(filterCurrent);
-          void loadConversations(filterCurrent);
         }}
         isZh={isZh}
         t={t}

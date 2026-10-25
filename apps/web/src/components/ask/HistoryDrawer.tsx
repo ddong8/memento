@@ -738,14 +738,34 @@ export const HistoryDrawer = memo(function HistoryDrawer({
 
   const filteredConversations = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const list = !q
-      ? conversations
-      : conversations.filter((c) => {
-          const matchTitle = (c.title || "").toLowerCase().includes(q);
-          const matchDev = (c.device_id || "").toLowerCase().includes(q);
-          const matchId = c.id.toLowerCase().includes(q);
-          return matchTitle || matchDev || matchId;
-        });
+    let list = conversations;
+
+    if (filterDevice && selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only") {
+      const targetDev = devices?.find(
+        (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
+      );
+      list = list.filter((c) => {
+        if (!c.device_id) return false;
+        if (c.device_id === selectedDevice) return true;
+        if (targetDev) {
+          return (
+            c.device_id === targetDev.device_id ||
+            c.device_id === targetDev.id ||
+            c.device_id === targetDev.name
+          );
+        }
+        return false;
+      });
+    }
+
+    if (q) {
+      list = list.filter((c) => {
+        const matchTitle = (c.title || "").toLowerCase().includes(q);
+        const matchDev = (c.device_id || "").toLowerCase().includes(q);
+        const matchId = c.id.toLowerCase().includes(q);
+        return matchTitle || matchDev || matchId;
+      });
+    }
 
     return [...list].sort((a, b) => {
       const aPinned = a.config?.pinned ? 1 : 0;
@@ -758,7 +778,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
       return bTime - aTime;
     });
-  }, [conversations, searchQuery, liveRunningIds]);
+  }, [conversations, searchQuery, liveRunningIds, filterDevice, selectedDevice, devices]);
 
   // Group conversations chronologically into distinct visual timeline sections
   const conversationGroups = useMemo(() => {

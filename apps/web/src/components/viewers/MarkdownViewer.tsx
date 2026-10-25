@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
 import "highlight.js/styles/github-dark.min.css";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -347,7 +348,13 @@ const MarkdownViewer = memo(function MarkdownViewer({
   const baseProse = compactText ? "prose-compact" : "prose";
   const remarkPlugins = useMemo(() => [remarkGfm], []);
   const shouldHighlight = !isStreaming && content.length <= 60_000;
-  const rehypePlugins = useMemo(() => (shouldHighlight ? [rehypeHighlight] : []), [shouldHighlight]);
+  const rehypePlugins = useMemo(() => {
+    const plugins: any[] = [rehypeRaw];
+    if (shouldHighlight) {
+      plugins.push(rehypeHighlight);
+    }
+    return plugins;
+  }, [shouldHighlight]);
 
   const components = useMemo(
     () => ({
@@ -781,6 +788,29 @@ const MarkdownViewer = memo(function MarkdownViewer({
             </li>
           ),
           hr: (props: any) => <hr className="my-2.5 border-[var(--aurora-border)]" {...props} />,
+          div: ({ node, align, className, children, style, ...props }: any) => {
+            const mergedStyle = align === "center" ? { textAlign: "center" as const, ...style } : style;
+            return (
+              <div className={className} style={mergedStyle} {...props}>
+                {children}
+              </div>
+            );
+          },
+          details: ({ node, children, className, ...props }: any) => (
+            <details className={`my-2 p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)]/50 ${className || ""}`} {...props}>
+              {children}
+            </details>
+          ),
+          summary: ({ node, children, className, ...props }: any) => (
+            <summary className={`font-semibold cursor-pointer select-none text-[var(--aurora-fg1)] hover:text-[var(--aurora-accent)] transition-colors ${className || ""}`} {...props}>
+              {children}
+            </summary>
+          ),
+          kbd: ({ node, children, className, ...props }: any) => (
+            <kbd className={`px-1.5 py-0.5 text-[11px] font-mono rounded bg-white/10 border border-white/10 text-[var(--aurora-fg2)] shadow-sm ${className || ""}`} {...props}>
+              {children}
+            </kbd>
+          ),
     }),
     [compactMedia, compactText, inspector]
   );

@@ -49,6 +49,7 @@ export class Daemon extends EventEmitter {
   private lastProfileReport: Record<string, string> | undefined;
   private lastSkillReport: Record<string, string> | undefined;
   private syncing = false;
+  private commandPollTimer: NodeJS.Timeout | null = null;
 
   get status(): DaemonStatus {
     return {
@@ -115,6 +116,10 @@ export class Daemon extends EventEmitter {
     this.ws = new WsTaskClient(config, this.log, (online) => {
       this.online = online;
       this.notify();
+      // When WS disconnects, immediately check HTTP fallback and poll more frequently
+      if (!online) {
+        this.scheduleCommandPoll(5_000);
+      }
     });
     this.ws.useRoute(route);
     void this.ws.start();
@@ -125,8 +130,8 @@ export class Daemon extends EventEmitter {
       }, 60_000),
     );
 
-    // Control commands over HTTP, the secondary channel.
-    this.timers.push(setInterval(() => void this.pollCommands(), COMMAND_POLL_MS));
+    // Control commands over HTTP: adaptive fallback channel (checks every 10 min while WS is online, 30s when offline)
+    this.scheduleCommandPoll(5_000);
     // The resident profile and published skills, kept in each enabled tool.
     void this.syncProfileAndSkills();
     this.timers.push(setInterval(() => void this.syncProfileAndSkills(), PROFILE_SYNC_MS));
@@ -148,6 +153,10 @@ export class Daemon extends EventEmitter {
   async stop(): Promise<void> {
     if (!this.running) return;
     this.log("Stopping Memento daemon...");
+    if (this.commandPollTimer) {
+      clearTimeout(this.commandPollTimer);
+      this.commandPollTimer = null;
+    }
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
     await this.watcher?.dispose();
@@ -170,6 +179,19 @@ export class Daemon extends EventEmitter {
 
   async resync(): Promise<void> {
     await this.watcher?.resync();
+  }
+
+  private scheduleCommandPoll(delayMs = COMMAND_POLL_MS): void {
+    if (this.commandPollTimer) clearTimeout(this.commandPollTimer);
+    if (!this.running) return;
+    this.commandPollTimer = setTimeout(() => {
+      void this.pollCommands().finally(() => {
+        // While WebSocket is online and active, HTTP command polling is purely a fallback (every 10 minutes).
+        // When WebSocket drops offline, poll every 30s to pick up commands promptly.
+        const nextDelay = this.online && this.ws?.connected ? 600_000 : COMMAND_POLL_MS;
+        this.scheduleCommandPoll(nextDelay);
+      });
+    }, delayMs);
   }
 
   private async pollCommands(): Promise<void> {

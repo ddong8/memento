@@ -393,10 +393,23 @@ const notifiedDesktopIds = new Set<string>();
 
 async function startNotificationFeedPoller(): Promise<void> {
   if (notifyPollTimer) return;
+
+  let currentDelay = 10_000;
+
+  const scheduleNext = (delay: number) => {
+    if (notifyPollTimer) clearTimeout(notifyPollTimer);
+    notifyPollTimer = setTimeout(() => void poll(), delay);
+  };
+
   const poll = async () => {
+    let hasNewItems = false;
     try {
       const jwt = await webToken();
-      if (!jwt) return;
+      if (!jwt) {
+        scheduleNext(30_000);
+        return;
+      }
+      const isVisibleAndFocused = win && win.isVisible() && !win.isMinimized() && win.isFocused();
       const base = serverOrigin();
       const res = await fetch(`${base}/api/notify/feed?since=${encodeURIComponent(lastSeenNotifyTime)}`, {
         headers: { Authorization: `Bearer ${jwt}` },
@@ -414,6 +427,7 @@ async function startNotificationFeedPoller(): Promise<void> {
           for (const item of items) {
             if (item.id && notifiedDesktopIds.has(item.id)) continue;
             if (item.id) notifiedDesktopIds.add(item.id);
+            hasNewItems = true;
             showNotification(item.title, item.body, item.url);
             if (item.created_at > lastSeenNotifyTime) {
               lastSeenNotifyTime = item.created_at;
@@ -421,13 +435,28 @@ async function startNotificationFeedPoller(): Promise<void> {
           }
         }
       }
+
+      if (hasNewItems) {
+        currentDelay = 5_000;
+      } else if (!isVisibleAndFocused) {
+        currentDelay = 60_000;
+      } else {
+        currentDelay = Math.min(30_000, currentDelay + 5_000);
+      }
     } catch {
-      // ignore network errors
+      currentDelay = 30_000;
     }
+    scheduleNext(currentDelay);
   };
 
+  if (win) {
+    win.on("focus", () => {
+      currentDelay = 10_000;
+      scheduleNext(150);
+    });
+  }
+
   void poll();
-  notifyPollTimer = setInterval(() => void poll(), 5000);
 }
 
 let appTrackerTimer: NodeJS.Timeout | null = null;

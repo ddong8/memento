@@ -286,6 +286,10 @@ function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | u
         let buf = "";
         res.on("data", (c) => (buf += c));
         res.on("end", () => {
+          if (res.statusCode === 401 || res.statusCode === 403) {
+            resolve({ error: "unauthorized", statusCode: res.statusCode });
+            return;
+          }
           try {
             resolve(JSON.parse(buf));
           } catch {
@@ -329,6 +333,16 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
     let liveUsage: Record<string, any> | undefined;
     if (token) {
       liveUsage = await fetchAnthropicLiveUsage(token);
+      if (liveUsage && (liveUsage.error === "unauthorized" || liveUsage.statusCode === 401)) {
+        return {
+          tool: "claude_code",
+          name: "Claude Code",
+          available: false,
+          logged_in: false,
+          account_email: oauth.accountEmailAddress,
+          error: "Claude Code 登录已失效 (401 凭据过期)，请在终端运行 claude 重新登录",
+        };
+      }
     }
 
     let ut: Record<string, any> = {};
@@ -411,97 +425,15 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
         ? `${remainingPercent}% 共享剩余`
         : "随账号限额 (正常可用)";
 
-    const models: QuotaModelItem[] = [
-      {
-        label: "Claude Opus 5.5 (Frontier & Deep Thinking)",
-        model_id: "claude-opus-5-5",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Sonnet 5.5 (High-Speed Thinking)",
-        model_id: "claude-sonnet-5-5",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Fable 5.1 (Long-horizon Agentic)",
-        model_id: "claude-fable-5-1",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Opus 5 (Thinking)",
-        model_id: "claude-opus-5",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Sonnet 5 (Thinking)",
-        model_id: "claude-sonnet-5",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Opus 4.6 (Thinking)",
-        model_id: "claude-opus-4-6",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Sonnet 4.6 (Thinking)",
-        model_id: "claude-sonnet-4-6",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude 3.7 Sonnet (Hybrid Reasoning)",
-        model_id: "claude-3-7-sonnet",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-      {
-        label: "Claude Haiku 4.5",
-        model_id: "claude-haiku-4-5",
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      },
-    ];
+    const models: QuotaModelItem[] = [];
 
-    if (sJson.model && !models.some((m) => m.model_id === sJson.model)) {
-      models.unshift({
-        label: `${sJson.model} (本地默认配置)`,
-        model_id: sJson.model,
-        remaining_fraction: remainingFraction,
-        remaining_percent: remainingPercent,
-        status_text: modelStatusText,
-        reset_time: resetTime || undefined,
-      });
-    }
-
+    // 动态提取 Claude CLI 本地缓存的真实模型选项 (例如 ~/.claude.json 中的 additionalModelOptionsCache)
     if (Array.isArray(d.additionalModelOptionsCache)) {
       for (const opt of d.additionalModelOptionsCache) {
         if (opt?.label && opt?.value && !models.some((m) => m.model_id === opt.value)) {
+          const descClean = opt.description ? ` (${String(opt.description).split("·")[0]!.trim()})` : "";
           models.push({
-            label: opt.label.includes("Fable") ? "Claude Fable 5.1 (Long-horizon)" : opt.label,
+            label: `${opt.label}${descClean}`,
             model_id: opt.value,
             remaining_fraction: remainingFraction,
             remaining_percent: remainingPercent,
@@ -509,6 +441,46 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
             reset_time: resetTime || undefined,
           });
         }
+      }
+    }
+
+    // 官方正式发布的主流 Claude 模型标准配置
+    const standardOfficialModels = [
+      { label: "Claude 3.7 Sonnet (Hybrid Reasoning)", model_id: "claude-3-7-sonnet" },
+      { label: "Claude 3.5 Sonnet", model_id: "claude-3-5-sonnet-20241022" },
+      { label: "Claude 3.5 Haiku", model_id: "claude-3-5-haiku-20241022" },
+    ];
+    for (const om of standardOfficialModels) {
+      if (!models.some((m) => m.model_id === om.model_id)) {
+        models.push({
+          label: om.label,
+          model_id: om.model_id,
+          remaining_fraction: remainingFraction,
+          remaining_percent: remainingPercent,
+          status_text: modelStatusText,
+          reset_time: resetTime || undefined,
+        });
+      }
+    }
+
+    // 本地 settings.json 配置的当前首选模型置顶高亮
+    if (sJson.model) {
+      const existingIdx = models.findIndex((m) => m.model_id === sJson.model);
+      if (existingIdx !== -1) {
+        const item = models.splice(existingIdx, 1)[0]!;
+        models.unshift({
+          ...item,
+          label: `${item.label} (当前默认配置)`,
+        });
+      } else {
+        models.unshift({
+          label: `${sJson.model} (本地默认配置)`,
+          model_id: sJson.model,
+          remaining_fraction: remainingFraction,
+          remaining_percent: remainingPercent,
+          status_text: modelStatusText,
+          reset_time: resetTime || undefined,
+        });
       }
     }
 
@@ -603,6 +575,7 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
       let name = "";
       let planType = "Free";
 
+      let isExpired = false;
       if (token && token.includes(".")) {
         try {
           const parts = token.split(".");
@@ -611,6 +584,9 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
           const claims = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
           email = claims.email || "";
           name = claims.name || "";
+          if (claims.exp && typeof claims.exp === "number" && claims.exp * 1000 < Date.now()) {
+            isExpired = true;
+          }
           const authInfo = claims["https://api.openai.com/auth"];
           if (authInfo && authInfo.chatgpt_plan_type) {
             planType = authInfo.chatgpt_plan_type;
@@ -619,6 +595,17 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
       }
 
       const hasApiKey = Boolean(d.OPENAI_API_KEY || process.env.OPENAI_API_KEY);
+      if (isExpired && !hasApiKey) {
+        return {
+          tool: "codex",
+          name: "OpenAI Codex",
+          available: false,
+          logged_in: false,
+          account_email: email,
+          account_name: name || email,
+          error: "Codex 登录已失效 (Token 已过期)，请在终端运行 codex 重新登录",
+        };
+      }
       const isFree = planType.toLowerCase() === "free";
       const planDisplay = planType.charAt(0).toUpperCase() + planType.slice(1);
 
@@ -652,9 +639,10 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
       }
 
       const defaultModels: QuotaModelItem[] = [
-        { label: "GPT-6 (Luna)", model_id: "gpt-6-luna", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-        { label: "GPT-5.6 (Terra)", model_id: "gpt-5.6-terra", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-        { label: "GPT-5.5", model_id: "gpt-5.5", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "o3-mini (Reasoning)", model_id: "o3-mini", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "o1 (High Reasoning)", model_id: "o1", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "GPT-4o (Omni)", model_id: "gpt-4o", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
+        { label: "GPT-4o mini", model_id: "gpt-4o-mini", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
       ];
 
       return {

@@ -233,9 +233,12 @@ export default function ActiveRunsMonitor() {
     if (!token) return;
     fetchRuns();
 
-    // Faster poll (2000ms) when agent is active, slower (10000ms) when idle
-    const intervalTime = hasActiveRuns ? 2000 : 10000;
-    const interval = setInterval(fetchRuns, intervalTime);
+    // Faster poll (2000ms) when agent is active, relaxed (30000ms) when completely idle
+    const intervalTime = hasActiveRuns ? 2000 : 30000;
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void fetchRuns();
+    }, intervalTime);
     return () => clearInterval(interval);
   }, [token, fetchRuns, hasActiveRuns]);
 

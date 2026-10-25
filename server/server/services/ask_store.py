@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, User, AskConversation, Project
 from ..db.session import async_session_factory
+from .storage_service import store_image_b64
 
 logger = logging.getLogger("server.ask")
 
@@ -372,7 +373,12 @@ async def append_conversation_turns(
                 "created_at": u_iso,
             }
             if images:
-                user_turn["images"] = [_compress_b64_image_safe(img) for img in images]
+                stored_images = []
+                for img in images:
+                    compressed = _compress_b64_image_safe(img)
+                    stored = await store_image_b64(compressed)
+                    stored_images.append(stored)
+                user_turn["images"] = stored_images
             if attachments:
                 user_turn["attachments"] = attachments
             turns.append(user_turn)

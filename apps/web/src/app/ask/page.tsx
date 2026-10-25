@@ -2045,14 +2045,9 @@ function AskPageContent() {
       if (!forceRefreshWhenIdle && typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
-      // When /ask is kept alive in background (user is on another menu route) and not streaming,
-      // skip redundant per-conversation /run polling since ActiveRunsMonitor already polls globally.
-      if (
-        !forceRefreshWhenIdle &&
-        typeof window !== "undefined" &&
-        !window.location.pathname.startsWith("/ask") &&
-        !streamingRef.current
-      ) {
+      // When not streaming and no active run is tracked, skip empty /run polling unless explicitly forced
+      const hasActiveRunExpected = streamingRef.current || Boolean(askCache?.streaming) || Boolean(askCache?.activeRun);
+      if (!forceRefreshWhenIdle && !hasActiveRunExpected) {
         return;
       }
 
@@ -2212,7 +2207,7 @@ function AskPageContent() {
 
     const schedule = () => {
       if (!isMounted) return;
-      const delay = streamingRef.current ? 3000 : 15000;
+      const delay = streamingRef.current ? 3000 : 30000;
       timer = setTimeout(async () => {
         await checkServerRun(false);
         schedule();

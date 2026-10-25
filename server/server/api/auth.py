@@ -26,7 +26,7 @@ from ..db.session import get_db
 from ..services import rate_limit
 from ..services.cache import cache_get, cache_set
 from ..middleware.auth import (
-    create_access_token, get_current_user, hash_password, verify_password,
+    create_access_token, get_current_user, hash_password, invalidate_user_cache, verify_password,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -483,6 +483,7 @@ async def update_profile(
                 raise HTTPException(status_code=400, detail="Invalid avatar URL or data URI format")
 
     await db.flush()
+    invalidate_user_cache(user.id)
     return UserResponse(
         id=str(user.id),
         email=user.email,
@@ -541,6 +542,7 @@ async def delete_avatar(
 
     user.avatar_url = None
     await db.flush()
+    invalidate_user_cache(user.id)
 
     return UserResponse(
         id=str(user.id),
@@ -564,6 +566,7 @@ async def rotate_collector_token(
         raise HTTPException(status_code=403, detail="Account not active")
     user.collector_token = secrets.token_hex(32)
     await db.flush()
+    invalidate_user_cache(user.id)
     return UserResponse(
         id=str(user.id),
         email=user.email,

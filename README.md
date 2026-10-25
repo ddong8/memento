@@ -2,9 +2,9 @@
 
 # Memento
 
-**给你的 AI 工具建个共享大脑**
+**给你的 AI 工具建个共享大脑与多模态工作台**
 
-跨设备、跨工具自动采集 AI 编程对话与记忆,自建后端汇总,Web + MCP 统一查看、搜索、召回。
+跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Python ≥3.12](https://img.shields.io/badge/python-≥3.12-blue.svg)](#技术栈)
@@ -20,19 +20,21 @@
 
 ## ✨ 它能做什么
 
-- 🧠 **跨设备同步对话** — Mac / Linux / Windows 上的 Claude Code / Codex / Cursor / Antigravity 等工具,聊过的内容统一汇总
-- 🔍 **混合检索** — BGE-M3 向量 + jieba 分词的全文索引,中英文都能搜
-- 🕸️ **知识图谱** — LLM 自动从对话抽实体(项目 / 工具 / 技术 / 人物 / 概念)、关系、观察;超过 7 天的老观察自动压缩成 summary
-- 🔗 **MCP 接入** — 查、钻、写、总览之外,还有动手前的检查(`memory_check_rule`)、技能(`memory_skill`)、踩坑(`memory_pitfall`)和待办(`todo_list` / `todo_add` / `todo_update`);任何 AI IDE 都能直接查、读、改你的记忆
-- 🌱 **越用越懂你** — 每晚复盘结束的会话:做成的多步骤流程总结成**技能**(确认后写进 `~/.claude/skills`、`~/.agents/skills`),查明原因的失败记成**踩坑**,没做完的事进**待办**(到期推送);你纠正 AI 的话 10 分钟内学成规矩
-- ♻️ **记忆新陈代谢** — 记录每条记忆被 AI 用到的次数;重复和被新说法推翻的旧记忆标记为"已取代"(画像同步删掉旧行),60 天没用的自动总结转为"沉睡";只打标记不删除,随时可唤醒
-- 📏 **检索评测** — 从你的资料生成带版本号的固定题集,每周用问答同一套检索作答,前 5 命中率 / MRR 下降时告警
-- 📅 **AI 日报** — Celery 每天 23:30 跑两阶段:先为每篇文档生成摘要,再聚合成跨工具每日 digest
-- 🔒 **入队前脱敏** — Collector 本地就过 14 类密钥正则(OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer / 私钥 / URL 内嵌凭证 …),磁盘上 SQLite 队列也安全
-- 🌐 **公开分享** — 项目时间线 / 日报一键生成 share 链接,带 GeoIP 访客统计、有效期、随时撤销
-- 🛡️ **完全自托管** — Docker Compose 一键起,Postgres + Redis + MinIO 全在你机器上,数据不出门
-- 🔐 **多租户隔离** — 多用户独立空间,owner / admin / viewer 三级角色 + 细粒度授权 + 审计日志
-- ⚡ **守护进程级** — 设备上跑成 launchd / systemd / Task Scheduler,断网离线队列、自愈重试
+- 🧠 **跨设备同步对话** — Mac / Linux / Windows 上的 Claude Code / Codex / Cursor / Antigravity / WorkBuddy 等工具，聊过的内容统一汇总
+- 🖥️ **全能多模态文档与工作台视窗** — 应用内直接沉浸式预览 Office (PPT / Word / Excel)、PDF、代码产物与音视频；手机端与移动设备支持 100vw × 100dvh 全屏放映与 90° 横屏沉浸放映（专为 16:9 幻灯片打造）；万行 CSV / TSV 动态交互表格切片分页渲染，毫秒级即时响应；支持微信公众号草稿一键发布与高清插图同步；GPU 3D 合成硬件加速与音视频硬件解码句柄安全解绑
+- 🤖 **昼夜节律认知进化与 AI 执事** — 灵动岛与系统托盘极速感知，离线优先；全天候三层记忆认知循环，复盘对话自动凝练为技能（`~/.claude/skills` 等）与踩坑避错指南；支持 Claude Code 最新模型、OpenAI 等模型配置自由切换与额度智能探测
+- 🔍 **混合检索** — BGE-M3 向量 + jieba 分词的全文索引，中英文都能搜
+- 🕸️ **知识图谱** — LLM 自动从对话抽实体(项目 / 工具 / 技术 / 人物 / 概念)、关系、观察；超过 7 天的老观察自动压缩成 summary
+- 🔗 **MCP 接入** — 查、钻、写、总览之外，还有动手前的检查(`memory_check_rule`)、技能(`memory_skill`)、踩坑(`memory_pitfall`)和待办(`todo_list` / `todo_add` / `todo_update`)；任何 AI IDE 都能直接查、读、改你的记忆
+- 🌱 **越用越懂你** — 每晚复盘结束的会话：做成的多步骤流程总结成**技能**(确认后写进 `~/.claude/skills`、`~/.agents/skills`)，查明原因的失败记成**踩坑**，没做完的事进**待办**(到期推送)；你纠正 AI 的话 10 分钟内学成规矩
+- ♻️ **记忆新陈代谢** — 记录每条记忆被 AI 用到的次数；重复和被新说法推翻的旧记忆标记为"已取代"(画像同步删掉旧行)，60 天没用的自动总结转为"沉睡"；只打标记不删除，随时可唤醒
+- 📏 **检索评测** — 从你的资料生成带版本号的固定题集，每周用问答同一套检索作答，前 5 命中率 / MRR 下降时告警
+- 📅 **AI 日报** — Celery 每天 23:30 跑两阶段：先为每篇文档生成摘要，再聚合成跨工具每日 digest
+- 🔒 **入队前脱敏** — 守护进程本地就过 14 类密钥正则(OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer / 私钥 / URL 内嵌凭证 …)，磁盘上 SQLite 队列也安全
+- 🌐 **公开分享** — 项目时间线 / 日报一键生成 share 链接，带 GeoIP 访客统计、有效期、随时撤销
+- 🛡️ **完全自托管** — Docker Compose 一键起，Postgres + Redis + MinIO 全在你机器上，数据不出门
+- 🔐 **多租户隔离** — 多用户独立空间，owner / admin / viewer 三级角色 + 细粒度授权 + 审计日志
+- ⚡ **守护进程级** — 设备上跑成 launchd / systemd / Task Scheduler，断网离线队列、自愈重试
 
 ## 🏗️ 架构
 
@@ -158,9 +160,12 @@ sequenceDiagram
 | **OpenClaw** | 对话会话、身份、记忆、学习、技能 | JSONL / Markdown |
 | **Codex** | 对话、历史、技能、状态 | JSONL / TOML / SQLite |
 | **Antigravity** | 完整对话(内置解密 `.pb`)、计划、代码快照 | Protobuf / Markdown |
+| **WorkBuddy** | 任务、多模态产物、全类型文档与工作台联动 | Markdown / Office / Media |
 | **Obsidian** | 所有笔记 | Markdown |
 | **Cursor** | 对话、技能、MCP 配置 | JSONL / Markdown |
 | **Hermes** | 完整对话(含工具调用)、persona、技能、CLI 历史 | JSON / Markdown / SQLite |
+| **Windsurf** | 对话、级联规则 | JSONL / Markdown |
+| **VS Code** | 扩展设置、智能体工作区规则 | JSON / Markdown |
 
 ## 🚀 快速开始
 

@@ -12,9 +12,9 @@ export function Features() {
     { icon: "refresh", title: t.landing.f1_title, desc: t.landing.f1_desc },
     { icon: "brain", title: t.landing.f2_title, desc: t.landing.f2_desc },
     { icon: "search", title: t.landing.f3_title, desc: t.landing.f3_desc },
-    { icon: "calendar", title: t.landing.f4_title, desc: t.landing.f4_desc },
-    { icon: "lock", title: t.landing.f5_title, desc: t.landing.f5_desc },
-    { icon: "cube", title: t.landing.f6_title, desc: t.landing.f6_desc },
+    { icon: "layers", title: t.landing.f4_title, desc: t.landing.f4_desc },
+    { icon: "zap", title: t.landing.f5_title, desc: t.landing.f5_desc },
+    { icon: "lock", title: t.landing.f6_title, desc: t.landing.f6_desc },
   ];
 
   return (

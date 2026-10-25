@@ -2,9 +2,9 @@
 
 # Memento
 
-**A shared brain for your AI coding tools**
+**A shared brain and multimodal workbench for your AI coding tools**
 
-Auto-collect AI coding conversations and memory across devices and tools, aggregate on your own backend, and view / search / recall through a unified Web UI + MCP.
+Auto-collect AI coding conversations and memory across devices and tools, aggregate on your own backend, and view / search / recall through a unified Web UI + MCP — featuring built-in universal doc & media inspector (Office/PPT 16:9 presentation, high-perf CSV slicing, and GPU accelerated playback).
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Python ≥3.12](https://img.shields.io/badge/python-≥3.12-blue.svg)](#-tech-stack)
@@ -20,7 +20,9 @@ Auto-collect AI coding conversations and memory across devices and tools, aggreg
 
 ## ✨ What it does
 
-- 🧠 **Cross-device conversation sync** — Claude Code / Codex / Cursor / Antigravity etc. on Mac / Linux / Windows, all aggregated in one place
+- 🧠 **Cross-device conversation sync** — Claude Code / Codex / Cursor / Antigravity / WorkBuddy etc. on Mac / Linux / Windows, all aggregated in one place
+- 🖥️ **Multimodal doc & media workbench** — In-app immersive viewing for Office (PPT / Word / Excel), PDF, code artifacts, and media; mobile 100vw × 100dvh fullscreen & 90° landscape presentation for 16:9 slides; windowed slicing pagination for large CSV / TSV datasets with instant millisecond response; one-click publishing to WeChat Official Account drafts with automatic hero illustration sync; GPU 3D composite acceleration and explicit decoder context unbinding
+- 🤖 **Circadian cognitive evolution & AI Butler** — Dynamic Island & system tray presence with offline-first queue; continuous 3-tier memory cycle automatically turns completed multi-step flows into skills (`~/.claude/skills` etc.) and pitfalls; flexible support for latest Claude Code models, OpenAI, and more
 - 🔍 **Hybrid retrieval** — BGE-M3 vectors + jieba-tokenized full-text index; works for both English and Chinese
 - 🕸️ **Knowledge graph** — LLM extracts entities (projects / tools / technologies / people / concepts), relations and observations from conversations; observations older than 7 days are auto-compacted into summaries
 - 🔗 **MCP integration** — find, drill, write and overview tools, plus a pre-flight check (`memory_check_rule`), skills (`memory_skill`), pitfalls (`memory_pitfall`) and todos (`todo_list` / `todo_add` / `todo_update`); any AI IDE can query, read, and update your memory directly
@@ -28,7 +30,7 @@ Auto-collect AI coding conversations and memory across devices and tools, aggreg
 - ♻️ **Memory that ages** — tracks how often each memory is handed to an AI; duplicates and contradicted memories are marked superseded (the old profile line goes too), machine-made ones unused for 60 days go dormant; nothing is deleted, anything can be revived
 - 📏 **Retrieval evaluation** — a versioned question set generated from your own documents is scored weekly through the same retrieval Ask uses; drops in hit@5 / MRR raise an alert
 - 📅 **AI daily digest** — Celery runs a two-stage job at 23:30 every day: per-document summaries first, then aggregated into a cross-tool digest
-- 🔒 **Sanitize-before-enqueue** — The collector strips 14 classes of secrets locally (OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer tokens / private keys / URL-embedded credentials …) so even the on-disk SQLite queue is safe
+- 🔒 **Sanitize-before-enqueue** — The daemon strips 14 classes of secrets locally (OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer tokens / private keys / URL-embedded credentials …) so even the on-disk SQLite queue is safe
 - 🌐 **Public sharing** — One-click share links for project timelines / daily digests, with GeoIP visitor stats, expiry, revoke any time
 - 🛡️ **Fully self-hosted** — One-shot Docker Compose; Postgres + Redis + MinIO all on your own machine — data never leaves
 - 🔐 **Multi-tenant isolation** — Per-user namespaces with owner / admin / viewer roles + fine-grained per-resource grants + audit log
@@ -158,9 +160,12 @@ sequenceDiagram
 | **OpenClaw** | conversation sessions, identity, memory, learnings, skills | JSONL / Markdown |
 | **Codex** | conversations, history, skills, state | JSONL / TOML / SQLite |
 | **Antigravity** | full conversations (built-in `.pb` decryption), plans, code snapshots | Protobuf / Markdown |
+| **WorkBuddy** | agent tasks, multi-modal artifacts, doc & media workbench | Markdown / Office / Media |
 | **Obsidian** | all notes | Markdown |
 | **Cursor** | conversations, skills, MCP config | JSONL / Markdown |
 | **Hermes** | full conversations (incl. tool calls), persona, skills, CLI history | JSON / Markdown / SQLite |
+| **Windsurf** | conversations, rules | JSONL / Markdown |
+| **VS Code** | settings, extensions, workspace rules | JSON / Markdown |
 
 ## 🚀 Quick start
 

@@ -9,6 +9,7 @@ import { HowItWorks } from "./HowItWorks";
 import { InstallBlock } from "./InstallBlock";
 import { LandingNav } from "./LandingNav";
 import { ToolMatrix } from "./ToolMatrix";
+import { WorkbenchBlock } from "./WorkbenchBlock";
 
 export function Landing() {
   return (
@@ -16,6 +17,7 @@ export function Landing() {
       <LandingNav />
       <Hero />
       <Features />
+      <WorkbenchBlock />
       <ToolMatrix />
       <HowItWorks />
       <BootstrapBlock />

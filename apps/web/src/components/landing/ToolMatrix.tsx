@@ -9,6 +9,7 @@ const TOOLS = [
   { id: "openclaw",    name: "OpenClaw",    content: "sessions · identity · skills · learning", format: "JSONL / Markdown" },
   { id: "codex",       name: "Codex",       content: "conversations · plans · skills · state",   format: "JSONL / TOML / SQLite" },
   { id: "antigravity", name: "Antigravity", content: "full conversations via aghistory, plans, snapshots", format: "Markdown / Protobuf" },
+  { id: "workbuddy",   name: "WorkBuddy",   content: "agent tasks · multi-modal artifacts · workbenches", format: "Markdown / Office / Media" },
   { id: "cursor",      name: "Cursor",      content: "conversations · skills · MCP config",      format: "JSONL / Markdown" },
   { id: "obsidian",    name: "Obsidian",    content: "all notes in the vault",                   format: "Markdown" },
   { id: "hermes",      name: "Hermes",      content: "sessions · persona · skills · CLI history", format: "JSON / Markdown / SQLite" },

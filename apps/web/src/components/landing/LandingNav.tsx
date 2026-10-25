@@ -76,6 +76,7 @@ export function LandingNav() {
           style={{ alignItems: "center", gap: 20, marginLeft: 18, flex: 1 }}
         >
           <NavLink href="#features">{t.landing.nav_features}</NavLink>
+          <NavLink href="#workbench">{t.landing.nav_workbench}</NavLink>
           <NavLink href="#tools">{t.landing.nav_tools}</NavLink>
           <NavLink href="#install">{t.landing.nav_install}</NavLink>
           <NavLink href="https://github.com/ddong8/memento" external>

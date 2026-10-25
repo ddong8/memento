@@ -249,7 +249,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
       <aside
         className={[
-          "fixed left-0 top-0 z-40 flex flex-col h-screen select-none",
+          "fixed left-0 top-0 z-40 flex flex-col h-screen h-[100dvh] select-none",
           "transition-[width,transform] duration-200 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full",
           "lg:!translate-x-0",
@@ -485,7 +485,13 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         </nav>
 
         {/* Bottom Section: Device status indicator + User Menu + Collapse / Version */}
-        <div className="p-2.5" style={{ borderTop: "1px solid var(--aurora-border)" }}>
+        <div
+          className="p-2.5"
+          style={{
+            borderTop: "1px solid var(--aurora-border)",
+            paddingBottom: "max(0.625rem, env(safe-area-inset-bottom, 0.625rem))",
+          }}
+        >
           {/* Online devices indicator */}
           <Link
             href="/profile?tab=devices"

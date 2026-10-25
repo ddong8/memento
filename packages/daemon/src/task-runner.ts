@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -172,6 +173,25 @@ export function isSessionNotFound(text: string): boolean {
     ].some((s) => text.includes(s)) ||
     (text.includes("conversation") && text.includes("not found"))
   );
+}
+
+const CLAUDE_LOGIN_LOST = /Please run \/login|OAuth session expired|could not be refreshed|OAuth token (?:has expired|revoked)|Not logged in/i;
+const CODEX_LOGIN_LOST =
+  /refresh token (?:was already used|has expired|is invalid)|refresh_token_(?:reused|expired|invalidated)|token_expired|(?:log out and )?sign in again|try signing in again|run `?codex login|Not logged in/i;
+
+/**
+ * What to tell the user when the agent's own login on this device is gone (only signing in again
+ * fixes it); undefined when the output says nothing of the kind.
+ */
+export function agentLoginHint(binary: string, text: string, device = hostname()): string | undefined {
+  const b = binary.toLowerCase();
+  if (b.includes("claude") && CLAUDE_LOGIN_LOST.test(text)) {
+    return `设备「${device}」上的 Claude Code 登录已失效：在这台设备的终端运行 claude auth login（或打开 claude 输入 /login）重新登录后再提问。`;
+  }
+  if (b.includes("codex") && CODEX_LOGIN_LOST.test(text)) {
+    return `设备「${device}」上的 Codex 登录已失效：在这台设备的终端运行 codex login 重新登录后再提问。`;
+  }
+  return undefined;
 }
 
 /**
@@ -954,6 +974,9 @@ export class TaskRunner {
           "\n💡 [权限提示] 检测到 macOS 磁盘访问受限。请在「系统设置 -> 隐私与安全性 -> 完全磁盘访问权限」中添加并开启 Memento。\n",
         );
       }
+      // Only the agent's errors are scanned, not its answer, which may well discuss logins.
+      const loginHint = exitCode !== 0 ? agentLoginHint(binary, errScan()) : undefined;
+      if (loginHint) this.notice(taskId, `\n🔑 [登录失效] ${loginHint}\n`);
 
       let fullOut = out.stdout.trim();
       const fullErr = out.stderr.trim();
@@ -1002,9 +1025,9 @@ export class TaskRunner {
           error: timedOut
             ? `Task timed out after ${task.timeoutSeconds}s`
             : effectiveExitCode !== 0
-              ? fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
+              ? loginHint || fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
               : null,
-          errorType: promptTooLong ? "prompt_too_long" : null,
+          errorType: promptTooLong ? "prompt_too_long" : loginHint ? "agent_login_required" : null,
           sessionId: parser?.sessionId ?? sid ?? (sessionFailedFinal ? null : (sessionId || null)),
           events: this.eventLogs.get(taskId)?.events,
         }),

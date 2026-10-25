@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import https from "node:https";
 
 import { homeDir } from "./config.js";
-import { findExecutable } from "./exec-env.js";
+import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 
 export interface QuotaModelItem {
@@ -202,87 +204,67 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
   }
 }
 
-async function refreshClaudeOAuthToken(oauth: Record<string, any>, fullCreds: Record<string, any>): Promise<string | undefined> {
-  const refreshToken = oauth.refreshToken;
-  if (!refreshToken) return undefined;
-  const postData = JSON.stringify({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: oauth.clientId || "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-    scope: Array.isArray(oauth.scopes) ? oauth.scopes.join(" ") : (oauth.scopes || ""),
-  });
-
-  return new Promise((resolve) => {
-    const req = https.request(
-      "https://platform.claude.com/v1/oauth/token",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-        timeout: 5000,
-      },
-      (res) => {
-        let buf = "";
-        res.on("data", (c) => (buf += c));
-        res.on("end", async () => {
-          try {
-            if (res.statusCode === 200) {
-              const data = JSON.parse(buf);
-              if (data.access_token) {
-                if (process.platform === "darwin" && fullCreds) {
-                  try {
-                    fullCreds.claudeAiOauth = {
-                      ...oauth,
-                      accessToken: data.access_token,
-                      refreshToken: data.refresh_token || oauth.refreshToken,
-                      expiresAt: Date.now() + (data.expires_in || 28800) * 1000,
-                    };
-                    await run(
-                      "security",
-                      ["add-generic-password", "-U", "-s", "Claude Code-credentials", "-w", JSON.stringify(fullCreds)],
-                      2000,
-                    );
-                  } catch {}
-                }
-                resolve(data.access_token);
-                return;
-              }
-            }
-          } catch {}
-          resolve(undefined);
-        });
-      },
-    );
-    req.on("error", () => resolve(undefined));
-    req.on("timeout", () => {
-      req.destroy();
-      resolve(undefined);
-    });
-    req.write(postData);
-    req.end();
-  });
+/**
+ * The keychain item Claude Code keeps its login in. A custom CLAUDE_CONFIG_DIR gets an item of its
+ * own, suffixed with the first 8 hex chars of the dir's sha256 (as Claude Code itself names it).
+ */
+export function claudeCredentialService(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
+  const dir = override !== undefined ? override : env.CLAUDE_CONFIG_DIR;
+  if (!dir) return "Claude Code-credentials";
+  return `Claude Code-credentials-${createHash("sha256").update(dir.normalize("NFC")).digest("hex").slice(0, 8)}`;
 }
 
-async function getClaudeOAuthToken(): Promise<string | undefined> {
+/** The keychain account Claude Code files its login under. */
+export function claudeCredentialAccount(env: NodeJS.ProcessEnv = process.env): string {
+  let name: string;
+  try {
+    name = env.USER || userInfo().username;
+  } catch {
+    return "claude-code-user";
+  }
+  return /^[a-zA-Z0-9._-]+$/.test(name) ? name : "claude-code-user";
+}
+
+/**
+ * The access token in Claude Code's stored login, while it is still valid. Read only: an expired
+ * token is left for Claude Code to refresh. Its refresh tokens are single use, so redeeming one
+ * here would leave Claude Code holding a dead one and sign it out ("OAuth session expired and
+ * could not be refreshed").
+ */
+export function usableClaudeAccessToken(creds: unknown, now = Date.now()): string | undefined {
+  const oauth = (creds as { claudeAiOauth?: Record<string, unknown> } | null)?.claudeAiOauth;
+  const token = oauth?.accessToken;
+  if (typeof token !== "string" || !token) return undefined;
+  const expiresAt = oauth?.expiresAt ?? oauth?.accessTokenExpiresAt;
+  if (typeof expiresAt === "number" && expiresAt - 60_000 <= now) return undefined;
+  return token;
+}
+
+async function readClaudeCredentials(env: NodeJS.ProcessEnv): Promise<unknown> {
   if (process.platform === "darwin") {
-    const res = await run("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], 2000);
+    const res = await run(
+      "security",
+      ["find-generic-password", "-a", claudeCredentialAccount(env), "-s", claudeCredentialService(env), "-w"],
+      2000,
+    );
     if (res.code === 0 && res.stdout.trim()) {
       try {
-        const creds = JSON.parse(res.stdout.trim());
-        const oauth = creds.claudeAiOauth;
-        if (!oauth) return undefined;
-        const expiresAt = oauth.expiresAt || oauth.accessTokenExpiresAt;
-        if (expiresAt && typeof expiresAt === "number" && expiresAt < Date.now() && oauth.refreshToken) {
-          const refreshed = await refreshClaudeOAuthToken(oauth, creds);
-          if (refreshed) return refreshed;
-        }
-        return oauth.accessToken;
+        return JSON.parse(res.stdout.trim());
       } catch {}
     }
   }
-  return undefined;
+  // Linux and Windows, or a Mac without a usable keychain: Claude Code's plaintext store.
+  const dir = env.CLAUDE_SECURESTORAGE_CONFIG_DIR || env.CLAUDE_CONFIG_DIR || join(homeDir(), ".claude");
+  try {
+    return JSON.parse(await readFile(join(dir, ".credentials.json"), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+async function getClaudeOAuthToken(): Promise<string | undefined> {
+  return usableClaudeAccessToken(await readClaudeCredentials(await executionEnvironment()));
 }
 
 function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | undefined> {

@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   FiX,
   FiVideo,
   FiMusic,
   FiImage,
   FiFileText,
+  FiMaximize,
   FiMaximize2,
+  FiMinimize,
   FiMinimize2,
   FiFolder,
   FiCopy,
@@ -22,6 +25,7 @@ import {
   FiEye,
   FiSend,
   FiRotateCcw,
+  FiRotateCw,
   FiRefreshCw,
   FiSmartphone,
   FiSliders,
@@ -34,7 +38,7 @@ import MarkdownViewer from "./MarkdownViewer";
 import { WeChatPublishModal } from "./WeChatPublishModal";
 import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
-import { showInAppToast } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 
 /**
  * Another site's document as text. The desktop app reads it in its main process (no CORS); a browser
@@ -89,10 +93,22 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
     return 460;
   });
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
+  const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(460);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isExpandedFull && window.innerWidth < 1024) {
+      const orig = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = orig;
+      };
+    }
+  }, [isExpandedFull]);
 
   if (!inspector || !inspector.isOpen || !inspector.activeMedia) {
     return null;
@@ -257,15 +273,33 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         onClick={closeInspector}
       />
 
-      {/* 媒体独立视窗容器: 桌面端为固定第三栏嵌入式展示，移动端为右侧滑出抽屉 */}
+      {/* 媒体独立视窗容器: 桌面端为固定第三栏嵌入式展示，移动端为右侧滑出抽屉/全屏沉浸视口 */}
       <aside
-        className={`bg-[var(--aurora-surface-solid,#0f172a)]/95 backdrop-blur-2xl border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
+        className={`bg-[var(--aurora-surface-solid,#0f172a)] border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
           lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20
-          max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl
-          max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)]
+          ${
+            isExpandedFull
+              ? "max-lg:fixed max-lg:inset-0 max-lg:z-[99999] max-lg:w-screen max-lg:h-[100dvh] max-lg:max-w-none max-lg:p-0 max-lg:m-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-black max-lg:flex max-lg:flex-col"
+              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)]"
+          }
           ${className}`}
         style={{
-          width: typeof window !== "undefined" && window.innerWidth < 1024 ? "100%" : isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px`,
+          ...(typeof window !== "undefined" && window.innerWidth < 1024
+            ? isExpandedFull && isLandscape
+              ? {
+                  position: "fixed",
+                  top: "50%",
+                  left: "50%",
+                  width: "100dvh",
+                  height: "100dvw",
+                  maxWidth: "100dvh",
+                  maxHeight: "100dvw",
+                  transform: "translate(-50%, -50%) rotate(90deg)",
+                  transformOrigin: "center center",
+                  zIndex: 99999,
+                }
+              : { width: "100%" }
+            : { width: isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px` }),
         }}
       >
         {/* Resize Handle on the left border (桌面大屏停靠模式下可见) */}
@@ -381,11 +415,56 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               <FiExternalLink className="w-3.5 h-3.5" />
             </button>
 
+            {/* 手机/横屏满屏旋转 */}
             <button
               type="button"
-              onClick={() => setIsExpandedFull((v) => !v)}
-              title={isExpandedFull ? "还原视窗宽度" : "最大化视窗"}
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
+              onClick={() => {
+                setIsLandscape((prev) => {
+                  const next = !prev;
+                  if (next && !isExpandedFull) {
+                    setIsExpandedFull(true);
+                  }
+                  triggerHapticFeedback();
+                  showInAppToast(next ? "已切换为横屏放映" : "已切换为竖屏模式", "16:9 沉浸满屏查看");
+                  try {
+                    if (screen.orientation && typeof (screen.orientation as any).lock === "function") {
+                      if (next) {
+                        (screen.orientation as any).lock("landscape").catch(() => {});
+                      } else if (typeof (screen.orientation as any).unlock === "function") {
+                        (screen.orientation as any).unlock();
+                      }
+                    }
+                  } catch {}
+                  return next;
+                });
+              }}
+              title={isLandscape ? "还原竖屏" : "横屏全屏旋转"}
+              className={`p-1.5 rounded-lg transition-colors ${
+                isLandscape
+                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/20 font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+              }`}
+            >
+              <FiRotateCw className={`w-3.5 h-3.5 transition-transform duration-300 ${isLandscape ? "rotate-90 text-[var(--aurora-accent)]" : ""}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsExpandedFull((v) => {
+                  const next = !v;
+                  if (!next) setIsLandscape(false);
+                  triggerHapticFeedback();
+                  showInAppToast(next ? "已进入全屏视窗" : "已还原视窗", "手机端全屏沉浸播放");
+                  return next;
+                });
+              }}
+              title={isExpandedFull ? "还原视窗" : "全屏放映"}
+              className={`p-1.5 rounded-lg transition-colors ${
+                isExpandedFull
+                  ? "text-[var(--aurora-accent)] bg-[var(--aurora-accent)]/20 font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)]"
+              }`}
             >
               {isExpandedFull ? <FiMinimize2 className="w-3.5 h-3.5" /> : <FiMaximize2 className="w-3.5 h-3.5" />}
             </button>
@@ -402,14 +481,26 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         </div>
 
         {/* Scrollable Main Content */}
-        <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-2 sm:py-4 space-y-3 sm:space-y-4">
+        <div
+          className={`flex-1 overflow-y-auto ${
+            isExpandedFull
+              ? "p-0 space-y-0 flex flex-col min-h-0 bg-black"
+              : "px-2 sm:px-4 py-2 sm:py-4 space-y-3 sm:space-y-4"
+          }`}
+        >
           {/* Main Media Player Viewport */}
-          <div className="w-full rounded-2xl overflow-hidden shadow-xl border border-[var(--aurora-border)] bg-black/80">
+          <div
+            className={`w-full ${
+              isExpandedFull
+                ? "flex-1 h-full min-h-0 rounded-none border-0 bg-black flex flex-col justify-center"
+                : "rounded-2xl overflow-hidden shadow-xl border border-[var(--aurora-border)] bg-black/80"
+            }`}
+          >
             {renderPlayer()}
           </div>
 
           {/* If there are multiple media items in this conversation (e.g. 2 videos or more), show Media Playlist */}
-          {mediaList.length > 1 && (
+          {!isExpandedFull && mediaList.length > 1 && (
             <div className="mt-4 pt-3 border-t border-[var(--aurora-border)]">
               <div className="flex items-center justify-between mb-2.5">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--aurora-fg1)]">
@@ -483,7 +574,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
           )}
 
           {/* Detailed Info Card */}
-          {resolved.localPath && (
+          {!isExpandedFull && resolved.localPath && (
             <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/20 text-[11px] text-[var(--aurora-fg3)] space-y-1.5">
               <div className="font-medium text-[var(--aurora-fg2)] flex items-center justify-between">
                 <span>本地文件信息</span>
@@ -1213,6 +1304,23 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const [search, setSearch] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
   const [viewEngine, setViewEngine] = useState<"embed" | "office" | "meta">("embed");
+  const [isDocFullscreen, setIsDocFullscreen] = useState<boolean>(false);
+  const [isDocLandscape, setIsDocLandscape] = useState<boolean>(false);
+  const [mounted, setMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isDocFullscreen) {
+      const orig = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = orig;
+      };
+    }
+  }, [isDocFullscreen]);
 
   useEffect(() => {
     if (!["csv", "tsv", "txt", "log"].includes(ext)) return;
@@ -1334,10 +1442,208 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
     return { headers, rows: filteredRows, totalRows: rawRows.length };
   }, [textData, ext, search]);
 
+  const renderFullscreenPortal = () => {
+    if (!isDocFullscreen || !mounted || typeof document === "undefined") return null;
+
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[999999] bg-black flex flex-col select-none overflow-hidden"
+        style={
+          isDocLandscape
+            ? {
+                position: "fixed",
+                top: "50%",
+                left: "50%",
+                width: "100dvh",
+                height: "100dvw",
+                maxWidth: "100dvh",
+                maxHeight: "100dvw",
+                transform: "translate(-50%, -50%) rotate(90deg)",
+                transformOrigin: "center center",
+                zIndex: 999999,
+              }
+            : undefined
+        }
+      >
+        {/* Top Control Bar */}
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-black/85 border-b border-white/10 text-white shrink-0 backdrop-blur-md pt-[max(0.6rem,env(safe-area-inset-top))] gap-2">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(false);
+                setIsDocLandscape(false);
+                triggerHapticFeedback();
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/35 text-white text-xs font-semibold transition-all shrink-0 cursor-pointer"
+            >
+              <FiMinimize2 className="w-4 h-4" />
+              <span>退出全屏</span>
+            </button>
+            <span className="text-xs font-semibold truncate max-w-[180px] sm:max-w-md" title={displayTitle}>
+              {displayTitle}
+            </span>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/70 uppercase shrink-0">
+              {ext}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* View Engine Toggle inside Fullscreen */}
+            {!["csv", "tsv", "txt", "log"].includes(ext) && (
+              <div className="flex items-center gap-0.5 bg-white/10 p-0.5 rounded-lg text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setViewEngine("embed")}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    viewEngine === "embed" ? "bg-[var(--aurora-accent)] text-white font-semibold" : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  原生
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewEngine("office")}
+                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                    viewEngine === "office" ? "bg-[var(--aurora-accent)] text-white font-semibold" : "text-white/70 hover:text-white"
+                  }`}
+                >
+                  微软
+                </button>
+              </div>
+            )}
+
+            {/* Landscape Rotation Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocLandscape((prev) => {
+                  const next = !prev;
+                  triggerHapticFeedback();
+                  showInAppToast(next ? "已切换为横屏放映" : "已切换为竖屏模式", "16:9 幻灯片满屏放映");
+                  try {
+                    if (screen.orientation && typeof (screen.orientation as any).lock === "function") {
+                      if (next) {
+                        (screen.orientation as any).lock("landscape").catch(() => {});
+                      } else if (typeof (screen.orientation as any).unlock === "function") {
+                        (screen.orientation as any).unlock();
+                      }
+                    }
+                  } catch {}
+                  return next;
+                });
+              }}
+              title={isDocLandscape ? "切换回竖屏" : "横屏满屏放映"}
+              className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-all cursor-pointer ${
+                isDocLandscape
+                  ? "bg-[var(--aurora-accent)] text-white font-semibold shadow-xs"
+                  : "bg-white/15 hover:bg-white/25 text-white"
+              }`}
+            >
+              <FiRotateCw className={`w-3.5 h-3.5 transition-transform duration-300 ${isDocLandscape ? "rotate-90" : ""}`} />
+              <span className="hidden xs:inline">{isDocLandscape ? "竖屏" : "横屏放映"}</span>
+            </button>
+
+            <a
+              href={resolved.downloadUrl}
+              download={displayTitle}
+              className="px-2.5 py-1.5 rounded-lg bg-[var(--aurora-accent)] text-white text-xs font-semibold flex items-center gap-1 hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <FiDownload className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">下载</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Main Document Content Frame */}
+        <div className="flex-1 w-full h-full min-h-0 bg-white relative overflow-hidden flex flex-col">
+          {ext === "pdf" ? (
+            <iframe
+              src={resolved.playUrl}
+              className="w-full h-full border-0 bg-white"
+              title={displayTitle}
+              allowFullScreen
+            />
+          ) : ["csv", "tsv"].includes(ext) && parsedTable ? (
+            <div className="w-full h-full overflow-auto bg-[var(--aurora-surface-solid)] p-3 text-xs flex flex-col">
+              <div className="relative mb-2 shrink-0">
+                <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--aurora-fg3)]" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索表格数据内容..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] rounded-lg text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-none focus:border-[var(--aurora-accent)]"
+                />
+              </div>
+              <div className="flex-1 overflow-auto border border-[var(--aurora-border)] rounded-xl">
+                <table className="w-full border-collapse text-left">
+                  <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)]">
+                    <tr>
+                      <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">#</th>
+                      {parsedTable.headers.map((h, i) => (
+                        <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
+                          {h || `列 ${i + 1}`}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedTable.rows.map((row, rIdx) => (
+                      <tr key={rIdx} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30">
+                        <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">{rIdx + 1}</td>
+                        {parsedTable.headers.map((_, cIdx) => (
+                          <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
+                            {row[cIdx] || ""}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : viewEngine === "office" ? (
+            <iframe
+              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
+              className="w-full h-full border-0 bg-white"
+              title={displayTitle}
+              allowFullScreen
+            />
+          ) : (
+            <iframe
+              src={resolved.playUrl}
+              className="w-full h-full border-0 bg-white"
+              title={displayTitle}
+              allowFullScreen
+            />
+          )}
+        </div>
+
+        {/* Bottom Fullscreen Hint */}
+        <div className="px-3 py-1.5 bg-black/90 border-t border-white/10 flex items-center justify-between text-[11px] text-white/70 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <span>支持双指触摸缩放与翻页手势；点击右上角横屏即可 16:9 沉浸放映幻灯片</span>
+          {resolved.localPath && (
+            <button
+              type="button"
+              onClick={handleOpenNative}
+              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+            >
+              <FiExternalLink className="w-3 h-3" />
+              <span>系统应用打开</span>
+            </button>
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   // 1. PDF 原生视窗
   if (ext === "pdf" || item.type === "pdf") {
     return (
       <div className="w-full flex flex-col gap-3">
+        {renderFullscreenPortal()}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
           <div className="flex items-center gap-2">
             <span className="text-rose-400 font-bold text-sm">📕</span>
@@ -1345,6 +1651,31 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-300">PREVIEW</span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                triggerHapticFeedback();
+              }}
+              title="全屏沉浸阅读"
+              className="px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)]/20 hover:bg-[var(--aurora-accent)]/30 text-[var(--aurora-accent)] text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer"
+            >
+              <FiMaximize2 className="w-3 h-3" />
+              <span>全屏</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                setIsDocLandscape(true);
+                triggerHapticFeedback();
+              }}
+              title="横屏满屏阅读"
+              className="px-2 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] text-[var(--aurora-fg2)] text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer"
+            >
+              <FiRotateCw className="w-3 h-3" />
+              <span>横屏</span>
+            </button>
             {resolved.localPath && (
               <button
                 type="button"
@@ -1352,7 +1683,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
               >
                 <FiExternalLink className="w-3 h-3" />
-                <span>系统预览打开</span>
+                <span className="hidden sm:inline">系统预览打开</span>
               </button>
             )}
             <a
@@ -1378,6 +1709,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   if (["csv", "tsv"].includes(ext) && parsedTable) {
     return (
       <div className="w-full flex flex-col gap-3">
+        {renderFullscreenPortal()}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
           <div className="flex items-center gap-2">
             <span className="text-emerald-400 font-bold text-sm">📊</span>
@@ -1387,6 +1719,31 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                triggerHapticFeedback();
+              }}
+              title="全屏数据看板"
+              className="px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)]/20 hover:bg-[var(--aurora-accent)]/30 text-[var(--aurora-accent)] text-[11px] font-semibold flex items-center gap-1 transition-all cursor-pointer"
+            >
+              <FiMaximize2 className="w-3 h-3" />
+              <span>全屏</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                setIsDocLandscape(true);
+                triggerHapticFeedback();
+              }}
+              title="横屏满屏查看"
+              className="px-2 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] text-[var(--aurora-fg2)] text-[11px] font-medium flex items-center gap-1 transition-all cursor-pointer"
+            >
+              <FiRotateCw className="w-3 h-3" />
+              <span>横屏</span>
+            </button>
             {resolved.localPath && (
               <button
                 type="button"
@@ -1394,7 +1751,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
               >
                 <FiExternalLink className="w-3 h-3" />
-                <span>用 Excel 打开</span>
+                <span className="hidden sm:inline">用 Excel 打开</span>
               </button>
             )}
             <a
@@ -1514,6 +1871,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
 
   return (
     <div className="w-full flex flex-col gap-4 p-3 sm:p-5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-xl text-left">
+      {renderFullscreenPortal()}
       {/* Brand Header Banner */}
       <div className={`p-3.5 sm:p-4 rounded-xl border ${formatMeta.borderColor} bg-gradient-to-br ${formatMeta.accentColor} flex items-start justify-between gap-3`}>
         <div className="flex items-start gap-3 min-w-0">
@@ -1535,46 +1893,77 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
         </div>
       </div>
 
-      {/* 视窗引擎模式切换 */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs gap-2">
+      {/* 视窗引擎模式切换与全屏工具栏 */}
+      <div className="flex items-center justify-between px-3 py-2 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs gap-2 flex-wrap">
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="font-semibold text-[var(--aurora-fg1)]">应用内视窗</span>
         </div>
-        <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/5">
-          <button
-            type="button"
-            onClick={() => setViewEngine("embed")}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              viewEngine === "embed"
-                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
-            }`}
-          >
-            原生视窗
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewEngine("office")}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              viewEngine === "office"
-                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
-            }`}
-          >
-            微软引擎
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewEngine("meta")}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-              viewEngine === "meta"
-                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
-            }`}
-          >
-            文件详情
-          </button>
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/5">
+            <button
+              type="button"
+              onClick={() => setViewEngine("embed")}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                viewEngine === "embed"
+                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+              }`}
+            >
+              原生视窗
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewEngine("office")}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                viewEngine === "office"
+                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+              }`}
+            >
+              微软引擎
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewEngine("meta")}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                viewEngine === "meta"
+                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+              }`}
+            >
+              文件详情
+            </button>
+          </div>
+
+          {/* Quick Fullscreen & Landscape Triggers */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                triggerHapticFeedback();
+              }}
+              title="全屏沉浸放映"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)]/20 hover:bg-[var(--aurora-accent)]/30 text-[var(--aurora-accent)] text-[11px] font-semibold transition-all cursor-pointer"
+            >
+              <FiMaximize2 className="w-3.5 h-3.5" />
+              <span>全屏放映</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(true);
+                setIsDocLandscape(true);
+                triggerHapticFeedback();
+              }}
+              title="横屏满屏放映"
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] text-[var(--aurora-fg2)] text-[11px] font-medium transition-all cursor-pointer"
+            >
+              <FiRotateCw className="w-3.5 h-3.5" />
+              <span>横屏</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1587,16 +1976,33 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             title={displayTitle}
             allowFullScreen
           />
-          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)]">
-            <span>支持 iOS 原生 QuickLook 翻页与缩放</span>
-            <button
-              type="button"
-              onClick={() => window.open(resolved.playUrl, "_blank")}
-              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
-            >
-              <FiExternalLink className="w-3 h-3" />
-              <span>全屏独立打开 ↗</span>
-            </button>
+          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] flex-wrap gap-2">
+            <span>支持 iOS 原生 QuickLook 翻页与触摸手势</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(true);
+                  triggerHapticFeedback();
+                }}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+              >
+                <FiMaximize2 className="w-3.5 h-3.5" />
+                <span>全屏沉浸放映 ⛶</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(true);
+                  setIsDocLandscape(true);
+                  triggerHapticFeedback();
+                }}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              >
+                <FiRotateCw className="w-3.5 h-3.5" />
+                <span>横屏 🔄</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1610,17 +2016,33 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             title={displayTitle}
             allowFullScreen
           />
-          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)]">
+          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] flex-wrap gap-2">
             <span>通过微软官方 Office Web Viewer 在线完整渲染</span>
-            <a
-              href={`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
-            >
-              <FiExternalLink className="w-3 h-3" />
-              <span>微软全屏视窗 ↗</span>
-            </a>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(true);
+                  triggerHapticFeedback();
+                }}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-semibold cursor-pointer"
+              >
+                <FiMaximize2 className="w-3.5 h-3.5" />
+                <span>全屏放映 ⛶</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(true);
+                  setIsDocLandscape(true);
+                  triggerHapticFeedback();
+                }}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+              >
+                <FiRotateCw className="w-3.5 h-3.5" />
+                <span>横屏 🔄</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

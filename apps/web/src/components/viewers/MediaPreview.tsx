@@ -33,6 +33,7 @@ import {
   FiUnlock,
   FiSearch,
   FiSliders,
+  FiSmartphone,
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
@@ -1279,6 +1280,20 @@ export function VideoPlayer({
     });
   }, [triggerFlashAction]);
 
+  const enterNativeFullscreen = useCallback(() => {
+    const v = videoRef.current;
+    if (v && typeof (v as any).webkitEnterFullscreen === "function") {
+      try {
+        (v as any).webkitEnterFullscreen();
+        triggerFlashAction("原生全屏", "📱");
+        return true;
+      } catch (e) {
+        console.warn("webkitEnterFullscreen failed", e);
+      }
+    }
+    return false;
+  }, [triggerFlashAction]);
+
   const toggleFullscreen = async () => {
     triggerHapticFeedback();
     const v = videoRef.current;
@@ -1608,6 +1623,20 @@ export function VideoPlayer({
       }`}
       style={{
         boxShadow: isPseudoFullscreen ? "none" : "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
+        ...(isPseudoFullscreen && isLandscapeRotated
+          ? {
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              width: "100dvh",
+              height: "100dvw",
+              maxWidth: "100dvh",
+              maxHeight: "100dvw",
+              transform: "translate(-50%, -50%) rotate(90deg)",
+              transformOrigin: "center center",
+              zIndex: 999999,
+            }
+          : {}),
       }}
     >
       <style
@@ -1770,16 +1799,7 @@ export function VideoPlayer({
             : "aspect-video"
         }`}
         style={
-          isLandscapeRotated
-            ? {
-                transform: "rotate(90deg)",
-                transformOrigin: "center center",
-                width: "100dvh",
-                height: "100dvw",
-                maxWidth: "100dvh",
-                maxHeight: "100dvw",
-              }
-            : effectiveFullscreen
+          effectiveFullscreen
             ? { height: "100%", width: "100%" }
             : aspectRatio && aspectRatio < 0.9
             ? { aspectRatio: `${aspectRatio}` }
@@ -2498,6 +2518,19 @@ export function VideoPlayer({
             >
               <FiLayers className="w-4 h-4" />
             </button>
+
+            {/* iOS Native Fullscreen Button (if supported) */}
+            {typeof window !== "undefined" && typeof (videoRef.current as any)?.webkitEnterFullscreen === "function" && (
+              <button
+                type="button"
+                onClick={enterNativeFullscreen}
+                title="系统原生播放器全屏 (iOS)"
+                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+              >
+                <FiSmartphone className="w-4 h-4" />
+                <span className="text-[10px] hidden xs:inline">原生</span>
+              </button>
+            )}
 
             {/* Fullscreen & Landscape Rotation Buttons */}
             {effectiveFullscreen && (

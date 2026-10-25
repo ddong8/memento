@@ -20,21 +20,23 @@ Auto-collect AI coding conversations and memory across devices and tools, aggreg
 
 ## ✨ What it does
 
-- 🧠 **Cross-device conversation sync** — Claude Code / Codex / Cursor / Antigravity / WorkBuddy etc. on Mac / Linux / Windows, all aggregated in one place
-- 🖥️ **Multimodal doc & media workbench** — In-app immersive viewing for Office (PPT / Word / Excel), PDF, code artifacts, and media; mobile 100vw × 100dvh fullscreen & 90° landscape presentation for 16:9 slides; windowed slicing pagination for large CSV / TSV datasets with instant millisecond response; one-click publishing to WeChat Official Account drafts with automatic hero illustration sync; GPU 3D composite acceleration and explicit decoder context unbinding
-- 🤖 **Circadian cognitive evolution & AI Butler** — Dynamic Island & system tray presence with offline-first queue; continuous 3-tier memory cycle automatically turns completed multi-step flows into skills (`~/.claude/skills` etc.) and pitfalls; flexible support for latest Claude Code models, OpenAI, and more
-- 🔍 **Hybrid retrieval** — BGE-M3 vectors + jieba-tokenized full-text index; works for both English and Chinese
+- 🧠 **Cross-device conversation sync** — Incremental sync across Mac / Linux / Windows with 10+ AI coding tools including Claude Code, Codex, Cursor, Antigravity, WorkBuddy, and Windsurf
+- 🖥️ **Multimodal doc & media workbench** — In-app immersive viewing for Office (PPT / Word / Excel), PDF, code artifacts, and media; mobile 100vw × 100dvh fullscreen & 90° landscape presentation for 16:9 slides; windowed slicing pagination for large CSV / TSV datasets with instant millisecond response; one-click publishing to WeChat Official Account drafts with automatic 2.35:1 hero illustration sync; GPU 3D composite acceleration and explicit decoder context unbinding
+- 🤖 **All-day AI Butler & interactive assistant** — Fullscreen responsive conversation flow, full-screen thinking mode with lightning indicator, multi-agent collaboration; flexible model switching supporting latest Claude Code models, OpenAI, DeepSeek, and intelligent quota/health detection
+- 👤 **Persona & 3D digital twin** — Personalized persona onboarding with gender, cartoon avatar, and responsive 3D twin; deep customization for behavioral rules, coding preferences, and long-term memory that evolves across sessions
+- ⚡ **Skills evolution & proactive pitfall prevention** — Nightly reviews turn multi-step procedures into reusable skills shipped to `~/.claude/skills` and `~/.agents/skills`; failures are recorded into pitfalls, and `memory_check_rule` intercepts potential issues before execution
+- 📋 **Inbox & task lifecycle closure** — Unfinished work and action items mentioned in conversations automatically flow into `/inbox` with due alerts and task closure
+- 🌅 **Circadian rhythm & two-stage AI digest** — Circadian cognitive cycle with a nightly 23:30 two-stage summary: per-document summaries first, then aggregated cross-tool daily digest
+- 🔍 **Hybrid retrieval** — BGE-M3 vectors + jieba-tokenized full-text index; high-precision retrieval across both English and Chinese
 - 🕸️ **Knowledge graph** — LLM extracts entities (projects / tools / technologies / people / concepts), relations and observations from conversations; observations older than 7 days are auto-compacted into summaries
-- 🔗 **MCP integration** — find, drill, write and overview tools, plus a pre-flight check (`memory_check_rule`), skills (`memory_skill`), pitfalls (`memory_pitfall`) and todos (`todo_list` / `todo_add` / `todo_update`); any AI IDE can query, read, and update your memory directly
-- 🌱 **Learns how you work** — nightly reviews of finished sessions turn procedures that worked into **skills** (shipped to `~/.claude/skills` and `~/.agents/skills` once you approve), failures with a found cause into **pitfalls**, and unfinished work into **todos** (pushed when due); corrections you give an AI become rules within 10 minutes
-- ♻️ **Memory that ages** — tracks how often each memory is handed to an AI; duplicates and contradicted memories are marked superseded (the old profile line goes too), machine-made ones unused for 60 days go dormant; nothing is deleted, anything can be revived
-- 📏 **Retrieval evaluation** — a versioned question set generated from your own documents is scored weekly through the same retrieval Ask uses; drops in hit@5 / MRR raise an alert
-- 📅 **AI daily digest** — Celery runs a two-stage job at 23:30 every day: per-document summaries first, then aggregated into a cross-tool digest
-- 🔒 **Sanitize-before-enqueue** — The daemon strips 14 classes of secrets locally (OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer tokens / private keys / URL-embedded credentials …) so even the on-disk SQLite queue is safe
-- 🌐 **Public sharing** — One-click share links for project timelines / daily digests, with GeoIP visitor stats, expiry, revoke any time
-- 🛡️ **Fully self-hosted** — One-shot Docker Compose; Postgres + Redis + MinIO all on your own machine — data never leaves
+- 🔗 **Native MCP service** — Find, drill, write, and overview tools, plus pre-flight rule check (`memory_check_rule`), skills (`memory_skill`), pitfalls (`memory_pitfall`), and todos (`todo_list` / `todo_add` / `todo_update`); any AI IDE can inspect and update your memory directly
+- ♻️ **Memory metabolism** — Tracks usage frequency for each memory; outdated memories are marked superseded, and unused memories enter dormancy after 60 days without deletion
+- 📏 **Retrieval evaluation** — A versioned question set generated from your own documents is scored weekly through the same retrieval Ask uses; drops in hit@5 / MRR raise an alert
+- 🔒 **Sanitize-before-enqueue security** — The local daemon strips 14 classes of secrets locally (OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer tokens / private keys / URL-embedded credentials …) so even the on-disk SQLite queue is safe
+- 🌐 **Public sharing** — One-click share links for project timelines / daily digests, with GeoIP visitor stats, expiry, and instant revocation
+- 🛡️ **100% self-hosted** — One-shot Docker Compose; Postgres + Redis + MinIO all on your own machine — your data never leaves
 - 🔐 **Multi-tenant isolation** — Per-user namespaces with owner / admin / viewer roles + fine-grained per-resource grants + audit log
-- ⚡ **Daemon-grade** — Runs as launchd / systemd / Task Scheduler; offline queue and self-healing retry when network drops
+- ⚡ **Modern desktop app & daemon** — Native Electron app, no Python required, lives in system tray, supports minimize to tray on macOS, permanent login memory, zero-latency menu navigation, offline queue, and self-healing auto-retry
 
 ## 🏗️ Architecture
 
@@ -228,59 +230,47 @@ Connect every Mac / Windows / Linux box where you use AI tools. Two ways:
 
 ### Option 1: Desktop app (recommended)
 
-No command line, no Python on the machine — just grab the app. It **bundles the collector + MCP sidecar** (frozen, no Python needed), auto-updates, and lives in the system tray.
+For a seamless, GUI-first experience without environment setup: **built on Electron, bundling the background daemon and MCP sidecar** (no Python or Node.js required). Lives in the system tray, auto-collects upon login, and auto-updates.
 
 **[⬇️ Download the latest release from GitHub](https://github.com/ddong8/memento/releases/latest)**
 
-| Platform | Installer |
-|---|---|
-| **macOS** (Apple Silicon) | `.dmg` — drag into Applications |
-| **Windows** | `.exe` — NSIS installer |
-| **Linux** | `.AppImage` (run directly) or `.deb` (`sudo dpkg -i`) |
+| Platform | Installer | Notes |
+|---|---|---|
+| **macOS** (Apple Silicon) | `.dmg` | Drag into Applications; supports minimize to system tray |
+| **Windows** | `.exe` | Modern NSIS installer with system tray & auto-start |
+| **Linux** | `.AppImage` / `.deb` | Executable AppImage or native `.deb` package |
 
-First launch is intentionally minimal — the **Server** tab has only three things:
-
-1. **Server URL** (paste `https://mem.ihasy.com` or your self-hosted URL)
-2. **Auto-start collector when the app launches** (on by default)
-3. **Launch Memento at system startup** (on by default)
-
-Click **Save** → you land on the **Dashboard**, log in or register inside the embedded web. On success:
-- The web posts the collector token back to the desktop via `postMessage`
-- The desktop saves the token + wires MCP + starts the collector (sweeps any stray instances first, so it's always single-instance)
-- The dashboard auto-SSOs you in — your data shows up immediately
-
-The user **never sees a token** — no browser tab, no manual paste. The client checks for new releases (minisign-signed) and prompts to install them automatically.
+**Out-of-the-box Experience**:
+1. Native application window directly loads the Memento workbench. Login state is **permanently remembered** across restarts.
+2. Sign in or register directly within the app (or via GitHub OAuth). The app **silently manages credentials, the daemon, and local MCP servers** — users never need to see, copy, or manage tokens.
+3. Remembers open tabs and menu states with zero-latency switching; includes the full multi-modal document & media workbench.
+4. Auto-checks for new releases with minisign verification.
 
 > If macOS says it "can't verify the developer", right-click the icon → Open, or run `xattr -dr com.apple.quarantine /Applications/Memento.app`.
 
-### Option 2: Command line (Node daemon)
+### Option 2: Command line (Node.js daemon)
 
-For servers / headless / CLI-first setups; needs Node.js 20+. It's the same daemon the desktop app runs (`packages/daemon`):
+For servers, headless setups, or CLI enthusiasts; requires Node.js ≥ 20. Uses the same core daemon engine (`packages/daemon`):
 
 ```bash
 git clone https://github.com/ddong8/memento.git && cd memento
 npm ci --workspace @memento/daemon --workspace @memento/core --include-workspace-root
 npm run build -w @memento/daemon
+
+# Log in and install as a background system service (starts automatically at boot)
 node packages/daemon/dist/cli.js login <collector token> https://mem.ihasy.com
-node packages/daemon/dist/cli.js install-service   # start at login
+node packages/daemon/dist/cli.js install-service
 ```
 
-> The old Python collector (PyPI `memento-brain-collector`) is retired; switch existing devices to the desktop app or the daemon above.
-
-**How to get a token?** (only the CLI path needs it — the desktop client is fully automatic)
-
-- **Ran `./install.sh`** → printed at the end and stored in `.env.local`
-- **Web self-register** → `/auth/register` (open mode) hands back a token immediately
-- **Other devices of the same account** → call `POST /api/auth/me/rotate-collector-token` while logged into the web
-
-### Daemon control
-
+Common management commands:
 ```bash
 node packages/daemon/dist/cli.js status              # show status
 node packages/daemon/dist/cli.js run                 # run in foreground (debug)
-node packages/daemon/dist/cli.js install-service     # start at login
-node packages/daemon/dist/cli.js uninstall-service   # stop starting at login
+node packages/daemon/dist/cli.js install-service     # install system service
+node packages/daemon/dist/cli.js uninstall-service   # uninstall system service
 ```
+
+Auto-detects platform: **macOS** launchd / **Linux** systemd user / **Windows** Run key. Mutual exclusion guarantees a single instance runs at a time (sharing `~/.memento`).
 
 Auto-detects platform: **macOS** launchd / **Linux** systemd user / **Windows** Run key. The desktop app and the daemon never collect at the same time (they share `~/.memento`).
 
@@ -362,10 +352,10 @@ Plus 4 MCP **resources** exposed as URIs (subscribable from any IDE):
 Key flows:
 
 - **Register** — `/auth/register`. First user becomes owner + active automatically; later registrations follow `MEMENTO_REGISTRATION_MODE`.
-- **Desktop client** — fill the Server URL on the Server tab → Save → log in or register inside the embedded dashboard iframe. The web posts the collector token back via `postMessage` and the desktop wires up everything; **users never see the token**.
+- **Desktop client** — Opens the Memento workbench in a native window; signing in automatically links the daemon and local MCP servers. **Users never need to manage or copy tokens**.
 - **Fine-grained grants** — `/admin/permissions` issues per-project / per-tool read/write grants to viewers.
-- **Audit log** — every sensitive action is recorded in `access_logs` (user_id / action / IP / metadata) for after-the-fact review.
-- **Token rotation** — CLI users can `POST /api/auth/me/rotate-collector-token` (JWT required); the desktop app pulls a fresh token automatically on every login, so manual rotation isn't needed there.
+- **Audit log** — Every sensitive action is recorded in `access_logs` (user_id / action / IP / metadata) for compliance and auditing.
+- **Session persistence & silent authorization** — The desktop app maintains persistent authorization and background collection automatically across reboots.
 
 ## 🌐 Public sharing
 
@@ -514,15 +504,13 @@ All variables share the `MEMENTO_` prefix.
 </details>
 
 <details>
-<summary><b>Collector-only device</b></summary>
+<summary><b>Daemon-only device</b></summary>
 
 ```bash
-node packages/daemon/dist/cli.js uninstall-service           # the Node daemon
-memento-collector uninstall                                  # the old Python collector, if installed
-pip uninstall -y memento-brain-collector memento-brain-memory memento-brain
-rm -rf ~/.memento
+node packages/daemon/dist/cli.js uninstall-service           # uninstall background service
+rm -rf ~/.memento                                             # remove local config and offline queue
 
-# Logs (pick one)
+# Logs (pick one):
 rm -rf ~/Library/Logs/memento                                # macOS
 rm -rf ~/.local/share/memento/logs                           # Linux
 # Windows: Remove-Item -Recurse $env:LOCALAPPDATA\memento

@@ -163,20 +163,21 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
               color: "#34D399",
               borderRadius: 12,
               padding: 14,
-              fontSize: 13,
-              maxWidth: 540,
+              fontSize: 12,
+              lineHeight: 1.6,
+              maxWidth: 580,
               margin: "0 auto",
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
               textAlign: "left",
-              whiteSpace: "pre",
+              whiteSpace: "pre-wrap",
               overflow: "auto",
             }}
           >
-{`pip install memento-brain-collector    # ${t.devices.snippetCollectorOnly}
-# ${t.devices.snippetMetaOption}
-pip install memento-brain
+{`# 方式一：下载桌面客户端（推荐 · 免装环境 · 托盘常驻）
+前往 GitHub Releases 下载 macOS / Windows / Linux 客户端，登录后自动开始采集
 
-memento-collector setup`}
+# 方式二：命令行守护进程（Node.js ≥ 20）
+node packages/daemon/dist/cli.js install-service`}
           </pre>
         </Glass>
       ) : (

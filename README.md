@@ -20,21 +20,23 @@
 
 ## ✨ 它能做什么
 
-- 🧠 **跨设备同步对话** — Mac / Linux / Windows 上的 Claude Code / Codex / Cursor / Antigravity / WorkBuddy 等工具，聊过的内容统一汇总
-- 🖥️ **全能多模态文档与工作台视窗** — 应用内直接沉浸式预览 Office (PPT / Word / Excel)、PDF、代码产物与音视频；手机端与移动设备支持 100vw × 100dvh 全屏放映与 90° 横屏沉浸放映（专为 16:9 幻灯片打造）；万行 CSV / TSV 动态交互表格切片分页渲染，毫秒级即时响应；支持微信公众号草稿一键发布与高清插图同步；GPU 3D 合成硬件加速与音视频硬件解码句柄安全解绑
-- 🤖 **昼夜节律认知进化与 AI 执事** — 灵动岛与系统托盘极速感知，离线优先；全天候三层记忆认知循环，复盘对话自动凝练为技能（`~/.claude/skills` 等）与踩坑避错指南；支持 Claude Code 最新模型、OpenAI 等模型配置自由切换与额度智能探测
-- 🔍 **混合检索** — BGE-M3 向量 + jieba 分词的全文索引，中英文都能搜
+- 🧠 **跨设备同步对话** — Mac / Linux / Windows 上的 Claude Code / Codex / Cursor / Antigravity / WorkBuddy / Windsurf 等 10+ 工具，聊过的内容增量汇总
+- 🖥️ **全能多模态文档与工作台视窗** — 应用内直接沉浸式预览 Office (PPT / Word / Excel)、PDF、代码产物与音视频；手机端与移动设备支持 100vw × 100dvh 全屏放映与 90° 横屏沉浸放映（专为 16:9 幻灯片打造）；万行 CSV / TSV 动态交互表格切片分页渲染，毫秒级即时响应；支持微信公众号草稿一键发布与 2.35:1 高清插图提取同步；GPU 3D 合成硬件加速与音视频硬件解码句柄安全解绑
+- 🤖 **全天候 AI 执事与智能交互** — 全屏自适应会话流、带闪电标的深度思考过程全屏铺满、多智能体协同问答；个人设置中支持 Claude Code 最新模型、OpenAI、DeepSeek 等主流大模型自由配置切换，额度智能探测与失效即时告警
+- 👤 **个人画像与 3D 数字分身** — 个人画像引导设置性别、卡通形象与 3D 响应式分身；沟通铁律、技术偏好与长期记忆深度定制，在所有跨设备对话中持续自进化
+- ⚡ **技能进化与智能避坑系统** — 每晚复盘自动将完成的多步流程总结为技能（Skills）写入本地 `~/.claude/skills`、`~/.agents/skills` 等；查明原因的失败自动记为踩坑指南（Pitfalls）；动手前调用 `memory_check_rule` 自动前置校验拦截
+- 📋 **工作待办闭环管理** — 会话中识别到的待办事项自动归集到工作待办（`/inbox`）；支持优先级、到期推送与一键状态同步，任务闭环
+- 🌅 **作息节律与两阶段 AI 日报** — 昼夜节律认知循环，每天 23:30 自动跑两阶段：先对每篇文档生成摘要，再聚合成跨工具每日 digest，清晰掌握全天产出
+- 🔍 **混合检索** — BGE-M3 语义向量 + jieba 分词的全文索引，中英文均能精准召回
 - 🕸️ **知识图谱** — LLM 自动从对话抽实体(项目 / 工具 / 技术 / 人物 / 概念)、关系、观察；超过 7 天的老观察自动压缩成 summary
-- 🔗 **MCP 接入** — 查、钻、写、总览之外，还有动手前的检查(`memory_check_rule`)、技能(`memory_skill`)、踩坑(`memory_pitfall`)和待办(`todo_list` / `todo_add` / `todo_update`)；任何 AI IDE 都能直接查、读、改你的记忆
-- 🌱 **越用越懂你** — 每晚复盘结束的会话：做成的多步骤流程总结成**技能**(确认后写进 `~/.claude/skills`、`~/.agents/skills`)，查明原因的失败记成**踩坑**，没做完的事进**待办**(到期推送)；你纠正 AI 的话 10 分钟内学成规矩
+- 🔗 **MCP 原生服务** — 查、钻、写、总览之外，还有动手前的检查(`memory_check_rule`)、技能(`memory_skill`)、踩坑(`memory_pitfall`)和待办(`todo_list` / `todo_add` / `todo_update`)；任何 AI IDE 都能直接查、读、改你的记忆
 - ♻️ **记忆新陈代谢** — 记录每条记忆被 AI 用到的次数；重复和被新说法推翻的旧记忆标记为"已取代"(画像同步删掉旧行)，60 天没用的自动总结转为"沉睡"；只打标记不删除，随时可唤醒
 - 📏 **检索评测** — 从你的资料生成带版本号的固定题集，每周用问答同一套检索作答，前 5 命中率 / MRR 下降时告警
-- 📅 **AI 日报** — Celery 每天 23:30 跑两阶段：先为每篇文档生成摘要，再聚合成跨工具每日 digest
-- 🔒 **入队前脱敏** — 守护进程本地就过 14 类密钥正则(OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer / 私钥 / URL 内嵌凭证 …)，磁盘上 SQLite 队列也安全
+- 🔒 **入队前脱敏安全** — 守护进程本地预先经过 14 类密钥正则过滤(OpenAI / Anthropic / GitHub / Slack / Telegram / AWS / Bearer / 私钥 / URL 内嵌凭证 …)，磁盘 SQLite 离线队列安全无虞
 - 🌐 **公开分享** — 项目时间线 / 日报一键生成 share 链接，带 GeoIP 访客统计、有效期、随时撤销
 - 🛡️ **完全自托管** — Docker Compose 一键起，Postgres + Redis + MinIO 全在你机器上，数据不出门
 - 🔐 **多租户隔离** — 多用户独立空间，owner / admin / viewer 三级角色 + 细粒度授权 + 审计日志
-- ⚡ **守护进程级** — 设备上跑成 launchd / systemd / Task Scheduler，断网离线队列、自愈重试
+- ⚡ **现代化桌面端与守护进程** — Electron 原生跨平台，免装 Python，系统托盘常驻，Mac 支持最小化到托盘，登录状态永久记住，切换功能零延迟，断网离线队列、网络恢复自愈重试
 
 ## 🏗️ 架构
 
@@ -224,63 +226,51 @@ git clone https://github.com/ddong8/memento.git && cd memento
 
 ## 💻 在额外设备上接入
 
-把你日常用 AI 工具的每台 Mac / Windows / Linux 接到服务端,有两种方式:
+把你日常用 AI 工具的每台 Mac / Windows / Linux 接到服务端，有两种方式：
 
-### 方式一:桌面客户端(推荐)
+### 方式一：桌面客户端（推荐）
 
-不想碰命令行、机器上没装 Python 的,直接下客户端 —— **内置采集器 + MCP sidecar**(冻结打包,无需 Python),自动更新,系统托盘常驻。
+不想折腾环境、追求最流畅桌面体验的，直接下载客户端 —— **基于 Electron 打造，内置采集守护进程与 MCP sidecar**（无需安装任何运行环境），系统托盘常驻，登录后自动开始采集，自动更新。
 
 **[⬇️ 前往 GitHub Releases 下载最新版](https://github.com/ddong8/memento/releases/latest)**
 
-| 平台 | 安装包 |
-|---|---|
-| **macOS**(Apple Silicon) | `.dmg` — 拖进 Applications 即可 |
-| **Windows** | `.exe` — NSIS 安装版 |
-| **Linux** | `.AppImage`(直接跑)或 `.deb`(`sudo dpkg -i`) |
+| 平台 | 安装包 | 说明 |
+|---|---|---|
+| **macOS** (Apple Silicon) | `.dmg` | 拖进 Applications 即可，支持 Mac 最小化到系统托盘 |
+| **Windows** | `.exe` | 现代化 NSIS 安装版，支持任务栏托盘与开机自启 |
+| **Linux** | `.AppImage` / `.deb` | AppImage 赋予执行权限直接运行，deb 包支持 `dpkg -i` |
 
-首次打开极简:**Server** 标签里只有 3 样东西:
+**开箱即用体验**：
+1. 原生独立窗口直接加载 Memento 工作台，登录状态**永久记住**，重启无需反复重新登录。
+2. 首次打开在界面中直接登录或注册（或使用 GitHub 授权登录），客户端**全自动托管凭证与守护进程**，自动配齐本地 MCP 服务并启动后台采集，普通用户全程无需接触、复制或管理任何 Token。
+3. 记住上次打开的菜单状态，切换功能零延迟；内置全格式多模态文档与音视频工作台。
+4. 客户端会在新版本发布时自动检查并提示安装（带 minisign 签名校验）。
 
-1. **服务器地址**(粘 `https://mem.ihasy.com` 或你自部署的 URL)
-2. **启动 APP 时自动跑 collector**(默认勾上)
-3. **开机自启动 Memento**(默认勾上)
+> macOS 首次打开若提示“无法验证开发者”，右键图标 → 打开，或在终端执行 `xattr -dr com.apple.quarantine /Applications/Memento.app`。
 
-点 **保存** → 自动跳到 **仪表板**,在内嵌网页里登录或注册。登录成功后:
-- 网页通过 `postMessage` 把 collector token 偷偷回传给桌面端
-- 桌面端落地 token + 配 MCP + 启动 collector(整树清扫旧实例,保证单实例)
-- 仪表板 SSO 自动登录,你直接看到自己的数据
+### 方式二：命令行服务（Node.js 守护进程）
 
-整个流程**用户感知不到 token**,全程一个浏览器都不用开。客户端会在新版本发布时自动检查并提示安装(minisign 签名校验)。
-
-> macOS 首次打开若提示"无法验证开发者",右键图标 → 打开,或 `xattr -dr com.apple.quarantine /Applications/Memento.app`。
-
-### 方式二:命令行(Node 守护进程)
-
-适合服务器 / headless / 习惯 CLI 的环境,需要 Node.js 20+。守护进程和桌面端里跑的是同一份代码(`packages/daemon`):
+适合无头服务器、Linux VPS 或习惯 CLI 终端的环境，依赖 Node.js ≥ 20。守护进程与桌面端复用同一套核心逻辑（`packages/daemon`）：
 
 ```bash
 git clone https://github.com/ddong8/memento.git && cd memento
 npm ci --workspace @memento/daemon --workspace @memento/core --include-workspace-root
 npm run build -w @memento/daemon
+
+# 登录并注册为系统服务（自动开机自启）
 node packages/daemon/dist/cli.js login <collector token> https://mem.ihasy.com
-node packages/daemon/dist/cli.js install-service   # 登录后自动启动
+node packages/daemon/dist/cli.js install-service
 ```
 
-> 旧的 Python 采集器(PyPI `memento-brain-collector`)已停止维护,已装的设备换成桌面端或上面的守护进程即可。
-
-**怎么拿 token?**(仅命令行场景需要;桌面客户端**完全自动**)
-
-- **跑过 `./install.sh`** → 末尾会打印,同时存到 `.env.local`
-- **Web 自助注册** → `/auth/register` 即刻发 token(open 模式默认行为)
-- **同账号其他设备** → 在已登录的 Web 上调 `POST /api/auth/me/rotate-collector-token`
-
-### 守护进程
-
+常用管理命令：
 ```bash
 node packages/daemon/dist/cli.js status              # 查看状态
-node packages/daemon/dist/cli.js run                 # 前台运行(调试)
+node packages/daemon/dist/cli.js run                 # 前台调试运行
 node packages/daemon/dist/cli.js install-service     # 登录后自动启动
 node packages/daemon/dist/cli.js uninstall-service   # 取消自动启动
 ```
+
+按操作系统自动适配：**macOS** launchd / **Linux** systemd user / **Windows** 启动项。桌面端与守护进程同一时间保证单实例运行（共用 `~/.memento`）。
 
 按平台自动适配:**macOS** launchd / **Linux** systemd user / **Windows** 启动项。桌面端和守护进程同一时间只会有一份在采集(共用 `~/.memento`)。
 
@@ -362,10 +352,10 @@ LLM 自动从同步进来的对话和文档里抽:
 关键流程:
 
 - **注册**:`/auth/register` — 首个用户自动 owner + active;之后按 `MEMENTO_REGISTRATION_MODE` 决定
-- **桌面客户端**:Server 标签填地址 → Save → 在内嵌仪表板 iframe 里登录或注册即可,token 由网页通过 `postMessage` 偷偷送给桌面端,用户**全程感知不到 token**
+- **桌面客户端**: 原生独立窗口直接打开 Memento 工作台，登录后内置守护进程与 MCP 服务自动静默配对启动，用户全程无需手动干预任何 Token
 - **细粒度授权**:`/admin/permissions` 按 project / tool 给 viewer 发 read/write 权限
 - **审计日志**:`access_logs` 表落库每次敏感操作(user_id / action / IP / metadata),便于事后追溯
-- **token 轮换**:命令行用户可 `POST /api/auth/me/rotate-collector-token`(需 JWT);桌面端会随每次登录自动拿最新 token,无需手动管理
+- **会话保持与自动授权**: 桌面端自动维护登录态与静默授权，开机自动后台运行，保持全天候静默采集与离线队列同步
 
 ## 🌐 公开分享
 
@@ -514,20 +504,18 @@ memento/
 </details>
 
 <details>
-<summary><b>只装了采集器的设备</b></summary>
+<summary><b>只装了采集守护进程的设备</b></summary>
 
 ```bash
-node packages/daemon/dist/cli.js uninstall-service           # 新版守护进程
-memento-collector uninstall                                  # 旧版 Python 采集器(如果装过)
-pip uninstall -y memento-brain-collector memento-brain-memory memento-brain
-rm -rf ~/.memento
+node packages/daemon/dist/cli.js uninstall-service           # 卸载守护进程自启服务
+rm -rf ~/.memento                                             # 清理本地配置与离线队列
 
-# 日志(选一)
+# 日志目录（按系统选一）：
 rm -rf ~/Library/Logs/memento                                # macOS
 rm -rf ~/.local/share/memento/logs                           # Linux
 # Windows: Remove-Item -Recurse $env:LOCALAPPDATA\memento
 
-# AI 工具 MCP 条目手动删掉 memento-memory 块
+# AI 工具的 MCP 配置文件中手动移除 memento-memory 配置块即可
 ```
 
 </details>

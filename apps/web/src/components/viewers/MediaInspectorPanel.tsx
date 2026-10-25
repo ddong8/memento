@@ -95,6 +95,8 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   const [isExpandedFull, setIsExpandedFull] = useState<boolean>(false);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [copiedWebUrl, setCopiedWebUrl] = useState<boolean>(false);
+  const [copiedLocalPath, setCopiedLocalPath] = useState<boolean>(false);
   const isDraggingRef = useRef<boolean>(false);
   const startXRef = useRef<number>(0);
   const startWidthRef = useRef<number>(460);
@@ -119,9 +121,6 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   const resolved = resolveMediaUrl(activeMedia.url);
   const displayTitle = activeMedia.title || resolved.filename || "媒体预览";
   const ext = displayTitle.split(".").pop()?.toUpperCase() || activeMedia.type.toUpperCase();
-
-  const [copiedWebUrl, setCopiedWebUrl] = useState<boolean>(false);
-  const [copiedLocalPath, setCopiedLocalPath] = useState<boolean>(false);
 
   const handleCopy = async () => {
     try {

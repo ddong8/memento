@@ -174,6 +174,7 @@ export interface ResolvedMedia {
   localPath: string | null;
   filename: string;
   isLocal: boolean;
+  webStreamUrl: string;
 }
 
 /** Check if a given string represents a local file path */
@@ -223,7 +224,7 @@ export function isLocalFilePath(url: string | null | undefined): boolean {
 /** Resolve media path into a streamable/playable URL and local path */
 export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedia {
   if (!rawUrl) {
-    return { playUrl: "", downloadUrl: "", localPath: null, filename: "", isLocal: false };
+    return { playUrl: "", downloadUrl: "", localPath: null, filename: "", isLocal: false, webStreamUrl: "" };
   }
   const decoded = safeDecodePath(rawUrl.trim());
   const filename = getFilenameFromUrl(decoded);
@@ -243,6 +244,7 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
       localPath: null,
       filename: assetFilename,
       isLocal: false,
+      webStreamUrl: cdnUrl,
     };
   }
 
@@ -251,6 +253,11 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
       clean = clean.slice(1);
     }
+    const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+    const apiBase = getApiBase();
+    const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
+
     const d = desktop();
     if (d && typeof d.toMediaUrl === "function") {
       const mediaUrl = d.toMediaUrl(clean);
@@ -260,18 +267,16 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
         localPath: clean,
         filename,
         isLocal: true,
+        webStreamUrl: streamUrl,
       };
     }
-    const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-    const apiBase = getApiBase();
-    const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
     return {
       playUrl: streamUrl,
       downloadUrl: streamUrl,
       localPath: clean,
       filename,
       isLocal: true,
+      webStreamUrl: streamUrl,
     };
   }
 
@@ -281,6 +286,7 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
     localPath: null,
     filename,
     isLocal: false,
+    webStreamUrl: rawUrl.trim(),
   };
 }
 
@@ -1437,9 +1443,10 @@ export function VideoPlayer({
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(localPath || src);
+      const urlToCopy = resolved.webStreamUrl || localPath || src;
+      await navigator.clipboard.writeText(urlToCopy);
       setCopied(true);
-      showInAppToast("已复制", localPath ? "本地路径已复制到剪贴板" : "视频链接已复制到剪贴板");
+      showInAppToast("已复制播放地址", resolved.webStreamUrl ? "Web 流媒体播放直链已复制到剪贴板" : localPath ? "本地路径已复制到剪贴板" : "视频链接已复制到剪贴板");
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // ignore
@@ -1782,7 +1789,7 @@ export function VideoPlayer({
           <button
             type="button"
             onClick={handleCopyLink}
-            title={copied ? "已复制" : localPath ? "复制本地文件路径" : "复制视频链接"}
+            title={copied ? "已复制播放直链" : "复制视频播放地址 (Web 直链)"}
             className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
           >
             {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}

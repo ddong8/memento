@@ -120,12 +120,41 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   const displayTitle = activeMedia.title || resolved.filename || "媒体预览";
   const ext = displayTitle.split(".").pop()?.toUpperCase() || activeMedia.type.toUpperCase();
 
+  const [copiedWebUrl, setCopiedWebUrl] = useState<boolean>(false);
+  const [copiedLocalPath, setCopiedLocalPath] = useState<boolean>(false);
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(resolved.localPath || activeMedia.url);
+      const urlToCopy = resolved.webStreamUrl || resolved.localPath || activeMedia.url;
+      await navigator.clipboard.writeText(urlToCopy);
       setCopied(true);
-      showInAppToast("已复制", resolved.localPath ? "本地文件物理路径已复制" : "媒体链接已复制");
+      showInAppToast("已复制播放地址", resolved.webStreamUrl ? "Web 流媒体播放直链已复制到剪贴板" : "本地文件物理路径已复制");
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleCopyWebStreamUrl = async () => {
+    const targetUrl = resolved.webStreamUrl || activeMedia.url;
+    if (!targetUrl) return;
+    try {
+      await navigator.clipboard.writeText(targetUrl);
+      setCopiedWebUrl(true);
+      showInAppToast("已复制播放地址", "Web 流媒体播放直链已复制到剪贴板");
+      setTimeout(() => setCopiedWebUrl(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleCopyLocalFilePath = async () => {
+    if (!resolved.localPath) return;
+    try {
+      await navigator.clipboard.writeText(resolved.localPath);
+      setCopiedLocalPath(true);
+      showInAppToast("已复制本地路径", "磁盘物理文件路径已复制到剪贴板");
+      setTimeout(() => setCopiedLocalPath(false), 2000);
     } catch {
       // ignore
     }
@@ -403,7 +432,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             <button
               type="button"
               onClick={handleCopy}
-              title={copied ? "已复制" : resolved.localPath ? "复制本地路径" : "复制链接"}
+              title={copied ? "已复制播放地址" : "复制流媒体播放地址 (Web 直链)"}
               className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors"
             >
               {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
@@ -585,16 +614,88 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
             </div>
           )}
 
-          {/* Detailed Info Card */}
-          {!isExpandedFull && resolved.localPath && (
-            <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/20 text-[11px] text-[var(--aurora-fg3)] space-y-1.5">
-              <div className="font-medium text-[var(--aurora-fg2)] flex items-center justify-between">
-                <span>本地文件信息</span>
-                <span className="text-[10px] font-mono text-emerald-400">已就绪</span>
+          {/* Detailed Info & Playback Address Card */}
+          {!isExpandedFull && (resolved.webStreamUrl || resolved.localPath) && (
+            <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/25 text-xs text-[var(--aurora-fg3)] space-y-3 shadow-xs">
+              <div className="font-semibold text-[var(--aurora-fg1)] flex items-center justify-between text-xs pb-1.5 border-b border-[var(--aurora-border)]/50">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  媒体播放与访问地址
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium">
+                  {resolved.localPath ? "本地原片已就绪" : "远端流式隧道"}
+                </span>
               </div>
-              <div className="font-mono text-[10px] break-all bg-black/20 p-2 rounded-lg border border-white/5 select-text">
-                {resolved.localPath}
-              </div>
+
+              {/* 1. Web 流媒体播放地址 (在线播放直链) */}
+              {resolved.webStreamUrl && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[var(--aurora-fg2)] font-medium flex items-center gap-1">
+                      <span>🌐</span>
+                      <span>Web 流媒体播放直链 (HTTP 206)</span>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleCopyWebStreamUrl}
+                        className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 text-[11px] font-medium cursor-pointer"
+                        title="复制可在外部播放器或浏览器播放的 HTTP 直链"
+                      >
+                        {copiedWebUrl ? <FiCheck className="w-3 h-3 text-emerald-400" /> : <FiCopy className="w-3 h-3" />}
+                        <span>{copiedWebUrl ? "已复制" : "复制播放地址"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => window.open(resolved.webStreamUrl, "_blank", "noopener,noreferrer")}
+                        className="text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] flex items-center gap-0.5 text-[11px] cursor-pointer ml-1"
+                        title="在浏览器独立标签页打开播放"
+                      >
+                        <FiExternalLink className="w-3 h-3" />
+                        <span>新标签播放</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="font-mono text-[10.5px] leading-relaxed break-all bg-black/40 p-2.5 rounded-xl border border-white/5 select-all text-[var(--aurora-fg2)]">
+                    {resolved.webStreamUrl}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. 本地物理文件路径 (本地设备访问) */}
+              {resolved.localPath && (
+                <div className="space-y-1.5 pt-1 border-t border-[var(--aurora-border)]/40">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[var(--aurora-fg2)] font-medium flex items-center gap-1">
+                      <span>💾</span>
+                      <span>本地磁盘物理路径</span>
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleCopyLocalFilePath}
+                        className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 text-[11px] font-medium cursor-pointer"
+                        title="复制本地文件绝对路径"
+                      >
+                        {copiedLocalPath ? <FiCheck className="w-3 h-3 text-emerald-400" /> : <FiCopy className="w-3 h-3" />}
+                        <span>{copiedLocalPath ? "已复制" : "复制绝对路径"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRevealFolder}
+                        className="text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] flex items-center gap-0.5 text-[11px] cursor-pointer ml-1"
+                        title="在访达 / 文件资源管理器中定位原片"
+                      >
+                        <FiFolder className="w-3 h-3" />
+                        <span>在访达定位</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="font-mono text-[10.5px] leading-relaxed break-all bg-black/40 p-2.5 rounded-xl border border-white/5 select-all text-[var(--aurora-fg2)]">
+                    {resolved.localPath}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

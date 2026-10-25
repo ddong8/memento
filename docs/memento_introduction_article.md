@@ -2,6 +2,7 @@
 
 > 💡 真正的个人专属 AI，绝不该在你关闭窗口的那一刻，就彻底遗忘与你共度的一切。
 > 当所有的工具都在教你怎么写 Prompt，真正决定你生产力上限的，是你与 AI 共同沉淀的专属认知资产。
+> 🌐 **官方主站与在线体验**：https://mem.ihasy.com · **开源项目**：https://github.com/ddong8/memento
 
 ![Memento 官方 2.35:1 微信大图封面](https://mem.ihasy.com/article/memento_wechat_cover_235.png)
 
@@ -173,3 +174,27 @@ Memento 不是又一个简单的套壳对话框，而是一个真正驻留在你
 AI 不该是一次性的快餐打字机，而应该是一本随着岁月流转而日益深刻的随身心智大书。
 
 当大模型千篇一律，真正构筑你个人技术护城河的，是你与 Memento 共同积淀的数字心智资产。
+
+---
+
+## 09 / 开启进化：即刻拥有你的个人数字心智孪生体
+
+体验终身记忆与仿生昼夜节律带来的深度默契，你可以通过以下方式即刻启程：
+
+- 🌐 **官方主站与 Web 在线工作台**：
+  直接在浏览器访问 [https://mem.ihasy.com](https://mem.ihasy.com) ，即刻登录体验全景工作台与 AI 执事。
+
+- ⚡ **一行命令全自动本地部署 (Mac / Linux)**：
+  ```bash
+  curl -fsSL https://mem.ihasy.com/install.sh | sh
+  ```
+
+- 🪟 **Windows PowerShell 一键安装**：
+  ```powershell
+  iwr https://mem.ihasy.com/install.ps1 -useb | iex
+  ```
+
+- 📦 **GitHub 开源仓库与架构解析**：
+  欢迎在 GitHub 上关注、交流与 Star：[https://github.com/ddong8/memento](https://github.com/ddong8/memento)
+
+让每一次敲击都有回响，让每一个灵感都有归宿。今天起，与你的 Memento 一起自进化。

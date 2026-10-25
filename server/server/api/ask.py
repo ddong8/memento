@@ -306,11 +306,10 @@ async def ask(
 
     is_cont, is_action, extracted_context = classify_continuation(question, body.history)
 
-    # In action continuation (e.g. "帮我关闭它", "关掉", "清理掉"), suppress RAG retrieval
-    # to prevent irrelevant memory notes from confusing the model and suppressing device execution.
-    if is_action:
-        sources = []
-    else:
+    # 并发获取所有问答前置上下文（文档检索、核心记忆、用户画像、规则指南、默契共鸣、会话即时规则）
+    async def _fetch_sources():
+        if is_action:
+            return []
         retrieval_query = question
         if is_cont and body.history:
             for prev in reversed(body.history):
@@ -320,54 +319,82 @@ async def ask(
                     if not prev_cont:
                         retrieval_query = f"{prev_text} {question}"
                         break
-        sources = await retrieve(db, _user, retrieval_query, body.tool, body.days)
+        try:
+            return await retrieve(db, _user, retrieval_query, body.tool, body.days)
+        except Exception as e:
+            logger.warning("Failed to retrieve sources in ask: %s", e)
+            return []
 
-    # Fetch prioritized core memories (L3) with active project scoping
-    core_mems = await retrieve_core_memories(
-        db=db,
-        user=_user,
-        question=question,
-        project_id=body.project_id,
-        cwd=body.cwd,
-        session_id=body.session_id,
-        limit=12,
-    )
+    async def _fetch_core_mems():
+        try:
+            return await retrieve_core_memories(
+                db=db,
+                user=_user,
+                question=question,
+                project_id=body.project_id,
+                cwd=body.cwd,
+                session_id=body.session_id,
+                limit=12,
+            )
+        except Exception as e:
+            logger.warning("Failed to retrieve core memories in ask: %s", e)
+            return []
 
-    # 1. Fetch published resident profile (About Me & core rules) with Redis fast-path
-    from ..services.profile_service import get_published_profile_content
-    user_prof_content = await get_published_profile_content(db, _user)
+    async def _fetch_profile():
+        from ..services.profile_service import get_published_profile_content
+        try:
+            return await get_published_profile_content(db, _user)
+        except Exception as e:
+            logger.warning("Failed to load user profile in ask: %s", e)
+            return None
 
-    # 2. Fetch guidance (pitfalls, rules, verified skills)
-    from ..services.guidance_service import guidance_for
-    guidance_data = None
-    try:
-        guidance_data = await guidance_for(db, _user, action="ask", project=body.project_id, query=question)
-    except Exception as e:
-        logger.warning("Failed to load guidance in ask: %s", e)
+    async def _fetch_guidance():
+        from ..services.guidance_service import guidance_for
+        try:
+            return await guidance_for(db, _user, action="ask", project=body.project_id, query=question)
+        except Exception as e:
+            logger.warning("Failed to load guidance in ask: %s", e)
+            return None
 
-    # 3. Mind Resonance (前置心领神会与默契共鸣)
-    from ..services.mind_resonance_service import sense_resonance
-    resonance_data = None
-    try:
-        resonance_data = await sense_resonance(db, _user, query=question, project=body.project_id)
-    except Exception as e:
-        logger.warning("Failed to load mind resonance in ask: %s", e)
+    async def _fetch_resonance():
+        from ..services.mind_resonance_service import sense_resonance
+        try:
+            return await sense_resonance(db, _user, query=question, project=body.project_id)
+        except Exception as e:
+            logger.warning("Failed to load mind resonance in ask: %s", e)
+            return None
 
-    # 3.1 Live In-Flight Rules (会话级即时行为纠偏学习)
-    live_rules = None
-    try:
+    async def _fetch_live_rules():
         from ..services.mind_resonance_service import (
             extract_live_correction_rules,
             get_session_live_rules,
             save_session_live_rules,
         )
-        new_live = extract_live_correction_rules(question)
-        conv_key = str(conv_id) if conv_id else (body.conversation_id or "default")
-        if new_live:
-            await save_session_live_rules(_user.id, conv_key, new_live)
-        live_rules = await get_session_live_rules(_user.id, conv_key)
-    except Exception as e:
-        logger.warning("Failed to process session live rules in ask: %s", e)
+        try:
+            new_live = extract_live_correction_rules(question)
+            conv_key = str(conv_id) if conv_id else (body.conversation_id or "default")
+            if new_live:
+                await save_session_live_rules(_user.id, conv_key, new_live)
+            return await get_session_live_rules(_user.id, conv_key)
+        except Exception as e:
+            logger.warning("Failed to process session live rules in ask: %s", e)
+            return None
+
+    (
+        sources,
+        core_mems,
+        user_prof_content,
+        guidance_data,
+        resonance_data,
+        live_rules,
+    ) = await asyncio.gather(
+        _fetch_sources(),
+        _fetch_core_mems(),
+        _fetch_profile(),
+        _fetch_guidance(),
+        _fetch_resonance(),
+        _fetch_live_rules(),
+    )
 
     messages = build_messages(
         question,

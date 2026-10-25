@@ -359,7 +359,7 @@ def _synthesize_fallback_yaml(safe_name: str) -> bytes | None:
         return None
 
 
-@router.get("/download")
+@router.api_route("/download", methods=["GET", "HEAD"])
 async def download_update(
     file: str = Query(..., description="Asset filename to download"),
     version: str | None = Query(None, description="Target release version"),
@@ -393,6 +393,12 @@ async def download_update(
     if version:
         tag = version.strip()
 
+    # 如果文件名自带显式版本号（如 Memento-1.0.80-win-x64.exe.blockmap），优先使用该文件版本，避免被最新 Release 覆盖导致 404
+    if not tag:
+        m = re.search(r"[vV]?(\d+\.\d+\.\d+)", safe_name)
+        if m:
+            tag = m.group(1)
+
     gh_release = await _fetch_latest_github_release()
     if not tag:
         version_file = _UPDATES_DIR / "version.json"
@@ -415,11 +421,6 @@ async def download_update(
             tag = gh_ver
         elif local_ver:
             tag = local_ver
-
-    if not tag:
-        m = re.search(r"[vV]?(\d+\.\d+\.\d+)", safe_name)
-        if m:
-            tag = m.group(1)
 
     tag_name = tag if tag.startswith("v") else (f"v{tag}" if tag else "v1.0.66")
 
@@ -493,7 +494,7 @@ async def download_update(
     return RedirectResponse(url=target_url, status_code=302)
 
 
-@router.get("/{filename}")
+@router.api_route("/{filename}", methods=["GET", "HEAD"])
 async def generic_updater_file(
     filename: str,
     version: str | None = Query(None, description="Optional target release version"),

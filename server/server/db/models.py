@@ -416,6 +416,19 @@ class DocumentEmbedding(Base):
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_doc_embedding_chunk"),
         Index("idx_doc_embedding_doc", "document_id"),
+        *(
+            [
+                Index(
+                    "idx_doc_embedding_hnsw",
+                    "embedding",
+                    postgresql_using="hnsw",
+                    postgresql_with={"m": 16, "ef_construction": 64},
+                    postgresql_ops={"embedding": "vector_cosine_ops"},
+                )
+            ]
+            if Vector
+            else []
+        ),
     )
 
 

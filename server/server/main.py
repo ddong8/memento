@@ -214,6 +214,19 @@ def _run_migrations(conn) -> None:
     except Exception:
         sp3.rollback()
 
+    # DocumentEmbedding.embedding HNSW 向量索引：消除全表暴力余弦扫描，实现毫秒级 ANN 图检索
+    if "document_embeddings" in tables:
+        sp_hnsw = conn.begin_nested()
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw "
+                "ON document_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m = 16, ef_construction = 64)"
+            ))
+            sp_hnsw.commit()
+        except Exception:
+            sp_hnsw.rollback()
+
     # DailySummary.user_id + swap unique index so each user has their own digest
     # per date+tool. Before this, the table was globally scoped and any user's
     # call to /generate-summary wrote a summary visible to every other user.

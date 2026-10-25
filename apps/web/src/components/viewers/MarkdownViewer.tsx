@@ -309,7 +309,40 @@ const MarkdownViewer = memo(function MarkdownViewer({
   // Clear rendered video tracker for this render pass
   renderedVideos.current.clear();
 
-  const formattedContent = useMemo(() => normalizeMarkdownContent(content), [content]);
+  // 流式渲染节流：在 SSE 高频传输时将 DOM 重构频率约束在 50ms 一次，大幅降低主线程 CPU 开销
+  const [throttledContent, setThrottledContent] = useState<string>(content);
+  const pendingContentRef = useRef<string>(content);
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    pendingContentRef.current = content;
+    if (!isStreaming) {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      setThrottledContent(content);
+      return;
+    }
+
+    if (!throttleTimerRef.current) {
+      throttleTimerRef.current = setTimeout(() => {
+        throttleTimerRef.current = null;
+        setThrottledContent(pendingContentRef.current);
+      }, 50);
+    }
+  }, [content, isStreaming]);
+
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+      }
+    };
+  }, []);
+
+  const activeContent = isStreaming ? throttledContent : content;
+  const formattedContent = useMemo(() => normalizeMarkdownContent(activeContent), [activeContent]);
 
   const baseProse = compactText ? "prose-compact" : "prose";
   const remarkPlugins = useMemo(() => [remarkGfm], []);

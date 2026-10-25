@@ -663,6 +663,9 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 html.memento-native-shell body {
   padding-bottom: 0 !important;
 }
+html.memento-native-shell [data-ask-footer] {
+  padding-bottom: 6px !important;
+}
 html.memento-native-shell,
 html.memento-native-shell body {
   background-color: var(--aurora-bg) !important;
@@ -670,6 +673,34 @@ html.memento-native-shell body {
 }
 html.memento-native-shell .memento-shell-hide {
   display: none !important;
+}
+
+/* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */
+@media (max-width: 640px) {
+  .prose-ask-mobile ol,
+  .prose-ask-mobile ul {
+    padding-left: 1.15rem !important;
+  }
+  .prose-ask-mobile li {
+    margin-top: 0.18rem !important;
+    margin-bottom: 0.18rem !important;
+  }
+  .prose-ask-mobile p {
+    margin-top: 0.35rem !important;
+    margin-bottom: 0.35rem !important;
+  }
+  .prose-ask-mobile h1,
+  .prose-ask-mobile h2,
+  .prose-ask-mobile h3,
+  .prose-ask-mobile h4 {
+    margin-top: 0.65rem !important;
+    margin-bottom: 0.35rem !important;
+    font-size: 1.05em !important;
+  }
+  .prose-ask-mobile pre {
+    margin-top: 0.4rem !important;
+    margin-bottom: 0.4rem !important;
+  }
 }
 
 /* =========================================================================

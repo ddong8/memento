@@ -278,9 +278,9 @@ export const UserBubble = memo(function UserBubble({
         style={{
           background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
-          padding: "11px 16px 8px 16px",
-          borderRadius: 16,
-          maxWidth: "min(88%, 680px)",
+          padding: "8px 12px 6px 12px",
+          borderRadius: 14,
+          maxWidth: "min(94%, 720px)",
           fontSize: 14,
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
@@ -288,7 +288,7 @@ export const UserBubble = memo(function UserBubble({
           boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
           display: "flex",
           flexDirection: "column",
-          gap: 6,
+          gap: 5,
           userSelect: "text",
           WebkitUserSelect: "text",
         }}
@@ -523,7 +523,7 @@ export const AssistantBubble = memo(function AssistantBubble({
 
   return (
     <div style={{ width: "100%" }}>
-      <Glass padding="clamp(12px, 3vw, 20px)" radius={18} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
+      <Glass padding="clamp(9px, 2.4vw, 18px)" radius={15} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
         {turn.sources && turn.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
             <button
@@ -574,7 +574,7 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {content ? (
-        <div className="prose prose-sm max-w-none w-full select-text" style={{ fontSize: 14, lineHeight: 1.6, userSelect: "text", WebkitUserSelect: "text" }}>
+        <div className="prose prose-sm max-w-none w-full select-text prose-ask-mobile" style={{ fontSize: 14, lineHeight: 1.58, userSelect: "text", WebkitUserSelect: "text" }}>
           <MarkdownViewer content={content} isStreaming={isCurrentlyStreaming} />
         </div>
       ) : (
@@ -662,8 +662,8 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--aurora-border)]/40 not-prose select-none">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mt-2.5 pt-1.5 border-t border-[var(--aurora-border)]/40 not-prose select-none text-[10.5px] sm:text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10.5px] sm:text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
             {startTime && (
               <span
                 className="inline-flex items-center gap-1 opacity-75 whitespace-nowrap shrink-0 hidden sm:inline-flex"
@@ -728,7 +728,7 @@ export const AssistantBubble = memo(function AssistantBubble({
               );
             })()}
           </div>
-          <div className="flex items-center gap-1.5 self-end sm:self-auto sm:ml-auto shrink-0 flex-wrap">
+          <div className="flex items-center gap-1 sm:gap-1.5 self-end sm:self-auto sm:ml-auto shrink-0 flex-wrap">
             {onShareTurn && (
               <button
                 type="button"
@@ -736,7 +736,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                   e.stopPropagation();
                   onShareTurn(index);
                 }}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="分享与多平台分发 (微信公众号/知乎/微博/小红书)"
               >
                 <Icon name="share" size={12} />
@@ -747,7 +747,7 @@ export const AssistantBubble = memo(function AssistantBubble({
               <button
                 type="button"
                 onClick={handleCopyContent}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="复制回答全文"
               >
                 <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
@@ -759,7 +759,7 @@ export const AssistantBubble = memo(function AssistantBubble({
                 type="button"
                 onClick={handleSaveToTodo}
                 disabled={savedTodo}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="一键将回答要点存入工作待办"
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />

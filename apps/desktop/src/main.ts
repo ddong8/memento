@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -1380,8 +1380,73 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("activate", () => showWindow());
 
+function getMediaMimeType(filePath: string): string {
+  const ext = (filePath.split(".").pop() || "").toLowerCase();
+  switch (ext) {
+    case "mp4":
+    case "m4v":
+      return "video/mp4";
+    case "webm":
+      return "video/webm";
+    case "mov":
+      return "video/quicktime";
+    case "mkv":
+      return "video/x-matroska";
+    case "avi":
+      return "video/x-msvideo";
+    case "mp3":
+      return "audio/mpeg";
+    case "wav":
+      return "audio/wav";
+    case "m4a":
+      return "audio/mp4";
+    case "aac":
+      return "audio/aac";
+    case "ogg":
+      return "audio/ogg";
+    case "flac":
+      return "audio/flac";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "svg":
+      return "image/svg+xml";
+    case "vtt":
+      return "text/vtt; charset=utf-8";
+    case "srt":
+      return "text/plain; charset=utf-8";
+    case "pdf":
+      return "application/pdf";
+    case "json":
+      return "application/json; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function parseMementoMediaFilePath(rawUrl: string): string {
+  const parsed = new URL(rawUrl);
+  let filePath: string;
+  if (parsed.host === "local" || parsed.host === "") {
+    filePath = decodeURIComponent(parsed.pathname);
+  } else {
+    // When memento-media:///Users/... is navigated, Chromium treats the first segment (e.g. "users") as the host
+    filePath = "/" + decodeURIComponent(parsed.host + parsed.pathname);
+  }
+  if (process.platform === "win32" && filePath.startsWith("/")) {
+    filePath = filePath.slice(1);
+  }
+  return filePath;
+}
+
   void app.whenReady().then(async () => {
-    // Enable local media stream handler with full CORS support
+    // Enable local media stream handler with full HTTP 206 Range & CORS support
     protocol.handle("memento-media", async (request) => {
       if (request.method === "OPTIONS") {
         return new Response(null, {
@@ -1394,21 +1459,102 @@ if (!app.requestSingleInstanceLock()) {
         });
       }
       try {
-        let filePath = decodeURIComponent(new URL(request.url).pathname);
-        if (process.platform === "win32" && filePath.startsWith("/")) {
-          filePath = filePath.slice(1);
+        const filePath = parseMementoMediaFilePath(request.url);
+        const st = statSync(filePath);
+        if (!st.isFile()) {
+          return new Response("Not a file", {
+            status: 404,
+            headers: { "Access-Control-Allow-Origin": "*" },
+          });
         }
-        const fileUrl = pathToFileURL(filePath).toString();
-        const res = await net.fetch(fileUrl);
-        const headers = new Headers(res.headers);
-        headers.set("Access-Control-Allow-Origin", "*");
-        return new Response(res.body, {
-          status: res.status,
-          statusText: res.statusText,
-          headers,
+        const fileSize = st.size;
+        const mimeType = getMediaMimeType(filePath);
+
+        if (request.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Content-Length": fileSize.toString(),
+              "Content-Type": mimeType,
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+              "Access-Control-Allow-Headers": "*",
+            },
+          });
+        }
+
+        const rangeHeader = request.headers.get("range");
+        if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+          const parts = rangeHeader.replace(/bytes=/, "").split("-");
+          const start = parts[0] ? parseInt(parts[0], 10) : 0;
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+          if (start > end || start >= fileSize) {
+            return new Response(null, {
+              status: 416,
+              statusText: "Range Not Satisfiable",
+              headers: {
+                "Content-Range": `bytes */${fileSize}`,
+                "Access-Control-Allow-Origin": "*",
+              },
+            });
+          }
+
+          const chunkSize = end - start + 1;
+          const stream = createReadStream(filePath, { start, end });
+          const webStream = new ReadableStream({
+            start(controller) {
+              stream.on("data", (chunk) => controller.enqueue(chunk));
+              stream.on("end", () => controller.close());
+              stream.on("error", (err) => controller.error(err));
+            },
+            cancel() {
+              stream.destroy();
+            },
+          });
+
+          return new Response(webStream, {
+            status: 206,
+            statusText: "Partial Content",
+            headers: {
+              "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+              "Accept-Ranges": "bytes",
+              "Content-Length": chunkSize.toString(),
+              "Content-Type": mimeType,
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+              "Access-Control-Allow-Headers": "*",
+            },
+          });
+        }
+
+        // Full file streaming
+        const stream = createReadStream(filePath);
+        const webStream = new ReadableStream({
+          start(controller) {
+            stream.on("data", (chunk) => controller.enqueue(chunk));
+            stream.on("end", () => controller.close());
+            stream.on("error", (err) => controller.error(err));
+          },
+          cancel() {
+            stream.destroy();
+          },
         });
-      } catch {
-        return new Response("Media not found", {
+
+        return new Response(webStream, {
+          status: 200,
+          headers: {
+            "Accept-Ranges": "bytes",
+            "Content-Length": fileSize.toString(),
+            "Content-Type": mimeType,
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+          },
+        });
+      } catch (err) {
+        return new Response("Media not found: " + String(err), {
           status: 404,
           headers: { "Access-Control-Allow-Origin": "*" },
         });

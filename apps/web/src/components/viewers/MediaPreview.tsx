@@ -987,6 +987,21 @@ export function VideoPlayer({
       return;
     }
 
+    if (resolved.playUrl.startsWith("memento-media://")) {
+      // If desktop local IPC protocol encounters an issue, gracefully fall back to the authenticated device tunnel stream
+      const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
+      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
+      const apiBase = getApiBase();
+      const fallbackUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(resolvedFilename)}?path=${encodeURIComponent(localPath || "")}${tokenParam}`;
+      resumeAtRef.current = currentPos;
+      setResolved((prev) => ({
+        ...prev,
+        playUrl: fallbackUrl,
+        downloadUrl: prev.downloadUrl || fallbackUrl,
+      }));
+      return;
+    }
+
     if (retryCountRef.current < 3) {
       retryCountRef.current += 1;
       setIsRecovering(true);
@@ -2110,11 +2125,11 @@ export function VideoPlayer({
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-black/90 z-10 backdrop-blur-xs">
             <FiAlertCircle className="w-12 h-12 text-amber-400 mb-3" />
             <h4 className="text-white font-medium text-sm mb-1">
-              {localPath ? "当前环境无法直接硬件解码此格式" : "无法在此环境直接内嵌解码播放"}
+              {localPath ? "当前环境无法直接解码播放此视频" : "无法在此环境直接内嵌解码播放"}
             </h4>
             <p className="text-white/60 text-xs max-w-sm mb-4">
               {localPath
-                ? `原片位于本地磁盘：${localPath}。若浏览器沙箱不支持此视频编码，您可以直接调用系统播放器无损秒播。`
+                ? `原片位于本地磁盘：${localPath}。您可以点击下方按钮直接调用系统播放器无损秒播，或在访达中查看。`
                 : "此格式可能受当前桌面沙箱/浏览器解码器策略限制，您可以直接下载原片并在本地媒体播放器中查看。"}
             </p>
             <div className="flex items-center gap-2.5 flex-wrap justify-center">

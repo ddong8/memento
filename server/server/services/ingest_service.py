@@ -847,14 +847,12 @@ async def ingest_file(
                 project_id = row
 
     # Find existing document
-    doc_lookup_query = (
-        select(Document)
-        .options(defer(Document.content))
-        .where(
-            Document.tool_id == tool_id,
-            Document.relative_path == relative_path,
-        )
+    doc_lookup_query = select(Document).where(
+        Document.tool_id == tool_id,
+        Document.relative_path == relative_path,
     )
+    if mode != "delta":
+        doc_lookup_query = doc_lookup_query.options(defer(Document.content))
     if mach_uuid is not None:
         doc_lookup_query = doc_lookup_query.where(
             or_(

@@ -1483,6 +1483,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const isPpt = item.type === "presentation" || ["pptx", "ppt", "key", "potx"].includes(ext);
   const isXls = item.type === "spreadsheet" || ["xlsx", "xls"].includes(ext);
   const isDoc = item.type === "document" || ["docx", "doc", "rtf"].includes(ext);
+  const [viewEngine, setViewEngine] = useState<"embed" | "office" | "meta">("embed");
 
   const formatMeta = isPpt
     ? {
@@ -1512,53 +1513,147 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       };
 
   return (
-    <div className="w-full flex flex-col gap-4 p-4 sm:p-5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-xl text-left">
+    <div className="w-full flex flex-col gap-4 p-3 sm:p-5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-xl text-left">
       {/* Brand Header Banner */}
-      <div className={`p-4 rounded-xl border ${formatMeta.borderColor} bg-gradient-to-br ${formatMeta.accentColor} flex items-start justify-between gap-3`}>
-        <div className="flex items-start gap-3">
-          <span className="text-3xl select-none p-1">{formatMeta.icon}</span>
-          <div>
+      <div className={`p-3.5 sm:p-4 rounded-xl border ${formatMeta.borderColor} bg-gradient-to-br ${formatMeta.accentColor} flex items-start justify-between gap-3`}>
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="text-3xl select-none p-1 shrink-0">{formatMeta.icon}</span>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${formatMeta.badgeColor} font-semibold`}>
+              <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${formatMeta.badgeColor} font-semibold shrink-0`}>
                 {ext.toUpperCase()} 产物
               </span>
-              <span className="text-xs font-semibold text-[var(--aurora-fg1)]">{formatMeta.name}</span>
+              <span className="text-xs font-semibold text-[var(--aurora-fg1)] truncate">{formatMeta.name}</span>
             </div>
             <h3 className="text-sm sm:text-base font-bold text-[var(--aurora-fg1)] mt-1.5 break-all" title={displayTitle}>
               {displayTitle}
             </h3>
-            <p className="text-[11px] text-[var(--aurora-fg3)] mt-1">
+            <p className="text-[11px] text-[var(--aurora-fg3)] mt-1 truncate">
               推荐配套：{formatMeta.appHint}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Local Path Card */}
-      {resolved.localPath ? (
-        <div className="p-3.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 flex flex-col gap-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--aurora-fg3)] font-medium flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              本地物理文件已就绪
-            </span>
+      {/* 视窗引擎模式切换 */}
+      <div className="flex items-center justify-between px-3 py-2 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-semibold text-[var(--aurora-fg1)]">应用内视窗</span>
+        </div>
+        <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/5">
+          <button
+            type="button"
+            onClick={() => setViewEngine("embed")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              viewEngine === "embed"
+                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+            }`}
+          >
+            原生视窗
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewEngine("office")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              viewEngine === "office"
+                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+            }`}
+          >
+            微软引擎
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewEngine("meta")}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+              viewEngine === "meta"
+                ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+            }`}
+          >
+            文件详情
+          </button>
+        </div>
+      </div>
+
+      {/* 1. 原生应用内嵌视窗 (支持 iOS QuickLook、原生多点触摸缩放) */}
+      {viewEngine === "embed" && (
+        <div className="w-full rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-black/80 shadow-2xl relative flex flex-col">
+          <iframe
+            src={resolved.playUrl}
+            className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
+            title={displayTitle}
+            allowFullScreen
+          />
+          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)]">
+            <span>支持 iOS 原生 QuickLook 翻页与缩放</span>
             <button
               type="button"
-              onClick={handleCopyPath}
-              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 text-[11px]"
+              onClick={() => window.open(resolved.playUrl, "_blank")}
+              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
             >
-              {copied ? <FiCheck className="w-3 h-3 text-emerald-400" /> : <FiCopy className="w-3 h-3" />}
-              <span>{copied ? "已复制" : "复制绝对路径"}</span>
+              <FiExternalLink className="w-3 h-3" />
+              <span>全屏独立打开 ↗</span>
             </button>
           </div>
-          <div className="p-2 rounded-lg bg-black/30 border border-white/5 font-mono text-[11px] text-[var(--aurora-fg2)] break-all select-all">
-            {resolved.localPath}
+        </div>
+      )}
+
+      {/* 2. 微软官方云端 Office Web Viewer 视窗 */}
+      {viewEngine === "office" && (
+        <div className="w-full rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-black/80 shadow-2xl relative flex flex-col">
+          <iframe
+            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
+            className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
+            title={displayTitle}
+            allowFullScreen
+          />
+          <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)]">
+            <span>通过微软官方 Office Web Viewer 在线完整渲染</span>
+            <a
+              href={`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
+            >
+              <FiExternalLink className="w-3 h-3" />
+              <span>微软全屏视窗 ↗</span>
+            </a>
           </div>
         </div>
-      ) : (
-        <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/30 text-xs text-[var(--aurora-fg3)]">
-          网络远端或云端工作台产物文件
-        </div>
+      )}
+
+      {/* 3. 本地文件元数据与路径详情 */}
+      {viewEngine === "meta" && (
+        <>
+          {resolved.localPath ? (
+            <div className="p-3.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--aurora-fg3)] font-medium flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  本地物理文件已就绪
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyPath}
+                  className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 text-[11px]"
+                >
+                  {copied ? <FiCheck className="w-3 h-3 text-emerald-400" /> : <FiCopy className="w-3 h-3" />}
+                  <span>{copied ? "已复制" : "复制绝对路径"}</span>
+                </button>
+              </div>
+              <div className="p-2 rounded-lg bg-black/30 border border-white/5 font-mono text-[11px] text-[var(--aurora-fg2)] break-all select-all">
+                {resolved.localPath}
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/30 text-xs text-[var(--aurora-fg3)]">
+              网络远端设备文件直连隧道流
+            </div>
+          )}
+        </>
       )}
 
       {/* Action Buttons */}
@@ -1579,7 +1674,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] active:scale-[0.98] text-[var(--aurora-fg1)] text-xs font-medium transition-all cursor-pointer"
           >
             <FiFolder className="w-4 h-4 text-amber-400" />
-            <span>在访达中显示原件</span>
+            <span>在访达/资源管理器中显示</span>
           </button>
         )}
 
@@ -1589,12 +1684,12 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
           className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] active:scale-[0.98] text-[var(--aurora-fg1)] text-xs font-medium transition-all cursor-pointer col-span-1 sm:col-span-2"
         >
           <FiDownload className="w-4 h-4" />
-          <span>下载完整产物副本</span>
+          <span>下载原件并在手机 Office/WPS 打开</span>
         </a>
       </div>
 
       <div className="p-3 rounded-xl bg-[var(--aurora-chip)]/20 border border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg3)] leading-relaxed">
-        💡 提示：Memento 工作台已实现全智能体产物联动。Codex、WorkBuddy 或 Antigravity 生成的 PPT、Excel、Word 均可直接在右侧视窗唤起系统程序完整排版呈现，动画、公式与宏均 100% 无损保真。
+        💡 提示：Memento 工作台已全面支持应用内直接预览 PPT、Excel、Word 与 PDF。手机端可通过 iOS QuickLook 直接翻阅幻灯片，桌面端可联动本地系统应用无损排版编辑。
       </div>
     </div>
   );

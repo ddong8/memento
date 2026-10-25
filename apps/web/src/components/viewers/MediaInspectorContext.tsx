@@ -231,20 +231,25 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       }
     };
 
-    for (const turn of turns) {
-      scanAndAdd(turn.content);
-      scanAndAdd(turn.thinking);
-      if (Array.isArray(turn.toolCalls)) {
-        for (const tc of turn.toolCalls) {
-          if (!tc) continue;
-          scanAndAdd(tc.input);
-          scanAndAdd(tc.output);
-          scanAndAdd(tc.aggregated_output);
-          scanAndAdd(tc.command);
-          if (tc.arguments) {
-            scanAndAdd(typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments));
-          }
+    const scanDeep = (obj: any) => {
+      if (!obj) return;
+      if (typeof obj === "string") {
+        scanAndAdd(obj);
+      } else if (Array.isArray(obj)) {
+        for (const item of obj) scanDeep(item);
+      } else if (typeof obj === "object") {
+        for (const [k, val] of Object.entries(obj)) {
+          if (k === "image_base64" || k === "bytes") continue;
+          scanDeep(val);
         }
+      }
+    };
+
+    for (const turn of turns) {
+      scanDeep(turn.content);
+      scanDeep(turn.thinking);
+      if (turn.toolCalls) {
+        scanDeep(turn.toolCalls);
       }
     }
 

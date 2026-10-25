@@ -112,7 +112,7 @@ export function parseVttCues(vtt: string): SubtitleCue[] {
 export function detectMediaType(url: string | null | undefined): MediaType {
   if (!url) return "unknown";
   try {
-    const clean = url.split("?")[0].split("#")[0].toLowerCase();
+    const clean = url.split("?")[0].split("#")[0].replace(/\\/g, "/").toLowerCase();
     const ext = clean.split(".").pop() || "";
     if (VIDEO_EXTS.has(ext)) return "video";
     if (AUDIO_EXTS.has(ext)) return "audio";
@@ -159,7 +159,7 @@ export function safeDecodePath(path: string | null | undefined): string {
 /** Extract filename from URL or file path */
 export function getFilenameFromUrl(url: string): string {
   try {
-    const clean = safeDecodePath(url.split("?")[0].split("#")[0]);
+    const clean = safeDecodePath(url.split("?")[0].split("#")[0]).replace(/\\/g, "/");
     const name = clean.split("/").filter(Boolean).pop();
     return name || "media-file";
   } catch {

@@ -7,6 +7,7 @@ import MarkdownViewer from "./viewers/MarkdownViewer";
 import { useI18n } from "@/lib/i18n";
 import type { TaskEvent } from "@memento/core";
 import TaskTimeline, { SteerBox } from "./TaskTimeline";
+import { useMediaInspector, extractMediaFromMarkdown } from "./viewers/MediaInspectorContext";
 
 export interface ToolCallItem {
   id?: string;
@@ -47,12 +48,26 @@ const ExecutionCard = memo(function ExecutionCard({
 }: ExecutionCardProps) {
   const { t, locale } = useI18n();
   const terminalRef = useRef<HTMLPreElement>(null);
+  const inspector = useMediaInspector?.() || null;
 
   const { name, args, device_name, result } = call;
   const action = (result?.action || (args?.action as string) || (name === "run_on_device" ? "shell" : name));
   const machineName = result?.device_name || device_name || (args?.device_id as string) || "";
   const command = (args?.command as string) || (args?.prompt as string) || "";
   const cwd = (args?.cwd as string) || "";
+
+  const discoveredMedia = useMemo(() => {
+    const textToScan = [
+      result?.stdout,
+      result?.note,
+      result?.stderr,
+      typeof args?.prompt === "string" ? args.prompt : "",
+      typeof args?.command === "string" ? args.command : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return extractMediaFromMarkdown(textToScan);
+  }, [result?.stdout, result?.note, result?.stderr, args?.prompt, args?.command]);
 
   const binary = (
     (args?.binary as string) ||
@@ -753,6 +768,60 @@ const ExecutionCard = memo(function ExecutionCard({
                 fontSize: 13.5,
               }}
             >
+              {/* 生成产物快速唤起横幅 */}
+              {discoveredMedia.length > 0 && inspector && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    background: "rgba(56, 189, 248, 0.12)",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span style={{ fontSize: 16 }}>
+                      {discoveredMedia[0].type === "presentation" ? "📽️" : discoveredMedia[0].type === "spreadsheet" ? "📊" : "📄"}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--aurora-fg1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        已生成产物：{discoveredMedia[0].title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
+                        点击在 Memento 应用内直接打开视窗预览
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      inspector.openMediaByUrl(discoveredMedia[0].url, discoveredMedia[0].title);
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "4px 12px",
+                      borderRadius: 8,
+                      background: "var(--aurora-accent)",
+                      color: "#fff",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      border: "none",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      boxShadow: "0 2px 8px rgba(56, 189, 248, 0.3)",
+                    }}
+                  >
+                    <span>应用内打开 ↗</span>
+                  </button>
+                </div>
+              )}
               {command && (
                 isAgent ? (
                   <div

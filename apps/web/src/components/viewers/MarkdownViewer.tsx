@@ -634,6 +634,81 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 </code>
               );
             }
+
+            const rawText = Array.isArray(children)
+              ? children.map((c) => (typeof c === "string" ? c : "")).join("").trim()
+              : typeof children === "string"
+              ? children.trim()
+              : "";
+
+            const mediaType = detectMediaType(rawText);
+            const isPath = (rawText.includes("/") || rawText.includes("\\")) && isLocalFilePath(rawText);
+
+            if (mediaType !== "unknown" && isPath && inspector) {
+              const label = getFilenameFromUrl(rawText);
+              const cleanHref = safeDecodePath(rawText);
+              const isCurrentlyInspected = Boolean(
+                inspector.isOpen &&
+                inspector.activeMedia &&
+                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+                 inspector.activeMedia.title === label)
+              );
+              const iconEmoji =
+                mediaType === "presentation"
+                  ? "📽️"
+                  : mediaType === "spreadsheet"
+                  ? "📊"
+                  : mediaType === "pdf"
+                  ? "📕"
+                  : mediaType === "video"
+                  ? "🎬"
+                  : mediaType === "audio"
+                  ? "🎵"
+                  : "📝";
+              const typeDesc =
+                mediaType === "presentation"
+                  ? "PPT 演示文稿"
+                  : mediaType === "spreadsheet"
+                  ? "Excel 电子表格"
+                  : mediaType === "pdf"
+                  ? "PDF 文档"
+                  : mediaType === "video"
+                  ? "视频"
+                  : mediaType === "audio"
+                  ? "音频"
+                  : "办公文档";
+
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    inspector.openMediaByUrl(rawText, label);
+                  }}
+                  className="not-prose my-1.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] transition-all cursor-pointer select-none group/code max-w-full text-left"
+                  title={`点击在 Memento 应用内打开${typeDesc}视窗：${label}`}
+                >
+                  <span className="text-sm shrink-0">{iconEmoji}</span>
+                  <span className="font-semibold text-xs truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/code:text-[var(--aurora-accent)] transition-colors" title={label}>
+                    {label}
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg3)] uppercase shrink-0">
+                    {label.split(".").pop() || mediaType}
+                  </span>
+                  {isCurrentlyInspected ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
+                      已在视窗展示
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
+                      在工作台打开 ↗
+                    </span>
+                  )}
+                </button>
+              );
+            }
+
             return (
               <code
                 className="px-1.5 py-0.5 rounded text-[0.85em] font-mono bg-[var(--aurora-chip)] text-[var(--aurora-fg1)] border border-[var(--aurora-border)] break-words [overflow-wrap:anywhere] [box-decoration-break:clone] [-webkit-box-decoration-break:clone]"

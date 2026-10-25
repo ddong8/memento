@@ -2629,6 +2629,22 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
     playbackRate,
   });
 
+  // Explicitly release audio decoder and background playback stream upon unmount
+  useEffect(() => {
+    const a = audioRef.current;
+    return () => {
+      if (a) {
+        try {
+          a.pause();
+          a.removeAttribute("src");
+          a.load();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
   const togglePlay = () => {
     const a = audioRef.current;
     if (!a) return;

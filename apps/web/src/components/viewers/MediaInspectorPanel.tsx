@@ -1409,8 +1409,8 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
     }
   };
 
-  // CSV / TSV 结构化解析
-  const parsedTable = useMemo(() => {
+  // CSV / TSV 结构化解析：第一阶段——行与单元格基础解析（缓存，仅依赖 textData 与 ext）
+  const rawTable = useMemo(() => {
     if (!textData || !["csv", "tsv"].includes(ext)) return null;
     const delimiter = ext === "tsv" ? "\t" : ",";
     const lines = textData.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -1437,12 +1437,110 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
 
     const headers = parseLine(lines[0]);
     const rawRows = lines.slice(1).map(parseLine);
-    const filteredRows = search.trim()
-      ? rawRows.filter((r) => r.some((cell) => cell.toLowerCase().includes(search.toLowerCase())))
-      : rawRows;
+    return { headers, rawRows };
+  }, [textData, ext]);
 
-    return { headers, rows: filteredRows, totalRows: rawRows.length };
-  }, [textData, ext, search]);
+  // CSV / TSV 结构化解析：第二阶段——关键字轻量过滤（依赖 rawTable 与 search）
+  const filteredRows = useMemo(() => {
+    if (!rawTable) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return rawTable.rawRows;
+    return rawTable.rawRows.filter((r) => r.some((cell) => cell.toLowerCase().includes(q)));
+  }, [rawTable, search]);
+
+  const [page, setPage] = useState<number>(1);
+  const PAGE_SIZE = 100;
+
+  // 搜索关键字或数据源发生变动时重置回第一页
+  useEffect(() => {
+    setPage(1);
+  }, [search, textData]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  // CSV / TSV 结构化解析：第三阶段——分页切片，使单次渲染 DOM 节点控制在 100 行内
+  const pagedRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredRows.slice(start, start + PAGE_SIZE);
+  }, [filteredRows, currentPage]);
+
+  const parsedTable = useMemo(() => {
+    if (!rawTable) return null;
+    return {
+      headers: rawTable.headers,
+      rows: pagedRows,
+      totalRows: rawTable.rawRows.length,
+      filteredCount: filteredRows.length,
+    };
+  }, [rawTable, pagedRows, filteredRows.length]);
+
+  const renderPaginationBar = () => {
+    if (!parsedTable || filteredRows.length <= PAGE_SIZE) return null;
+    return (
+      <div className="flex items-center justify-between px-3 py-2 bg-[var(--aurora-chip)]/40 border-t border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg3)] select-none shrink-0">
+        <div className="flex items-center gap-1.5">
+          <span>
+            显示第 {(currentPage - 1) * PAGE_SIZE + 1} - {Math.min(currentPage * PAGE_SIZE, filteredRows.length)} 行
+          </span>
+          <span className="text-[var(--aurora-fg4)]">/</span>
+          <span>共 {filteredRows.length} 条</span>
+          {search.trim() && <span className="text-emerald-500 font-medium">(已过滤)</span>}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={() => {
+              setPage(1);
+              triggerHapticFeedback();
+            }}
+            className="px-2 py-0.5 rounded border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:bg-[var(--aurora-chip)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+          >
+            首页
+          </button>
+          <button
+            type="button"
+            disabled={currentPage <= 1}
+            onClick={() => {
+              setPage((p) => Math.max(1, p - 1));
+              triggerHapticFeedback();
+            }}
+            className="p-1 rounded border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:bg-[var(--aurora-chip)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+            title="上一页"
+          >
+            <FiChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="px-1.5 font-mono text-[var(--aurora-fg1)] font-medium">
+            {currentPage} / {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={currentPage >= totalPages}
+            onClick={() => {
+              setPage((p) => Math.min(totalPages, p + 1));
+              triggerHapticFeedback();
+            }}
+            className="p-1 rounded border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:bg-[var(--aurora-chip)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+            title="下一页"
+          >
+            <FiChevronRight className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            disabled={currentPage >= totalPages}
+            onClick={() => {
+              setPage(totalPages);
+              triggerHapticFeedback();
+            }}
+            className="px-2 py-0.5 rounded border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:bg-[var(--aurora-chip)] disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+          >
+            末页
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderFullscreenPortal = () => {
     if (!isDocFullscreen || !mounted || typeof document === "undefined") return null;
@@ -1569,7 +1667,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
               allowFullScreen
             />
           ) : ["csv", "tsv"].includes(ext) && parsedTable ? (
-            <div className="w-full h-full overflow-auto bg-[var(--aurora-surface-solid)] p-3 text-xs flex flex-col">
+            <div className="w-full h-full overflow-hidden bg-[var(--aurora-surface-solid)] p-3 text-xs flex flex-col">
               <div className="relative mb-2 shrink-0">
                 <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--aurora-fg3)]" />
                 <input
@@ -1580,31 +1678,37 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                   className="w-full pl-8 pr-3 py-1.5 bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] rounded-lg text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-none focus:border-[var(--aurora-accent)]"
                 />
               </div>
-              <div className="flex-1 overflow-auto border border-[var(--aurora-border)] rounded-xl">
-                <table className="w-full border-collapse text-left">
-                  <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)]">
-                    <tr>
-                      <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">#</th>
-                      {parsedTable.headers.map((h, i) => (
-                        <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
-                          {h || `列 ${i + 1}`}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parsedTable.rows.map((row, rIdx) => (
-                      <tr key={rIdx} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30">
-                        <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">{rIdx + 1}</td>
-                        {parsedTable.headers.map((_, cIdx) => (
-                          <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
-                            {row[cIdx] || ""}
-                          </td>
+              <div className="flex-1 overflow-hidden border border-[var(--aurora-border)] rounded-xl flex flex-col min-h-0 bg-[var(--aurora-surface-solid)]">
+                <div className="flex-1 overflow-auto">
+                  <table className="w-full border-collapse text-left">
+                    <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] z-10 shadow-xs">
+                      <tr>
+                        <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">#</th>
+                        {parsedTable.headers.map((h, i) => (
+                          <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
+                            {h || `列 ${i + 1}`}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {parsedTable.rows.map((row, rIdx) => {
+                        const rowNumber = (currentPage - 1) * PAGE_SIZE + rIdx + 1;
+                        return (
+                          <tr key={rowNumber} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30 transition-colors">
+                            <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">{rowNumber}</td>
+                            {parsedTable.headers.map((_, cIdx) => (
+                              <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
+                                {row[cIdx] || ""}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {renderPaginationBar()}
               </div>
             </div>
           ) : viewEngine === "office" ? (
@@ -1789,49 +1893,77 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
           </div>
         </div>
 
-        {/* Search Filter */}
-        <div className="relative">
-          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--aurora-fg3)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索表格数据内容..."
-            className="w-full pl-8 pr-3 py-1.5 bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] rounded-lg text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-none focus:border-[var(--aurora-accent)]"
-          />
-        </div>
+        {!isDocFullscreen ? (
+          <>
+            {/* Search Filter */}
+            <div className="relative">
+              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--aurora-fg3)]" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索表格数据内容..."
+                className="w-full pl-8 pr-3 py-1.5 bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] rounded-lg text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-none focus:border-[var(--aurora-accent)]"
+              />
+            </div>
 
-        {/* Data Table */}
-        <div className="w-full max-h-[480px] overflow-auto rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-xs">
-          <table className="w-full border-collapse text-left">
-            <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shadow-xs">
-              <tr>
-                <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">
-                  #
-                </th>
-                {parsedTable.headers.map((h, i) => (
-                  <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
-                    {h || `列 ${i + 1}`}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {parsedTable.rows.map((row, rIdx) => (
-                <tr key={rIdx} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30 transition-colors">
-                  <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">
-                    {rIdx + 1}
-                  </td>
-                  {parsedTable.headers.map((_, cIdx) => (
-                    <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
-                      {row[cIdx] || ""}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            {/* Data Table */}
+            <div className="w-full max-h-[480px] overflow-hidden rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-xs flex flex-col">
+              <div className="flex-1 overflow-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shadow-xs z-10">
+                    <tr>
+                      <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">
+                        #
+                      </th>
+                      {parsedTable.headers.map((h, i) => (
+                        <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
+                          {h || `列 ${i + 1}`}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedTable.rows.map((row, rIdx) => {
+                      const rowNumber = (currentPage - 1) * PAGE_SIZE + rIdx + 1;
+                      return (
+                        <tr key={rowNumber} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30 transition-colors">
+                          <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">
+                            {rowNumber}
+                          </td>
+                          {parsedTable.headers.map((_, cIdx) => (
+                            <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
+                              {row[cIdx] || ""}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {renderPaginationBar()}
+            </div>
+          </>
+        ) : (
+          <div className="w-full h-[280px] rounded-xl border border-[var(--aurora-border)] bg-black/60 flex flex-col items-center justify-center text-white gap-2 text-xs">
+            <span className="p-2.5 rounded-full bg-white/10 text-emerald-400 animate-pulse">
+              <FiMaximize2 className="w-5 h-5" />
+            </span>
+            <span className="text-[var(--aurora-fg1)] font-semibold">正在全屏数据看板中查看</span>
+            <span className="text-[var(--aurora-fg3)] text-[11px]">底层渲染已自动挂起以节省内存与算力</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(false);
+                setIsDocLandscape(false);
+              }}
+              className="mt-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition-all cursor-pointer"
+            >
+              退出全屏数据看板
+            </button>
+          </div>
+        )}
       </div>
     );
   }

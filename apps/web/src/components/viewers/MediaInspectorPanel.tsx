@@ -24,6 +24,9 @@ import {
   FiRotateCcw,
   FiRefreshCw,
   FiSmartphone,
+  FiSliders,
+  FiLayers,
+  FiSearch,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
 import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
@@ -209,6 +212,11 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         return <ImagePreview key={activeMedia.url} src={activeMedia.url} alt={displayTitle} />;
       case "markdown":
         return <MarkdownDocViewer key={`${activeMedia.url || activeMedia.id}_${inspector.refreshKey}`} item={activeMedia} />;
+      case "presentation":
+      case "spreadsheet":
+      case "document":
+      case "pdf":
+        return <OfficeDocViewer key={`${activeMedia.url || activeMedia.id}_${inspector.refreshKey}`} item={activeMedia} />;
       default:
         return <MediaAttachmentCard key={activeMedia.url} url={activeMedia.url} title={displayTitle} />;
     }
@@ -226,6 +234,14 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
       case "subtitle":
         return <FiFileText className="w-3.5 h-3.5 text-indigo-400" />;
+      case "presentation":
+        return <FiSliders className="w-3.5 h-3.5 text-orange-400" />;
+      case "spreadsheet":
+        return <FiLayers className="w-3.5 h-3.5 text-emerald-400" />;
+      case "document":
+        return <FiFileText className="w-3.5 h-3.5 text-blue-400" />;
+      case "pdf":
+        return <FiFileText className="w-3.5 h-3.5 text-rose-400" />;
       default:
         return <FiFileText className="w-3.5 h-3.5 text-amber-400" />;
     }
@@ -1180,6 +1196,406 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         defaultTitle={item.title}
         initialThemeId={themeId}
       />
+    </div>
+  );
+}
+
+function OfficeDocViewer({ item }: { item: MediaItem }) {
+  const inspector = useMediaInspector();
+  const resolved = resolveMediaUrl(item.url);
+  const displayTitle = item.title || resolved.filename || "办公文档";
+  const ext = (displayTitle.split(".").pop() || item.type).toLowerCase();
+  const isLocal = isLocalFilePath(item.url);
+
+  const [textData, setTextData] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(["csv", "tsv", "txt", "log"].includes(ext));
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState<string>("");
+  const [copied, setCopied] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!["csv", "tsv", "txt", "log"].includes(ext)) return;
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    const loadText = async () => {
+      try {
+        const decoded = safeDecodePath(item.url);
+        let clean = decoded.replace(/^file:\/\//, "");
+        if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+          clean = clean.slice(1);
+        }
+        const d = desktop();
+        if (d && typeof d.readFile === "function" && isLocal) {
+          const res = await d.readFile(clean);
+          if (res && typeof res.content === "string") {
+            if (active) {
+              setTextData(res.content);
+              setLoading(false);
+            }
+            return;
+          }
+        }
+        const fetchUrl = resolved.playUrl;
+        const res = await authFetch(fetchUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const txt = await res.text();
+        if (active) {
+          setTextData(txt);
+          setLoading(false);
+        }
+      } catch (e: any) {
+        if (active) {
+          setError(e?.message || "无法读取文本内容");
+          setLoading(false);
+        }
+      }
+    };
+
+    loadText();
+    return () => {
+      active = false;
+    };
+  }, [item.url, ext, isLocal, resolved.playUrl]);
+
+  const handleOpenNative = async () => {
+    const d = desktop();
+    if (resolved.localPath && d && typeof (d as any).openPath === "function") {
+      try {
+        const err = await (d as any).openPath(resolved.localPath);
+        if (!err) {
+          showInAppToast("已在本地系统程序中打开", displayTitle);
+          return;
+        }
+      } catch (e) {
+        console.warn("openPath failed", e);
+      }
+    }
+    if (d && typeof (d as any).openExternal === "function") {
+      (d as any).openExternal(resolved.downloadUrl || item.url);
+    } else {
+      window.open(resolved.downloadUrl || item.url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleRevealFolder = () => {
+    const d = desktop();
+    if (resolved.localPath && d && typeof (d as any).showItemInFolder === "function") {
+      (d as any).showItemInFolder(resolved.localPath);
+      showInAppToast("已在访达/资源管理器中显示", displayTitle);
+    }
+  };
+
+  const handleCopyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(resolved.localPath || item.url);
+      setCopied(true);
+      showInAppToast("已复制路径", resolved.localPath || item.url);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  // CSV / TSV 结构化解析
+  const parsedTable = useMemo(() => {
+    if (!textData || !["csv", "tsv"].includes(ext)) return null;
+    const delimiter = ext === "tsv" ? "\t" : ",";
+    const lines = textData.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length === 0) return null;
+
+    const parseLine = (line: string) => {
+      const row: string[] = [];
+      let inQuotes = false;
+      let current = "";
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"' && (i === 0 || line[i - 1] !== "\\")) {
+          inQuotes = !inQuotes;
+        } else if (char === delimiter && !inQuotes) {
+          row.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      row.push(current.trim());
+      return row;
+    };
+
+    const headers = parseLine(lines[0]);
+    const rawRows = lines.slice(1).map(parseLine);
+    const filteredRows = search.trim()
+      ? rawRows.filter((r) => r.some((cell) => cell.toLowerCase().includes(search.toLowerCase())))
+      : rawRows;
+
+    return { headers, rows: filteredRows, totalRows: rawRows.length };
+  }, [textData, ext, search]);
+
+  // 1. PDF 原生视窗
+  if (ext === "pdf" || item.type === "pdf") {
+    return (
+      <div className="w-full flex flex-col gap-3">
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-rose-400 font-bold text-sm">📕</span>
+            <span className="font-semibold text-[var(--aurora-fg1)]">PDF 文档视窗</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/15 text-rose-300">PREVIEW</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {resolved.localPath && (
+              <button
+                type="button"
+                onClick={handleOpenNative}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
+              >
+                <FiExternalLink className="w-3 h-3" />
+                <span>系统预览打开</span>
+              </button>
+            )}
+            <a
+              href={resolved.downloadUrl}
+              download={displayTitle}
+              className="px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)] text-white text-[11px] font-medium flex items-center gap-1 hover:opacity-90 transition-opacity"
+            >
+              <FiDownload className="w-3 h-3" />
+              <span>下载</span>
+            </a>
+          </div>
+        </div>
+        <iframe
+          src={resolved.playUrl}
+          className="w-full h-[600px] rounded-xl border border-[var(--aurora-border)] bg-white shadow-inner"
+          title={displayTitle}
+        />
+      </div>
+    );
+  }
+
+  // 2. CSV / TSV 动态交互表格
+  if (["csv", "tsv"].includes(ext) && parsedTable) {
+    return (
+      <div className="w-full flex flex-col gap-3">
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-400 font-bold text-sm">📊</span>
+            <span className="font-semibold text-[var(--aurora-fg1)]">电子表格数据视窗</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300">
+              {parsedTable.totalRows} 行数据
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {resolved.localPath && (
+              <button
+                type="button"
+                onClick={handleOpenNative}
+                className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
+              >
+                <FiExternalLink className="w-3 h-3" />
+                <span>用 Excel 打开</span>
+              </button>
+            )}
+            <a
+              href={resolved.downloadUrl}
+              download={displayTitle}
+              className="px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)] text-white text-[11px] font-medium flex items-center gap-1 hover:opacity-90 transition-opacity"
+            >
+              <FiDownload className="w-3 h-3" />
+              <span>导出</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Search Filter */}
+        <div className="relative">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--aurora-fg3)]" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索表格数据内容..."
+            className="w-full pl-8 pr-3 py-1.5 bg-[var(--aurora-chip)]/40 border border-[var(--aurora-border)] rounded-lg text-xs text-[var(--aurora-fg1)] placeholder-[var(--aurora-fg4)] focus:outline-none focus:border-[var(--aurora-accent)]"
+          />
+        </div>
+
+        {/* Data Table */}
+        <div className="w-full max-h-[480px] overflow-auto rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] text-xs">
+          <table className="w-full border-collapse text-left">
+            <thead className="sticky top-0 bg-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shadow-xs">
+              <tr>
+                <th className="p-2 font-mono text-[10px] text-[var(--aurora-fg3)] border-r border-[var(--aurora-border)] w-10 text-center">
+                  #
+                </th>
+                {parsedTable.headers.map((h, i) => (
+                  <th key={i} className="p-2 font-semibold text-[var(--aurora-fg1)] border-r border-[var(--aurora-border)] whitespace-nowrap">
+                    {h || `列 ${i + 1}`}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {parsedTable.rows.map((row, rIdx) => (
+                <tr key={rIdx} className="border-b border-[var(--aurora-border)]/50 hover:bg-[var(--aurora-chip)]/30 transition-colors">
+                  <td className="p-2 font-mono text-[10px] text-[var(--aurora-fg4)] border-r border-[var(--aurora-border)]/50 text-center select-none">
+                    {rIdx + 1}
+                  </td>
+                  {parsedTable.headers.map((_, cIdx) => (
+                    <td key={cIdx} className="p-2 text-[var(--aurora-fg2)] border-r border-[var(--aurora-border)]/50 whitespace-pre-wrap max-w-xs break-words">
+                      {row[cIdx] || ""}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. TXT / LOG 文本视窗
+  if (["txt", "log"].includes(ext) && textData) {
+    return (
+      <div className="w-full flex flex-col gap-3">
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--aurora-chip)]/60 rounded-xl border border-[var(--aurora-border)] text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-sky-400 font-bold text-sm">📄</span>
+            <span className="font-semibold text-[var(--aurora-fg1)]">日志与纯文本</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyPath}
+            className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 font-medium"
+          >
+            <FiCopy className="w-3 h-3" />
+            <span>复制内容</span>
+          </button>
+        </div>
+        <pre className="w-full max-h-[500px] overflow-auto p-3.5 rounded-xl border border-[var(--aurora-border)] bg-black/60 text-[var(--aurora-fg2)] font-mono text-xs leading-relaxed select-text whitespace-pre-wrap">
+          {textData}
+        </pre>
+      </div>
+    );
+  }
+
+  // 4. PPTX / XLSX / DOCX 专用工作台看板
+  const isPpt = item.type === "presentation" || ["pptx", "ppt", "key", "potx"].includes(ext);
+  const isXls = item.type === "spreadsheet" || ["xlsx", "xls"].includes(ext);
+  const isDoc = item.type === "document" || ["docx", "doc", "rtf"].includes(ext);
+
+  const formatMeta = isPpt
+    ? {
+        name: "演示文稿 (Presentation)",
+        appHint: "PowerPoint / Keynote / WPS 演示",
+        icon: "📽️",
+        accentColor: "from-orange-500/20 to-amber-500/5",
+        borderColor: "border-orange-500/30",
+        badgeColor: "bg-orange-500/15 text-orange-300 border-orange-500/30",
+      }
+    : isXls
+    ? {
+        name: "电子表格 (Spreadsheet)",
+        appHint: "Microsoft Excel / Numbers / WPS 表格",
+        icon: "📊",
+        accentColor: "from-emerald-500/20 to-teal-500/5",
+        borderColor: "border-emerald-500/30",
+        badgeColor: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      }
+    : {
+        name: "办公文档 (Word Document)",
+        appHint: "Microsoft Word / Pages / WPS 文字",
+        icon: "📝",
+        accentColor: "from-blue-500/20 to-indigo-500/5",
+        borderColor: "border-blue-500/30",
+        badgeColor: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+      };
+
+  return (
+    <div className="w-full flex flex-col gap-4 p-4 sm:p-5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/90 shadow-xl text-left">
+      {/* Brand Header Banner */}
+      <div className={`p-4 rounded-xl border ${formatMeta.borderColor} bg-gradient-to-br ${formatMeta.accentColor} flex items-start justify-between gap-3`}>
+        <div className="flex items-start gap-3">
+          <span className="text-3xl select-none p-1">{formatMeta.icon}</span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-full border ${formatMeta.badgeColor} font-semibold`}>
+                {ext.toUpperCase()} 产物
+              </span>
+              <span className="text-xs font-semibold text-[var(--aurora-fg1)]">{formatMeta.name}</span>
+            </div>
+            <h3 className="text-sm sm:text-base font-bold text-[var(--aurora-fg1)] mt-1.5 break-all" title={displayTitle}>
+              {displayTitle}
+            </h3>
+            <p className="text-[11px] text-[var(--aurora-fg3)] mt-1">
+              推荐配套：{formatMeta.appHint}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Local Path Card */}
+      {resolved.localPath ? (
+        <div className="p-3.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 flex flex-col gap-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--aurora-fg3)] font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              本地物理文件已就绪
+            </span>
+            <button
+              type="button"
+              onClick={handleCopyPath}
+              className="text-[var(--aurora-accent)] hover:underline flex items-center gap-1 text-[11px]"
+            >
+              {copied ? <FiCheck className="w-3 h-3 text-emerald-400" /> : <FiCopy className="w-3 h-3" />}
+              <span>{copied ? "已复制" : "复制绝对路径"}</span>
+            </button>
+          </div>
+          <div className="p-2 rounded-lg bg-black/30 border border-white/5 font-mono text-[11px] text-[var(--aurora-fg2)] break-all select-all">
+            {resolved.localPath}
+          </div>
+        </div>
+      ) : (
+        <div className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/30 text-xs text-[var(--aurora-fg3)]">
+          网络远端或云端工作台产物文件
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          onClick={handleOpenNative}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--aurora-accent)] hover:opacity-90 active:scale-[0.98] text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
+        >
+          <FiExternalLink className="w-4 h-4" />
+          <span>在系统默认应用中打开</span>
+        </button>
+
+        {resolved.localPath && (
+          <button
+            type="button"
+            onClick={handleRevealFolder}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] active:scale-[0.98] text-[var(--aurora-fg1)] text-xs font-medium transition-all cursor-pointer"
+          >
+            <FiFolder className="w-4 h-4 text-amber-400" />
+            <span>在访达中显示原件</span>
+          </button>
+        )}
+
+        <a
+          href={resolved.downloadUrl}
+          download={displayTitle}
+          className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] hover:bg-[var(--aurora-surface)] active:scale-[0.98] text-[var(--aurora-fg1)] text-xs font-medium transition-all cursor-pointer col-span-1 sm:col-span-2"
+        >
+          <FiDownload className="w-4 h-4" />
+          <span>下载完整产物副本</span>
+        </a>
+      </div>
+
+      <div className="p-3 rounded-xl bg-[var(--aurora-chip)]/20 border border-[var(--aurora-border)] text-[11px] text-[var(--aurora-fg3)] leading-relaxed">
+        💡 提示：Memento 工作台已实现全智能体产物联动。Codex、WorkBuddy 或 Antigravity 生成的 PPT、Excel、Word 均可直接在右侧视窗唤起系统程序完整排版呈现，动画、公式与宏均 100% 无损保真。
+      </div>
     </div>
   );
 }

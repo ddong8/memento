@@ -56,8 +56,8 @@ export function extractMediaFromMarkdown(text: string): Array<{ url: string; tit
     }
   }
 
-  // 2. Direct absolute path or file:// occurrences on a line
-  const pathRegex = /(?:^|\s)((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'>\)]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown|srt|vtt))(?:\s|$)/gi;
+  // 2. Direct absolute path or file:// occurrences on a line (handles bare paths, quotes, backticks or brackets)
+  const pathRegex = /(?:^|[\s`"'\(<\[])((\/|file:\/\/|[a-zA-Z]:[/\\])[^\s"'`>\)\]]+\.(mp4|webm|mov|mkv|m4v|mp3|wav|m4a|png|jpg|jpeg|gif|webp|pdf|md|markdown|srt|vtt|pptx|ppt|key|potx|xlsx|xls|csv|tsv|ods|docx|doc|rtf|txt|log))(?=[\s`"'\)>\]]|$)/gi;
   while ((match = pathRegex.exec(text)) !== null) {
     const rawUrl = match[1]?.trim();
     if (rawUrl && !seenUrls.has(rawUrl)) {
@@ -209,13 +209,13 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     });
   }, []);
 
-  const syncTurnsMedia = useCallback((turns: Array<{ content?: string | null; role?: string | null }>) => {
+  const syncTurnsMedia = useCallback((turns: Array<{ content?: string | null; role?: string | null; toolCalls?: any[]; thinking?: string | null }>) => {
     const discovered: MediaItem[] = [];
     const seen = new Set<string>();
 
-    for (const turn of turns) {
-      if (!turn.content) continue;
-      const extracted = extractMediaFromMarkdown(turn.content);
+    const scanAndAdd = (text?: string | null) => {
+      if (!text || typeof text !== "string") return;
+      const extracted = extractMediaFromMarkdown(text);
       for (const item of extracted) {
         const key = safeDecodePath(item.url);
         if (!seen.has(key)) {
@@ -227,6 +227,23 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
             type: item.type,
             localPath: isLocalFilePath(item.url) ? safeDecodePath(item.url.replace(/^file:\/\//, "")) : null,
           });
+        }
+      }
+    };
+
+    for (const turn of turns) {
+      scanAndAdd(turn.content);
+      scanAndAdd(turn.thinking);
+      if (Array.isArray(turn.toolCalls)) {
+        for (const tc of turn.toolCalls) {
+          if (!tc) continue;
+          scanAndAdd(tc.input);
+          scanAndAdd(tc.output);
+          scanAndAdd(tc.aggregated_output);
+          scanAndAdd(tc.command);
+          if (tc.arguments) {
+            scanAndAdd(typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments));
+          }
         }
       }
     }

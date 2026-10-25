@@ -861,6 +861,30 @@ async def stream_device_file(
             mime_type = "image/webp"
         elif ext in (".svg",):
             mime_type = "image/svg+xml"
+        elif ext in (".pptx",):
+            mime_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        elif ext in (".ppt",):
+            mime_type = "application/vnd.ms-powerpoint"
+        elif ext in (".xlsx",):
+            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif ext in (".xls",):
+            mime_type = "application/vnd.ms-excel"
+        elif ext in (".docx",):
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif ext in (".doc",):
+            mime_type = "application/vnd.ms-word"
+        elif ext in (".pdf",):
+            mime_type = "application/pdf"
+        elif ext in (".csv",):
+            mime_type = "text/csv; charset=utf-8"
+        elif ext in (".tsv",):
+            mime_type = "text/tab-separated-values; charset=utf-8"
+        elif ext in (".md", ".markdown"):
+            mime_type = "text/markdown; charset=utf-8"
+        elif ext in (".txt", ".log"):
+            mime_type = "text/plain; charset=utf-8"
+        elif ext in (".json",):
+            mime_type = "application/json; charset=utf-8"
         else:
             mime_type = "application/octet-stream"
 

@@ -43,13 +43,26 @@ import { ImageViewerModal } from "./ImageViewerModal";
 
 export { ImageViewerModal };
 
-export type MediaType = "video" | "audio" | "image" | "pdf" | "markdown" | "subtitle" | "unknown";
+export type MediaType =
+  | "video"
+  | "audio"
+  | "image"
+  | "pdf"
+  | "markdown"
+  | "subtitle"
+  | "presentation"
+  | "spreadsheet"
+  | "document"
+  | "unknown";
 
 const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "ogv", "avi", "flv"]);
 const AUDIO_EXTS = new Set(["mp3", "wav", "m4a", "aac", "ogg", "flac", "opus", "wma"]);
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"]);
 const MARKDOWN_EXTS = new Set(["md", "markdown"]);
 const SUBTITLE_EXTS = new Set(["srt", "vtt"]);
+const PRESENTATION_EXTS = new Set(["pptx", "ppt", "key", "potx", "ppsx"]);
+const SPREADSHEET_EXTS = new Set(["xlsx", "xls", "csv", "tsv", "ods"]);
+const DOCUMENT_EXTS = new Set(["docx", "doc", "rtf", "odt", "txt", "log"]);
 
 /** Convert SRT subtitle format to standard WebVTT format */
 export function srtToVtt(srt: string): string {
@@ -105,6 +118,9 @@ export function detectMediaType(url: string | null | undefined): MediaType {
     if (AUDIO_EXTS.has(ext)) return "audio";
     if (IMAGE_EXTS.has(ext)) return "image";
     if (ext === "pdf") return "pdf";
+    if (PRESENTATION_EXTS.has(ext)) return "presentation";
+    if (SPREADSHEET_EXTS.has(ext)) return "spreadsheet";
+    if (DOCUMENT_EXTS.has(ext)) return "document";
     if (SUBTITLE_EXTS.has(ext)) return "subtitle";
     if (MARKDOWN_EXTS.has(ext) || clean.includes("/documents/") || clean.includes("/artifacts/")) return "markdown";
   } catch {

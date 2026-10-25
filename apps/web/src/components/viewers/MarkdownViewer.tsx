@@ -456,12 +456,81 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 </div>
               );
             }
-            if (type === "pdf") {
+            if (
+              type === "presentation" ||
+              type === "spreadsheet" ||
+              type === "document" ||
+              type === "pdf"
+            ) {
               const label = typeof children === "string" ? children : getFilenameFromUrl(href);
+              const cleanHref = safeDecodePath(href);
+              const isCurrentlyInspected = Boolean(
+                inspector?.isOpen &&
+                inspector?.activeMedia &&
+                (safeDecodePath(inspector.activeMedia.url) === cleanHref ||
+                 inspector.activeMedia.title === label)
+              );
+              const iconEmoji =
+                type === "presentation"
+                  ? "📽️"
+                  : type === "spreadsheet"
+                  ? "📊"
+                  : type === "pdf"
+                  ? "📕"
+                  : "📝";
+              const typeDesc =
+                type === "presentation"
+                  ? "演示文稿"
+                  : type === "spreadsheet"
+                  ? "电子表格"
+                  : type === "pdf"
+                  ? "PDF 文档"
+                  : "办公文档";
+
+              if (!inspector) {
+                const isLocal = isLocalFilePath(href);
+                const resolvedHref = isLocal ? resolveMediaUrl(href).downloadUrl : href;
+                return (
+                  <a
+                    href={resolvedHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
+                    {...props}
+                  >
+                    {iconEmoji} {label} ↗
+                  </a>
+                );
+              }
+
               return (
-                <div className="not-prose my-2">
-                  <MediaAttachmentCard url={href} title={label} />
-                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    inspector?.openMediaByUrl(href, label);
+                  }}
+                  className="not-prose my-2 inline-flex items-center gap-2.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] text-xs text-[var(--aurora-fg1)] transition-all hover:border-[var(--aurora-accent)] hover:shadow-md active:scale-[0.98] cursor-pointer select-none group/doc max-w-full text-left"
+                  title={`点击在工作台独立视窗中查看${typeDesc}`}
+                >
+                  <span className="text-base shrink-0">{iconEmoji}</span>
+                  <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px] text-[var(--aurora-fg1)] group-hover/doc:text-[var(--aurora-accent)] transition-colors" title={label}>
+                    {label}
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/5 text-[var(--aurora-fg3)] uppercase shrink-0">
+                    {href.split(".").pop() || type}
+                  </span>
+                  {isCurrentlyInspected ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-medium shrink-0">
+                      已在工作台打开
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[var(--aurora-accent)] font-semibold shrink-0 flex items-center gap-0.5 whitespace-nowrap">
+                      在工作台查看 ↗
+                    </span>
+                  )}
+                </button>
               );
             }
             if (type === "subtitle") {

@@ -859,6 +859,22 @@ export function VideoPlayer({
     return subtitleCues.filter((c) => c.text.toLowerCase().includes(q));
   }, [subtitleCues, transcriptSearch]);
 
+  // Release GPU hardware video decoder resources on unmount
+  useEffect(() => {
+    const v = videoRef.current;
+    return () => {
+      if (v) {
+        try {
+          v.pause();
+          v.removeAttribute("src");
+          v.load();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
   const videoFilterStyle = React.useMemo(() => {
     const parts: string[] = [];
     if (brightness !== 1) parts.push(`brightness(${brightness})`);
@@ -1632,8 +1648,10 @@ export function VideoPlayer({
               height: "100dvw",
               maxWidth: "100dvh",
               maxHeight: "100dvw",
-              transform: "translate(-50%, -50%) rotate(90deg)",
+              transform: "translate3d(-50%, -50%, 0) rotate(90deg)",
               transformOrigin: "center center",
+              willChange: "transform",
+              backfaceVisibility: "hidden",
               zIndex: 999999,
             }
           : {}),

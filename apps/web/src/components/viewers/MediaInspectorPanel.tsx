@@ -294,8 +294,10 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   height: "100dvw",
                   maxWidth: "100dvh",
                   maxHeight: "100dvw",
-                  transform: "translate(-50%, -50%) rotate(90deg)",
+                  transform: "translate3d(-50%, -50%, 0) rotate(90deg)",
                   transformOrigin: "center center",
+                  willChange: "transform",
+                  backfaceVisibility: "hidden",
                   zIndex: 99999,
                 }
               : { width: "100%" }
@@ -1458,8 +1460,10 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 height: "100dvw",
                 maxWidth: "100dvh",
                 maxHeight: "100dvw",
-                transform: "translate(-50%, -50%) rotate(90deg)",
+                transform: "translate3d(-50%, -50%, 0) rotate(90deg)",
                 transformOrigin: "center center",
+                willChange: "transform",
+                backfaceVisibility: "hidden",
                 zIndex: 999999,
               }
             : undefined
@@ -1696,11 +1700,31 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             </a>
           </div>
         </div>
-        <iframe
-          src={resolved.playUrl}
-          className="w-full h-[600px] rounded-xl border border-[var(--aurora-border)] bg-white shadow-inner"
-          title={displayTitle}
-        />
+        {!isDocFullscreen ? (
+          <iframe
+            src={resolved.playUrl}
+            className="w-full h-[600px] rounded-xl border border-[var(--aurora-border)] bg-white shadow-inner"
+            title={displayTitle}
+          />
+        ) : (
+          <div className="w-full h-[280px] rounded-xl border border-[var(--aurora-border)] bg-black/60 flex flex-col items-center justify-center text-white gap-2 text-xs">
+            <span className="p-2.5 rounded-full bg-white/10 text-rose-400 animate-pulse">
+              <FiMaximize2 className="w-5 h-5" />
+            </span>
+            <span className="text-[var(--aurora-fg1)] font-semibold">正在全屏放映视窗中查看</span>
+            <span className="text-[var(--aurora-fg3)] text-[11px]">底层渲染已自动挂起以节省内存与网络带宽</span>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDocFullscreen(false);
+                setIsDocLandscape(false);
+              }}
+              className="mt-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition-all cursor-pointer"
+            >
+              退出全屏放映
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -1970,12 +1994,32 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       {/* 1. 原生应用内嵌视窗 (支持 iOS QuickLook、原生多点触摸缩放) */}
       {viewEngine === "embed" && (
         <div className="w-full rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-black/80 shadow-2xl relative flex flex-col">
-          <iframe
-            src={resolved.playUrl}
-            className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
-            title={displayTitle}
-            allowFullScreen
-          />
+          {!isDocFullscreen ? (
+            <iframe
+              src={resolved.playUrl}
+              className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
+              title={displayTitle}
+              allowFullScreen
+            />
+          ) : (
+            <div className="w-full h-[280px] flex flex-col items-center justify-center bg-black/60 text-white gap-2 text-xs">
+              <span className="p-2.5 rounded-full bg-white/10 text-[var(--aurora-accent)] animate-pulse">
+                <FiMaximize2 className="w-5 h-5" />
+              </span>
+              <span className="text-[var(--aurora-fg1)] font-semibold">正在全屏沉浸放映视窗中呈现</span>
+              <span className="text-[var(--aurora-fg3)] text-[11px]">底层渲染已自动挂起以节省内存与网络带宽</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(false);
+                  setIsDocLandscape(false);
+                }}
+                className="mt-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition-all cursor-pointer"
+              >
+                退出全屏放映
+              </button>
+            </div>
+          )}
           <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] flex-wrap gap-2">
             <span>支持 iOS 原生 QuickLook 翻页与触摸手势</span>
             <div className="flex items-center gap-2">
@@ -2010,12 +2054,32 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       {/* 2. 微软官方云端 Office Web Viewer 视窗 */}
       {viewEngine === "office" && (
         <div className="w-full rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-black/80 shadow-2xl relative flex flex-col">
-          <iframe
-            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
-            className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
-            title={displayTitle}
-            allowFullScreen
-          />
+          {!isDocFullscreen ? (
+            <iframe
+              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolved.playUrl)}`}
+              className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
+              title={displayTitle}
+              allowFullScreen
+            />
+          ) : (
+            <div className="w-full h-[280px] flex flex-col items-center justify-center bg-black/60 text-white gap-2 text-xs">
+              <span className="p-2.5 rounded-full bg-white/10 text-[var(--aurora-accent)] animate-pulse">
+                <FiMaximize2 className="w-5 h-5" />
+              </span>
+              <span className="text-[var(--aurora-fg1)] font-semibold">正在全屏沉浸放映视窗中呈现</span>
+              <span className="text-[var(--aurora-fg3)] text-[11px]">底层渲染已自动挂起以节省内存与网络带宽</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDocFullscreen(false);
+                  setIsDocLandscape(false);
+                }}
+                className="mt-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition-all cursor-pointer"
+              >
+                退出全屏放映
+              </button>
+            </div>
+          )}
           <div className="px-3 py-2 bg-[var(--aurora-chip)]/90 border-t border-[var(--aurora-border)] flex items-center justify-between text-[11px] text-[var(--aurora-fg3)] flex-wrap gap-2">
             <span>通过微软官方 Office Web Viewer 在线完整渲染</span>
             <div className="flex items-center gap-2">

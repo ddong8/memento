@@ -15,6 +15,7 @@ export function DesktopBlock() {
     { os: t.landing.desktop_macos, ext: t.landing.desktop_macos_ext },
     { os: t.landing.desktop_windows, ext: t.landing.desktop_windows_ext },
     { os: t.landing.desktop_linux, ext: t.landing.desktop_linux_ext },
+    { os: t.landing.desktop_android, ext: t.landing.desktop_android_ext },
   ];
 
   return (
@@ -33,7 +34,7 @@ export function DesktopBlock() {
           {t.landing.desktop_sub}
         </h2>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: 16 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
         {platforms.map((p) => (
           <DownloadCard key={p.os} os={p.os} ext={p.ext} />
         ))}

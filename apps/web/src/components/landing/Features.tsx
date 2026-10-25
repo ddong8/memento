@@ -9,12 +9,15 @@ type IconName = Parameters<typeof Icon>[0]["name"];
 export function Features() {
   const { t } = useI18n();
   const cards: { icon: IconName; title: string; desc: string }[] = [
-    { icon: "refresh", title: t.landing.f1_title, desc: t.landing.f1_desc },
-    { icon: "brain", title: t.landing.f2_title, desc: t.landing.f2_desc },
-    { icon: "search", title: t.landing.f3_title, desc: t.landing.f3_desc },
-    { icon: "layers", title: t.landing.f4_title, desc: t.landing.f4_desc },
-    { icon: "zap", title: t.landing.f5_title, desc: t.landing.f5_desc },
-    { icon: "lock", title: t.landing.f6_title, desc: t.landing.f6_desc },
+    { icon: "devices", title: t.landing.f1_title, desc: t.landing.f1_desc },
+    { icon: "sparkles", title: t.landing.f2_title, desc: t.landing.f2_desc },
+    { icon: "user", title: t.landing.f3_title, desc: t.landing.f3_desc },
+    { icon: "zap", title: t.landing.f4_title, desc: t.landing.f4_desc },
+    { icon: "inbox", title: t.landing.f5_title, desc: t.landing.f5_desc },
+    { icon: "calendar", title: t.landing.f6_title, desc: t.landing.f6_desc },
+    { icon: "layers", title: t.landing.f7_title, desc: t.landing.f7_desc },
+    { icon: "brain", title: t.landing.f8_title, desc: t.landing.f8_desc },
+    { icon: "lock", title: t.landing.f9_title, desc: t.landing.f9_desc },
   ];
 
   return (

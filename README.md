@@ -48,6 +48,9 @@ graph TB
         CDX["Codex<br/>~/.codex"]
         CUR["Cursor<br/>~/.cursor"]
         AG["Antigravity<br/>~/.gemini/antigravity"]
+        WB["WorkBuddy<br/>~/.workbuddy"]
+        WS["Windsurf<br/>~/.codeium/windsurf"]
+        CL["Cline<br/>VS Code globalStorage"]
         OC["OpenClaw<br/>~/.openclaw"]
         HM["Hermes<br/>~/.hermes"]
         OBS["Obsidian Vault"]
@@ -56,6 +59,9 @@ graph TB
         CDX --- COL
         CUR --- COL
         AG --- COL
+        WB --- COL
+        WS --- COL
+        CL --- COL
         OC --- COL
         HM --- COL
         OBS --- COL
@@ -239,6 +245,7 @@ git clone https://github.com/ddong8/memento.git && cd memento
 | **macOS** (Apple Silicon) | `.dmg` | 拖进 Applications 即可，支持 Mac 最小化到系统托盘 |
 | **Windows** | `.exe` | 现代化 NSIS 安装版，支持任务栏托盘与开机自启 |
 | **Linux** | `.AppImage` / `.deb` | AppImage 赋予执行权限直接运行，deb 包支持 `dpkg -i` |
+| **Android** | `.apk` | 原生移动端应用，手机端沉浸查看会话流、多模态文档视窗与作息日报 |
 
 **开箱即用体验**：
 1. 原生独立窗口直接加载 Memento 工作台，登录状态**永久记住**，重启无需反复重新登录。
@@ -271,8 +278,6 @@ node packages/daemon/dist/cli.js uninstall-service   # 取消自动启动
 ```
 
 按操作系统自动适配：**macOS** launchd / **Linux** systemd user / **Windows** 启动项。桌面端与守护进程同一时间保证单实例运行（共用 `~/.memento`）。
-
-按平台自动适配:**macOS** launchd / **Linux** systemd user / **Windows** 启动项。桌面端和守护进程同一时间只会有一份在采集(共用 `~/.memento`)。
 
 ## 🕸️ 知识图谱
 

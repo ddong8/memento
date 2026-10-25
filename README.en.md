@@ -48,6 +48,9 @@ graph TB
         CDX["Codex<br/>~/.codex"]
         CUR["Cursor<br/>~/.cursor"]
         AG["Antigravity<br/>~/.gemini/antigravity"]
+        WB["WorkBuddy<br/>~/.workbuddy"]
+        WS["Windsurf<br/>~/.codeium/windsurf"]
+        CL["Cline<br/>VS Code globalStorage"]
         OC["OpenClaw<br/>~/.openclaw"]
         HM["Hermes<br/>~/.hermes"]
         OBS["Obsidian Vault"]
@@ -56,6 +59,9 @@ graph TB
         CDX --- COL
         CUR --- COL
         AG --- COL
+        WB --- COL
+        WS --- COL
+        CL --- COL
         OC --- COL
         HM --- COL
         OBS --- COL
@@ -239,6 +245,7 @@ For a seamless, GUI-first experience without environment setup: **built on Elect
 | **macOS** (Apple Silicon) | `.dmg` | Drag into Applications; supports minimize to system tray |
 | **Windows** | `.exe` | Modern NSIS installer with system tray & auto-start |
 | **Linux** | `.AppImage` / `.deb` | Executable AppImage or native `.deb` package |
+| **Android** | `.apk` | Native mobile app for immersive conversation, document inspection, and daily digest on the go |
 
 **Out-of-the-box Experience**:
 1. Native application window directly loads the Memento workbench. Login state is **permanently remembered** across restarts.
@@ -271,8 +278,6 @@ node packages/daemon/dist/cli.js uninstall-service   # uninstall system service
 ```
 
 Auto-detects platform: **macOS** launchd / **Linux** systemd user / **Windows** Run key. Mutual exclusion guarantees a single instance runs at a time (sharing `~/.memento`).
-
-Auto-detects platform: **macOS** launchd / **Linux** systemd user / **Windows** Run key. The desktop app and the daemon never collect at the same time (they share `~/.memento`).
 
 ## 🕸️ Knowledge graph
 

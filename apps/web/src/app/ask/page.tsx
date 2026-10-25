@@ -4675,34 +4675,35 @@ function AskPageContent() {
             </button>
 
             {/* 历史对话抽屉入口 (桌面端展示；移动端收拢至更多菜单以保证标题展示空间) */}
-            <Btn
-              variant="glass"
-              size="sm"
-              icon="clock"
-              onClick={() => {
-                setHistoryOpen(true);
-                void loadConversations();
-              }}
-              title={isZh ? "查看历史对话" : "View history"}
-              className="hidden sm:inline-flex shrink-0"
-            >
-              <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
-              {conversations.length > 0 && (
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    padding: "1px 5px",
-                    borderRadius: 999,
-                    background: "var(--aurora-chip)",
-                    color: "var(--aurora-fg3)",
-                    marginLeft: 2,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {conversations.length}
-                </span>
-              )}
-            </Btn>
+            <div className="hidden sm:inline-flex shrink-0">
+              <Btn
+                variant="glass"
+                size="sm"
+                icon="clock"
+                onClick={() => {
+                  setHistoryOpen(true);
+                  void loadConversations();
+                }}
+                title={isZh ? "查看历史对话" : "View history"}
+              >
+                <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
+                {conversations.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: 10.5,
+                      padding: "1px 5px",
+                      borderRadius: 999,
+                      background: "var(--aurora-chip)",
+                      color: "var(--aurora-fg3)",
+                      marginLeft: 2,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {conversations.length}
+                  </span>
+                )}
+              </Btn>
+            </div>
 
             {/* 当前会话标题与智能体图标徽章 */}
             <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
@@ -4741,105 +4742,108 @@ function AskPageContent() {
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
             {/* 工作台独立视窗快捷开关 (桌面端展示；移动端收拢至更多菜单) */}
             {inspector && inspector.mediaList.length > 0 && (
-              <Btn
-                variant={inspector.isOpen ? "primary" : "glass"}
-                size="sm"
-                icon="sidebar"
-                onClick={inspector.toggleInspector}
-                title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
-                className="hidden sm:inline-flex shrink-0"
-              >
-                <span className="flex items-center gap-1 sm:gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                  <span className="font-medium">
-                    {inspector.isOpen ? (
-                      <span className="hidden 2xl:inline">{isZh ? "工作台" : "Desk"}</span>
-                    ) : (
-                      <>
-                        <span className="hidden xl:inline">
-                          {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
-                        </span>
-                        <span className="hidden md:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
-                      </>
-                    )}
+              <div className="hidden sm:inline-flex shrink-0">
+                <Btn
+                  variant={inspector.isOpen ? "primary" : "glass"}
+                  size="sm"
+                  icon="sidebar"
+                  onClick={inspector.toggleInspector}
+                  title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
+                >
+                  <span className="flex items-center gap-1 sm:gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                    <span className="font-medium">
+                      {inspector.isOpen ? (
+                        <span className="hidden 2xl:inline">{isZh ? "工作台" : "Desk"}</span>
+                      ) : (
+                        <>
+                          <span className="hidden xl:inline">
+                            {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
+                          </span>
+                          <span className="hidden md:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
+                        </>
+                      )}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
+                      {inspector.mediaList.length}
+                    </span>
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
-                    {inspector.mediaList.length}
-                  </span>
-                </span>
-              </Btn>
+                </Btn>
+              </div>
             )}
 
             {/* AI 订阅与额度监控入口 (桌面端展示；移动端收拢至更多菜单，杜绝挤压标题) */}
-            <Btn
-              variant="glass"
-              size="sm"
-              icon="activity"
-              onMouseEnter={() => {
-                void api.getAgentQuotas(selectedDevice);
-              }}
-              onClick={() => setQuotaOpen(true)}
-              title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
-              className="hidden sm:inline-flex shrink-0"
-            >
-              <span className="flex items-center gap-1">
-                <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                <span className="hidden 2xl:inline text-xs font-medium">AI 额度</span>
-                {(() => {
-                  const targetTool = executionMode === "claude"
-                    ? quotasData?.tools?.claude_code
-                    : executionMode === "codex"
-                    ? quotasData?.tools?.codex
-                    : executionMode === "workbuddy"
-                    ? quotasData?.tools?.workbuddy
-                    : quotasData?.tools?.antigravity;
-                  const percent = targetTool?.remaining_percent;
-                  if (percent != null) {
+            <div className="hidden sm:inline-flex shrink-0">
+              <Btn
+                variant="glass"
+                size="sm"
+                icon="activity"
+                onMouseEnter={() => {
+                  void api.getAgentQuotas(selectedDevice);
+                }}
+                onClick={() => setQuotaOpen(true)}
+                title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
+              >
+                <span className="flex items-center gap-1">
+                  <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                  <span className="hidden 2xl:inline text-xs font-medium">AI 额度</span>
+                  {(() => {
+                    const targetTool = executionMode === "claude"
+                      ? quotasData?.tools?.claude_code
+                      : executionMode === "codex"
+                      ? quotasData?.tools?.codex
+                      : executionMode === "workbuddy"
+                      ? quotasData?.tools?.workbuddy
+                      : quotasData?.tools?.antigravity;
+                    const percent = targetTool?.remaining_percent;
+                    if (percent != null) {
+                      return (
+                        <span
+                          className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full tabular-nums ${
+                            percent > 30 ? "quota-badge-teal" : "quota-badge-amber"
+                          }`}
+                        >
+                          {Math.round(percent)}%
+                        </span>
+                      );
+                    }
+                    if (targetTool?.tier) {
+                      return (
+                        <span className="quota-badge-neutral text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {targetTool.tier}
+                        </span>
+                      );
+                    }
                     return (
                       <span
-                        className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full tabular-nums ${
-                          percent > 30 ? "quota-badge-teal" : "quota-badge-amber"
+                        className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${
+                          targetTool?.available ? "quota-badge-emerald" : "quota-badge-neutral"
                         }`}
                       >
-                        {Math.round(percent)}%
+                        {targetTool?.available ? "可用" : "未启动"}
                       </span>
                     );
-                  }
-                  if (targetTool?.tier) {
-                    return (
-                      <span className="quota-badge-neutral text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                        {targetTool.tier}
-                      </span>
-                    );
-                  }
-                  return (
-                    <span
-                      className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${
-                        targetTool?.available ? "quota-badge-emerald" : "quota-badge-neutral"
-                      }`}
-                    >
-                      {targetTool?.available ? "可用" : "未启动"}
-                    </span>
-                  );
-                })()}
-              </span>
-            </Btn>
+                  })()}
+                </span>
+              </Btn>
+            </div>
 
             {/* 沉浸式阅读视界开关 (桌面端展示；移动端收拢至更多菜单) */}
             {turns.length > 0 && (
-              <Btn
-                variant={isReadingMode ? "primary" : "glass"}
-                size="sm"
-                icon={isReadingMode ? "edit" : "book"}
-                onClick={() => {
-                  triggerHapticFeedback(10);
-                  setIsReadingMode(!isReadingMode);
-                }}
-                title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
-                className="hidden sm:inline-flex shrink-0"
-              >
-                <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
-              </Btn>
+              <div className="hidden sm:inline-flex shrink-0">
+                <Btn
+                  variant={isReadingMode ? "primary" : "glass"}
+                  size="sm"
+                  icon={isReadingMode ? "edit" : "book"}
+                  onClick={() => {
+                    triggerHapticFeedback(10);
+                    setIsReadingMode(!isReadingMode);
+                  }}
+                  title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
+                >
+                  <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
+                </Btn>
+              </div>
             )}
 
             {/* 新建会话按钮 */}
@@ -5354,7 +5358,7 @@ function AskPageContent() {
     >
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="p-1.5 sm:px-3.5 sm:py-2.5"
+          className="px-2.5 py-2 sm:px-4 sm:py-3"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
             border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
@@ -5428,9 +5432,9 @@ function AskPageContent() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 4,
-                    marginBottom: 2,
-                    padding: "0 0 2px 0",
+                    gap: 6,
+                    marginBottom: 6,
+                    padding: "2px 0 6px 0",
                     borderBottom: "1px solid var(--aurora-border)",
                     cursor: "pointer",
                     transition: "all 0.15s ease",
@@ -5484,13 +5488,13 @@ function AskPageContent() {
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
-                          padding: "1.5px 6px",
-                          borderRadius: 6,
+                          gap: 4.5,
+                          padding: "3px 8px",
+                          borderRadius: 7,
                           background: "var(--aurora-accent-soft)",
                           border: `1px solid ${currentMode.color}`,
                           color: currentMode.color,
-                          fontSize: 10.5,
+                          fontSize: 11,
                           fontWeight: 600,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
@@ -5526,17 +5530,17 @@ function AskPageContent() {
 
                   {/* Target Device Badge */}
                   <span
-                    className="max-w-[110px] sm:max-w-[220px]"
+                    className="max-w-[125px] sm:max-w-[240px]"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 3.5,
-                      padding: "1.5px 6px",
-                      borderRadius: 6,
+                      gap: 4,
+                      padding: "3px 8px",
+                      borderRadius: 7,
                       background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.12)" : "var(--aurora-chip)",
                       border: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--aurora-border)",
                       color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-fg2)",
-                      fontSize: 10.5,
+                      fontSize: 11,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
                       flexShrink: 0,
@@ -5544,8 +5548,8 @@ function AskPageContent() {
                   >
                     <span
                       style={{
-                        width: 5.5,
-                        height: 5.5,
+                        width: 6,
+                        height: 6,
                         borderRadius: 999,
                         background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "#10B981",
                         flexShrink: 0,
@@ -5575,23 +5579,23 @@ function AskPageContent() {
                     });
                     return (
                       <span
-                        className="max-w-[95px] sm:max-w-[180px]"
+                        className="max-w-[110px] sm:max-w-[190px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 3.5,
-                          padding: "1.5px 6px",
-                          borderRadius: 6,
+                          gap: 4,
+                          padding: "3px 8px",
+                          borderRadius: 7,
                           background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg2)",
-                          fontSize: 10.5,
+                          fontSize: 11,
                           fontWeight: 500,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
                         }}
                       >
-                        <Icon name="code" size={11} style={{ color: "var(--aurora-fg3)" }} />
+                        <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayTitle}</span>
                       </span>
                     );
@@ -5602,17 +5606,17 @@ function AskPageContent() {
                     const safeFolder = resolveSafeProjectName({ cwd, isZh });
                     return (
                       <span
-                        className="max-w-[95px] sm:max-w-[180px]"
+                        className="max-w-[110px] sm:max-w-[190px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 3.5,
-                          padding: "1.5px 6px",
-                          borderRadius: 6,
+                          gap: 4,
+                          padding: "3px 8px",
+                          borderRadius: 7,
                           background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg3)",
-                          fontSize: 10.5,
+                          fontSize: 11,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
                           overflow: "hidden",
@@ -5726,13 +5730,13 @@ function AskPageContent() {
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 2.5,
+                    gap: 3,
                     background: "var(--aurora-accent-soft)",
                     border: "1px solid var(--aurora-accent)",
-                    borderRadius: 6,
-                    padding: "1.5px 6px",
+                    borderRadius: 7,
+                    padding: "3px 8px",
                     color: "var(--aurora-accent)",
-                    fontSize: 10.5,
+                    fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
                     flexShrink: 0,
@@ -7001,9 +7005,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
+                className="w-11 h-11 sm:w-10 sm:h-10 hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
               >
-                <Icon name="image" size={16} />
+                <Icon name="image" size={17} />
               </button>
               <input
                 ref={fileInputRef}
@@ -7015,7 +7019,7 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input !px-2.5 sm:!px-3.5 !py-1.5 sm:!py-2 !min-h-[36px] sm:!min-h-[40px] transition-all !rounded-xl"
+                className="aurora-input !px-3 sm:!px-4 !py-2.5 sm:!py-2 !min-h-[44px] sm:!min-h-[42px] transition-all !rounded-xl"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -7066,9 +7070,10 @@ function AskPageContent() {
                   style={{
                     minWidth: 0,
                     width: "100%",
-                    height: 22,
+                    height: 24,
+                    minHeight: 24,
                     maxHeight: 160,
-                    lineHeight: "22px",
+                    lineHeight: "24px",
                     padding: 0,
                     margin: 0,
                     border: "none",
@@ -7079,7 +7084,7 @@ function AskPageContent() {
                     overflowY: "hidden",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
-                    fontSize: 14,
+                    fontSize: 14.5,
                   }}
                 />
               </label>
@@ -7101,9 +7106,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+                className={`w-11 h-11 sm:w-10 sm:h-10 active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
-                <Icon name="microphone" size={16} />
+                <Icon name="microphone" size={17} />
               </button>
               {isReconnecting && (
                 <div
@@ -7112,7 +7117,7 @@ function AskPageContent() {
                     alignItems: "center",
                     gap: 6,
                     padding: "0 10px",
-                    height: 36,
+                    height: 44,
                     borderRadius: 12,
                     background: "rgba(245, 158, 11, 0.15)",
                     border: "1px solid rgba(245, 158, 11, 0.35)",
@@ -7132,7 +7137,7 @@ function AskPageContent() {
                   variant="danger"
                   icon="close"
                   onClick={stopRun}
-                  className="!h-[36px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
+                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
                   style={{
                     flexShrink: 0,
                     background: "rgba(239, 68, 68, 0.18)",
@@ -7147,7 +7152,7 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  className="!h-[36px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
+                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
                   style={{ flexShrink: 0 }}
                 >
                   <span className="font-semibold text-xs sm:text-sm">{t.ask.send}</span>

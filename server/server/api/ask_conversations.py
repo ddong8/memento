@@ -70,13 +70,12 @@ async def list_conversations(
     rows = res.all()
     from ..services.ingest_service import _is_junk_or_uuid_title
 
-    out_items = []
-    dirty_repaired = False
+    # 1. 预先收集需要补全元数据的会话 ID，采用单次批量查询替换循环体内的 N+1 次 db.get
+    need_turn_ids = []
     for r in rows:
         cfg = dict(r.config or {})
         display_title = r.title or "新对话"
         bad_title = _is_junk_or_uuid_title(display_title, cfg.get("session_id"))
-
         need_turns = (
             not cfg.get("_meta_scanned")
             and (
@@ -86,12 +85,24 @@ async def list_conversations(
                 or bad_title
             )
         ) or bad_title
-
-        conv_obj = None
-        turns_list = None
         if need_turns:
-            conv_obj = await db.get(AskConversation, r.id)
-            turns_list = list(conv_obj.turns or []) if conv_obj else []
+            need_turn_ids.append(r.id)
+
+    conv_obj_map: dict[uuid.UUID, AskConversation] = {}
+    if need_turn_ids:
+        batch_res = await db.execute(
+            select(AskConversation).where(AskConversation.id.in_(need_turn_ids))
+        )
+        for obj in batch_res.scalars().all():
+            conv_obj_map[obj.id] = obj
+
+    out_items = []
+    dirty_repaired = False
+    for r in rows:
+        cfg = dict(r.config or {})
+        display_title = r.title or "新对话"
+        conv_obj = conv_obj_map.get(r.id)
+        turns_list = list(conv_obj.turns or []) if conv_obj else None
 
         # 补全 session_id / execution_mode
         if turns_list and (not cfg.get("session_id") or not cfg.get("execution_mode") or cfg.get("execution_mode") == "ai"):

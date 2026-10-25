@@ -1163,7 +1163,17 @@ export const HistoryDrawer = memo(function HistoryDrawer({
             </div>
           ) : (
             conversationGroups.map((group) => (
-              <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8 }}>
+              <div
+                key={group.id}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 3,
+                  marginBottom: 8,
+                  contentVisibility: "auto",
+                  containIntrinsicSize: "0 180px",
+                }}
+              >
                 <div
                   style={{
                     display: "flex",

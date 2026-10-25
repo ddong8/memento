@@ -1017,13 +1017,53 @@ rm -f "$0"
 }
 
 function setupUpdater(): void {
-  autoUpdater.autoDownload = true;
+  // 解耦 autoDownload，将轻量版本比对与大文件下载分离，避免网络下载阻塞导致检查更新弹窗报错
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   let downloadedInfo: any = null;
   let lastPromptedVersion: string | null = null;
+  let downloadingVersion: string | null = null;
+
+  autoUpdater.on("update-available", async (info) => {
+    if (downloadingVersion === info.version || downloadedInfo?.version === info.version) {
+      return;
+    }
+    const releaseNotesText = typeof info.releaseNotes === "string" 
+      ? info.releaseNotes 
+      : Array.isArray(info.releaseNotes) 
+      ? info.releaseNotes.map((n: any) => n?.note || "").filter(Boolean).join("\n") 
+      : "";
+    const detailMsg = releaseNotesText ? `${releaseNotesText}\n\n是否立即开始下载更新？` : "点击立即下载以获取最新功能与稳定性修复。";
+    
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      buttons: ["立即下载", "稍后提醒"],
+      defaultId: 0,
+      cancelId: 1,
+      message: `发现新版本 Memento ${info.version}`,
+      detail: detailMsg,
+    });
+    if (response === 0) {
+      downloadingVersion = info.version;
+      showNotification("开始下载更新", `正在下载 Memento ${info.version}...`);
+      void autoUpdater.downloadUpdate().catch((err) => {
+        downloadingVersion = null;
+        void dialog.showMessageBox({
+          type: "warning",
+          message: "更新包下载未完成",
+          detail: `下载遇到网络阻断或超时：${err instanceof Error ? err.message : String(err)}\n您可以稍后重试或在浏览器中访问官网下载。`,
+        });
+      });
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("autoUpdater error:", err);
+  });
 
   autoUpdater.on("update-downloaded", async (info) => {
     downloadedInfo = info;
+    downloadingVersion = null;
     if (lastPromptedVersion === info.version) {
       return;
     }

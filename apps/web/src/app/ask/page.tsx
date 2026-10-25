@@ -710,6 +710,7 @@ function AskPageContent() {
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
   const pendingScrollToBottomRef = useRef<boolean>(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
+  const lastWakeAtRef = useRef<number>(0);
 
   // 用户主动交互与手势防冲突状态跟踪（彻底消除移动端手势对抗与滑动阻滞）
   const isUserInteractingRef = useRef<boolean>(false);
@@ -1857,6 +1858,13 @@ function AskPageContent() {
             pushFn(`/ask?id=${encodeURIComponent(targetId)}`);
           }
         }
+        if (detail?.forceReload || streamingRef.current || askCache?.streaming) {
+          void loadConversation(targetId, {
+            force: true,
+            preserveScroll: detail?.scrollToBottom === false,
+          });
+          return;
+        }
         if (!detail?.preserveScroll) {
           pendingScrollToBottomRef.current = true;
           scrollConversationToBottom(true);
@@ -1872,7 +1880,7 @@ function AskPageContent() {
     };
     window.addEventListener("memento_switch_chat", handleSwitchChat);
 
-    (window as any).__memento_open_chat = (id: string) => {
+    (window as any).__memento_open_chat = (id: string, options?: { force?: boolean }) => {
       if (!id) return;
       try {
         localStorage.setItem("memento_last_ask_conv_id", id);
@@ -1885,8 +1893,12 @@ function AskPageContent() {
             pushFn(`/ask?id=${encodeURIComponent(id)}&scroll=bottom`);
           }
         }
-        pendingScrollToBottomRef.current = true;
-        scrollConversationToBottom(true);
+        if (options?.force || streamingRef.current || askCache?.streaming) {
+          void loadConversation(id, { force: true, preserveScroll: false });
+        } else {
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
+        }
         return;
       }
       lastRestoredIdRef.current = null;
@@ -1898,7 +1910,7 @@ function AskPageContent() {
       } else {
         window.history.pushState(null, "", `/ask?id=${encodeURIComponent(id)}`);
       }
-      loadConversation(id, { force: false, preserveScroll: false });
+      loadConversation(id, { force: Boolean(options?.force), preserveScroll: false });
     };
 
     (window as any).__memento_navigate = (url: string) => {
@@ -2054,6 +2066,10 @@ function AskPageContent() {
 
           if (run && !run.done && !run.cancelled) {
             // Task is STILL running on server
+            if (forceRefreshWhenIdle) {
+              void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
+              return;
+            }
             if (!streamingRef.current) {
               streamingRef.current = true;
               setStreaming(true);
@@ -2081,6 +2097,10 @@ function AskPageContent() {
             }
           } else if (run && run.done) {
             // Task has completed on server
+            if (forceRefreshWhenIdle || streamingRef.current) {
+              void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
+              return;
+            }
             const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
             if (isStreamActive) {
               // The SSE stream is actively receiving frames from the server.
@@ -2134,6 +2154,10 @@ function AskPageContent() {
           }
         } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
           // No active run on server
+          if (forceRefreshWhenIdle || streamingRef.current) {
+            void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
+            return;
+          }
           const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
           if (isStreamActive) {
             return;
@@ -2199,7 +2223,17 @@ function AskPageContent() {
 
     // Recheck immediately when window regains visibility from background or wakes
     const onWake = () => {
-      void checkServerRun(true);
+      const now = Date.now();
+      if (now - lastWakeAtRef.current < 600) return;
+      lastWakeAtRef.current = now;
+
+      const convId = activeConversationIdRef.current;
+      // 当有任务在执行时，切换到其它app，再切回来后，正在运行的对话强制重新加载与最新状态同步
+      if (convId && (streamingRef.current || askCache?.streaming || askCache?.activeRun)) {
+        void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
+      } else {
+        void checkServerRun(true);
+      }
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -2208,6 +2242,7 @@ function AskPageContent() {
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onWake);
+    window.addEventListener("pageshow", onWake);
     window.addEventListener("memento_wake_stream", onWake);
     window.addEventListener("memento_app_active", onWake);
 
@@ -2216,6 +2251,7 @@ function AskPageContent() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWake);
+      window.removeEventListener("pageshow", onWake);
       window.removeEventListener("memento_wake_stream", onWake);
       window.removeEventListener("memento_app_active", onWake);
     };

@@ -123,7 +123,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const openAskChat = (convId: string) => {
+      const openAskChat = (convId: string, options?: { force?: boolean }) => {
         if (!convId) return;
         try {
           localStorage.setItem("memento_last_ask_conv_id", convId);
@@ -138,7 +138,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         const dispatchSwitch = () => {
           window.dispatchEvent(
             new CustomEvent("memento_switch_chat", {
-              detail: { id: convId, forceReload: false, scrollToBottom: true },
+              detail: { id: convId, forceReload: Boolean(options?.force), scrollToBottom: true },
             })
           );
         };
@@ -148,7 +148,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       (window as unknown as { __memento_client_push?: (path: string) => void }).__memento_client_push = (path: string) => {
         router.push(path);
       };
-      (window as unknown as { __memento_open_chat?: (id: string) => void }).__memento_open_chat = openAskChat;
+      (window as unknown as { __memento_open_chat?: (id: string, options?: { force?: boolean }) => void }).__memento_open_chat = openAskChat;
       (window as unknown as { __memento_navigate?: (url: string) => void }).__memento_navigate = (url: string) => {
         if (!url) return;
         try {

@@ -226,6 +226,11 @@ function createWindow(show: boolean): void {
     }
   });
 
+  win.on("focus", () => {
+    // 切换回桌面端窗口时，立即向 web 发出应用激活与唤醒事件
+    win?.webContents.executeJavaScript("window.dispatchEvent(new Event('memento_app_active')); window.dispatchEvent(new Event('memento_wake_stream')); true;").catch(() => {});
+  });
+
   void loadApp();
 }
 

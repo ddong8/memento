@@ -277,7 +277,7 @@ export default function ActiveRunsMonitor() {
           seenFinishedWhileVisibleRef.current.add(finishedWhileHidden.conversation_id);
           setDismissedNotificationIds((prev) => new Set([...prev, finishedWhileHidden.conversation_id]));
           if (typeof (window as any).__memento_open_chat === "function") {
-            (window as any).__memento_open_chat(finishedWhileHidden.conversation_id);
+            (window as any).__memento_open_chat(finishedWhileHidden.conversation_id, { force: true });
           }
         }
       } catch {}

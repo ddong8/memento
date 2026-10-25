@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
-import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiExternalLink, FiCopy } from "react-icons/fi";
+import { memo, useEffect, useRef, useState } from "react";
+import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiExternalLink, FiCopy, FiUpload, FiTrash2, FiCheckCircle } from "react-icons/fi";
 import { SiWechat, SiZhihu, SiSinaweibo, SiXiaohongshu } from "react-icons/si";
 
 export interface WeChatPublishModalProps {
@@ -22,16 +22,26 @@ const THEMES = [
   { id: "red", name: "中国红韵", color: "#dc2626", desc: "喜庆醒目，适合重要通告与节日" },
 ];
 
-function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: string; digest: string } {
+function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: string; digest: string; firstImage?: string } {
   const lines = md.split("\n");
   let foundTitle = "";
   const digestCandidates: string[] = [];
+  let firstImage = "";
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (!foundTitle && /^#\s+(.+)$/.test(trimmed)) {
       foundTitle = trimmed.replace(/^#\s+/, "").replace(/[*_~`]/g, "").trim();
       continue;
+    }
+    if (!firstImage) {
+      const imgMatch = trimmed.match(/!\[.*?\]\((https?:\/\/[^\s)]+|\/[^\s)]+|\.\/[^\s)]+)\)/);
+      if (imgMatch && imgMatch[1]) {
+        let u = imgMatch[1];
+        if (u.startsWith("/article/")) u = `https://mem.ihasy.com${u}`;
+        else if (u.includes("assets/")) u = u.replace(/^.*assets\//, "https://mem.ihasy.com/article/");
+        firstImage = u;
+      }
     }
     if (trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("!") && !trimmed.startsWith("```") && !trimmed.startsWith(">")) {
       const cleanLine = trimmed.replace(/[*_~`\[\]()]/g, "").trim();
@@ -44,7 +54,7 @@ function extractTitleAndDigest(md: string, fallbackTitle?: string): { title: str
   const title = foundTitle || fallbackTitle || "未命名公众号图文";
   const digest = digestCandidates.join(" ").slice(0, 118) || "来自 Memento 工作台精心创作与排版的精选文章。";
 
-  return { title, digest };
+  return { title, digest, firstImage };
 }
 
 export const WeChatPublishModal = memo(function WeChatPublishModal({
@@ -59,7 +69,11 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   const [digest, setDigest] = useState("");
   const [themeId, setThemeId] = useState(initialThemeId || "tech");
   const [thumbMediaId, setThumbMediaId] = useState(DEFAULT_COVER_MEDIA_ID);
-  const [showCustomCover, setShowCustomCover] = useState(false);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [detectedArticleCover, setDetectedArticleCover] = useState<string | null>(null);
+  const [showManualMediaId, setShowManualMediaId] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [stepStatus, setStepStatus] = useState("");
@@ -73,8 +87,11 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
       const extracted = extractTitleAndDigest(markdown, defaultTitle);
       setTitle(extracted.title);
       setDigest(extracted.digest);
+      setDetectedArticleCover(extracted.firstImage || null);
       setThemeId(initialThemeId || "tech");
       setThumbMediaId(DEFAULT_COVER_MEDIA_ID);
+      setCoverPreviewUrl(null);
+      setShowManualMediaId(false);
       setError(null);
       setSuccessMediaId(null);
       setStepStatus("");
@@ -83,6 +100,63 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
   }, [isOpen, markdown, defaultTitle, initialThemeId]);
 
   if (!isOpen) return null;
+
+  const handleCoverFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCoverUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${WX_API_BASE}/api/wechat/upload-cover`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!data.success || !data.thumb_media_id) {
+        throw new Error(data.error || "封面上传至微信素材库失败");
+      }
+      setThumbMediaId(data.thumb_media_id);
+      setCoverPreviewUrl(URL.createObjectURL(file));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "封面上传失败");
+    } finally {
+      setCoverUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleUseArticleCover = async (imgUrl: string) => {
+    setCoverUploading(true);
+    setError(null);
+    try {
+      const resp = await fetch(imgUrl);
+      if (!resp.ok) throw new Error("获取正文配图失败");
+      const blob = await resp.blob();
+      const formData = new FormData();
+      formData.append("file", blob, "article_cover.png");
+      const res = await fetch(`${WX_API_BASE}/api/wechat/upload-cover`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!data.success || !data.thumb_media_id) {
+        throw new Error(data.error || "转存至微信素材库失败");
+      }
+      setThumbMediaId(data.thumb_media_id);
+      setCoverPreviewUrl(imgUrl);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "采用正文首图失败");
+    } finally {
+      setCoverUploading(false);
+    }
+  };
+
+  const handleResetCover = () => {
+    setThumbMediaId(DEFAULT_COVER_MEDIA_ID);
+    setCoverPreviewUrl(null);
+  };
 
   const handlePublish = async () => {
     if (!title.trim()) {
@@ -471,37 +545,114 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
               </div>
 
               {/* Cover Info */}
-              <div className="p-3 rounded-xl bg-[var(--aurora-chip)]/30 border border-[var(--aurora-border)]/60">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5 text-[var(--aurora-fg2)] font-medium">
+              <div className="p-3 rounded-xl bg-[var(--aurora-chip)]/30 border border-[var(--aurora-border)]/60 space-y-2.5">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={handleCoverFileUpload}
+                  className="hidden"
+                />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[var(--aurora-fg2)] font-medium text-xs">
                     <FiImage className="w-3.5 h-3.5 text-emerald-400" />
                     <span>公众号封面图设置</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowCustomCover(!showCustomCover)}
-                    className="text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                    onClick={() => setShowManualMediaId(!showManualMediaId)}
+                    className="text-[10px] text-emerald-400 hover:underline cursor-pointer"
                   >
-                    {showCustomCover ? "使用默认官方封面" : "自定义封面素材ID"}
+                    {showManualMediaId ? "收起 Media ID" : "手动输入素材 ID"}
                   </button>
                 </div>
-                {showCustomCover ? (
-                  <div>
+
+                {coverPreviewUrl ? (
+                  <div className="relative rounded-lg overflow-hidden border border-emerald-500/40 bg-black/40 group">
+                    <div className="aspect-[2.35/1] w-full max-h-36 overflow-hidden flex items-center justify-center bg-black/60">
+                      <img
+                        src={coverPreviewUrl}
+                        alt="封面预览"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-emerald-500/90 text-white text-[10px] font-medium flex items-center gap-1 shadow-md">
+                      <FiCheckCircle className="w-3 h-3" />
+                      <span>已同步至微信永久素材库 (2.35:1 官方比例)</span>
+                    </div>
+                    <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={coverUploading}
+                        className="px-2.5 py-1 rounded-md bg-black/75 hover:bg-black/90 text-white text-[11px] font-medium backdrop-blur-md border border-white/20 flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <FiUpload className="w-3 h-3" />
+                        <span>更换</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResetCover}
+                        disabled={coverUploading}
+                        className="px-2 py-1 rounded-md bg-black/75 hover:bg-black/90 text-white/80 hover:text-rose-400 text-[11px] backdrop-blur-md border border-white/20 active:scale-95 transition-all cursor-pointer"
+                        title="还原为默认官方封面"
+                      >
+                        <FiTrash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={coverUploading}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-400 text-xs font-medium flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <FiUpload className="w-3.5 h-3.5" />
+                        <span>上传本地封面图片</span>
+                      </button>
+
+                      {detectedArticleCover && (
+                        <button
+                          type="button"
+                          onClick={() => handleUseArticleCover(detectedArticleCover)}
+                          disabled={coverUploading}
+                          className="px-3 py-1.5 rounded-lg bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)]/80 border border-[var(--aurora-border)] text-[var(--aurora-fg1)] text-xs font-medium flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <FiImage className="w-3.5 h-3.5 text-blue-400" />
+                          <span>一键采用正文首图</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {coverUploading ? (
+                      <div className="flex items-center gap-2 text-xs text-emerald-400 py-1">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                        <span>正在上传封面至微信官方素材库...</span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[var(--aurora-fg3)] leading-relaxed">
+                        当前使用默认认证封面。点击上方按钮可直接从手机相册/本地电脑上传，全自动同步至微信官方素材库。
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {showManualMediaId && (
+                  <div className="pt-2 border-t border-[var(--aurora-border)]/40 animate-in fade-in duration-150">
+                    <label className="block text-[10px] text-[var(--aurora-fg4)] mb-1">
+                      微信永久素材库 thumb_media_id (高级开发者模式)：
+                    </label>
                     <input
                       type="text"
                       value={thumbMediaId}
                       onChange={(e) => setThumbMediaId(e.target.value)}
                       placeholder="微信素材库 thumb_media_id..."
-                      className="w-full px-3 py-1.5 rounded-lg bg-[var(--aurora-bg)] border border-[var(--aurora-border)] font-mono text-[11px] text-[var(--aurora-fg1)]"
+                      className="w-full px-3 py-1.5 rounded-lg bg-[var(--aurora-bg)] border border-[var(--aurora-border)] font-mono text-[11px] text-[var(--aurora-fg1)] outline-none focus:border-emerald-500"
                     />
-                    <p className="text-[10px] text-[var(--aurora-fg4)] mt-1">
-                      微信要求群发图文必须关联永久素材库中的封面图片。
-                    </p>
                   </div>
-                ) : (
-                  <p className="text-[11px] text-[var(--aurora-fg3)] leading-relaxed">
-                    已自动选用公众号素材库中经过官方认证的高清封面素材，发布后可在公众平台随时更换。
-                  </p>
                 )}
               </div>
             </>

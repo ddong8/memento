@@ -155,6 +155,7 @@ function AskPageContent() {
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
   const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+  const [isReadingMode, setIsReadingMode] = useState<boolean>(false);
   const [attachedImages, setAttachedImages] = useState<
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
@@ -4661,7 +4662,7 @@ function AskPageContent() {
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-2 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20">
+        <header className="px-2 sm:px-4 py-0.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[38px] sm:min-h-[46px]">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
             {/* 移动端侧边菜单开关 (在移动端下充当主侧边栏汉堡按钮) */}
             <button
@@ -4824,6 +4825,23 @@ function AskPageContent() {
                 })()}
               </span>
             </Btn>
+
+            {/* 沉浸式阅读视界开关 (手机端/桌面端一键收起输入控制台，最大化展示对话正文) */}
+            {turns.length > 0 && (
+              <Btn
+                variant={isReadingMode ? "primary" : "glass"}
+                size="sm"
+                icon={isReadingMode ? "edit" : "book"}
+                onClick={() => {
+                  triggerHapticFeedback(10);
+                  setIsReadingMode(!isReadingMode);
+                }}
+                title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
+                className="shrink-0"
+              >
+                <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
+              </Btn>
+            )}
 
             {/* 新建会话按钮 */}
             <Btn
@@ -5264,103 +5282,104 @@ function AskPageContent() {
     )}
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
-  <footer
-    data-ask-footer="true"
-    className="shrink-0 px-1 pt-1 sm:px-3.5 sm:pt-2.5 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
-    style={{
-      paddingBottom: viewportBottomOffset > 0
-        ? `${viewportBottomOffset + 6}px`
-        : "max(0.35rem, env(safe-area-inset-bottom, 0.35rem))",
-      transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
-    }}
-  >
-    <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
-      <div
-        className="p-1.5 sm:px-3.5 sm:py-2.5"
-        style={{
-          background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
-          border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
-          borderRadius: 14,
-          boxShadow: isDraggingOver
-            ? "0 0 24px rgba(99, 102, 241, 0.25)"
-            : "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
-          maxWidth: "100%",
-          width: "100%",
-          minWidth: 0,
-          boxSizing: "border-box",
-          transition: "border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease",
-          position: "relative",
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = "copy";
-          if (!isDraggingOver) setIsDraggingOver(true);
-        }}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsDraggingOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+  {!isReadingMode ? (
+    <footer
+      data-ask-footer="true"
+      className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
+      style={{
+        paddingBottom: viewportBottomOffset > 0
+          ? `${viewportBottomOffset + 4}px`
+          : "max(0.15rem, env(safe-area-inset-bottom, 0.15rem))",
+        transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
+        <div
+          className="p-1 sm:px-3 sm:py-2"
+          style={{
+            background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
+            border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
+            borderRadius: 12,
+            boxShadow: isDraggingOver
+              ? "0 0 24px rgba(99, 102, 241, 0.25)"
+              : "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
+            maxWidth: "100%",
+            width: "100%",
+            minWidth: 0,
+            boxSizing: "border-box",
+            transition: "border 0.2s ease, background 0.2s ease, box-shadow 0.2s ease",
+            position: "relative",
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+            if (!isDraggingOver) setIsDraggingOver(true);
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDraggingOver(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setIsDraggingOver(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
             setIsDraggingOver(false);
-          }
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsDraggingOver(false);
-          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-            void addFilesAsImages(e.dataTransfer.files);
-          }
-        }}
-      >
-        {/* Drag and Drop Active Overlay */}
-        {isDraggingOver && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: 15,
-              background: "rgba(99, 102, 241, 0.12)",
-              backdropFilter: "blur(3px)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              zIndex: 40,
-              pointerEvents: "none",
-              color: "var(--aurora-accent)",
-              fontWeight: 600,
-              fontSize: 13.5,
-            }}
-          >
-            <Icon name="image" size={18} />
-            <span>{isZh ? "释放鼠标以附加图片至提问" : "Drop image to attach to prompt"}</span>
-          </div>
-        )}
-            {isConfigCollapsed ? (
-              /* Collapsed Summary Pill Bar */
-              <div
-                onClick={toggleConfigCollapsed}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 6,
-                  marginBottom: 4,
-                  padding: "0 0 4px 0",
-                  borderBottom: "1px solid var(--aurora-border)",
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                  userSelect: "none",
-                  minWidth: 0,
-                  maxWidth: "100%",
-                  boxSizing: "border-box",
-                }}
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              void addFilesAsImages(e.dataTransfer.files);
+            }
+          }}
+        >
+          {/* Drag and Drop Active Overlay */}
+          {isDraggingOver && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                borderRadius: 15,
+                background: "rgba(99, 102, 241, 0.12)",
+                backdropFilter: "blur(3px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                zIndex: 40,
+                pointerEvents: "none",
+                color: "var(--aurora-accent)",
+                fontWeight: 600,
+                fontSize: 13.5,
+              }}
+            >
+              <Icon name="image" size={18} />
+              <span>{isZh ? "释放鼠标以附加图片至提问" : "Drop image to attach to prompt"}</span>
+            </div>
+          )}
+              {isConfigCollapsed ? (
+                /* Collapsed Summary Pill Bar */
+                <div
+                  onClick={toggleConfigCollapsed}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 4,
+                    marginBottom: 2,
+                    padding: "0 0 2px 0",
+                    borderBottom: "1px solid var(--aurora-border)",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                    userSelect: "none",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                  }}
                 title={isZh ? "点击展开完整配置面板" : "Click to expand configuration panel"}
               >
                 <div
@@ -5406,13 +5425,13 @@ function AskPageContent() {
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 5,
-                          padding: "2px 8px",
-                          borderRadius: 8,
+                          gap: 4,
+                          padding: "1.5px 6px",
+                          borderRadius: 6,
                           background: "var(--aurora-accent-soft)",
                           border: `1px solid ${currentMode.color}`,
                           color: currentMode.color,
-                          fontSize: 11.5,
+                          fontSize: 10.5,
                           fontWeight: 600,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
@@ -5452,13 +5471,13 @@ function AskPageContent() {
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 4,
-                      padding: "2px 8px",
-                      borderRadius: 8,
+                      gap: 3.5,
+                      padding: "1.5px 6px",
+                      borderRadius: 6,
                       background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "rgba(239, 68, 68, 0.12)" : "var(--aurora-chip)",
                       border: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid var(--aurora-border)",
                       color: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "var(--aurora-fg2)",
-                      fontSize: 11.5,
+                      fontSize: 10.5,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
                       flexShrink: 0,
@@ -5643,13 +5662,13 @@ function AskPageContent() {
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 3,
+                    gap: 2.5,
                     background: "var(--aurora-accent-soft)",
                     border: "1px solid var(--aurora-accent)",
-                    borderRadius: 8,
-                    padding: "2px 7px",
+                    borderRadius: 6,
+                    padding: "1.5px 6px",
                     color: "var(--aurora-accent)",
-                    fontSize: 11,
+                    fontSize: 10.5,
                     fontWeight: 600,
                     cursor: "pointer",
                     flexShrink: 0,
@@ -6915,7 +6934,7 @@ function AskPageContent() {
                 onClick={() => fileInputRef.current?.click()}
                 title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
                 style={{
-                  borderRadius: 11,
+                  borderRadius: 9,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -6927,9 +6946,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="w-8 h-8 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95"
+                className="w-7 h-7 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-lg sm:!rounded-xl"
               >
-                <Icon name="image" size={15} />
+                <Icon name="image" size={14} />
               </button>
               <input
                 ref={fileInputRef}
@@ -6941,7 +6960,7 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input !px-2 sm:!px-3.5 !py-1 sm:!py-2 !min-h-[34px] sm:!min-h-[40px] transition-all"
+                className="aurora-input !px-2 sm:!px-3.5 !py-0.5 sm:!py-1.5 !min-h-[28px] sm:!min-h-[38px] transition-all !rounded-lg sm:!rounded-xl"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -6950,7 +6969,7 @@ function AskPageContent() {
                   boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
                   boxSizing: "border-box",
                   alignItems: "flex-start",
-                  borderRadius: 11,
+                  borderRadius: 9,
                 }}
               >
                 <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
@@ -6992,9 +7011,9 @@ function AskPageContent() {
                   style={{
                     minWidth: 0,
                     width: "100%",
-                    height: 20,
+                    height: 18,
                     maxHeight: 160,
-                    lineHeight: "20px",
+                    lineHeight: "18px",
                     padding: 0,
                     margin: 0,
                     border: "none",
@@ -7015,7 +7034,7 @@ function AskPageContent() {
                 onClick={toggleVoiceInput}
                 title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
                 style={{
-                  borderRadius: 11,
+                  borderRadius: 9,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -7027,9 +7046,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={`w-8 h-8 sm:w-[38px] sm:h-[38px] active:scale-95 ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+                className={`w-7 h-7 sm:w-[38px] sm:h-[38px] active:scale-95 !rounded-lg sm:!rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
-                <Icon name="microphone" size={15} />
+                <Icon name="microphone" size={14} />
               </button>
               {isReconnecting && (
                 <div
@@ -7037,19 +7056,19 @@ function AskPageContent() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    padding: "0 10px",
-                    height: 34,
-                    borderRadius: 11,
+                    padding: "0 8px",
+                    height: 28,
+                    borderRadius: 9,
                     background: "rgba(245, 158, 11, 0.15)",
                     border: "1px solid rgba(245, 158, 11, 0.35)",
                     color: "#f59e0b",
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: 500,
                     flexShrink: 0,
                   }}
                   className="animate-pulse"
                 >
-                  <Icon name="refresh" size={12} className="animate-spin" />
+                  <Icon name="refresh" size={11} className="animate-spin" />
                   <span>正在恢复流式同步...</span>
                 </div>
               )}
@@ -7058,7 +7077,7 @@ function AskPageContent() {
                   variant="danger"
                   icon="close"
                   onClick={stopRun}
-                  className="!h-[34px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-xl"
+                  className="!h-[28px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-lg sm:!rounded-xl"
                   style={{
                     flexShrink: 0,
                     background: "rgba(239, 68, 68, 0.18)",
@@ -7073,7 +7092,7 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  className="!h-[34px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
+                  className="!h-[28px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-lg sm:!rounded-xl"
                   style={{ flexShrink: 0 }}
                 >
                   <span className="font-semibold text-xs sm:text-sm">{t.ask.send}</span>
@@ -7083,6 +7102,24 @@ function AskPageContent() {
           </div>
         </div>
       </footer>
+    ) : (
+      /* 沉浸式阅读视界浮动唤起胶囊 */
+      <div className="fixed bottom-16 sm:bottom-6 right-4 sm:right-8 z-30 animate-in fade-in slide-in-from-bottom-2 duration-200">
+        <button
+          type="button"
+          onClick={() => {
+            triggerHapticFeedback(12);
+            setIsReadingMode(false);
+            setTimeout(() => inputElRef.current?.focus(), 120);
+          }}
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full bg-[var(--aurora-surface-solid)]/95 backdrop-blur-xl border border-[var(--aurora-accent)] text-[var(--aurora-accent)] shadow-xl text-xs font-semibold active:scale-95 transition-transform cursor-pointer"
+          title={isZh ? "退出沉浸模式并输入吩咐" : "Exit reading mode & compose"}
+        >
+          <Icon name="edit" size={13} />
+          <span>{isZh ? "退出沉浸 · 吩咐" : "Compose"}</span>
+        </button>
+      </div>
+    )}
     </div>
 
       {/* AI Subscription Quotas Popover */}

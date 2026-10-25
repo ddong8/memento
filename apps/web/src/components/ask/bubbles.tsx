@@ -55,8 +55,8 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
       <div
         style={{
           width: "100%",
-          marginBottom: 12,
-          borderRadius: 12,
+          marginBottom: 8,
+          borderRadius: 10,
           border: "1px solid var(--aurora-border)",
           background: "rgba(255, 255, 255, 0.02)",
           overflow: "hidden",
@@ -75,7 +75,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "6px 10px",
+            padding: "5px 8px",
             background: "transparent",
             border: "none",
             cursor: "pointer",
@@ -128,10 +128,11 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
         {expanded && (
           <div
             ref={scrollContainerRef}
+            className="thinking-scroll-content"
             style={{
               width: "100%",
               borderTop: "1px solid var(--aurora-border)",
-              padding: "10px 14px",
+              padding: "8px 10px",
               background: "rgba(0, 0, 0, 0.12)",
               fontSize: 13,
               lineHeight: 1.6,
@@ -278,9 +279,9 @@ export const UserBubble = memo(function UserBubble({
         style={{
           background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
-          padding: "8px 12px 6px 12px",
-          borderRadius: 14,
-          maxWidth: "min(94%, 720px)",
+          padding: "7px 10px 5px 10px",
+          borderRadius: 12,
+          maxWidth: "min(96%, 720px)",
           fontSize: 14,
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
@@ -523,7 +524,7 @@ export const AssistantBubble = memo(function AssistantBubble({
 
   return (
     <div style={{ width: "100%" }}>
-      <Glass padding="clamp(6px, 2vw, 16px)" radius={14} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
+      <Glass padding="clamp(4px, 1.2vw, 16px)" radius={12} className="select-text ask-assistant-bubble-card" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
         {turn.sources && turn.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
             <button

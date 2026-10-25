@@ -1,22 +1,22 @@
 {
-  "version": "1.0.81",
-  "title": "Memento v1.0.81",
+  "version": "1.0.82",
+  "title": "Memento v1.0.82",
   "release_notes": "1. 修复 Claude Code 登录隔几个小时就失效、要重新 /login 的问题：Memento 查额度时不再替 Claude Code 刷新登录凭证\n2. Claude Code 或 Codex 登录失效时，回答里会直接说明是哪台设备、运行什么命令重新登录",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.81-win-x64.zip",
-      "size": 157854734,
-      "sha256": "bb3189e72100f50b5b4ea6ea5a99959936c99fcbfec321d9843b294ef6c6b731"
+      "asset_name": "Memento-1.0.82-win-x64.zip",
+      "size": 157858268,
+      "sha256": "67d361ed93475ae454e8888208fc1bbc1159090952a5b55c44ae106fc6bd1b61"
     },
     "macos": {
-      "asset_name": "Memento-1.0.81-mac-arm64.zip",
-      "size": 132324340,
-      "sha256": "60833f03365ed7da9e447ca3cd9cde395b7fca8d02a016eb96710d49deb3b31b"
+      "asset_name": "Memento-1.0.82-mac-arm64.zip",
+      "size": 132328208,
+      "sha256": "8a64119bd389b82568e18bdfad58cc6dec413fca64a55fcf7ccf8df09be74ea3"
     },
     "linux": {
-      "asset_name": "Memento-1.0.81-linux-x64.tar.gz",
-      "size": 131623854,
-      "sha256": "f8df07d43a1d109d698e4ef0e646e993db29debd788247ab67f004d69c9a4189"
+      "asset_name": "Memento-1.0.82-linux-x64.tar.gz",
+      "size": 131627283,
+      "sha256": "69d1675911dac7690aa134ae28ec24a703da855ebf44ac56349e1b873f46c95e"
     }
   }
 }

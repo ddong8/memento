@@ -6908,14 +6908,14 @@ function AskPageContent() {
             />
 
             {/* Input box and action button */}
-            <div className="flex items-end gap-1.5 sm:gap-2 w-full min-w-0 box-border">
+            <div className="flex items-end gap-1 sm:gap-2 w-full min-w-0 box-border">
               {/* Image Upload Button */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
                 style={{
-                  borderRadius: 13,
+                  borderRadius: 11,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -6927,9 +6927,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95"
+                className="w-8 h-8 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95"
               >
-                <Icon name="image" size={16} />
+                <Icon name="image" size={15} />
               </button>
               <input
                 ref={fileInputRef}
@@ -6941,7 +6941,7 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input !px-2.5 sm:!px-3.5 !py-1.5 sm:!py-2 !min-h-[38px] sm:!min-h-[40px] transition-all"
+                className="aurora-input !px-2 sm:!px-3.5 !py-1 sm:!py-2 !min-h-[34px] sm:!min-h-[40px] transition-all"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -6950,7 +6950,7 @@ function AskPageContent() {
                   boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
                   boxSizing: "border-box",
                   alignItems: "flex-start",
-                  borderRadius: 13,
+                  borderRadius: 11,
                 }}
               >
                 <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
@@ -7015,7 +7015,7 @@ function AskPageContent() {
                 onClick={toggleVoiceInput}
                 title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
                 style={{
-                  borderRadius: 13,
+                  borderRadius: 11,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -7027,7 +7027,7 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] active:scale-95 ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+                className={`w-8 h-8 sm:w-[38px] sm:h-[38px] active:scale-95 ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
                 <Icon name="microphone" size={15} />
               </button>
@@ -7038,8 +7038,8 @@ function AskPageContent() {
                     alignItems: "center",
                     gap: 6,
                     padding: "0 10px",
-                    height: 38,
-                    borderRadius: 13,
+                    height: 34,
+                    borderRadius: 11,
                     background: "rgba(245, 158, 11, 0.15)",
                     border: "1px solid rgba(245, 158, 11, 0.35)",
                     color: "#f59e0b",
@@ -7058,11 +7058,9 @@ function AskPageContent() {
                   variant="danger"
                   icon="close"
                   onClick={stopRun}
+                  className="!h-[34px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-xl"
                   style={{
                     flexShrink: 0,
-                    height: 38,
-                    padding: "0 13px",
-                    borderRadius: 13,
                     background: "rgba(239, 68, 68, 0.18)",
                     border: "1px solid rgba(239, 68, 68, 0.45)",
                     color: "#ef4444",
@@ -7075,9 +7073,10 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  style={{ flexShrink: 0, height: 38, padding: "0 14px", borderRadius: 13 }}
+                  className="!h-[34px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
+                  style={{ flexShrink: 0 }}
                 >
-                  <span className="font-semibold">{t.ask.send}</span>
+                  <span className="font-semibold text-xs sm:text-sm">{t.ask.send}</span>
                 </Btn>
               )}
             </div>

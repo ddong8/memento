@@ -674,30 +674,39 @@ html.memento-native-shell body {
 html.memento-native-shell .memento-shell-hide {
   display: none !important;
 }
+html.memento-native-shell footer[data-ask-footer="true"] {
+  padding-bottom: 0.25rem !important;
+}
 
 /* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */
 @media (max-width: 640px) {
+  .prose ol,
+  .prose ul,
   .prose-ask-mobile ol,
   .prose-ask-mobile ul {
     padding-left: 1.15rem !important;
   }
+  .prose li,
   .prose-ask-mobile li {
     margin-top: 0.18rem !important;
     margin-bottom: 0.18rem !important;
   }
+  .prose p,
   .prose-ask-mobile p {
     margin-top: 0.35rem !important;
     margin-bottom: 0.35rem !important;
   }
-  .prose-ask-mobile h1,
-  .prose-ask-mobile h2,
-  .prose-ask-mobile h3,
-  .prose-ask-mobile h4 {
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4 {
     margin-top: 0.65rem !important;
     margin-bottom: 0.35rem !important;
     font-size: 1.05em !important;
   }
+  .prose pre,
   .prose-ask-mobile pre {
+    padding: 0.75rem !important;
     margin-top: 0.4rem !important;
     margin-bottom: 0.4rem !important;
   }

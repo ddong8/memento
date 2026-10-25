@@ -6,6 +6,7 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import "highlight.js/styles/github-dark.min.css";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { MermaidBlock } from "./MermaidBlock";
 import {
   detectMediaType,
   VideoPlayer,
@@ -42,8 +43,20 @@ function PreBlock({ children, ...props }: any) {
     if (typeof codeElement?.props?.children === "string") {
       return codeElement.props.children;
     }
+    if (Array.isArray(codeElement?.props?.children)) {
+      return codeElement.props.children
+        .map((c: any) => (typeof c === "string" ? c : c?.props?.children || ""))
+        .join("");
+    }
     return "";
   }, [codeElement]);
+
+  const isMermaid = useMemo(() => {
+    return (
+      lang === "mermaid" ||
+      (!lang && /^\s*(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|gitGraph)\b/m.test(codeText))
+    );
+  }, [lang, codeText]);
 
   const lineCount = useMemo(() => {
     if (!codeText) return 0;
@@ -58,6 +71,10 @@ function PreBlock({ children, ...props }: any) {
       (codeText.includes("--- ") && codeText.includes("+++ "))
     );
   }, [lang, codeText]);
+
+  if (isMermaid && codeText.trim()) {
+    return <MermaidBlock code={codeText} />;
+  }
 
   const handleCopy = (e: React.MouseEvent) => {
     e.preventDefault();

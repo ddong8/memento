@@ -1212,6 +1212,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
+  const [viewEngine, setViewEngine] = useState<"embed" | "office" | "meta">("embed");
 
   useEffect(() => {
     if (!["csv", "tsv", "txt", "log"].includes(ext)) return;
@@ -1483,7 +1484,6 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const isPpt = item.type === "presentation" || ["pptx", "ppt", "key", "potx"].includes(ext);
   const isXls = item.type === "spreadsheet" || ["xlsx", "xls"].includes(ext);
   const isDoc = item.type === "document" || ["docx", "doc", "rtf"].includes(ext);
-  const [viewEngine, setViewEngine] = useState<"embed" | "office" | "meta">("embed");
 
   const formatMeta = isPpt
     ? {

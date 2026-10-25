@@ -675,8 +675,8 @@ html.memento-native-shell .memento-shell-hide {
   display: none !important;
 }
 html.memento-native-shell footer[data-ask-footer="true"] {
-  padding-bottom: 0.15rem !important;
-  padding-top: 0.15rem !important;
+  padding-bottom: 0.25rem !important;
+  padding-top: 0.25rem !important;
 }
 
 /* Mobile Ask View: Maximize width & vertical real estate for dialogue bubbles */

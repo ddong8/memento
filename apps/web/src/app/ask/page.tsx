@@ -2299,16 +2299,16 @@ function AskPageContent() {
     const el = inputElRef.current;
     if (!el) return;
     if (!input) {
-      if (el.style.height !== "20px") el.style.height = "20px";
+      if (el.style.height !== "22px") el.style.height = "22px";
       if (el.style.overflowY !== "hidden") el.style.overflowY = "hidden";
       return;
     }
     // Fast path: short single-line input without newline never wraps, avoiding synchronous scrollHeight layout thrashing on every keystroke
-    if (!input.includes("\n") && input.length < 22 && el.style.height === "20px") {
+    if (!input.includes("\n") && input.length < 22 && el.style.height === "22px") {
       return;
     }
-    el.style.height = "20px";
-    const nextHeight = Math.min(Math.max(el.scrollHeight, 20), 160);
+    el.style.height = "22px";
+    const nextHeight = Math.min(Math.max(el.scrollHeight, 22), 160);
     el.style.height = `${nextHeight}px`;
     el.style.overflowY = el.scrollHeight > 160 ? "auto" : "hidden";
   }, [input]);
@@ -5285,21 +5285,21 @@ function AskPageContent() {
   {!isReadingMode ? (
     <footer
       data-ask-footer="true"
-      className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
+      className="shrink-0 px-1 pt-1 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
       style={{
         paddingBottom: viewportBottomOffset > 0
           ? `${viewportBottomOffset + 4}px`
-          : "max(0.15rem, env(safe-area-inset-bottom, 0.15rem))",
+          : "max(0.2rem, env(safe-area-inset-bottom, 0.2rem))",
         transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
       <div className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto w-full min-w-0" style={{ boxSizing: "border-box" }}>
         <div
-          className="p-1 sm:px-3 sm:py-2"
+          className="p-1.5 sm:px-3.5 sm:py-2.5"
           style={{
             background: isDraggingOver ? "var(--aurora-accent-soft)" : "var(--aurora-surface-solid)",
             border: isDraggingOver ? "2px dashed var(--aurora-accent)" : "1px solid var(--aurora-border-strong)",
-            borderRadius: 12,
+            borderRadius: 14,
             boxShadow: isDraggingOver
               ? "0 0 24px rgba(99, 102, 241, 0.25)"
               : "var(--aurora-card-shadow), 0 16px 40px -8px rgba(0,0,0,0.14)",
@@ -6927,14 +6927,14 @@ function AskPageContent() {
             />
 
             {/* Input box and action button */}
-            <div className="flex items-end gap-1 sm:gap-2 w-full min-w-0 box-border">
+            <div className="flex items-end gap-1.5 sm:gap-2 w-full min-w-0 box-border">
               {/* Image Upload Button */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
                 style={{
-                  borderRadius: 9,
+                  borderRadius: 12,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -6946,9 +6946,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="w-7 h-7 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-lg sm:!rounded-xl"
+                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95 !rounded-xl"
               >
-                <Icon name="image" size={14} />
+                <Icon name="image" size={16} />
               </button>
               <input
                 ref={fileInputRef}
@@ -6960,7 +6960,7 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input !px-2 sm:!px-3.5 !py-0.5 sm:!py-1.5 !min-h-[28px] sm:!min-h-[38px] transition-all !rounded-lg sm:!rounded-xl"
+                className="aurora-input !px-2.5 sm:!px-3.5 !py-1.5 sm:!py-2 !min-h-[36px] sm:!min-h-[40px] transition-all !rounded-xl"
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -6969,7 +6969,7 @@ function AskPageContent() {
                   boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
                   boxSizing: "border-box",
                   alignItems: "flex-start",
-                  borderRadius: 9,
+                  borderRadius: 12,
                 }}
               >
                 <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
@@ -7011,9 +7011,9 @@ function AskPageContent() {
                   style={{
                     minWidth: 0,
                     width: "100%",
-                    height: 18,
+                    height: 22,
                     maxHeight: 160,
-                    lineHeight: "18px",
+                    lineHeight: "22px",
                     padding: 0,
                     margin: 0,
                     border: "none",
@@ -7024,7 +7024,7 @@ function AskPageContent() {
                     overflowY: "hidden",
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
-                    fontSize: 13.5,
+                    fontSize: 14,
                   }}
                 />
               </label>
@@ -7034,7 +7034,7 @@ function AskPageContent() {
                 onClick={toggleVoiceInput}
                 title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
                 style={{
-                  borderRadius: 9,
+                  borderRadius: 12,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -7046,9 +7046,9 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={`w-7 h-7 sm:w-[38px] sm:h-[38px] active:scale-95 !rounded-lg sm:!rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] active:scale-95 !rounded-xl ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
-                <Icon name="microphone" size={14} />
+                <Icon name="microphone" size={16} />
               </button>
               {isReconnecting && (
                 <div
@@ -7056,19 +7056,19 @@ function AskPageContent() {
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    padding: "0 8px",
-                    height: 28,
-                    borderRadius: 9,
+                    padding: "0 10px",
+                    height: 36,
+                    borderRadius: 12,
                     background: "rgba(245, 158, 11, 0.15)",
                     border: "1px solid rgba(245, 158, 11, 0.35)",
                     color: "#f59e0b",
-                    fontSize: 11.5,
+                    fontSize: 12,
                     fontWeight: 500,
                     flexShrink: 0,
                   }}
                   className="animate-pulse"
                 >
-                  <Icon name="refresh" size={11} className="animate-spin" />
+                  <Icon name="refresh" size={12} className="animate-spin" />
                   <span>正在恢复流式同步...</span>
                 </div>
               )}
@@ -7077,7 +7077,7 @@ function AskPageContent() {
                   variant="danger"
                   icon="close"
                   onClick={stopRun}
-                  className="!h-[28px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-lg sm:!rounded-xl"
+                  className="!h-[36px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
                   style={{
                     flexShrink: 0,
                     background: "rgba(239, 68, 68, 0.18)",
@@ -7092,7 +7092,7 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  className="!h-[28px] sm:!h-[38px] !px-2.5 sm:!px-3.5 !rounded-lg sm:!rounded-xl"
+                  className="!h-[36px] sm:!h-[38px] !px-3 sm:!px-3.5 !rounded-xl"
                   style={{ flexShrink: 0 }}
                 >
                   <span className="font-semibold text-xs sm:text-sm">{t.ask.send}</span>

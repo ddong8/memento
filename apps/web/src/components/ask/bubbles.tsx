@@ -75,11 +75,11 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "8px 12px",
+            padding: "6px 10px",
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            fontSize: 12.5,
+            fontSize: 12,
             color: "var(--aurora-fg3)",
             textAlign: "left",
           }}
@@ -523,7 +523,7 @@ export const AssistantBubble = memo(function AssistantBubble({
 
   return (
     <div style={{ width: "100%" }}>
-      <Glass padding="clamp(9px, 2.4vw, 18px)" radius={15} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
+      <Glass padding="clamp(6px, 2vw, 16px)" radius={14} className="select-text" style={{ width: "100%", maxWidth: "100%", minWidth: 0, overflow: "hidden", userSelect: "text", WebkitUserSelect: "text" }}>
         {turn.sources && turn.sources.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 10 }}>
             <button

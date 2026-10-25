@@ -272,16 +272,16 @@ const ExecutionCard = memo(function ExecutionCard({
           setUserToggled(true);
           setExpanded(!expanded);
         }}
+        className="px-2.5 sm:px-3.5 py-2 sm:py-2.5 transition-colors"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "9px 14px",
           background: "var(--aurora-chip)",
           borderBottom: expanded ? "1px solid var(--aurora-border)" : "none",
           cursor: "pointer",
           userSelect: "none",
-          gap: 10,
+          gap: 8,
           flexWrap: "nowrap",
         }}
       >
@@ -313,11 +313,11 @@ const ExecutionCard = memo(function ExecutionCard({
           {machineName && (
             <span
               title={machineName}
+              className="hidden sm:inline-flex"
               style={{
                 fontSize: 12,
                 fontWeight: 600,
                 color: "var(--aurora-fg1)",
-                display: "inline-flex",
                 alignItems: "center",
                 gap: 4,
                 maxWidth: "min(130px, 28vw)",
@@ -351,6 +351,7 @@ const ExecutionCard = memo(function ExecutionCard({
 
           {command && (
             <span
+              className={isAgent ? "hidden md:inline" : "inline"}
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontSize: 12,

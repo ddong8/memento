@@ -32,7 +32,8 @@ const ShareModal = dynamic(
 import type { AgentCapabilities, AgentModelOption, AgentEffortOption, SessionResumeCost } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { MindAnticipation } from "@/components/ask/MindAnticipation";
-import { HistoryDrawer } from "@/components/ask/HistoryDrawer";
+import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
+import { useTheme } from "@/lib/theme-context";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
@@ -662,6 +663,7 @@ function AskPageContent() {
 
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
+  const { theme, toggleTheme } = useTheme();
 
   // Each step of a resumed Claude Code session carries its whole context (one resumed from here was
   // ~510k tokens a step). Above the server's threshold the resume starts from a compacted snapshot
@@ -4350,6 +4352,32 @@ function AskPageContent() {
     displayConvTitleRef.current = displayConvTitle;
   }, [displayConvTitle]);
 
+  const activeConvAgent = useMemo(() => {
+    if (activeConversation) {
+      return resolveConversationAgent(activeConversation);
+    }
+    return resolveConversationAgent({
+      id: activeConversationId || "temp",
+      title: displayConvTitle,
+      config: { executionMode, model: selectedModel },
+    } as any);
+  }, [activeConversation, activeConversationId, displayConvTitle, executionMode, selectedModel]);
+
+  const activeConvAgentColor = useMemo(() => {
+    switch (activeConvAgent.brandId) {
+      case "claude_code":
+        return "#D97757";
+      case "antigravity":
+        return "#3186FF";
+      case "codex":
+        return "#10A37F";
+      case "workbuddy":
+        return "#0EC7A8";
+      default:
+        return activeConvAgent.id === "shell" ? "#38BDF8" : "var(--aurora-accent)";
+    }
+  }, [activeConvAgent]);
+
   const isJunkSessionTitle = useCallback((val?: string) => {
     if (!val) return true;
     const low = val.trim().toLowerCase();
@@ -4635,8 +4663,20 @@ function AskPageContent() {
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-2 sm:px-4 py-1.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20">
+        <header className="px-2.5 sm:px-4 py-2 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
+            {/* 移动端侧边菜单开关 (在移动端下充当主侧边栏汉堡按钮) */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent("memento_toggle_sidebar"))}
+              aria-label="打开侧边导航"
+              title={isZh ? "打开侧边栏" : "Open sidebar"}
+              className="sm:hidden p-1.5 -ml-1 rounded-lg text-[var(--aurora-fg2)] active:bg-[var(--aurora-chip)] shrink-0 transition-colors"
+            >
+              <Icon name="menu" size={19} />
+            </button>
+
+            {/* 历史对话抽屉入口 */}
             <Btn
               variant="glass"
               size="sm"
@@ -4665,9 +4705,34 @@ function AskPageContent() {
                 </span>
               )}
             </Btn>
-            <div className="min-w-0 flex-1 overflow-hidden">
+
+            {/* 当前会话标题与智能体图标徽章 */}
+            <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
+              {activeConvAgent.brandId ? (
+                <div
+                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                  style={{
+                    background: activeConvAgentColor + "18",
+                    border: `1px solid ${activeConvAgentColor}35`,
+                  }}
+                  title={activeConvAgent.name}
+                >
+                  <BrandMark id={activeConvAgent.brandId} size={13} colored />
+                </div>
+              ) : (
+                <div
+                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)]"
+                  title={activeConvAgent.name || "AI 执事"}
+                >
+                  <Icon
+                    name={activeConvAgent.id === "shell" ? "terminal" : "sparkles"}
+                    size={11.5}
+                    style={{ color: activeConvAgentColor }}
+                  />
+                </div>
+              )}
               <h1
-                className="text-[13px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
+                className="text-[13.5px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
                 title={displayConvTitle}
               >
                 {displayConvTitle}
@@ -4706,7 +4771,8 @@ function AskPageContent() {
                 </span>
               </Btn>
             )}
-            {/* AI 订阅与额度监控入口 */}
+
+            {/* AI 订阅与额度监控入口 (桌面端展示；移动端收拢至更多菜单，杜绝挤压标题) */}
             <Btn
               variant="glass"
               size="sm"
@@ -4716,7 +4782,7 @@ function AskPageContent() {
               }}
               onClick={() => setQuotaOpen(true)}
               title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
-              className="shrink-0"
+              className="hidden sm:inline-flex shrink-0"
             >
               <span className="flex items-center gap-1">
                 <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
@@ -4760,6 +4826,8 @@ function AskPageContent() {
                 })()}
               </span>
             </Btn>
+
+            {/* 新建会话按钮 */}
             <Btn
               variant="glass"
               size="sm"
@@ -4771,7 +4839,7 @@ function AskPageContent() {
               <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>{t.ask.newChat}</span>
             </Btn>
 
-            {/* 桌面大屏幕且未展开工作台视窗时平铺操作按钮 (>= xl 屏幕)；工作台开启或中窄屏幕时收纳进更多操作菜单 */}
+            {/* 桌面大屏幕且未展开工作台视窗时平铺操作按钮 (>= xl 屏幕) */}
             {activeConversationId && turns.length > 0 && !inspector?.isOpen && (
               <div className="hidden xl:flex items-center gap-1 sm:gap-1.5">
                 <Btn
@@ -4810,83 +4878,136 @@ function AskPageContent() {
               </div>
             )}
             {turns.length > 0 && !inspector?.isOpen && (
-              <Btn
-                variant="ghost"
-                size="sm"
-                icon="trash"
-                title={t.ask.clear}
-                onClick={() => {
-                  abortRef.current?.abort();
-                  setTurns([]);
-                }}
-                className="hidden xl:inline-flex shrink-0"
-              >
-                <span className="hidden 2xl:inline">{t.ask.clear}</span>
-              </Btn>
+              <div className="hidden xl:inline-flex">
+                <Btn
+                  variant="ghost"
+                  size="sm"
+                  icon="trash"
+                  title={t.ask.clear}
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    setTurns([]);
+                  }}
+                  className="shrink-0"
+                >
+                  <span className="hidden 2xl:inline">{t.ask.clear}</span>
+                </Btn>
+              </div>
             )}
 
-            {/* 折叠更多菜单：工作台开启时常驻收纳；工作台关闭时在移动端与中窄屏幕 (< xl) 收纳 */}
-            {turns.length > 0 && (
-              <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
-                <Btn
-                  variant={selectTurnsMode ? "primary" : "glass"}
-                  size="sm"
-                  icon="more"
-                  onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-                  title={isZh ? "更多会话操作" : "More actions"}
-                  className="shrink-0"
-                />
+            {/* 更多菜单：移动端常驻，大屏收纳 */}
+            <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
+              <Btn
+                variant={selectTurnsMode ? "primary" : "glass"}
+                size="sm"
+                icon="more"
+                onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                title={isZh ? "更多会话操作" : "More actions"}
+                className="shrink-0"
+              />
 
-                {moreMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setMoreMenuOpen(false)}
-                    />
-                    <div
-                      className="absolute right-0 top-10 z-50 min-w-[170px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
+              {moreMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setMoreMenuOpen(false)}
+                  />
+                  <div
+                    className="absolute right-0 top-10 z-50 min-w-[190px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
+                  >
+                    {/* 移动端专属：AI 额度查看 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        setQuotaOpen(true);
+                      }}
+                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
                     >
-                      {activeConversationId && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectTurnsMode(!selectTurnsMode);
-                              setSelectedTurnIndices([]);
-                              setMoreMenuOpen(false);
-                            }}
-                            className={`px-3 py-2 text-xs flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left ${
-                              selectTurnsMode ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
-                            }`}
-                          >
-                            <Icon name="layers" size={15} />
-                            <span>{selectTurnsMode ? (isZh ? "退出多选模式" : "Exit selection") : (isZh ? "批量多选消息" : "Select messages")}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleExportMarkdown();
-                              setMoreMenuOpen(false);
-                            }}
-                            className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
-                          >
-                            <Icon name="download" size={15} />
-                            <span>{isZh ? "导出 Markdown 研报" : "Export Markdown"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              openSingleShare(activeConversationId, displayConvTitle);
-                              setMoreMenuOpen(false);
-                            }}
-                            className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
-                          >
-                            <Icon name="share" size={15} />
-                            <span>{isZh ? "分享完整会话" : "Share conversation"}</span>
-                          </button>
-                          <div className="my-1 border-t border-[var(--aurora-border)]" />
-                        </>
-                      )}
+                      <span className="flex items-center gap-2">
+                        <Icon name="activity" size={14} className="text-cyan-400" />
+                        <span>AI 额度监控</span>
+                      </span>
+                      {(() => {
+                        const targetTool = executionMode === "claude"
+                          ? quotasData?.tools?.claude_code
+                          : executionMode === "codex"
+                          ? quotasData?.tools?.codex
+                          : executionMode === "workbuddy"
+                          ? quotasData?.tools?.workbuddy
+                          : quotasData?.tools?.antigravity;
+                        const percent = targetTool?.remaining_percent;
+                        if (percent != null) {
+                          return (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full quota-badge-teal">
+                              {Math.round(percent)}%
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </button>
+
+                    {/* 移动端专属：主题切换 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toggleTheme();
+                        setMoreMenuOpen(false);
+                      }}
+                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name={theme === "dark" ? "sun" : "moon"} size={14} className="text-amber-400" />
+                        <span>{isZh ? "外观主题切换" : "Toggle Theme"}</span>
+                      </span>
+                      <span className="text-[10px] text-[var(--aurora-fg3)] capitalize">{theme}</span>
+                    </button>
+
+                    <div className="my-1 border-t border-[var(--aurora-border)] sm:hidden" />
+
+                    {activeConversationId && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectTurnsMode(!selectTurnsMode);
+                            setSelectedTurnIndices([]);
+                            setMoreMenuOpen(false);
+                          }}
+                          className={`px-3 py-2 text-xs flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left ${
+                            selectTurnsMode ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
+                          }`}
+                        >
+                          <Icon name="layers" size={14} />
+                          <span>{selectTurnsMode ? (isZh ? "退出多选模式" : "Exit selection") : (isZh ? "批量多选消息" : "Select messages")}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleExportMarkdown();
+                            setMoreMenuOpen(false);
+                          }}
+                          className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
+                        >
+                          <Icon name="download" size={14} />
+                          <span>{isZh ? "导出 Markdown 研报" : "Export Markdown"}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openSingleShare(activeConversationId, displayConvTitle);
+                            setMoreMenuOpen(false);
+                          }}
+                          className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
+                        >
+                          <Icon name="share" size={14} />
+                          <span>{isZh ? "分享完整会话" : "Share conversation"}</span>
+                        </button>
+                        <div className="my-1 border-t border-[var(--aurora-border)]" />
+                      </>
+                    )}
+                    {turns.length > 0 && (
                       <button
                         type="button"
                         onClick={() => {
@@ -4896,14 +5017,14 @@ function AskPageContent() {
                         }}
                         className="px-3 py-2 text-xs flex items-center gap-2.5 text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
                       >
-                        <Icon name="trash" size={15} />
+                        <Icon name="trash" size={14} />
                         <span>{isZh ? "清空当前消息" : "Clear conversation"}</span>
                       </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -5244,6 +5365,7 @@ function AskPageContent() {
                 title={isZh ? "点击展开完整配置面板" : "Click to expand configuration panel"}
               >
                 <div
+                  className="no-scrollbar"
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -5340,8 +5462,7 @@ function AskPageContent() {
                       fontSize: 11.5,
                       fontWeight: 500,
                       whiteSpace: "nowrap",
-                      flexShrink: 1,
-                      minWidth: 0,
+                      flexShrink: 0,
                     }}
                   >
                     <span
@@ -6795,7 +6916,7 @@ function AskPageContent() {
                 onClick={() => fileInputRef.current?.click()}
                 title={isZh ? "上传图片或截图 (支持直接粘贴 Ctrl+V / Cmd+V)" : "Upload image (supports Ctrl+V / Cmd+V)"}
                 style={{
-                  borderRadius: 11,
+                  borderRadius: 13,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -6807,7 +6928,7 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)]"
+                className="w-9 h-9 sm:w-[38px] sm:h-[38px] hover:text-[var(--aurora-fg1)] hover:border-[var(--aurora-border-strong)] active:scale-95"
               >
                 <Icon name="image" size={16} />
               </button>
@@ -6821,15 +6942,16 @@ function AskPageContent() {
               />
 
               <label
-                className="aurora-input !px-2.5 sm:!px-3 !py-1.5 sm:!py-2 !min-h-[36px] sm:!min-h-[38px]"
+                className="aurora-input !px-2.5 sm:!px-3.5 !py-1.5 sm:!py-2 !min-h-[38px] sm:!min-h-[40px] transition-all"
                 style={{
                   flex: 1,
                   minWidth: 0,
-                  background: "var(--aurora-chip)",
-                  border: "1px solid var(--aurora-border)",
+                  background: isInputFocused ? "var(--aurora-surface-solid)" : "var(--aurora-chip)",
+                  border: isInputFocused ? "1px solid var(--aurora-accent)" : "1px solid var(--aurora-border)",
+                  boxShadow: isInputFocused ? "0 0 0 2px var(--aurora-accent-soft)" : "none",
                   boxSizing: "border-box",
                   alignItems: "flex-start",
-                  borderRadius: 11,
+                  borderRadius: 13,
                 }}
               >
                 <span className="hidden sm:inline-flex" style={{ color: "var(--aurora-fg3)", flexShrink: 0, marginTop: 3 }}>
@@ -6894,7 +7016,7 @@ function AskPageContent() {
                 onClick={toggleVoiceInput}
                 title={isRecordingVoice ? (isZh ? "停止倾听" : "Stop listening") : (isZh ? "语音吩咐 (按键说话)" : "Voice input")}
                 style={{
-                  borderRadius: 11,
+                  borderRadius: 13,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -6906,7 +7028,7 @@ function AskPageContent() {
                   flexShrink: 0,
                   boxSizing: "border-box",
                 }}
-                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
+                className={`w-9 h-9 sm:w-[38px] sm:h-[38px] active:scale-95 ${isRecordingVoice ? "animate-pulse shadow-sm" : "hover:text-[var(--aurora-fg1)]"}`}
               >
                 <Icon name="microphone" size={15} />
               </button>
@@ -6917,8 +7039,8 @@ function AskPageContent() {
                     alignItems: "center",
                     gap: 6,
                     padding: "0 10px",
-                    height: 36,
-                    borderRadius: 11,
+                    height: 38,
+                    borderRadius: 13,
                     background: "rgba(245, 158, 11, 0.15)",
                     border: "1px solid rgba(245, 158, 11, 0.35)",
                     color: "#f59e0b",
@@ -6939,9 +7061,9 @@ function AskPageContent() {
                   onClick={stopRun}
                   style={{
                     flexShrink: 0,
-                    height: 36,
-                    padding: "0 12px",
-                    borderRadius: 11,
+                    height: 38,
+                    padding: "0 13px",
+                    borderRadius: 13,
                     background: "rgba(239, 68, 68, 0.18)",
                     border: "1px solid rgba(239, 68, 68, 0.45)",
                     color: "#ef4444",
@@ -6954,9 +7076,9 @@ function AskPageContent() {
                   onClick={send}
                   disabled={!input.trim() && attachedImages.length === 0}
                   icon={executionMode === "shell" ? "terminal" : executionMode !== "ai" ? "rocket" : selectedDevice === "ask_only" ? "search" : "rocket"}
-                  style={{ flexShrink: 0, height: 36, padding: "0 12px", borderRadius: 11 }}
+                  style={{ flexShrink: 0, height: 38, padding: "0 14px", borderRadius: 13 }}
                 >
-                  {t.ask.send}
+                  <span className="font-semibold">{t.ask.send}</span>
                 </Btn>
               )}
             </div>

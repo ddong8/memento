@@ -10,7 +10,7 @@ from sqlalchemy import func, select, cast, Date
 from sqlalchemy.dialects.postgresql import array_agg
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import ConversationMessage, DailySummary, Document, User
+from ..db.models import CHAT_MESSAGE, ConversationMessage, DailySummary, Document, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
@@ -57,10 +57,7 @@ async def list_daily_dates(
         .join(Document, ConversationMessage.document_id == Document.id)
         .where(
             ConversationMessage.timestamp >= cutoff,
-            ConversationMessage.timestamp.isnot(None),
-            ConversationMessage.role.in_(["user", "assistant"]),
-            ~ConversationMessage.content.like("[Result]%"),
-            ~ConversationMessage.content.like("[Tool:%"),
+            CHAT_MESSAGE,
             Document.tool_id != "system",
         )
     )
@@ -136,9 +133,7 @@ async def get_daily(
         .where(
             ConversationMessage.timestamp >= day_start,
             ConversationMessage.timestamp < day_end,
-            ConversationMessage.role.in_(["user", "assistant"]),
-            ~ConversationMessage.content.like("[Result]%"),
-            ~ConversationMessage.content.like("[Tool:%"),
+            CHAT_MESSAGE,
             ~Document.relative_path.like("%/subagents/%"),
         )
     )
@@ -244,9 +239,7 @@ async def get_daily_messages(
     msg_filter = [
         ConversationMessage.timestamp >= day_start,
         ConversationMessage.timestamp < day_end,
-        ConversationMessage.role.in_(["user", "assistant"]),
-        ~ConversationMessage.content.like("[Result]%"),
-        ~ConversationMessage.content.like("[Tool:%"),
+        CHAT_MESSAGE,
     ]
     # Exclude Claude Code sub-agent duplicates (they copy parent messages)
     subagent_filter = ~Document.relative_path.like("%/subagents/%")
@@ -377,9 +370,7 @@ async def generate_daily_summary_endpoint(
         .where(
             ConversationMessage.timestamp >= day_start,
             ConversationMessage.timestamp < day_end,
-            ConversationMessage.role.in_(["user", "assistant"]),
-            ~ConversationMessage.content.like("[Result]%"),
-            ~ConversationMessage.content.like("[Tool:%"),
+            CHAT_MESSAGE,
         )
     )
     if mids is not None:

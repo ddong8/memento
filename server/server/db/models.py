@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String,
-    Text, UniqueConstraint, func,
+    Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -225,7 +225,23 @@ class ConversationMessage(Base):
         Index("uq_conv_msg_doc_line", "document_id", "line_number", unique=True),
         Index("idx_conv_msg_timestamp", "timestamp"),
         Index("idx_conv_msg_doc_ts", "document_id", "timestamp"),
+        # The daily views count and list only real chat messages: with this index they don't read every
+        # message's text (the calendar read ~350 MB per call). Created on production by hand, CONCURRENTLY.
+        Index("idx_conv_msg_chat_ts", "timestamp", "document_id", postgresql_where=text(
+            "role IN ('user', 'assistant') AND content NOT LIKE '[Result]%' "
+            "AND content NOT LIKE '[Tool:%' AND \"timestamp\" IS NOT NULL"
+        )),
     )
+
+
+# The condition of idx_conv_msg_chat_ts. Queries spell it with these constants, not bound parameters:
+# a prepared statement's generic plan can't tell that parameters match a partial index's condition.
+CHAT_MESSAGE = text(
+    "conversation_messages.role IN ('user', 'assistant') "
+    "AND conversation_messages.content NOT LIKE '[Result]%' "
+    "AND conversation_messages.content NOT LIKE '[Tool:%' "
+    "AND conversation_messages.timestamp IS NOT NULL"
+)
 
 
 # ---------------------------------------------------------------------------

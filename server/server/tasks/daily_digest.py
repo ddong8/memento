@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from collections import defaultdict
 from .celery_app import celery_app
-from ..db.models import ConversationMessage, DailySummary, Document, User
+from ..db.models import CHAT_MESSAGE, ConversationMessage, DailySummary, Document, User
 from ..db.session import async_session_factory
 from ..services.ai_summary_service import generate_daily_summary_from_digests
 from ..services.user_filter import user_machine_ids
@@ -31,9 +31,7 @@ async def _generate_digest(target_date: date) -> None:
                 .where(
                     ConversationMessage.timestamp >= day_start,
                     ConversationMessage.timestamp < day_end,
-                    ConversationMessage.role.in_(["user", "assistant"]),
-                    ~ConversationMessage.content.like("[Result]%"),
-                    ~ConversationMessage.content.like("[Tool:%"),
+                    CHAT_MESSAGE,
                     ~Document.relative_path.like("%/subagents/%"),
                 )
             )

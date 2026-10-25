@@ -4675,7 +4675,7 @@ function AskPageContent() {
               <Icon name="menu" size={19} />
             </button>
 
-            {/* 历史对话抽屉入口 */}
+            {/* 历史对话抽屉入口 (桌面端展示；移动端收拢至更多菜单以保证标题展示空间) */}
             <Btn
               variant="glass"
               size="sm"
@@ -4685,7 +4685,7 @@ function AskPageContent() {
                 void loadConversations();
               }}
               title={isZh ? "查看历史对话" : "View history"}
-              className="shrink-0"
+              className="hidden sm:inline-flex shrink-0"
             >
               <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
               {conversations.length > 0 && (
@@ -4740,7 +4740,7 @@ function AskPageContent() {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
-            {/* 工作台独立视窗快捷开关 (若对话中有文档、视频或照片，高亮并提示) */}
+            {/* 工作台独立视窗快捷开关 (桌面端展示；移动端收拢至更多菜单) */}
             {inspector && inspector.mediaList.length > 0 && (
               <Btn
                 variant={inspector.isOpen ? "primary" : "glass"}
@@ -4748,7 +4748,7 @@ function AskPageContent() {
                 icon="sidebar"
                 onClick={inspector.toggleInspector}
                 title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
-                className="shrink-0"
+                className="hidden sm:inline-flex shrink-0"
               >
                 <span className="flex items-center gap-1 sm:gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
@@ -4826,7 +4826,7 @@ function AskPageContent() {
               </span>
             </Btn>
 
-            {/* 沉浸式阅读视界开关 (手机端/桌面端一键收起输入控制台，最大化展示对话正文) */}
+            {/* 沉浸式阅读视界开关 (桌面端展示；移动端收拢至更多菜单) */}
             {turns.length > 0 && (
               <Btn
                 variant={isReadingMode ? "primary" : "glass"}
@@ -4837,7 +4837,7 @@ function AskPageContent() {
                   setIsReadingMode(!isReadingMode);
                 }}
                 title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
-                className="shrink-0"
+                className="hidden sm:inline-flex shrink-0"
               >
                 <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
               </Btn>
@@ -4929,8 +4929,68 @@ function AskPageContent() {
                     onClick={() => setMoreMenuOpen(false)}
                   />
                   <div
-                    className="absolute right-0 top-10 z-50 min-w-[190px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
+                    className="absolute right-0 top-10 z-50 min-w-[200px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
                   >
+                    {/* 移动端专属：历史会话列表 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        setHistoryOpen(true);
+                        void loadConversations();
+                      }}
+                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon name="clock" size={14} className="text-[var(--aurora-fg2)]" />
+                        <span>{t.ask.historyTitle}</span>
+                      </span>
+                      {conversations.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] font-mono font-bold">
+                          {conversations.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* 移动端专属：工作台媒体/研报视窗 */}
+                    {inspector && inspector.mediaList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMoreMenuOpen(false);
+                          inspector.toggleInspector();
+                        }}
+                        className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Icon name="sidebar" size={14} className="text-emerald-400" />
+                          <span>{inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Close Workbench") : (isZh ? "展开工作台视窗" : "Open Workbench")}</span>
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-mono font-bold">
+                          {inspector.mediaList.length}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* 移动端专属：沉浸阅读视界开关 */}
+                    {turns.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMoreMenuOpen(false);
+                          triggerHapticFeedback(10);
+                          setIsReadingMode(!isReadingMode);
+                        }}
+                        className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Icon name={isReadingMode ? "edit" : "book"} size={14} className="text-indigo-400" />
+                          <span>{isReadingMode ? (isZh ? "恢复输入栏" : "Show Input") : (isZh ? "沉浸阅读视界" : "Reading Mode")}</span>
+                        </span>
+                        <span className="text-[10px] text-[var(--aurora-fg3)]">{isReadingMode ? (isZh ? "开启中" : "Active") : (isZh ? "未开启" : "Off")}</span>
+                      </button>
+                    )}
+
                     {/* 移动端专属：AI 额度查看 */}
                     <button
                       type="button"
@@ -5285,11 +5345,11 @@ function AskPageContent() {
   {!isReadingMode ? (
     <footer
       data-ask-footer="true"
-      className="shrink-0 px-1 pt-1 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
+      className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
       style={{
         paddingBottom: viewportBottomOffset > 0
-          ? `${viewportBottomOffset + 4}px`
-          : "max(0.2rem, env(safe-area-inset-bottom, 0.2rem))",
+          ? `${viewportBottomOffset + 2}px`
+          : "max(0.125rem, env(safe-area-inset-bottom, 0.125rem))",
         transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
@@ -5467,7 +5527,7 @@ function AskPageContent() {
 
                   {/* Target Device Badge */}
                   <span
-                    className="max-w-[168px] sm:max-w-[260px]"
+                    className="max-w-[110px] sm:max-w-[220px]"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -5485,19 +5545,23 @@ function AskPageContent() {
                   >
                     <span
                       style={{
-                        width: 6,
-                        height: 6,
+                        width: 5.5,
+                        height: 5.5,
                         borderRadius: 999,
                         background: !isCurrentDevOnline && selectedDevice !== "auto" && selectedDevice !== "ask_only" ? "#ef4444" : "#10B981",
                         flexShrink: 0,
                       }}
                     />
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {selectedDevice === "auto"
-                        ? t.ask.autoDispatch
-                        : selectedDevice === "ask_only"
-                        ? t.ask.askOnly
-                        : `${currentDev?.name?.replace(/ \(\w+\)$/, "") || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice)}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`}
+                      {(() => {
+                        if (selectedDevice === "auto") return t.ask.autoDispatch;
+                        if (selectedDevice === "ask_only") return t.ask.askOnly;
+                        const baseName = (currentDev?.name || selectedDevice)
+                          .replace(/\.local$/i, "")
+                          .replace(/ \(\w+\)$/, "");
+                        const shortName = baseName || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice);
+                        return `${shortName}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`;
+                      })()}
                     </span>
                   </span>
 
@@ -5512,23 +5576,24 @@ function AskPageContent() {
                     });
                     return (
                       <span
+                        className="max-w-[95px] sm:max-w-[180px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
-                          padding: "2px 8px",
-                          borderRadius: 8,
+                          gap: 3.5,
+                          padding: "1.5px 6px",
+                          borderRadius: 6,
                           background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg2)",
-                          fontSize: 11.5,
+                          fontSize: 10.5,
                           fontWeight: 500,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
                         }}
                       >
-                        <Icon name="code" size={12} style={{ color: "var(--aurora-fg3)" }} />
-                        <span>{displayTitle}</span>
+                        <Icon name="code" size={11} style={{ color: "var(--aurora-fg3)" }} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayTitle}</span>
                       </span>
                     );
                   })()}
@@ -5538,17 +5603,17 @@ function AskPageContent() {
                     const safeFolder = resolveSafeProjectName({ cwd, isZh });
                     return (
                       <span
-                        className="max-w-[160px] sm:max-w-[240px]"
+                        className="max-w-[95px] sm:max-w-[180px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
-                          gap: 4,
-                          padding: "2px 8px",
-                          borderRadius: 8,
+                          gap: 3.5,
+                          padding: "1.5px 6px",
+                          borderRadius: 6,
                           background: "var(--aurora-chip)",
                           border: "1px solid var(--aurora-border)",
                           color: "var(--aurora-fg3)",
-                          fontSize: 11,
+                          fontSize: 10.5,
                           whiteSpace: "nowrap",
                           flexShrink: 0,
                           overflow: "hidden",
@@ -5557,7 +5622,7 @@ function AskPageContent() {
                         title={cwd}
                       >
                         <Icon name="folder" size={11} style={{ color: "var(--aurora-accent)" }} />
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{safeFolder}</span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{safeFolder}</span>
                       </span>
                     );
                   })()}

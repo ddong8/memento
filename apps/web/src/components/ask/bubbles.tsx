@@ -663,11 +663,11 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mt-2.5 pt-1.5 border-t border-[var(--aurora-border)]/40 not-prose select-none text-[10.5px] sm:text-[11px]">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[10.5px] sm:text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
+        <div className="flex items-center justify-between gap-1 sm:gap-2 mt-2 pt-1.5 border-t border-[var(--aurora-border)]/40 not-prose select-none text-[10.5px] sm:text-[11px] min-w-0">
+          <div className="flex items-center gap-1 sm:gap-2 min-w-0 overflow-x-auto no-scrollbar py-0.5 text-[10.5px] sm:text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
             {startTime && (
               <span
-                className="inline-flex items-center gap-1 opacity-75 whitespace-nowrap shrink-0 hidden sm:inline-flex"
+                className="inline-flex items-center gap-1 opacity-75 whitespace-nowrap shrink-0 hidden md:inline-flex"
                 title={`发出提问时间: ${startTime.full}`}
               >
                 <Icon name="clock" size={10.5} />
@@ -679,31 +679,32 @@ export const AssistantBubble = memo(function AssistantBubble({
                 className="inline-flex items-center gap-1 opacity-85 whitespace-nowrap shrink-0"
                 title={`收到回复时间: ${replyTime.full}${startTime ? ` (提问于 ${startTime.full})` : ""}`}
               >
-                <Icon name="clock" size={11} />
-                <span>回复于 {replyTime.short}</span>
+                <Icon name="clock" size={10.5} />
+                <span className="hidden sm:inline">回复于 </span>
+                <span>{replyTime.short}</span>
               </span>
             )}
             {durationText && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
+                className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10px] sm:text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
                 title="本轮响应耗时"
               >
-                <Icon name="zap" size={10} style={{ color: "var(--aurora-accent)" }} />
-                <span>耗时 {durationText}</span>
+                <Icon name="zap" size={9.5} style={{ color: "var(--aurora-accent)" }} />
+                <span>{durationText}</span>
               </span>
             )}
             {turn.cached && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10.5px] text-emerald-400 whitespace-nowrap shrink-0 font-medium"
+                className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] sm:text-[10.5px] text-emerald-400 whitespace-nowrap shrink-0 font-medium"
                 title="命中语义缓存网关，毫秒级瞬时响应"
               >
-                <Icon name="zap" size={10} style={{ color: "#34d399" }} />
+                <Icon name="zap" size={9.5} style={{ color: "#34d399" }} />
                 <span>{isZh ? "极速缓存" : "Cached"}</span>
               </span>
             )}
             {speedLabel && (
               <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
+                className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
                 title="文字生成速率"
               >
                 <Icon name="activity" size={10} style={{ color: "var(--aurora-accent)" }} />
@@ -720,16 +721,16 @@ export const AssistantBubble = memo(function AssistantBubble({
                 : rawName;
               return (
                 <span
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-accent)]/30 text-[10.5px] text-[var(--aurora-accent)] font-medium whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-accent-soft)] border border-[var(--aurora-accent)]/30 text-[10px] sm:text-[10.5px] text-[var(--aurora-accent)] font-medium whitespace-nowrap shrink-0"
                   title={`执行引擎/模型: ${rawName}`}
                 >
-                  <Icon name="sparkles" size={10} style={{ color: "var(--aurora-accent)" }} />
+                  <Icon name="sparkles" size={9.5} style={{ color: "var(--aurora-accent)" }} />
                   <span>{formattedName}</span>
                 </span>
               );
             })()}
           </div>
-          <div className="flex items-center gap-1 sm:gap-1.5 self-end sm:self-auto sm:ml-auto shrink-0 flex-wrap">
+          <div className="flex items-center gap-0.5 sm:gap-1.5 ml-auto shrink-0">
             {onShareTurn && (
               <button
                 type="button"
@@ -737,22 +738,22 @@ export const AssistantBubble = memo(function AssistantBubble({
                   e.stopPropagation();
                   onShareTurn(index);
                 }}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] active:bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="分享与多平台分发 (微信公众号/知乎/微博/小红书)"
               >
                 <Icon name="share" size={12} />
-                <span>分享</span>
+                <span className="hidden sm:inline">分享</span>
               </button>
             )}
             {content && (
               <button
                 type="button"
                 onClick={handleCopyContent}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] active:bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="复制回答全文"
               >
-                <Icon name={copied ? "check" : "copy"} size={13} style={{ color: copied ? "#10b981" : undefined }} />
-                <span>{copied ? "已复制" : "复制全文"}</span>
+                <Icon name={copied ? "check" : "copy"} size={12.5} style={{ color: copied ? "#10b981" : undefined }} />
+                <span className="hidden sm:inline">{copied ? "已复制" : "复制全文"}</span>
               </button>
             )}
             {content && (
@@ -760,11 +761,11 @@ export const AssistantBubble = memo(function AssistantBubble({
                 type="button"
                 onClick={handleSaveToTodo}
                 disabled={savedTodo}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] active:bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 title="一键将回答要点存入工作待办"
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />
-                <span>{savedTodo ? "已存待办" : "存为待办"}</span>
+                <span className="hidden sm:inline">{savedTodo ? "已存待办" : "存为待办"}</span>
               </button>
             )}
           </div>

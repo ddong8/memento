@@ -829,7 +829,9 @@ function AskPageContent() {
       const safeList = list || [];
       setConversations(safeList);
       try {
-        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 60)));
+        if (!devId) {
+          localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 100)));
+        }
       } catch {}
 
       // Idle prefetch: warm top recent conversations in background for true 0ms clicks

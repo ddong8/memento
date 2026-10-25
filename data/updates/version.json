@@ -1,22 +1,22 @@
 {
-  "version": "1.0.80",
-  "title": "Memento v1.0.80",
+  "version": "1.0.81",
+  "title": "Memento v1.0.81",
   "release_notes": "1. WorkBuddy 任务需要读写文件或执行命令时不再一直卡住，能正常做完并返回结果\n2. WorkBuddy 任务会被告知你选的项目目录，按这个目录读写文件和执行命令",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.80-win-x64.zip",
-      "size": 157854116,
-      "sha256": "773a01274256f93125668b28aef4328860f93d9364c4637527cd21c528421503"
+      "asset_name": "Memento-1.0.81-win-x64.zip",
+      "size": 157854734,
+      "sha256": "bb3189e72100f50b5b4ea6ea5a99959936c99fcbfec321d9843b294ef6c6b731"
     },
     "macos": {
-      "asset_name": "Memento-1.0.80-mac-arm64.zip",
-      "size": 132323740,
-      "sha256": "9e2e7493022912915e9c30656b60c7c86e8b27945cc6fe167a4596c8de3998f7"
+      "asset_name": "Memento-1.0.81-mac-arm64.zip",
+      "size": 132324340,
+      "sha256": "60833f03365ed7da9e447ca3cd9cde395b7fca8d02a016eb96710d49deb3b31b"
     },
     "linux": {
-      "asset_name": "Memento-1.0.80-linux-x64.tar.gz",
-      "size": 131623276,
-      "sha256": "9e3cdebaacbc8b9b89396873f07c0324b58ded2713a6707bd39f45a08262cf5e"
+      "asset_name": "Memento-1.0.81-linux-x64.tar.gz",
+      "size": 131623854,
+      "sha256": "f8df07d43a1d109d698e4ef0e646e993db29debd788247ab67f004d69c9a4189"
     }
   }
 }

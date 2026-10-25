@@ -6,7 +6,9 @@ import { authFetch, getApiBase } from "@/lib/api-client";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { useMediaInspector, extractMediaFromMarkdown } from "./viewers/MediaInspectorContext";
-import { showInAppToast } from "@/lib/native-notify";
+import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
+import { SiWechat, SiZhihu, SiSinaweibo, SiXiaohongshu } from "react-icons/si";
+import { FiCheck, FiCopy, FiShare2 } from "react-icons/fi";
 
 interface CreatedShare {
   token: string;
@@ -271,6 +273,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   };
 
   const handleOpenWechatWorkbench = () => {
+    triggerHapticFeedback(12);
     if (inspector && content) {
       const medias = extractMediaFromMarkdown(content);
       const linkedMd = medias.find((m) => m.type === "markdown");
@@ -290,6 +293,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 
   const handleCopyZhihu = async () => {
     if (!content) return;
+    triggerHapticFeedback(10);
     const header = title ? `## ${title}\n\n` : "";
     const zhihuText = `${header}${content}\n\n---\n*本文由 Memento 数字心智体深度推演创作*`;
     const ok = await copyTextToClipboard(zhihuText);
@@ -302,6 +306,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 
   const handleCopyWeibo = async () => {
     if (!content) return;
+    triggerHapticFeedback(10);
     const cleanContent = content.replace(/[#*`_~\[\]()]/g, "").trim();
     const summary = cleanContent.slice(0, 130);
     const weiboText = `【${title || "Memento 深度洞察"}】\n\n${summary}...\n\n#Memento# #AI数字心智# #程序员日常# #技术创新#`;
@@ -315,6 +320,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 
   const handleCopyRedbook = async () => {
     if (!content) return;
+    triggerHapticFeedback(10);
     const lines = content.split("\n").filter((l) => l.trim().length > 3);
     const keyPoints = lines.slice(0, 4).map((l) => `✨ ${l.replace(/^[#\-*\d\.\s]+/, "").slice(0, 42)}`).join("\n");
     const redText = `🔥 告别信息碎片！${title || "数字心智进化指南"}\n\n` +
@@ -343,50 +349,74 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
       onClick={onClose}
       style={{
         position: "fixed", inset: 0, zIndex: 80,
-        background: "rgba(10,8,20,0.5)",
-        backdropFilter: "blur(4px)",
+        background: "rgba(10,8,20,0.65)",
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 20,
+        padding: "clamp(12px, 3vw, 20px)",
       }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 580, width: "100%" }}>
-        <Glass padding={24} radius={20}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)" }}>
-              {content ? "分享与多平台分发" : t.share.title}
-            </h3>
-            <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: 0, cursor: "pointer" }}>
-              <Icon name="close" size={18} style={{ color: "var(--aurora-fg3)" }} />
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <Glass padding="clamp(16px, 3vw, 24px)" radius={22} style={{ overflowY: "auto", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] flex items-center justify-center shrink-0">
+                <FiShare2 size={13} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)" }}>
+                {content ? "分享与多平台分发" : t.share.title}
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/10 transition-colors cursor-pointer"
+              style={{ background: "transparent", border: 0 }}
+            >
+              <Icon name="close" size={17} />
             </button>
           </div>
 
-          <div style={{ fontSize: 12, color: "var(--aurora-fg3)", marginBottom: 14 }}>
-            {targetDescription}
-            {title ? " · " : ""}
-            <span style={{ color: "var(--aurora-fg1)", fontWeight: 500 }}>{title || targetId}</span>
+          {/* Subtitle / Context Tag */}
+          <div className="flex items-center gap-2 mb-3.5 px-0.5 min-w-0">
+            <span className="px-2 py-0.5 rounded-md text-[10.5px] font-semibold bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent)]/20 shrink-0">
+              {targetDescription}
+            </span>
+            <span className="text-xs text-[var(--aurora-fg2)] truncate font-medium" title={title || targetId}>
+              {title || targetId}
+            </span>
           </div>
 
+          {/* Segmented Switcher */}
           {content && (
-            <div className="flex items-center gap-1.5 p-1 mb-4 rounded-xl bg-black/20 border border-[var(--aurora-border)] text-xs select-none">
+            <div className="flex items-center gap-1 p-1 mb-3.5 rounded-xl bg-black/20 border border-[var(--aurora-border)] text-xs select-none">
               <button
                 type="button"
-                onClick={() => setActiveTab("publish")}
-                className={`flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                onClick={() => {
+                  triggerHapticFeedback(10);
+                  setActiveTab("publish");
+                }}
+                className={`flex-1 py-1.5 px-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   activeTab === "publish"
-                    ? "bg-[var(--aurora-accent)] text-slate-900 font-semibold shadow-sm"
-                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+                    ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent)]/30 font-semibold shadow-sm"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 border border-transparent"
                 }`}
               >
-                <Icon name="sparkles" size={12.5} />
-                <span>多平台分发 (微信/知乎/微博/小红书)</span>
+                <Icon name="sparkles" size={12.5} className="text-[var(--aurora-accent)]" />
+                <span>多平台分发</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg2)] font-mono font-bold">4</span>
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("link")}
-                className={`flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                onClick={() => {
+                  triggerHapticFeedback(10);
+                  setActiveTab("link");
+                }}
+                className={`flex-1 py-1.5 px-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                   activeTab === "link"
-                    ? "bg-[var(--aurora-accent)] text-slate-900 font-semibold shadow-sm"
-                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
+                    ? "bg-[var(--aurora-accent-soft)] text-[var(--aurora-accent)] border border-[var(--aurora-accent)]/30 font-semibold shadow-sm"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5 border border-transparent"
                 }`}
               >
                 <Icon name="link" size={12.5} />
@@ -398,113 +428,193 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
           {activeTab === "publish" && content ? (
             <div className="space-y-2.5 text-left text-xs">
               {/* 1. 微信公众号 */}
-              <div className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold text-sm flex items-center justify-center shrink-0">
-                    微
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-[var(--aurora-fg1)]">微信公众号</span>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/20 text-emerald-400 font-medium border border-emerald-500/30">
-                        官方草稿箱已打通
-                      </span>
+              <div
+                onClick={handleOpenWechatWorkbench}
+                className="group relative p-2.5 sm:p-3 rounded-2xl bg-[var(--aurora-surface-solid)]/60 hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-emerald-500/40 transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+              >
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-[#07C160]/12 text-[#07C160] border border-[#07C160]/25 shadow-sm shadow-[#07C160]/10">
+                      <SiWechat size={20} />
                     </div>
-                    <p className="text-[11px] text-[var(--aurora-fg3)] truncate mt-0.5">
-                      独立工作台排版、iPhone 真机仿真、一键直推公众号后台草稿箱
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        <span className="font-semibold text-xs sm:text-[13px] text-[var(--aurora-fg1)]">
+                          微信公众号
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium border bg-[#07C160]/10 text-[#07C160] border-[#07C160]/25">
+                          草稿箱直连
+                        </span>
+                      </div>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenWechatWorkbench();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shrink-0 transition-all cursor-pointer shadow-sm shadow-emerald-900/30 flex items-center gap-1 active:scale-95"
+                  >
+                    <span>排版发布 ↗</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleOpenWechatWorkbench}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shrink-0 transition-all cursor-pointer shadow-sm active:scale-95"
-                >
-                  进入工作台排版
-                </button>
+                <p className="text-[11px] sm:text-[11.5px] text-[var(--aurora-fg3)] leading-relaxed mt-1.5 pl-[46px] group-hover:text-[var(--aurora-fg2)] transition-colors">
+                  独立创排工作台 · iPhone 真机仿真排版 · 一键推至公众号后台草稿箱
+                </p>
               </div>
 
               {/* 2. 知乎 */}
-              <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10 transition-colors flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 font-bold text-sm flex items-center justify-center shrink-0">
-                    知
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-[var(--aurora-fg1)]">知乎专栏 & 问答</span>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-blue-500/20 text-blue-400 font-medium border border-blue-500/30">
-                        排版适配就绪
-                      </span>
+              <div
+                onClick={handleCopyZhihu}
+                className="group relative p-2.5 sm:p-3 rounded-2xl bg-[var(--aurora-surface-solid)]/60 hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-blue-500/40 transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+              >
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-[#0084FF]/12 text-[#0084FF] border border-[#0084FF]/25 shadow-sm shadow-[#0084FF]/10">
+                      <SiZhihu size={19} />
                     </div>
-                    <p className="text-[11px] text-[var(--aurora-fg3)] truncate mt-0.5">
-                      专为知乎优化的 Markdown 规范，适配公式、代码高亮与列表排版
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        <span className="font-semibold text-xs sm:text-[13px] text-[var(--aurora-fg1)]">
+                          知乎专栏 & 问答
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium border bg-[#0084FF]/10 text-[#0084FF] border-[#0084FF]/25">
+                          Markdown 规范
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={handleCopyZhihu}
-                    className="px-2.5 py-1.5 rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 font-medium text-xs transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyZhihu();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-medium text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                      copiedPlatform === "zhihu"
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold"
+                        : "bg-[var(--aurora-chip)] hover:bg-white/10 text-[var(--aurora-fg1)] border border-[var(--aurora-border-strong)]"
+                    }`}
                   >
-                    {copiedPlatform === "zhihu" ? "已复制" : "复制知乎排版"}
+                    {copiedPlatform === "zhihu" ? (
+                      <>
+                        <FiCheck className="text-emerald-400" size={13} />
+                        <span>已复制</span>
+                      </>
+                    ) : (
+                      <>
+                        <FiCopy size={12} className="opacity-70" />
+                        <span>复制知乎排版</span>
+                      </>
+                    )}
                   </button>
                 </div>
+                <p className="text-[11px] sm:text-[11.5px] text-[var(--aurora-fg3)] leading-relaxed mt-1.5 pl-[46px] group-hover:text-[var(--aurora-fg2)] transition-colors">
+                  专为知乎渲染引擎优化 · 适配公式 KaTeX、代码语法高亮与列表排版
+                </p>
               </div>
 
               {/* 3. 微博 */}
-              <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 font-bold text-sm flex items-center justify-center shrink-0">
-                    博
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-[var(--aurora-fg1)]">微博长文 & 动态</span>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-amber-500/20 text-amber-400 font-medium border border-amber-500/30">
-                        摘要提取就绪
-                      </span>
+              <div
+                onClick={handleCopyWeibo}
+                className="group relative p-2.5 sm:p-3 rounded-2xl bg-[var(--aurora-surface-solid)]/60 hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-amber-500/40 transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+              >
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-[#E6162D]/12 text-[#E6162D] border border-[#E6162D]/25 shadow-sm shadow-[#E6162D]/10">
+                      <SiSinaweibo size={21} />
                     </div>
-                    <p className="text-[11px] text-[var(--aurora-fg3)] truncate mt-0.5">
-                      提炼 140 字核心金句与导语卡片，并自动挂载 #Memento# 话题标签
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        <span className="font-semibold text-xs sm:text-[13px] text-[var(--aurora-fg1)]">
+                          微博长文 & 动态
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium border bg-[#E6162D]/10 text-[#E6162D] border-[#E6162D]/25">
+                          140 字导语
+                        </span>
+                      </div>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyWeibo();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-medium text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                      copiedPlatform === "weibo"
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold"
+                        : "bg-[var(--aurora-chip)] hover:bg-white/10 text-[var(--aurora-fg1)] border border-[var(--aurora-border-strong)]"
+                    }`}
+                  >
+                    {copiedPlatform === "weibo" ? (
+                      <>
+                        <FiCheck className="text-emerald-400" size={13} />
+                        <span>已复制</span>
+                      </>
+                    ) : (
+                      <>
+                        <FiCopy size={12} className="opacity-70" />
+                        <span>复制微博文案</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCopyWeibo}
-                  className="px-2.5 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 font-medium text-xs shrink-0 transition-colors cursor-pointer"
-                >
-                  {copiedPlatform === "weibo" ? "已复制" : "复制微博文案"}
-                </button>
+                <p className="text-[11px] sm:text-[11.5px] text-[var(--aurora-fg3)] leading-relaxed mt-1.5 pl-[46px] group-hover:text-[var(--aurora-fg2)] transition-colors">
+                  自动提炼 140 字核心金句与导语卡片 · 自动挂载 #Memento# 话题标签
+                </p>
               </div>
 
               {/* 4. 小红书 */}
-              <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 transition-colors flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 font-bold text-sm flex items-center justify-center shrink-0">
-                    红
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-[var(--aurora-fg1)]">小红书图文笔记</span>
-                      <span className="px-1.5 py-0.2 rounded text-[10px] bg-rose-500/20 text-rose-400 font-medium border border-rose-500/30">
-                        Emoji 结构化
-                      </span>
+              <div
+                onClick={handleCopyRedbook}
+                className="group relative p-2.5 sm:p-3 rounded-2xl bg-[var(--aurora-surface-solid)]/60 hover:bg-[var(--aurora-chip)] border border-[var(--aurora-border)] hover:border-rose-500/40 transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+              >
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-[#FF2442]/12 text-[#FF2442] border border-[#FF2442]/25 shadow-sm shadow-[#FF2442]/10">
+                      <SiXiaohongshu size={20} />
                     </div>
-                    <p className="text-[11px] text-[var(--aurora-fg3)] truncate mt-0.5">
-                      小红书沉浸排版、Emoji 重点分段、热搜爆款标签推荐
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                        <span className="font-semibold text-xs sm:text-[13px] text-[var(--aurora-fg1)]">
+                          小红书图文笔记
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium border bg-[#FF2442]/10 text-[#FF2442] border-[#FF2442]/25">
+                          Emoji 结构化
+                        </span>
+                      </div>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyRedbook();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-medium text-xs shrink-0 transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                      copiedPlatform === "redbook"
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold"
+                        : "bg-[var(--aurora-chip)] hover:bg-white/10 text-[var(--aurora-fg1)] border border-[var(--aurora-border-strong)]"
+                    }`}
+                  >
+                    {copiedPlatform === "redbook" ? (
+                      <>
+                        <FiCheck className="text-emerald-400" size={13} />
+                        <span>已复制</span>
+                      </>
+                    ) : (
+                      <>
+                        <FiCopy size={12} className="opacity-70" />
+                        <span>复制小红书笔记</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleCopyRedbook}
-                  className="px-2.5 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 font-medium text-xs shrink-0 transition-colors cursor-pointer"
-                >
-                  {copiedPlatform === "redbook" ? "已复制" : "复制小红书笔记"}
-                </button>
+                <p className="text-[11px] sm:text-[11.5px] text-[var(--aurora-fg3)] leading-relaxed mt-1.5 pl-[46px] group-hover:text-[var(--aurora-fg2)] transition-colors">
+                  爆款图文沉浸排版 · Emoji 重点分段速览 · 自动生成爆款推荐标签
+                </p>
               </div>
             </div>
           ) : !existing ? (

@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { FiX, FiCheck, FiSend, FiAlertCircle, FiImage, FiExternalLink, FiCopy } from "react-icons/fi";
+import { SiWechat, SiZhihu, SiSinaweibo, SiXiaohongshu } from "react-icons/si";
 
 export interface WeChatPublishModalProps {
   isOpen: boolean;
@@ -208,7 +209,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   : "bg-rose-500/15 text-rose-400"
               }`}
             >
-              {platform === "wechat" ? "微" : platform === "zhihu" ? "知" : platform === "weibo" ? "博" : "红"}
+              {platform === "wechat" ? <SiWechat size={16} /> : platform === "zhihu" ? <SiZhihu size={15} /> : platform === "weibo" ? <SiSinaweibo size={16} /> : <SiXiaohongshu size={16} />}
             </span>
             <div>
               <h3 className="text-sm font-semibold text-[var(--aurora-fg1)]">
@@ -246,7 +247,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
               }`}
             >
-              <span>微</span>
+              <SiWechat size={14} />
               <span>微信公众号</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" />
             </button>
@@ -259,7 +260,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
               }`}
             >
-              <span>知</span>
+              <SiZhihu size={14} />
               <span>知乎专栏/问答</span>
             </button>
             <button
@@ -271,7 +272,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
               }`}
             >
-              <span>博</span>
+              <SiSinaweibo size={14} />
               <span>微博动态/长文</span>
             </button>
             <button
@@ -283,7 +284,7 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
                   : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] hover:bg-white/5"
               }`}
             >
-              <span>红</span>
+              <SiXiaohongshu size={14} />
               <span>小红书图文</span>
             </button>
           </div>

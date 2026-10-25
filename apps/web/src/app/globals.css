@@ -934,3 +934,58 @@ html[data-theme="dark"] .quota-badge-blue {
   border: 1px solid var(--aurora-border-strong);
 }
 
+/* =========================================================================
+   Ask Assistant Bubble — Adaptive Responsive Footer Toolbar
+   Optimized for 3-column desktop layout (inspector panel open), split screen & mobile
+   ========================================================================= */
+
+.ask-assistant-bubble-card {
+  container-type: inline-size;
+  container-name: askbubble;
+}
+
+/* 默认在宽容器 (> 640px) 下的展示状态 */
+.ask-bar-start-time {
+  display: inline-flex;
+}
+.ask-bar-reply-prefix {
+  display: inline;
+}
+.ask-bar-btn-text {
+  display: inline;
+}
+.ask-bar-speed-label {
+  display: inline-flex;
+}
+
+/* 当气泡底栏容器宽度受限 (<= 640px)，例如三栏布局展开右侧媒体独立视窗、窄窗口、半屏分屏等场景 */
+@container askbubble (max-width: 640px) {
+  /* 隐藏多余的“提问于 HH:MM:SS”，提问时间已在顶部气泡及 tooltip 中完备保留，为耗时和操作按钮腾出约 110px 空间 */
+  .ask-bar-start-time {
+    display: none !important;
+  }
+  /* 隐藏“回复于 ”前缀，仅显示时间数值（如 19:53:58），节省空间 */
+  .ask-bar-reply-prefix {
+    display: none !important;
+  }
+  /* 动作按钮折叠为纯图标模式，配备完整 hover tooltip 和无缝触觉反馈，节省约 120px 空间 */
+  .ask-bar-btn-text {
+    display: none !important;
+  }
+  /* 速率徽标隐藏，避免挤压核心耗时指标 */
+  .ask-bar-speed-label {
+    display: none !important;
+  }
+}
+
+/* 当容器极窄 (<= 420px)，例如小屏手机或超窄分屏时，进一步防溢出 */
+@container askbubble (max-width: 420px) {
+  .ask-bar-model-badge {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+

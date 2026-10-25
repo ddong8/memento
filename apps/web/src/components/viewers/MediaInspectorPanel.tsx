@@ -101,7 +101,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isExpandedFull && window.innerWidth < 1024) {
+    if (isExpandedFull) {
       const orig = document.body.style.overflow;
       document.body.style.overflow = "hidden";
       return () => {
@@ -276,16 +276,15 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
       {/* 媒体独立视窗容器: 桌面端为固定第三栏嵌入式展示，移动端为右侧滑出抽屉/全屏沉浸视口 */}
       <aside
         className={`bg-[var(--aurora-surface-solid,#0f172a)] border-l border-[var(--aurora-border-strong)] transition-all duration-200 select-none overflow-hidden
-          lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20
           ${
             isExpandedFull
-              ? "max-lg:fixed max-lg:inset-0 max-lg:z-[99999] max-lg:w-screen max-lg:h-[100dvh] max-lg:max-w-none max-lg:p-0 max-lg:m-0 max-lg:rounded-none max-lg:border-0 max-lg:bg-black max-lg:flex max-lg:flex-col"
-              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)]"
+              ? "fixed inset-0 z-[99999] w-screen h-[100dvh] max-w-none max-h-none p-0 m-0 rounded-none border-0 bg-black flex flex-col"
+              : "max-lg:fixed max-lg:top-0 max-lg:right-0 max-lg:bottom-0 max-lg:z-50 max-lg:flex max-lg:flex-col max-lg:w-full max-lg:sm:w-[460px] max-lg:max-w-full max-lg:shadow-2xl max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)] lg:relative lg:flex lg:flex-col lg:h-full lg:shrink-0 lg:z-20"
           }
           ${className}`}
         style={{
-          ...(typeof window !== "undefined" && window.innerWidth < 1024
-            ? isExpandedFull && isLandscape
+          ...(isExpandedFull
+            ? isLandscape
               ? {
                   position: "fixed",
                   top: "50%",
@@ -300,8 +299,19 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   backfaceVisibility: "hidden",
                   zIndex: 99999,
                 }
-              : { width: "100%" }
-            : { width: isExpandedFull ? "min(100%, 960px)" : `${panelWidth}px` }),
+              : {
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: "100vw",
+                  height: "100dvh",
+                  zIndex: 99999,
+                }
+            : typeof window !== "undefined" && window.innerWidth < 1024
+            ? { width: "100%" }
+            : { width: `${panelWidth}px` }),
         }}
       >
         {/* Resize Handle on the left border (桌面大屏停靠模式下可见) */}

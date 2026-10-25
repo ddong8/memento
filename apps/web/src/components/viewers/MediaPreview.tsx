@@ -1246,10 +1246,15 @@ export function VideoPlayer({
 
     const v = videoRef.current;
     const onWebkitBegin = () => setIsFullscreen(true);
-    const onWebkitEnd = () => setIsFullscreen(false);
+    const onWebkitEnd = () => {
+      setIsFullscreen(false);
+      setIsLandscapeRotated(false);
+    };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
     if (v) {
       v.addEventListener("webkitbeginfullscreen", onWebkitBegin);
       v.addEventListener("webkitendfullscreen", onWebkitEnd);
@@ -1258,6 +1263,8 @@ export function VideoPlayer({
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
       if (v) {
         v.removeEventListener("webkitbeginfullscreen", onWebkitBegin);
         v.removeEventListener("webkitendfullscreen", onWebkitEnd);
@@ -1266,7 +1273,7 @@ export function VideoPlayer({
   }, [isPseudoFullscreen]);
 
   useEffect(() => {
-    if (isPseudoFullscreen) {
+    if (effectiveFullscreen) {
       const originalOverflow = document.body.style.overflow;
       const originalTouchAction = document.body.style.touchAction;
       document.body.style.overflow = "hidden";
@@ -1276,7 +1283,7 @@ export function VideoPlayer({
         document.body.style.touchAction = originalTouchAction;
       };
     }
-  }, [isPseudoFullscreen]);
+  }, [effectiveFullscreen]);
 
   const toggleLandscapeRotation = useCallback(() => {
     triggerHapticFeedback();
@@ -1314,13 +1321,8 @@ export function VideoPlayer({
     triggerHapticFeedback();
     const v = videoRef.current;
     const el = containerRef.current;
-    const isTouchOrMobile =
-      typeof window !== "undefined" &&
-      (window.innerWidth < 1024 ||
-        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
-    // 如果当前已经是视口全屏，则退出
+    // 1. 如果当前已经是视口全屏，则退出
     if (isPseudoFullscreen) {
       setIsPseudoFullscreen(false);
       setIsLandscapeRotated(false);
@@ -1333,31 +1335,47 @@ export function VideoPlayer({
       return;
     }
 
-    // 如果已经是原生全屏，则退出
-    if (document.fullscreenElement || (document as any).webkitFullscreenElement) {
+    // 2. 如果已经是原生全屏，则退出
+    const hasNativeFull = Boolean(
+      document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+    );
+    if (hasNativeFull) {
       try {
         if (document.exitFullscreen) {
           await document.exitFullscreen();
         } else if ((document as any).webkitExitFullscreen) {
           await (document as any).webkitExitFullscreen();
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
         }
         setIsFullscreen(false);
         setIsLandscapeRotated(false);
         triggerFlashAction("退出全屏", "⛶");
         return;
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn("exitFullscreen failed", err);
       }
     }
 
-    // 移动端环境（iOS Safari、微信、Android WebView、PWA 等）优先进入视口伪全屏，保留全套自定义控制、字幕与横屏能力
-    if (isTouchOrMobile) {
-      setIsPseudoFullscreen(true);
-      triggerFlashAction("全屏播放", "⛶");
-      return;
+    // 3. 如果当前处于 iOS 原生视频全屏中，退出
+    if (v && (v as any).webkitDisplayingFullscreen) {
+      try {
+        if (typeof (v as any).webkitExitFullscreen === "function") {
+          (v as any).webkitExitFullscreen();
+          setIsFullscreen(false);
+          setIsLandscapeRotated(false);
+          triggerFlashAction("退出全屏", "⛶");
+          return;
+        }
+      } catch {}
     }
 
-    // 桌面端环境优先尝试原生 Fullscreen API
+    // 4. 优先尝试标准 Fullscreen API（桌面端 Chrome/Safari/Firefox/Edge、Electron、Android 等）
     if (el) {
       try {
         if (el.requestFullscreen) {
@@ -1370,13 +1388,35 @@ export function VideoPlayer({
           setIsFullscreen(true);
           triggerFlashAction("全屏", "⛶");
           return;
+        } else if ((el as any).mozRequestFullScreen) {
+          await (el as any).mozRequestFullScreen();
+          setIsFullscreen(true);
+          triggerFlashAction("全屏", "⛶");
+          return;
+        } else if ((el as any).msRequestFullscreen) {
+          await (el as any).msRequestFullscreen();
+          setIsFullscreen(true);
+          triggerFlashAction("全屏", "⛶");
+          return;
         }
       } catch (err) {
-        console.warn("requestFullscreen failed, falling back to pseudo-fullscreen", err);
+        console.warn("container requestFullscreen failed, falling back to video element/pseudo fullscreen", err);
       }
     }
 
-    // 降级兜底：无缝进入视口伪全屏
+    // 5. iOS Safari 原生播放器全屏兜底
+    if (v && typeof (v as any).webkitEnterFullscreen === "function") {
+      try {
+        (v as any).webkitEnterFullscreen();
+        setIsFullscreen(true);
+        triggerFlashAction("原生全屏", "📱");
+        return;
+      } catch (e) {
+        console.warn("webkitEnterFullscreen failed", e);
+      }
+    }
+
+    // 6. 视口沉浸伪全屏兜底（支持无原生全屏权限的 WebView、iframe 环境）
     setIsPseudoFullscreen(true);
     triggerFlashAction("全屏播放", "⛶");
   };
@@ -1524,7 +1564,7 @@ export function VideoPlayer({
           toggleFullscreen();
           break;
         case "escape":
-          if (isPseudoFullscreen) {
+          if (effectiveFullscreen) {
             e.preventDefault();
             toggleFullscreen();
           }
@@ -1633,13 +1673,13 @@ export function VideoPlayer({
       onMouseEnter={markPreloadActive}
       onMouseLeave={() => isPlaying && setShowControls(false)}
       className={`relative group w-full overflow-hidden transition-all duration-300 focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent)]/50 ${
-        isPseudoFullscreen
+        effectiveFullscreen
           ? "!fixed !inset-0 !z-[999999] !m-0 !w-screen !h-[100dvh] !max-w-none !max-h-none !rounded-none !border-0 bg-black flex flex-col justify-center items-center"
           : `my-4 rounded-2xl border border-[var(--aurora-border-strong)] bg-black/90 shadow-2xl ${className}`
       }`}
       style={{
-        boxShadow: isPseudoFullscreen ? "none" : "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
-        ...(isPseudoFullscreen && isLandscapeRotated
+        boxShadow: effectiveFullscreen ? "none" : "0 12px 36px -8px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--aurora-border-strong)",
+        ...(effectiveFullscreen && isLandscapeRotated
           ? {
               position: "fixed",
               top: "50%",
@@ -1660,6 +1700,21 @@ export function VideoPlayer({
       <style
         dangerouslySetInnerHTML={{
           __html: `
+            :fullscreen, :-webkit-full-screen, :-moz-full-screen, :-ms-fullscreen {
+              width: 100vw !important;
+              height: 100vh !important;
+              max-width: 100vw !important;
+              max-height: 100vh !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              border: 0 !important;
+              border-radius: 0 !important;
+              background-color: #000000 !important;
+              display: flex !important;
+              flex-direction: column !important;
+              justify-content: center !important;
+              align-items: center !important;
+            }
             video::cue {
               background-color: rgba(0, 0, 0, 0.78);
               color: #ffffff;

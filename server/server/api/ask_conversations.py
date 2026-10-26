@@ -248,16 +248,27 @@ async def get_conversation(
     if client_tag and client_tag == server_tag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    # Fetch turns: slice at database level via JSON path if limit > 0, otherwise full load
-    if limit > 0:
-        sliced_col = func.jsonb_path_query_array(
-            AskConversation.turns,
-            f"$[last - {limit - 1} to last]"
-        )
-        res = (await db.execute(select(sliced_col).where(cond))).scalar()
-        raw_turns = list(res or [])
-    else:
-        await db.refresh(conv, ["turns"])
+    # Fetch turns: use in-memory turns if already loaded, slice at database level via JSON path if limit > 0, otherwise full load
+    raw_turns: list[dict] | None = None
+    if isinstance(getattr(conv, "turns", None), list) and conv.turns:
+        raw_turns = list(conv.turns)
+    elif limit > 0:
+        try:
+            sliced_col = func.jsonb_path_query_array(
+                AskConversation.turns,
+                f"$[last - {limit - 1} to last]"
+            )
+            res = (await db.execute(select(sliced_col).where(cond))).scalar()
+            if isinstance(res, list):
+                raw_turns = res
+        except Exception:
+            pass
+
+    if raw_turns is None:
+        try:
+            await db.refresh(conv, ["turns"])
+        except Exception:
+            pass
         raw_turns = list(conv.turns or [])
 
     cfg, inferred = infer_conversation_config(conv, sample_turns=raw_turns)

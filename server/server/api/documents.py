@@ -151,13 +151,6 @@ async def get_document(
     doc = await _get_doc_with_permission(doc_id, db, user, mids)
     await log_access(db, request, "view_document", user.id if user else None, doc.id)
 
-    content = doc.content
-    if doc.content_s3_key and doc.file_size_bytes > len(doc.content or ""):
-        from ..services.storage_service import get_text
-        s3_text = await get_text(doc.content_s3_key)
-        if s3_text is not None:
-            content = s3_text
-
     return {
         "id": str(doc.id),
         "tool_id": doc.tool_id,
@@ -166,7 +159,7 @@ async def get_document(
         "category": doc.category,
         "content_type": doc.content_type,
         "title": doc.title,
-        "content": content,
+        "content": doc.content,
         "content_hash": doc.content_hash,
         "file_size_bytes": doc.file_size_bytes,
         "metadata": doc.metadata_,

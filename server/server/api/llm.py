@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User
 from ..db.session import get_db
-from ..middleware.auth import get_current_user, invalidate_user_cache
+from ..middleware.auth import get_current_user
 from ..services.ai_provider import (
     get_system_default_llm_info,
 )
@@ -222,7 +222,6 @@ async def update_llm_settings(
 
     user.llm_settings = data
     await db.commit()
-    invalidate_user_cache(user.id)
 
     key_masked = _mask_key(data.get("api_key"))
     fallback_key_masked = _mask_key(data.get("fallback_api_key"))

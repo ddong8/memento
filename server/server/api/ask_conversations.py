@@ -290,21 +290,19 @@ async def get_conversation(
         conv_dev = resolved_dev
         need_commit = True
 
+    # Read before the commit below; both branches need them (a missing created_at_iso was a 500)
+    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
     if need_commit:
         now_utc = datetime.now(timezone.utc)
         conv.updated_at = now_utc
         try:
             await db.commit()
-            updated_at_iso = conv.updated_at.isoformat()
-            etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-            etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+            updated_at_iso = now_utc.isoformat()
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
-    else:
-        created_at_iso = conv.created_at.isoformat() if conv.created_at else None
-        updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
-        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-        etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
     if limit > 0 and len(raw_turns) > limit:
         offset = len(raw_turns) - limit

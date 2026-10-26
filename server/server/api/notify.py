@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User
 from ..db.session import get_db
-from ..middleware.auth import get_current_user, invalidate_user_cache
+from ..middleware.auth import get_current_user
 from ..services.notify_service import mask_push_url, parse_push_url, send_apns_live_activity
 
 router = APIRouter(prefix="/api/notify", tags=["notify"])
@@ -89,7 +89,6 @@ async def update_settings(
         prefs["notify_todo"] = body.notify_todo
     user.notify_settings = prefs
     await db.commit()
-    invalidate_user_cache(user.id)
     return _settings_out(user)
 
 
@@ -124,7 +123,6 @@ async def register_device_token(
     prefs["device_tokens"] = tokens
     user.notify_settings = prefs
     await db.commit()
-    invalidate_user_cache(user.id)
     return {"status": "ok", "registered": True, "device_tokens_count": len(tokens)}
 
 
@@ -143,7 +141,6 @@ async def unregister_device_token(
         prefs["device_tokens"] = tokens
         user.notify_settings = prefs
         await db.commit()
-        invalidate_user_cache(user.id)
     return {"status": "ok", "unregistered": True}
 
 
@@ -189,7 +186,6 @@ async def register_live_activity_token(
     if changed:
         user.notify_settings = prefs
         await db.commit()
-        invalidate_user_cache(user.id)
 
     return {"status": "ok", "registered": changed}
 
@@ -219,7 +215,6 @@ async def clear_live_activities(
         prefs["live_activity_tokens"] = {}
         user.notify_settings = prefs
         await db.commit()
-        invalidate_user_cache(user.id)
     return {"status": "ok", "cleared": cleared_count}
 
 

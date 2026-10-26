@@ -1,4 +1,4 @@
-"""S3 / MinIO object storage service for large documents, transcripts, and media."""
+"""S3 / MinIO object storage for media (images pasted into conversations)."""
 
 from __future__ import annotations
 
@@ -67,12 +67,6 @@ async def ensure_bucket() -> bool:
     return ok
 
 
-async def upload_text(key: str, text: str, content_type: str = "text/plain; charset=utf-8") -> str | None:
-    """Upload UTF-8 text string to S3, returns the S3 key on success, None on error."""
-    raw = text.encode("utf-8")
-    return await upload_bytes(key, raw, content_type=content_type)
-
-
 async def upload_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> str | None:
     """Upload raw bytes to S3, returns key on success, None on error."""
     s3 = get_s3_client()
@@ -113,14 +107,6 @@ async def get_bytes(key: str) -> tuple[bytes | None, str]:
     except Exception as e:
         logger.debug("S3 get_object failed for key %s: %s", key, e)
         return None, ""
-
-
-async def get_text(key: str) -> str | None:
-    """Retrieve UTF-8 text from S3."""
-    data, _ = await get_bytes(key)
-    if data is None:
-        return None
-    return data.decode("utf-8", errors="replace")
 
 
 async def store_image_b64(data_uri: str) -> str:

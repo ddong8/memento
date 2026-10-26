@@ -39,9 +39,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
 from .profile_service import strip_profile_block
-from .storage_service import upload_text
 from .tokenize import _MAX_INPUT_CHARS as _MAX_INDEX_INPUT_CHARS
 from ..db.models import (
     ConversationMessage, Document, DocumentVersion, Project, SyncState, Tool,
@@ -996,17 +994,10 @@ async def ingest_file(
             )
             title = ann_title
 
-    s3_key: str | None = None
-    stored_content = content
-    if len(content) > settings.large_file_threshold or file_size > settings.large_file_threshold:
-        cand_key = f"documents/{tool_id}/{content_hash}.txt"
-        uploaded = await upload_text(cand_key, content)
-        if uploaded:
-            s3_key = cand_key
-            stored_content = content[:65536]
-
     if doc is None:
-        # Create new document — files > 1MB offloaded to S3/MinIO
+        # Create new document — always store content in DB (TEXT has no size limit). The whole text
+        # stays in the row: about twenty readers use documents.content directly, and keeping only a
+        # 64 KB head here (S3 copy aside) lost everything between the head and each new delta.
         doc = Document(
             tool_id=tool_id,
             project_id=project_id,
@@ -1015,8 +1006,7 @@ async def ingest_file(
             category=category,
             content_type=content_type,
             title=title,
-            content=stored_content,
-            content_s3_key=s3_key,
+            content=content,
             content_hash=content_hash,
             file_size_bytes=file_size,
             metadata_=metadata,
@@ -1033,24 +1023,14 @@ async def ingest_file(
         if mode == "delta" and doc.content:
             # For large files, replace instead of append to avoid unbounded growth
             if len(doc.content) + len(content) > 10_000_000:
-                combined_content = content  # Replace with latest delta
+                doc.content = content  # Replace with latest delta
             else:
+                # The index reads only the start of title + content: appending past that changes nothing
                 index_unchanged = len(doc.content) >= _MAX_INDEX_INPUT_CHARS
-                combined_content = doc.content + "\n" + content
-            if len(combined_content) > settings.large_file_threshold or file_size > settings.large_file_threshold:
-                cand_key = f"documents/{tool_id}/{content_hash}.txt"
-                uploaded = await upload_text(cand_key, combined_content)
-                if uploaded:
-                    doc.content = combined_content[:65536]
-                    doc.content_s3_key = cand_key
-                else:
-                    doc.content = combined_content
-            else:
-                doc.content = combined_content
+                doc.content = doc.content + "\n" + content
         else:
-            doc.content = stored_content
-            if s3_key:
-                doc.content_s3_key = s3_key
+            doc.content = content
+            doc.content_s3_key = None  # the full text is in the row again
         doc.content_hash = content_hash
         doc.file_size_bytes = file_size
         # New text: the embedding sweep picks the document up once it goes quiet

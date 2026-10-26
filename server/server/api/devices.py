@@ -412,6 +412,11 @@ async def send_command(
             ), {"mid": device_db_id})
 
     cmd_id = await _enqueue_command(machine.collector_token_hash, action)
+    # Collectors poll for commands only every 10 minutes while their socket is up: tell it to fetch now
+    try:
+        await ws_manager.send_json(machine.collector_token_hash, {"type": "commands_pending"})
+    except Exception as e:
+        logger.debug("commands_pending nudge for %s failed: %s", machine.name, e)
     return {"status": "queued", "command_id": cmd_id, "action": action, "device": machine.name}
 
 

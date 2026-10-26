@@ -379,6 +379,11 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_machines_user_id ON machines (user_id)",
         # Re-extracting a document's knowledge first clears its observations by source document.
         "CREATE INDEX IF NOT EXISTS idx_observation_source_doc ON knowledge_observations (source_document_id)",
+        "CREATE INDEX IF NOT EXISTS idx_observation_entity_observed ON knowledge_observations (entity_id, observed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_observation_entity_source ON knowledge_observations (entity_id, source_document_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ask_conv_session_id ON ask_conversations (((config->>'session_id'))) WHERE (config->>'session_id') IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_ask_conv_user_device ON ask_conversations (user_id, device_id, updated_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_device_tasks_status_created ON device_tasks (status, created_at) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
         # Vector ANN index for semantic search. Without this, /api/memory/semantic
         # seq-scans document_embeddings — fine at 50 rows, fatal at 1M. HNSW
         # preferred over IVFFlat: no training step, better recall, pgvector

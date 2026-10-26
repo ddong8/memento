@@ -464,13 +464,24 @@ async def device_websocket_endpoint(
                                             except Exception:
                                                 pass
                                         if not conv_obj and pl_sess:
-                                            cand_convs = (await db.execute(
+                                            # 1. Direct index-backed lookup on config->>'session_id'
+                                            conv_obj = (await db.execute(
                                                 select(AskConversation)
-                                                .where(AskConversation.user_id == t.user_id)
+                                                .where(
+                                                    (AskConversation.user_id == t.user_id) | (AskConversation.user_id.is_(None)),
+                                                    AskConversation.config.op("->>")("session_id") == pl_sess,
+                                                )
                                                 .order_by(AskConversation.updated_at.desc())
-                                                .limit(20)
-                                            )).scalars().all()
-                                            conv_obj = next((c for c in cand_convs if infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
+                                                .limit(1)
+                                            )).scalars().first()
+                                            if not conv_obj:
+                                                cand_convs = (await db.execute(
+                                                    select(AskConversation)
+                                                    .where(AskConversation.user_id == t.user_id)
+                                                    .order_by(AskConversation.updated_at.desc())
+                                                    .limit(20)
+                                                )).scalars().all()
+                                                conv_obj = next((c for c in cand_convs if infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
                                         if conv_obj:
                                             cfg_c, _ = infer_conversation_config(conv_obj)
                                             await recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)

@@ -598,15 +598,18 @@ async def append_conversation_turns(
         logger.exception("Failed to persist conversation %s turns: %s", conv_id, e)
 
 
-def infer_conversation_config(conv: AskConversation) -> tuple[dict, dict]:
+def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | None = None) -> tuple[dict, dict]:
     """Extract runtime config (execution_mode, model, effort, project_id, session_id, device_id, cwd)
     from historical turns if missing or defaulted to 'ai'."""
     cfg = dict(conv.config or {})
     existing_mode = cfg.get("execution_mode")
     mode_needed = not existing_mode or existing_mode == "ai"
+    if not mode_needed and cfg.get("session_id") and (cfg.get("device_id") or conv.device_id) and (conv.cwd or cfg.get("cwd")):
+        return cfg, {}
 
     inferred: dict = {}
-    for turn in reversed(conv.turns or []):
+    turns_source = sample_turns if sample_turns is not None else (conv.turns or [])
+    for turn in reversed(turns_source):
         tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
         for tc in reversed(tcs):
             if not isinstance(tc, dict):
@@ -1025,7 +1028,9 @@ async def lookup_project_title(db: AsyncSession, project_id_val: str | None) -> 
     return None
 
 
-async def recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversation, cfg: dict) -> list[dict] | None:
+async def recover_orphaned_tasks_for_conv(
+    db: AsyncSession, conv: AskConversation, cfg: dict, sample_turns: list[dict] | None = None
+) -> list[dict] | None:
     """If deploy/api restarted while a DeviceTask was running, recover completed turns that were not persisted to conv.turns."""
     try:
         from ..db.models import DeviceTask
@@ -1036,7 +1041,7 @@ async def recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversatio
         if active_run and not active_run.done:
             return None
 
-        raw_turns = list(conv.turns or [])
+        raw_turns = list(sample_turns if sample_turns is not None else (conv.turns or []))
         recorded_task_ids: set[str] = set()
         last_turn_dt: datetime | None = None
         for t in raw_turns:

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -173,7 +173,7 @@ async def list_conversations(
         except Exception:
             await db.rollback()
 
-    await cache_set(cache_key, out_items, ttl_seconds=15)
+    await cache_set(cache_key, out_items, ttl_seconds=300)
     return out_items
 
 
@@ -223,50 +223,54 @@ async def get_conversation(
     if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
     client_tag = if_none_match.strip().strip('"') if if_none_match else ""
 
-    # Fast ETag evaluation path: avoid de-TOASTing megabytes of turns JSON on conditional polls (HTTP 304)
-    if client_tag:
-        conv = (
-            await db.execute(
-                select(AskConversation)
-                .options(defer(AskConversation.turns))
-                .where(cond)
-            )
-        ).scalars().first()
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+    # Fast metadata load: avoid de-TOASTing megabytes of turns JSON on initial fetch and conditional polls
+    conv = (
+        await db.execute(
+            select(AskConversation)
+            .options(defer(AskConversation.turns))
+            .where(cond)
+        )
+    ).scalars().first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
-        conv_id_str = str(conv.id)
-        updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
-        created_at_iso = conv.created_at.isoformat() if conv.created_at else None
-        cfg = conv.config or {}
-        conv_dev = conv.device_id or cfg.get("device_id")
-        total_turns = conv.message_count
+    conv_id_str = str(conv.id)
+    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
+    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+    cfg = conv.config or {}
+    conv_dev = conv.device_id or cfg.get("device_id")
+    total_turns = conv.message_count
 
-        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-        etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
-        server_tag = etag.strip('"')
+    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+    server_tag = etag.strip('"')
 
-        if client_tag == server_tag:
-            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+    if client_tag and client_tag == server_tag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-        # ETag changed: load turns on the existing instance
-        await db.refresh(conv, ["turns"])
+    # Fetch turns: slice at database level via JSON path if limit > 0, otherwise full load
+    if limit > 0:
+        sliced_col = func.jsonb_path_query_array(
+            AskConversation.turns,
+            f"$[last - {limit - 1} to last]"
+        )
+        res = (await db.execute(select(sliced_col).where(cond))).scalar()
+        raw_turns = list(res or [])
     else:
-        # First load / uncached: load full conversation directly
-        conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+        await db.refresh(conv, ["turns"])
+        raw_turns = list(conv.turns or [])
 
-    cfg, inferred = infer_conversation_config(conv)
-    recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg)
+    cfg, inferred = infer_conversation_config(conv, sample_turns=raw_turns)
+    recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg, sample_turns=raw_turns)
     resolved_dev = await resolve_concrete_device_for_conv(db, conv, cfg, inferred)
 
     # Extract all model attributes into locals BEFORE any db.commit() to prevent
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
     conv_id_str = str(conv.id)
     conv_title = conv.title
-    raw_turns = recovered_turns if recovered_turns is not None else list(conv.turns or [])
-    total_turns = len(raw_turns)
+    raw_turns = recovered_turns if recovered_turns is not None else raw_turns
+    if total_turns == 0:
+        total_turns = len(raw_turns)
 
     conv_dev = resolved_dev or conv.device_id or cfg.get("device_id")
     conv_cwd = conv.cwd or cfg.get("cwd")
@@ -304,7 +308,11 @@ async def get_conversation(
     etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
     etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
-    if limit > 0 and len(raw_turns) > limit:
+    if limit > 0 and total_turns > len(raw_turns):
+        offset = max(0, total_turns - len(raw_turns))
+        sliced_raw = raw_turns
+        has_more = True
+    elif limit > 0 and len(raw_turns) > limit:
         offset = len(raw_turns) - limit
         sliced_raw = raw_turns[-limit:]
         has_more = True

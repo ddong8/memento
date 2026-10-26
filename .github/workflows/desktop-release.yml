@@ -157,7 +157,7 @@ jobs:
           TAG="${{ steps.release_meta.outputs.tag }}"
           VER="${TAG#v}"
           python3 -c "
-          import hashlib, json, os, glob
+          import base64, hashlib, json, os, glob, shutil
           from pathlib import Path
 
           def calc_sha256(filepath):
@@ -166,6 +166,13 @@ jobs:
                   for chunk in iter(lambda: f.read(65536), b''):
                       h.update(chunk)
               return h.hexdigest()
+
+          def calc_sha512(filepath):
+              h = hashlib.sha512()
+              with open(filepath, 'rb') as f:
+                  for chunk in iter(lambda: f.read(65536), b''):
+                      h.update(chunk)
+              return base64.b64encode(h.digest()).decode('ascii')
 
           ver_file = Path('data/updates/version.json')
           ver_file.parent.mkdir(parents=True, exist_ok=True)
@@ -194,7 +201,8 @@ jobs:
                   meta['platforms']['windows'] = {
                       'asset_name': fn,
                       'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p)
+                      'sha256': calc_sha256(p),
+                      'sha512': calc_sha512(p),
                   }
                   break
           if 'windows' not in meta.get('platforms', {}):
@@ -207,7 +215,8 @@ jobs:
                       meta['platforms']['windows'] = {
                           'asset_name': fn,
                           'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p)
+                          'sha256': calc_sha256(p),
+                          'sha512': calc_sha512(p),
                       }
                       break
 
@@ -221,7 +230,8 @@ jobs:
                   meta['platforms']['macos'] = {
                       'asset_name': fn,
                       'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p)
+                      'sha256': calc_sha256(p),
+                      'sha512': calc_sha512(p),
                   }
                   break
           if 'macos' not in meta.get('platforms', {}):
@@ -234,7 +244,8 @@ jobs:
                       meta['platforms']['macos'] = {
                           'asset_name': fn,
                           'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p)
+                          'sha256': calc_sha256(p),
+                          'sha512': calc_sha512(p),
                       }
                       break
 
@@ -248,7 +259,8 @@ jobs:
                   meta['platforms']['linux'] = {
                       'asset_name': fn,
                       'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p)
+                      'sha256': calc_sha256(p),
+                      'sha512': calc_sha512(p),
                   }
                   break
           if 'linux' not in meta.get('platforms', {}):
@@ -261,9 +273,16 @@ jobs:
                       meta['platforms']['linux'] = {
                           'asset_name': fn,
                           'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p)
+                          'sha256': calc_sha256(p),
+                          'sha512': calc_sha512(p),
                       }
                       break
+
+          # Sync electron channel YAML files to data/updates/ for zero-latency local hosting
+          for yml_p in glob.glob('dist/**/latest*.yml', recursive=True):
+              target_yml = ver_file.parent / os.path.basename(yml_p)
+              shutil.copy2(yml_p, target_yml)
+              print(f'Synced channel yml: {target_yml}')
 
           with open(ver_file, 'w', encoding='utf-8') as f:
               json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -278,14 +297,14 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data/updates/version.json
+          git add data/updates/version.json data/updates/latest*.yml
           if git diff --cached --quiet; then
             echo "Version metadata unchanged, skipping commit."
           else
             git commit -m "ci(release): bump update distribution metadata to ${{ steps.release_meta.outputs.tag }} [skip ci]"
             for i in 1 2 3; do
               if git pull --rebase origin main && git push origin main; then
-                echo "Successfully updated version.json"
+                echo "Successfully updated version.json and channel yml"
                 break
               fi
               sleep 3

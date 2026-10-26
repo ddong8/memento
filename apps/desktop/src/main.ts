@@ -1080,24 +1080,53 @@ function setupUpdater(): void {
     if (response === 0) {
       downloadingVersion = info.version;
       showNotification("开始下载更新", `正在下载 Memento ${info.version}...`);
-      void autoUpdater.downloadUpdate().catch((err) => {
+      void autoUpdater.downloadUpdate().catch(async (err) => {
         downloadingVersion = null;
-        void dialog.showMessageBox({
+        if (win && !win.isDestroyed()) {
+          win.setProgressBar(-1);
+        }
+        refreshTray();
+        const { response: errResp } = await dialog.showMessageBox({
           type: "warning",
+          buttons: ["在浏览器中下载", "稍后重试"],
+          defaultId: 0,
+          cancelId: 1,
           message: "更新包下载未完成",
-          detail: `下载遇到网络阻断或超时：${err instanceof Error ? err.message : String(err)}\n您可以稍后重试或在浏览器中访问官网下载。`,
+          detail: `下载遇到网络阻断或超时：${err instanceof Error ? err.message : String(err)}\n建议直接通过官网下载完整安装包。`,
         });
+        if (errResp === 0) {
+          const baseUrl = (config?.serverUrl || "https://mem.ihasy.com").replace(/\/+$/, "");
+          void shell.openExternal(`${baseUrl}/download`);
+        }
       });
+    }
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    if (win && !win.isDestroyed()) {
+      win.setProgressBar(Math.max(0, Math.min(1, (progress.percent || 0) / 100)));
+    }
+    if (tray) {
+      tray.setToolTip(`Memento - 正在下载更新 ${Math.round(progress.percent || 0)}%`);
     }
   });
 
   autoUpdater.on("error", (err) => {
     console.error("autoUpdater error:", err);
+    downloadingVersion = null;
+    if (win && !win.isDestroyed()) {
+      win.setProgressBar(-1);
+    }
+    refreshTray();
   });
 
   autoUpdater.on("update-downloaded", async (info) => {
     downloadedInfo = info;
     downloadingVersion = null;
+    if (win && !win.isDestroyed()) {
+      win.setProgressBar(-1);
+    }
+    refreshTray();
     if (lastPromptedVersion === info.version) {
       return;
     }

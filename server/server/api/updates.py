@@ -346,12 +346,30 @@ def _synthesize_fallback_yaml(safe_name: str) -> bytes | None:
         plat_meta = meta.get("platforms", {}).get(plat_key, {})
         asset_name = plat_meta.get("asset_name") or f"Memento-{ver}-win-x64.exe"
         size = plat_meta.get("size") or 0
+        sha256_val = plat_meta.get("sha256") or ""
+        sha512_val = plat_meta.get("sha512") or ""
+
+        file_lines = [f"  - url: {asset_name}"]
+        if sha512_val:
+            file_lines.append(f"    sha512: {sha512_val}")
+        if sha256_val:
+            file_lines.append(f"    sha2: {sha256_val}")
+        file_lines.append(f"    size: {size}")
+        files_str = "\n".join(file_lines)
+
+        top_sha_lines = []
+        if sha512_val:
+            top_sha_lines.append(f"sha512: {sha512_val}")
+        if sha256_val:
+            top_sha_lines.append(f"sha2: {sha256_val}")
+        top_sha_str = "\n".join(top_sha_lines) + "\n" if top_sha_lines else ""
+
         yaml_str = (
             f"version: {ver}\n"
             f"files:\n"
-            f"  - url: {asset_name}\n"
-            f"    size: {size}\n"
+            f"{files_str}\n"
             f"path: {asset_name}\n"
+            f"{top_sha_str}"
             f"releaseDate: '{meta.get('published_at') or '2026-10-09T00:00:00.000Z'}'\n"
         )
         return yaml_str.encode("utf-8")
@@ -377,15 +395,21 @@ async def download_update(
 
     file_path = _UPDATES_DIR / safe_name
     if file_path.exists() and file_path.is_file():
-        media_type = "text/yaml; charset=utf-8" if safe_name.endswith(".yml") else "application/octet-stream"
+        is_yaml = safe_name.endswith(".yml")
+        media_type = "text/yaml; charset=utf-8" if is_yaml else "application/octet-stream"
+        cache_header = "no-cache, no-store, must-revalidate" if is_yaml else "public, max-age=600"
+        resp_headers = {
+            "Cache-Control": cache_header,
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+        }
+        if is_yaml:
+            resp_headers["Pragma"] = "no-cache"
+            resp_headers["Expires"] = "0"
         return FileResponse(
             file_path,
             filename=safe_name,
             media_type=media_type,
-            headers={
-                "Cache-Control": "no-cache" if safe_name.endswith(".yml") else "public, max-age=600",
-                "Content-Disposition": f'attachment; filename="{safe_name}"',
-            },
+            headers=resp_headers,
         )
 
     # Asset is not present in local filesystem: resolve tag and check GitHub Release assets
@@ -434,6 +458,11 @@ async def download_update(
                 break
 
     if safe_name.endswith(".yml"):
+        yaml_headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
         now = time.time()
         cache_key = (tag_name, safe_name)
         cached = _YAML_CACHE.get(cache_key)
@@ -441,7 +470,7 @@ async def download_update(
             return Response(
                 content=cached[1],
                 media_type="text/yaml; charset=utf-8",
-                headers={"Cache-Control": "no-cache"},
+                headers=yaml_headers,
             )
         if matched_asset and matched_asset.get("url"):
             try:
@@ -459,7 +488,7 @@ async def download_update(
                         return Response(
                             content=resp.content,
                             media_type="text/yaml; charset=utf-8",
-                            headers={"Cache-Control": "no-cache"},
+                            headers=yaml_headers,
                         )
             except Exception as e:
                 logger.warning("Failed to fetch YAML asset %s from GitHub API: %s", safe_name, e)
@@ -469,7 +498,7 @@ async def download_update(
             return Response(
                 content=fallback_yaml,
                 media_type="text/yaml; charset=utf-8",
-                headers={"Cache-Control": "no-cache"},
+                headers=yaml_headers,
             )
 
     if matched_asset and matched_asset.get("url") and github_token:

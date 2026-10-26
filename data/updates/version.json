@@ -6,17 +6,20 @@
     "windows": {
       "asset_name": "Memento-1.0.83-win-x64.zip",
       "size": 157864127,
-      "sha256": "c86781812356d65d77e7abeb7275ceb267bfa4d542c1e9705abf50cccf2af5ca"
+      "sha256": "c86781812356d65d77e7abeb7275ceb267bfa4d542c1e9705abf50cccf2af5ca",
+      "sha512": "fG5WTfcNZPwJNEo/FhJIzTkWBe3gZV7t2JqksN0QGB2W23/BCk2Jibzv2yV28h4uxURXusXkDkxjkpf3+oqEjg=="
     },
     "macos": {
       "asset_name": "Memento-1.0.83-mac-arm64.zip",
       "size": 132334886,
-      "sha256": "6e3c25defa9775ba8689ce313221d302ea345e9c8817c5eafa50f61ad7cc1899"
+      "sha256": "6e3c25defa9775ba8689ce313221d302ea345e9c8817c5eafa50f61ad7cc1899",
+      "sha512": "eLQ6Op1n5UXGWdigKXZlZIKhiHtsrHXWb8H04IkpOxDCgOg9v1jMd6WPQt5/+AU2M0xbQbyokYBvztRWLRl1uQ=="
     },
     "linux": {
       "asset_name": "Memento-1.0.83-linux-x64.tar.gz",
       "size": 131633471,
-      "sha256": "d54bc8c88e8207769e00165bb68a385c26f0ab3adc8b3d4fed672ab341cfb732"
+      "sha256": "d54bc8c88e8207769e00165bb68a385c26f0ab3adc8b3d4fed672ab341cfb732",
+      "sha512": "8Ee84zJE4bGk5JV3zc5cDEa9gyYs16qOhj9vjah4JmsiZt77ZqOR51aRXFkVJJN5aRZbZs3KxtbCuGIAhLSMRQ=="
     }
   }
 }

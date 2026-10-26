@@ -1,0 +1,9 @@
+version: 1.0.83
+files:
+  - url: Memento-1.0.83-linux-x86_64.AppImage
+    sha512: 8Ee84zJE4bGk5JV3zc5cDEa9gyYs16qOhj9vjah4JmsiZt77ZqOR51aRXFkVJJN5aRZbZs3KxtbCuGIAhLSMRQ==
+    size: 138435499
+    blockMapSize: 146367
+path: Memento-1.0.83-linux-x86_64.AppImage
+sha512: 8Ee84zJE4bGk5JV3zc5cDEa9gyYs16qOhj9vjah4JmsiZt77ZqOR51aRXFkVJJN5aRZbZs3KxtbCuGIAhLSMRQ==
+releaseDate: '2026-10-26T12:30:58.281Z'

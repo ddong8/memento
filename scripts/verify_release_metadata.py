@@ -25,6 +25,15 @@ def verify_sha256_format(hex_str: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{64}", hex_str.strip()))
 
 
+def verify_sha512_format(b64_str: str) -> bool:
+    import base64
+    try:
+        raw = base64.b64decode(b64_str.strip(), validate=True)
+        return len(raw) == 64
+    except Exception:
+        return False
+
+
 def verify_metadata(version_file: Path, github_tag: str | None = None) -> bool:
     print(f"[*] Checking release metadata file: {version_file}")
     if not version_file.exists():
@@ -86,6 +95,10 @@ def verify_metadata(version_file: Path, github_tag: str | None = None) -> bool:
         if not sha256_val or not verify_sha256_format(sha256_val):
             errors.append(f"Platform '{plat_name}': invalid or missing 64-char sha256 hash (found: '{sha256_val}').")
 
+        sha512_val = pinfo.get("sha512")
+        if sha512_val and not verify_sha512_format(sha512_val):
+            errors.append(f"Platform '{plat_name}': invalid base64 sha512 hash (found: '{sha512_val}').")
+
         # 3. Check local physical file if present
         local_asset = updates_dir / asset_name
         if local_asset.exists():
@@ -110,7 +123,23 @@ def verify_metadata(version_file: Path, github_tag: str | None = None) -> bool:
             else:
                 print(f"[+] Verified local file {asset_name}: {real_size} bytes, sha256 OK")
 
-    # 4. Check GitHub release assets if requested
+    # 4. Check channel YAML files in updates_dir
+    for yml_name in ("latest-mac.yml", "latest.yml", "latest-linux.yml"):
+        local_yml = updates_dir / yml_name
+        if local_yml.exists():
+            text = local_yml.read_text(encoding="utf-8")
+            m = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
+            if m:
+                yml_ver = m.group(1).strip().lstrip("vV")
+                clean_ver = str(version).strip().lstrip("vV")
+                if yml_ver != clean_ver:
+                    errors.append(f"Channel YAML '{yml_name}' version mismatch: declares {yml_ver}, version.json declares {clean_ver}")
+                else:
+                    print(f"[+] Verified channel YAML {yml_name}: version {yml_ver} matches.")
+            if "sha512:" not in text and "sha2:" not in text:
+                errors.append(f"Channel YAML '{yml_name}' is missing sha512 / sha2 checksum fields!")
+
+    # 5. Check GitHub release assets if requested
     if github_tag:
         try:
             import urllib.request

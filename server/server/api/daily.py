@@ -75,10 +75,10 @@ async def list_daily_dates(
         }
         for row in result.all()
     ]
-    # 60s TTL — daily list updates only when ingest writes new messages, so
-    # the data lifecycle is "minutes", not seconds. Short enough for users
-    # not to notice staleness on a fresh ingest.
-    await cache_set(cache_key, payload, ttl_seconds=60)
+    # Cache by (user, days, tz). ingest_service explicitly invalidates
+    # daily:dates:{user_id}: whenever new messages are ingested, so we can
+    # safely cache for 30 minutes without staleness while saving heavy GroupAggregate scans.
+    await cache_set(cache_key, payload, ttl_seconds=1800)
     return payload
 
 

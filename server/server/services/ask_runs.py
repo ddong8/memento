@@ -75,6 +75,26 @@ def _frame(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _publish_run(run) -> None:
+    """Tell the user's open clients a run started or ended (/api/events/stream, event "ask_run"):
+    the running-tasks monitor and the history drawer refresh on it instead of polling every 2 s."""
+    try:
+        from .sse_service import publish_event
+        publish_event("ask_run", {
+            "conversation_id": run.conversation_id,
+            "done": run.done,
+            "failed": run.failed,
+            "cancelled": run.cancelled,
+            "title": run.title or (run.question[:40] if run.question else ""),
+            "device_name": run.device_name,
+            "execution_mode": run.execution_mode,
+            "started_at": run.started_at,
+            "finished_at": run.finished_at,
+        }, user_id=str(run.user_id))
+    except Exception as e:
+        logger.debug("ask_run event not published: %s", e)
+
+
 class AskRun:
     def __init__(
         self,
@@ -542,6 +562,7 @@ class AskRunRegistry:
         run.task = asyncio.create_task(self._pump(run, factory))
         run.task.add_done_callback(lambda _: self._ensure_finished(run))
         notify_service.spawn(self._notify_live_activity_start(run))
+        _publish_run(run)
         return run
 
     async def _claim(self, run: AskRun) -> bool:
@@ -647,6 +668,7 @@ class AskRunRegistry:
         run.add(_frame({"type": "error", "message": message}))
         run.add(_frame({"type": "done"}))
         self._mirror_end(run)
+        _publish_run(run)
         if run.task:
             run.task.cancel()
         try:
@@ -715,6 +737,7 @@ class AskRunRegistry:
         run.done = True
         run.finished_at = time.time()
         self._mirror_end(run)
+        _publish_run(run)
         self._cluster.spawn(self._cluster.disown(CLAIM + run.conversation_id, run.claim_value))
         notify_service.spawn(
             notify_service.push_live_activity_event(
@@ -770,6 +793,7 @@ class AskRunRegistry:
                 await run.append(_frame({"type": "done"}))
             await run.finish()
             self._mirror_end(run)
+            _publish_run(run)
             await self._cluster.disown(CLAIM + run.conversation_id, run.claim_value)
             asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
             notify_service.spawn(

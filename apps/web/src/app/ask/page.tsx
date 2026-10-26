@@ -35,6 +35,7 @@ import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/Histor
 import { useTheme } from "@/lib/theme-context";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
+import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatExcerpt, formatRelativeTime, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
 
@@ -455,12 +456,26 @@ function AskPageContent() {
 
   useEffect(() => {
     checkUniversalHandoff();
-    const interval = setInterval(checkUniversalHandoff, 12000);
+    // A run starting or ending on another device is pushed (ask_run): check then. The poll backs the
+    // pushes up, and is skipped while the tab is hidden (the visibility check below catches up)
+    let lastCheck = Date.now();
+    const offLive = onLiveEvent("ask_run", () => {
+      if (document.visibilityState !== "visible") return;
+      lastCheck = Date.now();
+      checkUniversalHandoff();
+    });
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (isLiveConnected() && Date.now() - lastCheck < 120_000) return;
+      lastCheck = Date.now();
+      checkUniversalHandoff();
+    }, 12000);
     const handleVis = () => {
       if (document.visibilityState === "visible") checkUniversalHandoff();
     };
     document.addEventListener("visibilitychange", handleVis);
     return () => {
+      offLive();
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVis);
     };

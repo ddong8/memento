@@ -6,6 +6,7 @@ import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
 import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
 import { triggerHapticFeedback } from "@/lib/native-notify";
+import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { cancelPrefetchConversationTurns } from "@/lib/ask/cache";
 
 export interface ConversationAgentInfo {
@@ -684,7 +685,12 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     };
 
     void fetchActiveRuns();
-    const interval = setInterval(fetchActiveRuns, 2500);
+    // Runs starting and ending are pushed (ask_run): refresh on those, poll slowly as a fallback
+    const offLive = onLiveEvent("ask_run", () => void fetchActiveRuns());
+    const interval = setInterval(() => {
+      if (!isLiveConnected()) void fetchActiveRuns();
+    }, 2500);
+    const slowInterval = setInterval(() => void fetchActiveRuns(), 30_000);
 
     // 监听实时任务启动、完成和全局广播事件，达成 0ms 零延迟更新
     const handleStart = (e: any) => {
@@ -721,6 +727,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     return () => {
       mounted = false;
       clearInterval(interval);
+      clearInterval(slowInterval);
+      offLive();
       window.removeEventListener("memento_ask_start", handleStart);
       window.removeEventListener("memento_ask_done", handleDone);
       window.removeEventListener("memento_active_runs_update", handleUpdate);

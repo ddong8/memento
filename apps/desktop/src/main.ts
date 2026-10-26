@@ -388,8 +388,96 @@ function showNotification(title: string, body: string, targetUrl?: string): void
 }
 
 let notifyPollTimer: NodeJS.Timeout | null = null;
-let lastSeenNotifyTime = new Date().toISOString();
+const notifyStartedAt = new Date().toISOString();
+let lastSeenNotifyTime = notifyStartedAt;
 const notifiedDesktopIds = new Set<string>();
+// Notifications are pushed over /api/events/stream; while that connection is up the feed poll only
+// backs it up (every 10 minutes), and it catches up each time the connection comes back
+let notifyLive = false;
+
+interface FeedItem {
+  id: string;
+  title: string;
+  body: string;
+  url?: string;
+  created_at: string;
+}
+
+function showFeedItem(item: FeedItem): boolean {
+  if (!item?.id || notifiedDesktopIds.has(item.id)) return false;
+  // The stream replays its recent events on connect: those from before this launch were shown already
+  if (item.created_at && item.created_at <= notifyStartedAt) return false;
+  notifiedDesktopIds.add(item.id);
+  if (notifiedDesktopIds.size > 500) {
+    const first = notifiedDesktopIds.values().next().value;
+    if (first) notifiedDesktopIds.delete(first);
+  }
+  if (item.created_at > lastSeenNotifyTime) lastSeenNotifyTime = item.created_at;
+  showNotification(item.title, item.body, item.url);
+  return true;
+}
+
+async function startNotificationStream(onUp: () => void): Promise<void> {
+  let delay = 2_000;
+  for (;;) {
+    const jwt = await webToken();
+    if (!jwt) {
+      await new Promise((r) => setTimeout(r, 30_000));
+      continue;
+    }
+    const ctrl = new AbortController();
+    // The server sends a keepalive every 30 s: 75 s of silence means the connection is gone
+    let watchdog: NodeJS.Timeout | null = null;
+    const arm = () => {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => ctrl.abort(), 75_000);
+    };
+    try {
+      arm();
+      const res = await fetch(`${serverOrigin()}/api/events/stream`, {
+        headers: { Authorization: `Bearer ${jwt}`, Accept: "text/event-stream" },
+        signal: ctrl.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`events ${res.status}`);
+      delay = 2_000;
+      notifyLive = true;
+      onUp();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        arm();
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const data = block
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trimStart())
+            .join("\n");
+          if (!data) continue;
+          try {
+            const ev = JSON.parse(data) as { type?: string; data?: FeedItem };
+            if (ev.type === "notification" && ev.data) showFeedItem(ev.data);
+          } catch {
+            // a malformed frame is skipped
+          }
+        }
+      }
+    } catch {
+      // dropped or refused: retried below
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      notifyLive = false;
+    }
+    delay = Math.min(delay * 2, 60_000);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+}
 
 async function startNotificationFeedPoller(): Promise<void> {
   if (notifyPollTimer) return;
@@ -416,27 +504,17 @@ async function startNotificationFeedPoller(): Promise<void> {
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
-        const items = (await res.json()) as Array<{
-          id: string;
-          title: string;
-          body: string;
-          url?: string;
-          created_at: string;
-        }>;
-        if (Array.isArray(items) && items.length > 0) {
+        const items = (await res.json()) as FeedItem[];
+        if (Array.isArray(items)) {
           for (const item of items) {
-            if (item.id && notifiedDesktopIds.has(item.id)) continue;
-            if (item.id) notifiedDesktopIds.add(item.id);
-            hasNewItems = true;
-            showNotification(item.title, item.body, item.url);
-            if (item.created_at > lastSeenNotifyTime) {
-              lastSeenNotifyTime = item.created_at;
-            }
+            if (showFeedItem(item)) hasNewItems = true;
           }
         }
       }
 
-      if (hasNewItems) {
+      if (notifyLive) {
+        currentDelay = 600_000;
+      } else if (hasNewItems) {
         currentDelay = 5_000;
       } else if (!isVisibleAndFocused) {
         currentDelay = 60_000;
@@ -451,11 +529,14 @@ async function startNotificationFeedPoller(): Promise<void> {
 
   if (win) {
     win.on("focus", () => {
+      if (notifyLive) return; // pushed: nothing to fetch on focus
       currentDelay = 10_000;
       scheduleNext(150);
     });
   }
 
+  // Each time the stream comes (back) up, fetch what was sent while it was down
+  void startNotificationStream(() => scheduleNext(0));
   void poll();
 }
 

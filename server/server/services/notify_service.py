@@ -664,6 +664,12 @@ async def notify_user(
                 await db.commit()
     except Exception as e:
         logger.warning("Failed to record notification feed for user %s: %s", user_id, e)
+    # Clients listening on /api/events/stream show it now; their /api/notify/feed poll is the fallback
+    try:
+        from .sse_service import publish_event
+        publish_event("notification", item, user_id=str(user_id))
+    except Exception as e:
+        logger.debug("notification event not published: %s", e)
 
     sent = True
 

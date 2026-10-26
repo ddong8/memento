@@ -10,6 +10,7 @@
  */
 
 import { api } from "./api-client";
+import { isLiveConnected, onLiveEvent, onLiveStatus } from "./live-events";
 
 export type NotificationPermissionState = "granted" | "denied" | "default" | "unsupported";
 
@@ -307,8 +308,19 @@ export async function sendLocalNotification(
   return delivered;
 }
 
+interface FeedItem {
+  id: string;
+  kind?: string;
+  title: string;
+  body: string;
+  url?: string;
+  created_at?: string;
+}
+
 let _pollerTimer: ReturnType<typeof setInterval> | null = null;
-let _lastSeenTime = new Date().toISOString();
+const _startedAt = new Date().toISOString();
+let _lastSeenTime = _startedAt;
+let _lastPoll = 0;
 const _seenIds = new Set<string>();
 
 export function startNotificationFeedPoller(): () => void {
@@ -322,46 +334,60 @@ export function startNotificationFeedPoller(): () => void {
   }
   if (_pollerTimer) return () => {};
 
-  const poll = async () => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  const show = async (item: FeedItem) => {
+    if (!item.id || _seenIds.has(item.id)) return;
+    // The live connection replays recent events when it (re)connects: older ones were shown already
+    if (item.created_at && item.created_at <= _startedAt) return;
+    _seenIds.add(item.id);
+    if (_seenIds.size > 1000) {
+      const first = _seenIds.values().next().value;
+      if (first) _seenIds.delete(first);
+    }
+    if (item.created_at && item.created_at > _lastSeenTime) {
+      _lastSeenTime = item.created_at;
+    }
+    // If the user is actively viewing /ask in the foreground, suppress task_done popups
+    const isWatchingAsk =
+      window.location.pathname === "/ask" &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible" &&
+      (typeof document.hasFocus !== "function" || document.hasFocus());
+    if (isWatchingAsk && (item.kind === "task_done" || item.title.includes("任务完成"))) {
+      isDuplicateLocalNotification(item.title, item.body, item.url);
+      return;
+    }
+    await sendLocalNotification(item.title, item.body, item.url, {
+      skipInAppToast: true,
+      serverBacked: true,
+    });
+  };
+
+  const poll = async (force = false) => {
+    if (!force && typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    // Pushed while the live connection is up: the poll then only runs every 2 minutes, to back it up
+    if (!force && isLiveConnected() && Date.now() - _lastPoll < 120_000) return;
+    _lastPoll = Date.now();
     try {
       const items = await api.getNotificationFeed(_lastSeenTime);
-      if (Array.isArray(items) && items.length > 0) {
-        for (const item of items) {
-          if (!item.id || _seenIds.has(item.id)) continue;
-          _seenIds.add(item.id);
-          if (_seenIds.size > 1000) {
-            const first = _seenIds.values().next().value;
-            if (first) _seenIds.delete(first);
-          }
-          if (item.created_at && item.created_at > _lastSeenTime) {
-            _lastSeenTime = item.created_at;
-          }
-          // If the user is actively viewing /ask in the foreground, suppress task_done popups
-          const isWatchingAsk =
-            window.location.pathname === "/ask" &&
-            typeof document !== "undefined" &&
-            document.visibilityState === "visible" &&
-            (typeof document.hasFocus !== "function" || document.hasFocus());
-          if (isWatchingAsk && (item.kind === "task_done" || item.title.includes("任务完成"))) {
-            isDuplicateLocalNotification(item.title, item.body, item.url);
-            continue;
-          }
-          await sendLocalNotification(item.title, item.body, item.url, {
-            skipInAppToast: true,
-            serverBacked: true,
-          });
-        }
+      if (Array.isArray(items)) {
+        for (const item of items) await show(item as FeedItem);
       }
     } catch {
       // ignore network errors
     }
   };
 
-  void poll();
+  const offEvent = onLiveEvent("notification", (e) => void show(e.data as unknown as FeedItem));
+  // Back up: catch up on what came while the connection was down
+  const offStatus = onLiveStatus((up) => {
+    if (up) void poll(true);
+  });
+  void poll(true);
   _pollerTimer = setInterval(() => void poll(), 6000);
 
   return () => {
+    offEvent();
+    offStatus();
     if (_pollerTimer) {
       clearInterval(_pollerTimer);
       _pollerTimer = null;

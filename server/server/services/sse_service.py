@@ -49,6 +49,14 @@ def _deliver(user_id: str | None, event: dict) -> None:
                 dead.append((uid, q))
         for entry in dead:
             _subscribers.remove(entry)
+            # End that stream rather than leave it on keepalives alone: its client would take the
+            # connection for live and stop polling while no event reaches it. It reconnects.
+            q = entry[1]
+            try:
+                q.get_nowait()
+                q.put_nowait(None)
+            except Exception:
+                pass
 
 
 async def subscribe(user_id: str):
@@ -65,6 +73,8 @@ async def subscribe(user_id: str):
         while True:
             try:
                 event = await asyncio.wait_for(q.get(), timeout=30)
+                if event is None:  # fell behind and was dropped (see _deliver)
+                    return
                 yield event
             except asyncio.TimeoutError:
                 yield {"type": "keepalive", "data": {}, "timestamp": time.time()}

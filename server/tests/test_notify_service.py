@@ -91,3 +91,26 @@ class NotifyServiceTests(unittest.IsolatedAsyncioTestCase):
 
         # Expo push should NOT be called because native APNs is prioritized for the device
         mock_expo.assert_not_called()
+
+    @patch("server.services.notify_service.send_apns_push", new_callable=AsyncMock)
+    @patch("server.services.notify_service.async_session_factory")
+    async def test_notify_user_pushes_to_open_clients(self, mock_db_factory, _apns):
+        """The desktop and web show it from /api/events/stream at once; the feed poll only backs that up."""
+        mock_user = unittest.mock.MagicMock()
+        mock_user.notify_settings = {"notify_task_done": True, "recent_notifications": []}
+        mock_session = AsyncMock()
+        mock_result = unittest.mock.MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_session.execute.return_value = mock_result
+        mock_db_factory.return_value.__aenter__.return_value = mock_session
+
+        uid = uuid.uuid4()
+        with patch("server.services.sse_service.publish_event") as pub:
+            await notify_user(uid, "task_done", "✅ 任务完成", "mac：推送通知", url="/ask?id=1")
+        pub.assert_called_once()
+        (etype, item), kw = pub.call_args
+        self.assertEqual(etype, "notification")
+        self.assertEqual(kw["user_id"], str(uid))
+        self.assertEqual((item["title"], item["body"], item["url"]), ("✅ 任务完成", "mac：推送通知", "/ask?id=1"))
+        # The same item the feed returns, so clients dedupe the two by id
+        self.assertEqual(mock_user.notify_settings["recent_notifications"][0]["id"], item["id"])

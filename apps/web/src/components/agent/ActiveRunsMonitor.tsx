@@ -6,6 +6,7 @@ import { api, type AskRunSummary } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { sendLocalNotification } from "@/lib/native-notify";
+import { isLiveConnected, onLiveEvent, onLiveStatus } from "@/lib/live-events";
 
 export default function ActiveRunsMonitor() {
   const { token } = useAuth();
@@ -229,18 +230,40 @@ export default function ActiveRunsMonitor() {
     };
   }, [fetchRuns, pathname, currentConvId]);
 
+  // A run starting or ending anywhere (another tab, device or the phone) is pushed: refresh at once
+  const [live, setLive] = useState(isLiveConnected);
+  useEffect(() => {
+    if (!token) return;
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(() => void fetchRuns(), 150);
+    };
+    const offEvent = onLiveEvent("ask_run", refresh);
+    const offStatus = onLiveStatus((up) => {
+      setLive(up);
+      if (up) refresh(); // catch up on what happened while it was down
+    });
+    return () => {
+      offEvent();
+      offStatus();
+      if (pending) clearTimeout(pending);
+    };
+  }, [token, fetchRuns]);
+
   useEffect(() => {
     if (!token) return;
     fetchRuns();
 
-    // Faster poll (2000ms) when agent is active, relaxed (30000ms) when completely idle
-    const intervalTime = hasActiveRuns ? 2000 : 30000;
+    // While a run is going, 2 s keeps its step and elapsed time current. Idle, the pushes above say
+    // when one starts, so the poll is only a fallback: 30 s without them, 2 minutes with them.
+    const intervalTime = hasActiveRuns ? 2000 : live ? 120_000 : 30000;
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       void fetchRuns();
     }, intervalTime);
     return () => clearInterval(interval);
-  }, [token, fetchRuns, hasActiveRuns]);
+  }, [token, fetchRuns, hasActiveRuns, live]);
 
   const lastHiddenAtRef = useRef<number>(0);
   const autoJumpedKeysRef = useRef<Set<string>>(new Set());

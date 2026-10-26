@@ -105,17 +105,21 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
 
         # Deduplicate hyphen vs underscore equivalent projects (e.g. favorite_chat vs favorite-chat)
         all_cur_projs = (await db.execute(select(Project))).scalars().all()
+        proj_by_slug: dict[str, Project] = {p.slug: p for p in all_cur_projs}
         proj_by_equiv: dict[tuple[str, str], list[Project]] = {}
         for p in all_cur_projs:
             equiv_key = (p.tool_id, p.slug.split("/")[-1].replace("-", "_").lower())
             proj_by_equiv.setdefault(equiv_key, []).append(p)
         for equiv_key, plist in proj_by_equiv.items():
             if len(plist) > 1:
-                # Count docs for each project to pick canonical
-                p_counts = []
-                for p_item in plist:
-                    cnt = (await db.execute(select(func.count(Document.id)).where(Document.project_id == p_item.id))).scalar() or 0
-                    p_counts.append((cnt, p_item))
+                # Count docs for each project to pick canonical in a single batch query
+                p_ids = [p_item.id for p_item in plist]
+                doc_cnts = dict((await db.execute(
+                    select(Document.project_id, func.count(Document.id))
+                    .where(Document.project_id.in_(p_ids))
+                    .group_by(Document.project_id)
+                )).all())
+                p_counts = [(doc_cnts.get(p_item.id, 0), p_item) for p_item in plist]
                 p_counts.sort(key=lambda x: x[0], reverse=True)
                 canonical_p = p_counts[0][1]
                 for cnt, redundant_p in p_counts[1:]:
@@ -123,6 +127,7 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
                         update(Document).where(Document.project_id == redundant_p.id).values(project_id=canonical_p.id)
                     )
                     await db.delete(redundant_p)
+                    proj_by_slug.pop(redundant_p.slug, None)
                     has_changes = True
 
         # Auto-adopt orphaned documents across all tools (query only necessary columns)
@@ -144,7 +149,7 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
                 prettified = _prettify_project_name(p_cand)
                 if not _is_invalid_project_name(prettified):
                     c_slug = f"{od_tool_id}/{prettified}"
-                    canon = (await db.execute(select(Project).where(Project.slug == c_slug))).scalar_one_or_none()
+                    canon = proj_by_slug.get(c_slug)
                     if canon:
                         await db.execute(
                             update(Document).where(Document.id == od_id).values(project_id=canon.id)
@@ -185,7 +190,7 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
             cand_lower = prettified.lower()
             if cand_lower != cur_proj_title.lower() and cand_lower != cur_slug_name:
                 correct_slug = f"{doc_tool_id}/{prettified}"
-                correct_p = (await db.execute(select(Project).where(Project.slug == correct_slug))).scalar_one_or_none()
+                correct_p = proj_by_slug.get(correct_slug)
                 if correct_p and correct_p.id != cur_proj_id:
                     await db.execute(
                         update(Document).where(Document.id == doc_id).values(project_id=correct_p.id)

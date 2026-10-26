@@ -134,6 +134,17 @@ async def search(
     response says which mode actually ran.
     """
     clean_q = q.strip()
+    if hasattr(semantic, "default"):
+        semantic = semantic.default
+    semantic = bool(semantic)
+    if hasattr(days, "default"):
+        days = days.default
+    if hasattr(offset, "default"):
+        offset = offset.default
+    offset = int(offset)
+    if hasattr(limit, "default"):
+        limit = limit.default
+    limit = int(limit)
     cache_key = f"search:{_user.id}:{clean_q.lower()}:{tool or ''}:{category or ''}:{device_id or ''}:{days or ''}:{offset}:{limit}:{int(semantic)}"
     cached = await cache_get(cache_key)
     if cached is not None:
@@ -294,7 +305,7 @@ async def search(
             "title": d.title,
             "snippet": snippet,
             "file_size_bytes": d.file_size_bytes,
-            "synced_at": d.synced_at.isoformat(),
+            "synced_at": d.synced_at.isoformat() if d.synced_at else None,
             "matched_semantically": d.id in sem_snippets,
         })
 
@@ -306,5 +317,5 @@ async def search(
         "semantic_used": bool(sem_order),
         "results": items,
     }
-    await cache_set(cache_key, payload, ttl_seconds=45)
+    await cache_set(cache_key, payload, ttl_seconds=300)
     return payload

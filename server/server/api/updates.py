@@ -176,6 +176,22 @@ async def _fetch_latest_github_release(force_refresh: bool = False) -> dict[str,
     return _RELEASE_CACHE["data"]
 
 
+async def _local_yaml_is_current(path: Path) -> bool:
+    """Whether a channel file baked into the image (data/updates/latest*.yml) still describes the
+    latest release. The release workflow commits the new ones with [skip ci], so the image keeps the
+    previous release's until the next server deploy; served first, they would hide the new release
+    from every client. Serve one only while no newer release is out, or GitHub can't be reached."""
+    try:
+        m = re.search(r"^version:\s*['\"]?[vV]?([0-9][^\s'\"]*)", path.read_text(encoding="utf-8"), re.MULTILINE)
+    except OSError:
+        return False
+    if not m:
+        return False
+    gh_release = await _fetch_latest_github_release()
+    gh_ver = str((gh_release or {}).get("tag_name") or "").strip().lstrip("vV")
+    return not _compare_semver(gh_ver, m.group(1))
+
+
 @router.get("/check", response_model=UpdateCheckResponse)
 async def check_update(
     platform: str = Query("windows", description="Target platform (windows/macos/linux)"),
@@ -394,7 +410,7 @@ async def download_update(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     file_path = _UPDATES_DIR / safe_name
-    if file_path.exists() and file_path.is_file():
+    if file_path.exists() and file_path.is_file() and (not safe_name.endswith(".yml") or await _local_yaml_is_current(file_path)):
         is_yaml = safe_name.endswith(".yml")
         media_type = "text/yaml; charset=utf-8" if is_yaml else "application/octet-stream"
         cache_header = "no-cache, no-store, must-revalidate" if is_yaml else "public, max-age=600"

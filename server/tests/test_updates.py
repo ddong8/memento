@@ -166,6 +166,33 @@ class TestUpdatesApi(unittest.TestCase):
         asyncio.run(run())
 
 
+    def test_baked_channel_yaml_only_while_it_is_the_latest_release(self):
+        """data/updates/latest-mac.yml comes with the image; after the next release (committed with
+        [skip ci], so no rebuild) it must not keep telling clients the old version is the latest."""
+        async def run():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                updates_dir = Path(tmpdir)
+                updates_mod._UPDATES_DIR = updates_dir
+                updates_mod._YAML_CACHE.clear()
+                (updates_dir / "latest-mac.yml").write_text("version: 1.0.83\nfiles: []\n", encoding="utf-8")
+                app = FastAPI()
+                app.include_router(router)
+                transport = ASGITransport(app=app)
+                for gh, expect_local in ((None, True), ({"tag_name": "v1.0.83", "assets": []}, True),
+                                         ({"tag_name": "v1.0.84", "assets": []}, False)):
+                    with patch.object(updates_mod, "_fetch_latest_github_release", new_callable=AsyncMock) as mock_fetch:
+                        mock_fetch.return_value = gh
+                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                            res = await client.get("/api/system/update/latest-mac.yml", follow_redirects=False)
+                    if expect_local:
+                        self.assertEqual(res.status_code, 200, gh)
+                        self.assertIn("1.0.83", res.text)
+                    else:
+                        self.assertEqual(res.status_code, 302)
+                        self.assertIn("/v1.0.84/latest-mac.yml", res.headers["location"])
+
+        asyncio.run(run())
+
 if __name__ == "__main__":
     unittest.main()
 

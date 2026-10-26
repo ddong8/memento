@@ -28,7 +28,7 @@ async def test_get_conversation_slices_turns_at_db_level():
 
     # 1. select(AskConversation).options(defer(AskConversation.turns))
     # 2. select(jsonb_path_query_array)
-    sample_sliced_turns = [{"role": "user", "content": "hello"}]
+    sample_sliced_turns = [{"role": "user", "content": f"hello {i}"} for i in range(40)]
     mock_db.execute.side_effect = [
         MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=mock_conv)))),
         MagicMock(scalar=MagicMock(return_value=sample_sliced_turns)),
@@ -54,7 +54,8 @@ async def test_get_conversation_slices_turns_at_db_level():
         assert res["id"] == str(cid)
         assert res["has_more"] is True
         assert res["total_turns"] == 100
-        assert len(res["turns"]) == 1
+        assert len(res["turns"]) == 40
+        assert res["offset"] == 60
 
         # Check DB call queries
         calls = mock_db.execute.await_args_list

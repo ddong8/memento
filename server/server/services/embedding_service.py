@@ -173,6 +173,18 @@ async def embed_texts(texts: list[str], timeout: float = 120.0, client: httpx.As
     return out
 
 
+async def widen_hnsw_scan(db: AsyncSession, rows: int) -> None:
+    """Let the next HNSW scan in this transaction return `rows` rows, with filters or without.
+
+    An HNSW index scan yields at most hnsw.ef_search rows (default 40) and the WHERE runs after it:
+    measured on prod, asking for 80 got 43 back (35 at ef_search 32), fewer still with a tool filter.
+    Iterative scan (pgvector 0.8+) keeps reading the graph until the LIMIT is met; strict_order keeps
+    the distance order exact."""
+    ef = max(40, min(int(rows), 1000))
+    await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef}"))
+    await db.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
+
+
 async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> list[list[float]] | None:
     """Vectors for ``texts``, or None while the provider is down.
 

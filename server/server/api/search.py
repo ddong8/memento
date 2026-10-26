@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select, func, text
+from sqlalchemy import or_, select, func
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +40,7 @@ async def _semantic_doc_ranks(
     branch is the floor; semantic is strictly additive.
     """
     try:
-        from ..services.embedding_service import _call_embedding_server
+        from ..services.embedding_service import _call_embedding_server, widen_hnsw_scan
 
         # 30s matches /api/memory/semantic — see the note there: BGE-M3 is
         # CPU-only on Apple Silicon and a cold cache + Chinese tokenize can
@@ -79,10 +79,7 @@ async def _semantic_doc_ranks(
             .limit(want * 4)
         )
 
-        try:
-            await db.execute(text("SET LOCAL hnsw.ef_search = 32"))
-        except Exception:
-            pass
+        await widen_hnsw_scan(db, want * 4)
 
         order: list = []
         snippets: dict = {}

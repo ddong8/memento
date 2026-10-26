@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 
 from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import Boolean, cast, func, literal, not_, select, update
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.orm import defer
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,47 @@ MODE_TOOL = {"claude": "claude_code", "codex": "codex", "antigravity": "antigrav
 
 def _skip_config_value(k: str, v, choices: tuple[str, ...] = _EMPTY_IS_A_CHOICE) -> bool:
     return v is None or (v == "" and k not in choices)
+
+
+async def bust_conv_list(user_id) -> None:
+    """Drop the cached conversation list (GET /api/ask/conversations) after a write that shows in it."""
+    if not user_id:
+        return
+    try:
+        from .cache import cache_delete_prefix
+        await cache_delete_prefix(f"ask_conv_list:{user_id}")
+    except Exception:
+        pass
+
+
+def _turns_path(path: str):
+    return func.jsonb_path_query_array(AskConversation.turns, cast(path, JSONPATH))
+
+
+async def tail_turns(db: AsyncSession, conv_id: uuid.UUID, n: int) -> list[dict]:
+    """The last n turns, sliced inside Postgres so a long conversation doesn't ship whole to Python."""
+    res = (await db.execute(
+        select(_turns_path(f"$[last - {int(n) - 1} to last]")).where(AskConversation.id == conv_id)
+    )).scalar()
+    return list(res or [])
+
+
+async def turn_count(db: AsyncSession, conv_id: uuid.UUID) -> int:
+    res = (await db.execute(
+        select(func.jsonb_array_length(AskConversation.turns)).where(AskConversation.id == conv_id)
+    )).scalar()
+    return int(res or 0)
+
+
+async def slice_turns(db: AsyncSession, conv_id: uuid.UUID, start: int, end: int) -> list[dict]:
+    """Turns [start, end), sliced inside Postgres."""
+    start, end = max(0, int(start)), int(end)
+    if end <= start:
+        return []
+    res = (await db.execute(
+        select(_turns_path(f"$[{start} to {end - 1}]")).where(AskConversation.id == conv_id)
+    )).scalar()
+    return list(res or [])
 
 
 async def get_or_create_conversation(
@@ -94,6 +136,7 @@ async def get_or_create_conversation(
                     if updated:
                         conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
+                        await bust_conv_list(user.id)
                     return conv.id, conv.title, dict(conv.config or {})
             except Exception:
                 pass
@@ -171,6 +214,7 @@ async def get_or_create_conversation(
                             updated = True
                         sess_conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
+                        await bust_conv_list(user.id)
                         return sess_conv.id, sess_conv.title, dict(sess_conv.config or {})
                 except Exception:
                     pass
@@ -303,6 +347,7 @@ async def get_or_create_conversation(
         session.add(conv)
         await session.commit()
         await session.refresh(conv)
+        await bust_conv_list(user.id)
         return conv.id, conv.title, dict(conv.config or {})
 
 
@@ -362,8 +407,10 @@ async def append_conversation_turns(
     """Persist user and assistant turns into the conversation row."""
     try:
         async with async_session_factory() as session:
+            # Locked until the commit below: this writes the whole list back, so two appends at once
+            # (two runs finishing together, an orphan recovery) would otherwise drop one side's turns
             conv = (await session.execute(
-                select(AskConversation).where(AskConversation.id == conv_id)
+                select(AskConversation).where(AskConversation.id == conv_id).with_for_update()
             )).scalars().first()
             if not conv:
                 return
@@ -458,12 +505,7 @@ async def append_conversation_turns(
                     cfg["device_id"] = effective_dev
                 conv.config = cfg
             await session.commit()
-            if conv.user_id:
-                try:
-                    from .cache import cache_delete_prefix
-                    await cache_delete_prefix(f"ask_conv_list:{conv.user_id}")
-                except Exception:
-                    pass
+            await bust_conv_list(conv.user_id)
 
             # Sync non-CLI AskConversation turns (ai, agent, shell, rag, or sessions without a local daemon JSONL file)
             # into Document + ConversationMessage so RAG retrieval, daily digest, and session reviews all include them.
@@ -1029,10 +1071,30 @@ async def lookup_project_title(db: AsyncSession, project_id_val: str | None) -> 
     return None
 
 
+# Where a turn records the device task it ran
+_TASK_ID_PATHS = (
+    "$[*].toolCalls[*].result.task_id", "$[*].toolCalls[*].task_id",
+    "$[*].tool_calls[*].result.task_id", "$[*].tool_calls[*].task_id",
+)
+# Turns read to find the last recorded one when the caller has none loaded
+RECOVER_TAIL_TURNS = 40
+
+
+async def _recorded_task_ids(db: AsyncSession, conv_id: uuid.UUID) -> set[str]:
+    """Every task id the whole conversation records (not just the page a caller holds)."""
+    paths = [_turns_path(p) for p in _TASK_ID_PATHS]
+    row = (await db.execute(select(*paths).where(AskConversation.id == conv_id))).first()
+    return {str(v) for col in (row or []) for v in (col or []) if v}
+
+
 async def recover_orphaned_tasks_for_conv(
     db: AsyncSession, conv: AskConversation, cfg: dict, sample_turns: list[dict] | None = None
 ) -> list[dict] | None:
-    """If deploy/api restarted while a DeviceTask was running, recover completed turns that were not persisted to conv.turns."""
+    """If deploy/api restarted while a DeviceTask was running, recover completed turns that were not persisted to conv.turns.
+
+    sample_turns is what the caller holds, often only the latest page. Recovered turns are appended in
+    SQL (turns || new) and checked against the whole conversation; never write sample_turns back, that
+    drops every turn before the page. Returns sample_turns plus the recovered ones."""
     try:
         from ..db.models import DeviceTask
         from ..services.ask_runs import ask_runs
@@ -1042,8 +1104,12 @@ async def recover_orphaned_tasks_for_conv(
         if active_run and not active_run.done:
             return None
 
-        loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
-        raw_turns = list(sample_turns if sample_turns is not None else (loaded_turns or []))
+        if sample_turns is None:
+            # Loaded already, or else the tail: reading an unloaded attribute here is sync IO
+            sample_turns = conv.__dict__.get("turns")
+            if sample_turns is None:
+                sample_turns = await tail_turns(db, conv.id, RECOVER_TAIL_TURNS)
+        raw_turns = list(sample_turns)
         recorded_task_ids: set[str] = set()
         last_turn_dt: datetime | None = None
         for t in raw_turns:
@@ -1092,7 +1158,12 @@ async def recover_orphaned_tasks_for_conv(
 
         if not to_recover:
             return None
+        recorded_anywhere = await _recorded_task_ids(db, conv.id)
+        to_recover = [r for r in to_recover if str(r.id) not in recorded_anywhere]
+        if not to_recover:
+            return None
 
+        new_turns: list[dict] = []
         for dt_row in to_recover:
             pl = dt_row.payload or {}
             user_q = str(pl.get("user_question") or "").strip()
@@ -1130,12 +1201,12 @@ async def recover_orphaned_tasks_for_conv(
                     "events": dt_row.events or [],
                 },
             }
-            raw_turns.append({
+            new_turns.append({
                 "role": "user",
                 "content": user_q,
                 "created_at": start_dt.isoformat(),
             })
-            raw_turns.append({
+            new_turns.append({
                 "role": "assistant",
                 "content": ans,
                 "started_at": start_dt.isoformat(),
@@ -1145,11 +1216,35 @@ async def recover_orphaned_tasks_for_conv(
                 "model": pl.get("model") or None,
                 "execution_mode": pl.get("execution_mode") or dt_row.action or None,
             })
-        conv.turns = raw_turns
-        conv.message_count = len(raw_turns)
-        conv.updated_at = datetime.now(timezone.utc)
+        # The WHERE is checked again on the row as it is when the lock is ours, so a second
+        # replica recovering the same tasks at the same moment adds nothing
+        ids_json = literal([str(r.id) for r in to_recover], JSONB)
+        not_yet = not_(func.jsonb_path_exists(
+            AskConversation.turns,
+            cast("$[*].toolCalls[*] ? (@.result.task_id == $ids[*])", JSONPATH),
+            func.jsonb_build_object("ids", ids_json),
+            type_=Boolean,
+        ))
+        res = await db.execute(
+            update(AskConversation)
+            .where(AskConversation.id == conv.id, not_yet)
+            .values(
+                turns=AskConversation.turns.op("||")(literal(new_turns, JSONB)),
+                message_count=func.jsonb_array_length(AskConversation.turns) + len(new_turns),
+                updated_at=datetime.now(timezone.utc),
+            )
+            .execution_options(synchronize_session=False)
+        )
         await db.commit()
-        return raw_turns
+        if not res.rowcount:
+            return None
+        await bust_conv_list(conv.user_id)
+        logger.info("Recovered %d orphaned device task(s) into conversation %s", len(to_recover), conv_id_str)
+        return raw_turns + new_turns
     except Exception as e:
         logger.warning("Failed to recover orphaned device tasks for conv %s: %s", conv.id, e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         return None

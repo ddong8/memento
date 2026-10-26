@@ -60,7 +60,8 @@ async def test_semantic_search_sets_hnsw_ef_search():
     """Verify _semantic_doc_ranks sets hnsw.ef_search for pgvector."""
     mock_db = AsyncMock()
     mock_db.execute.side_effect = [
-        MagicMock(),  # SET LOCAL
+        MagicMock(),  # SET LOCAL hnsw.ef_search
+        MagicMock(),  # SET LOCAL hnsw.iterative_scan
         MagicMock(all=MagicMock(return_value=[])),  # query
     ]
 
@@ -76,4 +77,6 @@ async def test_semantic_search_sets_hnsw_ef_search():
         )
         assert mock_db.execute.await_count >= 1
         executed_stmts = [str(call[0][0]) for call in mock_db.execute.await_args_list]
-        assert any("SET LOCAL hnsw.ef_search = 32" in stmt for stmt in executed_stmts)
+        # want=10 overfetches 40 rows; iterative scan keeps reading past filtered-out rows
+        assert any("SET LOCAL hnsw.ef_search = 40" in stmt for stmt in executed_stmts)
+        assert any("SET LOCAL hnsw.iterative_scan = strict_order" in stmt for stmt in executed_stmts)

@@ -135,3 +135,7 @@ async def test_mind_resonance_uses_combined_regex_query():
     # Check executed query contains op '~*'
     executed_stmt = str(mock_db.execute.await_args_list[0][0][0])
     assert "~*" in executed_stmt
+    # Written as idx_knowledge_entities_search_trgm is defined, constants inline, or the index can't serve it
+    assert "(knowledge_entities.name || ' ' || coalesce(knowledge_entities.summary, ''))" in executed_stmt
+    # Entities named by a term rank first in the candidate set
+    assert "CASE WHEN (knowledge_entities.name ~*" in executed_stmt

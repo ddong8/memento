@@ -12,20 +12,20 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func, cast
-from sqlalchemy.dialects.postgresql import JSONPATH
+from sqlalchemy import select, delete
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User, AskConversation
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
-from ..services.cache import cache_get, cache_set, cache_delete_prefix
+from ..services.cache import cache_get, cache_set
 from ..services.user_filter import find_machine_by_id_or_hash
 from ..services.ask_runs import ask_runs
 from ..services.ask_store import (
-    get_or_create_conversation, infer_conversation_config, lookup_project_title,
+    bust_conv_list, get_or_create_conversation, infer_conversation_config, lookup_project_title,
     recover_orphaned_tasks_for_conv, resolve_concrete_device_for_conv, sanitize_turns_for_response,
+    slice_turns, tail_turns, turn_count,
 )
 
 logger = logging.getLogger("server.ask")
@@ -174,7 +174,8 @@ async def list_conversations(
         except Exception:
             await db.rollback()
 
-    await cache_set(cache_key, out_items, ttl_seconds=300)
+    # Writers drop it (bust_conv_list); the TTL only bounds one that doesn't
+    await cache_set(cache_key, out_items, ttl_seconds=60)
     return out_items
 
 
@@ -200,6 +201,12 @@ async def get_recent_active_conversation(
         "execution_mode": run.get("execution_mode") or "ai",
         "active_run": True,
     }
+
+
+def _conv_etag(conv_id: str, updated_at_iso: str | None, total_turns: int, limit: int, before: int | None, device: str | None) -> str:
+    page = f"{limit}" if before is None else f"{limit}:{before}"
+    seed = f"v4:{conv_id}:{updated_at_iso or ''}:{total_turns}:{page}:{device or ''}"
+    return f'"{hashlib.sha1(seed.encode("utf-8")).hexdigest()}"'
 
 
 @router.get("/conversations/{conv_id}")
@@ -243,91 +250,48 @@ async def get_conversation(
     conv_dev = conv.device_id or cfg.get("device_id")
     total_turns = conv.message_count
 
-    if before is not None:
-        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{before}:{conv_dev or ''}"
-    else:
-        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+    etag = _conv_etag(conv_id_str, updated_at_iso, total_turns, limit, before, conv_dev)
     server_tag = etag.strip('"')
 
     if client_tag and client_tag == server_tag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    # Fetch turns: slice at database level via JSON path if limit > 0 or before is set, otherwise full load
-    raw_turns: list[dict] | None = None
-    offset = 0
-    has_more = False
-
+    # Read only the page asked for, sliced inside Postgres: the last `limit` turns, or with `before`
+    # the `limit` (default 40) turns ahead of that index, for scrolling up
+    # true_count: the real number of turns when this read tells it, to fix a stale message_count
+    true_count: int | None = None
     if before is not None and before >= 0:
-        # 游标向上翻页：获取 index < before 的前序区间轮次
-        if before == 0:
-            raw_turns = []
-            offset = 0
-            has_more = False
-        else:
-            limit_val = limit if limit > 0 else 40
-            end = before - 1
-            start = max(0, end - limit_val + 1)
-            offset = start
-            has_more = (start > 0)
-            try:
-                path_str = f"$[{start} to {end}]"
-                sliced_col = func.jsonb_path_query_array(
-                    AskConversation.turns,
-                    cast(path_str, JSONPATH),
-                )
-                res = (await db.execute(select(sliced_col).where(cond))).scalar()
-                if isinstance(res, list):
-                    raw_turns = res
-            except Exception:
-                pass
+        page = limit if limit > 0 else 40
+        offset = max(0, before - page)
+        raw_turns = await slice_turns(db, cid, offset, before)
+        has_more = offset > 0
     elif limit > 0:
-        # 常规获取最近 limit 轮
-        try:
-            path_str = f"$[last - {limit - 1} to last]"
-            sliced_col = func.jsonb_path_query_array(
-                AskConversation.turns,
-                cast(path_str, JSONPATH),
-            )
-            res = (await db.execute(select(sliced_col).where(cond))).scalar()
-            if isinstance(res, list):
-                raw_turns = res
-                offset = max(0, total_turns - len(raw_turns))
-                has_more = (offset > 0)
-        except Exception:
-            pass
-
-    if raw_turns is None:
-        try:
-            await db.refresh(conv, ["turns"])
-            full_turns = list(conv.turns or [])
-            if total_turns == 0:
-                total_turns = len(full_turns)
-            if before is not None and before >= 0:
-                limit_val = limit if limit > 0 else 40
-                end = before
-                start = max(0, end - limit_val)
-                raw_turns = full_turns[start:end]
-                offset = start
-                has_more = (start > 0)
-            elif limit > 0 and len(full_turns) > limit:
-                raw_turns = full_turns[-limit:]
-                offset = len(full_turns) - limit
-                has_more = True
-            else:
-                raw_turns = full_turns
-                offset = 0
-                has_more = False
-        except Exception:
-            raw_turns = []
-            offset = 0
-            has_more = False
+        raw_turns = await tail_turns(db, cid, limit)
+        if len(raw_turns) < limit:
+            true_count = len(raw_turns)  # the page is the whole conversation
+        elif total_turns < len(raw_turns):
+            true_count = await turn_count(db, cid)
+        if true_count is not None:
+            total_turns = true_count
+        offset = max(0, total_turns - len(raw_turns))
+        has_more = offset > 0
+    else:
+        await db.refresh(conv, ["turns"])
+        raw_turns = list(conv.turns or [])
+        true_count = total_turns = len(raw_turns)
+        offset, has_more = 0, False
 
     cfg, inferred = infer_conversation_config(conv, sample_turns=raw_turns)
     if before is None:
         recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg, sample_turns=raw_turns)
         if recovered_turns is not None:
+            added = len(recovered_turns) - len(raw_turns)
+            total_turns += added
+            if true_count is not None:
+                true_count += added
             raw_turns = recovered_turns
+            # Appended in SQL; the row's updated_at moved past what this instance holds
+            await db.refresh(conv, ["updated_at", "message_count"])
 
     resolved_dev = await resolve_concrete_device_for_conv(db, conv, cfg, inferred)
 
@@ -335,8 +299,6 @@ async def get_conversation(
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
     conv_id_str = str(conv.id)
     conv_title = conv.title
-    if total_turns == 0:
-        total_turns = len(raw_turns)
 
     conv_dev = resolved_dev or conv.device_id or cfg.get("device_id")
     conv_cwd = conv.cwd or cfg.get("cwd")
@@ -345,8 +307,8 @@ async def get_conversation(
         cfg["device_id"] = resolved_dev
 
     need_commit = False
-    if total_turns != conv.message_count:
-        conv.message_count = total_turns
+    if true_count is not None and true_count != conv.message_count:
+        conv.message_count = true_count
         need_commit = True
     if conv.config != cfg:
         conv.config = cfg
@@ -369,8 +331,11 @@ async def get_conversation(
         try:
             await db.commit()
             updated_at_iso = now_utc.isoformat()
+            await bust_conv_list(_user.id)
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
+    # From what the row holds now, so the next poll's 304 check above matches
+    etag = _conv_etag(conv_id_str, updated_at_iso, total_turns, limit, before, conv_dev)
 
     conv_turns = sanitize_turns_for_response(raw_turns, fallback_iso=updated_at_iso or created_at_iso, start_index=offset)
 
@@ -539,7 +504,7 @@ async def update_conversation(
     conv.config = cfg
     conv.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await cache_delete_prefix(f"ask_conv_list:{_user.id}")
+    await bust_conv_list(_user.id)
     return {"ok": True, "config": cfg}
 
 
@@ -563,5 +528,5 @@ async def delete_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     await db.commit()
-    await cache_delete_prefix(f"ask_conv_list:{_user.id}")
+    await bust_conv_list(_user.id)
     return {"ok": True}

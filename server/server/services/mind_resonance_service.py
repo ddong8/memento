@@ -16,7 +16,7 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory
@@ -168,16 +168,23 @@ async def _fetch_graph_entities(
         if not valid_terms:
             return entities_data
 
-        # 采用 GIN 表达式正则匹配替代 24 次 Bitmap Index Scan，查询耗时由 48~296ms 压降至 1~15ms
+        # One regex instead of an ILIKE per term and column (150ms -> 30ms on prod, 17k entities). It is
+        # written exactly as idx_knowledge_entities_search_trgm is defined, with the constants inline (as
+        # bound parameters the planner can't match it to the index): terms of 3+ characters then use the
+        # index (~3ms); a two-character Chinese word has no trigram and scans. Entities named by a term
+        # come first, or the LIMIT picks by recency alone and drops older exact matches.
         regex_pattern = "|".join(re.escape(t) for t in valid_terms)
-        combined_text = func.coalesce(KnowledgeEntity.name, "") + " " + func.coalesce(KnowledgeEntity.summary, "")
+        search_text = literal_column("(knowledge_entities.name || ' ' || coalesce(knowledge_entities.summary, ''))")
         ent_q = (
             select(KnowledgeEntity)
             .where(
                 KnowledgeEntity.user_id == user.id,
-                combined_text.op("~*")(regex_pattern),
+                search_text.op("~*")(regex_pattern),
             )
-            .order_by(KnowledgeEntity.updated_at.desc().nulls_last())
+            .order_by(
+                case((KnowledgeEntity.name.op("~*")(regex_pattern), 0), else_=1),
+                KnowledgeEntity.updated_at.desc().nulls_last(),
+            )
             .limit(ENTITY_CANDIDATES)
         )
         ent_rows = (await db.execute(ent_q)).scalars().all()

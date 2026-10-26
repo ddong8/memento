@@ -28,10 +28,11 @@ def _conv(message_count: int):
     return conv
 
 
-async def _get(conv, commit_side_effect=None):
+async def _get(conv, commit_side_effect=None, limit=0):
     db = AsyncMock()
     res = MagicMock()
     res.scalars.return_value.first.return_value = conv
+    res.scalar.return_value = conv.turns  # the page sliced in SQL
     db.execute.return_value = res
     if commit_side_effect is not None:
         db.commit.side_effect = commit_side_effect
@@ -47,12 +48,19 @@ async def _get(conv, commit_side_effect=None):
          patch.object(ask_conversations, "lookup_project_title", AsyncMock(return_value="")), \
          patch.object(ask_conversations, "sanitize_turns_for_response", side_effect=lambda t, **_: t):
         out = await ask_conversations.get_conversation(
-            conv_id=str(conv.id), request=request, response=response, limit=40, db=db, _user=user,
+            conv_id=str(conv.id), request=request, response=response, limit=limit, db=db, _user=user,
         )
     return out, response, db
 
 
 class TestConversationDetailWriteBack(unittest.TestCase):
+    def test_stale_count_from_a_page_is_written_back(self):
+        conv = _conv(message_count=0)
+        out, _response, db = asyncio.run(_get(conv, limit=40))
+        db.commit.assert_awaited()  # the page is shorter than the limit: it is the whole conversation
+        self.assertEqual(out["total_turns"], 2)
+        self.assertEqual(conv.message_count, 2)
+
     def test_write_back_branch_returns_conversation(self):
         conv = _conv(message_count=0)  # stale count -> need_commit
         out, response, db = asyncio.run(_get(conv))
@@ -70,7 +78,7 @@ class TestConversationDetailWriteBack(unittest.TestCase):
 
     def test_no_write_back(self):
         conv = _conv(message_count=2)
-        out, response, db = asyncio.run(_get(conv))
+        out, response, db = asyncio.run(_get(conv, limit=40))
         db.commit.assert_not_awaited()
         self.assertEqual(out["updated_at"], "2026-10-02T00:00:00+00:00")
         self.assertIn("ETag", response.headers)

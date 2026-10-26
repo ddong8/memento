@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -375,7 +375,7 @@ async def semantic_search(
     list if the embedding server is unavailable — caller should fall back to
     substring search.
     """
-    from ..services.embedding_service import _call_embedding_server  # noqa: F401
+    from ..services.embedding_service import _call_embedding_server, widen_hnsw_scan
 
     mids = await user_machine_ids(db, _user)
 
@@ -419,11 +419,7 @@ async def semantic_search(
     if mids is not None:
         stmt = stmt.where(Document.machine_id.in_(mids))
 
-    try:
-        await db.execute(text("SET LOCAL hnsw.ef_search = 32"))
-    except Exception:
-        pass
-
+    await widen_hnsw_scan(db, limit * 4)
     rows = (await db.execute(stmt)).all()
 
     seen: dict = {}

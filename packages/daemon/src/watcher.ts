@@ -9,7 +9,11 @@ import type { IngestClient } from "./ingest.js";
 import { contentHash } from "./sanitizer.js";
 
 const MAX_BATCH = 512 * 1024; // bytes per upload
-const MAX_LINE = 128 * 1024; // a longer line (base64 dump) keeps its head and tail
+const MAX_LINE = 128 * 1024; // a longer line (a pasted screenshot, a huge tool output) is shrunk to this
+// A line longer than a batch is read whole before it goes up; past this it keeps only its head and tail
+const MAX_WHOLE_LINE = 64 * 1024 * 1024;
+// A last line without its newline is still being written, unless the file has been this quiet
+const PARTIAL_LINE_QUIET_MS = 30_000;
 const HEAD_BYTES = 64 * 1024; // where a session log says which folder it was started in
 const DEBOUNCE_MS = 2000;
 // A large session log is rewritten whole on the server for every upload (5 MB, every few seconds while an
@@ -119,6 +123,11 @@ function relativePathFor(filePath: string, toolId: string, extraDirs: string[] =
   return basename(filePath);
 }
 
+/** Whether the file hasn't been written to for PARTIAL_LINE_QUIET_MS. */
+async function isQuiet(handle: Awaited<ReturnType<typeof open>>): Promise<boolean> {
+  return Date.now() - (await handle.stat()).mtimeMs >= PARTIAL_LINE_QUIET_MS;
+}
+
 /** The first lines of a log, whole lines only. */
 async function readHead(handle: Awaited<ReturnType<typeof open>>): Promise<string[]> {
   const buf = Buffer.alloc(HEAD_BYTES);
@@ -131,17 +140,91 @@ async function readHead(handle: Awaited<ReturnType<typeof open>>): Promise<strin
   return text.trim() ? cleanLines(text) : [];
 }
 
-/** Lines of a slice, with giant lines cut down to their head and tail. */
-function cleanLines(raw: string): string[] {
+/** Lines of a slice, giant lines shrunk to MAX_LINE. */
+export function cleanLines(raw: string): string[] {
   const out: string[] = [];
   for (let line of raw.split("\n")) {
     if (!line) continue;
-    if (line.length > MAX_LINE) {
-      line = `${line.slice(0, 64 * 1024)}\n...[TRUNCATED: line exceeded 128KB limit]...\n${line.slice(-32 * 1024)}`;
-    }
+    if (line.length > MAX_LINE) line = shrinkLine(line);
     out.push(line);
   }
   return out;
+}
+
+/**
+ * A line over MAX_LINE, still one JSON object: its long strings (base64 images, file dumps) are cut
+ * down until it fits, so the server still parses the message and keeps the text around them. Cutting
+ * the raw line into head and tail left neither part parseable and the whole message, the user's own
+ * words included, was dropped. Only a line that isn't JSON still gets that.
+ */
+function shrinkLine(line: string): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    value = undefined;
+  }
+  if (value !== undefined && typeof value === "object" && value !== null) {
+    for (const limit of [16 * 1024, 4 * 1024, 1024, 256]) {
+      const out = JSON.stringify(shrinkStrings(value, limit));
+      if (out.length <= MAX_LINE) return out;
+    }
+  }
+  return `${line.slice(0, 64 * 1024)}\n...[TRUNCATED: line exceeded 128KB limit]...\n${line.slice(-32 * 1024)}`;
+}
+
+function shrinkStrings(v: unknown, limit: number): unknown {
+  if (typeof v === "string") {
+    if (v.length <= limit) return v;
+    const head = Math.floor(limit * 0.75);
+    const tail = Math.floor(limit * 0.2);
+    return `${v.slice(0, head)}…[已截断 ${v.length - head - tail} 字]…${v.slice(v.length - tail)}`;
+  }
+  if (Array.isArray(v)) return v.map((x) => shrinkStrings(x, limit));
+  if (v && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) o[k] = shrinkStrings(x, limit);
+    return o;
+  }
+  return v;
+}
+
+/**
+ * The line that starts at `offset` and runs past a batch, read to its newline (or with `toEof` to the
+ * end of the file, for a last line that is final without one): `bytes` to parse, `consumed` to move
+ * the offset by. null while its end isn't written yet. Past MAX_WHOLE_LINE only its head and tail are
+ * kept (the line still counts whole for the offset).
+ */
+async function readLongLine(
+  handle: Awaited<ReturnType<typeof open>>,
+  offset: number,
+  size: number,
+  toEof = false,
+): Promise<{ bytes: Buffer; consumed: number } | null> {
+  const chunks: Buffer[] = [];
+  let kept = 0;
+  let pos = offset;
+  let tail: Buffer = Buffer.alloc(0);
+  while (pos < size) {
+    const buf = Buffer.alloc(Math.min(4 * MAX_BATCH, size - pos));
+    const { bytesRead } = await handle.read(buf, 0, buf.length, pos);
+    if (!bytesRead) break;
+    const part = buf.subarray(0, bytesRead);
+    const nl = part.indexOf(10);
+    const piece = nl === -1 ? part : part.subarray(0, nl + 1);
+    if (kept + piece.length <= MAX_WHOLE_LINE) {
+      chunks.push(piece);
+      kept += piece.length;
+    } else {
+      tail = Buffer.concat([tail, piece]).subarray(-32 * 1024);
+    }
+    pos += piece.length;
+    if (nl !== -1) break;
+  }
+  const ended = chunks.length > 0 && (chunks[chunks.length - 1]!.at(-1) === 10 || tail.at(-1) === 10);
+  if (!ended && !(toEof && pos > offset)) return null;
+  const bytes = tail.length ? Buffer.concat([chunks[0]!.subarray(0, MAX_LINE), Buffer.from("\n"), tail]) : Buffer.concat(chunks);
+  return { bytes, consumed: pos - offset };
 }
 
 /**
@@ -507,19 +590,36 @@ export class FileWatcher {
         const buf = Buffer.alloc(want);
         const { bytesRead } = await handle.read(buf, 0, want, offset);
         if (!bytesRead) break;
-        let valid = bytesRead;
-        // End on a line boundary unless this slice reaches the end of the file.
-        if (offset + bytesRead < size) {
-          const nl = buf.lastIndexOf(10, bytesRead - 1);
-          if (nl !== -1) valid = nl + 1;
+        // Whole lines only: half of a line goes up now and the rest with the next slice, neither half
+        // parses, and the server loses that message for good
+        let slice: Buffer = buf.subarray(0, bytesRead);
+        let consumed = bytesRead;
+        const reachesEnd = offset + bytesRead >= size;
+        const nl = slice.lastIndexOf(10);
+        if (nl === -1 && !reachesEnd) {
+          // One line longer than a batch: read on to its end
+          const long =
+            (await readLongLine(handle, offset, size)) ??
+            ((await isQuiet(handle)) ? await readLongLine(handle, offset, size, true) : null);
+          if (!long) break; // its end isn't written yet
+          slice = long.bytes;
+          consumed = long.consumed;
+        } else if (nl !== slice.length - 1) {
+          // At the end of the file the last line may still be being written: it waits for its newline.
+          // One that never gets it goes once the file is quiet (the rescan comes back for it).
+          const lastLineFinal = reachesEnd && (await isQuiet(handle));
+          if (!lastLineFinal) {
+            if (nl === -1) break;
+            slice = slice.subarray(0, nl + 1);
+            consumed = slice.length;
+          }
         }
-        const slice = buf.subarray(0, valid);
         const raw = slice.toString("utf8");
         const lines = raw.trim() ? cleanLines(raw) : [];
         // A later slice still belongs to the folder the session was started in
         const head = offset > 0 ? await readHead(handle) : lines;
         if (!lines.length) {
-          offset += slice.length;
+          offset += consumed;
           this.offsets.set(file, offset);
           continue;
         }
@@ -547,7 +647,7 @@ export class FileWatcher {
         if (ok) {
           this.lastUpload.set(file, Date.now());
           this.failures.delete(file);
-          offset += slice.length;
+          offset += consumed;
           this.offsets.set(file, offset);
           await this.saveOffsets(false);
         } else {

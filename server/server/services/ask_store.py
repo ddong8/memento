@@ -56,7 +56,9 @@ async def get_or_create_conversation(
             try:
                 cid = uuid.UUID(conv_id_str)
                 conv = (await session.execute(
-                    select(AskConversation).where(
+                    select(AskConversation)
+                    .options(defer(AskConversation.turns))
+                    .where(
                         (AskConversation.id == cid) &
                         ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
                     )
@@ -123,7 +125,9 @@ async def get_or_create_conversation(
             if effective_sess_id:
                 try:
                     sess_conv = (await session.execute(
-                        select(AskConversation).where(
+                        select(AskConversation)
+                        .options(defer(AskConversation.turns))
+                        .where(
                             (AskConversation.config.op("->>")("session_id") == effective_sess_id) &
                             ((AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None)))
                         ).order_by(AskConversation.updated_at.desc().nulls_last()).limit(1)

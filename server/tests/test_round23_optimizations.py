@@ -114,3 +114,42 @@ async def test_invalidate_device_caches_includes_v2():
         assert f"projects:list:v2:{uid}" in calls
         assert f"project:conv:{uid}:" in calls
         assert f"project:conv:v2:{uid}:" in calls
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_conversation_defers_turns():
+    """Verify get_or_create_conversation queries AskConversation with defer(AskConversation.turns)."""
+    from server.services.ask_store import get_or_create_conversation
+    user = MagicMock()
+    user.id = uuid.uuid4()
+
+    conv_id = uuid.uuid4()
+    mock_conv = MagicMock()
+    mock_conv.id = conv_id
+    mock_conv.title = "测试会话"
+    mock_conv.config = {"model": "claude-code"}
+    mock_conv.device_id = None
+    mock_conv.cwd = None
+
+    mock_session = AsyncMock()
+    mock_session.execute.return_value = MagicMock(scalars=MagicMock(return_value=MagicMock(first=MagicMock(return_value=mock_conv))))
+
+    with patch("server.services.ask_store.async_session_factory") as mock_factory:
+        mock_factory.return_value.__aenter__.return_value = mock_session
+
+        res_id, res_title, res_cfg = await get_or_create_conversation(
+            conv_id_str=str(conv_id),
+            user=user,
+            question="hello",
+            device_id=None,
+            cwd=None,
+        )
+
+        assert res_id == conv_id
+        assert res_title == "测试会话"
+
+        # Check statement options for defer(turns)
+        stmt = mock_session.execute.call_args[0][0]
+        stmt_str = str(stmt)
+        assert "ask_conversations.turns" not in stmt_str
+

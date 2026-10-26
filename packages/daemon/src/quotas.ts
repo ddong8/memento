@@ -9,6 +9,7 @@ import https from "node:https";
 import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
+import { workbuddyProductModels } from "./workbuddy-models.js";
 
 export interface QuotaModelItem {
   label: string;
@@ -751,15 +752,15 @@ export async function probeWorkbuddyQuota(home = homeDir()): Promise<ToolQuotaIn
         ? "Pro 权益可用"
         : "免费额度可用";
 
-    models.push(
-      { label: "极致 (Deep Model)", model_id: "deep-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "均衡 (Balanced Model)", model_id: "balanced-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "快速 (Fast Model)", model_id: "fast-model", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "Tencent HY 4.0 Preview", model_id: "hy4-preview", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "DeepSeek V4 Pro", model_id: "deepseek-v4-pro", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "GLM-5.3", model_id: "glm-5.3", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-      { label: "Kimi-K3.1", model_id: "kimi-k3-1", remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus },
-    );
+    // The models WorkBuddy's CLI offers, from its cached product config; the three tiers if it can't be read
+    const offered = (await workbuddyProductModels(home)) ?? [
+      { id: "fast-model", name: "快速" },
+      { id: "balanced-model", name: "均衡" },
+      { id: "deep-model", name: "极致" },
+    ];
+    for (const m of offered) {
+      models.push({ label: m.name, model_id: m.id, remaining_fraction: null, remaining_percent: null, status_text: defaultModelStatus });
+    }
 
     if (!gateway && !uid && !nickname) {
       return {

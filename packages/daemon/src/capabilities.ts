@@ -7,6 +7,7 @@ import { ensureAgyCliInstalled } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { findExecutable } from "./exec-env.js";
 import { ensureWorkbuddyCliInstalled, isWorkbuddyInstalled } from "./workbuddy.js";
+import { workbuddyProductModels } from "./workbuddy-models.js";
 
 /**
  * What agent CLIs this device can run and which models/effort levels each
@@ -400,29 +401,34 @@ const ANTIGRAVITY_MODELS: ModelOption[] = [
   { id: "flash_lite", name: "Gemini Flash-Lite (超轻量)", desc: "超轻量阶梯 (自动映射 Gemini 3.6 Flash)" },
 ];
 
+/** Only when WorkBuddy's cached product config can't be read: its CLI agent's models as of WorkBuddy 5.8.3 (2026-10). */
 const WORKBUDDY_BUILTIN_MODELS: ModelOption[] = [
-  { id: "deep-model", name: "极致 (Deep Model)", desc: "旗舰模型组合，专为复杂决策与高难度任务打造" },
-  { id: "balanced-model", name: "均衡 (Balanced Model)", desc: "性能与成本兼顾，稳定应对日常工作" },
-  { id: "fast-model", name: "快速 (Fast Model)", desc: "低成本极速响应，适合轻量高频操作" },
-  { id: "hy4-preview", name: "Tencent HY 4.0 Preview", desc: "腾讯混元旗舰大模型 4.0 预览版" },
-  { id: "hy3-x", name: "Tencent HY 3.0-X", desc: "腾讯混元 3.0 增强推理模型" },
-  { id: "hy3", name: "Tencent HY 3.0", desc: "腾讯混元 3.0 主力大模型" },
-  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", desc: "DeepSeek V4 旗舰深度推理模型" },
-  { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", desc: "DeepSeek V4.1 高速响应模型" },
-  { id: "glm-5.3", name: "GLM-5.3", desc: "智谱旗舰编码与 Agent 模型" },
-  { id: "glm-5.3-flash", name: "GLM-5.3-Flash", desc: "智谱高速轻量模型" },
-  { id: "glm-5.2", name: "GLM-5.2", desc: "智谱主力通用大模型" },
-  { id: "glm-5.1", name: "GLM-5.1", desc: "智谱稳定编码模型" },
-  { id: "glm-5v-turbo", name: "GLM-5V-Turbo", desc: "智谱多模态视觉极速模型" },
-  { id: "minimax-m3", name: "MiniMax-M3", desc: "MiniMax M3 原生智能体模型" },
-  { id: "kimi-k3-1", name: "Kimi-K3.1", desc: "月之暗面 Kimi K3.1 旗舰长上下文模型" },
-  { id: "kimi-k2.8-preview", name: "Kimi-K2.8-Preview", desc: "月之暗面 Kimi K2.8 预览版" },
-  { id: "kimi-k2.7", name: "Kimi-K2.7", desc: "月之暗面 Kimi K2.7 模型" },
-  { id: "kimi-k2.6", name: "Kimi-K2.6", desc: "月之暗面 Kimi K2.6 模型" },
+  { id: "fast-model", name: "快速", desc: "优先响应速度，适合简单任务与快速问答" },
+  { id: "balanced-model", name: "均衡", desc: "兼顾速度与质量，适合大多数日常工作" },
+  { id: "deep-model", name: "极致", desc: "优先深度与准确性，适合复杂分析和高要求任务" },
+  { id: "hy4-preview", name: "Hy4 preview", desc: "混元思考模型，具有增强的推理能力" },
+  { id: "hy3", name: "Hy3", desc: "混元思考模型，具有增强的推理能力" },
+  { id: "hy3-x", name: "Hy3", desc: "混元思考模型，具有增强的推理能力" },
+  { id: "step-5-preview", name: "Step-5-Preview", desc: "阶跃 StepFun 面向真实任务的新一代旗舰基模" },
+  { id: "space-bunny", name: "Space-Bunny", desc: "推理速度极快，编码能力强劲，并支持原生多模态输入的匿名大模型" },
+  { id: "deepseek-v4.1-flash", name: "Deepseek-V4.1-Flash", desc: "DeepSeek V4.1 Flash，支持 1M 上下文" },
+  { id: "glm-5.3", name: "GLM-5.3", desc: "旗舰模型，擅长复杂软件工程与长程 Agent 任务" },
+  { id: "glm-5.3-flash", name: "GLM-5.3-Flash", desc: "原生多模态模型，擅长视觉理解与专业任务" },
+  { id: "glm-5.2", name: "GLM-5.2", desc: "1M 上下文，擅长长程任务" },
+  { id: "glm-5.1", name: "GLM-5.1", desc: "能力均衡，适合日常使用" },
+  { id: "glm-5v-turbo", name: "GLM-5v-Turbo", desc: "原生多模态模型" },
+  { id: "minimax-m3.1-flash", name: "MiniMax-M3.1-Flash", desc: "原生多模态，擅长 office、agentic、编程任务" },
+  { id: "minimax-m3", name: "MiniMax-M3", desc: "原生多模态，擅长代码、智能体任务" },
+  { id: "kimi-k3.1-pro", name: "Kimi-K3.1-Pro", desc: "Kimi 全新旗舰模型，办公、代码、3D 创作与长程 Agent" },
+  { id: "kimi-k3-1", name: "Kimi-K3", desc: "擅长处理复杂的长程自主任务，前端开发能力突出" },
+  { id: "kimi-k2.8-preview", name: "Kimi-K2.8-Preview", desc: "擅长处理复杂的长程自主任务" },
+  { id: "deepseek-v4-pro", name: "Deepseek-V4-Pro", desc: "DeepSeek 旗舰模型，支持 1M 上下文窗口" },
+  { id: "mimo-v2.6-pro", name: "Xiaomi MiMo-V2.6-Pro", desc: "旗舰推理模型，面向专业、长程、复杂工作流" },
 ];
 
 async function workbuddyCapabilities(wbPath: string, home: string): Promise<Record<string, unknown>> {
   const modelsConfig = await readJson(join(home, ".workbuddy", "models.json"));
+  const productModels = await workbuddyProductModels(home);
   const customModels: ModelOption[] = [];
   if (Array.isArray(modelsConfig?.models)) {
     for (const raw of modelsConfig.models) {
@@ -449,7 +455,7 @@ async function workbuddyCapabilities(wbPath: string, home: string): Promise<Reco
       is_default: true,
     },
     ...customModels,
-    ...WORKBUDDY_BUILTIN_MODELS,
+    ...(productModels?.map(({ id, name, desc }) => ({ id, name, desc })) ?? WORKBUDDY_BUILTIN_MODELS),
   ];
 
   return {

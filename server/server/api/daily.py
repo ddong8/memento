@@ -318,8 +318,7 @@ async def get_daily_summary(
     day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=tz)
     day_end = day_start + timedelta(days=1)
     newest_q = (
-        select(func.max(ConversationMessage.timestamp))
-        .join(Document, ConversationMessage.document_id == Document.id)
+        select(ConversationMessage.timestamp)
         .where(
             ConversationMessage.timestamp >= day_start,
             ConversationMessage.timestamp < day_end,
@@ -327,7 +326,8 @@ async def get_daily_summary(
         )
     )
     if mids is not None:
-        newest_q = newest_q.where(Document.machine_id.in_(mids))
+        newest_q = newest_q.join(Document, ConversationMessage.document_id == Document.id).where(Document.machine_id.in_(mids))
+    newest_q = newest_q.order_by(ConversationMessage.timestamp.desc()).limit(1)
     newest_ts = (await db.execute(newest_q)).scalar()
     stale = bool(newest_ts and summary.created_at and newest_ts > summary.created_at)
 

@@ -59,6 +59,11 @@ class Machine(Base):
     user: Mapped["User | None"] = relationship()
     documents: Mapped[list[Document]] = relationship(back_populates="machine")
 
+    __table_args__ = (
+        Index("idx_machines_collector_token_hash", "collector_token_hash"),
+        Index("idx_machines_user_id", "user_id"),
+    )
+
 
 class MachineMerge(Base):
     """Audit and backup of one device-record merge: what moved where, so it can be undone."""
@@ -193,6 +198,8 @@ class Document(Base):
         Index("idx_documents_tool_synced", "tool_id", synced_at.desc()),
         Index("idx_documents_project_synced", "project_id", synced_at.desc()),
         Index("idx_documents_project_category", "project_id", "category"),
+        Index("idx_documents_metadata_session_id", text("((metadata->>'session_id'))"), postgresql_where=text("(metadata->>'session_id') IS NOT NULL")),
+        Index("idx_documents_metadata_cascade_id", text("((metadata->>'cascade_id'))"), postgresql_where=text("(metadata->>'cascade_id') IS NOT NULL")),
         # Unique per machine+tool+path
         Index("uq_documents_machine_tool_path", "machine_id", "tool_id", "relative_path", unique=True),
     )
@@ -279,6 +286,10 @@ class DocumentVersion(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped[Document] = relationship(back_populates="versions")
+
+    __table_args__ = (
+        Index("idx_doc_versions_doc_synced", "document_id", synced_at.desc()),
+    )
 
 
 # ---------------------------------------------------------------------------

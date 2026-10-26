@@ -55,10 +55,13 @@ async def get_memory_stats(
     if cached is not None:
         return cached
 
-    ent_q = select(func.count()).select_from(KnowledgeEntity)
+    # Entity type breakdown & total entity count (single query covers both)
+    type_q = select(KnowledgeEntity.entity_type, func.count()).group_by(KnowledgeEntity.entity_type)
     if not admin:
-        ent_q = ent_q.where(KnowledgeEntity.user_id == _user.id)
-    entities = (await db.execute(ent_q)).scalar() or 0
+        type_q = type_q.where(KnowledgeEntity.user_id == _user.id)
+    type_result = await db.execute(type_q)
+    entity_types = {r[0]: r[1] for r in type_result.all()}
+    entities = sum(entity_types.values())
 
     rel_q = select(func.count()).select_from(KnowledgeRelation)
     if not admin:
@@ -75,13 +78,6 @@ async def get_memory_stats(
         emb_q = emb_q.where(DocumentEmbedding.document_id.in_(_user_doc_ids_subq(_user)))
     embeddings = (await db.execute(emb_q)).scalar() or 0
 
-    # Entity type breakdown
-    type_q = select(KnowledgeEntity.entity_type, func.count()).group_by(KnowledgeEntity.entity_type)
-    if not admin:
-        type_q = type_q.where(KnowledgeEntity.user_id == _user.id)
-    type_result = await db.execute(type_q)
-    entity_types = {r[0]: r[1] for r in type_result.all()}
-
     payload = {
         "entities": entities,
         "relations": relations,
@@ -89,7 +85,8 @@ async def get_memory_stats(
         "embeddings": embeddings,
         "entity_types": entity_types,
     }
-    await cache_set(cache_key, payload, ttl_seconds=30)
+    # Explicitly invalidated on ingestion and memory modifications; 5m TTL eliminates redundant scans
+    await cache_set(cache_key, payload, ttl_seconds=300)
     return payload
 
 

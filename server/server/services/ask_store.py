@@ -291,6 +291,7 @@ async def get_or_create_conversation(
             user_id=user.id,
             title=title,
             turns=init_turns,
+            message_count=len(init_turns),
             device_id=device_id,
             cwd=cwd,
             config=conv_cfg,
@@ -429,6 +430,7 @@ async def append_conversation_turns(
             turns.append(asst_turn)
 
             conv.turns = turns
+            conv.message_count = len(turns)
             flag_modified(conv, "turns")
             conv.updated_at = datetime.now(timezone.utc)
             effective_dev = device_id
@@ -1133,6 +1135,7 @@ async def recover_orphaned_tasks_for_conv(db: AsyncSession, conv: AskConversatio
                 "execution_mode": pl.get("execution_mode") or dt_row.action or None,
             })
         conv.turns = raw_turns
+        conv.message_count = len(raw_turns)
         conv.updated_at = datetime.now(timezone.utc)
         await db.commit()
         return raw_turns

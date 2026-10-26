@@ -619,7 +619,11 @@ async def ingest_file(
         sync_row.last_synced_at = datetime.now(timezone.utc)
         doc_query = (
             select(Document)
-            .options(defer(Document.content))
+            .options(
+                defer(Document.content),
+                defer(Document.content_tsv),
+                defer(Document.rendered_html),
+            )
             .where(
                 Document.tool_id == tool_id,
                 Document.relative_path == relative_path,
@@ -847,9 +851,16 @@ async def ingest_file(
                 project_id = row
 
     # Find existing document
-    doc_lookup_query = select(Document).where(
-        Document.tool_id == tool_id,
-        Document.relative_path == relative_path,
+    doc_lookup_query = (
+        select(Document)
+        .options(
+            defer(Document.content_tsv),
+            defer(Document.rendered_html),
+        )
+        .where(
+            Document.tool_id == tool_id,
+            Document.relative_path == relative_path,
+        )
     )
     if mode != "delta":
         doc_lookup_query = doc_lookup_query.options(defer(Document.content))

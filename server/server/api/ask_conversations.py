@@ -61,7 +61,7 @@ async def list_conversations(
             AskConversation.device_id,
             AskConversation.cwd,
             AskConversation.config,
-            func.jsonb_array_length(AskConversation.turns).label("message_count"),
+            AskConversation.message_count,
         )
         .where(cond)
         .order_by(AskConversation.updated_at.desc().nulls_last())

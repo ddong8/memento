@@ -221,7 +221,6 @@ class ConversationMessage(Base):
     document: Mapped[Document] = relationship(back_populates="messages")
 
     __table_args__ = (
-        Index("idx_conv_msg_document", "document_id", "line_number"),
         Index("uq_conv_msg_doc_line", "document_id", "line_number", unique=True),
         Index("idx_conv_msg_timestamp", "timestamp"),
         Index("idx_conv_msg_doc_ts", "document_id", "timestamp"),
@@ -302,7 +301,7 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | active | disabled
     collector_token: Mapped[str | None] = mapped_column(String(64), unique=True)
     github_id: Mapped[str | None] = mapped_column(String(50))
-    wechat_openid: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    wechat_openid: Mapped[str | None] = mapped_column(String(64), unique=True)
     # Phone push settings: {"bark_url", "notify_risky", "notify_task_done"}.
     notify_settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # 24/7 Always-on agent preferences: {"enabled", "morning_brief", "evening_reflection", "quiet_hours", etc.}
@@ -613,6 +612,7 @@ class AskConversation(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False, default="新对话")
     turns: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
+    message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     device_id: Mapped[str | None] = mapped_column(String(255))
     cwd: Mapped[str | None] = mapped_column(String(500))
     config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")

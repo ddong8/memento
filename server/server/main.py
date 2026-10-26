@@ -104,6 +104,9 @@ def _run_migrations(conn) -> None:
         ask_cols = {c["name"] for c in insp.get_columns("ask_conversations")}
         if "config" not in ask_cols:
             conn.execute(text("ALTER TABLE ask_conversations ADD COLUMN config JSONB NOT NULL DEFAULT '{}'"))
+        if "message_count" not in ask_cols:
+            conn.execute(text("ALTER TABLE ask_conversations ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("UPDATE ask_conversations SET message_count = jsonb_array_length(turns)"))
 
     # User.github_id — GitHub OAuth login. Partial unique index: one account
     # per GitHub identity, while the many github_id IS NULL rows stay allowed.

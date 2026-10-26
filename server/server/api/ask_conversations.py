@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, delete
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 

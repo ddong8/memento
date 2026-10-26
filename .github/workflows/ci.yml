@@ -110,11 +110,12 @@ jobs:
           npm run typecheck -w @memento/mcp
           npm run test -w @memento/mcp
 
-      - name: desktop · typecheck & bundle
+      - name: desktop · typecheck, test & bundle
         run: |
           npm run build -w @memento/daemon
           npm run build -w @memento/mcp
           npm run typecheck -w @memento/desktop
+          npm run test -w @memento/desktop
           node apps/desktop/scripts/build.mjs
 
   ts-mobile:
@@ -141,6 +142,7 @@ jobs:
           # (a copy nested under apps/mobile crashes `expo start` / `expo run:ios`).
           node -e "require.resolve('expo-router/package.json', { paths: [require.resolve('@expo/router-server/package.json')] })"
           npx tsc --noEmit
+          npx vitest run
           npx expo export --platform android --output-dir /tmp/mobile-export
 
   ts-web:

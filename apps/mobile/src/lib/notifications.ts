@@ -3,6 +3,8 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Alert, Linking, Platform } from "react-native";
 
+import { createNotifyDedupe } from "./notify-dedupe";
+
 // Configure how notifications appear when the app is in the foreground
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -14,49 +16,7 @@ Notifications.setNotificationHandler({
 });
 
 // Sliding-window deduplication across remote APNs, Expo pushes, feed polling, and bridge (60 seconds)
-const DEDUP_WINDOW_MS = 60000;
-const _notifiedKeys = new Map<string, number>();
-
-function getNotificationKey(title?: string | null, body?: string | null): string {
-  return `${(title || "").trim()}:::${(body || "").trim()}`;
-}
-
-export function isRecentlyNotified(
-  title?: string | null,
-  body?: string | null,
-  id?: string | null,
-): boolean {
-  const now = Date.now();
-  if (id && _notifiedKeys.has(`id:${id}`)) {
-    const t = _notifiedKeys.get(`id:${id}`)!;
-    if (now - t < DEDUP_WINDOW_MS) return true;
-  }
-  const key = getNotificationKey(title, body);
-  if (_notifiedKeys.has(key)) {
-    const t = _notifiedKeys.get(key)!;
-    if (now - t < DEDUP_WINDOW_MS) return true;
-  }
-  return false;
-}
-
-export function markAsNotified(
-  title?: string | null,
-  body?: string | null,
-  id?: string | null,
-): void {
-  const now = Date.now();
-  const key = getNotificationKey(title, body);
-  _notifiedKeys.set(key, now);
-  if (id) {
-    _notifiedKeys.set(`id:${id}`, now);
-  }
-  // Prune expired entries
-  for (const [k, time] of _notifiedKeys.entries()) {
-    if (now - time > DEDUP_WINDOW_MS * 2) {
-      _notifiedKeys.delete(k);
-    }
-  }
-}
+export const { isRecentlyNotified, markAsNotified } = createNotifyDedupe();
 
 // Automatically record any incoming remote (APNs / Expo) notification
 // so that local foreground polling or webview bridge will NEVER double-notify the same content.

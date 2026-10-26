@@ -20,6 +20,14 @@ app.commandLine.appendSwitch("enable-zero-copy");
 import { loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";
+import {
+  createNotificationDeduper,
+  getMediaMimeType,
+  getTodayKey,
+  normalizeDesktopAppName,
+  parseByteRange,
+  parseMementoMediaFilePath,
+} from "./helpers";
 
 const UPDATE_CHECK_MS = 6 * 60 * 60_000;
 const HIDDEN_ARG = "--hidden";
@@ -309,26 +317,7 @@ function toggleButlerWindow(): void {
   }
 }
 
-const recentDesktopNotifs = new Map<string, number>();
-
-function isDuplicateDesktopNotification(title: string, body: string): boolean {
-  const now = Date.now();
-  for (const [k, ts] of recentDesktopNotifs.entries()) {
-    if (now - ts > 120_000) recentDesktopNotifs.delete(k);
-  }
-  const cleanTitle = (title || "").trim();
-  const cleanBody = (body || "").trim();
-  const colonIdx = cleanBody.indexOf("：");
-  const coreBody = colonIdx !== -1 ? cleanBody.slice(colonIdx + 1).trim() : cleanBody;
-  const fullKey = `${cleanTitle}:${cleanBody}`;
-  const coreKey = `${cleanTitle}:${coreBody}`;
-  if (recentDesktopNotifs.has(fullKey) || (coreBody && recentDesktopNotifs.has(coreKey))) {
-    return true;
-  }
-  recentDesktopNotifs.set(fullKey, now);
-  if (coreBody) recentDesktopNotifs.set(coreKey, now);
-  return false;
-}
+const isDuplicateDesktopNotification = createNotificationDeduper();
 
 function showNotification(title: string, body: string, targetUrl?: string): void {
   if (isDuplicateDesktopNotification(title, body)) return;
@@ -544,65 +533,6 @@ let appTrackerTimer: NodeJS.Timeout | null = null;
 let appSyncTimer: NodeJS.Timeout | null = null;
 // Store app seconds: { [dateStr: string]: { [appName: string]: number } }
 const appUsageSecondsByDay: Record<string, Record<string, number>> = {};
-
-function getTodayKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function normalizeDesktopAppName(raw: string): string {
-  const norm = raw.trim();
-  const lower = norm.toLowerCase();
-
-  if (
-    !norm ||
-    [
-      "lockapp",
-      "searchhost",
-      "startmenuexperiencehost",
-      "shellexperiencehost",
-      "textinputhost",
-      "loginwindow",
-      "screensaverengine",
-      "notification center",
-    ].includes(lower)
-  ) {
-    return "";
-  }
-
-  if (lower.includes("cursor")) return "Cursor";
-  if (lower.includes("antigravity")) return "Antigravity";
-  if (lower.includes("workbuddy")) return "WorkBuddy";
-  if (lower === "code" || lower === "vscode" || lower.includes("visual studio code")) return "VS Code";
-  if (lower.includes("chrome")) return "Google Chrome";
-  if (lower.includes("edge")) return "Microsoft Edge";
-  if (lower.includes("firefox")) return "Firefox";
-  if (lower.includes("safari")) return "Safari";
-  if (lower.includes("wechat") || norm === "微信") return "微信";
-  if (lower.includes("feishu") || lower.includes("lark") || norm === "飞书") return "飞书";
-  if (lower.includes("dingtalk") || norm === "钉钉") return "钉钉";
-  if (lower.includes("memento")) return "Memento";
-  if (lower.includes("devenv")) return "Visual Studio";
-  if (lower.includes("idea")) return "IntelliJ IDEA";
-  if (lower.includes("pycharm")) return "PyCharm";
-  if (lower.includes("webstorm")) return "WebStorm";
-  if (lower.includes("goland")) return "GoLand";
-  if (lower.includes("clion")) return "CLion";
-  if (
-    lower === "windowsterminal" ||
-    lower.includes("terminal") ||
-    lower === "iterm2" ||
-    lower === "alacritty" ||
-    lower === "kitty" ||
-    lower === "konsole"
-  ) {
-    return norm;
-  }
-  return norm;
-}
 
 async function getFrontmostAppName(): Promise<string | null> {
   if (process.platform === "darwin") {
@@ -1519,71 +1449,6 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.on("activate", () => showWindow());
 
-function getMediaMimeType(filePath: string): string {
-  const ext = (filePath.split(".").pop() || "").toLowerCase();
-  switch (ext) {
-    case "mp4":
-    case "m4v":
-      return "video/mp4";
-    case "webm":
-      return "video/webm";
-    case "mov":
-      return "video/quicktime";
-    case "mkv":
-      return "video/x-matroska";
-    case "avi":
-      return "video/x-msvideo";
-    case "mp3":
-      return "audio/mpeg";
-    case "wav":
-      return "audio/wav";
-    case "m4a":
-      return "audio/mp4";
-    case "aac":
-      return "audio/aac";
-    case "ogg":
-      return "audio/ogg";
-    case "flac":
-      return "audio/flac";
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg";
-    case "png":
-      return "image/png";
-    case "webp":
-      return "image/webp";
-    case "gif":
-      return "image/gif";
-    case "svg":
-      return "image/svg+xml";
-    case "vtt":
-      return "text/vtt; charset=utf-8";
-    case "srt":
-      return "text/plain; charset=utf-8";
-    case "pdf":
-      return "application/pdf";
-    case "json":
-      return "application/json; charset=utf-8";
-    default:
-      return "application/octet-stream";
-  }
-}
-
-function parseMementoMediaFilePath(rawUrl: string): string {
-  const parsed = new URL(rawUrl);
-  let filePath: string;
-  if (parsed.host === "local" || parsed.host === "") {
-    filePath = decodeURIComponent(parsed.pathname);
-  } else {
-    // When memento-media:///Users/... is navigated, Chromium treats the first segment (e.g. "users") as the host
-    filePath = "/" + decodeURIComponent(parsed.host + parsed.pathname);
-  }
-  if (process.platform === "win32" && filePath.startsWith("/")) {
-    filePath = filePath.slice(1);
-  }
-  return filePath;
-}
-
   void app.whenReady().then(async () => {
     // Enable local media stream handler with full HTTP 206 Range & CORS support
     protocol.handle("memento-media", async (request) => {
@@ -1598,7 +1463,7 @@ function parseMementoMediaFilePath(rawUrl: string): string {
         });
       }
       try {
-        const filePath = parseMementoMediaFilePath(request.url);
+        const filePath = parseMementoMediaFilePath(request.url, process.platform);
         const st = statSync(filePath);
         if (!st.isFile()) {
           return new Response("Not a file", {
@@ -1623,13 +1488,9 @@ function parseMementoMediaFilePath(rawUrl: string): string {
           });
         }
 
-        const rangeHeader = request.headers.get("range");
-        if (rangeHeader && rangeHeader.startsWith("bytes=")) {
-          const parts = rangeHeader.replace(/bytes=/, "").split("-");
-          const start = parts[0] ? parseInt(parts[0], 10) : 0;
-          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-          if (start > end || start >= fileSize) {
+        const range = parseByteRange(request.headers.get("range"), fileSize);
+        if (range) {
+          if (range === "unsatisfiable") {
             return new Response(null, {
               status: 416,
               statusText: "Range Not Satisfiable",
@@ -1640,6 +1501,7 @@ function parseMementoMediaFilePath(rawUrl: string): string {
             });
           }
 
+          const { start, end } = range;
           const chunkSize = end - start + 1;
           const stream = createReadStream(filePath, { start, end });
           const webStream = new ReadableStream({

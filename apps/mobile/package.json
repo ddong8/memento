@@ -27,14 +27,16 @@
   "devDependencies": {
     "@bacons/apple-targets": "^5.0.0",
     "@types/react": "~19.2.2",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.4"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "export": "expo export"
+    "export": "expo export",
+    "test": "vitest run"
   },
   "private": true
 }

@@ -608,7 +608,8 @@ def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | 
         return cfg, {}
 
     inferred: dict = {}
-    turns_source = sample_turns if sample_turns is not None else (conv.turns or [])
+    loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
+    turns_source = sample_turns if sample_turns is not None else (loaded_turns or [])
     for turn in reversed(turns_source):
         tcs = turn.get("toolCalls") or turn.get("tool_calls") or []
         for tc in reversed(tcs):
@@ -1041,7 +1042,8 @@ async def recover_orphaned_tasks_for_conv(
         if active_run and not active_run.done:
             return None
 
-        raw_turns = list(sample_turns if sample_turns is not None else (conv.turns or []))
+        loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
+        raw_turns = list(sample_turns if sample_turns is not None else (loaded_turns or []))
         recorded_task_ids: set[str] = set()
         last_turn_dt: datetime | None = None
         for t in raw_turns:

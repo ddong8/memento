@@ -248,10 +248,11 @@ async def get_conversation(
     if client_tag and client_tag == server_tag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    # Fetch turns: use in-memory turns if already loaded, slice at database level via JSON path if limit > 0, otherwise full load
+    # Fetch turns: use in-memory turns if already loaded without triggering lazy IO, slice at database level via JSON path if limit > 0, otherwise full load
     raw_turns: list[dict] | None = None
-    if isinstance(getattr(conv, "turns", None), list) and conv.turns:
-        raw_turns = list(conv.turns)
+    loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
+    if isinstance(loaded_turns, list) and loaded_turns:
+        raw_turns = list(loaded_turns)
     elif limit > 0:
         try:
             sliced_col = func.jsonb_path_query_array(
@@ -267,9 +268,9 @@ async def get_conversation(
     if raw_turns is None:
         try:
             await db.refresh(conv, ["turns"])
+            raw_turns = list(conv.turns or [])
         except Exception:
-            pass
-        raw_turns = list(conv.turns or [])
+            raw_turns = []
 
     cfg, inferred = infer_conversation_config(conv, sample_turns=raw_turns)
     recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg, sample_turns=raw_turns)

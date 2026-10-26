@@ -2,9 +2,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timezone
 import uuid
 import pytest
-from sqlalchemy import select, func
 
-from server.db.models import Project, Document
+from server.db.models import Project
 from server.api.projects import _consolidate_projects_if_needed
 from server.api.search import search
 

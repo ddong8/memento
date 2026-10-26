@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -48,6 +49,7 @@ from ..services.ws_manager import ws_manager
 from ..services.device_service import HEARTBEAT_WRITE_EVERY
 
 logger = logging.getLogger("server.tasks_api")
+_last_ws_heartbeat: dict[uuid.UUID, float] = {}
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -359,6 +361,8 @@ async def device_websocket_endpoint(
                 .values(last_heartbeat=datetime.now(timezone.utc))
             )
             await db.commit()
+        if machine.id:
+            _last_ws_heartbeat[machine.id] = time.monotonic()
     except Exception as e:
         logger.warning("Failed to update machine last_heartbeat on WS accept: %s", e)
 
@@ -374,19 +378,25 @@ async def device_websocket_endpoint(
             msg_type = data.get("type")
             if msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
-                # Touch heartbeat in db, at most once per HEARTBEAT_WRITE_EVERY: online means a heartbeat
-                # within 180 s, and a row rewritten on every ping was a quarter of all statements
-                now = datetime.now(timezone.utc)
-                async with async_session_factory() as db:
-                    await db.execute(
-                        update(Machine)
-                        .where(
-                            Machine.id == machine.id,
-                            or_(Machine.last_heartbeat.is_(None), Machine.last_heartbeat < now - HEARTBEAT_WRITE_EVERY),
-                        )
-                        .values(last_heartbeat=now)
-                    )
-                    await db.commit()
+                # Touch heartbeat in db, throttled to at most once per HEARTBEAT_WRITE_EVERY (60s)
+                # in memory first to avoid acquiring DB connections and executing no-op UPDATEs.
+                now_mono = time.monotonic()
+                if machine.id and now_mono - _last_ws_heartbeat.get(machine.id, 0.0) >= HEARTBEAT_WRITE_EVERY.total_seconds():
+                    _last_ws_heartbeat[machine.id] = now_mono
+                    now = datetime.now(timezone.utc)
+                    try:
+                        async with async_session_factory() as db:
+                            await db.execute(
+                                update(Machine)
+                                .where(
+                                    Machine.id == machine.id,
+                                    or_(Machine.last_heartbeat.is_(None), Machine.last_heartbeat < now - HEARTBEAT_WRITE_EVERY),
+                                )
+                                .values(last_heartbeat=now)
+                            )
+                            await db.commit()
+                    except Exception as e:
+                        logger.warning("Failed to update machine heartbeat: %s", e)
             elif msg_type == "agent_capabilities":
                 caps = data.get("capabilities") or {}
                 device_reports.set_device_capabilities((real_device_id, machine.name, str(machine.id) if machine.id else None), caps)

@@ -415,58 +415,6 @@ def _run_migrations(conn) -> None:
         except Exception:
             sp.rollback()
 
-    # The desktop daemon filed every watched file as a conversation (project memory, Cursor's MCP files),
-    # and sessions Memento continued were titled after the context it put in front of their first prompt.
-    # Ingest gets both right from now on; refile and retitle what is already stored, once, after saving
-    # the old values in documents_fix_20261024.
-    if "documents_fix_20261024" not in tables:
-        _refile_and_retitle_documents(conn)
-
-
-def _refile_and_retitle_documents(conn) -> None:
-    import logging
-    from sqlalchemy import text
-    from .services.ingest_service import _infer_category, _title_from_user_messages
-
-    sp = conn.begin_nested()
-    try:
-        conn.execute(text(
-            "CREATE TABLE documents_fix_20261024 AS "
-            "SELECT id, tool_id, relative_path, content_type, category, title, metadata->>'session_id' AS session_id "
-            "FROM documents WHERE "
-            "(tool_id IN ('claude_code', 'workbuddy', 'cursor') AND category = 'conversation' "
-            " AND content_type IS DISTINCT FROM 'jsonl' "
-            " AND (lower(relative_path) LIKE '%.md' OR lower(relative_path) LIKE '%.json')) "
-            "OR title LIKE '【前序会话核心记忆快照%' OR title LIKE '【前文对话历史】%'"
-        ))
-        rows = conn.execute(text(
-            "SELECT id, tool_id, relative_path, content_type, category, title, session_id FROM documents_fix_20261024"
-        )).all()
-        refiled = retitled = 0
-        for doc_id, tool_id, path, content_type, category, title, sid in rows:
-            values: dict = {}
-            new_category = _infer_category(tool_id, category, content_type or "", path or "")
-            if new_category != category:
-                values["category"] = new_category
-            if (title or "").startswith(("【前序会话核心记忆快照", "【前文对话历史】")):
-                prompts = conn.execute(text(
-                    "SELECT content FROM conversation_messages WHERE document_id = :id AND role = 'user' "
-                    "ORDER BY line_number LIMIT 20"
-                ), {"id": doc_id}).scalars().all()
-                new_title = _title_from_user_messages(prompts, sid)
-                if new_title:
-                    values["title"] = new_title
-            if values:
-                sets = ", ".join(f"{k} = :{k}" for k in values)
-                conn.execute(text(f"UPDATE documents SET {sets} WHERE id = :id"), {**values, "id": doc_id})
-                refiled += "category" in values
-                retitled += "title" in values
-        sp.commit()
-        logging.getLogger("memento.migrations").info("documents_fix_20261024: refiled %d, retitled %d of %d documents", refiled, retitled, len(rows))
-    except Exception as e:
-        sp.rollback()
-        logging.getLogger("memento.migrations").warning("documents_fix_20261024 skipped: %s", e)
-
 
 async def _schedule_daily_compaction():
     """Run memory compaction once per day in background (on one replica: the

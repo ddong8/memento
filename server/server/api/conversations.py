@@ -30,7 +30,11 @@ async def get_conversation(
 
     result = await db.execute(
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.rendered_html))
+        .options(
+            defer(Document.content),
+            defer(Document.content_tsv),
+            defer(Document.rendered_html),
+        )
         .where(Document.id == doc_id)
     )
     doc = result.scalar_one_or_none()
@@ -39,16 +43,20 @@ async def get_conversation(
     if mids is not None and doc.machine_id not in mids:
         raise HTTPException(status_code=404)
 
-    # Count messages efficiently (no full parse)
-    message_count = 0
-    if doc.content:
-        message_count = count_conversation_messages(doc.content, doc.tool_id)
+    # Count messages efficiently: check pre-indexed ConversationMessage first (0.04 ms)
+    count_result = await db.execute(
+        select(func.count()).where(ConversationMessage.document_id == doc_id)
+    )
+    message_count = count_result.scalar() or 0
 
     if message_count == 0:
-        count_result = await db.execute(
-            select(func.count()).where(ConversationMessage.document_id == doc_id)
+        # Fallback for documents not yet parsed into conversation_messages table
+        content_res = await db.execute(
+            select(Document.content).where(Document.id == doc_id)
         )
-        message_count = count_result.scalar() or 0
+        raw_content = content_res.scalar_one_or_none()
+        if raw_content:
+            message_count = count_conversation_messages(raw_content, doc.tool_id)
 
     # Find related brain artifacts (same session_id)
     related_plans = []
@@ -57,7 +65,6 @@ async def get_conversation(
         plans_q = (
             select(Document)
             .options(
-                defer(Document.content),
                 defer(Document.content_tsv),
                 defer(Document.metadata_),
                 defer(Document.rendered_html),
@@ -115,6 +122,7 @@ async def get_conversation_messages(
     result = await db.execute(
         select(Document)
         .options(
+            defer(Document.content),
             defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
@@ -127,10 +135,54 @@ async def get_conversation_messages(
     if mids is not None and doc.machine_id not in mids:
         raise HTTPException(status_code=404)
 
-    # Parse from raw content with pagination (no full list in memory)
-    if doc.content:
-        total = count_conversation_messages(doc.content, doc.tool_id)
-        page = parse_conversation(doc.content, doc.tool_id, offset=offset, limit=limit)
+    # First check pre-indexed DB-stored messages (fastest, paginated, indexed)
+    base_filter = [ConversationMessage.document_id == doc_id]
+    count_result = await db.execute(
+        select(func.count()).where(*base_filter)
+    )
+    total = count_result.scalar() or 0
+
+    if total > 0:
+        msgs_result = await db.execute(
+            select(ConversationMessage)
+            .where(*base_filter)
+            .order_by(ConversationMessage.line_number)
+            .offset(offset)
+            .limit(limit)
+        )
+        messages = msgs_result.scalars().all()
+
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "messages": [
+                {
+                    "id": m.id,
+                    "line_number": m.line_number,
+                    "role": m.role or m.message_type,
+                    "content": m.content,
+                    "thinking": (m.metadata_ or {}).get("thinking") if m.metadata_ else None,
+                    "tool_name": (m.metadata_ or {}).get("tool_name", "") if m.metadata_ else "",
+                    "tool_input": (m.metadata_ or {}).get("tool_input", "") if m.metadata_ else "",
+                    "status": (m.metadata_ or {}).get("status") if m.metadata_ else None,
+                    "exit_code": (m.metadata_ or {}).get("exit_code") if m.metadata_ else None,
+                    "error": (m.metadata_ or {}).get("error") if m.metadata_ else None,
+                    "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+                    "raw_type": m.message_type or "",
+                }
+                for i, m in enumerate(messages)
+            ],
+        }
+
+    # Fallback to loading and parsing raw content only for unparsed documents
+    content_res = await db.execute(
+        select(Document.content).where(Document.id == doc_id)
+    )
+    raw_content = content_res.scalar_one_or_none()
+    if raw_content:
+        total = count_conversation_messages(raw_content, doc.tool_id)
+        page = parse_conversation(raw_content, doc.tool_id, offset=offset, limit=limit)
         return {
             "total": total,
             "offset": offset,
@@ -154,44 +206,7 @@ async def get_conversation_messages(
             ],
         }
 
-    # Fallback to DB-stored messages
-    base_filter = [ConversationMessage.document_id == doc_id]
-    count_result = await db.execute(
-        select(func.count()).where(*base_filter)
-    )
-    total = count_result.scalar() or 0
-
-    msgs_result = await db.execute(
-        select(ConversationMessage)
-        .where(*base_filter)
-        .order_by(ConversationMessage.line_number)
-        .offset(offset)
-        .limit(limit)
-    )
-    messages = msgs_result.scalars().all()
-
-    return {
-        "total": total,
-        "offset": offset,
-        "limit": limit,
-        "messages": [
-            {
-                "id": m.id,
-                "line_number": m.line_number,
-                "role": m.role or m.message_type,
-                "content": m.content,
-                "thinking": (m.metadata_ or {}).get("thinking") if m.metadata_ else None,
-                "tool_name": (m.metadata_ or {}).get("tool_name", "") if m.metadata_ else "",
-                "tool_input": (m.metadata_ or {}).get("tool_input", "") if m.metadata_ else "",
-                "status": (m.metadata_ or {}).get("status") if m.metadata_ else None,
-                "exit_code": (m.metadata_ or {}).get("exit_code") if m.metadata_ else None,
-                "error": (m.metadata_ or {}).get("error") if m.metadata_ else None,
-                "timestamp": m.timestamp.isoformat() if m.timestamp else None,
-                "raw_type": m.message_type or "",
-            }
-            for m in messages
-        ],
-    }
+    return {"total": 0, "offset": offset, "limit": limit, "messages": []}
 
 
 class ConversationUpdate(BaseModel):

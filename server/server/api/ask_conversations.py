@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User, AskConversation
@@ -414,7 +415,7 @@ async def update_conversation(
     cond = (AskConversation.id == cid) & (
         (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
     )
-    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+    conv = (await db.execute(select(AskConversation).options(defer(AskConversation.turns)).where(cond))).scalars().first()
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -467,11 +468,10 @@ async def delete_conversation(
     cond = (AskConversation.id == cid) & (
         (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
     )
-    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
-    if not conv:
+    res = await db.execute(delete(AskConversation).where(cond))
+    if res.rowcount == 0:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    await db.delete(conv)
     await db.commit()
     await cache_delete_prefix(f"ask_conv_list:{_user.id}")
     return {"ok": True}

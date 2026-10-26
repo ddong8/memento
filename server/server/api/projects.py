@@ -1352,6 +1352,8 @@ async def get_project_conversations(
             )
             .where(ConversationMessage.document_id.in_(needed_ids))
             .where(ConversationMessage.role.in_(("user", "assistant")))
+            .where(ConversationMessage.content.not_like("[Result]%"))
+            .where(ConversationMessage.content.not_like("[Tool:%"))
         )
         if as_of is not None:
             # Either no timestamp recorded (legacy / parser miss — keep

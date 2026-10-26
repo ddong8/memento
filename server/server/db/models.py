@@ -187,12 +187,8 @@ class Document(Base):
     versions: Mapped[list[DocumentVersion]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
     __table_args__ = (
-        Index("idx_documents_tool", "tool_id"),
-        Index("idx_documents_project", "project_id"),
         Index("idx_documents_category", "category"),
         Index("idx_documents_synced_at", synced_at.desc()),
-        Index("idx_documents_machine", "machine_id"),
-        Index("idx_documents_machine_tool", "machine_id", "tool_id"),
         Index("idx_documents_machine_synced", "machine_id", synced_at.desc()),
         Index("idx_documents_tool_synced", "tool_id", synced_at.desc()),
         Index("idx_documents_project_synced", "project_id", synced_at.desc()),
@@ -266,7 +262,6 @@ class DailySummary(Base):
     __table_args__ = (
         # Uniqueness now includes user_id so each user gets their own summary.
         Index("uq_daily_summary_user_date_tool", "user_id", "summary_date", "tool_id", unique=True),
-        Index("idx_daily_summary_user", "user_id"),
     )
 
 
@@ -414,7 +409,6 @@ class DocumentEmbedding(Base):
 
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_doc_embedding_chunk"),
-        Index("idx_doc_embedding_doc", "document_id"),
         *(
             [
                 Index(
@@ -449,7 +443,6 @@ class KnowledgeEntity(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "name", "entity_type", name="uq_entity_user_name_type"),
-        Index("idx_entity_user", "user_id"),
         Index("idx_entity_type", "entity_type"),
     )
 
@@ -609,7 +602,7 @@ class AskConversation(Base):
     __tablename__ = "ask_conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(500), nullable=False, default="新对话")
     turns: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -633,7 +626,7 @@ class UserMemory(Base):
     __tablename__ = "user_memories"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # rule | architecture | preference | project | general
     key: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -660,7 +653,6 @@ class UserMemory(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "category", "key", name="uq_user_memory_key"),
         Index("idx_user_memory_user", "user_id", updated_at.desc()),
-        Index("idx_user_memory_category", "user_id", "category"),
         Index("idx_user_memory_parent", "user_id", "parent_id"),
         Index("idx_user_memory_tree_path", "user_id", "tree_path"),
     )
@@ -673,7 +665,7 @@ class DreamJournal(Base):
     __tablename__ = "dream_journals"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     dream_date: Mapped[date] = mapped_column(Date, nullable=False)
     stage_metrics: Mapped[dict] = mapped_column(JSONB, default=dict)
     light_sleep_notes: Mapped[str | None] = mapped_column(Text)
@@ -703,7 +695,7 @@ class UserProfile(Base):
     __tablename__ = "user_profiles"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # draft | published
     version: Mapped[int | None] = mapped_column(Integer)  # set on publish
     content: Mapped[str] = mapped_column(Text, nullable=False)

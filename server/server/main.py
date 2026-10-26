@@ -245,10 +245,9 @@ def _run_migrations(conn) -> None:
         # if the old index name varies or already exists.
         for stmt in (
             "DROP INDEX IF EXISTS uq_daily_summary_date_tool",
+            "DROP INDEX IF EXISTS idx_daily_summary_user",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_summary_user_date_tool "
             "ON daily_summaries (user_id, summary_date, tool_id)",
-            "CREATE INDEX IF NOT EXISTS idx_daily_summary_user "
-            "ON daily_summaries (user_id)",
         ):
             sp2 = conn.begin_nested()
             try:
@@ -294,7 +293,6 @@ def _run_migrations(conn) -> None:
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_user ON user_memories (user_id, updated_at DESC)"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_category ON user_memories (user_id, category)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_parent ON user_memories (user_id, parent_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_tree_path ON user_memories (user_id, tree_path)"))
     else:

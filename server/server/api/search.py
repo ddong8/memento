@@ -51,30 +51,33 @@ async def _semantic_doc_ranks(
             return [], {}
 
         dist_col = DocumentEmbedding.embedding.cosine_distance(embeds[0]).label("dist")
+        has_doc_filter = bool(tool or category or days or mids is not None)
+        stmt = select(
+            DocumentEmbedding.document_id,
+            DocumentEmbedding.chunk_text,
+            dist_col,
+        )
+        if has_doc_filter:
+            stmt = stmt.join(Document, DocumentEmbedding.document_id == Document.id)
+            if tool:
+                stmt = stmt.where(Document.tool_id == tool)
+            if category:
+                stmt = stmt.where(Document.category == category)
+            if days:
+                from datetime import datetime, timedelta, timezone
+
+                stmt = stmt.where(
+                    Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days)
+                )
+            if mids is not None:
+                stmt = stmt.where(Document.machine_id.in_(mids))
+
         stmt = (
-            select(
-                DocumentEmbedding.document_id,
-                DocumentEmbedding.chunk_text,
-                dist_col,
-            )
-            .join(Document, DocumentEmbedding.document_id == Document.id)
-            .order_by(dist_col.asc())
+            stmt.order_by(dist_col.asc())
             # Overfetch: a document contributes many chunks, and we dedup down
             # to one row per document below.
             .limit(want * 4)
         )
-        if tool:
-            stmt = stmt.where(Document.tool_id == tool)
-        if category:
-            stmt = stmt.where(Document.category == category)
-        if days:
-            from datetime import datetime, timedelta, timezone
-
-            stmt = stmt.where(
-                Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days)
-            )
-        if mids is not None:
-            stmt = stmt.where(Document.machine_id.in_(mids))
 
         order: list = []
         snippets: dict = {}
@@ -150,6 +153,7 @@ async def search(
     query = (
         select(Document)
         .options(
+            defer(Document.content),
             defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
@@ -213,6 +217,7 @@ async def search(
             extra_q = (
                 select(Document)
                 .options(
+                    defer(Document.content),
                     defer(Document.content_tsv),
                     defer(Document.metadata_),
                     defer(Document.rendered_html),
@@ -252,17 +257,23 @@ async def search(
         docs.sort(key=rrf, reverse=True)
         docs = docs[:limit]
 
+    # Batch fetch only the first 32KB of content for the final page candidates
+    # instead of decompressing and transferring tens of megabytes of raw TOAST blocks.
+    content_samples: dict = {}
+    if docs:
+        sample_stmt = select(Document.id, func.substr(Document.content, 1, 32768)).where(
+            Document.id.in_([d.id for d in docs])
+        )
+        sample_res = await db.execute(sample_stmt)
+        content_samples = {r[0]: (r[1] or "") for r in sample_res.all()}
+
     items = []
+    lower_q = clean_q.lower()
     for d in docs:
-        # Prefer the keyword-match snippet (it shows the literal hit, which the
-        # UI highlights); fall back to the best semantic chunk for docs that
-        # matched only by meaning and contain no literal occurrence.
         snippet = ""
-        if d.content:
-            # 限制在大文本前 120KB 内截取摘要，彻底杜绝对数兆级文档全量 lower() 造成的 CPU 与内存开销
-            sample = d.content[:120_000]
+        sample = content_samples.get(d.id, "")
+        if sample:
             lower_sample = sample.lower()
-            lower_q = clean_q.lower()
             idx = lower_sample.find(lower_q)
             if idx >= 0:
                 start = max(0, idx - 100)
@@ -270,7 +281,7 @@ async def search(
                 snippet = sample[start:end]
                 if start > 0:
                     snippet = "..." + snippet
-                if end < len(d.content):
+                if end < (d.file_size_bytes or len(sample)):
                     snippet = snippet + "..."
         if not snippet:
             snippet = sem_snippets.get(d.id, "")

@@ -307,6 +307,18 @@ function fetchAnthropicLiveUsage(token: string): Promise<Record<string, any> | u
   });
 }
 
+/**
+ * Claude Code's own model aliases: it resolves each one to the current version for the account's
+ * provider and updates them over time (code.claude.com/docs/en/model-config), so no version is written here.
+ */
+const CLAUDE_MODEL_ALIASES: Array<{ label: string; model_id: string }> = [
+  { label: "best（可用的最强模型）", model_id: "best" },
+  { label: "opus（最新 Opus）", model_id: "opus" },
+  { label: "sonnet（最新 Sonnet）", model_id: "sonnet" },
+  { label: "haiku（Haiku）", model_id: "haiku" },
+  { label: "opusplan（规划用 Opus，执行用 Sonnet）", model_id: "opusplan" },
+];
+
 /** Probe Claude Code for active subscription & account info with real usage utilization. */
 export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaInfo> {
   try {
@@ -444,17 +456,11 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
       }
     }
 
-    // 官方正式发布的主流 Claude 模型标准配置
-    const standardOfficialModels = [
-      { label: "Claude 3.7 Sonnet (Hybrid Reasoning)", model_id: "claude-3-7-sonnet" },
-      { label: "Claude 3.5 Sonnet", model_id: "claude-3-5-sonnet-20241022" },
-      { label: "Claude 3.5 Haiku", model_id: "claude-3-5-haiku-20241022" },
-    ];
-    for (const om of standardOfficialModels) {
-      if (!models.some((m) => m.model_id === om.model_id)) {
+    // Claude Code 自带的别名，由它自己解析成该账号可用的当前版本，这里不写任何版本号
+    for (const alias of CLAUDE_MODEL_ALIASES) {
+      if (!models.some((m) => m.model_id === alias.model_id)) {
         models.push({
-          label: om.label,
-          model_id: om.model_id,
+          ...alias,
           remaining_fraction: remainingFraction,
           remaining_percent: remainingPercent,
           status_text: modelStatusText,
@@ -539,10 +545,7 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
           quota_desc: "Claude 会话限流动态调度",
           probe_source: "claude CLI 运行时",
           remaining_percent: null,
-          models: [
-            { label: "Claude Sonnet 4.6 (Thinking)", model_id: "claude-sonnet-4-6", remaining_fraction: null, remaining_percent: null, status_text: "可用" },
-            { label: "Claude Opus 4.6", model_id: "claude-opus-4-6", remaining_fraction: null, remaining_percent: null, status_text: "可用" },
-          ],
+          models: CLAUDE_MODEL_ALIASES.map((a) => ({ ...a, remaining_fraction: null, remaining_percent: null, status_text: "可用" })),
         };
       }
     }
@@ -563,6 +566,18 @@ export async function probeClaudeCodeQuota(home = homeDir()): Promise<ToolQuotaI
   }
 }
 
+/** Whether a JWT's exp has passed; false when it can't be read (not evidence of being signed out). */
+function jwtExpired(jwt: string | undefined): boolean {
+  if (!jwt || !jwt.includes(".")) return false;
+  try {
+    const b64 = jwt.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(Buffer.from(b64, "base64").toString("utf8")) as { exp?: unknown };
+    return typeof claims.exp === "number" && claims.exp * 1000 < Date.now();
+  } catch {
+    return false;
+  }
+}
+
 /** Probe OpenAI Codex for active subscription & account info. */
 export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> {
   try {
@@ -571,11 +586,14 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
       const raw = await readFile(authPath, "utf8");
       const d = JSON.parse(raw);
       const token = d.tokens?.id_token || d.tokens?.access_token;
+      // Lifetimes (checked on a real auth.json): id_token 1 h, access_token 240 h; the CLI refreshes both on
+      // its next run, so an expired one only means signed out when there's no refresh_token to renew it with.
+      const accessToken: string | undefined = d.tokens?.access_token;
+      const canRefresh = Boolean(d.tokens?.refresh_token);
       let email = "";
       let name = "";
       let planType = "Free";
 
-      let isExpired = false;
       if (token && token.includes(".")) {
         try {
           const parts = token.split(".");
@@ -584,9 +602,6 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
           const claims = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
           email = claims.email || "";
           name = claims.name || "";
-          if (claims.exp && typeof claims.exp === "number" && claims.exp * 1000 < Date.now()) {
-            isExpired = true;
-          }
           const authInfo = claims["https://api.openai.com/auth"];
           if (authInfo && authInfo.chatgpt_plan_type) {
             planType = authInfo.chatgpt_plan_type;
@@ -595,7 +610,7 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
       }
 
       const hasApiKey = Boolean(d.OPENAI_API_KEY || process.env.OPENAI_API_KEY);
-      if (isExpired && !hasApiKey) {
+      if (!canRefresh && jwtExpired(accessToken) && !hasApiKey) {
         return {
           tool: "codex",
           name: "OpenAI Codex",
@@ -638,13 +653,6 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         } catch {}
       }
 
-      const defaultModels: QuotaModelItem[] = [
-        { label: "o3-mini (Reasoning)", model_id: "o3-mini", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-        { label: "o1 (High Reasoning)", model_id: "o1", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-        { label: "GPT-4o (Omni)", model_id: "gpt-4o", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-        { label: "GPT-4o mini", model_id: "gpt-4o-mini", remaining_fraction: null, remaining_percent: null, status_text: modelStatus },
-      ];
-
       return {
         tool: "codex",
         name: "OpenAI Codex",
@@ -663,7 +671,7 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         probe_source: hasApiKey ? "OPENAI_API_KEY" : "~/.codex/auth.json (ChatGPT Plus OAuth)",
         remaining_percent: null,
         reset_time: null,
-        models: models.length > 0 ? models : defaultModels,
+        models,
         details: {
           is_free_tier: isFree,
           has_api_key: hasApiKey,

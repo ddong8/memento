@@ -122,6 +122,8 @@ export class Daemon extends EventEmitter {
       }
     });
     this.ws.useRoute(route);
+    // Commands are queued for HTTP polling; the server nudges over the socket so they don't wait for it
+    this.ws.onCommandsPending(() => this.scheduleCommandPoll(0));
     void this.ws.start();
     // Back onto the LAN when it reappears, and move the socket over once no task is running
     this.timers.push(

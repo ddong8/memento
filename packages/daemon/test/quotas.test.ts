@@ -50,9 +50,10 @@ describe("Real Agent Quotas", () => {
       expect(quota.remaining_percent).toBeLessThan(100);
       expect(typeof quota.details?.seven_day_utilization).toBe("number");
       expect(quota.details?.seven_day_utilization).toBe(97);
-      // 必须包含当前官方主流模型
-      expect(quota.models?.some((m) => m.model_id === "claude-3-7-sonnet")).toBe(true);
-      expect(quota.models && quota.models.length > 0).toBe(true);
+      // Claude Code 自己的别名（它解析成当前版本），不写死任何版本号
+      const ids = quota.models?.map((m) => m.model_id) ?? [];
+      expect(ids).toEqual(expect.arrayContaining(["best", "opus", "sonnet", "haiku"]));
+      expect(ids.some((id) => /\d/.test(id))).toBe(false);
     } finally {
       await rm(testDir, { recursive: true, force: true });
     }
@@ -69,8 +70,7 @@ describe("Real Agent Quotas", () => {
         expect(quota.remaining_percent).toBeGreaterThanOrEqual(0);
         expect(quota.remaining_percent).toBeLessThanOrEqual(100);
       }
-      expect(quota.models?.length).toBeGreaterThan(0);
-      expect(quota.models?.some((m) => m.model_id.includes("claude-"))).toBe(true);
+      expect(quota.models?.some((m) => m.model_id === "opus")).toBe(true);
     }
   }, 15000);
 
@@ -80,6 +80,35 @@ describe("Real Agent Quotas", () => {
     if (quota.available && quota.details?.is_free_tier) {
       expect(quota.remaining_percent).toBeNull();
       expect(quota.plan_name).toContain("Free");
+    }
+  });
+
+  it("treats an expired Codex id_token as signed in while a refresh_token can renew it", async () => {
+    const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const jwt = (expSecondsFromNow: number) =>
+      `h.${Buffer.from(JSON.stringify({ email: "a@example.com", exp: Math.floor(Date.now() / 1000) + expSecondsFromNow })).toString("base64url")}.s`;
+    const home = await mkdtemp(join(tmpdir(), "memento-codex-quota-"));
+    try {
+      await mkdir(join(home, ".codex"));
+      const write = (tokens: Record<string, string>) =>
+        writeFile(join(home, ".codex", "auth.json"), JSON.stringify({ tokens }), "utf8");
+
+      // Real lifetimes: id_token 1 h, access_token 240 h; the CLI renews both on its next run
+      await write({ id_token: jwt(-57 * 3600), access_token: jwt(182 * 3600), refresh_token: "r" });
+      let quota = await probeCodexQuota(home);
+      expect(quota.available).toBe(true);
+      expect(quota.logged_in).toBe(true);
+
+      await write({ id_token: jwt(-3600), access_token: jwt(-3600), refresh_token: "r" });
+      expect((await probeCodexQuota(home)).logged_in).toBe(true);
+
+      await write({ id_token: jwt(-3600), access_token: jwt(-3600) });
+      quota = await probeCodexQuota(home);
+      expect(quota.logged_in).toBe(false);
+      expect(quota.error).toContain("codex");
+    } finally {
+      await rm(home, { recursive: true, force: true });
     }
   });
 

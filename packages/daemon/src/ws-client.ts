@@ -40,6 +40,7 @@ export class WsTaskClient {
   private route: ServerRoute | undefined;
   /** Whether the open connection goes over the LAN address. */
   private viaLan = false;
+  private commandsPending: (() => void) | undefined;
 
   constructor(
     private config: CollectorConfig,
@@ -56,6 +57,11 @@ export class WsTaskClient {
 
   useRoute(route: ServerRoute): void {
     this.route = route;
+  }
+
+  /** The server queued a control command (resync, …): fetch it now instead of at the next HTTP poll. */
+  onCommandsPending(fn: () => void): void {
+    this.commandsPending = fn;
   }
 
   /**
@@ -167,6 +173,9 @@ export class WsTaskClient {
           void this.reportQuotas();
           break;
         case "pong":
+          break;
+        case "commands_pending":
+          this.commandsPending?.();
           break;
         case "get_agent_capabilities":
           void this.reportCapabilities();

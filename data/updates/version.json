@@ -1,25 +1,25 @@
 {
-  "version": "1.0.83",
-  "title": "Memento v1.0.83",
+  "version": "1.0.84",
+  "title": "Memento v1.0.84",
   "release_notes": "1. 修复同步会话时偶尔漏掉消息的问题：带截图的消息、很长的工具输出、正在写入的最后一行都会完整上传，用户自己说的话不再丢\n2. 通知改为服务器实时推送：任务完成、提醒等通知即时弹出，桌面端不再每隔几秒查询一次\n3. 升级时显示下载进度；下载失败可一键打开官网下载完整安装包",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.83-win-x64.zip",
-      "size": 157864127,
-      "sha256": "c86781812356d65d77e7abeb7275ceb267bfa4d542c1e9705abf50cccf2af5ca",
-      "sha512": "fG5WTfcNZPwJNEo/FhJIzTkWBe3gZV7t2JqksN0QGB2W23/BCk2Jibzv2yV28h4uxURXusXkDkxjkpf3+oqEjg=="
+      "asset_name": "Memento-1.0.84-win-x64.zip",
+      "size": 157869583,
+      "sha256": "91e4b99f5985e56ad5cc236236227a0d5e4429528bd0bf709e870ca5878eb63c",
+      "sha512": "MVd8uqzo4UznPmFS89jZjYNialiaOUzhLn1C38PmvcYh9b2+b5Ng7nec65zKSS2AA8KoVwm5U6klx8d8U4hbWw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.83-mac-arm64.zip",
-      "size": 132334886,
-      "sha256": "6e3c25defa9775ba8689ce313221d302ea345e9c8817c5eafa50f61ad7cc1899",
-      "sha512": "eLQ6Op1n5UXGWdigKXZlZIKhiHtsrHXWb8H04IkpOxDCgOg9v1jMd6WPQt5/+AU2M0xbQbyokYBvztRWLRl1uQ=="
+      "asset_name": "Memento-1.0.84-mac-arm64.zip",
+      "size": 132341241,
+      "sha256": "aed544511412b51c002338cbc5dd1fc704c25b58b9a473b7cddb3f1cf06390de",
+      "sha512": "WqESY4deXFJEsEjRmBfqIVCx6/zjLuO2ZkmAcDFEsA1dRTafrKbcIYsAMstWQyM33xKmrGH6rtdPOLmKIsgmVA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.83-linux-x64.tar.gz",
-      "size": 131633471,
-      "sha256": "d54bc8c88e8207769e00165bb68a385c26f0ab3adc8b3d4fed672ab341cfb732",
-      "sha512": "8Ee84zJE4bGk5JV3zc5cDEa9gyYs16qOhj9vjah4JmsiZt77ZqOR51aRXFkVJJN5aRZbZs3KxtbCuGIAhLSMRQ=="
+      "asset_name": "Memento-1.0.84-linux-x64.tar.gz",
+      "size": 131639018,
+      "sha256": "60e57e0a43eacc64de6eef42014cb476c26ffb2ff11b4bd38c3eee52d26de1f6",
+      "sha512": "fbOx5rERCV2t9MeLXBZ93nrCo1pe8LvEp0TkKpQVR3JusNz74F93vcyHCLXInjP7DLBduN2WlQLZMY5uW2/4Rg=="
     }
   }
 }

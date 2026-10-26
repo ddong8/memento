@@ -1,25 +1,25 @@
 {
-  "version": "1.0.84",
-  "title": "Memento v1.0.84",
+  "version": "1.0.85",
+  "title": "Memento v1.0.85",
   "release_notes": "1. 经 Memento 调用 Claude Code 更省额度：上下文涨到 20 万 token 就自动压缩（个人设置的大模型页可改为 30 万、50 万或跟随 Claude Code），过程卡片会显示本次读取了多少 token、什么时候自动压缩过\n2. WorkBuddy 的模型列表改为读取 WorkBuddy 自己的最新配置，和 WorkBuddy 客户端里看到的一致\n3. 修复本机视频、音频预览按片段读取时的两处错误",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.84-win-x64.zip",
-      "size": 157869583,
-      "sha256": "91e4b99f5985e56ad5cc236236227a0d5e4429528bd0bf709e870ca5878eb63c",
-      "sha512": "MVd8uqzo4UznPmFS89jZjYNialiaOUzhLn1C38PmvcYh9b2+b5Ng7nec65zKSS2AA8KoVwm5U6klx8d8U4hbWw=="
+      "asset_name": "Memento-1.0.85-win-x64.zip",
+      "size": 157875514,
+      "sha256": "9a84264a0d6009af97075b47453524e7f5c307b079439022b82514f71a12f9ed",
+      "sha512": "NsL98fTWb+CdqOhkcRsDmX7GfPPMSALeB7A94hipOy46T3fJwy0FH7GAtM9935V70QMCyMMTDZaB4ZKJ7Faj+g=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.84-mac-arm64.zip",
-      "size": 132341241,
-      "sha256": "aed544511412b51c002338cbc5dd1fc704c25b58b9a473b7cddb3f1cf06390de",
-      "sha512": "WqESY4deXFJEsEjRmBfqIVCx6/zjLuO2ZkmAcDFEsA1dRTafrKbcIYsAMstWQyM33xKmrGH6rtdPOLmKIsgmVA=="
+      "asset_name": "Memento-1.0.85-mac-arm64.zip",
+      "size": 132347224,
+      "sha256": "d37c323897dbbc44b081698d0be602be16157d46080a740031d39833e6184b13",
+      "sha512": "cH6/dGLnW4K/dlNaiMzmdirMkWwFKdofx3ilXSqaQhmANXfNR/B2Sb1xysAWMkvXw1SySJE1Fzx+euqjJ/Fbnw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.84-linux-x64.tar.gz",
-      "size": 131639018,
-      "sha256": "60e57e0a43eacc64de6eef42014cb476c26ffb2ff11b4bd38c3eee52d26de1f6",
-      "sha512": "fbOx5rERCV2t9MeLXBZ93nrCo1pe8LvEp0TkKpQVR3JusNz74F93vcyHCLXInjP7DLBduN2WlQLZMY5uW2/4Rg=="
+      "asset_name": "Memento-1.0.85-linux-x64.tar.gz",
+      "size": 131643499,
+      "sha256": "d64e0de8904f1033bcbc7573b4bdffafb60a92c5bf3e8b3842781b812cea330a",
+      "sha512": "EjttyRVog1K4hZ10jtWz5TNTEUxHbk18sePUl75IOFAj78BxHTAMSPUdFG0j5bXPJfc/dJXNqK8FAgQ7SOUv/w=="
     }
   }
 }

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, cast
+from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -255,9 +256,10 @@ async def get_conversation(
         raw_turns = list(loaded_turns)
     elif limit > 0:
         try:
+            path_str = f"$[last - {limit - 1} to last]"
             sliced_col = func.jsonb_path_query_array(
                 AskConversation.turns,
-                f"$[last - {limit - 1} to last]"
+                cast(path_str, JSONPATH),
             )
             res = (await db.execute(select(sliced_col).where(cond))).scalar()
             if isinstance(res, list):

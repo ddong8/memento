@@ -1368,8 +1368,8 @@ function AskPageContent() {
     }
   }, [applyCachedCascade, beginRestore, endRestore, restoreCascade]);
 
-  // Load full history for long conversation
-  const loadAllHistoryTurns = useCallback(async () => {
+  // Load earlier history for long conversation (Cursor Pagination)
+  const loadEarlierHistoryTurns = useCallback(async () => {
     const currentId = activeConversationIdRef.current;
     if (!currentId || loadingMoreTurns) return;
     setLoadingMoreTurns(true);
@@ -1378,11 +1378,24 @@ function AskPageContent() {
       const prevScrollHeight = scrollEl?.scrollHeight || 0;
       const prevScrollTop = scrollEl?.scrollTop || 0;
 
-      const data = await api.getAskConversation(currentId, 0);
-      if (data.id === activeConversationIdRef.current && data.turns) {
-        setTurns(data.turns);
+      // 找到当前前端已有轮次的最早 index
+      const earliestTurn = turnsRef.current[0] as any;
+      const beforeIndex = typeof earliestTurn?.index === "number"
+        ? earliestTurn.index
+        : Math.max(0, (totalTurns || turnsRef.current.length) - turnsRef.current.length);
+
+      if (beforeIndex <= 0) {
         setHasMoreTurns(false);
-        setTotalTurns(data.turns.length);
+        return;
+      }
+
+      const data = await api.getAskConversation(currentId, 40, { before: beforeIndex });
+      if (data.id === activeConversationIdRef.current && Array.isArray(data.turns) && data.turns.length > 0) {
+        const newTurns = [...data.turns, ...turnsRef.current];
+        turnsRef.current = newTurns;
+        setTurns(newTurns);
+        setHasMoreTurns(Boolean(data.has_more));
+        if (data.total_turns) setTotalTurns(data.total_turns);
 
         requestAnimationFrame(() => {
           if (scrollEl) {
@@ -1390,13 +1403,16 @@ function AskPageContent() {
             scrollEl.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
           }
         });
+      } else {
+        setHasMoreTurns(false);
       }
     } catch (e) {
-      console.error("Failed to load all history turns:", e);
+      console.error("Failed to load earlier history turns:", e);
     } finally {
       setLoadingMoreTurns(false);
     }
-  }, [loadingMoreTurns]);
+  }, [loadingMoreTurns, totalTurns]);
+  const loadAllHistoryTurns = loadEarlierHistoryTurns;
 
   // Start fresh chat
   const startNewChat = useCallback(() => {

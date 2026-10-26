@@ -371,6 +371,7 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_documents_path_trgm ON documents USING gin (relative_path gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_name_trgm ON knowledge_entities USING gin (name gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_summary_trgm ON knowledge_entities USING gin (summary gin_trgm_ops)",
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_search_trgm ON knowledge_entities USING gin ((name || ' ' || coalesce(summary, '')) gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_device_tasks_user_active ON device_tasks (user_id, created_at DESC) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
         "CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_synced ON document_versions (document_id, synced_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_documents_metadata_session_id ON documents (((metadata->>'session_id'))) WHERE (metadata->>'session_id') IS NOT NULL",

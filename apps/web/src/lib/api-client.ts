@@ -953,11 +953,16 @@ export const api = {
       : "";
     return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
   },
-  getAskConversation: (id: string, limit?: number, opts?: FetchOptions) =>
-    apiFetch<AskConversationDetail>(
-      `/api/ask/conversations/${id}${limit && limit > 0 ? `?limit=${limit}` : ""}`,
+  getAskConversation: (id: string, limit?: number, opts?: FetchOptions & { before?: number }) => {
+    const params = new URLSearchParams();
+    if (limit && limit > 0) params.set("limit", String(limit));
+    if (opts?.before !== undefined && opts.before !== null) params.set("before", String(opts.before));
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return apiFetch<AskConversationDetail>(
+      `/api/ask/conversations/${id}${qs}`,
       { skipCache: true, ...opts }
-    ),
+    );
+  },
   updateAskConversation: (
     id: string,
     patch: Partial<{
@@ -1233,6 +1238,7 @@ export interface AskConversationDetail {
   id: string;
   title: string;
   turns: Array<{
+    index?: number;
     role: "user" | "assistant";
     content: string;
     images?: string[];
@@ -1245,6 +1251,7 @@ export interface AskConversationDetail {
   }>;
   total_turns?: number;
   has_more?: boolean;
+  offset?: number;
   device_id: string | null;
   cwd: string | null;
   execution_mode?: string;

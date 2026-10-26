@@ -208,10 +208,11 @@ async def get_conversation(
     request: Request,
     response: Response,
     limit: int = 0,
+    before: int | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Get conversation history with runtime configuration and optional recent turn limiting."""
+    """Get conversation history with runtime configuration and optional recent turn limiting or cursor pagination."""
     try:
         cid = uuid.UUID(conv_id)
     except ValueError:
@@ -242,19 +243,46 @@ async def get_conversation(
     conv_dev = conv.device_id or cfg.get("device_id")
     total_turns = conv.message_count
 
-    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+    if before is not None:
+        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{before}:{conv_dev or ''}"
+    else:
+        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
     etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
     server_tag = etag.strip('"')
 
     if client_tag and client_tag == server_tag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
 
-    # Fetch turns: use in-memory turns if already loaded without triggering lazy IO, slice at database level via JSON path if limit > 0, otherwise full load
+    # Fetch turns: slice at database level via JSON path if limit > 0 or before is set, otherwise full load
     raw_turns: list[dict] | None = None
-    loaded_turns = conv.__dict__.get("turns") if hasattr(conv, "__dict__") else None
-    if isinstance(loaded_turns, list) and loaded_turns:
-        raw_turns = list(loaded_turns)
+    offset = 0
+    has_more = False
+
+    if before is not None and before >= 0:
+        # 游标向上翻页：获取 index < before 的前序区间轮次
+        if before == 0:
+            raw_turns = []
+            offset = 0
+            has_more = False
+        else:
+            limit_val = limit if limit > 0 else 40
+            end = before - 1
+            start = max(0, end - limit_val + 1)
+            offset = start
+            has_more = (start > 0)
+            try:
+                path_str = f"$[{start} to {end}]"
+                sliced_col = func.jsonb_path_query_array(
+                    AskConversation.turns,
+                    cast(path_str, JSONPATH),
+                )
+                res = (await db.execute(select(sliced_col).where(cond))).scalar()
+                if isinstance(res, list):
+                    raw_turns = res
+            except Exception:
+                pass
     elif limit > 0:
+        # 常规获取最近 limit 轮
         try:
             path_str = f"$[last - {limit - 1} to last]"
             sliced_col = func.jsonb_path_query_array(
@@ -264,25 +292,49 @@ async def get_conversation(
             res = (await db.execute(select(sliced_col).where(cond))).scalar()
             if isinstance(res, list):
                 raw_turns = res
+                offset = max(0, total_turns - len(raw_turns))
+                has_more = (offset > 0)
         except Exception:
             pass
 
     if raw_turns is None:
         try:
             await db.refresh(conv, ["turns"])
-            raw_turns = list(conv.turns or [])
+            full_turns = list(conv.turns or [])
+            if total_turns == 0:
+                total_turns = len(full_turns)
+            if before is not None and before >= 0:
+                limit_val = limit if limit > 0 else 40
+                end = before
+                start = max(0, end - limit_val)
+                raw_turns = full_turns[start:end]
+                offset = start
+                has_more = (start > 0)
+            elif limit > 0 and len(full_turns) > limit:
+                raw_turns = full_turns[-limit:]
+                offset = len(full_turns) - limit
+                has_more = True
+            else:
+                raw_turns = full_turns
+                offset = 0
+                has_more = False
         except Exception:
             raw_turns = []
+            offset = 0
+            has_more = False
 
     cfg, inferred = infer_conversation_config(conv, sample_turns=raw_turns)
-    recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg, sample_turns=raw_turns)
+    if before is None:
+        recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg, sample_turns=raw_turns)
+        if recovered_turns is not None:
+            raw_turns = recovered_turns
+
     resolved_dev = await resolve_concrete_device_for_conv(db, conv, cfg, inferred)
 
     # Extract all model attributes into locals BEFORE any db.commit() to prevent
     # asyncpg MissingGreenlet errors triggered by expired attribute access.
     conv_id_str = str(conv.id)
     conv_title = conv.title
-    raw_turns = recovered_turns if recovered_turns is not None else raw_turns
     if total_turns == 0:
         total_turns = len(raw_turns)
 
@@ -319,22 +371,8 @@ async def get_conversation(
             updated_at_iso = now_utc.isoformat()
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
-    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
-    if limit > 0 and total_turns > len(raw_turns):
-        offset = max(0, total_turns - len(raw_turns))
-        sliced_raw = raw_turns
-        has_more = True
-    elif limit > 0 and len(raw_turns) > limit:
-        offset = len(raw_turns) - limit
-        sliced_raw = raw_turns[-limit:]
-        has_more = True
-    else:
-        offset = 0
-        sliced_raw = raw_turns
-        has_more = False
-    conv_turns = sanitize_turns_for_response(sliced_raw, fallback_iso=updated_at_iso or created_at_iso, start_index=offset)
+    conv_turns = sanitize_turns_for_response(raw_turns, fallback_iso=updated_at_iso or created_at_iso, start_index=offset)
 
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "private, no-cache"
@@ -348,6 +386,7 @@ async def get_conversation(
         "turns": conv_turns,
         "total_turns": total_turns,
         "has_more": has_more,
+        "offset": offset,
         "device_id": conv_dev,
         "cwd": conv_cwd,
         "execution_mode": cfg.get("execution_mode", "ai"),

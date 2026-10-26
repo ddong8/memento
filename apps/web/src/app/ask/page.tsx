@@ -3,14 +3,12 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
-import { Icon, ToolGlyph } from "@/components/aurora/Icon";
+import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
-import { Btn, Glass } from "@/components/aurora/primitives";
+import { Btn } from "@/components/aurora/primitives";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
-import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { ToolCallItem } from "@/components/ExecutionCard";
 import { mergeTaskEvent, type TaskEvent } from "@memento/core";
@@ -29,15 +27,20 @@ const ShareModal = dynamic(
 );
 
 
-import type { AgentCapabilities, AgentModelOption, AgentEffortOption, SessionResumeCost } from "@/lib/api-client";
+import type { AgentCapabilities, SessionResumeCost } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
-import { useTheme } from "@/lib/theme-context";
+import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
+import { SessionResumeBanner } from "@/components/ask/SessionResumeBanner";
+import { HandoffCapsule, OfflineCapsule, type HandoffTask } from "@/components/ask/StatusCapsules";
+import { AskTopBar } from "@/components/ask/AskTopBar";
+import { AskEmptyState } from "@/components/ask/AskEmptyState";
+import { formatContextTokens, isJunkSessionTitle, type AgentSessionItem } from "@/lib/ask/sessions";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
-import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatExcerpt, formatRelativeTime, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
+import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
 
 
 
@@ -50,11 +53,6 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, formatE
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
 
-/** "约 66 万 token" / "~664k tokens" */
-function formatContextTokens(n: number, zh: boolean): string {
-  if (!zh) return `~${Math.max(1, Math.round(n / 1000))}k tokens`;
-  return n >= 10_000 ? `约 ${Math.round(n / 10_000)} 万 token` : `约 ${Math.max(1, Math.round(n / 1000))} 千 token`;
-}
 
 function AskPageContent() {
   const router = useRouter();
@@ -119,28 +117,7 @@ function AskPageContent() {
   const [selectedProjectTitle, setSelectedProjectTitle] = useState<string>(
     () => askCache?.projectTitle || initSnap?.selectedProjectTitle || ""
   );
-  const [sessions, setSessions] = useState<
-    Array<{
-      session_id: string;
-      title: string;
-      conversation_id: string;
-      message_count: number;
-      timestamp: string;
-      file_size_bytes?: number;
-      estimated_tokens?: number;
-      compact_recommended?: boolean;
-      resume?: SessionResumeCost | null;
-      device_id?: string | null;
-      device_name?: string | null;
-      messages?: Array<{
-        role: string;
-        content: string;
-        timestamp?: string;
-        raw_type?: string;
-        subagent_name?: string;
-      }>;
-    }>
-  >(() => askCache?.sessions || []);
+  const [sessions, setSessions] = useState<AgentSessionItem[]>(() => askCache?.sessions || []);
   const [selectedSessionId, setSelectedSessionId] = useState<string>(
     () => (idParam ? (askCache?.selectedSessionId || initSnap?.selectedSessionId || "") : "")
   );
@@ -439,7 +416,7 @@ function AskPageContent() {
   }, []);
 
   // Universal Handoff: detect active runs on other devices
-  const [handoffTask, setHandoffTask] = useState<{ id: string; title: string; device?: string } | null>(null);
+  const [handoffTask, setHandoffTask] = useState<HandoffTask | null>(null);
 
   const checkUniversalHandoff = useCallback(async () => {
     try {
@@ -497,7 +474,6 @@ function AskPageContent() {
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
-  const [moreMenuOpen, setMoreMenuOpen] = useState<boolean>(false);
 
   const { conversationActiveTool, conversationRecentTools } = useMemo(() => {
     const active = executionMode;
@@ -680,7 +656,6 @@ function AskPageContent() {
 
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
-  const { theme, toggleTheme } = useTheme();
 
   // Each step of a resumed Claude Code session carries its whole context (one resumed from here was
   // ~510k tokens a step). Above the server's threshold the resume starts from a compacted snapshot
@@ -4447,11 +4422,6 @@ function AskPageContent() {
     }
   }, [activeConvAgent]);
 
-  const isJunkSessionTitle = useCallback((val?: string) => {
-    if (!val) return true;
-    const low = val.trim().toLowerCase();
-    return !low || low === "start" || low.startsWith("starting the conversation") || low.startsWith("starting conversation") || low === "新对话" || low === "untitled";
-  }, []);
 
   const getTurnAbsIndex = useCallback((localIdx: number) => {
     const curTurns = turnsRef.current;
@@ -4603,582 +4573,52 @@ function AskPageContent() {
       {/* 磨砂玻璃背景层，独立于主布局，避免 CSS backdrop-filter 阻断子元素 position: fixed 全屏脱离容器 */}
       <div className="pointer-events-none absolute inset-0 rounded-none sm:rounded-2xl sm:backdrop-blur-xl -z-10" />
       {/* 离线状态全局浮动感知胶囊 */}
-      {isOffline && (
-        <div
-          style={{
-            position: "fixed",
-            top: 14,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 99999,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            padding: "6px 14px",
-            borderRadius: 20,
-            background: "rgba(220, 38, 38, 0.92)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 500,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-            animation: "pulse 2s infinite ease-in-out",
-            pointerEvents: "none",
-          }}
-        >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff", display: "inline-block" }} />
-          <span>网络已断开，正在等待恢复...</span>
-        </div>
-      )}
-      {offlineRecovered && !isOffline && (
-        <div
-          style={{
-            position: "fixed",
-            top: 14,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 99999,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            padding: "6px 14px",
-            borderRadius: 20,
-            background: "rgba(16, 185, 129, 0.92)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 500,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
-            pointerEvents: "none",
-          }}
-        >
-          <Icon name="check" size={13} style={{ color: "#fff" }} />
-          <span>网络已恢复连接</span>
-        </div>
-      )}
+      <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
       {/* 跨端任务接力悬浮胶囊 */}
       {handoffTask && (
-        <div
-          style={{
-            position: "absolute",
-            top: 52,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 45,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "7px 16px",
-            borderRadius: 24,
-            background: "var(--aurora-surface-solid)",
-            border: "1px solid var(--aurora-accent)",
-            boxShadow: "0 6px 22px rgba(109, 40, 217, 0.28)",
-            backdropFilter: "blur(16px)",
-            WebkitBackdropFilter: "blur(16px)",
-            color: "var(--aurora-fg1)",
-            fontSize: 12.5,
-            animation: "fadeIn 0.2s ease-out",
+        <HandoffCapsule
+          task={handoffTask}
+          onOpen={(id) => {
+            loadConversation(id, { force: true });
+            setHandoffTask(null);
           }}
-        >
-          <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--aurora-accent)", fontWeight: 600 }}>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-            <span>跨端任务接力</span>
-          </span>
-          <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)" }}>
-            {handoffTask.title}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              triggerHapticFeedback(15);
-              loadConversation(handoffTask.id, { force: true });
-              setHandoffTask(null);
-            }}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "3px 10px",
-              borderRadius: 14,
-              background: "var(--aurora-accent)",
-              border: "none",
-              color: "#fff",
-              fontSize: 11.5,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            <Icon name="sparkles" size={12} />
-            <span>立即接力</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setHandoffTask(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--aurora-fg4)",
-              cursor: "pointer",
-              padding: "2px 4px",
-              display: "inline-flex",
-              alignItems: "center",
-            }}
-            title="忽略"
-          >
-            <Icon name="close" size={12} />
-          </button>
-        </div>
+          onDismiss={() => setHandoffTask(null)}
+        />
       )}
+
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">
         {/* 对话区顶部 Bar */}
-        <header className="px-2 sm:px-4 py-0.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[38px] sm:min-h-[46px]">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
-            {/* 移动端侧边菜单开关 (在移动端下充当主侧边栏汉堡按钮) */}
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new CustomEvent("memento_toggle_sidebar"))}
-              aria-label="打开侧边导航"
-              title={isZh ? "打开侧边栏" : "Open sidebar"}
-              className="sm:hidden p-1.5 -ml-1 rounded-lg text-[var(--aurora-fg2)] active:bg-[var(--aurora-chip)] shrink-0 transition-colors"
-            >
-              <Icon name="menu" size={19} />
-            </button>
-
-            {/* 历史对话抽屉入口 (桌面端展示；移动端收拢至更多菜单以保证标题展示空间) */}
-            <div className="hidden sm:inline-flex shrink-0">
-              <Btn
-                variant="glass"
-                size="sm"
-                icon="clock"
-                onClick={() => {
-                  setHistoryOpen(true);
-                  void loadConversations();
-                }}
-                title={isZh ? "查看历史对话" : "View history"}
-              >
-                <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
-                {conversations.length > 0 && (
-                  <span
-                    style={{
-                      fontSize: 10.5,
-                      padding: "1px 5px",
-                      borderRadius: 999,
-                      background: "var(--aurora-chip)",
-                      color: "var(--aurora-fg3)",
-                      marginLeft: 2,
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {conversations.length}
-                  </span>
-                )}
-              </Btn>
-            </div>
-
-            {/* 当前会话标题与智能体图标徽章 */}
-            <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
-              {activeConvAgent.brandId ? (
-                <div
-                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-                  style={{
-                    background: activeConvAgentColor + "18",
-                    border: `1px solid ${activeConvAgentColor}35`,
-                  }}
-                  title={activeConvAgent.name}
-                >
-                  <BrandMark id={activeConvAgent.brandId} size={13} colored />
-                </div>
-              ) : (
-                <div
-                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)]"
-                  title={activeConvAgent.name || "AI 执事"}
-                >
-                  <Icon
-                    name={activeConvAgent.id === "shell" ? "terminal" : "sparkles"}
-                    size={11.5}
-                    style={{ color: activeConvAgentColor }}
-                  />
-                </div>
-              )}
-              <h1
-                className="text-[13.5px] sm:text-sm font-semibold text-[var(--aurora-fg1)] truncate"
-                title={displayConvTitle}
-              >
-                {displayConvTitle}
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 relative">
-            {/* 工作台独立视窗快捷开关 (桌面端展示；移动端收拢至更多菜单) */}
-            {inspector && inspector.mediaList.length > 0 && (
-              <div className="hidden sm:inline-flex shrink-0">
-                <Btn
-                  variant={inspector.isOpen ? "primary" : "glass"}
-                  size="sm"
-                  icon="sidebar"
-                  onClick={inspector.toggleInspector}
-                  title={inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Collapse workbench inspector") : (isZh ? "展开工作台预览" : "Open workbench inspector")}
-                >
-                  <span className="flex items-center gap-1 sm:gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                    <span className="font-medium">
-                      {inspector.isOpen ? (
-                        <span className="hidden 2xl:inline">{isZh ? "工作台" : "Desk"}</span>
-                      ) : (
-                        <>
-                          <span className="hidden xl:inline">
-                            {inspector.mediaList.some((m) => m.type === "markdown") ? (isZh ? "工作台预览" : "Workbench") : (isZh ? "媒体视窗" : "Media")}
-                          </span>
-                          <span className="hidden md:inline xl:hidden">{isZh ? "工作台" : "Desk"}</span>
-                        </>
-                      )}
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono font-bold">
-                      {inspector.mediaList.length}
-                    </span>
-                  </span>
-                </Btn>
-              </div>
-            )}
-
-            {/* AI 订阅与额度监控入口 (桌面端展示；移动端收拢至更多菜单，杜绝挤压标题) */}
-            <div className="hidden sm:inline-flex shrink-0">
-              <Btn
-                variant="glass"
-                size="sm"
-                icon="activity"
-                onMouseEnter={() => {
-                  void api.getAgentQuotas(selectedDevice);
-                }}
-                onClick={() => setQuotaOpen(true)}
-                title={isZh ? "查看各个 AI 订阅工具额度 (Antigravity/Claude/Codex/WorkBuddy)" : "View AI Subscriptions & Quotas"}
-              >
-                <span className="flex items-center gap-1">
-                  <span className="hidden 2xl:inline-block w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  <span className="hidden 2xl:inline text-xs font-medium">AI 额度</span>
-                  {(() => {
-                    const targetTool = executionMode === "claude"
-                      ? quotasData?.tools?.claude_code
-                      : executionMode === "codex"
-                      ? quotasData?.tools?.codex
-                      : executionMode === "workbuddy"
-                      ? quotasData?.tools?.workbuddy
-                      : quotasData?.tools?.antigravity;
-                    const percent = targetTool?.remaining_percent;
-                    if (percent != null) {
-                      return (
-                        <span
-                          className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full tabular-nums ${
-                            percent > 30 ? "quota-badge-teal" : "quota-badge-amber"
-                          }`}
-                        >
-                          {Math.round(percent)}%
-                        </span>
-                      );
-                    }
-                    if (targetTool?.tier) {
-                      return (
-                        <span className="quota-badge-neutral text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                          {targetTool.tier}
-                        </span>
-                      );
-                    }
-                    return (
-                      <span
-                        className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full ${
-                          targetTool?.available ? "quota-badge-emerald" : "quota-badge-neutral"
-                        }`}
-                      >
-                        {targetTool?.available ? "可用" : "未启动"}
-                      </span>
-                    );
-                  })()}
-                </span>
-              </Btn>
-            </div>
-
-            {/* 沉浸式阅读视界开关 (桌面端展示；移动端收拢至更多菜单) */}
-            {turns.length > 0 && (
-              <div className="hidden sm:inline-flex shrink-0">
-                <Btn
-                  variant={isReadingMode ? "primary" : "glass"}
-                  size="sm"
-                  icon={isReadingMode ? "edit" : "book"}
-                  onClick={() => {
-                    triggerHapticFeedback(10);
-                    setIsReadingMode(!isReadingMode);
-                  }}
-                  title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
-                >
-                  <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
-                </Btn>
-              </div>
-            )}
-
-            {/* 新建会话按钮 */}
-            <Btn
-              variant="glass"
-              size="sm"
-              icon="plus"
-              onClick={startNewChat}
-              title={t.ask.newChat}
-              className="shrink-0"
-            >
-              <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>{t.ask.newChat}</span>
-            </Btn>
-
-            {/* 桌面大屏幕且未展开工作台视窗时平铺操作按钮 (>= xl 屏幕) */}
-            {activeConversationId && turns.length > 0 && !inspector?.isOpen && (
-              <div className="hidden xl:flex items-center gap-1 sm:gap-1.5">
-                <Btn
-                  variant={selectTurnsMode ? "primary" : "glass"}
-                  size="sm"
-                  icon="layers"
-                  onClick={() => {
-                    setSelectTurnsMode(!selectTurnsMode);
-                    setSelectedTurnIndices([]);
-                  }}
-                  title={isZh ? "多选消息/问答分享" : "Select messages to share"}
-                  className="shrink-0"
-                >
-                  <span className="hidden 2xl:inline">{isZh ? "多选" : "Select"}</span>
-                </Btn>
-                <Btn
-                  variant="glass"
-                  size="sm"
-                  icon="download"
-                  onClick={handleExportMarkdown}
-                  title={isZh ? "导出 Markdown 研报记录" : "Export Markdown report"}
-                  className="shrink-0"
-                >
-                  <span className="hidden 2xl:inline">{isZh ? "导出" : "Export"}</span>
-                </Btn>
-                <Btn
-                  variant="glass"
-                  size="sm"
-                  icon="share"
-                  onClick={() => openSingleShare(activeConversationId, displayConvTitle)}
-                  title={isZh ? "分享整场对话" : "Share full conversation"}
-                  className="shrink-0"
-                >
-                  <span className="hidden 2xl:inline">{isZh ? "分享" : "Share"}</span>
-                </Btn>
-              </div>
-            )}
-            {turns.length > 0 && !inspector?.isOpen && (
-              <div className="hidden xl:inline-flex">
-                <Btn
-                  variant="ghost"
-                  size="sm"
-                  icon="trash"
-                  title={t.ask.clear}
-                  onClick={() => {
-                    abortRef.current?.abort();
-                    setTurns([]);
-                  }}
-                  className="shrink-0"
-                >
-                  <span className="hidden 2xl:inline">{t.ask.clear}</span>
-                </Btn>
-              </div>
-            )}
-
-            {/* 更多菜单：移动端常驻，大屏收纳 */}
-            <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
-              <Btn
-                variant={selectTurnsMode ? "primary" : "glass"}
-                size="sm"
-                icon="more"
-                onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-                title={isZh ? "更多会话操作" : "More actions"}
-                className="shrink-0"
-              />
-
-              {moreMenuOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setMoreMenuOpen(false)}
-                  />
-                  <div
-                    className="absolute right-0 top-10 z-50 min-w-[200px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
-                  >
-                    {/* 移动端专属：历史会话列表 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMoreMenuOpen(false);
-                        setHistoryOpen(true);
-                        void loadConversations();
-                      }}
-                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Icon name="clock" size={14} className="text-[var(--aurora-fg2)]" />
-                        <span>{t.ask.historyTitle}</span>
-                      </span>
-                      {conversations.length > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] font-mono font-bold">
-                          {conversations.length}
-                        </span>
-                      )}
-                    </button>
-
-                    {/* 移动端专属：工作台媒体/研报视窗 */}
-                    {inspector && inspector.mediaList.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMoreMenuOpen(false);
-                          inspector.toggleInspector();
-                        }}
-                        className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Icon name="sidebar" size={14} className="text-emerald-400" />
-                          <span>{inspector.isOpen ? (isZh ? "折叠工作台视窗" : "Close Workbench") : (isZh ? "展开工作台视窗" : "Open Workbench")}</span>
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-mono font-bold">
-                          {inspector.mediaList.length}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* 移动端专属：沉浸阅读视界开关 */}
-                    {turns.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMoreMenuOpen(false);
-                          triggerHapticFeedback(10);
-                          setIsReadingMode(!isReadingMode);
-                        }}
-                        className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Icon name={isReadingMode ? "edit" : "book"} size={14} className="text-indigo-400" />
-                          <span>{isReadingMode ? (isZh ? "恢复输入栏" : "Show Input") : (isZh ? "沉浸阅读视界" : "Reading Mode")}</span>
-                        </span>
-                        <span className="text-[10px] text-[var(--aurora-fg3)]">{isReadingMode ? (isZh ? "开启中" : "Active") : (isZh ? "未开启" : "Off")}</span>
-                      </button>
-                    )}
-
-                    {/* 移动端专属：AI 额度查看 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMoreMenuOpen(false);
-                        setQuotaOpen(true);
-                      }}
-                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Icon name="activity" size={14} className="text-cyan-400" />
-                        <span>AI 额度监控</span>
-                      </span>
-                      {(() => {
-                        const targetTool = executionMode === "claude"
-                          ? quotasData?.tools?.claude_code
-                          : executionMode === "codex"
-                          ? quotasData?.tools?.codex
-                          : executionMode === "workbuddy"
-                          ? quotasData?.tools?.workbuddy
-                          : quotasData?.tools?.antigravity;
-                        const percent = targetTool?.remaining_percent;
-                        if (percent != null) {
-                          return (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full quota-badge-teal">
-                              {Math.round(percent)}%
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </button>
-
-                    {/* 移动端专属：主题切换 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        toggleTheme();
-                        setMoreMenuOpen(false);
-                      }}
-                      className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Icon name={theme === "dark" ? "sun" : "moon"} size={14} className="text-amber-400" />
-                        <span>{isZh ? "外观主题切换" : "Toggle Theme"}</span>
-                      </span>
-                      <span className="text-[10px] text-[var(--aurora-fg3)] capitalize">{theme}</span>
-                    </button>
-
-                    <div className="my-1 border-t border-[var(--aurora-border)] sm:hidden" />
-
-                    {activeConversationId && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectTurnsMode(!selectTurnsMode);
-                            setSelectedTurnIndices([]);
-                            setMoreMenuOpen(false);
-                          }}
-                          className={`px-3 py-2 text-xs flex items-center gap-2.5 hover:bg-[var(--aurora-chip)] transition-colors text-left ${
-                            selectTurnsMode ? "text-[var(--aurora-accent)] font-semibold" : "text-[var(--aurora-fg1)]"
-                          }`}
-                        >
-                          <Icon name="layers" size={14} />
-                          <span>{selectTurnsMode ? (isZh ? "退出多选模式" : "Exit selection") : (isZh ? "批量多选消息" : "Select messages")}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleExportMarkdown();
-                            setMoreMenuOpen(false);
-                          }}
-                          className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
-                        >
-                          <Icon name="download" size={14} />
-                          <span>{isZh ? "导出 Markdown 研报" : "Export Markdown"}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            openSingleShare(activeConversationId, displayConvTitle);
-                            setMoreMenuOpen(false);
-                          }}
-                          className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
-                        >
-                          <Icon name="share" size={14} />
-                          <span>{isZh ? "分享完整会话" : "Share conversation"}</span>
-                        </button>
-                        <div className="my-1 border-t border-[var(--aurora-border)]" />
-                      </>
-                    )}
-                    {turns.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          abortRef.current?.abort();
-                          setTurns([]);
-                          setMoreMenuOpen(false);
-                        }}
-                        className="px-3 py-2 text-xs flex items-center gap-2.5 text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
-                      >
-                        <Icon name="trash" size={14} />
-                        <span>{isZh ? "清空当前消息" : "Clear conversation"}</span>
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </header>
+        <AskTopBar
+          conversationCount={conversations.length}
+          turnCount={turns.length}
+          activeConversationId={activeConversationId}
+          title={displayConvTitle}
+          agent={activeConvAgent}
+          agentColor={activeConvAgentColor}
+          executionMode={executionMode}
+          selectedDevice={selectedDevice}
+          quotasData={quotasData}
+          isReadingMode={isReadingMode}
+          selecting={selectTurnsMode}
+          onOpenHistory={() => {
+            setHistoryOpen(true);
+            void loadConversations();
+          }}
+          onOpenQuota={() => setQuotaOpen(true)}
+          onNewChat={startNewChat}
+          onToggleReadingMode={() => setIsReadingMode(!isReadingMode)}
+          onToggleSelectTurns={() => {
+            setSelectTurnsMode(!selectTurnsMode);
+            setSelectedTurnIndices([]);
+          }}
+          onExportMarkdown={handleExportMarkdown}
+          onShare={() => activeConversationId && openSingleShare(activeConversationId, displayConvTitle)}
+          onClear={() => {
+            abortRef.current?.abort();
+            setTurns([]);
+          }}
+        />
 
         {/* 中栏消息滚动列表 */}
         <div className="relative flex-1 min-h-0 flex flex-col">
@@ -5218,73 +4658,7 @@ function AskPageContent() {
           >
           <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-2 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
-      {turns.length === 0 && (
-        <Glass padding="clamp(16px, 4vw, 32px)" radius={20} style={{ textAlign: "center", marginBottom: 20, maxWidth: "100%", minWidth: 0 }}>
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 48,
-              height: 48,
-              borderRadius: 14,
-              background: "rgba(56, 189, 248, 0.12)",
-              color: "var(--aurora-accent)",
-              marginBottom: 12,
-            }}
-          >
-            <Icon name="terminal" size={26} />
-          </div>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)", margin: "0 0 6px" }}>
-            {t.ask.title}
-          </h3>
-          <p style={{ color: "var(--aurora-fg3)", fontSize: 13.5, margin: "0 0 18px" }}>
-            {t.ask.empty}
-          </p>
-
-          {/* Quick command pills */}
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-            {[
-              { label: t.ask.sugGitStatus, icon: "code" as const },
-              { label: t.ask.sugPorts, icon: "activity" as const },
-              { label: t.ask.sugDevices, icon: "devices" as const },
-              { label: t.ask.sugRecentSummary, icon: "sparkles" as const },
-            ].map((s, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => {
-                  sendWithText(s.label);
-                }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "7px 14px",
-                  borderRadius: 9999,
-                  background: "var(--aurora-chip)",
-                  border: "1px solid var(--aurora-border)",
-                  color: "var(--aurora-fg2)",
-                  fontSize: 12.5,
-                  cursor: "pointer",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--aurora-accent)";
-                  e.currentTarget.style.color = "var(--aurora-fg1)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--aurora-border)";
-                  e.currentTarget.style.color = "var(--aurora-fg2)";
-                }}
-              >
-                <Icon name={s.icon} size={13} style={{ color: "var(--aurora-accent)" }} />
-                <span>{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </Glass>
-      )}
+      {turns.length === 0 && <AskEmptyState onPick={(q) => sendWithText(q)} />}
 
       {/* Conversation turns list */}
       <div className="flex flex-col gap-2 sm:gap-4 max-w-full min-w-0">
@@ -6515,306 +5889,29 @@ function AskPageContent() {
             </div>
 
             {/* Active Resume Session Banner & Historical Context Preview */}
-            {selectedSessionId && (() => {
-              const activeSession = sessions.find((s) => (s.session_id || s.conversation_id) === selectedSessionId);
-              const isCurrentActive = Boolean(
-                activeConversation &&
-                (activeConversation.config?.session_id === selectedSessionId ||
-                 activeConversation.id === selectedSessionId)
-              );
-              const matchedConv = isCurrentActive
-                ? activeConversation
-                : conversations.find((c) => c.config?.session_id === selectedSessionId || c.id === selectedSessionId);
-
-              const convTitle = isCurrentActive ? displayConvTitle : matchedConv?.title;
-              const sessionTitle = (!isJunkSessionTitle(convTitle) ? convTitle : undefined)
-                || (!isJunkSessionTitle(activeSession?.title) ? activeSession?.title : undefined)
-                || convTitle
-                || activeSession?.title
-                || selectedSessionId;
-
-              let msgs: Array<{ role: string; content: string; timestamp?: string; subagent_name?: string }> = activeSession?.messages || [];
-              if (msgs.length === 0 && isCurrentActive && turns.length > 0) {
-                msgs = turns.map((t) => ({
-                  role: t.role,
-                  content: t.content,
-                }));
-              }
-              const previewMsgs = msgs.slice(-5);
-              const totalCount = activeSession?.message_count || (isCurrentActive ? (totalTurns || turns.length) : msgs.length);
-              const cost = sessionCosts[selectedSessionId] || activeSession?.resume || null;
-              const isHeavy = cost ? cost.heavy : (activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000));
-              const sizeText = cost ? formatContextTokens(cost.context_tokens, isZh) : "";
-              const costNotes: string[] = [];
-              if (cost && isZh) {
-                if (cost.other_client_recent) {
-                  costNotes.push(`${cost.minutes_since_activity ?? 0} 分钟前刚在 ${cost.last_client} 里用过：两边的缓存不通用，第一步要重新缓存全部上下文（${sizeText}）。`);
-                } else if (cost.cache_cold && cost.heavy) {
-                  costNotes.push(`已超过 1 小时没用，缓存已过期，第一步要重新缓存全部上下文（${sizeText}）。`);
-                }
-                if (cost.heavy) {
-                  costNotes.push(compactMode
-                    ? "已默认改为智能瘦身续接：先生成核心记忆快照，再开新会话接着做；确实需要完整上下文时可切回原生接续。"
-                    : `原生接续后每执行一步都要带上全部上下文（${sizeText}），额度消耗远高于新会话，建议智能瘦身续接。`);
-                }
-              } else if (cost) {
-                if (cost.other_client_recent) costNotes.push(`Used in ${cost.last_client} ${cost.minutes_since_activity ?? 0} min ago: caches aren't shared, the first step re-caches ${sizeText}.`);
-                else if (cost.cache_cold && cost.heavy) costNotes.push(`Idle for over an hour: the cache has expired, the first step re-caches ${sizeText}.`);
-                if (cost.heavy) costNotes.push(compactMode
-                  ? "Resuming from a compacted snapshot by default; switch to raw resume when the full context is needed."
-                  : `Every raw-resume step carries ${sizeText} of history; compact resume is recommended.`);
-              }
-
-              return (
-                <div style={{ marginBottom: 10 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 8,
-                      padding: "6px 12px",
-                      background: compactMode ? "rgba(16, 185, 129, 0.08)" : "var(--aurora-accent-soft)",
-                      border: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
-                      borderRadius: showSessionContext || costNotes.length > 0 ? "10px 10px 0 0" : 10,
-                      fontSize: 12,
-                      color: "var(--aurora-fg1)",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden" }}>
-                      <Icon name={compactMode ? "sparkles" : "clock"} size={14} style={{ color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }} />
-                      <span style={{ fontWeight: 600, color: compactMode ? "#10b981" : "var(--aurora-accent)", flexShrink: 0 }}>
-                        {compactMode ? (isZh ? "🌟 智能瘦身续接:" : "🌟 Compact resume:") : (isZh ? "续接历史会话:" : "Resuming session:")}
-                      </span>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--aurora-fg2)", fontWeight: 500 }}>
-                        {sessionTitle}
-                      </span>
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
-                        ({sizeText ? `${isZh ? "上下文" : "context "}${sizeText} · ` : ""}{isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
-                      </span>
-                      {isHeavy && (
-                        <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
-                          ⚠️ {isZh ? "建议瘦身" : "Long"}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = !compactMode;
-                          compactChosenRef.current.add(selectedSessionId);
-                          setCompactMode(next);
-                          persistCurrentConfig({ compact_mode: next });
-                        }}
-                        style={{
-                          background: compactMode ? "rgba(16, 185, 129, 0.18)" : "var(--aurora-chip)",
-                          border: `1px solid ${compactMode ? "#10b981" : "var(--aurora-border)"}`,
-                          color: compactMode ? "#10b981" : "var(--aurora-fg2)",
-                          cursor: "pointer",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          fontSize: 11,
-                          padding: "2px 8px",
-                          borderRadius: 6,
-                          fontWeight: compactMode ? 600 : 500,
-                          transition: "all 0.15s ease",
-                        }}
-                        title={compactMode ? (isZh ? "已开启智能记忆压缩（轻装接续）" : "Smart compaction active") : (isZh ? "切换为智能瘦身模式" : "Switch to smart compact")}
-                      >
-                        <Icon name="sparkles" size={11} />
-                        <span>{compactMode ? (isZh ? "智能瘦身接续" : "Smart Compact") : (isZh ? "原生接续" : "Raw Resume")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowSessionContext(!showSessionContext)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--aurora-accent)",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 3,
-                          fontSize: 11.5,
-                          padding: "2px 6px",
-                          borderRadius: 6,
-                          fontWeight: 600,
-                        }}
-                        title={showSessionContext ? (isZh ? "收起历史上下文" : "Collapse context") : (isZh ? "展开历史上下文" : "Expand context")}
-                      >
-                        <Icon name={showSessionContext ? "chevron_up" : "chevron_down"} size={12} />
-                        <span>{showSessionContext ? (isZh ? "收起上下文" : "Hide Context") : (isZh ? "预览上下文" : "Preview Context")}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectSession("")}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--aurora-fg3)",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 3,
-                          fontSize: 11,
-                          padding: "2px 6px",
-                          borderRadius: 6,
-                          flexShrink: 0,
-                        }}
-                        title={isZh ? "退出续接，开启新会话" : "Cancel resume, start new"}
-                      >
-                        <Icon name="close" size={12} />
-                        <span>{isZh ? "退出" : "Exit"}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* What continuing this session costs: its real context, and whether the cache is gone */}
-                  {costNotes.length > 0 && (
-                    <div
-                      style={{
-                        padding: "6px 12px",
-                        background: compactMode ? "rgba(16, 185, 129, 0.05)" : "rgba(245, 158, 11, 0.08)",
-                        borderLeft: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
-                        borderRight: `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
-                        borderBottom: showSessionContext ? "none" : `1px solid ${compactMode ? "rgba(16, 185, 129, 0.5)" : "var(--aurora-accent)"}`,
-                        borderRadius: showSessionContext ? 0 : "0 0 10px 10px",
-                        fontSize: 11.5,
-                        lineHeight: 1.6,
-                        color: "var(--aurora-fg2)",
-                      }}
-                    >
-                      {costNotes.map((note) => (
-                        <div key={note}>{note}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Context Preview Drawer */}
-                  {showSessionContext && (
-                    <div
-                      style={{
-                        padding: "10px 14px",
-                        background: "var(--aurora-surface-solid)",
-                        border: "1px solid var(--aurora-accent)",
-                        borderTop: "none",
-                        borderRadius: "0 0 10px 10px",
-                        fontSize: 12,
-                        boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: 8,
-                          paddingBottom: 6,
-                          borderBottom: "1px solid var(--aurora-border)",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontWeight: 600, color: "var(--aurora-fg1)" }}>
-                            {isZh ? "历史会话上下文 (最近交互)" : "Historical Context (Recent Turns)"}
-                          </span>
-                          {previewMsgs.length > 0 && (
-                            <span style={{ fontSize: 11, color: "var(--aurora-fg3)" }}>
-                              ({isZh ? `显示最近 ${previewMsgs.length} 条` : `Showing last ${previewMsgs.length}`})
-                            </span>
-                          )}
-                        </div>
-                        {(activeSession?.conversation_id || (isCurrentActive && activeConversation?.id)) && (
-                          <a
-                            href={activeSession?.conversation_id ? `/conversations/${activeSession.conversation_id}` : `/ask?id=${activeConversation!.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{
-                              color: "var(--aurora-accent)",
-                              textDecoration: "none",
-                              fontSize: 11.5,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              fontWeight: 500,
-                            }}
-                          >
-                            <span>{isZh ? "在新标签页查看完整会话" : "View Full Conversation"}</span>
-                            <Icon name="external_link" size={11} />
-                          </a>
-                        )}
-                      </div>
-
-                      {/* Messages list */}
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 6,
-                          maxHeight: "min(170px, 25vh)",
-                          overflowY: "auto",
-                          overscrollBehavior: "contain",
-                          WebkitOverflowScrolling: "touch",
-                          paddingRight: 4,
-                        }}
-                      >
-                        {previewMsgs.length === 0 ? (
-                          <div style={{ color: "var(--aurora-fg3)", textAlign: "center", padding: "12px 0", fontSize: 12 }}>
-                            {isZh ? "当前会话暂无历史交互记录" : "No textual messages recorded in this session"}
-                          </div>
-                        ) : (
-                          previewMsgs.map((m, idx) => {
-                            const isUser = m.role === "user";
-                            return (
-                              <div
-                                key={idx}
-                                style={{
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  gap: 3,
-                                  background: isUser ? "var(--aurora-chip)" : "var(--aurora-surface)",
-                                  border: `1px solid ${isUser ? "var(--aurora-border)" : "var(--aurora-border)"}`,
-                                  borderRadius: 8,
-                                  padding: "6px 10px",
-                                }}
-                              >
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11 }}>
-                                  <span style={{ fontWeight: 600, color: isUser ? "var(--aurora-accent)" : "var(--aurora-fg2)" }}>
-                                    {isUser
-                                      ? (isZh ? "👤 用户提问" : "👤 User")
-                                      : (m.subagent_name
-                                          ? `🔀 ${m.subagent_name}`
-                                          : `🤖 ${executionMode === "claude" ? "Claude Code" : executionMode === "codex" ? "OpenAI Codex" : executionMode === "antigravity" ? "Google Antigravity" : executionMode === "workbuddy" ? "WorkBuddy" : "Assistant"}`)}
-                                  </span>
-                                  {m.timestamp && (
-                                    <span style={{ color: "var(--aurora-fg3)", fontSize: 10 }}>
-                                      {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                    </span>
-                                  )}
-                                </div>
-                                <div
-                                  style={{
-                                    color: "var(--aurora-fg1)",
-                                    wordBreak: "break-word",
-                                    lineHeight: 1.45,
-                                    maxHeight: 120,
-                                    overflowY: "auto",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  <MarkdownViewer content={m.content?.trim() || ""} compactText={true} />
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            {selectedSessionId && (
+              <SessionResumeBanner
+                sessionId={selectedSessionId}
+                sessions={sessions}
+                activeConversation={activeConversation}
+                conversations={conversations}
+                displayConvTitle={displayConvTitle}
+                turns={turns}
+                totalTurns={totalTurns}
+                knownCost={sessionCosts[selectedSessionId]}
+                compactMode={compactMode}
+                onToggleCompact={() => {
+                  const next = !compactMode;
+                  compactChosenRef.current.add(selectedSessionId);
+                  setCompactMode(next);
+                  persistCurrentConfig({ compact_mode: next });
+                }}
+                showContext={showSessionContext}
+                onToggleContext={() => setShowSessionContext(!showSessionContext)}
+                onExit={() => handleSelectSession("")}
+                executionMode={executionMode}
+              />
+            )}
           </div>
         )}
 
@@ -7307,197 +6404,7 @@ function AskPageContent() {
       />
 
       {/* Sources Drawer Overlay & Sidebar */}
-      {sourcesOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 60,
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          {/* Backdrop */}
-          <div
-            onClick={() => setSourcesOpen(false)}
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(0, 0, 0, 0.45)",
-              backdropFilter: "blur(4px)",
-            }}
-          />
-
-          {/* Drawer content */}
-          <div
-            style={{
-              position: "relative",
-              width: "min(460px, 92vw)",
-              height: "100%",
-              background: "var(--aurora-surface-solid)",
-              borderLeft: "1px solid var(--aurora-border)",
-              boxShadow: "-8px 0 32px rgba(0, 0, 0, 0.16)",
-              display: "flex",
-              flexDirection: "column",
-              zIndex: 1,
-            }}
-          >
-            {/* Drawer Header */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "16px 20px",
-                borderBottom: "1px solid var(--aurora-border)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icon name="book" size={18} style={{ color: "var(--aurora-accent)" }} />
-                <span style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
-                  {t.ask.sources}
-                </span>
-                {selectedSources.length > 0 && (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      padding: "2px 7px",
-                      borderRadius: 999,
-                      background: "rgba(56, 189, 248, 0.15)",
-                      color: "var(--aurora-accent)",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {selectedSources.length}
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setSourcesOpen(false)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--aurora-fg3)",
-                  cursor: "pointer",
-                }}
-              >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-
-            {/* Drawer List */}
-            <div
-              style={{
-                flex: 1,
-                overflowY: "auto",
-                padding: "14px",
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              {selectedSources.map((s, si) => (
-                <div
-                  key={s.id || si}
-                  style={{
-                    padding: "14px 16px",
-                    borderRadius: 12,
-                    background: "var(--aurora-bg)",
-                    border: "1px solid var(--aurora-border)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.03)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: "var(--aurora-accent)",
-                        }}
-                      >
-                        [{si + 1}]
-                      </span>
-                      <ToolGlyph id={s.tool_id} size={16} />
-                      {s.category && (
-                        <span
-                          style={{
-                            fontSize: 10.5,
-                            padding: "2px 7px",
-                            borderRadius: 6,
-                            background: "var(--aurora-surface-solid)",
-                            border: "1px solid var(--aurora-border)",
-                            color: "var(--aurora-fg3)",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {s.category}
-                        </span>
-                      )}
-                    </div>
-                    {s.synced_at && (
-                      <span style={{ fontSize: 11, color: "var(--aurora-fg4)" }}>
-                        {formatRelativeTime(s.synced_at, isZh)}
-                      </span>
-                    )}
-                  </div>
-
-                  <Link
-                    href={`/documents/${s.id}`}
-                    target="_blank"
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--aurora-fg1)",
-                      textDecoration: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {s.title || s.relative_path}
-                    </span>
-                    <Icon name="external_link" size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
-                  </Link>
-
-                  {s.excerpt && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        lineHeight: 1.6,
-                        color: "var(--aurora-fg2)",
-                        background: "var(--aurora-surface-solid)",
-                        borderRadius: 8,
-                        padding: "10px 12px",
-                        border: "1px solid var(--aurora-border)",
-                        borderLeft: "3px solid var(--aurora-accent)",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                        maxHeight: 180,
-                        overflowY: "auto",
-                      }}
-                    >
-                      {formatExcerpt(s.excerpt)}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {sourcesOpen && <SourcesDrawer sources={selectedSources} onClose={() => setSourcesOpen(false)} />}
 
       {/* 栏 3: 右侧媒体独立视窗 (桌面端并列第三栏，移动端滑出全屏抽屉) */}
       <MediaInspectorPanel />

@@ -1,3 +1,4 @@
+import type { AgentSessionItem } from "./sessions";
 import { api,AskConversationSummary,ProjectSummary,type AskConversationDetail,type AgentQuotasResponse } from "@/lib/api-client";
 import type { AgentCapabilities } from "@/lib/api-client";
 import { isConcreteDevice } from "@/lib/ask/devices";
@@ -94,23 +95,7 @@ export interface CachedAskState {
   selectedSessionId: string;
   compactMode: boolean;
   projects?: ProjectSummary[];
-  sessions?: Array<{
-    session_id: string;
-    title: string;
-    conversation_id: string;
-    message_count: number;
-    timestamp: string;
-    file_size_bytes?: number;
-    estimated_tokens?: number;
-    compact_recommended?: boolean;
-    messages?: Array<{
-      role: string;
-      content: string;
-      timestamp?: string;
-      raw_type?: string;
-      subagent_name?: string;
-    }>;
-  }>;
+  sessions?: AgentSessionItem[];
   capabilities?: AgentCapabilities | null;
   scrollTop?: number;
   hasMoreTurns?: boolean;

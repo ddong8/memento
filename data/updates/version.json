@@ -1,7 +1,7 @@
 {
   "version": "1.0.84",
   "title": "Memento v1.0.84",
-  "release_notes": "1. 修复同步会话时偶尔漏掉消息的问题：带截图的消息、很长的工具输出、正在写入的最后一行都会完整上传，用户自己说的话不再丢\n2. 通知改为服务器实时推送：任务完成、提醒等通知即时弹出，桌面端不再每隔几秒查询一次\n3. 升级时显示下载进度；下载失败可一键打开官网下载完整安装包",
+  "release_notes": "1. 经 Memento 调用 Claude Code 更省额度：上下文涨到 20 万 token 就自动压缩（个人设置的大模型页可改为 30 万、50 万或跟随 Claude Code），过程卡片会显示本次读取了多少 token、什么时候自动压缩过\n2. WorkBuddy 的模型列表改为读取 WorkBuddy 自己的最新配置，和 WorkBuddy 客户端里看到的一致\n3. 修复本机视频、音频预览按片段读取时的两处错误",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.84-win-x64.zip",

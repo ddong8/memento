@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import logging
+import time
 from typing import Any
 
 import boto3
@@ -18,6 +20,39 @@ logger = logging.getLogger("server.storage")
 
 _s3_client: Any | None = None
 _bucket_ensured: bool = False
+
+# Stored image links are /api/media/image/<key>; clients get them signed with an expiry.
+MEDIA_IMAGE_PREFIX = "/api/media/image/"
+MEDIA_URL_PERIOD = 7 * 86400
+
+
+def media_url_epoch(now: float | None = None) -> int:
+    """Signed links are made per week, so a page's image URLs stay the same (and cached) all week."""
+    return int((time.time() if now is None else now) // MEDIA_URL_PERIOD)
+
+
+def media_key(path_key: str) -> str:
+    clean = path_key.lstrip("/")
+    return clean if clean.startswith("images/") else f"images/{clean}"
+
+
+def _media_sig(key: str, exp: int) -> str:
+    return hmac.new(settings.secret_key.encode(), f"media:{key}:{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def sign_media_url(url: Any, now: float | None = None) -> Any:
+    """A stored /api/media/image/<key> link as one that works for 7 to 14 days; anything else as is."""
+    if not isinstance(url, str) or not url.startswith(MEDIA_IMAGE_PREFIX):
+        return url
+    path = url.split("?", 1)[0]
+    exp = (media_url_epoch(now) + 2) * MEDIA_URL_PERIOD
+    return f"{path}?exp={exp}&sig={_media_sig(media_key(path[len(MEDIA_IMAGE_PREFIX):]), exp)}"
+
+
+def media_signature_ok(key: str, exp: int | None, sig: str | None, now: float | None = None) -> bool:
+    if not exp or not sig or exp < (time.time() if now is None else now):
+        return False
+    return hmac.compare_digest(_media_sig(media_key(key), exp), sig)
 
 
 def get_s3_client() -> Any:

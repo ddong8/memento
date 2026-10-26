@@ -20,6 +20,7 @@ from ..db.models import User, AskConversation
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
+from ..services.storage_service import media_url_epoch
 from ..services.user_filter import find_machine_by_id_or_hash
 from ..services.ask_runs import ask_runs
 from ..services.ask_store import (
@@ -205,7 +206,8 @@ async def get_recent_active_conversation(
 
 def _conv_etag(conv_id: str, updated_at_iso: str | None, total_turns: int, limit: int, before: int | None, device: str | None) -> str:
     page = f"{limit}" if before is None else f"{limit}:{before}"
-    seed = f"v4:{conv_id}:{updated_at_iso or ''}:{total_turns}:{page}:{device or ''}"
+    # The week's image signatures are in the body: a new week is a new body
+    seed = f"v5:{conv_id}:{updated_at_iso or ''}:{total_turns}:{page}:{device or ''}:{media_url_epoch()}"
     return f'"{hashlib.sha1(seed.encode("utf-8")).hexdigest()}"'
 
 

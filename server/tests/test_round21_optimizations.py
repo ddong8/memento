@@ -31,9 +31,8 @@ class TestRound21Optimizations(unittest.TestCase):
         mock_conv.config = {"device_id": "test-device"}
         mock_conv.device_id = "test-device"
 
-        import hashlib
-        seed = f"v4:{conv_id}::5:0:test-device"
-        tag = f'"{hashlib.sha1(seed.encode("utf-8")).hexdigest()}"'
+        from server.api.ask_conversations import _conv_etag
+        tag = _conv_etag(str(conv_id), None, 5, 0, None, "test-device")
 
         mock_request = MagicMock()
         mock_request.headers.get.return_value = tag

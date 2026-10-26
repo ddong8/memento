@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, User, AskConversation, Project
 from ..db.session import async_session_factory
-from .storage_service import store_image_b64
+from .storage_service import sign_media_url, store_image_b64
 
 logger = logging.getLogger("server.ask")
 
@@ -1016,7 +1016,7 @@ def sanitize_turns_for_response(turns: list[dict], fallback_iso: str | None = No
                     pass
         imgs = t_copy.get("images")
         if imgs and isinstance(imgs, list):
-            t_copy["images"] = [_compress_b64_image_safe(img) for img in imgs]
+            t_copy["images"] = [sign_media_url(_compress_b64_image_safe(img)) for img in imgs]
         tcs = t_copy.get("toolCalls") or t_copy.get("tool_calls")
         if tcs and isinstance(tcs, list):
             clean_tcs = []

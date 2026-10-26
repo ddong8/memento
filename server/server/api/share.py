@@ -46,6 +46,7 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_optional_user
 from ..services.geoip import lookup as geoip_lookup
 from ..services.rate_limit import client_ip
+from ..services.storage_service import sign_media_url
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
@@ -622,7 +623,7 @@ async def get_public_share_data(
                         "index": idx,
                         "role": t.get("role") or "user",
                         "content": t.get("content") or "",
-                        "images": t.get("images") or [],
+                        "images": [sign_media_url(i) for i in (t.get("images") or [])],
                         "thinking": t.get("thinking"),
                         "toolCalls": t.get("toolCalls") or [],
                         "sources": t.get("sources") or [],

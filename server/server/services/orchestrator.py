@@ -773,6 +773,11 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["user_question"] = args["user_question"]
             if args.get("title"):
                 payload["title"] = args["title"]
+            if (args.get("binary") or "claude") == "claude":
+                from .claude_session import auto_compact_window
+                window = auto_compact_window(getattr(user, "llm_settings", None))
+                if window:
+                    payload["auto_compact_window"] = window
 
             # 动态心智穿透：自动感知场景并将心领神会与项目铁律注入至子 Agent 运行时
             try:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeTaskEvent, taskRunSummary, taskToolLabel, type TaskEvent } from "../src/index.js";
+import { formatTokenCount, mergeTaskEvent, taskRunSummary, taskToolLabel, type TaskEvent } from "../src/index.js";
 
 describe("task events", () => {
   it("updates a tool step in place and appends the rest", () => {
@@ -21,6 +21,13 @@ describe("task events", () => {
       ]),
     ).toBe("2 步 · $0.11 · 2 分 4 秒");
     expect(taskRunSummary([{ kind: "tool" }, { kind: "usage", duration_ms: 3986 }])).toBe("1 步 · 4 秒");
+    expect(taskRunSummary([{ kind: "tool" }, { kind: "usage", input_tokens: 36_402_801, cost_usd: 5.78 }])).toBe("1 步 · 读取 3,640 万 token · $5.78");
+  });
+
+  it("formats token counts in 万 / 亿", () => {
+    expect(formatTokenCount(8500)).toBe("8,500");
+    expect(formatTokenCount(342_668)).toBe("34 万");
+    expect(formatTokenCount(172_229_033)).toBe("1.7 亿");
   });
 
   it("labels tools by what they do", () => {

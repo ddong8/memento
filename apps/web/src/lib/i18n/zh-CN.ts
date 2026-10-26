@@ -1063,6 +1063,8 @@ const zhCN = {
     steerHint: "补充一句，它会在下一步读到",
     steerSend: "发送",
     steerFailed: "没送达：任务可能已经结束，或设备刚断开",
+    compacted: "上下文已自动压缩（压缩前 {n} token），后面每步带的历史变少了",
+    compactedPlain: "上下文已压缩",
     worktree: "独立分支",
     worktreeOn: "开 · 在单独的 git worktree 里改，改完留分支给你合并",
     worktreeOff: "关 · 直接改当前目录",

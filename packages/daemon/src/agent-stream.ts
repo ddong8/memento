@@ -5,7 +5,8 @@
  *   {kind: session, session_id, model?}
  *   {kind: text, text}                              what the agent says along the way
  *   {kind: tool, id, name, detail, status, output?} status: running | done | failed
- *   {kind: usage, cost_usd?, input_tokens?, output_tokens?, duration_ms?, turns?}
+ *   {kind: usage, cost_usd?, input_tokens?, cache_read_tokens?, cache_write_tokens?, output_tokens?, duration_ms?, turns?}
+ *   {kind: compact, trigger?, pre_tokens?}          Claude Code summarized the context so far
  *   {kind: error, message}
  *
  *   {kind: question, id, tool, header?, question, options, is_multi_select, status: waiting | answered, answer?}
@@ -138,6 +139,14 @@ export class ClaudeStreamParser extends AgentStreamParser {
         if (d.subtype === "init" && d.session_id != null) {
           this.sessionId = String(d.session_id);
           events.push({ kind: "session", session_id: this.sessionId, ...(d.model != null ? { model: d.model } : {}) });
+        } else if (d.subtype === "compact_boundary") {
+          // Claude Code summarized the conversation so far (auto at the compact window, or /compact)
+          const meta = isObject(d.compact_metadata) ? d.compact_metadata : {};
+          events.push({
+            kind: "compact",
+            ...(str(meta.trigger) ? { trigger: str(meta.trigger) } : {}),
+            ...(num(meta.pre_tokens) !== undefined ? { pre_tokens: meta.pre_tokens } : {}),
+          });
         }
         break;
       case "assistant": {
@@ -246,12 +255,15 @@ export class ClaudeStreamParser extends AgentStreamParser {
         }
         const usage = isObject(d.usage) ? d.usage : {};
         const input = num(usage.input_tokens);
+        const cacheRead = num(usage.cache_read_input_tokens);
+        const cacheWrite = num(usage.cache_creation_input_tokens);
         events.push({
           kind: "usage",
           ...(num(d.total_cost_usd) !== undefined ? { cost_usd: d.total_cost_usd } : {}),
-          ...(input !== undefined
-            ? { input_tokens: input + (num(usage.cache_read_input_tokens) ?? 0) + (num(usage.cache_creation_input_tokens) ?? 0) }
-            : {}),
+          // input_tokens: everything the run's requests read, the cache included; the cache parts separately
+          ...(input !== undefined ? { input_tokens: input + (cacheRead ?? 0) + (cacheWrite ?? 0) } : {}),
+          ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
+          ...(cacheWrite !== undefined ? { cache_write_tokens: cacheWrite } : {}),
           ...(num(usage.output_tokens) !== undefined ? { output_tokens: usage.output_tokens } : {}),
           ...(num(d.duration_ms) !== undefined ? { duration_ms: d.duration_ms } : {}),
           ...(num(d.num_turns) !== undefined ? { turns: d.num_turns } : {}),

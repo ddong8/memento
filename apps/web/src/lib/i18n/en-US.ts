@@ -1049,6 +1049,8 @@ const enUS: Translations = {
     steerHint: "Add something; it reads it at the next step",
     steerSend: "Send",
     steerFailed: "Not delivered: the task may have ended or the device just disconnected",
+    compacted: "Context compacted automatically (was {n} tokens); later steps carry less history",
+    compactedPlain: "Context compacted",
     worktree: "Own branch",
     worktreeOn: "On · works in a separate git worktree and leaves a branch to merge",
     worktreeOff: "Off · changes the current directory",

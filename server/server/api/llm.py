@@ -6,7 +6,7 @@ import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -196,6 +196,9 @@ async def update_llm_settings(
     """Update current user's custom LLM configuration."""
     existing = dict(user.llm_settings or {})
     data = body.model_dump()
+    # The agent settings live alongside, saved from their own section
+    if isinstance(existing.get("agent"), dict):
+        data["agent"] = existing["agent"]
 
     # Synchronize model and primary_model
     if not data.get("model") and data.get("primary_model"):
@@ -240,6 +243,48 @@ async def update_llm_settings(
         "settings": settings_resp,
         **settings_resp,
     }
+
+
+class AgentSettingsBody(BaseModel):
+    # Claude Code's auto-compact window for memento's runs, in tokens: 100000–1000000, or 0 for Claude Code's own default
+    claude_auto_compact_window: int
+
+
+def _agent_settings(user: User) -> dict:
+    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window
+
+    return {
+        "claude_auto_compact_window": auto_compact_window(user.llm_settings),
+        "default_auto_compact_window": DEFAULT_AUTO_COMPACT_WINDOW,
+        # Above this a resumed Claude Code session starts from a compacted snapshot unless the user picks raw
+        "heavy_context_tokens": HEAVY_CONTEXT_TOKENS,
+    }
+
+
+@router.get("/agent")
+async def get_agent_settings(user: User = Depends(get_current_user)) -> dict:
+    """How memento runs the user's coding agents (Claude Code's auto-compact window)."""
+    return _agent_settings(user)
+
+
+@router.put("/agent")
+async def update_agent_settings(
+    body: AgentSettingsBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    from ..services.claude_session import valid_auto_compact_window
+
+    window = valid_auto_compact_window(body.claude_auto_compact_window)
+    if window is None:
+        raise HTTPException(status_code=422, detail="自动压缩窗口要在 100000 到 1000000 token 之间，或填 0 跟随 Claude Code 默认")
+    data = dict(user.llm_settings or {})
+    agent = dict(data.get("agent") or {}) if isinstance(data.get("agent"), dict) else {}
+    agent["claude_auto_compact_window"] = window
+    data["agent"] = agent
+    user.llm_settings = data
+    await db.commit()
+    return _agent_settings(user)
 
 
 @router.post("/test")

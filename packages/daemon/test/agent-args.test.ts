@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { claudeArgs, codexArgs } from "../src/task-runner.js";
+import { autoCompactWindow, claudeArgs, codexArgs } from "../src/task-runner.js";
 
 describe("agent launch arguments", () => {
   it("Claude Code asks its questions over stdio, with every other tool still allowed", () => {
@@ -18,5 +18,12 @@ describe("agent launch arguments", () => {
       "--resume", "01a16bcf-623c-7741-8cda-e17297cccf40", "--fork",
       "--effort", "high", "--model", "gpt-5.5", "--", "--fork is just text",
     ]);
+  });
+
+  it("the auto-compact window is passed only when Claude Code accepts it (100k–1M tokens)", () => {
+    expect(autoCompactWindow(200000)).toBe(200000);
+    expect(autoCompactWindow("300000")).toBe(300000);
+    expect(autoCompactWindow(1_000_000)).toBe(1_000_000);
+    for (const v of [0, 99_999, 1_000_001, 200000.5, "", "200k", null, undefined, NaN]) expect(autoCompactWindow(v)).toBeUndefined();
   });
 });

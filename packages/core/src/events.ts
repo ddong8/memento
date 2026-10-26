@@ -9,12 +9,17 @@ export type TaskEvent = { at?: string } & (
   | {
       kind: "usage";
       cost_usd?: number;
+      /** Everything the run's requests read, the prompt cache included */
       input_tokens?: number;
+      cache_read_tokens?: number;
+      cache_write_tokens?: number;
       output_tokens?: number;
       duration_ms?: number;
       turns?: number;
     }
   | { kind: "error"; message: string }
+  /** Claude Code summarized the context so far: auto at the compact window, or a /compact */
+  | { kind: "compact"; trigger?: string; pre_tokens?: number }
   /** A follow-up the user sent to a running task: sent, too late, or not supported by that agent. */
   | { kind: "steer"; text: string; status: "sent" | "late" | "unsupported" }
   | {

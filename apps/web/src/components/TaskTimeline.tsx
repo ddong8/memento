@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, type CSSProperties } from "react";
-import { steerNote, taskRunSummary, taskToolLabel, type TaskEvent } from "@memento/core";
+import { formatTokenCount, steerNote, taskRunSummary, taskToolLabel, type TaskEvent } from "@memento/core";
 import { authFetch, getApiBase } from "@/lib/api-client";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Icon } from "./aurora/Icon";
@@ -139,6 +139,11 @@ export default function TaskTimeline({
         return null;
       case "error":
         return <div key={i}>{plain("close", str(ev.message) || tl.error, null, "#DC2626")}</div>;
+      case "compact": {
+        const pre = Number(ev.pre_tokens);
+        const text = pre > 0 ? fmt(tl.compacted, { n: formatTokenCount(pre) }) : tl.compactedPlain;
+        return <div key={i}>{plain("sparkles", text, null, "#10B981")}</div>;
+      }
       case "question":
         return (
           <QuestionPrompt

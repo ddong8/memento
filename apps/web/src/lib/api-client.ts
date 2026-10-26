@@ -741,6 +741,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  getAgentRunSettings: () => fresh<AgentRunSettings>("/api/profile/llm/agent"),
+  updateAgentRunSettings: (body: { claude_auto_compact_window: number }) =>
+    apiFetch<AgentRunSettings>("/api/profile/llm/agent", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   testLLMConnection: (body: LLMTestRequest) =>
     apiFetch<LLMTestResponse>("/api/profile/llm/test", {
       method: "POST",
@@ -1170,6 +1176,15 @@ export interface AgentModelOption {
 }
 
 /** What continuing a Claude Code session from Memento costs, read from its own transcript. */
+/** How memento runs the user's coding agents. */
+export interface AgentRunSettings {
+  /** Claude Code's auto-compact window in tokens; 0 = Claude Code's own default */
+  claude_auto_compact_window: number;
+  default_auto_compact_window: number;
+  /** A resumed Claude Code session above this starts from a compacted snapshot unless raw is picked */
+  heavy_context_tokens: number;
+}
+
 export interface SessionResumeCost {
   /** Context the next step carries (the latest request's input + cache tokens) */
   context_tokens: number;

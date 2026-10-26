@@ -520,6 +520,16 @@ async def _find_session(db: AsyncSession, session_id: str, machine_ids: list | N
     return (await db.execute(q)).scalar_one_or_none()
 
 
+async def claude_resume_cost(db: AsyncSession, session_id: str, machine_ids: list | None = None) -> dict[str, Any]:
+    """resume_cost of a Claude Code session memento has synced; {} when it isn't one or its size is unknown."""
+    from .claude_session import resume_cost
+
+    doc = await _find_session(db, session_id, machine_ids)
+    if not doc or doc.tool_id != "claude_code":
+        return {}
+    return resume_cost(await _claude_context(db, doc))
+
+
 async def get_session_stats(db: AsyncSession, session_id: str, machine_ids: list | None = None) -> SessionStats:
     """Load session and calculate stats and health metrics. machine_ids limits the lookup to those
     devices' sessions (None: every session, for owner / admin)."""

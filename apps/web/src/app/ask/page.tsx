@@ -149,6 +149,8 @@ function AskPageContent() {
   const [sessionCosts, setSessionCosts] = useState<Record<string, SessionResumeCost>>({});
   /** Sessions whose compact / raw resume the user picked: the heavy-session default leaves them alone */
   const compactChosenRef = useRef<Set<string>>(new Set());
+  /** Bumped when a run ends: the session has grown, so its size is read again for the banner */
+  const [sessionCostTick, setSessionCostTick] = useState(0);
   const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
   const [totalTurns, setTotalTurns] = useState<number>(() => askCache?.totalTurns ?? initSnap?.totalTurns ?? (initSnap?.turns?.length || 0));
   const [loadingMoreTurns, setLoadingMoreTurns] = useState<boolean>(false);
@@ -692,20 +694,23 @@ function AskPageContent() {
       setSessionCosts((prev) => ({ ...prev, [sid]: cost }));
       if (cost.heavy && !compactChosenRef.current.has(sid)) setCompactMode(true);
     };
-    const listed = sessions.find((s) => (s.session_id || s.conversation_id) === sid)?.resume;
-    if (listed) {
-      apply(listed);
-    } else {
+    const fetchCost = () =>
       api.getSessionStats(sid)
         .then((st) => {
           if (st.resume && "context_tokens" in st.resume) apply(st.resume as SessionResumeCost);
         })
         .catch(() => {});
-    }
+    // After a run the listed size is from before it; the device uploads the transcript within seconds
+    const listed = sessionCostTick ? undefined : sessions.find((s) => (s.session_id || s.conversation_id) === sid)?.resume;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (listed) apply(listed);
+    else if (sessionCostTick) timer = setTimeout(fetchCost, 6000);
+    else fetchCost();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [selectedSessionId, sessions, executionMode]);
+  }, [selectedSessionId, sessions, executionMode, sessionCostTick]);
 
   const openSingleShare = useCallback((convId: string, title?: string) => {
     setShareTargetId(convId);
@@ -3338,6 +3343,7 @@ function AskPageContent() {
     }
     userCancelledRef.current = false;
     setCompactMode(false);
+    setSessionCostTick((n) => n + 1);
     abortRef.current = null;
     loadConversations();
     if (activeConversationIdRef.current) {
@@ -3572,7 +3578,12 @@ function AskPageContent() {
           model: selectedModel,
           effort: selectedEffort,
           session_id: effectiveSessionId,
-          compact_mode: effectiveCompact || undefined,
+          // The user's own pick (the banner switch, or retrying compacted) goes as is, raw included; left
+          // out, the server compacts a session past the heavy threshold itself
+          compact_mode:
+            options?.forceCompact !== undefined || (effectiveSessionId && compactChosenRef.current.has(effectiveSessionId))
+              ? effectiveCompact
+              : effectiveCompact || undefined,
           project_id: selectedProjectId,
           worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
         }),

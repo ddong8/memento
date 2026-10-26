@@ -43,6 +43,17 @@ describe("Claude stream-json", () => {
     expect(usage.turns).toBe(3);
   });
 
+  it("an auto-compaction and the cache read / written are reported", () => {
+    const parser = new ClaudeStreamParser();
+    expect(
+      parser.feed('{"type":"system","subtype":"compact_boundary","session_id":"s","compact_metadata":{"trigger":"auto","pre_tokens":201234}}'),
+    ).toEqual([{ kind: "compact", trigger: "auto", pre_tokens: 201234 }]);
+    const usage = parser
+      .feed('{"type":"result","subtype":"success","total_cost_usd":1.5,"num_turns":4,"usage":{"input_tokens":10,"cache_read_input_tokens":900000,"cache_creation_input_tokens":40000,"output_tokens":3000}}')!
+      .find((e) => e.kind === "usage")!;
+    expect(usage).toMatchObject({ input_tokens: 940010, cache_read_tokens: 900000, cache_write_tokens: 40000, output_tokens: 3000, turns: 4 });
+  });
+
   it("a failed tool result is marked failed", () => {
     const parser = new ClaudeStreamParser();
     parser.feed('{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"false"}}]}}');

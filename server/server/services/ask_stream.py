@@ -120,6 +120,19 @@ async def direct_agent_stream(
         args["title"] = conv_title
 
     orig_session_id = session_id
+    # Not chosen by the client: a Claude Code session past the heavy threshold resumes from a compacted
+    # snapshot, whichever client asked (each raw step would carry its whole context, and after an idle
+    # hour the first one re-caches all of it). An explicit False keeps the raw resume.
+    if compact_mode is None and session_id and action == "agent" and execution_mode == "claude" and not fork:
+        try:
+            from ..services.session_compactor import claude_resume_cost
+            from ..services.user_filter import user_machine_ids
+            cost = await claude_resume_cost(db, session_id, await user_machine_ids(db, user))
+            if cost.get("heavy"):
+                compact_mode = True
+                logger.info("Session %s carries %s tokens: resuming from a compacted snapshot", session_id, cost.get("context_tokens"))
+        except Exception as e:
+            logger.warning("Failed to size session %s for resume: %s", session_id, e)
     if compact_mode and session_id and action == "agent":
         try:
             from ..services.session_compactor import build_compacted_continuation

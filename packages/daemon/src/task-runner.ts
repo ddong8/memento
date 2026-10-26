@@ -76,6 +76,17 @@ const chunk = (taskId: string, stream: "stdout" | "stderr", text: string) => ({ 
 
 const claudeUserMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
 
+/**
+ * Claude Code's auto-compact window for a task, from the user's setting the server puts in the payload:
+ * a token count Claude Code accepts (100k–1M), else undefined and Claude Code keeps its own default
+ * (about 967k on 1M-context models). Every step of a run carries the whole context, so a run left to
+ * grow to 300k+ costs far more per step than one compacted at 200k.
+ */
+export function autoCompactWindow(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 100_000 && n <= 1_000_000 ? n : undefined;
+}
+
 /** Claude Code in print mode with stream-json in and out: every tool call is an event, the prompt goes in on stdin, and follow-ups can be written while it runs. */
 export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: string; settingsJson?: string; sessionName?: string } = {}): string[] {
   return [
@@ -788,6 +799,8 @@ export class TaskRunner {
       if (binary.includes("claude")) {
         const settings: Record<string, unknown> = {};
         if (effort) settings.effortLevel = effort;
+        const compactWindow = autoCompactWindow(payload.auto_compact_window);
+        if (compactWindow) settings.autoCompactWindow = compactWindow;
         // Report each tool call to the server, which pushes risky ones to the phone.
         this.hookBridge ??= new HookBridge((tid, use) => this.send({ type: "agent_tool_use", task_id: tid, ...use }));
         const hooks = await this.hookBridge.claudeHooks(taskId);

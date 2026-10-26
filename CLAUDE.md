@@ -23,6 +23,7 @@
 - 镜像 tag 由 CI 自动 bump,**不要手改**。
 - 服务端 Python 依赖锁在 `server/uv.lock`,Docker 安装的是由它导出的 `server/requirements.lock`(带哈希)。改了 `server/pyproject.toml` 的依赖后:`cd server && uv lock && uv export --frozen --no-dev --no-emit-project --no-header --format requirements-txt -o requirements.lock`;升级依赖用 `uv lock --upgrade` 再导出。CI 会检查两者一致。
 - bot 回写提交带 `[skip ci]`(GitHub 上真生效、不是装饰),避免触发死循环。
+- 自己的提交说明(包括正文)里不要写出 `[skip ci]` 这几个字:GitHub 在说明任何位置看到它都会跳过这次推送的全部流水线(2026-10-27 b5a92960 正文提到它,CI 和部署都没跑)。漏了就再推一个提交触发 CI,部署可在 Actions 里手动运行 deploy.yml。
 - **不要用 ConfigMap 挂载覆盖镜像里的代码文件做热修复。** 2026-10-13 有人这样给 api 挂了 projects.py、ingest_service.py、user_filter.py,补丁一直没撤,之后这三个文件的改动在线上全部不生效(镜像照常更新,文件被挂载盖住)。Fleet 不把这类手动加的挂载算作漂移,不会自动清掉。确实要紧急止血,也要在修复随镜像上线后立刻删掉挂载和 ConfigMap。
 
 ### api 是多副本(deploy/k8s/api.yaml 的 replicas)

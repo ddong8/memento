@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -418,6 +418,11 @@ async def semantic_search(
         stmt = stmt.where(Document.synced_at >= cutoff)
     if mids is not None:
         stmt = stmt.where(Document.machine_id.in_(mids))
+
+    try:
+        await db.execute(text("SET LOCAL hnsw.ef_search = 32"))
+    except Exception:
+        pass
 
     rows = (await db.execute(stmt)).all()
 

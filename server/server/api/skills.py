@@ -64,6 +64,7 @@ async def _edit(db: AsyncSession, user: User, skill: Skill, body: SkillEdit | No
 async def _bust_skills_cache(user_id: uuid.UUID) -> None:
     try:
         await cache_delete_prefix(f"skills:list:{user_id}")
+        await cache_delete_prefix(f"skills_injection:{user_id}")
     except Exception:
         pass
 
@@ -236,8 +237,21 @@ async def get_injection(
     Folders follow the per-device tool switches of the resident profile: turning a
     tool off there also takes its skills back out.
     """
+    cache_key = f"skills_injection:{user.id}:{x_device_id}"
+    try:
+        cached = await cache_get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
     machine = await _machine(db, user, x_device_id)
-    return await injection_for(db, user, machine)
+    res = await injection_for(db, user, machine)
+    try:
+        await cache_set(cache_key, res, ttl_seconds=60)
+    except Exception:
+        pass
+    return res
 
 
 @router.post("/injection/status")

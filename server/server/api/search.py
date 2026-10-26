@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select, func
+from sqlalchemy import or_, select, func, text
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +78,11 @@ async def _semantic_doc_ranks(
             # to one row per document below.
             .limit(want * 4)
         )
+
+        try:
+            await db.execute(text("SET LOCAL hnsw.ef_search = 32"))
+        except Exception:
+            pass
 
         order: list = []
         snippets: dict = {}

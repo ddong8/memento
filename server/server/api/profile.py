@@ -91,6 +91,8 @@ async def _owned_machine(db: AsyncSession, user: User, device_id: str) -> Machin
 async def _bust_user_profile_cache(user_id) -> None:
     try:
         await cache_delete_prefix(f"profile:summary:{user_id}")
+        await cache_delete_prefix(f"profile_injection:{user_id}")
+        await cache_delete_prefix(f"skills_injection:{user_id}")
     except Exception:
         pass
 
@@ -535,17 +537,30 @@ async def get_injection(
     An empty target list tells the collector to remove any block it wrote earlier,
     so turning a tool off in the web UI cleans up on the next poll.
     """
+    cache_key = f"profile_injection:{user.id}:{x_device_id}"
+    try:
+        cached = await cache_get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
     machine = await _owned_machine(db, user, x_device_id)
     published = await get_published_profile(db, user)
     block = None
     if published:
         content = render_device_profile(published.content, machine.name, await device_projects(db, machine))
         block = render_profile_block(published.version, content)
-    return {
+    res = {
         "version": published.version if published else None,
         "block": block,
         "targets": machine.profile_targets or [],
     }
+    try:
+        await cache_set(cache_key, res, ttl_seconds=60)
+    except Exception:
+        pass
+    return res
 
 
 @router.post("/injection/status")

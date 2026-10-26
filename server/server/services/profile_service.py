@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, Project, User, UserMemory, UserProfile
 from .ai_provider import call_plain_chat, get_ai_providers
+from .cache import cache_delete_prefix, cache_get, cache_set
 from .dreaming_service import fetch_user_voice_rows, plan_user_voice_batches, render_user_voice
 
 logger = logging.getLogger("server.profile_service")
@@ -201,6 +202,14 @@ PROJECT_ACTIVE_DAYS = 120
 
 async def device_projects(db: AsyncSession, machine: Machine, days: int = PROJECT_ACTIVE_DAYS) -> dict[str, str]:
     """Projects this machine worked on lately: name -> its directory on this machine."""
+    cache_key = f"dev_projects:{machine.id}:{days}"
+    try:
+        cached = await cache_get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
     from .ingest_service import _clean_source_path
 
     rows = (await db.execute(
@@ -218,6 +227,10 @@ async def device_projects(db: AsyncSession, machine: Machine, days: int = PROJEC
         path = _clean_source_path(raw_path)
         if title and path:
             found.setdefault(title, path)
+    try:
+        await cache_set(cache_key, found, ttl_seconds=300)
+    except Exception:
+        pass
     return found
 
 
@@ -303,10 +316,10 @@ async def publish_profile(db: AsyncSession, user: User, content: str) -> UserPro
     await db.commit()
     await db.refresh(profile)
     try:
-        from .cache import cache_delete_prefix
         await cache_delete_prefix(f"memory:resonance:{user.id}")
         await cache_delete_prefix(f"learning:check:{user.id}")
         await cache_delete_prefix(f"profile_content:{user.id}")
+        await cache_delete_prefix(f"profile_injection:{user.id}")
     except Exception as e:
         logger.warning("Failed to invalidate resonance cache on publish_profile: %s", e)
     return profile

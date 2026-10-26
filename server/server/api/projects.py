@@ -252,11 +252,19 @@ async def _bust_project_cache(project_id: uuid.UUID | None = None, user_id: uuid
     try:
         if user_id:
             await cache.cache_delete_prefix(f"projects:list:{user_id}:")
+            await cache.cache_delete_prefix(f"projects:list:v2:{user_id}:")
+            if project_id:
+                await cache.cache_delete_prefix(f"project:conv:{user_id}:{project_id}:")
+                await cache.cache_delete_prefix(f"project:conv:v2:{user_id}:{project_id}:")
+                await cache.cache_delete_prefix(f"project:timeline:{user_id}:{project_id}:")
         else:
             await cache.cache_delete_prefix("projects:list:")
+            await cache.cache_delete_prefix("projects:list:v2:")
+            if project_id:
+                await cache.cache_delete_prefix("project:conv:")
+                await cache.cache_delete_prefix("project:conv:v2:")
+                await cache.cache_delete_prefix("project:timeline:")
         if project_id:
-            await cache.cache_delete_prefix("project:timeline:")
-            await cache.cache_delete_prefix("project:conv:")
             await cache.cache_delete_prefix("project:blueprint:")
     except Exception:
         pass
@@ -431,7 +439,7 @@ async def list_projects(
             pass
 
     if not sync:
-        await cache_set(cache_key, items, ttl_seconds=20)
+        await cache_set(cache_key, items, ttl_seconds=300)
 
     return items
 
@@ -1653,7 +1661,7 @@ async def get_project_conversations(
         "sessions": sessions,
     }
     await db.commit()
-    await cache_set(cache_key, payload, ttl_seconds=30)
+    await cache_set(cache_key, payload, ttl_seconds=300)
     return payload
 
 

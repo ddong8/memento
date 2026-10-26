@@ -227,6 +227,8 @@ class ConversationMessage(Base):
         Index("uq_conv_msg_doc_line", "document_id", "line_number", unique=True),
         Index("idx_conv_msg_timestamp", "timestamp"),
         Index("idx_conv_msg_doc_ts", "document_id", "timestamp"),
+        # Dialogue messages index for dialogue extraction (embedding, graph, compaction) skipping tool output noise
+        Index("idx_conv_msg_doc_dialogue", "document_id", "line_number", postgresql_where=text("role IN ('user', 'assistant')")),
         # The daily views count and list only real chat messages: with this index they don't read every
         # message's text (the calendar read ~350 MB per call). Created on production by hand, CONCURRENTLY.
         Index("idx_conv_msg_chat_ts", "timestamp", "document_id", postgresql_where=text(

@@ -1182,6 +1182,10 @@ async def ingest_file(
             await cache_delete_prefix(f"devices:stats:{user_id}:")
             if doc.project_id:
                 await cache_delete_prefix(f"project:conv:{user_id}:{doc.project_id}:")
+                await cache_delete_prefix(f"project:conv:v2:{user_id}:{doc.project_id}:")
+                await cache_delete_prefix(f"project:timeline:{user_id}:{doc.project_id}:")
+            await cache_delete_prefix(f"projects:list:{user_id}:")
+            await cache_delete_prefix(f"projects:list:v2:{user_id}:")
         except Exception:
             pass
 

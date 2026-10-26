@@ -356,6 +356,7 @@ def _run_migrations(conn) -> None:
     for stmt in (
         "CREATE INDEX IF NOT EXISTS idx_conv_msg_timestamp ON conversation_messages (timestamp)",
         "CREATE INDEX IF NOT EXISTS idx_conv_msg_doc_ts ON conversation_messages (document_id, timestamp)",
+        "CREATE INDEX IF NOT EXISTS idx_conv_msg_doc_dialogue ON conversation_messages (document_id, line_number) WHERE role IN ('user', 'assistant')",
         # Partial index for the daily / dashboard hot path: filter user+assistant
         # messages by recent timestamp. Without it the planner seq-scans the
         # whole 117K+ row conversation_messages table and cold-cache first hits

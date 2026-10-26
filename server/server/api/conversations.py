@@ -260,8 +260,10 @@ async def update_conversation(
     from ..services.cache import cache_delete_prefix
     if doc.project_id:
         await cache_delete_prefix(f"project:conv:{_user.id}:{doc.project_id}:")
+        await cache_delete_prefix(f"project:conv:v2:{_user.id}:{doc.project_id}:")
         await cache_delete_prefix(f"project:timeline:{_user.id}:{doc.project_id}:")
     await cache_delete_prefix(f"projects:list:{_user.id}:")
+    await cache_delete_prefix(f"projects:list:v2:{_user.id}:")
 
     return {"status": "ok", "id": str(doc.id), "title": doc.title}
 

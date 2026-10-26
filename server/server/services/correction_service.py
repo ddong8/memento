@@ -241,39 +241,52 @@ async def fetch_new_corrections(
 
     # Also scan recent AskConversation turns (last 24h) so client chats in any mode
     # or before local daemon JSONL sync are immediately captured without lag.
+    ask_cursor_key = f"corrections_ask_cursor:{user.id}"
+    ask_cursor_iso = await ai_health.get_json(ask_cursor_key)
+    ask_since = datetime.fromisoformat(ask_cursor_iso) if isinstance(ask_cursor_iso, str) else (now - timedelta(hours=24))
     ask_convs = (await db.execute(
-        select(AskConversation)
+        select(
+            AskConversation.id,
+            AskConversation.config,
+            AskConversation.updated_at,
+            AskConversation.turns,
+        )
         .where(
             AskConversation.user_id == user.id,
-            AskConversation.updated_at >= now - timedelta(hours=24),
+            AskConversation.updated_at > ask_since,
         )
-        .order_by(AskConversation.updated_at.desc())
+        .order_by(AskConversation.updated_at.asc())
         .limit(30)
-    )).scalars().all()
+    )).all()
     recent_quotes = set((await db.execute(
         select(CorrectionEvent.quote).where(
             CorrectionEvent.user_id == user.id,
             CorrectionEvent.said_at >= now - timedelta(hours=24),
         )
     )).scalars().all())
-    for conv in ask_convs:
-        cfg = conv.config or {}
+    latest_ask_ts = ask_since
+    for _cid, cfg_raw, conv_updated_at, turns_raw in ask_convs:
+        if conv_updated_at and conv_updated_at > latest_ask_ts:
+            latest_ask_ts = conv_updated_at
+        cfg = cfg_raw or {}
         proj_name = cfg.get("project_id") or None
-        for idx, turn in enumerate(conv.turns or []):
+        for idx, turn in enumerate(turns_raw or []):
             if not isinstance(turn, dict) or turn.get("role") != "user":
+                continue
+            ts_raw = turn.get("created_at")
+            try:
+                said_at = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00")) if ts_raw else (conv_updated_at or now)
+            except ValueError:
+                said_at = conv_updated_at or now
+            if said_at <= ask_since:
                 continue
             text = clean_user_voice(str(turn.get("content") or ""))
             if not text or text in seen_texts or text in recent_quotes or not looks_like_pushback(text):
                 continue
-            ts_raw = turn.get("created_at")
-            try:
-                said_at = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00")) if ts_raw else (conv.updated_at or now)
-            except ValueError:
-                said_at = conv.updated_at or now
-            if said_at < now - timedelta(hours=24):
-                continue
             seen_texts.add(text)
             found.append(Said(-1 - idx, text, said_at, proj_name, None))
+    if latest_ask_ts > ask_since:
+        await ai_health.put_json(ask_cursor_key, latest_ask_ts.isoformat(), ttl_seconds=90 * 24 * 3600)
 
     found.sort(key=lambda s: s.said_at)
     return found, (rows[-1][0] if rows else after_id)

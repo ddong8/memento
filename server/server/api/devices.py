@@ -279,6 +279,17 @@ async def _purge_device_data(
     }
 
 
+async def _invalidate_device_caches(user_id: uuid.UUID) -> None:
+    await cache_delete_prefix(f"devices:stats:{user_id}")
+    await cache_delete_prefix(f"hierarchy:devices:{user_id}")
+    await cache_delete_prefix(f"dashboard:{user_id}")
+    await cache_delete_prefix(f"tools:list:{user_id}")
+    await cache_delete_prefix(f"projects:list:{user_id}")
+    await cache_delete_prefix(f"projects:list:v2:{user_id}")
+    await cache_delete_prefix(f"project:conv:{user_id}:")
+    await cache_delete_prefix(f"project:conv:v2:{user_id}:")
+
+
 @router.delete("/{device_db_id}")
 async def delete_device(
     device_db_id: uuid.UUID,
@@ -299,11 +310,7 @@ async def delete_device(
         machine.archived_at = datetime.now(timezone.utc)
         await db.commit()
 
-        await cache_delete_prefix(f"devices:stats:{_user.id}")
-        await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
-        await cache_delete_prefix(f"dashboard:{_user.id}")
-        await cache_delete_prefix(f"tools:list:{_user.id}")
-        await cache_delete_prefix(f"projects:list:{_user.id}")
+        await _invalidate_device_caches(_user.id)
 
         return {
             "status": "archived",
@@ -318,11 +325,7 @@ async def delete_device(
     stats = await _purge_device_data(db, device_db_id, include_system=True)
     await db.execute(delete(Machine).where(Machine.id == device_db_id))
 
-    await cache_delete_prefix(f"devices:stats:{_user.id}")
-    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
-    await cache_delete_prefix(f"dashboard:{_user.id}")
-    await cache_delete_prefix(f"tools:list:{_user.id}")
-    await cache_delete_prefix(f"projects:list:{_user.id}")
+    await _invalidate_device_caches(_user.id)
 
     return {"status": "deleted", "device_id": str(device_db_id), "name": machine.name, "keep_data": False, **stats}
 
@@ -339,11 +342,7 @@ async def archive_device(
     machine.archived_at = datetime.now(timezone.utc)
     await db.commit()
 
-    await cache_delete_prefix(f"devices:stats:{_user.id}")
-    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
-    await cache_delete_prefix(f"dashboard:{_user.id}")
-    await cache_delete_prefix(f"tools:list:{_user.id}")
-    await cache_delete_prefix(f"projects:list:{_user.id}")
+    await _invalidate_device_caches(_user.id)
 
     return {"status": "archived", "device_id": str(device_db_id), "name": machine.name, "keep_data": True}
 
@@ -360,11 +359,7 @@ async def unarchive_device(
     machine.archived_at = None
     await db.commit()
 
-    await cache_delete_prefix(f"devices:stats:{_user.id}")
-    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
-    await cache_delete_prefix(f"dashboard:{_user.id}")
-    await cache_delete_prefix(f"tools:list:{_user.id}")
-    await cache_delete_prefix(f"projects:list:{_user.id}")
+    await _invalidate_device_caches(_user.id)
 
     return {"status": "unarchived", "device_id": str(device_db_id), "name": machine.name}
 
@@ -379,11 +374,7 @@ async def purge_device(
     machine = await _verify_device_ownership(db, device_db_id, _user)
     stats = await _purge_device_data(db, device_db_id, include_system=False)
 
-    await cache_delete_prefix(f"devices:stats:{_user.id}")
-    await cache_delete_prefix(f"hierarchy:devices:{_user.id}")
-    await cache_delete_prefix(f"dashboard:{_user.id}")
-    await cache_delete_prefix(f"tools:list:{_user.id}")
-    await cache_delete_prefix(f"projects:list:{_user.id}")
+    await _invalidate_device_caches(_user.id)
 
     return {"status": "purged", "device_id": str(device_db_id), "name": machine.name, **stats}
 

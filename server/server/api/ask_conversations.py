@@ -219,9 +219,43 @@ async def get_conversation(
     cond = (AskConversation.id == cid) & (
         (AskConversation.user_id == _user.id) | (AskConversation.user_id.is_(None))
     )
-    conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
+    client_tag = if_none_match.strip().strip('"') if if_none_match else ""
+
+    # Fast ETag evaluation path: avoid de-TOASTing megabytes of turns JSON on conditional polls (HTTP 304)
+    if client_tag:
+        conv = (
+            await db.execute(
+                select(AskConversation)
+                .options(defer(AskConversation.turns))
+                .where(cond)
+            )
+        ).scalars().first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        conv_id_str = str(conv.id)
+        updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
+        created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+        cfg = conv.config or {}
+        conv_dev = conv.device_id or cfg.get("device_id")
+        total_turns = conv.message_count
+
+        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+        etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
+        server_tag = etag.strip('"')
+
+        if client_tag == server_tag:
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+
+        # ETag changed: load turns on the existing instance
+        await db.refresh(conv, ["turns"])
+    else:
+        # First load / uncached: load full conversation directly
+        conv = (await db.execute(select(AskConversation).where(cond))).scalars().first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     cfg, inferred = infer_conversation_config(conv)
     recovered_turns = await recover_orphaned_tasks_for_conv(db, conv, cfg)
@@ -241,6 +275,9 @@ async def get_conversation(
         cfg["device_id"] = resolved_dev
 
     need_commit = False
+    if total_turns != conv.message_count:
+        conv.message_count = total_turns
+        need_commit = True
     if conv.config != cfg:
         conv.config = cfg
         need_commit = True
@@ -258,22 +295,16 @@ async def get_conversation(
         conv.updated_at = now_utc
         try:
             await db.commit()
+            updated_at_iso = conv.updated_at.isoformat()
+            etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+            etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
         except Exception as e:
             logger.warning("Failed to persist inferred conversation config: %s", e)
-
-    created_at_iso = conv.created_at.isoformat() if conv.created_at else None
-    updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
-
-    # Fast ETag evaluation before full turns sanitization and slicing
-    etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
-    etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
-
-    if_none_match = request.headers.get("if-none-match", "").strip() if request else ""
-    if if_none_match:
-        client_tag = if_none_match.strip().strip('"')
-        server_tag = etag.strip('"')
-        if client_tag == server_tag:
-            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+    else:
+        created_at_iso = conv.created_at.isoformat() if conv.created_at else None
+        updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
+        etag_seed = f"v4:{conv_id_str}:{updated_at_iso or ''}:{total_turns}:{limit}:{conv_dev or ''}"
+        etag = f'"{hashlib.sha1(etag_seed.encode("utf-8")).hexdigest()}"'
 
     if limit > 0 and len(raw_turns) > limit:
         offset = len(raw_turns) - limit

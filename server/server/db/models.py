@@ -592,6 +592,12 @@ class DeviceTask(Base):
         # The collector's poll: "my queued tasks, oldest first".
         Index("idx_device_task_poll", "device_id", "status", "created_at"),
         Index("idx_device_task_user", "user_id", "created_at"),
+        Index(
+            "idx_device_tasks_user_active",
+            "user_id",
+            created_at.desc(),
+            postgresql_where=text("status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')"),
+        ),
     )
 
 

@@ -370,6 +370,7 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_documents_path_trgm ON documents USING gin (relative_path gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_name_trgm ON knowledge_entities USING gin (name gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_summary_trgm ON knowledge_entities USING gin (summary gin_trgm_ops)",
+        "CREATE INDEX IF NOT EXISTS idx_device_tasks_user_active ON device_tasks (user_id, created_at DESC) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
         # Re-extracting a document's knowledge first clears its observations by source document.
         "CREATE INDEX IF NOT EXISTS idx_observation_source_doc ON knowledge_observations (source_document_id)",
         # Vector ANN index for semantic search. Without this, /api/memory/semantic

@@ -22,20 +22,26 @@ saturated, time requests out and mark documents failed for good.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import logging
 import math
 import os
+import struct
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy import cast, delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-from ..db.models import ConversationMessage, Document, DocumentEmbedding
+from pgvector.sqlalchemy import HALFVEC
+
+from ..db.models import EMBEDDING_INDEX_DIM, ConversationMessage, Document, DocumentEmbedding, embedding_half
+from .cache import cache_get, cache_set
 
 logger = logging.getLogger("embedding_service")
 
@@ -144,6 +150,43 @@ async def _embed_batch(client: httpx.AsyncClient, batch: list[str], timeout: flo
 
 _QUERY_EMBED_CACHE: dict[str, list[float]] = {}
 _QUERY_CACHE_MAX_SIZE = 512
+# Shared by the api replicas and kept across restarts: embedding a query took 130-315 ms of a
+# cold search. A query not asked again for this long drops out.
+_QUERY_REDIS_TTL = 3 * 86400
+
+
+def _query_cache_key(q: str) -> str:
+    return f"emb:q:v1:{EMBEDDING_MODEL}:{hashlib.sha1(q.encode('utf-8')).hexdigest()}"
+
+
+def _remember_query(q: str, vec: list[float]) -> None:
+    if len(_QUERY_EMBED_CACHE) >= _QUERY_CACHE_MAX_SIZE:
+        _QUERY_EMBED_CACHE.pop(next(iter(_QUERY_EMBED_CACHE)), None)
+    _QUERY_EMBED_CACHE[q] = vec
+
+
+async def _cached_query_vector(q: str) -> list[float] | None:
+    vec = _QUERY_EMBED_CACHE.get(q)
+    if vec is not None:
+        return list(vec)
+    packed = await cache_get(_query_cache_key(q))
+    if not isinstance(packed, str):
+        return None
+    try:
+        raw = base64.b64decode(packed)
+        vec = list(struct.unpack(f"<{len(raw) // 4}f", raw))
+    except (ValueError, struct.error):
+        return None
+    if len(vec) != EMBEDDING_INDEX_DIM:
+        return None
+    _remember_query(q, vec)
+    return list(vec)
+
+
+async def _store_query_vector(q: str, vec: list[float]) -> None:
+    _remember_query(q, vec)
+    packed = base64.b64encode(struct.pack(f"<{len(vec)}f", *vec)).decode("ascii")
+    await cache_set(_query_cache_key(q), packed, _QUERY_REDIS_TTL)
 
 
 async def embed_texts(texts: list[str], timeout: float = 120.0, client: httpx.AsyncClient | None = None) -> list[list[float]]:
@@ -175,14 +218,22 @@ async def embed_texts(texts: list[str], timeout: float = 120.0, client: httpx.As
     return out
 
 
+HNSW_EF_PER_ROW = 5
+
+
 async def widen_hnsw_scan(db: AsyncSession, rows: int) -> None:
     """Let the next HNSW scan in this transaction return `rows` rows, with filters or without.
 
     An HNSW index scan yields at most hnsw.ef_search rows (default 40) and the WHERE runs after it:
     measured on prod, asking for 80 got 43 back (35 at ef_search 32), fewer still with a tool filter.
     Iterative scan (pgvector 0.8+) keeps reading the graph until the LIMIT is met; strict_order keeps
-    the distance order exact."""
-    ef = max(40, min(int(rows), 1000))
+    the distance order exact.
+
+    ef_search only as large as the LIMIT misses true neighbours: on the 53 eval questions (10-28,
+    105k chunks) a pool of 200 at ef_search 200 held 84% of the exact top 200, and the half-precision
+    index lost two rank-1 answers (semantic MRR 0.445 -> 0.408). At 1000 it holds 98% and MRR is back
+    to 0.445 (exact search: 0.450), 21 ms warm against 9 ms."""
+    ef = max(40, min(int(rows) * HNSW_EF_PER_ROW, 1000))
     await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef}"))
     await db.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
 
@@ -259,6 +310,11 @@ async def semantic_document_hits(
 ) -> list[DocumentHit]:
     """The `want` documents nearest to `qvec`, best first (see rank_chunk_pool)."""
     size = pool_size(want)
+    # The HNSW index is over half-precision copies, a third of the size (260 MB against 787 MB on
+    # 10-28), so it stays in shared buffers: with the full-precision one a cold search took 179 ms
+    # (median of 20) reading 14 MB from disk, 14 ms with this. The pool's distances are exact, and
+    # widen_hnsw_scan keeps the candidates as good as before.
+    near = embedding_half().cosine_distance(cast(qvec, HALFVEC(EMBEDDING_INDEX_DIM)))
     dist = DocumentEmbedding.embedding.cosine_distance(qvec).label("dist")
     stmt = select(DocumentEmbedding.document_id, DocumentEmbedding.id, dist)
     if tool or category or days or mids is not None:
@@ -272,7 +328,7 @@ async def semantic_document_hits(
         if mids is not None:
             stmt = stmt.where(Document.machine_id.in_(mids))
     await widen_hnsw_scan(db, size)
-    pool = (await db.execute(stmt.order_by(dist.asc()).limit(size))).all()
+    pool = (await db.execute(stmt.order_by(near.asc()).limit(size))).all()
     counts = await chunk_counts(db, {row[0] for row in pool})
     return rank_chunk_pool(pool, counts, want)
 
@@ -285,24 +341,20 @@ async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> li
     None for 60s instead of piling onto a provider that is down.
     """
     global _server_available, _last_check_time, _embedding_client
-    if _server_available is False and (time.time() - _last_check_time) < 60:
-        return None
-
     is_single_query = len(texts) == 1 and len(texts[0]) <= 500
     if is_single_query:
-        q_text = texts[0]
-        cached_vec = _QUERY_EMBED_CACHE.get(q_text)
+        cached_vec = await _cached_query_vector(texts[0])
         if cached_vec is not None:
-            return [[x for x in cached_vec]]
+            return [cached_vec]  # also while the provider is down
+
+    if _server_available is False and (time.time() - _last_check_time) < 60:
+        return None
 
     try:
         vectors = await embed_texts(texts, timeout=timeout)
         _server_available = True
         if is_single_query and vectors and len(vectors) == 1:
-            if len(_QUERY_EMBED_CACHE) >= _QUERY_CACHE_MAX_SIZE:
-                first_k = next(iter(_QUERY_EMBED_CACHE))
-                _QUERY_EMBED_CACHE.pop(first_k, None)
-            _QUERY_EMBED_CACHE[texts[0]] = vectors[0]
+            await _store_query_vector(texts[0], vectors[0])
         return vectors
     except Exception as e:
         if _embedding_client and not _embedding_client.is_closed:

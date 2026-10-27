@@ -78,7 +78,18 @@ async def test_semantic_search_sets_hnsw_ef_search():
         )
         assert mock_db.execute.await_count >= 1
         executed_stmts = [str(call[0][0]) for call in mock_db.execute.await_args_list]
-        # want=10 reads a pool of 200 chunks (see embedding_service.pool_size); iterative scan keeps
-        # reading past filtered-out rows
-        assert any(f"SET LOCAL hnsw.ef_search = {pool_size(10)}" in stmt for stmt in executed_stmts)
+        # want=10 reads a pool of 200 chunks (see embedding_service.pool_size), searched 5x as wide so the
+        # pool holds the true neighbours; iterative scan keeps reading past filtered-out rows
+        assert pool_size(10) == 200
+        assert any("SET LOCAL hnsw.ef_search = 1000" in stmt for stmt in executed_stmts)
         assert any("SET LOCAL hnsw.iterative_scan = strict_order" in stmt for stmt in executed_stmts)
+
+
+@pytest.mark.asyncio
+async def test_hnsw_search_width_scales_with_the_rows_wanted():
+    from server.services.embedding_service import widen_hnsw_scan
+
+    for rows, ef in ((5, 40), (20, 100), (200, 1000), (1000, 1000)):
+        db = AsyncMock()
+        await widen_hnsw_scan(db, rows)
+        assert str(db.execute.await_args_list[0][0][0]) == f"SET LOCAL hnsw.ef_search = {ef}"

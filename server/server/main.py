@@ -217,13 +217,15 @@ def _run_migrations(conn) -> None:
     except Exception:
         sp3.rollback()
 
-    # DocumentEmbedding.embedding HNSW 向量索引：消除全表暴力余弦扫描，实现毫秒级 ANN 图检索
+    # DocumentEmbedding.embedding HNSW 向量索引：消除全表暴力余弦扫描，实现毫秒级 ANN 图检索。
+    # 建在半精度上（models.embedding_half）：全精度索引 787 MB 装不进 512 MB 共享缓冲，冷查询要读盘。
+    # 线上的表大，先 CREATE INDEX CONCURRENTLY 建好再发版，这里就只是确认存在。
     if "document_embeddings" in tables:
         sp_hnsw = conn.begin_nested()
         try:
             conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw "
-                "ON document_embeddings USING hnsw (embedding vector_cosine_ops) "
+                "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw_half "
+                "ON document_embeddings USING hnsw (CAST(embedding AS HALFVEC(1024)) halfvec_cosine_ops) "
                 "WITH (m = 16, ef_construction = 64)"
             ))
             sp_hnsw.commit()
@@ -396,9 +398,10 @@ def _run_migrations(conn) -> None:
         # Vector ANN index for semantic search. Without this, /api/memory/semantic
         # seq-scans document_embeddings — fine at 50 rows, fatal at 1M. HNSW
         # preferred over IVFFlat: no training step, better recall, pgvector
-        # 0.5+ required. Dim must match Vector(1024) in DocumentEmbedding.
-        "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw "
-        "ON document_embeddings USING hnsw (embedding vector_cosine_ops)",
+        # 0.7+ required for halfvec. Dim must match EMBEDDING_INDEX_DIM in models.
+        "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw_half "
+        "ON document_embeddings USING hnsw (CAST(embedding AS HALFVEC(1024)) halfvec_cosine_ops) "
+        "WITH (m = 16, ef_construction = 64)",
     ):
         sp = conn.begin_nested()
         try:
@@ -415,6 +418,22 @@ def _run_migrations(conn) -> None:
         conn.execute(text("SET LOCAL lock_timeout = '5s'"))
         conn.execute(text("DROP INDEX IF EXISTS idx_documents_content_trgm"))
         conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
+        sp.commit()
+    except Exception:
+        sp.rollback()
+
+    # Searches order by the half-precision index since 10-27: the full-precision one is no longer read,
+    # yet every new chunk still updated it. Drop it once its replacement is built and valid.
+    sp = conn.begin_nested()
+    try:
+        half_ready = conn.execute(text(
+            "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+            "WHERE c.relname = 'idx_doc_embedding_hnsw_half'"
+        )).scalar()
+        if half_ready:
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(text("DROP INDEX IF EXISTS idx_doc_embedding_hnsw"))
+            conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
         sp.commit()
     except Exception:
         sp.rollback()

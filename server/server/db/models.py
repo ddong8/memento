@@ -7,15 +7,15 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String,
-    Text, UniqueConstraint, func, text,
+    Text, UniqueConstraint, cast, func, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 try:
-    from pgvector.sqlalchemy import Vector
+    from pgvector.sqlalchemy import HALFVEC, Vector
 except ImportError:
-    Vector = None  # pgvector not installed — models still loadable
+    HALFVEC = Vector = None  # pgvector not installed — models still loadable
 
 
 class Base(DeclarativeBase):
@@ -423,6 +423,9 @@ class SyncState(Base):
 # ---------------------------------------------------------------------------
 # Document Embeddings (pgvector semantic search)
 # ---------------------------------------------------------------------------
+EMBEDDING_INDEX_DIM = 1024
+
+
 class DocumentEmbedding(Base):
     __tablename__ = "document_embeddings"
 
@@ -430,26 +433,29 @@ class DocumentEmbedding(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(1024) if Vector else Text, nullable=False)
+    embedding = mapped_column(Vector(EMBEDDING_INDEX_DIM) if Vector else Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     document: Mapped[Document] = relationship()
 
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_doc_embedding_chunk"),
-        *(
-            [
-                Index(
-                    "idx_doc_embedding_hnsw",
-                    "embedding",
-                    postgresql_using="hnsw",
-                    postgresql_with={"m": 16, "ef_construction": 64},
-                    postgresql_ops={"embedding": "vector_cosine_ops"},
-                )
-            ]
-            if Vector
-            else []
-        ),
+    )
+
+
+def embedding_half():
+    """The embedding at half precision: what the HNSW index is built over, so what a search orders by."""
+    return cast(DocumentEmbedding.embedding, HALFVEC(EMBEDDING_INDEX_DIM))
+
+
+if HALFVEC:
+    # A third of the size of the full-precision index (260 MB against 787 MB on 10-28), so it stays in shared buffers
+    Index(
+        "idx_doc_embedding_hnsw_half",
+        embedding_half().label("embedding_half"),
+        postgresql_using="hnsw",
+        postgresql_with={"m": 16, "ef_construction": 64},
+        postgresql_ops={"embedding_half": "halfvec_cosine_ops"},
     )
 
 

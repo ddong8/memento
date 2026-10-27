@@ -240,12 +240,34 @@ export default function ActiveRunsMonitor() {
       pending = setTimeout(() => void fetchRuns(), 150);
     };
     const offEvent = onLiveEvent("ask_run", refresh);
+    // A running run moving on is pushed too: show its new step without fetching the list
+    const offStep = onLiveEvent("ask_run_step", (e) => {
+      const step = e.data as Partial<AskRunSummary> & { conversation_id?: string };
+      if (!step.conversation_id) return;
+      setRuns((prev) => {
+        const i = prev.findIndex((r) => r.conversation_id === step.conversation_id && !r.done);
+        if (i < 0) {
+          refresh(); // a run this tab hasn't listed yet
+          return prev;
+        }
+        const next = prev.slice();
+        next[i] = {
+          ...prev[i],
+          current_step: step.current_step ?? prev[i].current_step,
+          step_type: step.step_type ?? prev[i].step_type,
+          tool_name: step.tool_name ?? prev[i].tool_name,
+          step_count: step.step_count ?? prev[i].step_count,
+        };
+        return next;
+      });
+    });
     const offStatus = onLiveStatus((up) => {
       setLive(up);
       if (up) refresh(); // catch up on what happened while it was down
     });
     return () => {
       offEvent();
+      offStep();
       offStatus();
       if (pending) clearTimeout(pending);
     };
@@ -255,9 +277,10 @@ export default function ActiveRunsMonitor() {
     if (!token) return;
     fetchRuns();
 
-    // While a run is going, 2 s keeps its step and elapsed time current. Idle, the pushes above say
-    // when one starts, so the poll is only a fallback: 30 s without them, 2 minutes with them.
-    const intervalTime = hasActiveRuns ? 2000 : live ? 120_000 : 30000;
+    // Starts, steps and ends are pushed (above) and the elapsed time ticks locally, so with the push
+    // connection up the poll is only a fallback: 15 s while a run is going, 2 minutes idle. Without
+    // it, 2 s keeps a running run's step current and 30 s catches one starting.
+    const intervalTime = hasActiveRuns ? (live ? 15_000 : 2000) : live ? 120_000 : 30000;
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       void fetchRuns();

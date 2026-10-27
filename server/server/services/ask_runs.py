@@ -95,6 +95,22 @@ def _publish_run(run) -> None:
         logger.debug("ask_run event not published: %s", e)
 
 
+def _publish_step(run) -> None:
+    """Tell the user's open clients a running run moved on (event "ask_run_step"): the running-tasks
+    monitor shows the new step from it, instead of fetching the run list every 2 s to find it."""
+    try:
+        from .sse_service import publish_event
+        publish_event("ask_run_step", {
+            "conversation_id": run.conversation_id,
+            "current_step": run.current_step,
+            "step_type": run.step_type,
+            "tool_name": run.tool_name,
+            "step_count": run.step_count,
+        }, user_id=str(run.user_id))
+    except Exception as e:
+        logger.debug("ask_run_step event not published: %s", e)
+
+
 class AskRun:
     def __init__(
         self,
@@ -276,6 +292,7 @@ class AskRun:
             if (now_ts - self._last_la_push_at >= 1.8) or self.step_type in ("tool", "error"):
                 self._last_la_push_at = now_ts
                 self._last_la_step = self.current_step
+                _publish_step(self)
                 notify_service.spawn(
                     notify_service.push_live_activity_event(
                         self.user_id,

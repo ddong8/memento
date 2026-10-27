@@ -2,9 +2,10 @@
 
 /**
  * One live connection per tab to /api/events/stream (server-sent events). The server pushes
- * "ask_run" when a run starts or ends and "notification" when one is sent, so the running-tasks
- * monitor, the history drawer and the notification feed refresh at once instead of polling every
- * few seconds; while the connection is up their polls only back it up.
+ * "ask_run" when a run starts or ends, "ask_run_step" when a running one moves on and "notification"
+ * when one is sent, so the running-tasks monitor, the history drawer and the notification feed
+ * refresh at once instead of polling every few seconds; while the connection is up their polls only
+ * back it up.
  *
  * fetch, not EventSource: it sends the token in the Authorization header (EventSource can only put
  * it in the URL, which ends up in the access log).

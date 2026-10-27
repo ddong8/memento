@@ -1336,6 +1336,7 @@ export interface AskRunSummary {
   current_step?: string;
   step_type?: "init" | "thinking" | "tool_call" | "executing" | "tool_result" | "generating" | "done" | "cancelled" | "error";
   tool_name?: string | null;
+  step_count?: number;
   events: number;
 }
 

@@ -2216,9 +2216,11 @@ function AskPageContent() {
       }
     };
 
+    // The run ending is pushed (ask_run), so with the push connection up this check while streaming
+    // is only a fallback for a stream that died: 15 s, not 3 s.
     const schedule = () => {
       if (!isMounted) return;
-      const delay = streamingRef.current ? 3000 : 30000;
+      const delay = streamingRef.current ? (isLiveConnected() ? 15000 : 3000) : 30000;
       timer = setTimeout(async () => {
         await checkServerRun(false);
         schedule();
@@ -2226,6 +2228,13 @@ function AskPageContent() {
     };
 
     schedule();
+
+    const offRunEvent = onLiveEvent("ask_run", (e) => {
+      const convId = (e.data as { conversation_id?: string }).conversation_id;
+      if (convId && convId === activeConversationIdRef.current && streamingRef.current) {
+        void checkServerRun(false);
+      }
+    });
 
     // Recheck immediately when window regains visibility from background or wakes
     const onWake = () => {
@@ -2255,6 +2264,7 @@ function AskPageContent() {
     return () => {
       isMounted = false;
       if (timer) clearTimeout(timer);
+      offRunEvent();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWake);
       window.removeEventListener("pageshow", onWake);

@@ -66,6 +66,23 @@ class RunEventTests(unittest.TestCase):
         self.assertEqual(mine[0]["data"]["title"], "修一下登录")
         self.assertEqual(others, [])
 
+    def test_steps_are_pushed_so_the_monitor_need_not_poll(self):
+        user = uuid.uuid4()
+        run = ask_runs.AskRun(conversation_id="c2", user_id=user, question="跑测试", request_id=None)
+        sent: list[tuple] = []
+
+        async def go():
+            await run.append('data: {"type": "tool_call", "name": "Bash", "args": {"command": "pytest"}}\n\n')
+            await run.append('data: {"type": "tool_call", "name": "Read", "args": {}}\n\n')
+
+        with patch.object(sse_service, "publish_event", lambda t, d, user_id=None: sent.append((t, d, user_id))), \
+             patch("server.services.notify_service.spawn", lambda coro: coro.close()):
+            asyncio.run(go())
+        steps = [d for t, d, _ in sent if t == "ask_run_step"]
+        self.assertEqual([d["current_step"] for d in steps], ["调用工具: Bash (pytest)", "调用工具: Read"])
+        self.assertEqual([d["step_count"] for d in steps], [2, 3])
+        self.assertEqual({u for t, _, u in sent}, {str(user)})
+
 
 class SlowReaderTests(unittest.TestCase):
     def test_a_reader_that_falls_behind_is_disconnected(self):

@@ -50,6 +50,9 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 
 
 
+// The session picker shows the latest few messages as a preview and loads the full conversation on pick
+const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
+
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
 
@@ -1212,7 +1215,7 @@ function AskPageContent() {
         setSessions(cachedSess);
         setLoadingSessions(cachedSess.length === 0);
         try {
-          const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery);
+          const res = await api.getProjectConversations(effectiveProjId, 0, 50, "desc", devForQuery, SESSION_PICKER_LIST);
           if (stale() || sessTicket !== sessionsReqRef.current) return;
           const sessList = res?.sessions || [];
           setSessions(sessList);
@@ -3864,7 +3867,7 @@ function AskPageContent() {
       setSessions(cachedSess);
       setLoadingSessions(cachedSess.length === 0);
       try {
-        const res = await api.getProjectConversations(projId, 0, 50, "desc", dev);
+        const res = await api.getProjectConversations(projId, 0, 50, "desc", dev, SESSION_PICKER_LIST);
         if (ticket !== sessionsReqRef.current) return;
         const sessList = res.sessions || [];
         setSessions(sessList);

@@ -106,19 +106,38 @@ async def _authorize_device(db: AsyncSession, device_id: str, user: User) -> Mac
     return machine
 
 
+# A list shows a task on one line (its command or prompt). The injected context is most of a payload:
+# 50 tasks were 398 KB of payload on 10-27, 255 KB of it system_prompt_append. GET /{id} has it all.
+_LIST_PAYLOAD_DROP = ("system_prompt_append",)
+_LIST_PAYLOAD_CHARS = 500
+
+
+def _list_payload(payload):
+    if not isinstance(payload, dict):
+        return payload
+    out = {}
+    for k, v in payload.items():
+        if k in _LIST_PAYLOAD_DROP:
+            continue
+        out[k] = v[:_LIST_PAYLOAD_CHARS] + "…" if isinstance(v, str) and len(v) > _LIST_PAYLOAD_CHARS else v
+    return out
+
+
 def _serialize(t: DeviceTask, truncate_output: bool = False, include_events: bool = True) -> dict:
     stdout = t.stdout
     stderr = t.stderr
+    payload = t.payload
     if truncate_output:
         if stdout and len(stdout) > 2000:
             stdout = stdout[:1000] + "\n...[truncated]...\n" + stdout[-1000:]
         if stderr and len(stderr) > 2000:
             stderr = stderr[:1000] + "\n...[truncated]...\n" + stderr[-1000:]
+        payload = _list_payload(payload)
     return {
         "id": str(t.id),
         "device_id": t.device_id,
         "action": t.action,
-        "payload": t.payload,
+        "payload": payload,
         "status": t.status,
         "exit_code": t.exit_code,
         "stdout": stdout,

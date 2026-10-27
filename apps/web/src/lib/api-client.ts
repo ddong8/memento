@@ -1072,7 +1072,16 @@ export const api = {
   },
   getProject: (projectId: string) =>
     apiFetch<ProjectSummary>(`/api/projects/${projectId}`),
-  getProjectConversations: (projectId: string, offset = 0, limit = 50, order = "desc", deviceId?: string) => {
+  getProjectConversations: (
+    projectId: string,
+    offset = 0,
+    limit = 50,
+    order = "desc",
+    deviceId?: string,
+    /** messagesPerSession keeps only each session's latest few (0 = all);
+     *  artifacts=false skips the plan/task documents the session picker never shows */
+    opts: { messagesPerSession?: number; artifacts?: boolean } = {},
+  ) => {
     const params = new URLSearchParams({
       session_offset: String(offset),
       session_limit: String(limit),
@@ -1083,6 +1092,8 @@ export const api = {
     if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
       params.set("device_id", deviceId);
     }
+    if (opts.messagesPerSession) params.set("max_messages_per_session", String(opts.messagesPerSession));
+    if (opts.artifacts === false) params.set("artifacts", "false");
     return apiFetch<{
       project: { id: string; slug: string; title: string; source_path: string };
       sessions: Array<{

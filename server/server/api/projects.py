@@ -1061,6 +1061,7 @@ async def get_project_conversations(
     max_messages_per_session: int = Query(0, ge=0, le=10000),
     order: str = Query("asc", pattern="^(asc|desc)$"),
     device_id: str | None = None,
+    artifacts: bool = Query(True, description="Each session's plan documents (5 KB each); the session picker skips them"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
     as_of: datetime | None = None,  # internal — passed by share.py to cap visibility
@@ -1112,8 +1113,8 @@ async def get_project_conversations(
     as_of_key = as_of.isoformat() if as_of else "live"
     dev_key = device_id or "all"
     cache_key = (
-        f"project:conv:v2:{_user.id}:{project_id}:{dev_key}:"
-        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}"
+        f"project:conv:v3:{_user.id}:{project_id}:{dev_key}:"
+        f"{session_offset}:{session_limit}:{max_messages_per_session}:{order}:{as_of_key}:{int(artifacts)}"
     )
     cached = await cache_get(cache_key)
     if cached is not None:
@@ -1325,8 +1326,7 @@ async def get_project_conversations(
         plans_q = plans_q.where(Document.machine_id == target_mid)
     else:
         plans_q = apply_user_filter(plans_q, mids, Document.machine_id)
-    plans_result = await db.execute(plans_q)
-    all_plans = plans_result.all()
+    all_plans = (await db.execute(plans_q)).all() if artifacts else []
 
     # Index plans by session_id
     plans_by_session: dict[str, list] = {}
@@ -1349,6 +1349,7 @@ async def get_project_conversations(
         for child in subagent_map.get(d.relative_path or "", []):
             needed_ids.append(child.id)
     msgs_by_doc: dict = {}
+    shown_by_doc: dict = {}  # messages shown per document, before the preview keeps a few
     if needed_ids:
         # Only what's shown: tool calls and outputs (role "tool") are ~60% of the rows and most of the
         # text, and reading then sorting them all spilled 70+ MB to temp files per call. The order is
@@ -1392,6 +1393,7 @@ async def get_project_conversations(
                 or content.startswith("[Result]")
             ):
                 continue
+            shown_by_doc[did] = shown_by_doc.get(did, 0) + 1
             doc_msg_list = msgs_by_doc.setdefault(did, [])
             if max_messages_per_session > 0 and len(doc_msg_list) >= max(max_messages_per_session * 5, 50):
                 continue
@@ -1461,8 +1463,8 @@ async def get_project_conversations(
         # more. Picking the wrong end is what made a user see a session
         # "start at 19:50" when the first real prompt was at 19:24 and
         # there were simply more than N messages in between.
-        total_msgs = len(messages)
-        if max_messages_per_session and total_msgs > max_messages_per_session:
+        total_msgs = shown_by_doc.get(d.id, 0) + sum(shown_by_doc.get(c.id, 0) for c in child_docs)
+        if max_messages_per_session and len(messages) > max_messages_per_session:
             if order == "asc":
                 messages = messages[:max_messages_per_session]
             else:

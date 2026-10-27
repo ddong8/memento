@@ -193,7 +193,8 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         async with self.Session() as db:
             return await get_project_conversations(
                 self.memento_id, session_offset=0, session_limit=50, offset=None, limit=None,
-                max_messages_per_session=0, order="desc", device_id=device_id, db=db, _user=self.user, as_of=None,
+                max_messages_per_session=0, order="desc", device_id=device_id, artifacts=True, db=db, _user=self.user,
+                as_of=None,
             )
 
     async def test_each_device_sees_its_own_folder(self) -> None:
@@ -238,3 +239,41 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_sid["s-book-old"], "dev-book")
         self.assertEqual(by_sid["s-win-1"], "dev-win")
         self.assertEqual(by_sid["s-mini-1"], "dev-mini")
+
+    async def test_the_session_picker_gets_the_latest_few_messages_and_the_true_count(self) -> None:
+        from sqlalchemy import select
+
+        from server.api.projects import get_project_conversations
+        from server.db.models import ConversationMessage, Document
+
+        async with self.Session() as db:
+            doc = (await db.execute(
+                select(Document).where(Document.metadata_["session_id"].astext == "s-mini-1")
+            )).scalar_one()
+            db.add_all([
+                ConversationMessage(document_id=doc.id, line_number=i, role="user" if i % 2 else "assistant",
+                                    content=f"第 {i} 条", timestamp=NOW - timedelta(minutes=60 - i))
+                for i in range(1, 61)
+            ])
+            db.add(Document(
+                tool_id="antigravity", project_id=self.memento_id, machine_id=doc.machine_id, category="plan",
+                relative_path="brain/s-mini-1/task.md", content_type="md", content_hash="plan", content="计划" * 100,
+                file_size_bytes=300, metadata_={"session_id": "s-mini-1"},
+            ))
+            await db.commit()
+
+        async def picker(artifacts: bool) -> dict:
+            async with self.Session() as db:
+                res = await get_project_conversations(
+                    self.memento_id, session_offset=0, session_limit=50, offset=None, limit=None,
+                    max_messages_per_session=5, order="desc", device_id="dev-mini", artifacts=artifacts, db=db,
+                    _user=self.user, as_of=None,
+                )
+            return next(s for s in res["sessions"] if s["session_id"] == "s-mini-1")
+
+        lean = await picker(False)
+        self.assertEqual([m["content"] for m in lean["messages"]], [f"第 {i} 条" for i in range(56, 61)])
+        self.assertEqual(lean["message_count"], 60)  # past the 50 collected for the preview
+        self.assertTrue(lean["truncated"])
+        self.assertEqual(lean["artifacts"], [])
+        self.assertEqual([a["doc_type"] for a in (await picker(True))["artifacts"]], ["task"])

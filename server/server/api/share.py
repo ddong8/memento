@@ -476,12 +476,17 @@ async def get_public_share_data(
 
     if link.kind == "timeline":
         from .projects import get_project_conversations
+        # Called as a function, so every parameter is passed: an omitted one would be its Query() marker
         data = await get_project_conversations(
             project_id=uuid.UUID(link.target_id),
             session_offset=0,
             session_limit=10,
+            offset=None,
+            limit=None,
             max_messages_per_session=80,
             order="asc",
+            device_id=None,
+            artifacts=True,
             db=db,
             _user=owner,
             as_of=as_of,

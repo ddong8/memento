@@ -30,6 +30,44 @@ TOP_K = 6
 # 32k-token context alongside the conversation history.
 CHARS_PER_DOC = 1500
 
+# Exact deterministic tokens: CAS registry numbers, git commits, code file names.
+_EXACT_TOKEN_RES = (
+    re.compile(r"\b\d{2,7}-\d{2}-\d\b"),
+    re.compile(r"\b[0-9a-f]{7,40}\b"),
+    re.compile(r"\b[\w-]+\.(?:py|tsx?|jsx?|rs|go|ya?ml|json|md)\b"),
+)
+
+
+def fuse_ranks(docs: list, kw_ids: list, sem_ids: list, q: str) -> list:
+    """`docs` best first by Reciprocal Rank Fusion of the keyword and semantic orders.
+
+    Only ranks count. Replaying the frozen evaluation set (v1, 53 questions, 2026-10-27) showed what
+    two extra terms did: adding cosine similarity on top (as large as the RRF score itself) let the
+    weaker semantic channel outvote keyword, and a 1.8x boost for titles/paths containing "agent",
+    "rule", "规范"... hit 75% of all documents — every Claude Code subagent transcript
+    (subagents/agent-*.jsonl) — and pushed them over the answer. Together they took MRR from 0.42 to
+    0.28, below keyword alone. Rules and pitfalls reach the answer through retrieve_core_memories,
+    not through document rank."""
+    kw_rank = {doc_id: i for i, doc_id in enumerate(kw_ids)}
+    sem_rank = {doc_id: i for i, doc_id in enumerate(sem_ids)}
+    exact = any(p.search(q) for p in _EXACT_TOKEN_RES)
+    kw_weight, sem_weight = (1.6, 0.7) if exact else (1.0, 1.0)
+    q_lower = q.lower().strip()
+
+    def score(d) -> float:
+        s = 0.0
+        if d.id in kw_rank:
+            s += kw_weight / (RRF_K + kw_rank[d.id] + 1)
+        if d.id in sem_rank:
+            s += sem_weight / (RRF_K + sem_rank[d.id] + 1)
+        if d.id in kw_rank and d.id in sem_rank:
+            s *= 1.3  # both channels agree
+        if q_lower and (q_lower in (d.title or "").lower() or q_lower in (d.relative_path or "").lower()):
+            s *= 1.2  # the whole question is the title / path
+        return s
+
+    return sorted(docs, key=score, reverse=True)
+
 
 async def hybrid_rank(
     db: AsyncSession, user: User, q: str, tool: str | None, days: int | None, k: int = TOP_K,
@@ -41,7 +79,8 @@ async def hybrid_rank(
     from ..services.tokenize import tokenize_for_query_any
 
     clean_q = q.strip()
-    cache_key = f"hybrid_rank:{user.id}:{tool or 'all'}:{days or 'all'}:{hashlib.sha256(clean_q.lower().encode('utf-8')).hexdigest()[:16]}"
+    # k is in the key: each channel fetches k rows, so Ask (6) and the evaluation (10) rank different pools.
+    cache_key = f"hybrid_rank:{user.id}:{tool or 'all'}:{days or 'all'}:{k}:{hashlib.sha256(clean_q.lower().encode('utf-8')).hexdigest()[:16]}"
     cached_payload = await cache_get(cache_key)
     if cached_payload and isinstance(cached_payload, dict):
         try:
@@ -101,17 +140,12 @@ async def hybrid_rank(
             return await _semantic_doc_ranks(sem_db, q, mids, tool, None, days, want=k)
 
     (sem_res, kw_docs) = await asyncio.gather(_fetch_sem(), _fetch_kw())
-    if len(sem_res) == 3:
-        sem_order, sem_snippets, sem_sims = sem_res
-    else:
-        sem_order, sem_snippets = sem_res
-        sem_sims = {}
+    sem_order, sem_snippets = sem_res[0], sem_res[1]
 
-    kw_rank = {d.id: i for i, d in enumerate(kw_docs)}
-    sem_rank = {doc_id: i for i, doc_id in enumerate(sem_order)}
+    kw_ids = [d.id for d in kw_docs]
 
     docs = list(kw_docs)
-    missing = [doc_id for doc_id in sem_order if doc_id not in kw_rank]
+    missing = [doc_id for doc_id in sem_order if doc_id not in kw_ids]
     if missing:
         extra_q = select(Document).options(
             defer(Document.content_tsv),
@@ -120,48 +154,7 @@ async def hybrid_rank(
         extra_q = apply_user_filter(extra_q, mids, Document.machine_id)
         docs += list((await db.execute(extra_q)).scalars().all())
 
-    q_lower = q.lower().strip()
-
-    # Detect exact deterministic tokens (CAS numbers, git commits, code file paths)
-    is_exact_token = bool(
-        re.search(r"\b\d{2,7}-\d{2}-\d\b", q)  # CAS registry number
-        or re.search(r"\b[0-9a-f]{7,40}\b", q)  # Git commit hash
-        or re.search(r"\b[\w-]+\.(?:py|tsx?|jsx?|rs|go|ya?ml|json|md)\b", q)  # code file paths
-    )
-    kw_weight = 1.6 if is_exact_token else 1.0
-    sem_weight = 0.7 if is_exact_token else 1.0
-
-    def rrf(d) -> float:
-        score = 0.0
-        in_kw = d.id in kw_rank
-        in_sem = d.id in sem_rank
-        if in_kw:
-            score += kw_weight / (RRF_K + kw_rank[d.id] + 1)
-        if in_sem:
-            score += sem_weight / (RRF_K + sem_rank[d.id] + 1)
-        # Dual-hit synergy bonus: strongly preferred when both channels agree
-        if in_kw and in_sem:
-            score *= 1.3
-        # Direct semantic similarity weighting
-        sim = sem_sims.get(d.id, 0.0)
-        if sim > 0:
-            score += sim * 0.025
-        # Exact title / path relevance boost
-        title_lower = (d.title or "").lower()
-        path_lower = (d.relative_path or "").lower()
-        if q_lower and (q_lower in title_lower or q_lower in path_lower):
-            score *= 1.2
-
-        # P0 铁律与避坑经验动态加权（Dynamic Priority Boost: 1.8x）
-        # 命中规则文档（AGENTS.md, CLAUDE.md, rules, pitfall, 铁律, 避坑, 架构规范）时赋予 1.8x 加权，
-        # 确保工程铁律与历史避坑经验置顶于检索前置上下文，杜绝跨会话遗忘与重复踩坑
-        path_check = f"{title_lower} {path_lower}"
-        if any(term in path_check for term in ("agent", "rule", "claude.md", "pitfall", "铁律", "避坑", "规范", "guideline")):
-            score *= 1.8
-
-        return score
-
-    docs.sort(key=rrf, reverse=True)
+    docs = fuse_ranks(docs, kw_ids, list(sem_order), q)
     try:
         await cache_set(cache_key, {
             "doc_ids": [str(d.id) for d in docs],
@@ -171,7 +164,7 @@ async def hybrid_rank(
         }, ttl_seconds=60)
     except Exception:
         pass
-    return docs[:k], [d.id for d in kw_docs], list(sem_order), sem_snippets
+    return docs[:k], kw_ids, list(sem_order), sem_snippets
 
 
 def clean_conversation_excerpt(text: str, tool_id: str | None = None) -> str:

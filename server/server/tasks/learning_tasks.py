@@ -246,9 +246,11 @@ async def _evaluate() -> dict:
             out[str(user.id)] = {"set_version": run.set_version, "hybrid": (run.metrics or {}).get("hybrid")}
             drop = regression(await recent_runs(db, user, limit=6))
             if drop:
+                change = (f"前 5 命中率从最好时的 {drop['was']:.0%} 降到 {drop['now']:.0%}" if drop["metric"] == "hit5"
+                          else f"MRR 从最好时的 {drop['was']:.2f} 降到 {drop['now']:.2f}")
                 await notify_user(
                     user.id, "health", "Memento 检索变差了",
-                    f"评测集 v{drop['set_version']} 前 5 命中率从 {drop['was']:.0%} 降到 {drop['now']:.0%}，到「系统健康」查看。",
+                    f"评测集 v{drop['set_version']} {change}，到「系统健康」查看。",
                 )
     return out
 

@@ -548,7 +548,8 @@ function Eval({
   const metrics = obj(latest?.metrics);
   const hybrid = obj(metrics.hybrid);
   const misses = list(metrics.misses);
-  const regression = evalData.regression != null;
+  // Which metric fell below its best on this set ("hit5" / "mrr"), if any.
+  const regressed = evalData.regression != null ? String(obj(evalData.regression).metric ?? "hit5") : null;
   const jobError = job?.status === "error" ? String(job.error ?? "") : null;
   return (
     <>
@@ -558,9 +559,9 @@ function Eval({
         <>
           <Metrics
             items={[
-              { label: h.hit5, value: percent(hybrid.hit5), color: regression ? DANGER : undefined },
+              { label: h.hit5, value: percent(hybrid.hit5), color: regressed === "hit5" ? DANGER : undefined },
               { label: h.hit1, value: percent(hybrid.hit1) },
-              { label: "MRR", value: typeof hybrid.mrr === "number" ? hybrid.mrr.toFixed(2) : "—" },
+              { label: "MRR", value: typeof hybrid.mrr === "number" ? hybrid.mrr.toFixed(2) : "—", color: regressed === "mrr" ? DANGER : undefined },
               { label: h.keywordSemantic, value: `${percent(obj(metrics.keyword).hit5)} / ${percent(obj(metrics.semantic).hit5)}` },
             ]}
           />

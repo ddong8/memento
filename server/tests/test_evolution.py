@@ -176,9 +176,22 @@ def test_scores():
 
 def test_regression_only_compares_runs_on_the_same_set():
     run = lambda v, h: SimpleNamespace(set_version=v, metrics={"hybrid": {"hit5": h}})  # noqa: E731
-    assert es.regression([run(1, 0.5), run(1, 0.66)]) == {"now": 0.5, "was": 0.66, "set_version": 1}
+    assert es.regression([run(1, 0.5), run(1, 0.66)]) == {"metric": "hit5", "now": 0.5, "was": 0.66, "set_version": 1}
     assert es.regression([run(1, 0.62), run(1, 0.66)]) is None
     assert es.regression([run(2, 0.3), run(1, 0.66)]) is None
+    assert es.regression([run(1, 0.5)]) is None
+
+
+def test_regression_compares_with_the_best_run_and_watches_mrr():
+    run = lambda h, m: SimpleNamespace(set_version=1, metrics={"hybrid": {"hit5": h, "mrr": m}})  # noqa: E731
+    # The real slide, newest first: each weekly step is under the threshold, the total is not
+    history = [run(0.4151, 0.2816), run(0.434, 0.3575), run(0.566, 0.4332), run(0.5849, 0.4731)]
+    assert es.regression(history[1:]) == {"metric": "hit5", "now": 0.434, "was": 0.5849, "set_version": 1}
+    assert es.regression(history)["was"] == 0.5849
+    # hit@5 holds while the answer slides from first to fifth place: MRR catches it
+    assert es.regression([run(0.58, 0.30), run(0.58, 0.47)]) == {"metric": "mrr", "now": 0.30, "was": 0.47, "set_version": 1}
+    # After the fix: a little under the best on both is not a regression
+    assert es.regression([run(0.547, 0.4245), *history]) is None
 
 
 # ---- guidance & query tokens ----

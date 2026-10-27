@@ -29,7 +29,8 @@ SET_SIZE = 60
 PER_PROJECT = 3
 DOCS_PER_CALL = 6
 K = 10
-REGRESSION = 0.08  # hit@5 drop between runs on the same set that is worth a warning
+REGRESSION = 0.08  # hit@5 drop below the best earlier run on the same set that is worth a warning
+MRR_REGRESSION = 0.15  # same, as a share of the best MRR: catches answers sliding down inside the top 5
 MIN_CHARS = 800
 
 
@@ -224,18 +225,27 @@ async def recent_runs(db: AsyncSession, user: User, limit: int = 12) -> list[Eva
 
 
 def regression(runs: list[EvalRun]) -> dict[str, Any] | None:
-    """The latest run against the previous run on the same set, if hit@5 fell by REGRESSION or more."""
+    """The latest run against the best earlier run on the same set (newest first in `runs`), if hit@5
+    fell by REGRESSION or MRR by MRR_REGRESSION of its best.
+
+    Against the best, not the previous run: on 2026-10-25 MRR was 0.28 against a best of 0.47 three
+    weeks earlier, each weekly step too small to warn about, and hit@5 had barely moved."""
     if not runs:
         return None
     latest = runs[0]
-    previous = next((r for r in runs[1:] if r.set_version == latest.set_version), None)
-    if previous is None:
-        return None
-    now5 = ((latest.metrics or {}).get("hybrid") or {}).get("hit5")
-    was5 = ((previous.metrics or {}).get("hybrid") or {}).get("hit5")
-    if now5 is None or was5 is None or was5 - now5 < REGRESSION:
-        return None
-    return {"now": now5, "was": was5, "set_version": latest.set_version}
+    earlier = [r for r in runs[1:] if r.set_version == latest.set_version]
+
+    def metric(run: EvalRun, key: str) -> float | None:
+        value = ((run.metrics or {}).get("hybrid") or {}).get(key)
+        return value if isinstance(value, (int, float)) else None
+
+    for key, fell in (("hit5", lambda was, now: was - now >= REGRESSION),
+                      ("mrr", lambda was, now: was > 0 and (was - now) / was >= MRR_REGRESSION)):
+        now = metric(latest, key)
+        was = max((v for v in (metric(r, key) for r in earlier) if v is not None), default=None)
+        if now is not None and was is not None and fell(was, now):
+            return {"metric": key, "now": now, "was": was, "set_version": latest.set_version}
+    return None
 
 
 async def eval_summary(db: AsyncSession, user: User) -> dict[str, Any]:

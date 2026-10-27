@@ -59,6 +59,7 @@ celery_app = Celery(
         "server.tasks.health_check",
         "server.tasks.learning_tasks",
         "server.tasks.task_reaper",
+        "server.tasks.content_merge",
     ],
 )
 
@@ -104,6 +105,11 @@ celery_app.conf.beat_schedule = {
     # Every minute: embed documents that changed and went quiet, retry failures with backoff.
     "embedding-retry": {
         "task": "server.tasks.embedding_retry.retry_failed_embeddings",
+        "schedule": crontab(minute="*"),
+    },
+    # Every minute: append the deltas staged for big conversations that went quiet or waited 10 min.
+    "merge-staged-deltas": {
+        "task": "server.tasks.content_merge.merge_staged_deltas",
         "schedule": crontab(minute="*"),
     },
     # Same cadence (offset by 2 min so the two retry beats don't hammer

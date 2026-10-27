@@ -294,6 +294,21 @@ class DocumentVersion(Base):
     )
 
 
+class DocumentPendingDelta(Base):
+    """A delta waiting to be appended to a big conversation, see services/content_staging.py."""
+
+    __tablename__ = "document_pending_deltas"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_pending_deltas_doc", "document_id", "id"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------

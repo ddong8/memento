@@ -48,6 +48,7 @@ from ..db.models import (
     KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine,
     Project, ShareLink, User,
 )
+from .content_staging import cap_content, pending_tails
 
 logger = logging.getLogger("memento.export")
 
@@ -177,6 +178,7 @@ async def build_export(
             else:
                 doc_q = select(Document).where(Document.id == uuid.UUID(int=0))  # empty
             docs = (await db.execute(doc_q)).scalars().all()
+            pending = await pending_tails(db, [d.id for d in docs])
             doc_rows = []
             for d in docs:
                 doc_ids.add(d.id)
@@ -189,7 +191,7 @@ async def build_export(
                     "category": d.category,
                     "content_type": d.content_type,
                     "title": d.title,
-                    "content": d.content,
+                    "content": cap_content(d.content + pending[d.id]) if d.id in pending and d.content else d.content,
                     "content_hash": d.content_hash,
                     "file_size_bytes": d.file_size_bytes,
                     "ai_summary": d.ai_summary,

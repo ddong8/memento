@@ -39,6 +39,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import content_staging
 from .profile_service import strip_profile_block
 from .tokenize import _MAX_INPUT_CHARS as _MAX_INDEX_INPUT_CHARS
 from ..db.models import (
@@ -587,6 +588,7 @@ async def ingest_file(
     """Process and store an ingested file."""
     category = _infer_category(tool_id, category, content_type, relative_path)
     index_unchanged = False  # set when a delta can't change what the full-text index reads
+    index_body: str | None = None  # the document's content as the index sees it (None: not fetched)
     prev_title: str | None = None
     # Fast-path dedup: if this exact (tool_id, relative_path, content_hash,
     # offset) was already ingested on this machine, skip everything. Common in multi-collector
@@ -861,8 +863,9 @@ async def ingest_file(
             Document.relative_path == relative_path,
         )
     )
-    if mode != "delta":
-        doc_lookup_query = doc_lookup_query.options(defer(Document.content))
+    # The content is read below only for a delta to a small document: a big conversation's deltas are
+    # staged without fetching it (content_staging)
+    doc_lookup_query = doc_lookup_query.options(defer(Document.content))
     if mach_uuid is not None:
         doc_lookup_query = doc_lookup_query.where(
             or_(
@@ -1016,22 +1019,30 @@ async def ingest_file(
             source_modified_at=datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else now,
         )
         db.add(doc)
+        index_body = content
     else:
         # Update existing document
         if doc.category != category and doc.category == "conversation":
             doc.category = category  # filed as a conversation before its category was inferred
         prev_title = doc.title
-        if mode == "delta" and doc.content:
-            # For large files, replace instead of append to avoid unbounded growth
-            if len(doc.content) + len(content) > 10_000_000:
-                doc.content = content  # Replace with latest delta
-            else:
-                # The index reads only the start of title + content: appending past that changes nothing
-                index_unchanged = len(doc.content) >= _MAX_INDEX_INPUT_CHARS
-                doc.content = doc.content + "\n" + content
+        if mode == "delta" and doc.category == "conversation" and await content_staging.should_stage(db, doc.id):
+            # Appended once the conversation goes quiet, not rewritten (megabytes) on every sync
+            await content_staging.stage_delta(db, doc.id, content)
+            index_unchanged = True  # staged conversations are past what the index reads
+            index_body = None
+        elif mode == "delta":
+            current = await db.scalar(select(Document.content).where(Document.id == doc.id))
+            # The index reads only the start of title + content: appending past that changes nothing
+            index_unchanged = bool(current) and len(current) >= _MAX_INDEX_INPUT_CHARS
+            doc.content = content_staging.append(current, content)
+            if not current:
+                doc.content_s3_key = None
+            index_body = doc.content
         else:
             doc.content = content
             doc.content_s3_key = None  # the full text is in the row again
+            await content_staging.drop_pending(db, doc.id)
+            index_body = content
         doc.content_hash = content_hash
         doc.file_size_bytes = file_size
         # New text: the embedding sweep picks the document up once it goes quiet
@@ -1096,7 +1107,11 @@ async def ingest_file(
     from sqlalchemy import func as _func, update as _update  # also used further down
     if not (index_unchanged and doc.title == prev_title):
         from .tokenize import tokenize_for_index as _tok
-        tsv_input = await asyncio.to_thread(_tok, f"{doc.title or ''} {doc.content or ''}")
+        if index_body is None:  # a staged conversation's start, all the index reads
+            index_body = await db.scalar(
+                select(_func.substr(Document.content, 1, _MAX_INDEX_INPUT_CHARS)).where(Document.id == doc.id)
+            )
+        tsv_input = await asyncio.to_thread(_tok, f"{doc.title or ''} {index_body or ''}")
         await db.execute(
             _update(Document)
             .where(Document.id == doc.id)
@@ -1241,8 +1256,9 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
     try:
         from ..db.session import post_ingest_session_factory
         async with post_ingest_session_factory() as db:
+            # The content (megabytes for a long conversation) only once extraction is due, not on every sync
             doc = (await db.execute(
-                select(Document).where(Document.id == doc_id)
+                select(Document).options(defer(Document.content)).where(Document.id == doc_id)
             )).scalar_one_or_none()
             if not doc:
                 logger.info("Post-ingest: doc %s not found", doc_id)
@@ -1258,6 +1274,7 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
                     doc.knowledge_status = "pending"
                     await db.commit()
                     return
+                await db.refresh(doc, ["content"])
                 count = await extract_knowledge_from_document(db, doc)
                 # Also when nothing was extracted: the status and attempt count must stick.
                 await db.commit()

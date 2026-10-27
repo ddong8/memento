@@ -15,6 +15,7 @@ from ..db.models import (
 from ..db.session import get_db
 from ..middleware.access_log import log_access
 from ..middleware.auth import get_current_user, get_optional_user
+from ..services.content_staging import with_pending
 from ..services.permission_service import can_view_document
 from ..services.user_filter import apply_user_filter, user_machine_ids
 
@@ -159,7 +160,7 @@ async def get_document(
         "category": doc.category,
         "content_type": doc.content_type,
         "title": doc.title,
-        "content": doc.content,
+        "content": await with_pending(db, doc.id, doc.content),
         "content_hash": doc.content_hash,
         "file_size_bytes": doc.file_size_bytes,
         "metadata": doc.metadata_,

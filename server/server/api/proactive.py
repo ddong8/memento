@@ -93,28 +93,10 @@ async def test_evening_reflection(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Instantly test and run memory dreaming reflection and push summary."""
-    try:
-        prefs = pulse_service.get_user_settings(user)
-        offset = prefs.get("timezone_offset_hours", 8)
-        user_now = datetime.now(timezone.utc) + timedelta(hours=offset)
-
-        # Run dreaming pipeline in background
-        user_id = user.id
-        async def _async_reflection():
-            try:
-                async with async_session_factory() as async_db:
-                    u = (await async_db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-                    if u:
-                        await pulse_service._send_evening_reflection(async_db, u, user_now)
-            except Exception as e:
-                logger.warning("Background evening reflection failed for %s: %s", user_id, e)
-
-        asyncio.create_task(_async_reflection())
-        return {"status": "ok", "message": "Evening reflection triggered"}
-    except Exception as e:
-        tb = traceback.format_exc()
-        logger.exception("test_evening_reflection crashed: %s", e)
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}\n{tb}")
+    """Send today's evening reflection now and return its text (a few counts, so no background task)."""
+    prefs = pulse_service.get_user_settings(user)
+    user_now = datetime.now(timezone.utc) + timedelta(hours=prefs.get("timezone_offset_hours", 8))
+    body = await pulse_service._send_evening_reflection(db, user, user_now)
+    return {"status": "ok" if body else "empty", "message": body or "今天还没有会话、新记忆、纠正或待办，没有可推送的内容。"}
 
 

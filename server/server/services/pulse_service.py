@@ -2,7 +2,7 @@
 
 Continuously runs in the background. Coordinates:
 - Morning briefings (todos, active devices, focus tasks)
-- Evening reflections & memory dreaming (evolving personas & skills)
+- Evening reflections (what the day added; the 03:00 dreaming task consolidates it)
 - Device heartbeat & infrastructure health monitoring
 - Autonomous background mission progression
 """
@@ -14,16 +14,17 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db.models import AgentMission, Machine, Todo, User
+from ..db.models import (
+    CHAT_MESSAGE, AgentMission, ConversationMessage, CorrectionEvent, Document, Machine, Todo, User, UserMemory,
+)
 from ..db.session import async_session_factory
 from . import ai_health, mission_service
 from .cluster import cluster
 from .ai_provider import call_plain_chat
-from .dreaming_service import run_dreaming_pipeline
 from .notify_service import notify_user
 
 logger = logging.getLogger("server.pulse")
@@ -234,36 +235,88 @@ async def _send_morning_brief(db: AsyncSession, user: User, user_now: datetime) 
         logger.warning("Failed to generate morning brief for user %s: %s", user.id, e)
 
 
-async def _send_evening_reflection(db: AsyncSession, user: User, user_now: datetime) -> None:
-    """Trigger nightly memory dreaming pipeline and push evening reflection summary."""
+def evening_summary_text(stats: dict[str, int]) -> str | None:
+    """The evening push from the day's counts, or None on a day with nothing in it."""
+    parts = []
+    if stats["chats"]:
+        parts.append(f"今天在 {stats['chats']} 个会话里工作")
+    if stats["memories"]:
+        parts.append(f"新记下 {stats['memories']} 条记忆")
+    if stats["corrections"]:
+        repeats = f"（其中 {stats['repeats']} 次是学过还犯）" if stats["repeats"] else ""
+        parts.append(f"纠正了 AI {stats['corrections']} 次{repeats}")
+    if stats["todos_done"]:
+        parts.append(f"完成 {stats['todos_done']} 条待办")
+    if not parts:
+        return None
+    if stats["todos_open"]:
+        parts.append(f"还有 {stats['todos_open']} 条待办没做完")
+    return "；".join(parts) + "。凌晨 3 点会把今天的内容整理进长期记忆，并更新画像草稿。"
+
+
+async def _evening_stats(db: AsyncSession, user: User, day_start: datetime, now: datetime) -> dict[str, int]:
+    from .user_filter import user_machine_ids
+
+    mids = await user_machine_ids(db, user)
+    chats = (
+        select(func.count(func.distinct(ConversationMessage.document_id)))
+        .join(Document, ConversationMessage.document_id == Document.id)
+        .where(
+            ConversationMessage.timestamp >= day_start,
+            ConversationMessage.timestamp < now,
+            CHAT_MESSAGE,
+            ~Document.relative_path.like("%/subagents/%"),
+        )
+    )
+    if mids is not None:
+        chats = chats.where(Document.machine_id.in_(mids))
+    corrections = (await db.execute(
+        select(func.count(), func.count().filter(CorrectionEvent.repeat.is_(True))).where(
+            CorrectionEvent.user_id == user.id, CorrectionEvent.said_at >= day_start, CorrectionEvent.said_at < now,
+        )
+    )).one()
+    return {
+        "chats": (await db.execute(chats)).scalar() or 0,
+        "memories": (await db.execute(select(func.count()).where(
+            UserMemory.user_id == user.id, UserMemory.created_at >= day_start, UserMemory.created_at < now,
+            UserMemory.status == "active",
+        ))).scalar() or 0,
+        "corrections": corrections[0] or 0,
+        "repeats": corrections[1] or 0,
+        "todos_done": (await db.execute(select(func.count()).where(
+            Todo.user_id == user.id, Todo.status == "done", Todo.closed_at >= day_start, Todo.closed_at < now,
+        ))).scalar() or 0,
+        "todos_open": (await db.execute(select(func.count()).where(
+            Todo.user_id == user.id, Todo.status == "open",
+        ))).scalar() or 0,
+    }
+
+
+async def _send_evening_reflection(db: AsyncSession, user: User, user_now: datetime) -> str | None:
+    """Push what the day added and return the text (None on an empty day or a failure).
+    Consolidating it is the nightly dreaming task's job (03:00): running the dreaming pipeline
+    here too gave two journals a night over overlapping windows and promoted the same memories
+    twice (2026-10-07 to 10-26)."""
     try:
-        # Run dreaming pipeline to distill memories, persona, and daily summary
-        target_date = user_now.date()
-        result = await run_dreaming_pipeline(
-            db, user, start_date=target_date, end_date=target_date, tag="nightly"
-        )
-
-        distilled_count = 0
-        if hasattr(result, "stage_metrics") and isinstance(result.stage_metrics, dict):
-            distilled_count = result.stage_metrics.get("promoted_count", 0)
-        elif isinstance(result, dict):
-            distilled_count = result.get("memories_distilled", result.get("promoted_count", 0))
-        title = "🌌 晚间梦境自进化完成"
-        body = (
-            f"今日工作沉淀已完成！已自动吸收碎片记忆，更新画像偏好与避坑规则（提炼 {distilled_count} 条核心洞察）。"
-            "辛苦了一天，好好休息！"
-        )
-
+        now = datetime.now(timezone.utc)
+        local_midnight = user_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_start = now - (user_now - local_midnight)
+        body = evening_summary_text(await _evening_stats(db, user, day_start, now))
+        if body is None:
+            return None
         await notify_user(
             user.id,
             kind="learning",
-            title=title,
+            title=f"🌙 今日复盘 · {user_now.strftime('%m/%d')}",
             body=body,
             url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily",
         )
-        logger.info("Executed evening reflection dreaming for user %s", user.id)
+        logger.info("Sent evening reflection to user %s", user.id)
+        return body
     except Exception as e:
-        logger.warning("Failed to execute evening reflection for user %s: %s", user.id, e)
+        await db.rollback()
+        logger.warning("Failed to send evening reflection for user %s: %s", user.id, e)
+        return None
 
 
 async def _check_device_alerts(db: AsyncSession, user: User, now_utc: datetime) -> None:

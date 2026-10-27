@@ -127,14 +127,14 @@ export function ProactiveAgentView() {
     try {
       setTestingReflection(true);
       setTestMessage(null);
-      await sendLocalNotification(
-        "🌌 晚间梦境自进化完成",
-        "今日工作沉淀已完成！已自动吸收碎片记忆，更新画像偏好与避坑规则。",
-        "/profile?tab=proactive"
-      );
-      await api.testEveningReflection();
-      setTestMessage("✅ 晚间梦境复盘已执行并触发推送！");
-      setTimeout(() => setTestMessage(null), 4000);
+      const res = await api.testEveningReflection();
+      if (res.status === "ok") {
+        await sendLocalNotification("🌙 今日复盘", res.message, "/daily");
+        setTestMessage(`✅ 已推送：${res.message}`);
+      } else {
+        setTestMessage(`ℹ️ ${res.message}`);
+      }
+      setTimeout(() => setTestMessage(null), 8000);
     } catch (e: unknown) {
       console.error("Test reflection failed:", e);
       const msg = e instanceof Error ? e.message : String(e);
@@ -326,7 +326,7 @@ export function ProactiveAgentView() {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🌌</span>
-                <span className="text-sm font-semibold text-[var(--aurora-fg1)]">夜间梦境自进化复盘</span>
+                <span className="text-sm font-semibold text-[var(--aurora-fg1)]">晚间复盘</span>
               </div>
               <input
                 type="checkbox"
@@ -336,7 +336,7 @@ export function ProactiveAgentView() {
               />
             </div>
             <p className="text-xs text-[var(--aurora-fg4)] leading-relaxed mb-4">
-              深夜离线整理今日碎片记忆、自动吸收避坑经验与用户习惯，更新常驻画像并生成认知日报。
+              按设定时间推送今天的会话、新记忆、纠正和待办；凌晨 3 点自动把当天内容整理进长期记忆并更新画像草稿。
             </p>
             <div className="flex items-center justify-between text-xs text-[var(--aurora-fg2)] bg-[var(--aurora-chip)] px-3 py-2 rounded-xl mb-4">
               <span>触发时间</span>
@@ -366,9 +366,9 @@ export function ProactiveAgentView() {
         <div
           className="p-3 text-xs rounded-xl text-center font-medium transition-all"
           style={{
-            background: testMessage.startsWith("✅") ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)",
-            color: testMessage.startsWith("✅") ? "#10B981" : "#EF4444",
-            border: `1px solid ${testMessage.startsWith("✅") ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+            background: testMessage.startsWith("✅") ? "rgba(16,185,129,0.12)" : testMessage.startsWith("❌") ? "rgba(239,68,68,0.12)" : "rgba(148,163,184,0.12)",
+            color: testMessage.startsWith("✅") ? "#10B981" : testMessage.startsWith("❌") ? "#EF4444" : "#94A3B8",
+            border: `1px solid ${testMessage.startsWith("✅") ? "rgba(16,185,129,0.25)" : testMessage.startsWith("❌") ? "rgba(239,68,68,0.25)" : "rgba(148,163,184,0.25)"}`,
           }}
         >
           {testMessage}

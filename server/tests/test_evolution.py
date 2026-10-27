@@ -254,3 +254,18 @@ def test_query_terms_drop_punctuation_and_question_words():
     assert {"回滚", "镜像", "tag"} <= set(terms)
     assert tokenize_for_query_any(q) == " | ".join(terms)
     assert tokenize_for_query(q) == " & ".join(terms)
+
+
+# ---- evening reflection ----
+
+def test_evening_summary_says_what_the_day_added_and_stays_quiet_on_an_empty_day():
+    from server.services.pulse_service import evening_summary_text
+
+    zero = {"chats": 0, "memories": 0, "corrections": 0, "repeats": 0, "todos_done": 0, "todos_open": 0}
+    assert evening_summary_text(zero) is None
+    # open todos alone are not news
+    assert evening_summary_text({**zero, "todos_open": 4}) is None
+    text = evening_summary_text({**zero, "chats": 6, "corrections": 3, "repeats": 1, "todos_open": 2})
+    assert text.startswith("今天在 6 个会话里工作；纠正了 AI 3 次（其中 1 次是学过还犯）；还有 2 条待办没做完。")
+    assert "新记下" not in text and "凌晨 3 点" in text
+    assert "学过还犯" not in evening_summary_text({**zero, "corrections": 2})

@@ -732,7 +732,7 @@ export const api = {
   testMorningBrief: () =>
     apiFetch<{ status: string; message: string }>("/api/proactive/test-morning-brief", { method: "POST" }),
   testEveningReflection: () =>
-    apiFetch<{ status: string; message: string }>("/api/proactive/test-evening-reflection", { method: "POST" }),
+    apiFetch<{ status: "ok" | "empty"; message: string }>("/api/proactive/test-evening-reflection", { method: "POST" }),
 
   // Custom User LLM API
   getLLMSettings: () => fresh<LLMProfileResponse>("/api/profile/llm"),

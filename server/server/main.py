@@ -452,39 +452,6 @@ async def _schedule_daily_compaction():
         await asyncio.sleep(86400)  # Every 24 hours
 
 
-async def _schedule_daily_dreaming():
-    """Run Dreaming Memory Consolidation once per day in the background
-    (coordinated across replicas via cluster lock), simulating biological sleep consolidation.
-    """
-    import asyncio
-    from datetime import date
-    from .services.cluster import cluster
-    await asyncio.sleep(120)  # Wait for startup and warmup to settle
-    while True:
-        try:
-            today_str = date.today().isoformat()
-            if await cluster.try_lock(f"dreaming_consolidation:{today_str}", 2 * 86400):
-                import logging
-                log = logging.getLogger("dreaming.scheduler")
-                log.info("Starting automated daily Dreaming consolidation for %s...", today_str)
-                from .db.session import async_session_factory
-                from .db.models import User
-                from .services.dreaming_service import run_dreaming_pipeline
-                from sqlalchemy import select
-                async with async_session_factory() as db:
-                    users = (await db.execute(select(User))).scalars().all()
-                    for u in users:
-                        try:
-                            res = await run_dreaming_pipeline(db, u, target_date=None)
-                            log.info("Dreaming pipeline finished for user %s: promoted=%s", u.id, res.get("promoted_memories_count"))
-                        except Exception as user_err:
-                            log.warning("Dreaming pipeline failed for user %s: %s", u.id, user_err)
-        except Exception as e:
-            import logging
-            logging.getLogger("dreaming.scheduler").info("Daily dreaming skipped: %s", e)
-        await asyncio.sleep(86400)
-
-
 async def _warm_embedding_server() -> None:
     """Send a single tiny encode request shortly after boot so the first
     real /api/memory/semantic call doesn't pay the BGE-M3 model's
@@ -571,9 +538,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await cluster.start()
     # One computer, one device record: fold in records left behind by a changed device id.
     merge_task = asyncio.create_task(_merge_device_records())
-    # Start daily compaction & dreaming consolidation in background
+    # Daily compaction in the background; dreaming is the nightly Celery task (03:00)
     compaction_task = asyncio.create_task(_schedule_daily_compaction())
-    dreaming_task = asyncio.create_task(_schedule_daily_dreaming())
     # Fire-and-forget warmup of the embedding server and jieba tokenizer
     warmup_task = asyncio.create_task(_warm_embedding_server())
     jieba_task = asyncio.create_task(_warmup_jieba())
@@ -586,7 +552,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await ask_runs.drain(settings.shutdown_drain_seconds)
     await stop_proactive_pulse()
     compaction_task.cancel()
-    dreaming_task.cancel()
     warmup_task.cancel()
     jieba_task.cancel()
     merge_task.cancel()

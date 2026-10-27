@@ -1,8 +1,8 @@
-version: 1.0.86
+version: 1.0.87
 files:
-  - url: Memento-1.0.86-win-x64.exe
-    sha512: 0yPSBPfUXD4Nfu8jmkFLNorS9sFCzQl7bFpZ8MKwYLBdo6IUSqgGoQDwhBKr7pOAxAIBL6AkYZFCYMoxyvG2Mw==
-    size: 115263962
-path: Memento-1.0.86-win-x64.exe
-sha512: 0yPSBPfUXD4Nfu8jmkFLNorS9sFCzQl7bFpZ8MKwYLBdo6IUSqgGoQDwhBKr7pOAxAIBL6AkYZFCYMoxyvG2Mw==
-releaseDate: '2026-10-27T03:49:25.604Z'
+  - url: Memento-1.0.87-win-x64.exe
+    sha512: gdvTXT3vQHr9VC7VafaJcYnvvb2evBJpeDgQFtbFhOr0JcJQo+mRMm4uWozqPw7/aoCt7Eks0whvUTIc8lJZUA==
+    size: 115265777
+path: Memento-1.0.87-win-x64.exe
+sha512: gdvTXT3vQHr9VC7VafaJcYnvvb2evBJpeDgQFtbFhOr0JcJQo+mRMm4uWozqPw7/aoCt7Eks0whvUTIc8lJZUA==
+releaseDate: '2026-10-27T04:00:46.398Z'

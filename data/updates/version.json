@@ -1,25 +1,25 @@
 {
-  "version": "1.0.86",
-  "title": "Memento v1.0.86",
+  "version": "1.0.87",
+  "title": "Memento v1.0.87",
   "release_notes": "1. WorkBuddy 任务改为直接在任务所在的项目目录里运行：读写文件、执行命令都落在正确的位置；续接以前的 WorkBuddy 对话照常可用\n2. 升级后不用重新登录 WorkBuddy：电脑上已经登录的 WorkBuddy 后台服务会继续使用，它退出后才换成按项目目录运行，之后的登录会一直保存\n3. 空闲的 WorkBuddy 后台服务会自动停止，减少电脑上常驻的进程\n4. 手机端版本号与客户端统一为 1.0.87",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.86-win-x64.zip",
-      "size": 157887618,
-      "sha256": "e3759947e45837467475693a9590edf2e1545b7af0ece44009cc35fd5f2d5cc9",
-      "sha512": "ymPmBsXz/oKht8iDQXPC8so1lZ3SDMmfK/07zAYotoQI6063gZA57r+kXLByN0s/KXVGrdnF0DYguzVVf/jYPQ=="
+      "asset_name": "Memento-1.0.87-win-x64.zip",
+      "size": 157889055,
+      "sha256": "f02ff8ed7f23aab805a4ab1a8c0d53d95ad1e756ec437098e73a92989f56fae3",
+      "sha512": "Mo4sk0wPp1n9UL1eTKpj39wit++YOp3YdMvE6KcY+rEdAmXVeOceWwOOd6PBlk/rRfekZTjUUm5DAQlqCkURhg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.86-mac-arm64.zip",
-      "size": 132357566,
-      "sha256": "0933924228d85bab2cc15522b8bbf629232c2e40628a475a55d14e7e99dbb9b8",
-      "sha512": "frg0zS6duE+BKY8kZbLZvWNFQCpBdkXD+qDGmtT+SSWRVY8DPVduqVV9xrOvIw3aJpkyrpurwzHhoJIQW9aX/Q=="
+      "asset_name": "Memento-1.0.87-mac-arm64.zip",
+      "size": 132359578,
+      "sha256": "a60d7eee60090263178ae0df0b2199cee8e7d6b238a7664e2b7b5d22c1c9d7f0",
+      "sha512": "1aBP6OjkICKpVIFd6zS22k0DWfGc7tIxknvII1JD3VAPVpdBJRaZkxF5TKowvMzkpQ2X9Y/cy/b2B4rNA20CRw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.86-linux-x64.tar.gz",
-      "size": 131656996,
-      "sha256": "46e11f11a3386f3c9fa22e862eb805d0a9fc25ab724b1d3802c2c93bb07e7eb2",
-      "sha512": "53fN0bTKuQT+djyOXd4LDALP+y6pljvc8tLWIA0yv02sx+51hA8DOvv5QgRRmsMYaMmGEJEsrM8lxeGcNcypBg=="
+      "asset_name": "Memento-1.0.87-linux-x64.tar.gz",
+      "size": 131657390,
+      "sha256": "3746ea56ba5e27324b2881151c6ea4cf8ac97957bb3fa3f2a6f952331349dd15",
+      "sha512": "ki7TM5dzeJtulwwEqlq7ViCH9CKQunJjg7IGTd9SFzzKnqQW0RySdpazbVcNJcIZHm/vJsPG/FctIbNOjEbvBA=="
     }
   }
 }

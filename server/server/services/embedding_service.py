@@ -26,6 +26,8 @@ import logging
 import math
 import os
 import time
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -183,6 +185,96 @@ async def widen_hnsw_scan(db: AsyncSession, rows: int) -> None:
     ef = max(40, min(int(rows), 1000))
     await db.execute(text(f"SET LOCAL hnsw.ef_search = {ef}"))
     await db.execute(text("SET LOCAL hnsw.iterative_scan = strict_order"))
+
+
+# A document ranks by its best chunk, and the best of many chunks is close to anything by chance.
+# The week of 2026-10-12 embedded long conversations whole (40k -> 105k chunks); documents with
+# hundreds to thousands of chunks then outranked the answer and semantic MRR on eval set v1 fell
+# from 0.43 to 0.30 (ranking only the older chunks still gave 0.48). Fetching 4 chunks per wanted
+# document let one such conversation fill the pool, leaving as few as 2 documents. Replayed
+# offline on the 53 questions: a pool of 200 chunks and 0.005 * ln(chunks) off the best
+# similarity took semantic MRR to 0.445 and hybrid from 0.42 to 0.46; picked on one half of the
+# questions, the penalty raised the other half in 198 of 200 random splits.
+CHUNK_COUNT_PENALTY = 0.005
+POOL_MIN = 200
+POOL_PER_DOC = 20
+POOL_MAX = 1000
+
+
+@dataclass(frozen=True)
+class DocumentHit:
+    document_id: uuid.UUID
+    chunk_id: uuid.UUID
+    similarity: float  # cosine similarity of the document's best chunk
+
+
+def pool_size(want: int) -> int:
+    return min(POOL_MAX, max(POOL_MIN, want * POOL_PER_DOC))
+
+
+def rank_chunk_pool(pool, chunk_counts: dict, want: int) -> list[DocumentHit]:
+    """Documents from (document_id, chunk_id, cosine distance) rows, best first: each by its best
+    chunk, less CHUNK_COUNT_PENALTY * ln(its chunk count)."""
+    best: dict = {}
+    for doc_id, chunk_id, dist in pool:
+        sim = max(0.0, 1.0 - float(dist))
+        if doc_id not in best or sim > best[doc_id].similarity:
+            best[doc_id] = DocumentHit(doc_id, chunk_id, sim)
+
+    def score(hit: DocumentHit) -> float:
+        return hit.similarity - CHUNK_COUNT_PENALTY * math.log(max(1, chunk_counts.get(hit.document_id, 1)))
+
+    return sorted(best.values(), key=score, reverse=True)[:want]
+
+
+async def chunk_counts(db: AsyncSession, document_ids) -> dict:
+    """Chunks per document: the last chunk_index + 1 (numbered from 0, a shorter rewrite drops the
+    tail), one index probe per document."""
+    if not document_ids:
+        return {}
+    last = (
+        select(DocumentEmbedding.chunk_index)
+        .where(DocumentEmbedding.document_id == Document.id)
+        .order_by(DocumentEmbedding.chunk_index.desc())
+        .limit(1)
+        .correlate(Document)
+        .scalar_subquery()
+    )
+    rows = (await db.execute(select(Document.id, last).where(Document.id.in_(list(document_ids))))).all()
+    return {doc_id: (n or 0) + 1 for doc_id, n in rows}
+
+
+async def chunk_texts(db: AsyncSession, chunk_ids) -> dict:
+    if not chunk_ids:
+        return {}
+    rows = await db.execute(
+        select(DocumentEmbedding.id, DocumentEmbedding.chunk_text).where(DocumentEmbedding.id.in_(list(chunk_ids)))
+    )
+    return dict(rows.all())
+
+
+async def semantic_document_hits(
+    db: AsyncSession, qvec: list[float], want: int, *,
+    mids=None, tool: str | None = None, category: str | None = None, days: int | None = None,
+) -> list[DocumentHit]:
+    """The `want` documents nearest to `qvec`, best first (see rank_chunk_pool)."""
+    size = pool_size(want)
+    dist = DocumentEmbedding.embedding.cosine_distance(qvec).label("dist")
+    stmt = select(DocumentEmbedding.document_id, DocumentEmbedding.id, dist)
+    if tool or category or days or mids is not None:
+        stmt = stmt.join(Document, DocumentEmbedding.document_id == Document.id)
+        if tool:
+            stmt = stmt.where(Document.tool_id == tool)
+        if category:
+            stmt = stmt.where(Document.category == category)
+        if days:
+            stmt = stmt.where(Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days))
+        if mids is not None:
+            stmt = stmt.where(Document.machine_id.in_(mids))
+    await widen_hnsw_scan(db, size)
+    pool = (await db.execute(stmt.order_by(dist.asc()).limit(size))).all()
+    counts = await chunk_counts(db, {row[0] for row in pool})
+    return rank_chunk_pool(pool, counts, want)
 
 
 async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> list[list[float]] | None:

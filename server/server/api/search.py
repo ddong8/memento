@@ -8,7 +8,7 @@ from sqlalchemy import or_, select, func
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, DocumentEmbedding, Machine, User
+from ..db.models import Document, Machine, User
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
@@ -32,15 +32,16 @@ async def _semantic_doc_ranks(
     category: str | None,
     days: int | None,
     want: int,
-) -> tuple[list, dict]:
-    """Rank document ids by BGE-M3 cosine similarity. Returns ([doc_id...], {doc_id: snippet}).
+) -> tuple[list, dict, dict]:
+    """Rank document ids by BGE-M3 cosine similarity (embedding_service.semantic_document_hits).
+    Returns ([doc_id...], {doc_id: snippet}, {doc_id: similarity}).
 
-    Returns ([], {}) on ANY failure — a missing/slow embedding server must
+    Returns ([], {}, {}) on ANY failure — a missing/slow embedding server must
     degrade this endpoint to pure keyword search, never 500 it. The keyword
     branch is the floor; semantic is strictly additive.
     """
     try:
-        from ..services.embedding_service import _call_embedding_server, widen_hnsw_scan
+        from ..services.embedding_service import _call_embedding_server, chunk_texts, semantic_document_hits
 
         # 30s matches /api/memory/semantic — see the note there: BGE-M3 is
         # CPU-only on Apple Silicon and a cold cache + Chinese tokenize can
@@ -48,51 +49,15 @@ async def _semantic_doc_ranks(
         # silently drops users back to keyword-only on a healthy server.
         embeds = await _call_embedding_server([q], timeout=30.0)
         if not embeds or not embeds[0]:
-            return [], {}
+            return [], {}, {}
 
-        dist_col = DocumentEmbedding.embedding.cosine_distance(embeds[0]).label("dist")
-        has_doc_filter = bool(tool or category or days or mids is not None)
-        stmt = select(
-            DocumentEmbedding.document_id,
-            DocumentEmbedding.chunk_text,
-            dist_col,
+        hits = await semantic_document_hits(
+            db, embeds[0], want, mids=mids, tool=tool, category=category, days=days
         )
-        if has_doc_filter:
-            stmt = stmt.join(Document, DocumentEmbedding.document_id == Document.id)
-            if tool:
-                stmt = stmt.where(Document.tool_id == tool)
-            if category:
-                stmt = stmt.where(Document.category == category)
-            if days:
-                from datetime import datetime, timedelta, timezone
-
-                stmt = stmt.where(
-                    Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days)
-                )
-            if mids is not None:
-                stmt = stmt.where(Document.machine_id.in_(mids))
-
-        stmt = (
-            stmt.order_by(dist_col.asc())
-            # Overfetch: a document contributes many chunks, and we dedup down
-            # to one row per document below.
-            .limit(want * 4)
-        )
-
-        await widen_hnsw_scan(db, want * 4)
-
-        order: list = []
-        snippets: dict = {}
-        similarities: dict = {}
-        for doc_id, chunk, dist in (await db.execute(stmt)).all():
-            if doc_id in snippets:
-                continue  # keep only the best-scoring chunk per document
-            snippets[doc_id] = (chunk or "")[:400]
-            sim = max(0.0, 1.0 - float(dist)) if dist is not None else 0.5
-            similarities[doc_id] = sim
-            order.append(doc_id)
-            if len(order) >= want:
-                break
+        texts = await chunk_texts(db, [h.chunk_id for h in hits])
+        order = [h.document_id for h in hits]
+        snippets = {h.document_id: (texts.get(h.chunk_id) or "")[:400] for h in hits}
+        similarities = {h.document_id: h.similarity for h in hits}
         return order, snippets, similarities
     except Exception:
         # Embedding server down, pgvector missing, timeout — all non-fatal.
@@ -212,12 +177,7 @@ async def search(
                 )
         return [], {}, {}
 
-    (docs, total), sem_res = await asyncio.gather(_fetch_paged(), _fetch_sem())
-    if len(sem_res) == 3:
-        sem_order, sem_snippets, sem_sims = sem_res
-    else:
-        sem_order, sem_snippets = sem_res
-        sem_sims = {}
+    (docs, total), (sem_order, sem_snippets, sem_sims) = await asyncio.gather(_fetch_paged(), _fetch_sem())
 
     if sem_order:
         kw_rank = {d.id: i for i, d in enumerate(docs)}

@@ -152,12 +152,15 @@ async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[
 
 def _config() -> dict[str, Any]:
     from .ask_retrieval import TOP_K
+    from .embedding_service import CHUNK_COUNT_PENALTY, POOL_MIN, POOL_PER_DOC
     from ..api.search import RRF_K
 
     return {
         "rrf_k": RRF_K,
         "top_k": TOP_K,
         "k": K,
+        "semantic_pool": {"min": POOL_MIN, "per_doc": POOL_PER_DOC},
+        "chunk_count_penalty": CHUNK_COUNT_PENALTY,
         "embedding": os.environ.get("MEMENTO_EMBEDDING_MODEL", "bge-m3"),
         "build": os.environ.get("MEMENTO_BUILD_SHA", "")[:12],
     }

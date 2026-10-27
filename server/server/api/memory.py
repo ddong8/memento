@@ -369,13 +369,13 @@ async def semantic_search(
 ) -> dict:
     """Semantic search over document chunks via BGE-M3 embeddings.
 
-    Embeds the query against the host-side embedding server, ranks
-    DocumentEmbedding rows by pgvector cosine distance, deduplicates by
-    document keeping the best-scoring chunk's text as snippet. Returns empty
+    Embeds the query, ranks documents by their best chunk's cosine similarity
+    (embedding_service.semantic_document_hits) and returns that chunk's text
+    as snippet; score is the raw similarity. Returns empty
     list if the embedding server is unavailable — caller should fall back to
     substring search.
     """
-    from ..services.embedding_service import _call_embedding_server, widen_hnsw_scan
+    from ..services.embedding_service import _call_embedding_server, chunk_texts, semantic_document_hits
 
     mids = await user_machine_ids(db, _user)
 
@@ -396,50 +396,35 @@ async def semantic_search(
     if not embeds or not embeds[0]:
         return {"results": [], "note": "embedding-server-unavailable"}
 
-    qvec = embeds[0]
-    dist_col = DocumentEmbedding.embedding.cosine_distance(qvec).label("dist")
-
-    stmt = (
-        select(
-            DocumentEmbedding.chunk_text,
-            Document.id, Document.tool_id, Document.title,
-            Document.relative_path, Document.category, Document.synced_at,
-            dist_col,
+    hits = await semantic_document_hits(db, embeds[0], limit, mids=mids, tool=tool_filter, days=days)
+    texts = await chunk_texts(db, [h.chunk_id for h in hits])
+    docs = {}
+    if hits:
+        rows = await db.execute(
+            select(
+                Document.id, Document.tool_id, Document.title,
+                Document.relative_path, Document.category, Document.synced_at,
+            ).where(Document.id.in_([h.document_id for h in hits]))
         )
-        .join(Document, DocumentEmbedding.document_id == Document.id)
-        .order_by(dist_col.asc())
-        .limit(limit * 4)  # Overfetch: multiple chunks per doc; we'll dedup
-    )
-    if tool_filter:
-        stmt = stmt.where(Document.tool_id == tool_filter)
-    if days:
-        from datetime import datetime, timedelta, timezone
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        stmt = stmt.where(Document.synced_at >= cutoff)
-    if mids is not None:
-        stmt = stmt.where(Document.machine_id.in_(mids))
+        docs = {row.id: row for row in rows.all()}
 
-    await widen_hnsw_scan(db, limit * 4)
-    rows = (await db.execute(stmt)).all()
-
-    seen: dict = {}
-    for chunk, did, tid, title, rpath, cat, synced, dist in rows:
-        if did in seen:
+    results = []
+    for h in hits:
+        d = docs.get(h.document_id)
+        if d is None:
             continue
-        seen[did] = {
-            "id": str(did),
-            "tool_id": tid,
-            "title": title or (rpath.split("/")[-1] if rpath else ""),
-            "relative_path": rpath,
-            "category": cat,
-            "snippet": (chunk or "")[:400],
-            "synced_at": synced.isoformat() if synced else None,
-            "score": round(1.0 - float(dist), 4),
-        }
-        if len(seen) >= limit:
-            break
+        results.append({
+            "id": str(d.id),
+            "tool_id": d.tool_id,
+            "title": d.title or (d.relative_path.split("/")[-1] if d.relative_path else ""),
+            "relative_path": d.relative_path,
+            "category": d.category,
+            "snippet": (texts.get(h.chunk_id) or "")[:400],
+            "synced_at": d.synced_at.isoformat() if d.synced_at else None,
+            "score": round(h.similarity, 4),
+        })
 
-    res = {"results": list(seen.values())}
+    res = {"results": results}
     await cache_set(cache_key, res, ttl_seconds=300)
     return res
 

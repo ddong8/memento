@@ -16,7 +16,7 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import case, func, literal_column, select
+from sqlalchemy import case, literal_column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory

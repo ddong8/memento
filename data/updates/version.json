@@ -1,7 +1,7 @@
 {
   "version": "1.0.86",
   "title": "Memento v1.0.86",
-  "release_notes": "1. WorkBuddy 任务改为直接在任务所在的项目目录里运行：读写文件、执行命令都落在正确的位置，不再只靠提示词告诉它目录；续接以前的 WorkBuddy 对话照常可用\n2. 空闲的 WorkBuddy 后台服务会自动停止，减少电脑上常驻的进程\n3. 手机端版本号与客户端统一为 1.0.86",
+  "release_notes": "1. WorkBuddy 任务改为直接在任务所在的项目目录里运行：读写文件、执行命令都落在正确的位置；续接以前的 WorkBuddy 对话照常可用\n2. 升级后不用重新登录 WorkBuddy：电脑上已经登录的 WorkBuddy 后台服务会继续使用，它退出后才换成按项目目录运行，之后的登录会一直保存\n3. 空闲的 WorkBuddy 后台服务会自动停止，减少电脑上常驻的进程\n4. 手机端版本号与客户端统一为 1.0.87",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.86-win-x64.zip",

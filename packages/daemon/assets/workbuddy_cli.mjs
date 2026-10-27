@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -113,16 +113,28 @@ async function probeEndpoint(endpoint, authHeaders = {}) {
   return null;
 }
 
-/** The gateway memento's daemon serves on WorkBuddy ≥ 5.8 (see src/workbuddy.ts). MEMENTO_GATEWAY_FILE */
-function mementoGateway(home) {
+/**
+ * The files of the gateways memento's daemon serves on WorkBuddy ≥ 5.8 (see src/workbuddy.ts), in the order
+ * to try them. MEMENTO_GATEWAY_FILE GATEWAY_PER_CWD: the daemon starts one per task directory and names its
+ * file in MEMENTO_WORKBUDDY_GATEWAY_FILE; the shared one is the fallback.
+ */
+function mementoGatewayFiles(home) {
+  const shared = join(home, ".memento", "workbuddy-gateway.json");
+  const own = process.env.MEMENTO_WORKBUDDY_GATEWAY_FILE;
+  return own && own !== shared ? [own, shared] : [shared];
+}
+
+function mementoGateway(file) {
   try {
-    const raw = JSON.parse(readFileSync(join(home, ".memento", "workbuddy-gateway.json"), "utf8"));
+    const raw = JSON.parse(readFileSync(file, "utf8"));
     if (typeof raw?.endpoint === "string" && typeof raw?.password === "string") {
       return {
         endpoint: raw.endpoint.replace(/\/+$/, ""),
         authHeaders: { Authorization: `Bearer ${raw.password}`, "x-codebuddy-request": "1" },
         // It saves the login in a credential file of its own, so signing in once lasts across restarts.
         keepsLogin: raw.credentials === "own-file",
+        // The directory its sessions run in (unset: memento's own folder).
+        cwd: typeof raw.cwd === "string" ? raw.cwd : "",
       };
     }
   } catch {
@@ -131,11 +143,26 @@ function mementoGateway(home) {
   return null;
 }
 
+/** Whether two paths name the same directory. */
+function sameDir(a, b) {
+  if (!a || !b) return false;
+  const real = (p) => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const [x, y] = [real(a), real(b)];
+  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
 async function discoverGateway(home) {
-  const managed = mementoGateway(home);
-  if (managed) {
+  for (const file of mementoGatewayFiles(home)) {
+    const managed = mementoGateway(file);
+    if (!managed) continue;
     const ok = await probeEndpoint(managed.endpoint, managed.authHeaders);
-    if (ok) return { ...ok, keepsLogin: managed.keepsLogin };
+    if (ok) return { ...ok, keepsLogin: managed.keepsLogin, cwd: managed.cwd };
   }
   const candidates = [];
   const lgState = join(home, ".workbuddy", "local-gateway", "state.json");
@@ -185,7 +212,7 @@ async function ensureGatewayRunning(home) {
   let gw = await discoverGateway(home);
   if (gw) return gw;
   // WorkBuddy ≥ 5.8: memento's daemon serves the gateway; launching the app won't bring one up.
-  if (existsSync(join(home, ".memento", "workbuddy-gateway.json"))) return null;
+  if (mementoGatewayFiles(home).some((f) => existsSync(f))) return null;
 
   // Try launching WorkBuddy desktop app if installed so its local gateway boots up
   if (process.platform === "darwin") {
@@ -353,7 +380,7 @@ async function main() {
   const gw = await ensureGatewayRunning(home);
   if (!gw) {
     process.stderr.write(
-      existsSync(join(home, ".memento", "workbuddy-gateway.json"))
+      mementoGatewayFiles(home).some((f) => existsSync(f))
         ? "💡 memento 为 WorkBuddy 启动的本地服务没有响应，请稍后重试；仍不行请重启 Memento 客户端。\n"
         : "💡 未检测到正在运行的 WorkBuddy 本地网关服务。请先启动 WorkBuddy 客户端并登录账号后再试。\n",
     );
@@ -462,9 +489,11 @@ async function main() {
     }).catch(() => {});
   }
 
-  // TASK_CWD_NOTE: the gateway runs every session in its own directory (session/new's cwd is ignored), so the
-  // model is told where the task really is.
-  const cwdNote = `【工作目录】本任务的工作目录是 ${cwd}。读写文件请用这个目录下的绝对路径，执行命令前先 cd 到这个目录。`;
+  // TASK_CWD_NOTE: a gateway runs every session in its own directory (session/new's cwd is ignored). One started
+  // in the task's directory needs no note; any other (the shared one, the desktop app's) gets told where it is.
+  const cwdNote = sameDir(gw.cwd, cwd)
+    ? ""
+    : `【工作目录】本任务的工作目录是 ${cwd}。读写文件请用这个目录下的绝对路径，执行命令前先 cd 到这个目录。`;
   const finalPrompt = [args.sysAppend, cwdNote, prompt].filter(Boolean).join("\n\n");
   const promptBlocks = [...extractImageBlocks(finalPrompt), { type: "text", text: finalPrompt }];
 

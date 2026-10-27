@@ -23,6 +23,7 @@ export interface DaemonStatus {
 }
 
 const COMMAND_POLL_MS = 30_000;
+const WORKBUDDY_GATEWAY_SWEEP_MS = 5 * 60_000;
 const LOG_LIMIT = 200;
 
 const sameReport = (a: Record<string, string>, b: Record<string, string> | undefined) =>
@@ -147,6 +148,8 @@ export class Daemon extends EventEmitter {
     runWorktreeGc();
     const WORKTREE_GC_INTERVAL_MS = 60 * 60 * 1000;
     this.timers.push(setInterval(runWorktreeGc, WORKTREE_GC_INTERVAL_MS));
+    // WorkBuddy gateways (one per task directory) that sat idle, also ones left from before a restart.
+    this.timers.push(setInterval(() => this.ws?.runner.sweepIdleGateways(), WORKBUDDY_GATEWAY_SWEEP_MS));
 
     this.log("Memento daemon is running.");
     this.notify();

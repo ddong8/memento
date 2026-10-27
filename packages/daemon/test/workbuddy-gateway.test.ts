@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,15 +9,24 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  adoptWorkbuddySession,
   cancelWorkbuddySession,
   ensureWorkbuddyGateway,
   findWorkbuddyLiteCli,
+  isWorkbuddyDirGateway,
   parseGatewayBanner,
+  reapWorkbuddyGateways,
+  stopWorkbuddyGateway,
+  touchWorkbuddyGateway,
   WORKBUDDY_GATEWAY_AUTH_ID,
   workbuddyBundledNode,
+  workbuddyCliDir,
   workbuddyCliKeepsOwnLogin,
   workbuddyGatewayEnv,
   workbuddyGatewayFile,
+  workbuddyGatewayFileFor,
+  workbuddyProjectDirName,
+  type WorkbuddyGatewayHandle,
 } from "../src/workbuddy.js";
 
 const RUNNER = fileURLToPath(new URL("../assets/workbuddy_cli.mjs", import.meta.url));
@@ -107,6 +117,7 @@ writeFileSync(join(here, "env-" + process.pid + ".json"), JSON.stringify({
   inMemory: process.env.CODEBUDDY_CREDENTIALS_IN_MEMORY ?? null,
   productConfig: process.env.ACC_PRODUCT_CONFIG_V3 ?? null,
 }));
+writeFileSync(join(here, "run-" + process.pid + ".json"), JSON.stringify({ cwd: process.cwd(), configDir: process.env.CODEBUDDY_CONFIG_DIR ?? null }));
 const server = createServer((req, res) => {
   if (req.headers.authorization !== "Bearer " + pw) { res.statusCode = 401; return res.end(); }
   res.setHeader("Content-Type", "application/json");
@@ -128,6 +139,24 @@ ${options.ownLogin === false ? "" : `/*\n${OWN_LOGIN_CODE}\n*/`}
 
 const envOf = async (home: string, pid: number) =>
   JSON.parse(await readFile(join(home, `env-${pid}.json`), "utf8")) as { inMemory: string | null; productConfig: string | null };
+
+const runOf = async (home: string, pid: number) =>
+  JSON.parse(await readFile(join(home, `run-${pid}.json`), "utf8")) as { cwd: string; configDir: string | null };
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Rewrites when a recorded gateway was last used. */
+async function usedAt(file: string, at: number): Promise<void> {
+  const gw = JSON.parse(await readFile(file, "utf8"));
+  await writeFile(file, JSON.stringify({ ...gw, lastUsedAt: at }));
+}
 
 /** A gateway started the way 1.0.72 to 1.0.79 did: login in memory, recorded as such. */
 async function memoryGateway(home: string, fake: string): Promise<{ pid: number; exited: Promise<unknown> }> {
@@ -536,4 +565,204 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(ok).toBe(true);
     expect(cancelled).toEqual({ sessionId: "sess-direct-cancel" });
   });
+});
+
+// 5.8.3 runs every session in the gateway's own process directory, so each task directory gets a gateway.
+describe("WorkBuddy gateways per task directory", () => {
+  it("starts one per directory, in that directory, all sharing the config dir and login file", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const dirA = join(home, "proj-a");
+    const dirB = join(home, "proj-b");
+    await mkdir(dirA);
+    await mkdir(dirB);
+
+    // Two tasks starting at once in one directory share the start.
+    const [a, a2] = await Promise.all([
+      ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirA }),
+      ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirA }),
+    ]);
+    pids.push(a!.pid);
+    expect(a2!.pid).toBe(a!.pid);
+    const b = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirB });
+    pids.push(b!.pid);
+    expect(b!.pid).not.toBe(a!.pid);
+    expect((await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirA }))?.pid).toBe(a!.pid);
+
+    expect(a!.file).toBe(workbuddyGatewayFileFor(dirA, home));
+    expect(isWorkbuddyDirGateway(a!.file, home)).toBe(true);
+    expect(isWorkbuddyDirGateway(workbuddyGatewayFile(home), home)).toBe(false);
+    expect(a!.cwd).toBe(await realpath(dirA));
+    expect(JSON.parse(await readFile(a!.file, "utf8"))).toMatchObject({ pid: a!.pid, cwd: await realpath(dirA), credentials: "own-file" });
+    if (!isWin) expect((await stat(a!.file)).mode & 0o777).toBe(0o600);
+    expect(existsSync(workbuddyGatewayFile(home))).toBe(false);
+
+    for (const [gw, dir] of [
+      [a!, dirA],
+      [b!, dirB],
+    ] as const) {
+      expect(await realpath((await runOf(home, gw.pid)).cwd)).toBe(await realpath(dir));
+      expect((await runOf(home, gw.pid)).configDir).toBe(workbuddyCliDir(home));
+      expect((await envOf(home, gw.pid)).productConfig).toBe(JSON.stringify({ authentication: { id: WORKBUDDY_GATEWAY_AUTH_ID } }));
+    }
+  }, 30_000);
+
+  it("sends every directory to the shared gateway while the login can only live in memory", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home, { ownLogin: false });
+    const dir = join(home, "proj");
+    await mkdir(dir);
+    const gw = await ensureWorkbuddyGateway(home, { cli: { node: process.execPath, entry: fake }, timeoutMs: 15_000, cwd: dir });
+    pids.push(gw!.pid);
+    expect(gw!.file).toBe(workbuddyGatewayFile(home));
+    expect(gw!.cwd).toBeUndefined();
+    expect(await realpath((await runOf(home, gw!.pid)).cwd)).toBe(await realpath(workbuddyCliDir(home)));
+  });
+
+  it("stops idle gateways and the least recently used beyond the limit, never one a task is on", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const gws: WorkbuddyGatewayHandle[] = [];
+    for (const name of ["a", "b", "c"]) {
+      await mkdir(join(home, name));
+      const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: join(home, name) });
+      pids.push(gw!.pid);
+      gws.push(gw!);
+    }
+    const [a, b, c] = gws as [WorkbuddyGatewayHandle, WorkbuddyGatewayHandle, WorkbuddyGatewayHandle];
+    const now = Date.now();
+    await usedAt(a.file, now - 2 * 3600_000); // idle
+    await usedAt(b.file, now - 2 * 3600_000); // idle, but a task is on it
+    await usedAt(c.file, now - 60_000);
+
+    expect(await reapWorkbuddyGateways(home, { cli, inUse: new Set([b.file]), idleMs: 30 * 60_000, max: 4 })).toEqual([a.file]);
+    expect(alive(a.pid)).toBe(false);
+    expect(existsSync(a.file)).toBe(false);
+    expect(alive(b.pid) && alive(c.pid)).toBe(true);
+
+    // Over the limit: the busy one stays even though it is the oldest.
+    expect(await reapWorkbuddyGateways(home, { cli, inUse: new Set([b.file]), idleMs: 30 * 60_000, max: 1 })).toEqual([c.file]);
+    expect(alive(b.pid)).toBe(true);
+    expect(alive(c.pid)).toBe(false);
+
+    // A task just finished on it: the idle clock starts again.
+    await touchWorkbuddyGateway(b.file);
+    expect(await reapWorkbuddyGateways(home, { cli, idleMs: 30 * 60_000 })).toEqual([]);
+    expect(await stopWorkbuddyGateway(b.file, home)).toBe(true);
+    expect(alive(b.pid)).toBe(false);
+    expect(existsSync(b.file)).toBe(false);
+  }, 60_000);
+
+  it("stops an idle shared gateway only when its login is in its own file", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const later = Date.now() + 2 * 3600_000;
+
+    const memory = await memoryGateway(home, fake);
+    expect(await reapWorkbuddyGateways(home, { cli, idleMs: 30 * 60_000, now: later })).toEqual([]);
+    expect(alive(memory.pid)).toBe(true);
+    process.kill(memory.pid);
+    await memory.exited;
+
+    const shared = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000 });
+    pids.push(shared!.pid);
+    expect(await reapWorkbuddyGateways(home, { cli, inUse: new Set([shared!.file]), idleMs: 30 * 60_000, now: later })).toEqual([]);
+    expect(await reapWorkbuddyGateways(home, { cli, idleMs: 30 * 60_000, now: later })).toEqual([workbuddyGatewayFile(home)]);
+    expect(alive(shared!.pid)).toBe(false);
+  }, 30_000);
+
+  it("names a directory's session folder exactly as the 5.8.3 CLI does", () => {
+    // Expected values come from the CLI's own compressWorkspacePathName.
+    expect(workbuddyProjectDirName("/Users/haixingdong/.memento/workbuddy-cli")).toBe("Users-haixingdong-.memento-workbuddy-cli");
+    expect(workbuddyProjectDirName("C:\\Users\\Admin\\WorkBuddy\\proj")).toBe("C-Users-Admin-WorkBuddy-proj");
+    expect(workbuddyProjectDirName("/a//b/")).toBe("a-b");
+    expect(workbuddyProjectDirName(`/Users/测试/${"项目目录".repeat(30)}`)).toBe(`Users-测试-${"项目目录".repeat(14).slice(0, 55)}-rne14d`);
+    expect(workbuddyProjectDirName(`/x/${"y".repeat(300)}`)).toBe(`x-${"y".repeat(178)}-1wla1zk`);
+  });
+
+  it("copies a session from another directory's folder so the new gateway can resume it", async () => {
+    const home = await tempHome();
+    const cliDir = workbuddyCliDir(home);
+    const dir = join(home, "proj");
+    await mkdir(dir);
+    await mkdir(cliDir, { recursive: true });
+    const projects = join(cliDir, "projects");
+    const id = "0f8b3c1e-2d4a-4b6c-8e9f-a1b2c3d4e5f6";
+    // Where 1.0.85 ran it (the shared gateway's folder), and an older copy elsewhere.
+    const shared = join(projects, workbuddyProjectDirName(cliDir));
+    const stale = join(projects, "Users-someone-old");
+    for (const [d, text] of [
+      [shared, "newest"],
+      [stale, "older"],
+    ] as const) {
+      await mkdir(join(d, id, "tool-results"), { recursive: true });
+      await writeFile(join(d, `${id}.jsonl`), text);
+      await writeFile(join(d, `${id}.meta.json`), `{"title":"${text}"}`);
+      await writeFile(join(d, id, "tool-results", "r1.txt"), text);
+    }
+    const past = new Date(Date.now() - 86_400_000);
+    await utimes(join(stale, `${id}.jsonl`), past, past);
+
+    expect(await adoptWorkbuddySession(id, dir, home)).toBe(true);
+    const target = join(projects, workbuddyProjectDirName(dir));
+    expect(await readFile(join(target, `${id}.jsonl`), "utf8")).toBe("newest");
+    expect(await readFile(join(target, `${id}.meta.json`), "utf8")).toBe('{"title":"newest"}');
+    expect(await readFile(join(target, id, "tool-results", "r1.txt"), "utf8")).toBe("newest");
+    // Copied, not moved.
+    expect(existsSync(join(shared, `${id}.jsonl`))).toBe(true);
+
+    // Already there (it may have grown since), unknown, or not a session id: nothing to do.
+    await writeFile(join(target, `${id}.jsonl`), "newest + more turns");
+    expect(await adoptWorkbuddySession(id, dir, home)).toBe(false);
+    expect(await readFile(join(target, `${id}.jsonl`), "utf8")).toBe("newest + more turns");
+    expect(await adoptWorkbuddySession("11111111-2222-3333-4444-555555555555", dir, home)).toBe(false);
+    expect(await adoptWorkbuddySession("../../etc", dir, home)).toBe(false);
+  });
+
+  it.skipIf(isWin)("runner uses the gateway named for its task and leaves out the directory note there", async () => {
+    const home = await tempHome();
+    let promptText = "";
+    const server = createServer(async (req, res) => {
+      const url = req.url ?? "";
+      if (req.headers.authorization !== "Bearer own") {
+        res.statusCode = 401;
+        return res.end();
+      }
+      if (url === "/api/v1/acp/connect") return res.end(JSON.stringify({ connectionId: "c1" }));
+      const msg = JSON.parse(await body(req));
+      res.setHeader("Content-Type", "text/event-stream");
+      if (msg.method === "session/new") return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } })}\n\n`);
+      if (msg.method === "session/prompt") {
+        promptText = msg.params.prompt.map((b: { text?: string }) => b.text ?? "").join("");
+        res.write(`data: ${JSON.stringify({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "好了" } } } })}\n\n`);
+        return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } })}\n\n`);
+      }
+      res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} })}\n\n`);
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const dir = join(home, "proj");
+    await mkdir(dir);
+    const own = workbuddyGatewayFileFor(dir, home);
+    await mkdir(join(home, ".memento", "workbuddy-gateways"), { recursive: true });
+    await writeFile(own, JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password: "own", pid: process.pid, cwd: await realpath(dir), credentials: "own-file" }));
+    // The shared one is down; the runner must not need it.
+    await writeFile(workbuddyGatewayFile(home), JSON.stringify({ endpoint: "http://127.0.0.1:9", password: "x", pid: process.pid }));
+
+    const child = spawn(process.execPath, [RUNNER, "-p", "改个文件"], {
+      cwd: dir,
+      env: { ...process.env, HOME: home, MEMENTO_WORKBUDDY_GATEWAY_FILE: own },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    expect(await new Promise<number | null>((r) => child.on("close", r))).toBe(0);
+    expect(stdout).toContain("好了");
+    expect(promptText).toContain("改个文件");
+    expect(promptText).not.toContain("本任务的工作目录");
+  }, 30_000);
 });

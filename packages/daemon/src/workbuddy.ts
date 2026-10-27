@@ -1,7 +1,8 @@
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { chmod, cp, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir, mementoDir } from "./config.js";
@@ -18,6 +19,11 @@ import { homeDir, mementoDir } from "./config.js";
  * the task prints; the gateway keeps that login in a credential file of its own
  * (`auth/memento-gateway.info`, next to the desktop's `workbuddy-desktop.info`), so it
  * survives memento and device restarts without ever touching the desktop's login.
+ *
+ * A gateway runs every session in its own process directory (5.8.3 drops session/new's
+ * `cwd`; the desktop app likewise runs one CLI per conversation and chdirs it). So each
+ * task directory gets a gateway of its own, all sharing that credential file, the CLI
+ * config dir and the session store; idle ones are stopped (reapWorkbuddyGateways).
  */
 const runnerAsset = () =>
   process.env.MEMENTO_WORKBUDDY_RUNNER || fileURLToPath(new URL("../assets/workbuddy_cli.mjs", import.meta.url));
@@ -36,6 +42,7 @@ const RUNNER_MARKERS = [
   "NO_CLIENT_FS_TERMINAL",
   "UNHANDLED_CLIENT_REQUEST",
   "TASK_CWD_NOTE",
+  "GATEWAY_PER_CWD",
 ];
 
 /** Installs `~/.workbuddy/bin/workbuddy_cli.mjs` and a `workbuddy` wrapper on PATH. */
@@ -262,6 +269,15 @@ export interface MementoWorkbuddyGateway {
    * gateways from 1.0.71, which wrote it into the desktop's credential file.
    */
   credentials?: "memory" | "own-file";
+  /** The directory its sessions run in; unset on the shared gateway, which runs in workbuddyCliDir. */
+  cwd?: string;
+  /** When a task last started or finished on it (falls back to startedAt). */
+  lastUsedAt?: number;
+}
+
+/** A gateway as handed to a task: plus the file the runner reads it from (MEMENTO_WORKBUDDY_GATEWAY_FILE). */
+export interface WorkbuddyGatewayHandle extends MementoWorkbuddyGateway {
+  file: string;
 }
 
 /** The `authentication.id` memento's gateway runs under: the CLI names its credential file after it. */
@@ -322,10 +338,51 @@ export function workbuddyGatewayEnv(dir: string, credentials: "memory" | "own-fi
   return out;
 }
 
-/** Where the runner finds the gateway memento serves (0600, it holds the gateway password). */
+/** Where the runner finds the shared gateway (0600, it holds the gateway password). */
 export const workbuddyGatewayFile = (home = homeDir()) => join(mementoDir(home), "workbuddy-gateway.json");
+/** One file per directory gateway, named by a hash of the directory. */
+export const workbuddyGatewaysDir = (home = homeDir()) => join(mementoDir(home), "workbuddy-gateways");
 /** The gateway's CLI config, sessions and logs; deliberately not `~/.workbuddy` (that one is the app's). */
 export const workbuddyCliDir = (home = homeDir()) => join(mementoDir(home), "workbuddy-cli");
+
+function isDirectory(dir: string): boolean {
+  try {
+    return statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** The path the CLI sees for a directory (it canonicalises with realpath too). */
+function canonicalDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
+}
+
+/** Whether the file belongs to a directory gateway (not the shared one). */
+export const isWorkbuddyDirGateway = (file: string, home = homeDir()) => dirname(file) === workbuddyGatewaysDir(home);
+
+/** The file of the gateway serving `cwd` (the shared one without a directory). */
+export function workbuddyGatewayFileFor(cwd: string | undefined, home = homeDir()): string {
+  if (!cwd) return workbuddyGatewayFile(home);
+  const key = createHash("sha256").update(canonicalDir(cwd)).digest("hex").slice(0, 16);
+  return join(workbuddyGatewaysDir(home), `${key}.json`);
+}
+
+/** How long a directory gateway may sit idle before it is stopped (MEMENTO_WORKBUDDY_GATEWAY_IDLE_MINUTES, default 30). */
+export function workbuddyGatewayIdleMs(env: NodeJS.ProcessEnv = process.env): number {
+  const minutes = Number(env.MEMENTO_WORKBUDDY_GATEWAY_IDLE_MINUTES);
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 30) * 60_000;
+}
+
+/** How many directory gateways may run at once (MEMENTO_WORKBUDDY_GATEWAY_MAX, default 4); busy ones are never stopped. */
+export function workbuddyGatewayMax(env: NodeJS.ProcessEnv = process.env): number {
+  const max = Math.floor(Number(env.MEMENTO_WORKBUDDY_GATEWAY_MAX));
+  return Number.isFinite(max) && max > 0 ? max : 4;
+}
 
 /** Headers every request to memento's WorkBuddy gateway needs. */
 export const workbuddyGatewayHeaders = (password: string): Record<string, string> => ({
@@ -360,9 +417,9 @@ async function gatewayHealthy(gw: MementoWorkbuddyGateway): Promise<boolean> {
   return !!res?.ok;
 }
 
-async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | null> {
+async function readGatewayFile(file: string): Promise<MementoWorkbuddyGateway | null> {
   try {
-    const gw = JSON.parse(await readFile(workbuddyGatewayFile(home), "utf8")) as Partial<MementoWorkbuddyGateway>;
+    const gw = JSON.parse(await readFile(file, "utf8")) as Partial<MementoWorkbuddyGateway>;
     if (typeof gw.endpoint === "string" && typeof gw.password === "string" && typeof gw.pid === "number") {
       return {
         endpoint: gw.endpoint,
@@ -371,6 +428,8 @@ async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | 
         startedAt: gw.startedAt ?? 0,
         ...(typeof gw.entry === "string" ? { entry: gw.entry } : {}),
         ...(gw.credentials === "memory" || gw.credentials === "own-file" ? { credentials: gw.credentials } : {}),
+        ...(typeof gw.cwd === "string" ? { cwd: gw.cwd } : {}),
+        ...(typeof gw.lastUsedAt === "number" ? { lastUsedAt: gw.lastUsedAt } : {}),
       };
     }
   } catch {
@@ -379,27 +438,42 @@ async function readGatewayFile(home: string): Promise<MementoWorkbuddyGateway | 
   return null;
 }
 
+async function writeGatewayFile(file: string, gw: MementoWorkbuddyGateway): Promise<void> {
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  await writeFile(`${file}.tmp`, JSON.stringify(gw), { mode: 0o600 });
+  await rename(`${file}.tmp`, file);
+}
+
 async function startGateway(
   home: string,
   cli: WorkbuddyLiteCli,
   credentials: "memory" | "own-file",
   timeoutMs: number,
+  file: string,
+  cwd?: string,
 ): Promise<MementoWorkbuddyGateway> {
   const dir = workbuddyCliDir(home);
   await mkdir(dir, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") await chmod(dir, 0o700);
   // The banner (with the password) goes to a private log rather than a pipe nobody drains after start-up.
-  const logPath = join(dir, "gateway.log");
+  let logPath = join(dir, "gateway.log");
+  if (cwd) {
+    await mkdir(join(dir, "gateways"), { recursive: true, mode: 0o700 });
+    logPath = join(dir, "gateways", `${basename(file, ".json")}.log`);
+  }
   const fd = openSync(logPath, "w", 0o600);
   let pid: number | undefined;
   try {
     const child = spawn(cli.node, [cli.entry, "--serve", "--host", "127.0.0.1"], {
-      cwd: dir,
+      // Config, sessions and login stay shared; only the directory sessions run in differs.
+      cwd: cwd ?? dir,
       env: workbuddyGatewayEnv(dir, credentials),
       detached: true,
       stdio: ["ignore", fd, fd],
       windowsHide: true,
     });
+    // A failed spawn (no pid) is reported below; without a listener its error event would crash the daemon.
+    child.on("error", () => {});
     child.unref();
     pid = child.pid;
   } finally {
@@ -412,11 +486,18 @@ async function startGateway(
     await new Promise((r) => setTimeout(r, 300));
     const banner = parseGatewayBanner(await readFile(logPath, "utf8").catch(() => ""));
     if (banner) {
-      const gw: MementoWorkbuddyGateway = { ...banner, pid, startedAt: Date.now(), entry: cli.entry, credentials };
+      const now = Date.now();
+      const gw: MementoWorkbuddyGateway = {
+        ...banner,
+        pid,
+        startedAt: now,
+        lastUsedAt: now,
+        entry: cli.entry,
+        credentials,
+        ...(cwd ? { cwd } : {}),
+      };
       if (await gatewayHealthy(gw)) {
-        const file = workbuddyGatewayFile(home);
-        await writeFile(`${file}.tmp`, JSON.stringify(gw), { mode: 0o600 });
-        await rename(`${file}.tmp`, file);
+        await writeGatewayFile(file, gw);
         return gw;
       }
     }
@@ -447,16 +528,21 @@ function processCommandLine(pid: number): Promise<string> {
   });
 }
 
-/** Stops a gateway memento started, after checking the pid still belongs to it (pids get reused after a reboot). */
-async function killGateway(gw: MementoWorkbuddyGateway, cli: WorkbuddyLiteCli): Promise<void> {
-  if (!pidAlive(gw.pid)) return;
+/**
+ * Stops a gateway memento started, after checking the pid still belongs to it (pids get reused after a reboot).
+ * Returns whether it is gone: stopped, already exited, or the pid now another program's. False when it is still
+ * running or its command line couldn't be read.
+ */
+async function killGateway(gw: MementoWorkbuddyGateway, cli: Pick<WorkbuddyLiteCli, "entry">): Promise<boolean> {
+  if (!pidAlive(gw.pid)) return true;
   const cmd = await processCommandLine(gw.pid);
+  if (!cmd) return !pidAlive(gw.pid);
   // Gateways from before 1.0.72 didn't record their CLI: it was the one installed now.
-  if (!cmd.includes("--serve") || !cmd.includes(gw.entry ?? cli.entry)) return;
+  if (!cmd.includes("--serve") || !cmd.includes(gw.entry ?? cli.entry)) return true;
   try {
     process.kill(gw.pid, "SIGTERM");
   } catch {
-    return;
+    return !pidAlive(gw.pid);
   }
   for (let i = 0; i < 10 && pidAlive(gw.pid); i++) await new Promise((r) => setTimeout(r, 100));
   if (pidAlive(gw.pid)) {
@@ -465,10 +551,13 @@ async function killGateway(gw: MementoWorkbuddyGateway, cli: WorkbuddyLiteCli): 
     } catch {
       // already stopped
     }
+    for (let i = 0; i < 10 && pidAlive(gw.pid); i++) await new Promise((r) => setTimeout(r, 50));
   }
+  return !pidAlive(gw.pid);
 }
 
-let gatewayStart: Promise<MementoWorkbuddyGateway | null> | null = null;
+/** Starts in flight, per gateway file. */
+const gatewayStarts = new Map<string, Promise<WorkbuddyGatewayHandle>>();
 
 /** Whether the gateway has a WorkBuddy account signed in (null when it can't tell). */
 async function gatewaySignedIn(gw: MementoWorkbuddyGateway): Promise<boolean | null> {
@@ -482,52 +571,190 @@ async function gatewaySignedIn(gw: MementoWorkbuddyGateway): Promise<boolean | n
 }
 
 /**
- * Makes sure memento's WorkBuddy gateway is running on WorkBuddy ≥ 5.8 and returns it
+ * Makes sure the WorkBuddy gateway for `cwd` is running on WorkBuddy ≥ 5.8 and returns it
  * (null when WorkBuddy predates 5.8 or isn't installed). A gateway left by an earlier
  * daemon is reused, and a new one picks up the login its predecessor saved.
  *
- * `busy`: another task is on the gateway right now, so it must not be restarted just to
- * move its login out of memory.
+ * Each directory gets its own gateway only while the login lives in its own file, which they
+ * all share; a login in memory would need signing in once per gateway, so then every task
+ * goes to the shared one and is told its directory in the prompt.
+ *
+ * `busy` / `inUse` (gateway files): another task is on it right now, so it must not be restarted
+ * just to move its login out of memory.
  */
 export async function ensureWorkbuddyGateway(
   home = homeDir(),
-  options: { cli?: WorkbuddyLiteCli | null; timeoutMs?: number; busy?: boolean } = {},
-): Promise<MementoWorkbuddyGateway | null> {
+  options: { cli?: WorkbuddyLiteCli | null; timeoutMs?: number; busy?: boolean; cwd?: string; inUse?: ReadonlySet<string> } = {},
+): Promise<WorkbuddyGatewayHandle | null> {
   const cli = options.cli === undefined ? findWorkbuddyLiteCli(home) : options.cli;
   if (!cli) return null;
-  gatewayStart ??= (async () => {
-    const credentials = (await workbuddyCliKeepsOwnLogin(cli.entry)) ? "own-file" : "memory";
-    const existing = await readGatewayFile(home);
-    if (existing) {
-      if (existing.credentials && (await gatewayHealthy(existing))) {
-        // One holding the login in memory moves to its own file when that loses nothing: no task is on it and
-        // nobody is signed in. A signed-in one stays until it exits; from the next one on, logins are kept.
-        const move =
-          existing.credentials === "memory" &&
-          credentials === "own-file" &&
-          !options.busy &&
-          (await gatewaySignedIn(existing)) === false;
-        if (!move) return existing;
+  const credentials = (await workbuddyCliKeepsOwnLogin(cli.entry)) ? "own-file" : "memory";
+  const cwd = options.cwd && credentials === "own-file" && isDirectory(options.cwd) ? canonicalDir(options.cwd) : undefined;
+  const file = workbuddyGatewayFileFor(cwd, home);
+  const busy = !!options.busy || !!options.inUse?.has(file);
+  let pending = gatewayStarts.get(file);
+  if (!pending) {
+    pending = (async (): Promise<WorkbuddyGatewayHandle> => {
+      const existing = await readGatewayFile(file);
+      if (existing) {
+        if (existing.credentials && (await gatewayHealthy(existing))) {
+          // One holding the login in memory moves to its own file when that loses nothing: no task is on it and
+          // nobody is signed in. A signed-in one stays until it exits; from the next one on, logins are kept.
+          const move =
+            existing.credentials === "memory" &&
+            credentials === "own-file" &&
+            !busy &&
+            (await gatewaySignedIn(existing)) === false;
+          if (!move) {
+            const used = { ...existing, lastUsedAt: Date.now() };
+            await writeGatewayFile(file, used).catch(() => {});
+            return { ...used, file };
+          }
+        }
+        // Hung, one that saves its login into the desktop's credential file, or one moving its login out of memory.
+        await killGateway(existing, cli);
       }
-      // Hung, one that saves its login into the desktop's credential file, or one moving its login out of memory.
-      await killGateway(existing, cli);
+      return { ...(await startGateway(home, cli, credentials, options.timeoutMs ?? 45_000, file, cwd)), file };
+    })().finally(() => gatewayStarts.delete(file));
+    gatewayStarts.set(file, pending);
+  }
+  return pending;
+}
+
+/** Marks a gateway as just used (a task on it finished), so the idle clock starts from now. */
+export async function touchWorkbuddyGateway(file: string): Promise<void> {
+  const gw = await readGatewayFile(file);
+  if (gw) await writeGatewayFile(file, { ...gw, lastUsedAt: Date.now() }).catch(() => {});
+}
+
+/** Stops a gateway memento started and forgets it (its login stays in its credential file). Returns whether it is gone. */
+export async function stopWorkbuddyGateway(file: string, home = homeDir()): Promise<boolean> {
+  if (gatewayStarts.has(file)) return false;
+  const gw = await readGatewayFile(file);
+  if (!gw) return true;
+  const entry = gw.entry ?? findWorkbuddyLiteCli(home)?.entry;
+  if (!entry || !(await killGateway(gw, { entry }))) return false;
+  await unlink(file).catch(() => {});
+  return true;
+}
+
+/**
+ * Stops directory gateways nobody has used for `idleMs`, then the least recently used beyond `max`;
+ * never one in `inUse`. The shared gateway goes too once idle, but only while logins are kept in a file
+ * (a login in its memory would be lost). Returns the files of the gateways stopped.
+ */
+export async function reapWorkbuddyGateways(
+  home = homeDir(),
+  options: { inUse?: ReadonlySet<string>; idleMs?: number; max?: number; cli?: WorkbuddyLiteCli | null; now?: number } = {},
+): Promise<string[]> {
+  const cli = options.cli === undefined ? findWorkbuddyLiteCli(home) : options.cli;
+  const inUse = options.inUse ?? new Set<string>();
+  const idleMs = options.idleMs ?? workbuddyGatewayIdleMs();
+  const max = options.max ?? workbuddyGatewayMax();
+  const now = options.now ?? Date.now();
+  const dir = workbuddyGatewaysDir(home);
+  // One starting right now counts as busy: its file is about to be (re)written.
+  const busy = (file: string) => inUse.has(file) || gatewayStarts.has(file);
+  const idle = (gw: MementoWorkbuddyGateway) => now - (gw.lastUsedAt ?? gw.startedAt) >= idleMs;
+  const stopped: string[] = [];
+  const stop = async (file: string, gw: MementoWorkbuddyGateway) => {
+    if (busy(file)) return false;
+    const entry = gw.entry ?? cli?.entry;
+    if (!entry || !(await killGateway(gw, { entry }))) return false;
+    await unlink(file).catch(() => {});
+    stopped.push(file);
+    return true;
+  };
+
+  const live: { file: string; gw: MementoWorkbuddyGateway }[] = [];
+  for (const name of await readdir(dir).catch(() => [] as string[])) {
+    if (!name.endsWith(".json")) continue;
+    const file = join(dir, name);
+    const gw = await readGatewayFile(file);
+    if (!gw) continue;
+    if (!busy(file) && !pidAlive(gw.pid)) {
+      await unlink(file).catch(() => {});
+      continue;
     }
-    return startGateway(home, cli, credentials, options.timeoutMs ?? 45_000);
-  })().finally(() => {
-    gatewayStart = null;
-  });
-  return gatewayStart;
+    if (idle(gw) && (await stop(file, gw))) continue;
+    live.push({ file, gw });
+  }
+  const lastUsed = (gw: MementoWorkbuddyGateway) => gw.lastUsedAt ?? gw.startedAt;
+  const spare = live.filter((g) => !busy(g.file)).sort((a, b) => lastUsed(a.gw) - lastUsed(b.gw));
+  for (let extra = live.length - max; extra > 0 && spare.length; ) {
+    const g = spare.shift()!;
+    if (await stop(g.file, g.gw)) extra--;
+  }
+
+  // The shared gateway only once nothing would be lost: its login is in its file, and new tasks go to directory
+  // gateways (the CLI keeps logins in a file).
+  const sharedFile = workbuddyGatewayFile(home);
+  const shared = cli && !busy(sharedFile) ? await readGatewayFile(sharedFile) : null;
+  if (shared?.credentials === "own-file" && pidAlive(shared.pid) && idle(shared) && (await workbuddyCliKeepsOwnLogin(cli!.entry))) {
+    await stop(sharedFile, shared);
+  }
+  return stopped;
+}
+
+/** djb2 over the UTF-8 bytes, base 36, exactly as the CLI's compressWorkspacePathName hashes long names. */
+function djb2Base36(text: string): string {
+  let n = 5381;
+  for (const b of Buffer.from(text, "utf8")) n = (33 * n) ^ b;
+  return (n >>> 0).toString(36);
+}
+
+/** The CLI's folder name for a working directory under `projects/` (PathUtils.compressPath on 5.8.3). */
+export function workbuddyProjectDirName(dir: string): string {
+  const base = canonicalDir(dir).replace(/[/\\:]/g, "-").replace(/^-+/, "").replace(/-+$/, "").replace(/-+/g, "-");
+  if (Buffer.byteLength(base, "utf8") <= 255) return base;
+  let head = "";
+  let bytes = 0;
+  for (const ch of base) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (bytes + n > 180) break;
+    bytes += n;
+    head += ch;
+  }
+  return `${head}-${djb2Base36(base)}`;
+}
+
+/**
+ * Lets `cwd`'s gateway resume a session that ran in another directory: the CLI looks a session up only
+ * under `projects/<its own directory>/`, and before 1.0.86 every session ran in the shared gateway's.
+ * Copies (never moves) the newest transcript, its meta file and its folder (tool results, subagents).
+ * Returns whether it copied anything.
+ */
+export async function adoptWorkbuddySession(sessionId: string, cwd: string, home = homeDir()): Promise<boolean> {
+  // Session ids are UUIDs; anything else could reach outside the folder.
+  if (!/^[\w-]+$/.test(sessionId)) return false;
+  const projects = join(workbuddyCliDir(home), "projects");
+  const target = join(projects, workbuddyProjectDirName(cwd));
+  if (existsSync(join(target, `${sessionId}.jsonl`))) return false;
+  let source: { dir: string; mtime: number } | null = null;
+  for (const name of await readdir(projects).catch(() => [] as string[])) {
+    const dir = join(projects, name);
+    if (dir === target) continue;
+    const st = await stat(join(dir, `${sessionId}.jsonl`)).catch(() => null);
+    if (st?.isFile() && (!source || st.mtimeMs > source.mtime)) source = { dir, mtime: st.mtimeMs };
+  }
+  if (!source) return false;
+  await mkdir(target, { recursive: true });
+  for (const entry of [`${sessionId}.meta.json`, sessionId, `${sessionId}.jsonl`]) {
+    const from = join(source.dir, entry);
+    if (existsSync(from)) await cp(from, join(target, entry), { recursive: true, force: false, errorOnExist: false });
+  }
+  return true;
 }
 
 /**
  * Cancels an active session on WorkBuddy gateway.
  * Directly called by daemon upon task cancellation so that abort doesn't depend on a dying child process.
  */
-export async function cancelWorkbuddySession(sessionId: string, home = homeDir()): Promise<boolean> {
+export async function cancelWorkbuddySession(sessionId: string, home = homeDir(), file = workbuddyGatewayFile(home)): Promise<boolean> {
   // Without an id there is nothing to name: an empty cancel could hit the device's other WorkBuddy tasks.
   if (!sessionId) return false;
   try {
-    const managed = await readGatewayFile(home);
+    const managed = await readGatewayFile(file);
     let endpoint = "";
     let authHeaders: Record<string, string> = {};
     if (managed && (await gatewayHealthy(managed))) {

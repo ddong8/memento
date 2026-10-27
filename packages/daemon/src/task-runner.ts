@@ -12,7 +12,17 @@ import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, 
 import { HookBridge } from "./hook-bridge.js";
 import { getOfflineMindSnapshot } from "./profile-inject.js";
 import { codexRunner } from "./codex.js";
-import { cancelWorkbuddySession, ensureWorkbuddyCliInstalled, ensureWorkbuddyGateway } from "./workbuddy.js";
+import {
+  adoptWorkbuddySession,
+  cancelWorkbuddySession,
+  ensureWorkbuddyCliInstalled,
+  ensureWorkbuddyGateway,
+  isWorkbuddyDirGateway,
+  reapWorkbuddyGateways,
+  stopWorkbuddyGateway,
+  touchWorkbuddyGateway,
+  type WorkbuddyGatewayHandle,
+} from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
 
 /** A task the server dispatched to this device. */
@@ -377,7 +387,8 @@ export class TaskRunner {
   /** Tasks run by memento's own runners (Codex, Antigravity, WorkBuddy), which take answers as memento_answer lines. */
   private readonly runnerTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
-  private readonly taskSessions = new Map<string, { binary: string; sessionId?: string }>();
+  /** Per running task: its agent, the session it runs and, for WorkBuddy, the file of the gateway it is on. */
+  private readonly taskSessions = new Map<string, { binary: string; sessionId?: string; gatewayFile?: string }>();
   private readonly cancelledTasks = new Set<string>();
   private hookBridge: HookBridge | undefined;
 
@@ -388,6 +399,43 @@ export class TaskRunner {
 
   get runningTaskIds(): string[] {
     return [...this.running.keys()];
+  }
+
+  /** The gateways other WorkBuddy tasks are on right now. */
+  private gatewaysInUse(exceptTaskId?: string): Set<string> {
+    const files = new Set<string>();
+    for (const [id, s] of this.taskSessions) if (id !== exceptTaskId && s.gatewayFile) files.add(s.gatewayFile);
+    return files;
+  }
+
+  /**
+   * The gateway memento serves for a WorkBuddy task in `workDir` (null: none, the runner looks for the app's).
+   * A session to resume that ran in another directory is copied over first, since a gateway only finds its own.
+   */
+  private async workbuddyGateway(taskId: string, workDir: string | undefined, sessionId: string): Promise<WorkbuddyGatewayHandle | null> {
+    const gateway = await ensureWorkbuddyGateway(undefined, { cwd: workDir, inUse: this.gatewaysInUse(taskId) }).catch((err) => {
+      this.log(`WorkBuddy gateway failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    });
+    if (!gateway) return null;
+    const sess = this.taskSessions.get(taskId);
+    if (sess) sess.gatewayFile = gateway.file;
+    if (gateway.cwd && sessionId) {
+      await adoptWorkbuddySession(sessionId, gateway.cwd)
+        .then((copied) => copied && this.log(`Copied WorkBuddy session ${sessionId} to ${gateway.cwd}`))
+        .catch((err) => this.log(`Failed to copy WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`));
+    }
+    this.sweepIdleGateways();
+    return gateway;
+  }
+
+  /** Stops WorkBuddy gateways no task has used for a while (the daemon runs this every few minutes too). */
+  sweepIdleGateways(): void {
+    void reapWorkbuddyGateways(undefined, { inUse: this.gatewaysInUse() })
+      .then((stopped) => {
+        if (stopped.length) this.log(`Stopped ${stopped.length} idle WorkBuddy gateway(s)`);
+      })
+      .catch((err) => this.log(`WorkBuddy gateway sweep failed: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   emitEvent(taskId: string, event: AgentEvent): void {
@@ -408,9 +456,16 @@ export class TaskRunner {
     const sessionInfo = this.taskSessions.get(taskId);
     if (sessionInfo?.sessionId && /workbuddy|codebuddy/.test(sessionInfo.binary)) {
       this.log(`Cancelling WorkBuddy session ${sessionInfo.sessionId} for task ${taskId}`);
-      void cancelWorkbuddySession(sessionInfo.sessionId).catch((err) =>
+      void cancelWorkbuddySession(sessionInfo.sessionId, undefined, sessionInfo.gatewayFile).catch((err) =>
         this.log(`Failed to cancel WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`),
       );
+    }
+    // A cancel only reaches the prompt over the connection that sent it, which dies with the runner (killed
+    // outright on Windows). A directory gateway with no other task on it is simply stopped; the next task starts
+    // a fresh one, which resumes the session.
+    const gatewayFile = sessionInfo?.gatewayFile;
+    if (process.platform === "win32" && gatewayFile && isWorkbuddyDirGateway(gatewayFile) && !this.gatewaysInUse(taskId).has(gatewayFile)) {
+      void stopWorkbuddyGateway(gatewayFile).catch(() => {});
     }
 
     if (proc) {
@@ -678,6 +733,8 @@ export class TaskRunner {
     let claudeSettings: string | undefined;
     let consoleEncoding: string | null | undefined;
     let worktree: TaskWorktree | undefined;
+    /** Added to the agent's environment (the WorkBuddy gateway to use). */
+    const env0: NodeJS.ProcessEnv = {};
     /** Set for Codex tasks: memento's runner and the Codex binary it drives. */
     let codex: { runner: string; codex: string } | undefined;
 
@@ -748,14 +805,7 @@ export class TaskRunner {
       isAntigravity = binary.includes("agy") || binary.includes("antigravity");
       const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
       if (isAntigravity) await ensureAgyCliInstalled();
-      if (isWorkbuddy) {
-        await ensureWorkbuddyCliInstalled();
-        // WorkBuddy ≥ 5.8 has no gateway of its own any more: the runner uses the one memento serves.
-        const busy = [...this.taskSessions].some(([id, s]) => id !== taskId && /workbuddy|codebuddy/.test(s.binary));
-        await ensureWorkbuddyGateway(undefined, { busy }).catch((err) =>
-          this.log(`WorkBuddy gateway failed to start: ${err instanceof Error ? err.message : String(err)}`),
-        );
-      }
+      if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
       let candidates: string[] = [];
       if (binary === "agy") candidates = ["agy", "agy_cli.py", "agentapi"];
       else if (binary === "antigravity") candidates = ["agy", "agy_cli.py", "agentapi"];
@@ -820,6 +870,10 @@ export class TaskRunner {
       } else if (isWorkbuddy) {
         const isNativeCodebuddy = exe.toLowerCase().includes("codebuddy");
         if (!isNativeCodebuddy) {
+          // WorkBuddy ≥ 5.8 has no gateway of its own any more: the runner uses the one memento serves for this
+          // directory (after the worktree, which moves it).
+          const gateway = await this.workbuddyGateway(taskId, workDir, sessionId);
+          if (gateway) env0.MEMENTO_WORKBUDDY_GATEWAY_FILE = gateway.file;
           args = [
             ...(sessionId ? ["--resume", sessionId] : []),
             ...(model ? ["--model", model] : []),
@@ -865,7 +919,7 @@ export class TaskRunner {
 
     try {
       // The Codex runner runs on this process's own runtime (Electron as Node in the desktop app)
-      const env = withExeDirOnPath(await executionEnvironment(), codex?.codex ?? exe);
+      const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? exe), ...env0 };
       if (codex) env.ELECTRON_RUN_AS_NODE = "1";
       if (isAntigravity) {
         const ag = await discoverAntigravityEnv();
@@ -1014,7 +1068,13 @@ export class TaskRunner {
 
       if (worktree) {
         try {
-          this.emitEvent(taskId, await worktree.finish(await executionEnvironment()));
+          const done = await worktree.finish(await executionEnvironment());
+          this.emitEvent(taskId, done);
+          // Its directory is gone, and with it the reason for its gateway.
+          const gatewayFile = this.taskSessions.get(taskId)?.gatewayFile;
+          if (done.status === "removed" && gatewayFile && isWorkbuddyDirGateway(gatewayFile) && !this.gatewaysInUse(taskId).has(gatewayFile)) {
+            void stopWorkbuddyGateway(gatewayFile).catch(() => {});
+          }
         } catch (e) {
           this.log(`Worktree wrap-up failed for ${taskId}: ${e instanceof Error ? e.message : e}`);
         }
@@ -1058,7 +1118,10 @@ export class TaskRunner {
       this.steerInputs.get(taskId)?.end();
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);
+      const gatewayFile = this.taskSessions.get(taskId)?.gatewayFile;
       this.taskSessions.delete(taskId);
+      // Its idle time starts now.
+      if (gatewayFile) void touchWorkbuddyGateway(gatewayFile).catch(() => {});
       setTimeout(() => this.cancelledTasks.delete(taskId), 5000);
     }
   }

@@ -6,6 +6,7 @@ from server.services.profile_service import device_projects
 from server.api.profile import get_injection as get_profile_injection
 from server.api.skills import get_injection as get_skills_injection
 from server.api.search import _semantic_doc_ranks
+from server.services.embedding_service import pool_size
 
 
 @pytest.mark.asyncio
@@ -77,6 +78,7 @@ async def test_semantic_search_sets_hnsw_ef_search():
         )
         assert mock_db.execute.await_count >= 1
         executed_stmts = [str(call[0][0]) for call in mock_db.execute.await_args_list]
-        # want=10 overfetches 40 rows; iterative scan keeps reading past filtered-out rows
-        assert any("SET LOCAL hnsw.ef_search = 40" in stmt for stmt in executed_stmts)
+        # want=10 reads a pool of 200 chunks (see embedding_service.pool_size); iterative scan keeps
+        # reading past filtered-out rows
+        assert any(f"SET LOCAL hnsw.ef_search = {pool_size(10)}" in stmt for stmt in executed_stmts)
         assert any("SET LOCAL hnsw.iterative_scan = strict_order" in stmt for stmt in executed_stmts)

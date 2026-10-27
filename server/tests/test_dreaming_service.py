@@ -219,6 +219,18 @@ class TestUserVoice(unittest.IsolatedAsyncioTestCase):
         ]:
             self.assertIsNone(clean_user_voice(content), content)
 
+    def test_clean_user_voice_drops_prompts_a_script_sent_to_a_model(self):
+        template = ("你是资深有机合成/逆合成专家。给你一个化合物的自动逆合成路线及其结构化信号(每步的可行性罚分、"
+                    "前向回验通过/存疑、起始物是否可购/真实、文献先例、成本)。请用中文写一段简洁、专业、面向化学博士的结论，"
+                    "必须基于逐分子评估与核验结果，不要客套。")
+        self.assertIsNone(clean_user_voice(template))
+        self.assertIsNone(clean_user_voice("你是逆合成平台技术负责人。下面是 8 个真实分子上，化学家对升级前后单步排序的独立比对，" * 3))
+        self.assertIsNone(clean_user_voice("You are an expert code reviewer. Review the following diff and list every bug. " * 3))
+        # Short, or not a role assignment: the user talking to the AI
+        self.assertEqual(clean_user_voice("你是专家，怎么还犯这种错"), "你是专家，怎么还犯这种错")
+        asked = "你是不是又把专家模式关了？" + "我之前说过要一直开着，" * 12
+        self.assertTrue(clean_user_voice(asked).startswith("你是不是又把专家模式关了"))
+
     def test_clean_user_voice_keeps_typed_text_and_strips_injected_context(self):
         self.assertEqual(
             clean_user_voice("以后都用中文回复我 <system-reminder>ignore me</system-reminder>"),

@@ -99,6 +99,19 @@ USER_VOICE_MAX_BATCHES = 6      # bounds cost on very busy windows
 USER_VOICE_FETCH_LIMIT = 4000
 
 
+# A script's prompt to a model ("你是资深有机合成专家。给你一个化合物…", "You are an expert reviewer…"),
+# sent through a CLI session so it is stored as role="user". On 2026-10-27 one batch job's review prompt
+# accounted for 91 of the corrections waiting to be learned. Only long text counts: a user saying
+# "你是专家，怎么还犯这种错" is talking to the AI.
+_SCRIPTED_PROMPT_RE = re.compile(
+    r"^(?:你是|您是)(?:一[名位个])?[^，,。！？!?\n]{0,24}?"
+    r"(?:专家|助手|工程师|负责人|分析师|顾问|评审|审稿人|架构师|研究员|翻译)[。，,.:：；;！!\s]"
+    r"|^you are (?:an?|the) [^.\n]{0,60}?"
+    r"(?:expert|assistant|engineer|reviewer|analyst|specialist|architect|consultant|researcher|translator)\b",
+    re.IGNORECASE,
+)
+SCRIPTED_PROMPT_MIN_CHARS = 120
+
 _CLIENT_INJECTED_BLOCK_RE = re.compile(
     r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
 )
@@ -114,6 +127,8 @@ def clean_user_voice(content: str | None) -> str | None:
     text = _EMBEDDED_CONTEXT_RE.sub("", text)
     text = re.sub(r"\s+", " ", sanitize_transient_text(text)).strip()
     if len(text) < 2 or text.isdigit() or text.lower().strip(" .!！。") in _TRIVIAL_REPLIES:
+        return None
+    if len(text) >= SCRIPTED_PROMPT_MIN_CHARS and _SCRIPTED_PROMPT_RE.match(text):
         return None
     if len(text) > USER_VOICE_MSG_CHARS:
         text = text[:USER_VOICE_MSG_CHARS] + "…"

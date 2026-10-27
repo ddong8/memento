@@ -131,11 +131,39 @@ def _add_general_line(general: str, heading: str, bullet: str) -> str:
     return "\n".join(lines[:insert_at] + [bullet] + lines[insert_at:])
 
 
+_RULE_NOISE_RE = re.compile(r"[\s，,。.；;：:！!？?、（）()\"'“”‘’`*\-—]+")
+
+
+def _rule_key(text: str) -> str:
+    return _RULE_NOISE_RE.sub("", text or "").lower()
+
+
+def profile_covers(content: str, heading: str, line: str) -> bool:
+    """Whether a profile line `heading` would apply in already says `line`: "始终用中文回复" is covered
+    by "- 始终用中文回复，长会话中也不得切换为英文。". The general part applies everywhere, a
+    project / device section only there.
+
+    Without this, a rule the profile already had was added again, the general part (full since
+    2026-10) went over PROFILE_MAX_CHARS, and the topic stayed pending however often it was said."""
+    key = _rule_key(line)
+    if len(key) < 4:
+        return False
+    scopes = split_profile_scopes(content or "")
+    lines = scopes.general.split("\n")
+    scoped = re.match(r"^(项目|设备)\s*[:：]\s*(.+)$", heading)
+    if scoped:
+        bucket = scopes.projects if scoped.group(1) == "项目" else scopes.devices
+        name = norm_scope_name(scoped.group(2).strip())
+        lines += [x for k, v in bucket.items() if norm_scope_name(k) == name for x in v]
+    return any(key in _rule_key(x) for x in lines if x.strip().startswith(("-", "*", "•")))
+
+
 def add_profile_line(content: str, heading: str, line: str) -> str:
     """Add "- line" under `heading`: a general heading ("铁律") goes in the general part,
-    a scoped one ("项目：chembook", "设备：…") in its own section at the end."""
+    a scoped one ("项目：chembook", "设备：…") in its own section at the end. A line the
+    profile already says (see profile_covers) leaves it as it is."""
     bullet = f"- {line}"
-    if any(existing.strip() == bullet for existing in (content or "").split("\n")):
+    if profile_covers(content, heading, line):
         return (content or "").strip()
     scopes = split_profile_scopes(content or "")
     scoped = re.match(r"^(项目|设备)\s*[:：]\s*(.+)$", heading)
@@ -308,9 +336,10 @@ _CLASSIFY_PROMPT = """下面是用户在各个 AI 工具里亲手打的话，都
 - i：表达这条规矩的所有原话编号。同一件事在下面说了好几次，就合成一条，把编号都列上。
 - match：如果和某个已知话题说的是同一件事，填它的编号（如 "t3"、"m12"）；否则填 null。宁可匹配已知话题，也不要把同一件事拆成两个。
 - 抱怨 AI 又违反了某个已知话题的话也要输出、填上 match，哪怕它本身不像一条规矩。例如已知话题是"始终用中文回复"，原话"怎么又变成英文了"就匹配它。这类重复最重要，不要漏。
+- upfront：i 里哪些原话是用户提新请求时顺带交代的要求（如"我今天做了什么，我要写日报，尽量通俗，不要提问题"），而不是在回应 AI 刚做错、刚忘了的事（如"中文！"、"怎么又提问题了"）。没有就填 []。
 - 不是规矩的原话直接略过，不用输出。
 
-只输出 JSON：{{"items": [{{"i": [1, 4], "statement": "...", "category": "rule", "scope": "global", "match": null}}]}}"""
+只输出 JSON：{{"items": [{{"i": [1, 4], "statement": "...", "category": "rule", "scope": "global", "match": null, "upfront": []}}]}}"""
 
 
 async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict[str, Any]]:
@@ -338,6 +367,13 @@ async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict
             except (TypeError, ValueError):
                 continue
         indices = sorted(i for i in indices if 1 <= i <= len(batch))
+        raw_upfront = item.get("upfront")
+        upfront = set()
+        for v in raw_upfront if isinstance(raw_upfront, list) else []:
+            try:
+                upfront.add(int(v))
+            except (TypeError, ValueError):
+                continue
         statement = clean_statement(str(item.get("statement") or ""))
         if not indices or not statement:
             continue
@@ -349,13 +385,35 @@ async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict
             "category": category if category in CATEGORY_HEADINGS else "rule",
             "scope": scope if scope in ("global", "project", "device") else "global",
             "match": str(item["match"]) if item.get("match") else None,
+            "upfront": sorted(upfront.intersection(indices)),
         })
     return out
+
+
+async def accept_covered_topics(db: AsyncSession, user: User) -> list[str]:
+    """Accept pending topics the published profile already says (the nightly draft often gets a rule
+    there first), so saying it again counts as the AI forgetting a rule it had. Changes no profile
+    text, so it is safe to run on every pass. On 2026-10-27 "始终用中文回复" sat pending after 19
+    mentions while the profile's first line said it."""
+    published = await get_published_profile(db, user)
+    content = (published.content if published else "") or ""
+    if not content.strip():
+        return []
+    pending = (await db.execute(
+        select(CorrectionTopic).where(CorrectionTopic.user_id == user.id, CorrectionTopic.status == "pending")
+    )).scalars().all()
+    accepted = []
+    for topic in pending:
+        if profile_covers(content, topic_heading(topic), topic.statement):
+            await accept_topic(db, user, topic)
+            accepted.append(topic.statement)
+    return accepted
 
 
 async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]:
     """Process corrections synced since the last run. Returns what changed."""
     now = datetime.now(timezone.utc)
+    covered = await accept_covered_topics(db, user)
     cursor_key = f"corrections_cursor:{user.id}"
     cursor = await ai_health.get_json(cursor_key)
     said, next_cursor = await fetch_new_corrections(db, user, cursor, now)
@@ -393,12 +451,15 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
         # Every (message, topic) pair oldest first, so the first time a topic is
         # said counts as new and the rest as repeats.
         occurrences = sorted(
-            ((batch[i - 1], n) for n, item in enumerate(items) for i in item["indices"]),
+            ((batch[i - 1], n, i) for n, item in enumerate(items) for i in item["indices"]),
             key=lambda pair: pair[0].said_at,
         )
         resolved: dict[int, CorrectionTopic] = {}
-        for s, n in occurrences:
+        for s, n, i in occurrences:
             item = items[n]
+            # Only words reacting to the AI show a lesson that didn't stick; restating a standing
+            # request up front ("我要写日报，尽量通俗，不要提问题") is habit, not the AI forgetting.
+            pushback = i not in item["upfront"]
             fp = fingerprint(s)
             if (await db.execute(select(CorrectionEvent.id).where(
                 CorrectionEvent.user_id == user.id,
@@ -422,11 +483,11 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
                 refs[ref] = topic
                 resolved[n] = topic
                 # Backfilled corrections can predate the memory; only later ones are repeats.
-                learned = learned_by(topic, s.said_at)
-                repeat = learned
+                repeat = learned_by(topic, s.said_at)
+                learned = repeat and pushback
             elif isinstance(target, CorrectionTopic):
                 topic = target
-                repeat, learned = True, learned_by(topic, s.said_at)
+                repeat, learned = True, learned_by(topic, s.said_at) and pushback
             else:
                 topic = CorrectionTopic(
                     user_id=user.id, statement=item["statement"], category=item["category"],
@@ -466,6 +527,7 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
         "events": events,
         "new_topics": [t.statement for t in new_topics if t.status == "pending"],
         "auto_accepted": [t.statement for t in auto_accepted],
+        "covered": covered,  # already in the profile: bookkeeping, nothing new to announce
         "backfill": cursor is None,
     }
 

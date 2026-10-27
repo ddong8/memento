@@ -2,8 +2,6 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
-import rehypeRaw from "rehype-raw";
 import "highlight.js/styles/github-dark.min.css";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { MermaidBlock } from "./MermaidBlock";
@@ -315,6 +313,36 @@ function normalizeMarkdownContent(content: string): string {
     .join("");
 }
 
+// rehype-raw (an HTML parser) and rehype-highlight (37 grammars) are two thirds of the markdown
+// stack, so they load once the first markdown is on screen rather than with every page's first JS
+type RehypeExtras = { raw: any; highlight: any };
+let rehypeExtras: RehypeExtras | null = null;
+let rehypeExtrasLoading: Promise<RehypeExtras> | null = null;
+
+export function loadRehypeExtras(): Promise<RehypeExtras> {
+  rehypeExtrasLoading ??= Promise.all([import("rehype-raw"), import("rehype-highlight")]).then(
+    ([raw, highlight]) => (rehypeExtras = { raw: raw.default, highlight: highlight.default }),
+    (err) => {
+      rehypeExtrasLoading = null; // a chunk lost to a deploy loads again on the next mount
+      throw err;
+    }
+  );
+  return rehypeExtrasLoading;
+}
+
+function useRehypeExtras(): RehypeExtras | null {
+  const [extras, setExtras] = useState(rehypeExtras);
+  useEffect(() => {
+    if (extras) return;
+    let alive = true;
+    loadRehypeExtras().then((x) => alive && setExtras(x), () => {});
+    return () => {
+      alive = false;
+    };
+  }, [extras]);
+  return extras;
+}
+
 const MarkdownViewer = memo(function MarkdownViewer({
   content,
   className = "",
@@ -365,13 +393,15 @@ const MarkdownViewer = memo(function MarkdownViewer({
   const baseProse = compactText ? "prose-compact" : "prose";
   const remarkPlugins = useMemo(() => [remarkGfm], []);
   const shouldHighlight = !isStreaming && content.length <= 60_000;
+  const extras = useRehypeExtras();
   const rehypePlugins = useMemo(() => {
-    const plugins: any[] = [rehypeRaw];
+    if (!extras) return [];
+    const plugins: any[] = [extras.raw];
     if (shouldHighlight) {
-      plugins.push(rehypeHighlight);
+      plugins.push(extras.highlight);
     }
     return plugins;
-  }, [shouldHighlight]);
+  }, [extras, shouldHighlight]);
 
   const components = useMemo(
     () => ({
@@ -837,6 +867,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
+        // Until rehype-raw is in, inline HTML would show as literal tags
+        skipHtml={!extras}
         components={components}
       >
         {formattedContent}

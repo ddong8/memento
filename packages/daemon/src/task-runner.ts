@@ -21,6 +21,7 @@ import {
   reapWorkbuddyGateways,
   stopWorkbuddyGateway,
   touchWorkbuddyGateway,
+  workbuddyCliDir,
   type WorkbuddyGatewayHandle,
 } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
@@ -420,9 +421,11 @@ export class TaskRunner {
     if (!gateway) return null;
     const sess = this.taskSessions.get(taskId);
     if (sess) sess.gatewayFile = gateway.file;
-    if (gateway.cwd && sessionId) {
-      await adoptWorkbuddySession(sessionId, gateway.cwd)
-        .then((copied) => copied && this.log(`Copied WorkBuddy session ${sessionId} to ${gateway.cwd}`))
+    if (sessionId) {
+      // The shared gateway runs in the CLI dir; the session may have started in a directory gateway.
+      const dir = gateway.cwd ?? workbuddyCliDir();
+      await adoptWorkbuddySession(sessionId, dir)
+        .then((copied) => copied && this.log(`Copied WorkBuddy session ${sessionId} to ${dir}`))
         .catch((err) => this.log(`Failed to copy WorkBuddy session: ${err instanceof Error ? err.message : String(err)}`));
     }
     this.sweepIdleGateways();

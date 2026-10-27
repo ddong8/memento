@@ -19,12 +19,14 @@ import {
   stopWorkbuddyGateway,
   touchWorkbuddyGateway,
   WORKBUDDY_GATEWAY_AUTH_ID,
+  workbuddyAuthDir,
   workbuddyBundledNode,
   workbuddyCliDir,
   workbuddyCliKeepsOwnLogin,
   workbuddyGatewayEnv,
   workbuddyGatewayFile,
   workbuddyGatewayFileFor,
+  workbuddyGatewayLoginSaved,
   workbuddyProjectDirName,
   type WorkbuddyGatewayHandle,
 } from "../src/workbuddy.js";
@@ -618,6 +620,73 @@ describe("WorkBuddy gateways per task directory", () => {
     expect(gw!.file).toBe(workbuddyGatewayFile(home));
     expect(gw!.cwd).toBeUndefined();
     expect(await realpath((await runOf(home, gw!.pid)).cwd)).toBe(await realpath(workbuddyCliDir(home)));
+  });
+
+  it("keeps directories on a shared gateway holding the only login in memory, until a login is saved", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const dir = join(home, "proj");
+    await mkdir(dir);
+    const old = await memoryGateway(home, fake);
+    await writeFile(join(home, "signed-in"), "");
+
+    // A directory gateway would need a new sign-in (nobody may be at the computer): the task goes to the shared one.
+    const gw = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dir });
+    expect(gw).toMatchObject({ pid: old.pid, file: workbuddyGatewayFile(home) });
+    expect(gw!.cwd).toBeUndefined();
+    expect(existsSync(workbuddyGatewayFileFor(dir, home))).toBe(false);
+
+    // The desktop's own login doesn't count.
+    await mkdir(workbuddyAuthDir(home), { recursive: true });
+    await writeFile(join(workbuddyAuthDir(home), "workbuddy-desktop.info"), "{}");
+    expect((await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dir }))?.pid).toBe(old.pid);
+
+    // Once the gateways' login is in its file, the directory gets its own, and the shared one is left alone.
+    await writeFile(join(workbuddyAuthDir(home), `${WORKBUDDY_GATEWAY_AUTH_ID}.info`), "{}");
+    const own = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dir });
+    pids.push(own!.pid);
+    expect(own!.pid).not.toBe(old.pid);
+    expect(own!.file).toBe(workbuddyGatewayFileFor(dir, home));
+    expect(alive(old.pid)).toBe(true);
+  }, 30_000);
+
+  it("gives a directory its own gateway when the in-memory shared one has nobody signed in or is gone", async () => {
+    const home = await tempHome();
+    const fake = await fakeCli(home);
+    const cli = { node: process.execPath, entry: fake };
+    const dirA = join(home, "proj-a");
+    const dirB = join(home, "proj-b");
+    await mkdir(dirA);
+    await mkdir(dirB);
+    const old = await memoryGateway(home, fake);
+
+    const a = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirA });
+    pids.push(a!.pid);
+    expect(a!.file).toBe(workbuddyGatewayFileFor(dirA, home));
+
+    process.kill(old.pid);
+    await old.exited;
+    await writeFile(join(home, "signed-in"), "");
+    const b = await ensureWorkbuddyGateway(home, { cli, timeoutMs: 15_000, cwd: dirB });
+    pids.push(b!.pid);
+    expect(b!.file).toBe(workbuddyGatewayFileFor(dirB, home));
+  }, 30_000);
+
+  it("looks for the gateways' login where the CLI saves it on each platform", async () => {
+    const auth = (...base: string[]) => join("/h", ...base, "CodeBuddyExtension", "Data", "Public", "auth");
+    expect(workbuddyAuthDir("/h", "darwin")).toBe(auth("Library", "Application Support"));
+    expect(workbuddyAuthDir("/h", "win32")).toBe(auth("AppData", "Local"));
+    expect(workbuddyAuthDir("/h", "linux")).toBe(auth(".local", "share"));
+
+    const home = await tempHome();
+    expect(await workbuddyGatewayLoginSaved(home)).toBe(false);
+    await mkdir(workbuddyAuthDir(home), { recursive: true });
+    await writeFile(join(workbuddyAuthDir(home), "workbuddy-desktop.info"), "{}");
+    expect(await workbuddyGatewayLoginSaved(home)).toBe(false);
+    // A custom endpoint adds a suffix (the CLI's resolveCustomAuthId).
+    await writeFile(join(workbuddyAuthDir(home), `${WORKBUDDY_GATEWAY_AUTH_ID}-wb-example_com.info`), "{}");
+    expect(await workbuddyGatewayLoginSaved(home)).toBe(true);
   });
 
   it("stops idle gateways and the least recently used beyond the limit, never one a task is on", async () => {

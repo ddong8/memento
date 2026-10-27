@@ -559,6 +559,40 @@ async function killGateway(gw: MementoWorkbuddyGateway, cli: Pick<WorkbuddyLiteC
 /** Starts in flight, per gateway file. */
 const gatewayStarts = new Map<string, Promise<WorkbuddyGatewayHandle>>();
 
+/** Where WorkBuddy saves logins: `<CodeBuddyExtension>/Data/Public/auth` (the CLI's FilePathService.getBasePath). */
+export function workbuddyAuthDir(home = homeDir(), platform: NodeJS.Platform = process.platform): string {
+  const base =
+    platform === "darwin"
+      ? join(home, "Library", "Application Support", "CodeBuddyExtension")
+      : platform === "win32"
+        ? join(home, "AppData", "Local", "CodeBuddyExtension")
+        : join(home, ".local", "share", "CodeBuddyExtension");
+  return join(base, "Data", "Public", "auth");
+}
+
+/**
+ * Whether the gateways' own login file exists: `memento-gateway.info`, or with the suffix the CLI's
+ * resolveCustomAuthId adds for a custom endpoint.
+ */
+export async function workbuddyGatewayLoginSaved(home = homeDir()): Promise<boolean> {
+  const id = WORKBUDDY_GATEWAY_AUTH_ID;
+  const names = await readdir(workbuddyAuthDir(home)).catch(() => [] as string[]);
+  return names.some((n) => n === `${id}.info` || (n.startsWith(`${id}-`) && n.endsWith(".info")));
+}
+
+/**
+ * Whether the only WorkBuddy login is in the memory of a shared gateway from before logins were kept
+ * in a file. A directory gateway would then have to sign in again (from a phone nobody can), so tasks
+ * stay on the shared one until it exits; the next gateway saves its login and directories take over.
+ */
+async function loginOnlyInSharedMemory(home: string): Promise<boolean> {
+  if (await workbuddyGatewayLoginSaved(home)) return false;
+  const shared = await readGatewayFile(workbuddyGatewayFile(home));
+  if (shared?.credentials !== "memory" || !pidAlive(shared.pid)) return false;
+  // Can't tell (busy or hung): keep the login rather than risk a sign-in.
+  return (await gatewaySignedIn(shared)) !== false;
+}
+
 /** Whether the gateway has a WorkBuddy account signed in (null when it can't tell). */
 async function gatewaySignedIn(gw: MementoWorkbuddyGateway): Promise<boolean | null> {
   const res = await fetch(`${gw.endpoint}/api/v1/auth/account/status`, {
@@ -577,7 +611,8 @@ async function gatewaySignedIn(gw: MementoWorkbuddyGateway): Promise<boolean | n
  *
  * Each directory gets its own gateway only while the login lives in its own file, which they
  * all share; a login in memory would need signing in once per gateway, so then every task
- * goes to the shared one and is told its directory in the prompt.
+ * goes to the shared one and is told its directory in the prompt. That includes a shared gateway
+ * still holding the only login in memory (see loginOnlyInSharedMemory).
  *
  * `busy` / `inUse` (gateway files): another task is on it right now, so it must not be restarted
  * just to move its login out of memory.
@@ -589,7 +624,8 @@ export async function ensureWorkbuddyGateway(
   const cli = options.cli === undefined ? findWorkbuddyLiteCli(home) : options.cli;
   if (!cli) return null;
   const credentials = (await workbuddyCliKeepsOwnLogin(cli.entry)) ? "own-file" : "memory";
-  const cwd = options.cwd && credentials === "own-file" && isDirectory(options.cwd) ? canonicalDir(options.cwd) : undefined;
+  let cwd = options.cwd && credentials === "own-file" && isDirectory(options.cwd) ? canonicalDir(options.cwd) : undefined;
+  if (cwd && (await loginOnlyInSharedMemory(home))) cwd = undefined;
   const file = workbuddyGatewayFileFor(cwd, home);
   const busy = !!options.busy || !!options.inUse?.has(file);
   let pending = gatewayStarts.get(file);

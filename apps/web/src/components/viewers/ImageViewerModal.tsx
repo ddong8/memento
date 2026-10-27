@@ -41,6 +41,7 @@ export function ImageViewerModal({
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [zoomBadge, setZoomBadge] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<boolean>(false);
   const zoomTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync zoom badge indicator
@@ -83,6 +84,7 @@ export function ImageViewerModal({
       setZoom(1);
       setRotation(0);
       setPan({ x: 0, y: 0 });
+      setLoadError(false);
     }
   }, [isOpen, initialIndex, images.length]);
 
@@ -126,6 +128,7 @@ export function ImageViewerModal({
     setZoom(1);
     setRotation(0);
     setPan({ x: 0, y: 0 });
+    setLoadError(false);
   }, []);
 
   const handlePrev = useCallback(() => {
@@ -467,25 +470,40 @@ export function ImageViewerModal({
           cursor: zoom > 1 ? (isDragging ? "grabbing" : "grab") : "zoom-out",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          key={currentItem.src}
-          src={currentItem.src}
-          alt={currentItem.alt || currentItem.title}
-          draggable={false}
-          onDoubleClick={handleDoubleClick}
-          onClick={(e) => {
-            // If zoomed in, don't trigger background close when clicking on the image
-            e.stopPropagation();
-          }}
-          style={{
-            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom}) rotate(${rotation}deg)`,
-            transition: isDragging ? "none" : "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
-            maxHeight: "88vh",
-            maxWidth: "90vw",
-          }}
-          className="object-contain rounded-xl shadow-2xl select-none will-change-transform"
-        />
+        {loadError ? (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex flex-col items-center justify-center p-6 sm:p-8 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/15 text-center max-w-sm mx-4 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+          >
+            <span className="p-3.5 rounded-full bg-amber-500/20 text-amber-300 mb-3 text-2xl shadow-inner">🖼️</span>
+            <p className="text-white font-semibold text-sm mb-1">{currentItem.title || "图片资源无法访问"}</p>
+            <p className="text-white/60 text-xs font-mono break-all mb-3 px-2 line-clamp-2">{currentItem.src}</p>
+            <p className="text-white/40 text-[11.5px] leading-relaxed">
+              文件不存在、已被系统清理或对应设备当前处于离线状态
+            </p>
+          </div>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            key={currentItem.src}
+            src={currentItem.src}
+            alt={currentItem.alt || currentItem.title}
+            onError={() => setLoadError(true)}
+            draggable={false}
+            onDoubleClick={handleDoubleClick}
+            onClick={(e) => {
+              // If zoomed in, don't trigger background close when clicking on the image
+              e.stopPropagation();
+            }}
+            style={{
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom}) rotate(${rotation}deg)`,
+              transition: isDragging ? "none" : "transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+              maxHeight: "88vh",
+              maxWidth: "90vw",
+            }}
+            className="object-contain rounded-xl shadow-2xl select-none will-change-transform"
+          />
+        )}
       </div>
 
       {/* Bottom Thumbnail Strip (Only when multiple images exist) */}

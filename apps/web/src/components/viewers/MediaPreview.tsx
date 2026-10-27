@@ -2857,14 +2857,30 @@ export interface ImagePreviewProps {
 
 export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<boolean>(false);
   const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
 
   useEffect(() => {
     setResolved(resolveMediaUrl(src));
+    setLoadError(false);
   }, [src]);
 
   const { playUrl, filename: resolvedFilename } = resolved;
   const displayTitle = alt || resolvedFilename || "image-preview";
+
+  if (loadError) {
+    return (
+      <div className={`my-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 text-xs text-[var(--aurora-fg2)] ${className}`}>
+        <span className="text-amber-400 shrink-0">🖼️</span>
+        <span className="font-mono text-xs truncate max-w-[240px] text-[var(--aurora-fg1)]" title={displayTitle}>
+          {displayTitle}
+        </span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-medium shrink-0">
+          文件不存在或离线
+        </span>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -2879,6 +2895,7 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
           alt={displayTitle}
           loading="lazy"
           decoding="async"
+          onError={() => setLoadError(true)}
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
         />
         <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">

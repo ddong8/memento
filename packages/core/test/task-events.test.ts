@@ -24,6 +24,16 @@ describe("task events", () => {
     expect(taskRunSummary([{ kind: "tool" }, { kind: "usage", input_tokens: 36_402_801, cost_usd: 5.78 }])).toBe("1 步 · 读取 3,640 万 token · $5.78");
   });
 
+  it("says how much of what a run read came from the cache", () => {
+    expect(
+      taskRunSummary([{ kind: "tool" }, { kind: "usage", input_tokens: 36_402_801, cache_read_tokens: 35_600_000, cache_write_tokens: 790_000, cost_usd: 5.78 }]),
+    ).toBe("1 步 · 读取 3,640 万 token（缓存命中 97%） · $5.78");
+    // Rounded down, so a run with any miss never shows 100%
+    expect(taskRunSummary([{ kind: "usage", input_tokens: 1_000_000, cache_read_tokens: 999_900 }])).toBe("0 步 · 读取 100 万 token（缓存命中 99%）");
+    // A cold run: nothing came from the cache
+    expect(taskRunSummary([{ kind: "usage", input_tokens: 200_000, cache_read_tokens: 0, cache_write_tokens: 199_000 }])).toBe("0 步 · 读取 20 万 token");
+  });
+
   it("formats token counts in 万 / 亿", () => {
     expect(formatTokenCount(8500)).toBe("8,500");
     expect(formatTokenCount(342_668)).toBe("34 万");

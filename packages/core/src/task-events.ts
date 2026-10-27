@@ -23,9 +23,11 @@ export function formatTokenCount(n: number): string {
 }
 
 /**
- * "12 步 · 读取 85 万 token · $0.21 · 3 分 4 秒" from a run's tool steps and usage. The tokens are what
- * all of the run's requests read, the cache included: each step carries the whole context, so this is
- * what a long run in a big session costs.
+ * "12 步 · 读取 85 万 token（缓存命中 96%） · $0.21 · 3 分 4 秒" from a run's tool steps and usage. The
+ * tokens are what all of the run's requests read, the cache included: each step carries the whole
+ * context, so this is what a long run in a big session reads. A cache hit is billed at a tenth of a fresh
+ * read, so the hit share says how much of that is cheap (VS Code shows neither, which made a memento run
+ * look many times dearer than the same work there).
  */
 export function taskRunSummary(events: readonly TaskEvent[]): string {
   const steps = events.filter((e) => e.kind === "tool").length;
@@ -33,7 +35,12 @@ export function taskRunSummary(events: readonly TaskEvent[]): string {
   const parts = [`${steps} 步`];
   if (usage?.kind === "usage") {
     const read = usage.input_tokens;
-    if (typeof read === "number" && read > 0) parts.push(`读取 ${formatTokenCount(read)} token`);
+    if (typeof read === "number" && read > 0) {
+      const cached = usage.cache_read_tokens;
+      // Rounded down: a run that missed the cache at all doesn't read as 100%
+      const hit = typeof cached === "number" && cached > 0 ? Math.floor((Math.min(cached, read) / read) * 100) : 0;
+      parts.push(hit > 0 ? `读取 ${formatTokenCount(read)} token（缓存命中 ${hit}%）` : `读取 ${formatTokenCount(read)} token`);
+    }
     const cost = usage.cost_usd;
     if (typeof cost === "number" && cost > 0) parts.push(`$${cost < 0.01 ? cost.toFixed(3) : cost.toFixed(2)}`);
     const ms = usage.duration_ms;

@@ -3,7 +3,8 @@
 Appending a delta to documents.content rewrites the whole value: PostgreSQL keeps a long text out of
 line (TOAST) and never edits it in place. A 1.5 KB delta to an 8.6 MB Antigravity conversation wrote
 its 2.5 MB compressed copy again, every 15 s while the session ran: on 10-27, 3106 syncs of the four
-conversations over 4 MB rewrote 24 GB in a day. Deltas to a conversation of STAGE_MIN_BYTES or more go
+conversations over 4 MB rewrote 24 GB in a day. Deltas to a conversation already past what the
+full-text index reads (past_index; STAGE_MIN_BYTES or more is past it without fetching the text) go
 to document_pending_deltas instead, and are appended in one write once the conversation goes quiet
 or the oldest has waited MAX_WAIT_SECONDS.
 
@@ -61,8 +62,14 @@ def append(content: str | None, delta: str) -> str:
     return cap_content(content + "\n" + delta) if content else delta
 
 
+def past_index(content: str | None) -> bool:
+    """Whether appending to this text leaves what the full-text index reads as it is."""
+    return content is not None and len(content) >= _MAX_INDEX_INPUT_CHARS
+
+
 async def should_stage(db: AsyncSession, doc_id: uuid.UUID) -> bool:
-    """Whether a delta to this conversation is staged: it is big, or deltas are already waiting."""
+    """Whether a delta to this conversation is staged, told without fetching its text: it is big, or
+    deltas are already waiting. Smaller ones the caller fetches anyway, and checks with past_index."""
     size = await db.scalar(select(func.octet_length(Document.content)).where(Document.id == doc_id))
     if (size or 0) >= STAGE_MIN_BYTES:
         return True

@@ -1,10 +1,10 @@
-"""A conversation past 1 MB keeps its whole text in documents.content as deltas arrive.
+"""A long conversation keeps its whole text in documents.content as deltas arrive.
 
 1de21989 moved texts over 1 MB to MinIO and kept only a 64 KB head in the row, then appended
 each delta to that head: the copy in MinIO lost everything between the head and the delta.
-Past 1 MB the deltas wait in document_pending_deltas and are appended in one write once the
-conversation goes quiet (services/content_staging.py): rewriting 8 MB for each 1.5 KB delta
-wrote 24 GB a day. The database tests run against a real PostgreSQL when
+Once a conversation is past what the full-text index reads (200k characters) the deltas wait in
+document_pending_deltas and are appended in one write once it goes quiet
+(services/content_staging.py): rewriting 8 MB for each 1.5 KB delta wrote 24 GB a day. The database tests run against a real PostgreSQL when
 MEMENTO_TEST_DATABASE_URL points at a throwaway database (they create and drop the schema)."""
 
 from __future__ import annotations
@@ -92,17 +92,20 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
                 select(func.count()).select_from(DocumentPendingDelta).where(DocumentPendingDelta.document_id == doc_id)
             )
 
-    async def test_deltas_past_one_megabyte_keep_the_whole_text(self) -> None:
-        from server.services.content_staging import merge_pending, with_pending
+    async def test_deltas_past_what_the_index_reads_keep_the_whole_text(self) -> None:
+        from server.services.content_staging import STAGE_MIN_BYTES, merge_pending, with_pending
+        from server.services.tokenize import _MAX_INPUT_CHARS
 
         rel = "projects/-Users-me-dev-memento/big.jsonl"
-        slices = ["\n".join(_line(s * 10 + i, 30_000) for i in range(10)) for s in range(6)]  # ~300 KB each
+        slices = ["\n".join(_line(s * 10 + i, 6_000) for i in range(10)) for s in range(6)]  # ~60 KB each
         await self._ingest(rel, slices)
 
         doc = await self._content(rel)
-        # Rewritten while under 1 MB; the two deltas after that wait to be appended
+        # Rewritten until past what the index reads, far under 1 MB; the two deltas after that wait
         self.assertEqual(doc.content, "\n".join(slices[:4]))
-        self.assertGreater(len(doc.content), 1_048_576)
+        self.assertGreaterEqual(len(doc.content), _MAX_INPUT_CHARS)
+        self.assertLess(len("\n".join(slices[:3])), _MAX_INPUT_CHARS)
+        self.assertLess(len(doc.content.encode()), STAGE_MIN_BYTES)
         self.assertEqual(await self._pending(doc.id), 2)
         self.assertIsNone(doc.content_s3_key)
         self.uploaded.assert_not_awaited()
@@ -129,7 +132,7 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
         from server.services.content_staging import merge_due
 
         rel = "projects/-Users-me-dev-memento/sweep.jsonl"
-        slices = ["\n".join(_line(s * 10 + i, 30_000) for i in range(10)) for s in range(5)]
+        slices = ["\n".join(_line(s * 10 + i, 6_000) for i in range(10)) for s in range(5)]
         await self._ingest(rel, slices)
         doc = await self._content(rel)
         self.assertEqual(await self._pending(doc.id), 1)
@@ -143,7 +146,7 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_full_upload_supersedes_waiting_deltas(self) -> None:
         rel = "projects/-Users-me-dev-memento/full.jsonl"
-        slices = ["\n".join(_line(s * 10 + i, 30_000) for i in range(10)) for s in range(5)]
+        slices = ["\n".join(_line(s * 10 + i, 6_000) for i in range(10)) for s in range(5)]
         await self._ingest(rel, slices)
         doc = await self._content(rel)
         self.assertEqual(await self._pending(doc.id), 1)
@@ -151,6 +154,26 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
         whole = "\n".join(slices + [_line(999, 10)])
         await self._ingest(rel, [whole], first_mode="full", offset=10_000_000)
         self.assertEqual((await self._content(rel)).content, whole)
+        self.assertEqual(await self._pending(doc.id), 0)
+
+    async def test_a_megabyte_conversation_stages_without_fetching_its_text(self) -> None:
+        from server.services import content_staging
+
+        rel = "projects/-Users-me-dev-memento/huge.jsonl"
+        head = "\n".join(_line(i, 30_000) for i in range(40))  # ~1.2 MB
+        offset = await self._ingest(rel, [head])
+        with patch.object(content_staging, "past_index", side_effect=AssertionError("text fetched")):
+            await self._ingest(rel, [_line(999, 10)], first_mode="delta", offset=offset)
+        doc = await self._content(rel)
+        self.assertEqual(doc.content, head)
+        self.assertEqual(await self._pending(doc.id), 1)
+
+    async def test_a_short_conversation_is_still_rewritten(self) -> None:
+        rel = "projects/-Users-me-dev-memento/short.jsonl"
+        slices = [_line(i, 100) for i in range(3)]
+        await self._ingest(rel, slices)
+        doc = await self._content(rel)
+        self.assertEqual(doc.content, "\n".join(slices))
         self.assertEqual(await self._pending(doc.id), 0)
 
 

@@ -1025,13 +1025,19 @@ async def ingest_file(
         if doc.category != category and doc.category == "conversation":
             doc.category = category  # filed as a conversation before its category was inferred
         prev_title = doc.title
-        if mode == "delta" and doc.category == "conversation" and await content_staging.should_stage(db, doc.id):
-            # Appended once the conversation goes quiet, not rewritten (megabytes) on every sync
+        staged = mode == "delta" and doc.category == "conversation" and await content_staging.should_stage(db, doc.id)
+        current: str | None = None
+        if mode == "delta" and not staged:
+            current = await db.scalar(select(Document.content).where(Document.id == doc.id))
+            # Under a megabyte but already past what the index reads: rewriting it on every sync is
+            # the same waste (10-28: a Claude Code session just under 1 MB, 46 rewrites and 32 MB of WAL in 5 minutes)
+            staged = doc.category == "conversation" and content_staging.past_index(current)
+        if staged:
+            # Appended once the conversation goes quiet, not rewritten on every sync
             await content_staging.stage_delta(db, doc.id, content)
             index_unchanged = True  # staged conversations are past what the index reads
             index_body = None
         elif mode == "delta":
-            current = await db.scalar(select(Document.content).where(Document.id == doc.id))
             # The index reads only the start of title + content: appending past that changes nothing
             index_unchanged = bool(current) and len(current) >= _MAX_INDEX_INPUT_CHARS
             doc.content = content_staging.append(current, content)

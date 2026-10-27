@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..db.models import (
-    CHAT_MESSAGE, AgentMission, ConversationMessage, CorrectionEvent, Document, Machine, Todo, User, UserMemory,
+    CHAT_MESSAGE, AgentMission, ConversationMessage, CorrectionEvent, CorrectionTopic, Document, Machine, Todo, User,
+    UserMemory,
 )
 from ..db.session import async_session_factory
 from . import ai_health, mission_service
@@ -270,9 +271,14 @@ async def _evening_stats(db: AsyncSession, user: User, day_start: datetime, now:
     )
     if mids is not None:
         chats = chats.where(Document.machine_id.in_(mids))
+    # Same count as correction_stats: dismissed topics were never corrections, and "learned yet
+    # repeated" is already_learned (repeat only means the topic came up before).
     corrections = (await db.execute(
-        select(func.count(), func.count().filter(CorrectionEvent.repeat.is_(True))).where(
+        select(func.count(), func.count().filter(CorrectionEvent.already_learned.is_(True)))
+        .join(CorrectionTopic, CorrectionTopic.id == CorrectionEvent.topic_id)
+        .where(
             CorrectionEvent.user_id == user.id, CorrectionEvent.said_at >= day_start, CorrectionEvent.said_at < now,
+            CorrectionTopic.status != "dismissed",
         )
     )).one()
     return {

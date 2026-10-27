@@ -1,7 +1,7 @@
 {
   "version": "1.0.85",
   "title": "Memento v1.0.85",
-  "release_notes": "1. 经 Memento 调用 Claude Code 更省额度：上下文涨到 20 万 token 就自动压缩（个人设置的大模型页可改为 30 万、50 万或跟随 Claude Code），过程卡片会显示本次读取了多少 token、什么时候自动压缩过\n2. WorkBuddy 的模型列表改为读取 WorkBuddy 自己的最新配置，和 WorkBuddy 客户端里看到的一致\n3. 修复本机视频、音频预览按片段读取时的两处错误",
+  "release_notes": "1. WorkBuddy 任务改为直接在任务所在的项目目录里运行：读写文件、执行命令都落在正确的位置，不再只靠提示词告诉它目录；续接以前的 WorkBuddy 对话照常可用\n2. 空闲的 WorkBuddy 后台服务会自动停止，减少电脑上常驻的进程\n3. 手机端版本号与客户端统一为 1.0.86",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.85-win-x64.zip",

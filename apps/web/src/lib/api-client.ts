@@ -597,6 +597,37 @@ function _invalidateProfile() {
 type Json = Record<string, unknown>;
 
 /** A GET that skips the short-lived cache (status pages the user refreshes). */
+export interface GuardOverview {
+  enabled: boolean;
+  tools: string[];
+  days: number;
+  devices: { id: string; name: string; tools: string[]; results: Record<string, string>; reported_at: string | null }[];
+  stats: {
+    claims: number;
+    verified: number;
+    disclosed: number;
+    blocked: number;
+    followups: number;
+    checked_after: number;
+    disclosed_after: number;
+    deploy_claims: number;
+    unchecked_rate: number | null;
+    per_tool: Record<string, number>;
+  };
+  recent: {
+    tool: string;
+    device: string | null;
+    outcome: string;
+    blocked: boolean;
+    followup: boolean;
+    deploy: boolean;
+    claim: string | null;
+    check: string | null;
+    cwd: string | null;
+    at: string;
+  }[];
+}
+
 function fresh<T>(path: string): Promise<T> {
   invalidateApiCache(`${getApiBase()}${path}`);
   return apiFetch<T>(path);
@@ -622,6 +653,12 @@ export const api = {
       ...(opts.general ? { general: true } : {}),
     }),
   dismissCorrection: (id: string) => post(`/api/learning/corrections/${id}/dismiss`),
+  /** Weekly learning eval: {latest, trend, regression, stale}. */
+  getOutcomes: () => fresh<Json>("/api/learning/outcomes"),
+  runOutcomes: () => post<Json>("/api/learning/outcomes/run"),
+  /** Completion check: switch, per-device hook status, claims in the last 30 days. */
+  getGuard: () => fresh<GuardOverview>("/api/learning/guard"),
+  setGuard: (enabled: boolean) => put<{ enabled: boolean }>("/api/learning/guard", { enabled }),
 
   // === Skills ===
   /** {drafts, published, archived, counts, devices} */

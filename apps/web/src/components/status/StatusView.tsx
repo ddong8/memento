@@ -382,6 +382,7 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
 
           {evolution && <Evolution evo={evolution} />}
           {data.learning != null && <Learning learning={obj(data.learning)} />}
+          {evolution?.outcomes != null && <Outcomes outcomes={obj(evolution.outcomes)} onScored={load} />}
           {evolution?.eval != null && (
             <Section
               title={h.evalTitle}
@@ -523,6 +524,121 @@ function Learning({ learning }: { learning: Obj }) {
       ) : (
         total === 0 && <Hint style={{ fontSize: 13 }}>{h.noCorrections}</Hint>
       )}
+    </Section>
+  );
+}
+
+/** Per week: all corrections per 100 prompts (light) with repeats of learned rules (red) in front. */
+function OutcomeBars({ trend }: { trend: Obj[] }) {
+  const peak = Math.max(1, ...trend.map((w) => num(w.corrections_per_100)));
+  const usable = 54;
+  const label = (week: unknown) => (typeof week === "string" ? week.slice(5).replace("-", "/") : "");
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+      {trend.map((w, i) => {
+        const all = num(w.corrections_per_100);
+        const learned = num(w.learned_per_100);
+        return (
+          <div key={i} style={{ flex: 1, textAlign: "center", minWidth: 0 }} title={`${all} / ${learned}`}>
+            <div style={{ height: 56, position: "relative" }}>
+              <div
+                style={{
+                  position: "absolute", left: "15%", right: "15%", bottom: 0,
+                  height: Math.max(2, (usable * all) / peak),
+                  background: "var(--aurora-accent)", opacity: all === 0 ? 0.15 : 0.35, borderRadius: "3px 3px 0 0",
+                }}
+              />
+              {learned > 0 && (
+                <div
+                  style={{
+                    position: "absolute", left: "30%", right: "30%", bottom: 0,
+                    height: Math.max(2, (usable * learned) / peak), background: DANGER, borderRadius: "3px 3px 0 0",
+                  }}
+                />
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: learned > 0 ? DANGER : "var(--aurora-fg2)", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+              {w.learned_per_100 == null ? "—" : learned.toFixed(1)}
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--aurora-fg4)" }}>{label(w.week)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Outcomes({ outcomes, onScored }: { outcomes: Obj; onScored: () => void }) {
+  const { t } = useI18n();
+  const h = t.health;
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const latest = outcomes.latest ? obj(outcomes.latest) : null;
+  const trend = list(outcomes.trend);
+  const regressed = outcomes.regression != null ? String(obj(outcomes.regression).metric) : null;
+  const guard = obj(latest?.guard);
+  const stubborn = list(latest?.stubborn);
+  const fixed = (v: unknown, digits = 1) => (typeof v === "number" ? v.toFixed(digits) : "—");
+
+  const run = async () => {
+    setRunning(true);
+    setError(null);
+    try {
+      await api.runOutcomes();
+      onScored();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Section
+      title={h.outcomesTitle}
+      trailing={latest ? `${fmt(h.outcomesWeek, { week: String(latest.week).slice(5), n: num(latest.prompts) })}${outcomes.stale ? ` · ${h.outcomesStale}` : ""}` : h.outcomesSchedule}
+    >
+      {!latest ? (
+        <p style={{ margin: 0, fontSize: 12.5, color: "var(--aurora-fg3)", lineHeight: 1.6 }}>{h.outcomesEmpty}</p>
+      ) : (
+        <>
+          <Metrics
+            items={[
+              { label: h.per100Corrections, value: fixed(latest.corrections_per_100) },
+              { label: h.per100Learned, value: fixed(latest.learned_per_100, 2), color: regressed === "learned_per_100" ? DANGER : undefined },
+              {
+                label: h.ruleBeforeAfter,
+                value: `${fixed(latest.before_per_rule_week, 2)} → ${fixed(latest.after_per_rule_week, 2)}`,
+                color: regressed === "week_per_rule" ? DANGER : undefined,
+              },
+              { label: h.rulesNeverAgain, value: `${num(latest.rules_never_again)}/${num(latest.rules)}` },
+              ...(num(guard.claims) > 0 ? [{ label: h.uncheckedClaims, value: percent(guard.unchecked_rate) }] : []),
+            ]}
+          />
+          <Hint>{h.outcomesIntro}</Hint>
+          {trend.length > 1 && (
+            <>
+              <OutcomeBars trend={trend} />
+              <Hint style={{ fontSize: 11 }}>{h.outcomesTrend}</Hint>
+            </>
+          )}
+          {stubborn.length > 0 && (
+            <>
+              <Divider />
+              <Subhead>{h.stubbornRules}</Subhead>
+              {stubborn.map((x, i) => (
+                <Row key={i} left={String(x.statement)} right={fmt(h.times, { n: num(x.times) })} rightColor={DANGER} mono={false} />
+              ))}
+            </>
+          )}
+        </>
+      )}
+      {error && <Hint style={{ color: DANGER }}>{error}</Hint>}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+        <Btn size="sm" icon="target" disabled={running} onClick={run}>
+          {running ? h.outcomesRunning : h.outcomesRun}
+        </Btn>
+      </div>
     </Section>
   );
 }

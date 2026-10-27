@@ -3,6 +3,8 @@ import { hostname } from "node:os";
 
 import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
+import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
+import { applyGuards } from "./guard-inject.js";
 import { IngestClient } from "./ingest.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
 import { ServerRoute } from "./server-route.js";
@@ -49,6 +51,9 @@ export class Daemon extends EventEmitter {
   private readonly logs: string[] = [];
   private lastProfileReport: Record<string, string> | undefined;
   private lastSkillReport: Record<string, string> | undefined;
+  private lastGuardReport: Record<string, string> | undefined;
+  /** Tools the server turned the completion check on for. */
+  private guardTools = new Set<GuardTool>();
   private syncing = false;
   private commandPollTimer: NodeJS.Timeout | null = null;
 
@@ -209,6 +214,38 @@ export class Daemon extends EventEmitter {
     }
   }
 
+  /**
+   * A Stop hook from Claude Code or Codex (local API): block a "done" without a
+   * passing check. Every claim it saw is reported, so the server can count how
+   * often agents claim without checking and whether they check when sent back.
+   */
+  async checkStop(tool: GuardTool, input: StopInput): Promise<Verdict> {
+    const idle: Verdict = { block: false, outcome: "no_claim", claim: null, deploy: false, followup: false, check: null };
+    if (!this.guardTools.has(tool)) return idle;
+    let verdict: Verdict;
+    try {
+      verdict = await checkStop(tool, input);
+    } catch (e) {
+      this.log(`Completion check skipped: ${e instanceof Error ? e.message : e}`);
+      return idle;
+    }
+    if (verdict.outcome === "no_claim") return verdict;
+    if (verdict.block) this.log(`Completion check (${tool}): sent back, ${verdict.outcome}`);
+    void this.ingest?.reportGuardEvent({
+      tool,
+      session_id: input.session_id ?? null,
+      cwd: input.cwd ?? null,
+      outcome: verdict.outcome,
+      blocked: verdict.block,
+      followup: verdict.followup,
+      deploy: verdict.deploy,
+      claim: verdict.claim,
+      check: verdict.check,
+      at: new Date().toISOString(),
+    });
+    return verdict;
+  }
+
   async syncProfileAndSkills(): Promise<void> {
     const ingest = this.ingest;
     if (!ingest || this.syncing) return;
@@ -221,6 +258,14 @@ export class Daemon extends EventEmitter {
         if (!sameReport(results, this.lastProfileReport)) {
           await ingest.reportProfileInjection(profile.version, results);
           this.lastProfileReport = results;
+        }
+        const wanted = (profile.guards?.completion_evidence ?? []).filter((t): t is GuardTool => (GUARD_TOOLS as readonly string[]).includes(t));
+        this.guardTools = new Set(wanted);
+        const guards = await applyGuards({ tools: wanted });
+        for (const [tool, outcome] of Object.entries(guards)) if (outcome !== "unchanged") this.log(`Completion check ${tool}: ${outcome}`);
+        if (!sameReport(guards, this.lastGuardReport)) {
+          await ingest.reportGuardStatus(guards);
+          this.lastGuardReport = guards;
         }
       }
       const skills = await ingest.fetchSkillInjection();

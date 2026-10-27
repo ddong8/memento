@@ -29,6 +29,7 @@ from ..db.session import get_db
 from ..middleware.auth import get_current_user, verify_collector_token
 from ..services import ai_health
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services.guard_service import guard_tools
 from ..services.profile_service import (
     INJECTION_TARGETS,
     build_profile_draft,
@@ -555,6 +556,8 @@ async def get_injection(
         "version": published.version if published else None,
         "block": block,
         "targets": machine.profile_targets or [],
+        # Tools whose Stop hook checks "done / fixed / live" claims; [] removes it
+        "guards": {"completion_evidence": guard_tools(user, machine)},
     }
     try:
         await cache_set(cache_key, res, ttl_seconds=60)
@@ -571,10 +574,12 @@ async def report_injection(
     user: User = Depends(verify_collector_token),
 ) -> dict:
     machine = await _owned_machine(db, user, x_device_id)
+    guards = (machine.profile_status or {}).get("guards")
     machine.profile_status = {
         "version": body.version,
         "results": {k: str(v)[:200] for k, v in body.results.items() if k in INJECTION_TARGETS},
         "reported_at": datetime.now(timezone.utc).isoformat(),
+        **({"guards": guards} if guards else {}),
     }
     await db.commit()
     await _bust_user_profile_cache(user.id)

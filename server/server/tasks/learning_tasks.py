@@ -4,7 +4,8 @@
 - nightly: review finished sessions (skills, pitfalls, todos), then tidy memory
   (merge duplicates, retire contradicted memories, let unused ones go dormant)
 - 09:05: push todos due today or overdue
-- weekly: score retrieval against the frozen question set
+- weekly: score retrieval against the frozen question set, and measure whether
+  the user has to correct the AI less (learning eval)
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from ..db.session import async_session_factory
 from ..services import ai_health
 from ..services.correction_service import learn_from_corrections, summarize_new_topics
 from ..services.eval_service import regression, recent_runs, run_eval
+from ..services import learning_eval_service as learning_eval
 from ..services.memory_lifecycle import reconcile, sweep_dormant
 from ..config import settings
 from ..services.notify_service import notify_user
@@ -264,4 +266,39 @@ def evaluate_retrieval() -> dict:
         return asyncio.run(_evaluate())
     except Exception as e:
         logger.warning("evaluate_retrieval errored: %s", e)
+        return {"error": str(e)[:200]}
+
+
+async def _evaluate_learning() -> dict:
+    out = {}
+    async with async_session_factory() as db:
+        users = await _users(db)
+    for user in users:
+        async with async_session_factory() as db:
+            try:
+                weeks = await learning_eval.run_learning_eval(db, user)
+            except Exception as e:
+                await db.rollback()
+                logger.warning("Learning eval failed for user %s: %s", user.id, e)
+                out[str(user.id)] = {"error": str(e)[:200]}
+                continue
+            drop = learning_eval.regression(await learning_eval.recent_weeks(db, user, limit=6))
+            out[str(user.id)] = {"weeks": [str(w) for w in weeks], "regression": drop}
+            if drop and await ai_health.claim_alert(f"learning_eval:{user.id}:{drop['week']}", 30 * 24 * 3600):
+                await notify_user(
+                    user.id, "health", "Memento 学过还犯变多了",
+                    learning_eval.regression_text(drop) + "到「系统健康」看是哪些规矩。",
+                )
+    return out
+
+
+@celery_app.task(
+    name="server.tasks.learning_tasks.evaluate_learning",
+    acks_late=True, time_limit=1800, soft_time_limit=1700,
+)
+def evaluate_learning() -> dict:
+    try:
+        return asyncio.run(_evaluate_learning())
+    except Exception as e:
+        logger.warning("evaluate_learning errored: %s", e)
         return {"error": str(e)[:200]}

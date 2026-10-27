@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 
 import { homeDir, mementoDir } from "./config.js";
 import type { Daemon } from "./daemon.js";
+import { GUARD_TOOLS, type GuardTool, type StopInput } from "./guard.js";
+import { curlConfigPath, curlConfigText } from "./guard-inject.js";
 
 /**
  * Loopback API for the desktop app and `memento-daemon status`. Where it listens
@@ -17,6 +19,10 @@ import type { Daemon } from "./daemon.js";
  *   POST /rediscover    discover tools again and report them
  *   POST /resync        re-upload all watched files
  *   POST /sync-profile  apply the resident profile and skills now
+ *   POST /hooks/stop    Stop hook of Claude Code / Codex (guard.ts); needs the token
+ *
+ * The address and token are also written as a curl config for the hook script
+ * (guard-inject.ts), and removed on stop so the hook lets turns end.
  */
 export interface LocalApiInfo {
   port: number;
@@ -39,6 +45,24 @@ function authorized(req: IncomingMessage, token: string): boolean {
   const given = Buffer.from(header.startsWith("Bearer ") ? header.slice(7) : "");
   const want = Buffer.from(token);
   return given.length === want.length && timingSafeEqual(given, want);
+}
+
+const MAX_HOOK_BODY = 2 * 1024 * 1024;
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_HOOK_BODY) {
+        reject(new Error("body too large"));
+        req.destroy();
+      } else chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -66,6 +90,10 @@ export class LocalApi {
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify(info), { mode: 0o600 });
     await chmod(file, 0o600).catch(() => {});
+    const curl = curlConfigPath(this.home);
+    await mkdir(dirname(curl), { recursive: true });
+    await writeFile(curl, curlConfigText(info.port, info.token), { mode: 0o600 });
+    await chmod(curl, 0o600).catch(() => {});
     return info;
   }
 
@@ -74,7 +102,10 @@ export class LocalApi {
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
     this.server = undefined;
     const info = await readLocalApiInfo(this.home);
-    if (info?.pid === process.pid) await rm(localApiFile(this.home), { force: true });
+    if (info?.pid === process.pid) {
+      await rm(localApiFile(this.home), { force: true });
+      await rm(curlConfigPath(this.home), { force: true });
+    }
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -97,6 +128,14 @@ export class LocalApi {
       if (req.method === "POST" && path === "/resync") {
         await this.daemon.resync();
         return json(res, 202, { status: "queued" });
+      }
+      if (req.method === "POST" && path === "/hooks/stop") {
+        if (!authorized(req, this.token)) return json(res, 401, { error: "unauthorized" });
+        const header = String(req.headers["x-memento-tool"] ?? "claude_code");
+        const tool: GuardTool = (GUARD_TOOLS as readonly string[]).includes(header) ? (header as GuardTool) : "claude_code";
+        const input = JSON.parse((await readBody(req)) || "{}") as StopInput;
+        const verdict = await this.daemon.checkStop(tool, input);
+        return json(res, 200, verdict.block ? { decision: "block", reason: verdict.reason } : {});
       }
       if (req.method === "POST" && path === "/sync-profile") {
         await this.daemon.syncProfileAndSkills();

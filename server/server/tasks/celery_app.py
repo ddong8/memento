@@ -178,4 +178,9 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.learning_tasks.evaluate_retrieval",
         "schedule": crontab(hour=4, minute=40, day_of_week=1),
     },
+    # Monday 04:50 — last week's corrections per 100 prompts and repeats of learned rules.
+    "evaluate-learning": {
+        "task": "server.tasks.learning_tasks.evaluate_learning",
+        "schedule": crontab(hour=4, minute=50, day_of_week=1),
+    },
 }

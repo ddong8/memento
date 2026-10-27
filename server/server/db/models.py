@@ -808,6 +808,32 @@ class SessionReview(Base):
     __table_args__ = (Index("idx_session_review_user_at", "user_id", "reviewed_at"),)
 
 
+class GuardEvent(Base):
+    """One time an AI tool said it was done / fixed / live and the collector's
+    Stop hook judged whether it had checked (packages/daemon/src/guard.ts).
+    followup marks the stop right after a block: what the AI did when sent back."""
+
+    __tablename__ = "guard_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    machine_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("machines.id", ondelete="SET NULL"))
+    tool: Mapped[str] = mapped_column(String(30), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(String(100))
+    # verified | no_evidence | failed_check | disclosed | unread
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    followup: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deploy: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    claim: Mapped[str | None] = mapped_column(String(200))
+    check: Mapped[str | None] = mapped_column(String(200))
+    cwd: Mapped[str | None] = mapped_column(String(300))
+    said_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("idx_guard_event_user_said", "user_id", "said_at"),)
+
+
 # ---------------------------------------------------------------------------
 # Skills — procedures learned from sessions, shipped to AI tools as SKILL.md
 # ---------------------------------------------------------------------------
@@ -908,6 +934,24 @@ class EvalRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("idx_eval_run_user_at", "user_id", "created_at"),)
+
+
+class LearningEval(Base):
+    """One week of "does Memento learn": corrections per 100 prompts, corrections of
+    rules already learned, and how often accepted rules are corrected again
+    (services/learning_eval_service.py). Recomputed while late transcripts arrive."""
+
+    __tablename__ = "learning_evals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week: Mapped[date] = mapped_column(Date, nullable=False)  # Monday, user's local time
+    metrics: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")  # scheduled | manual | backfill
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "week", name="uq_learning_eval_user_week"),)
 
 
 # ---------------------------------------------------------------------------

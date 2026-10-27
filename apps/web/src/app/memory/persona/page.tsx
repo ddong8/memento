@@ -10,6 +10,7 @@ import { Btn, Chip, Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import LearnedCorrections from "@/components/persona/LearnedCorrections";
+import CompletionGuard from "@/components/persona/CompletionGuard";
 import CognitiveCompass from "@/components/memory/CognitiveCompass";
 import AvatarOnboardingModal from "@/components/persona/AvatarOnboardingModal";
 import type { PersonaDimension, SynapsePulse } from "@/components/persona/DigitalTwinAvatar3D";
@@ -1956,6 +1957,12 @@ export default function PersonaPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {activeTab === "matrix" && (
+              <div className="mt-3">
+                <CompletionGuard />
               </div>
             )}
 

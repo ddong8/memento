@@ -17,6 +17,7 @@ from ..db.models import Document, DreamJournal, Machine, User, UserProfile
 from . import ai_health
 from .correction_service import correction_stats
 from .eval_service import eval_summary
+from .learning_eval_service import outcome_summary, regression_text
 from .memory_lifecycle import lifecycle_counts
 from .retrospective_service import review_stats
 from .skill_service import skill_counts
@@ -99,7 +100,12 @@ def assess(
                                      "AI 可能没在动手前查规矩（检查 MCP 是否接好）")
         drop = (evolution.get("eval") or {}).get("regression")
         if drop:
-            add("warn", "eval", f"检索变差：评测集 v{drop['set_version']} 前 5 命中率从 {drop['was']:.0%} 降到 {drop['now']:.0%}")
+            change = (f"前 5 命中率从 {drop['was']:.0%} 降到 {drop['now']:.0%}" if drop["metric"] == "hit5"
+                      else f"MRR 从 {drop['was']:.2f} 降到 {drop['now']:.2f}")
+            add("warn", "eval", f"检索变差：评测集 v{drop['set_version']} {change}")
+        worse = (evolution.get("outcomes") or {}).get("regression")
+        if worse:
+            add("warn", "learning", "学过还犯变多：" + regression_text(worse))
         todos = evolution.get("todos") or {}
         if todos.get("overdue", 0) >= 5:
             add("warn", "todo", f"{todos['overdue']} 条待办已经逾期")
@@ -156,7 +162,9 @@ async def _profile(db: AsyncSession, user: User, now: datetime) -> dict[str, Any
             "version": status.get("version"),
             "reported_at": status.get("reported_at"),
             "synced": published is not None and status.get("version") == published.version,
-            "errors": [t for t, r in results.items() if str(r).startswith("error")],
+            "errors": [t for t, r in results.items() if str(r).startswith("error")] + [
+                f"{t}（完成核查）" for t, r in ((status.get("guards") or {}).get("results") or {}).items() if str(r).startswith("error")
+            ],
         })
     return {
         "published": {
@@ -221,6 +229,7 @@ async def _evolution(db: AsyncSession, user: User) -> dict[str, Any]:
         "todos": await todo_counts(db, user),
         "memory": await lifecycle_counts(db, user),
         "eval": await eval_summary(db, user),
+        "outcomes": await outcome_summary(db, user),
         "review_run": await ai_health.get_json(f"review_run:{user.id}"),
         "lifecycle_run": await ai_health.get_json(f"lifecycle_run:{user.id}"),
     }

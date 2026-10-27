@@ -179,7 +179,13 @@ export class IngestClient {
   }
 
   /** The published profile block and the tools this device carries it in; null when unreachable. */
-  async fetchProfileInjection(): Promise<{ version?: number | null; block?: string | null; targets?: string[] } | null> {
+  async fetchProfileInjection(): Promise<{
+    version?: number | null;
+    block?: string | null;
+    targets?: string[];
+    /** Tools the completion check (guard.ts) is on for. */
+    guards?: { completion_evidence?: string[] };
+  } | null> {
     return this.getJson("/api/profile/injection");
   }
 
@@ -194,6 +200,15 @@ export class IngestClient {
 
   async reportSkillInjection(results: Record<string, string>): Promise<void> {
     await this.request("/api/skills/injection/status", { method: "POST", body: { results } }).catch(() => {});
+  }
+
+  /** One stop the completion check looked at (guard.ts); best effort. */
+  async reportGuardEvent(event: Record<string, unknown>): Promise<void> {
+    await this.request("/api/learning/guard/events", { method: "POST", body: { events: [event] } }).catch(() => {});
+  }
+
+  async reportGuardStatus(results: Record<string, string>): Promise<void> {
+    await this.request("/api/learning/guard/status", { method: "POST", body: { results } }).catch(() => {});
   }
 
   private async getJson<T>(path: string): Promise<T | null> {

@@ -5,18 +5,20 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import CorrectionEvent, CorrectionTopic, Document, SessionReview, User
+from ..db.models import CorrectionEvent, CorrectionTopic, Document, Machine, SessionReview, User
 from ..db.session import async_session_factory, get_db
-from ..middleware.auth import get_current_user
+from ..middleware.auth import get_current_user, verify_collector_token
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.correction_service import ProfileFull, accept_topic, correction_stats, topic_out
 from ..services import jobs
 from ..services.eval_service import build_set, eval_summary, run_eval, run_out
+from ..services.guard_service import SETTING as GUARD_SETTING, event_rows, guard_overview, set_status
+from ..services.learning_eval_service import outcome_summary, run_learning_eval
 from ..services.guidance_service import guidance_for, render_guidance
 from ..services.memory_lifecycle import reconcile, reconcile_in_background
 from ..services.retrospective_service import learn_from_tasks, review_sessions, review_stats, save_pitfall
@@ -248,6 +250,24 @@ async def run_evals(rebuild: bool = False, user: User = Depends(get_current_user
     return await jobs.start("eval", uid, lambda: _eval_now(uid, rebuild))
 
 
+@router.get("/outcomes")
+async def outcomes(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Weekly learning eval: corrections per 100 prompts, repeats of learned rules."""
+    return await outcome_summary(db, user)
+
+
+@router.post("/outcomes/run")
+async def run_outcomes(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    weeks = await run_learning_eval(db, user, trigger="manual")
+    return {"weeks": [str(w) for w in weeks], **await outcome_summary(db, user)}
+
+
 # ---------------------------------------------------------------------------
 # Pitfalls recorded by AI tools (MCP memory_pitfall)
 # ---------------------------------------------------------------------------
@@ -271,3 +291,77 @@ async def add_pitfall(
     if mem is None:
         return {"saved": False, "note": "信息不全、属于 AI 工具自身的限制，或已经记过"}
     return {"saved": True, "id": str(mem.id), "content": mem.content}
+
+
+# ---------------------------------------------------------------------------
+# Completion check (Stop hook in Claude Code / Codex, decided by the collector)
+# ---------------------------------------------------------------------------
+
+class GuardBody(BaseModel):
+    enabled: bool
+
+
+class GuardEventsBody(BaseModel):
+    events: list[dict]
+
+
+class GuardStatusBody(BaseModel):
+    results: dict[str, str]
+
+
+async def _collector_machine(db: AsyncSession, user: User, device_id: str) -> Machine:
+    machine = (await db.execute(
+        select(Machine).where(Machine.collector_token_hash == device_id, Machine.user_id == user.id)
+    )).scalars().first()
+    if machine is None:
+        raise HTTPException(status_code=404, detail="device not found")
+    return machine
+
+
+@router.get("/guard")
+async def guard(
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    return await guard_overview(db, user, max(1, min(days, 365)))
+
+
+@router.put("/guard")
+async def set_guard(
+    body: GuardBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    user.proactive_settings = {**(user.proactive_settings or {}), GUARD_SETTING: body.enabled}
+    await db.commit()
+    # Devices pick the switch up with the profile injection (cached 60 s per device)
+    await cache_delete_prefix(f"profile_injection:{user.id}")
+    return {"enabled": body.enabled}
+
+
+@router.post("/guard/events")
+async def guard_events(
+    body: GuardEventsBody,
+    x_device_id: str = Header(..., alias="X-Device-Id"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(verify_collector_token),
+) -> dict:
+    machine = await _collector_machine(db, user, x_device_id)
+    rows = event_rows(user, machine, body.events)
+    db.add_all(rows)
+    await db.commit()
+    return {"saved": len(rows)}
+
+
+@router.post("/guard/status")
+async def guard_status(
+    body: GuardStatusBody,
+    x_device_id: str = Header(..., alias="X-Device-Id"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(verify_collector_token),
+) -> dict:
+    machine = await _collector_machine(db, user, x_device_id)
+    set_status(machine, body.results)
+    await db.commit()
+    return {"status": "ok"}

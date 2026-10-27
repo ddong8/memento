@@ -449,6 +449,11 @@ class KnowledgeEntity(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # project/tool/concept/person/technology
     summary: Mapped[str | None] = mapped_column(Text)
+    # Same-name entities merged into this one (entity_canon): what each was before, for audit
+    aliases: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]", nullable=False)
+    # Set when the summary says it is gone but later conversations still use it; the summary isn't injected then
+    stale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stale_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

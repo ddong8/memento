@@ -1295,35 +1295,37 @@ async def run_dreaming_pipeline(
         if not src_name or not tgt_name:
             continue
         try:
-            # Find or create source & target entities
-            s_ent = (await db.execute(
-                select(KnowledgeEntity).where(
-                    KnowledgeEntity.user_id == user.id,
-                    KnowledgeEntity.name == src_name,
+            # The entities these names already are, however they were cased or typed
+            from .entity_canon import find_entity
+
+            ends = []
+            for ent_name in (src_name, tgt_name):
+                ent = await find_entity(db, user.id, ent_name, "concept")
+                if not ent:
+                    ent = KnowledgeEntity(user_id=user.id, name=ent_name, entity_type="concept")
+                    db.add(ent)
+                    await db.flush()
+                ends.append(ent)
+            s_ent, t_ent = ends
+            if s_ent.id == t_ent.id:
+                continue
+            # Seen again: stronger, not another parallel edge every night
+            same = (await db.execute(
+                select(KnowledgeRelation).where(
+                    KnowledgeRelation.source_id == s_ent.id,
+                    KnowledgeRelation.target_id == t_ent.id,
+                    KnowledgeRelation.relation_type == rel_type,
                 ).limit(1)
             )).scalar_one_or_none()
-            if not s_ent:
-                s_ent = KnowledgeEntity(user_id=user.id, name=src_name, entity_type="concept")
-                db.add(s_ent)
-                await db.flush()
-
-            t_ent = (await db.execute(
-                select(KnowledgeEntity).where(
-                    KnowledgeEntity.user_id == user.id,
-                    KnowledgeEntity.name == tgt_name,
-                ).limit(1)
-            )).scalar_one_or_none()
-            if not t_ent:
-                t_ent = KnowledgeEntity(user_id=user.id, name=tgt_name, entity_type="concept")
-                db.add(t_ent)
-                await db.flush()
-
-            db.add(KnowledgeRelation(
-                source_id=s_ent.id,
-                target_id=t_ent.id,
-                relation_type=rel_type,
-                strength=0.9,
-            ))
+            if same:
+                same.strength = (same.strength or 1.0) + 0.9
+            else:
+                db.add(KnowledgeRelation(
+                    source_id=s_ent.id,
+                    target_id=t_ent.id,
+                    relation_type=rel_type,
+                    strength=0.9,
+                ))
         except Exception:
             pass  # Non-blocking for graph relation insertion
 
@@ -1332,6 +1334,8 @@ async def run_dreaming_pipeline(
         dedup_stats = await deduplicate_and_merge_entities(db, user.id)
         if dedup_stats.get("merged_entities", 0) > 0:
             deep_notes += f"\n- 知识图谱自愈：消歧合并 {dedup_stats['merged_entities']} 个同义实体，精简整合 {dedup_stats.get('merged_observations', 0)} 条观测事实。"
+        if dedup_stats.get("stale_entities", 0) > 0:
+            deep_notes += f"\n- 知识图谱：{dedup_stats['stale_entities']} 个实体的描述说它已不在、之后的对话却还在用，已标记为过时（不再注入，未删除）。"
     except Exception as e:
         logger.debug("Entity deduplication skipped: %s", e)
 
@@ -1958,97 +1962,40 @@ async def bootstrap_memories_from_knowledge_graph(
     }
 
 
-def _normalize_entity_name(name: str) -> str:
-    """Normalize entity name for clustering and deduplication."""
-    s = (name or "").strip().lower()
-    s = re.sub(r"[-_\s]+", "", s)
-    return s
-
-
 async def deduplicate_and_merge_entities(
     db: AsyncSession,
     user_id: Any,
 ) -> dict[str, int]:
-    """Cluster and deduplicate synonym/duplicate knowledge entities for the user.
+    """Merge same-name knowledge entities across types and mark summaries later
+    conversations contradict as stale (entity_canon), then drop the resonance cache."""
+    from sqlalchemy import text as sql_text
 
-    1. Group entities by canonical normalized key (stripped, lowercased, hyphens/underscores unified).
-    2. For any group with >1 entities:
-       - Keep the primary entity (most observations or earliest created).
-       - Re-parent observations from duplicates to the primary entity.
-       - Re-parent relations from duplicates to the primary entity (removing self-loops and duplicate edges).
-       - Delete redundant duplicate entities.
-    3. Invalidate memory resonance cache.
-    """
-    stats = {"merged_entities": 0, "merged_observations": 0, "updated_relations": 0}
+    from .entity_canon import mark_stale_entities, merge_duplicate_entities
+
+    stats: dict[str, int] = {"merged_entities": 0, "merged_observations": 0, "updated_relations": 0, "stale_entities": 0}
     try:
-        ents_q = select(KnowledgeEntity).where(KnowledgeEntity.user_id == user_id)
-        entities = list((await db.execute(ents_q)).scalars().all())
-        if len(entities) < 2:
+        # One tidy per user at a time, whether from the nightly worker or a one-off run on an
+        # api replica; held until this transaction ends
+        got = (await db.execute(
+            sql_text("SELECT pg_try_advisory_xact_lock(hashtext(:k))"), {"k": f"graph-tidy:{user_id}"}
+        )).scalar()
+        if not got:
+            logger.info("Graph tidy for user %s already running elsewhere, skipped", user_id)
             return stats
-
-        clusters: dict[tuple[str, str], list[KnowledgeEntity]] = {}
-        for e in entities:
-            norm_key = (_normalize_entity_name(e.name), e.entity_type)
-            if not norm_key[0]:
-                continue
-            clusters.setdefault(norm_key, []).append(e)
-
-        for (norm_name, etype), group in clusters.items():
-            if len(group) <= 1:
-                continue
-
-            # Pick primary: prefer entity with existing summary or earliest created
-            group.sort(key=lambda x: (bool(x.summary), -(x.created_at.timestamp() if x.created_at else 0)), reverse=True)
-            primary = group[0]
-            duplicates = group[1:]
-            dup_ids = [d.id for d in duplicates]
-
-            # 1. Re-parent observations
-            obs_q = select(KnowledgeObservation).where(KnowledgeObservation.entity_id.in_(dup_ids))
-            dup_obs = list((await db.execute(obs_q)).scalars().all())
-
-            existing_obs_q = select(KnowledgeObservation.content).where(KnowledgeObservation.entity_id == primary.id)
-            existing_contents = set((await db.execute(existing_obs_q)).scalars().all())
-
-            for o in dup_obs:
-                if o.content in existing_contents:
-                    await db.delete(o)
-                else:
-                    o.entity_id = primary.id
-                    existing_contents.add(o.content)
-                    stats["merged_observations"] += 1
-
-            # 2. Re-parent relations (outgoing & incoming)
-            rel_out_q = select(KnowledgeRelation).where(KnowledgeRelation.source_id.in_(dup_ids))
-            rel_in_q = select(KnowledgeRelation).where(KnowledgeRelation.target_id.in_(dup_ids))
-            dup_rels = list((await db.execute(rel_out_q)).scalars().all()) + list((await db.execute(rel_in_q)).scalars().all())
-
-            for r in dup_rels:
-                new_src = primary.id if r.source_id in dup_ids else r.source_id
-                new_tgt = primary.id if r.target_id in dup_ids else r.target_id
-                if new_src == new_tgt:
-                    await db.delete(r)
-                else:
-                    r.source_id = new_src
-                    r.target_id = new_tgt
-                    stats["updated_relations"] += 1
-
-            # 3. Delete duplicate entities
-            for d in duplicates:
-                await db.delete(d)
-                stats["merged_entities"] += 1
-
-        if stats["merged_entities"] > 0:
-            await db.flush()
-            try:
-                from .cache import cache_delete_prefix
-                await cache_delete_prefix(f"memory:resonance:{user_id}")
-            except Exception:
-                pass
-
+        async with db.begin_nested():
+            stats.update(await merge_duplicate_entities(db, user_id))
+        async with db.begin_nested():
+            stats["stale_entities"] = await mark_stale_entities(db, user_id)
     except Exception as e:
         logger.warning("Error in deduplicate_and_merge_entities: %s", e)
 
+    if stats["merged_entities"] or stats["stale_entities"] or stats.get("collapsed_edges"):
+        try:
+            from .cache import cache_delete_prefix
+            await cache_delete_prefix(f"memory:resonance:{user_id}")
+            await cache_delete_prefix(f"profile_injection:{user_id}")
+        except Exception:
+            pass
     return stats
 
 

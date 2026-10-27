@@ -17,6 +17,7 @@ from ..db.models import (
 )
 
 from .ai_provider import call_plain_chat, get_ai_providers
+from .entity_canon import find_entity, is_gone, summary_update
 
 logger = logging.getLogger("graph_service")
 
@@ -243,6 +244,7 @@ async def _extract_and_store(
 
     # Process entities
     entity_map: dict[str, KnowledgeEntity] = {}
+    gone_notes: list[tuple[KnowledgeEntity, str]] = []
     for e in result.get("entities", []):
         name = e.get("name", "").strip()
         etype = e.get("type", "concept").strip()
@@ -254,17 +256,18 @@ async def _extract_and_store(
         # pulled out the same name. Schema already has
         # UniqueConstraint(user_id, name, entity_type); this query was missing
         # the user_id predicate, silently cross-pollinating knowledge graphs.
-        existing = (await db.execute(
-            select(KnowledgeEntity).where(
-                KnowledgeEntity.name == name,
-                KnowledgeEntity.entity_type == etype,
-                KnowledgeEntity.user_id == user_id,
-            ).limit(1)
-        )).scalar_one_or_none()
+        # The same thing named by another conversation as another type or spelling is the same
+        # entity (entity_canon), not a new one beside it.
+        existing = await find_entity(db, user_id, name, etype)
 
         if existing:
-            if e.get("summary") and (not existing.summary or len(e["summary"]) > len(existing.summary)):
-                existing.summary = e["summary"]
+            summary = summary_update(existing.summary, e.get("summary"), old_stale=existing.stale_at is not None)
+            if summary:
+                existing.summary = summary
+                existing.stale_at = existing.stale_reason = None
+            elif is_gone(e.get("summary")) and not is_gone(existing.summary):
+                # This conversation says it is gone: kept as what it said, not as what the thing is
+                gone_notes.append((existing, e["summary"].strip()))
             entity_map[name] = existing
         else:
             entity = KnowledgeEntity(
@@ -314,6 +317,10 @@ async def _extract_and_store(
                 source_document_id=doc.id,
             ))
             count += 1
+
+    for entity, note in gone_notes:
+        db.add(KnowledgeObservation(entity_id=entity.id, content=note, source_document_id=doc.id))
+        count += 1
 
     # Mark this content version as extracted, on top of metadata ingest may have changed meanwhile
     await db.refresh(doc, attribute_names=["metadata_"])

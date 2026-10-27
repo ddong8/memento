@@ -547,6 +547,9 @@ async def run_import(
                 name=r["name"],
                 entity_type=r["entity_type"],
                 summary=r.get("summary"),
+                aliases=r.get("aliases") if isinstance(r.get("aliases"), list) else [],
+                stale_at=_parse_dt(r.get("stale_at")),
+                stale_reason=r.get("stale_reason"),
             )
             .on_conflict_do_nothing(constraint="uq_entity_user_name_type")
             .returning(KnowledgeEntity.id)

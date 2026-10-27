@@ -236,6 +236,13 @@ async def get_entity_detail(
         "name": entity.name,
         "type": entity.entity_type,
         "summary": entity.summary,
+        "stale_at": entity.stale_at.isoformat() if entity.stale_at else None,
+        "stale_reason": entity.stale_reason,
+        # Same-name entities merged into this one (entity_canon), and summaries it replaced
+        "aliases": [
+            {k: a.get(k) for k in ("name", "type", "summary", "merged_at", "replaced_at") if a.get(k) is not None}
+            for a in (entity.aliases or []) if isinstance(a, dict)
+        ],
         "observations": observations,
         "outgoing_relations": outgoing,
         "incoming_relations": incoming,
@@ -329,13 +336,9 @@ async def create_observation(
     name = (body.entity_name or "").strip() or "Note"
     etype = (body.entity_type or "concept").strip() or "concept"
 
-    existing = (await db.execute(
-        select(KnowledgeEntity).where(
-            KnowledgeEntity.user_id == _user.id,
-            KnowledgeEntity.name == name,
-            KnowledgeEntity.entity_type == etype,
-        ).limit(1)
-    )).scalar_one_or_none()
+    from ..services.entity_canon import find_entity
+
+    existing = await find_entity(db, _user.id, name, etype)
 
     if existing is None:
         entity = KnowledgeEntity(user_id=_user.id, name=name, entity_type=etype)

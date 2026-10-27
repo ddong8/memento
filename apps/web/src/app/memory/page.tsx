@@ -47,6 +47,9 @@ interface EntityDetail {
   name: string;
   type: string;
   summary: string | null;
+  stale_at?: string | null;
+  stale_reason?: string | null;
+  aliases?: { name: string; type: string; summary?: string; merged_at?: string; replaced_at?: string }[];
   observations: { content: string; observed_at: string | null }[];
   outgoing_relations: { target_name: string; target_type: string; relation: string; target_id?: string }[];
   incoming_relations: { source_name: string; source_type: string; relation: string; source_id?: string }[];
@@ -588,10 +591,35 @@ export default function MemoryPage() {
               <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 scrollbar-thin text-xs">
                 {/* 知识摘要 */}
                 {selectedEntity.summary && (
-                  <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-white/80 leading-relaxed text-xs">
-                    {selectedEntity.summary}
+                  <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-white/80 leading-relaxed text-xs space-y-1.5">
+                    {selectedEntity.stale_at && (
+                      <div className="text-[10px] text-amber-300/90">
+                        描述可能已过时，不再注入给 AI：{selectedEntity.stale_reason || "之后的对话与它矛盾"}
+                      </div>
+                    )}
+                    <div className={selectedEntity.stale_at ? "line-through decoration-white/30 text-white/50" : undefined}>
+                      {selectedEntity.summary}
+                    </div>
                   </div>
                 )}
+
+                {/* 合并来源：同名不同类型的实体并成这一个 */}
+                {(() => {
+                  const merged = (selectedEntity.aliases ?? []).filter((a) => a.merged_at);
+                  if (merged.length === 0) return null;
+                  return (
+                    <div className="text-[10px] text-white/50 leading-relaxed">
+                      <span className="text-white/60 font-bold">合并自 </span>
+                      {merged.map((a, idx) => (
+                        <span key={`${a.name}-${a.type}-${idx}`} title={a.summary || undefined}>
+                          {idx > 0 && "、"}
+                          <span className="font-mono">{a.name}</span>
+                          <span className="text-white/35">（{a.type}）</span>
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* 突触拓扑互联 (Outgoing) */}
                 <div className="space-y-1.5">

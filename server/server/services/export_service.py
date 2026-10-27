@@ -296,6 +296,9 @@ async def build_export(
                     "name": e.name,
                     "entity_type": e.entity_type,
                     "summary": e.summary,
+                    "aliases": e.aliases or [],
+                    "stale_at": _iso(e.stale_at),
+                    "stale_reason": e.stale_reason,
                     "created_at": _iso(e.created_at),
                     "updated_at": _iso(e.updated_at),
                 }

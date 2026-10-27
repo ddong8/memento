@@ -311,6 +311,12 @@ def _run_migrations(conn) -> None:
     ))
     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
 
+    # Knowledge graph: merged same-name entities and summaries later conversations contradict
+    if "knowledge_entities" in tables:
+        conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS aliases JSONB NOT NULL DEFAULT '[]'::jsonb"))
+        conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_at TIMESTAMPTZ"))
+        conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_reason TEXT"))
+
     # Dream journals (DREAMS.md)
     if "dream_journals" not in tables:
         conn.execute(text("""
@@ -372,6 +378,8 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_name_trgm ON knowledge_entities USING gin (name gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_summary_trgm ON knowledge_entities USING gin (summary gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_search_trgm ON knowledge_entities USING gin ((name || ' ' || coalesce(summary, '')) gin_trgm_ops)",
+        # entity_canon.find_entity: one entity per name however it is cased or hyphenated
+        "CREATE INDEX IF NOT EXISTS idx_knowledge_entities_norm_name ON knowledge_entities (user_id, regexp_replace(lower(name), '[-_\\s]+', '', 'g'))",
         "CREATE INDEX IF NOT EXISTS idx_device_tasks_user_active ON device_tasks (user_id, created_at DESC) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
         "CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_synced ON document_versions (document_id, synced_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_documents_metadata_session_id ON documents (((metadata->>'session_id'))) WHERE (metadata->>'session_id') IS NOT NULL",

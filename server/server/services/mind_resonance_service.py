@@ -284,13 +284,94 @@ async def _fetch_graph_entities(
             entities_data.append({
                 "name": ent.name,
                 "type": ent.entity_type,
-                "summary": ent.summary or "",
+                # Marked stale: later conversations contradict it (entity_canon), so it isn't stated as fact
+                "summary": "" if ent.stale_at else (ent.summary or ""),
                 "observations": obs_map.get(ent.id, []),
                 "relations": formatted_rels,
             })
     except Exception as e:
         logger.warning("Error activating graph entities in mind resonance: %s", e)
     return entities_data
+
+
+# How much a word says on its own, from the document frequencies jieba ships with: below 6 it is
+# everyday language (完成, 继续, 开始, 解决), below 8 common (部署, 优化, 提交), else specific.
+_COMMON_WORDS: dict[str, float] | None = None
+_FILLER_EN = frozenset(
+    "test testing code user users request session http https com www ok okay hi hello hey yes no please help run "
+    "use new add fix get set out ran being continued summary ping echo true false none null this that with from "
+    "have what when where which will would should could your about into just like make more only some than them "
+    "then there these they very want work also back been both each even here how its many most much must other "
+    "over same such sure take thing those through upon well were while who why year".split()
+)
+_CJK = re.compile(r"[一-鿿]")
+_PARTICLES = re.compile(r"[了吗呢吧啊呀么的嘛哦]+$")
+
+
+def _common_words() -> dict[str, float]:
+    global _COMMON_WORDS
+    if _COMMON_WORDS is None:
+        import os
+
+        import jieba
+
+        words: dict[str, float] = {}
+        try:
+            with open(os.path.join(os.path.dirname(jieba.__file__), "analyse", "idf.txt"), encoding="utf-8") as f:
+                for line in f:
+                    w, _, v = line.strip().partition(" ")
+                    try:
+                        idf = float(v)
+                    except ValueError:
+                        continue
+                    if idf < 8:
+                        words[w] = idf
+        except OSError as e:
+            logger.warning("jieba's word frequencies are missing, every word counts as specific: %s", e)
+        _COMMON_WORDS = words
+    return _COMMON_WORDS
+
+
+def term_specificity(term: str) -> float:
+    """0 for filler, 0.5 for a common word, 1 for one that names something."""
+    from .tokenize import _STOPWORDS
+
+    if term in _STOPWORDS or not re.search(r"[a-z一-鿿]", term):
+        return 0.0
+    if _CJK.search(term):
+        base = _PARTICLES.sub("", term)
+        if len(base) < 2:
+            return 0.0
+        idf = _common_words().get(base)
+        return 1.0 if idf is None else 0.0 if idf < 6 else 0.5
+    w = term.strip(":.")
+    if w in _FILLER_EN or len(w) < 2:
+        return 0.0
+    return 0.5 if len(w) == 2 else 1.0
+
+
+def pitfall_terms(query: str, action: str | None = None) -> list[str]:
+    """What the request is about, for matching pitfalls. A run of Chinese without spaces
+    ("部署完了吗") is a phrase whose words jieba already gives; whole, it only matches text
+    repeating it verbatim, so it goes."""
+    from .tokenize import _segment
+
+    low = (query or "").lower()
+    raw = {w for w in re.split(r"[\s_\-/,，;；]+", low) if w}
+    tokens = {t.lower().strip() for t in _segment(query or "")}
+    return [
+        t for t in terms_for(action, query)
+        if len(t) >= 2 and not (t in raw and _CJK.search(t) and t not in tokens)
+    ]
+
+
+# A pitfall is injected only when the request names what it is about: one specific word that at most
+# one memory has, or rarer words adding up to as much. Tuned by replaying 660 real prompts against 235
+# memories on 2026-10-27: "完成了吗", "继续", "发版" inject nothing; "fleet 卡住了" brings the Fleet ones.
+PITFALL_MIN_SHARE = 0.94  # of the weight of a specific word only one memory has
+PITFALL_KEEP_SHARE = 0.6  # of the best match's score
+# Rarity means little among a handful of memories: counted as if there were at least this many
+PITFALL_MIN_CORPUS = 50
 
 
 async def _fetch_pitfalls(
@@ -300,8 +381,11 @@ async def _fetch_pitfalls(
     limit_pitfalls: int,
     target_project: str | None = None,
 ) -> list[dict[str, str]]:
-    """Fetch defensive pitfall memories ranked by contextual relevance."""
+    """Pitfalls, rules and architecture notes the request is specifically about, best first.
+    terms: pitfall_terms() of the request; none of them specific, nothing comes back."""
     pitfalls_data: list[dict[str, str]] = []
+    if not terms:
+        return pitfalls_data
     try:
         mem_q = select(UserMemory).where(
             UserMemory.user_id == user.id,
@@ -311,20 +395,33 @@ async def _fetch_pitfalls(
         )
         all_mems = (await db.execute(mem_q)).scalars().all()
         texts = [f"{m.key} {m.tree_path or ''} {m.content}".lower() for m in all_mems]
-        # A term few memories share (fleet) says more than a common one (卡住)
-        weight = {t: 1.0 + math.log((len(texts) + 1) / (1 + sum(t in x for x in texts))) for t in terms}
+        n = max(len(texts), PITFALL_MIN_CORPUS)
+        # A word few memories share (fleet) says more than a common one (卡住); filler says nothing
+        weight = {}
+        for t in dict.fromkeys(terms):
+            spec = term_specificity(t)
+            if spec > 0:
+                weight[t] = spec * math.log((n + 1) / (1 + sum(t in x for x in texts)))
+        min_score = PITFALL_MIN_SHARE * math.log((n + 1) / 2)
         scored_pitfalls = []
         for m, text in zip(all_mems, texts):
-            sc = sum(w for t, w in weight.items() if t in text)
-            if sc > 0 and m.category == "pitfall":
+            hit = [t for t in weight if t in text]
+            # 部署 inside 部署流水线 is the same match
+            hit = [t for t in hit if not any(t != o and t in o for o in hit)]
+            sc = sum(weight[t] for t in hit)
+            if not hit or sc < min_score:
+                continue
+            if m.category == "pitfall":
                 sc += 2  # boost explicit pitfalls
-            if sc > 0 and target_project and target_project.lower() in (m.tree_path or "").lower():
+            if target_project and target_project.lower() in (m.tree_path or "").lower():
                 sc += 2  # filed under the project being worked on
-            if sc > 0 or not terms:
-                scored_pitfalls.append((sc, m))
+            scored_pitfalls.append((sc, m))
 
         scored_pitfalls.sort(key=lambda item: item[0], reverse=True)
-        for _, p_mem in scored_pitfalls[:limit_pitfalls]:
+        best = scored_pitfalls[0][0] if scored_pitfalls else 0
+        for sc, p_mem in scored_pitfalls[:limit_pitfalls]:
+            if sc < PITFALL_KEEP_SHARE * best:
+                break
             pitfalls_data.append({
                 "key": p_mem.key,
                 "category": p_mem.category,
@@ -396,7 +493,9 @@ async def sense_resonance(
         entities_data = await _fetch_graph_entities(
             db, user, match_terms, limit_entities, target_project=project, rank_terms=topic_terms,
         )
-        pitfalls_data = await _fetch_pitfalls(db, user, topic_terms, limit_pitfalls, target_project=project)
+        pitfalls_data = await _fetch_pitfalls(
+            db, user, pitfall_terms(q_text, topic_action), limit_pitfalls, target_project=project,
+        )
     finally:
         durable_corrections = await durable_task
 
@@ -707,12 +806,9 @@ async def record_online_graph_observation(
         return None
 
     try:
-        q = select(KnowledgeEntity).where(
-            KnowledgeEntity.user_id == user_id,
-            func.lower(KnowledgeEntity.name) == clean_name.lower(),
-        )
-        res = await db.execute(q)
-        entity = res.scalars().first()
+        from .entity_canon import find_entity
+
+        entity = await find_entity(db, user_id, clean_name, entity_type)
 
         now_utc = datetime.now(timezone.utc)
         if not entity:

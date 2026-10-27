@@ -112,10 +112,42 @@ def join_profile_scopes(scopes: ProfileScopes) -> str:
 
 
 def _cap(text: str, limit: int) -> str:
+    """Fit a part into ``limit`` characters by dropping rules from the end of whichever
+    subsection is longest. Cutting the text's tail instead dropped whole trailing
+    subsections: a long draft lost every "### 技术偏好" rule at once."""
     if len(text) <= limit:
         return text
-    cut = text.rfind("\n", 0, limit)
-    return text[: cut if cut > 0 else limit].rstrip()
+    lines = text.split("\n")
+    sections: list[list[int]] = [[]]  # rule line indexes under each heading
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            sections.append([])
+        elif line.strip():
+            sections[-1].append(i)
+    dropped: set[int] = set()
+    size = len(text)
+    while size > limit:
+        longest = max(sections, key=lambda sec: sum(len(lines[i]) + 1 for i in sec))
+        if not longest:
+            break
+        i = longest.pop()
+        dropped.add(i)
+        size -= len(lines[i]) + 1
+    kept = [line for i, line in enumerate(lines) if i not in dropped]
+    out: list[str] = []
+    for i, line in enumerate(kept):
+        if line.lstrip().startswith("#"):
+            following = next((x for x in kept[i + 1:] if x.strip()), "")
+            if not following or following.lstrip().startswith("#"):
+                continue  # every rule under it went
+        out.append(line)
+    result = re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+    if dropped:
+        logger.info("profile part over %d chars: dropped %d rules", limit, len(dropped))
+    if len(result) > limit:  # headings alone, or one rule longer than the limit
+        cut = result.rfind("\n", 0, limit)
+        result = result[: cut if cut > 0 else limit].rstrip()
+    return result
 
 
 def deduplicate_rule_lines(lines: list[str]) -> list[str]:
@@ -161,7 +193,8 @@ def clean_device_name(name: str | None) -> str:
 
 
 def norm_scope_name(name: str) -> str:
-    return re.sub(r"\s+", "", name or "").lower()
+    """Spaces, "-" and "_" don't tell projects apart: favorite_chat is filed as favorite-chat too."""
+    return re.sub(r"[\s_-]+", "", name or "").lower()
 
 
 def render_device_profile(content: str, device_name: str, projects_here: dict[str, str]) -> str:
@@ -201,7 +234,12 @@ PROJECT_ACTIVE_DAYS = 120
 
 
 async def device_projects(db: AsyncSession, machine: Machine, days: int = PROJECT_ACTIVE_DAYS) -> dict[str, str]:
-    """Projects this machine worked on lately: name -> its directory on this machine."""
+    """Projects this machine worked on lately: name -> its directory on this machine.
+
+    The directory is picked like the project list picks it (pick_project_path): a folder
+    named after the project, never a file or a tool's own folder. Taking max() of the
+    paths used to hand memento an Antigravity walkthrough.md on the Mac mini and
+    AppData/Local/Memento on Windows."""
     cache_key = f"dev_projects:{machine.id}:{days}"
     try:
         cached = await cache_get(cache_key)
@@ -210,23 +248,28 @@ async def device_projects(db: AsyncSession, machine: Machine, days: int = PROJEC
     except Exception:
         pass
 
-    from .ingest_service import _clean_source_path
+    from .project_placement import Placement, pick_project_path
 
+    path_col = Document.metadata_["project_path"].astext
     rows = (await db.execute(
-        select(Project.title, func.max(Document.metadata_["project_path"].astext))
+        select(Project.title, path_col, func.count(Document.id), func.max(Document.synced_at))
         .join(Project, Project.id == Document.project_id)
         .where(
             Document.machine_id == machine.id,
             Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days),
             Document.metadata_.has_key("project_path"),
         )
-        .group_by(Project.title)
+        .group_by(Project.title, path_col)
     )).all()
+    by_title: dict[str, list[Placement]] = {}
+    for title, raw_path, n, last in rows:
+        if title:
+            by_title.setdefault(title, []).append(Placement(machine.id, raw_path, int(n or 0), last))
     found: dict[str, str] = {}
-    for title, raw_path in rows:
-        path = _clean_source_path(raw_path)
-        if title and path:
-            found.setdefault(title, path)
+    for title, placements in by_title.items():
+        path = pick_project_path(placements, title, title)
+        if path:
+            found[title] = path
     try:
         await cache_set(cache_key, found, ttl_seconds=300)
     except Exception:
@@ -238,8 +281,8 @@ async def user_scopes(db: AsyncSession, user: User, days: int = PROJECT_ACTIVE_D
     """The user's recently active project names and device names, as the profile should spell them."""
     machines = (await db.execute(select(Machine).where(Machine.user_id == user.id))).scalars().all()
     devices = sorted({clean_device_name(m.name) for m in machines if m.name})
-    projects = (await db.execute(
-        select(Project.title)
+    rows = (await db.execute(
+        select(Project.title, func.count(Document.id))
         .join(Document, Document.project_id == Project.id)
         .where(
             Document.machine_id.in_([m.id for m in machines] or [None]),
@@ -248,8 +291,15 @@ async def user_scopes(db: AsyncSession, user: User, days: int = PROJECT_ACTIVE_D
         .group_by(Project.title)
         .order_by(func.max(Document.synced_at).desc())
         .limit(40)
-    )).scalars().all()
-    return [p for p in projects if p], devices
+    )).all()
+    # favorite-chat and favorite_chat are one project: name it the way most of its conversations do
+    names: dict[str, tuple[str, int]] = {}
+    for title, n in rows:
+        if title:
+            key = norm_scope_name(title)
+            if key not in names or n > names[key][1]:
+                names[key] = (title, n)
+    return [title for title, _ in names.values()], devices
 
 
 async def get_published_profile(db: AsyncSession, user: User) -> UserProfile | None:

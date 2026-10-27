@@ -598,9 +598,16 @@ async def accept_topic(
 async def correction_stats(db: AsyncSession, user: User, days: int = 30, weeks: int = 5) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=max(days, weeks * 7))
+    # A dismissed topic was never a rule (a prompt sent to a model, a one-off request):
+    # its moments are not corrections and must not keep the counts up.
     rows = (await db.execute(
         select(CorrectionEvent.said_at, CorrectionEvent.repeat, CorrectionEvent.already_learned, CorrectionEvent.topic_id)
-        .where(CorrectionEvent.user_id == user.id, CorrectionEvent.said_at >= since)
+        .join(CorrectionTopic, CorrectionTopic.id == CorrectionEvent.topic_id)
+        .where(
+            CorrectionEvent.user_id == user.id,
+            CorrectionEvent.said_at >= since,
+            CorrectionTopic.status != "dismissed",
+        )
     )).all()
     window = [r for r in rows if r[0] >= now - timedelta(days=days)]
     last_week = [r for r in rows if r[0] >= now - timedelta(days=7)]

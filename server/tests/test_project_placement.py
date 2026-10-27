@@ -40,6 +40,9 @@ class JunkProjectTests(unittest.TestCase):
         self.assertTrue(is_junk_project("Users", "/Users"))
         self.assertTrue(is_junk_project("Users", "C:/Users/"))
 
+    def test_app_data_folders_are_not_projects(self) -> None:
+        self.assertTrue(is_junk_project("memento", "C:\\Users\\Admin\\AppData\\Local\\Memento"))
+
     def test_real_projects_stay(self) -> None:
         self.assertFalse(is_junk_project("memento", "/Users/me/dev/memento"))
         self.assertFalse(is_junk_project("home", "d:/dev/2026/0518/home"))
@@ -62,6 +65,10 @@ class PickPathTests(unittest.TestCase):
             Placement(None, "/Users/me/work/memento", 1, NOW - timedelta(days=1)),
         ]
         self.assertEqual(pick_project_path(pls, "codex/memento", "memento"), "/Users/me/work/memento")
+
+    def test_dash_and_underscore_name_the_same_folder(self) -> None:
+        pls = [Placement(None, "D:/dev/2026/0123/favorite_chat", 322, NOW)]
+        self.assertEqual(pick_project_path(pls, "claude_code/favorite-chat", "favorite-chat"), "D:/dev/2026/0123/favorite_chat")
 
     def test_nothing_named_after_the_project(self) -> None:
         pls = [Placement(None, "/Users/me/.gemini/antigravity/brain/abc", 3, NOW), Placement(None, None, 4, NOW)]

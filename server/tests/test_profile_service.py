@@ -129,6 +129,54 @@ class TestProfileScopes(unittest.TestCase):
         self.assertLessEqual(len("\n".join(scopes.projects["chembook"])), ps.SCOPED_MAX_CHARS)
         self.assertTrue(scopes.projects["chembook"])  # the project section survives a full general part
 
+    def test_a_full_part_keeps_every_subsection(self):
+        general = "\n\n".join(
+            f"### {h}\n" + "\n".join(f"- {h}规矩 {i} " + "字" * 30 for i in range(n))
+            for h, n in (("沟通", 20), ("铁律", 30), ("工作方式", 15), ("技术偏好", 5))
+        )
+        cleaned = ps.sanitize_profile_content(general)
+        self.assertLessEqual(len(cleaned), ps.PROFILE_MAX_CHARS)
+        for heading in ("### 沟通", "### 铁律", "### 工作方式", "### 技术偏好"):
+            self.assertIn(heading, cleaned)
+        self.assertIn("- 技术偏好规矩 0 ", cleaned)  # the shortest subsection keeps its rules
+        self.assertNotIn("- 铁律规矩 29 ", cleaned)  # the longest gives up its last ones
+
+    def test_names_match_across_dash_and_underscore(self):
+        out = ps.render_device_profile("## 项目：favorite_chat\n- 不要暴露 pubchem 信息", "x", {"favorite-chat": "d:/dev/favorite_chat"})
+        self.assertIn("#### favorite_chat（`d:/dev/favorite_chat`）", out)
+
     def test_clean_device_name(self):
         self.assertEqual(ps.clean_device_name("haixingdeMac-mini.local (Darwin)"), "haixingdeMac-mini")
         self.assertEqual(ps.clean_device_name("DESKTOP-KR9IPP4 (Windows)"), "DESKTOP-KR9IPP4")
+
+
+class TestDeviceProjects(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, rows):
+        from datetime import datetime, timezone
+
+        result = MagicMock()
+        result.all.return_value = [(t, p, n, datetime(2026, 10, d, tzinfo=timezone.utc)) for t, p, n, d in rows]
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=result)
+        machine = MagicMock(id=uuid.uuid4())
+        with patch.object(ps, "cache_get", AsyncMock(return_value=None)), patch.object(ps, "cache_set", AsyncMock()):
+            return await ps.device_projects(db, machine)
+
+    async def test_project_dir_is_its_folder_not_a_tool_file(self):
+        found = await self._run([
+            ("memento", "/Users/h/dev/memento", 112, 20),
+            ("memento", "/Users/h/.gemini/antigravity/brain/eebfe902/walkthrough.md", 1, 26),
+        ])
+        self.assertEqual(found, {"memento": "/Users/h/dev/memento"})
+
+    async def test_an_installed_app_folder_is_not_the_project(self):
+        found = await self._run([
+            ("memento", "d:/dev/2026/0914/memento", 2, 10),
+            ("memento", "C:/Users/Admin/AppData/Local/Memento", 2, 26),
+            ("memento", "C:\\Users\\Admin\\AppData\\Local\\Memento", 1, 25),
+        ])
+        self.assertEqual(found, {"memento": "d:/dev/2026/0914/memento"})
+
+    async def test_claude_code_spelling_of_a_folder_still_matches(self):
+        found = await self._run([("favorite-chat", "d:\\dev\\2026\\0123\\favorite_chat", 355, 26)])
+        self.assertEqual(found, {"favorite-chat": "d:/dev/2026/0123/favorite_chat"})

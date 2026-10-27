@@ -229,3 +229,55 @@ class LearningHealthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(__import__("os").environ.get("MEMENTO_TEST_DATABASE_URL"), "set MEMENTO_TEST_DATABASE_URL to a throwaway PostgreSQL database")
+class CorrectionStatsDatabaseTests(unittest.IsolatedAsyncioTestCase):
+    """Dismissed topics (prompts sent to a model, one-off requests) leave the counts."""
+
+    async def asyncSetUp(self) -> None:
+        import os
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from server.db.models import Base
+
+        self.engine = create_async_engine(os.environ["MEMENTO_TEST_DATABASE_URL"])
+        async with self.engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
+
+    async def asyncTearDown(self) -> None:
+        from server.db.models import Base
+
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await self.engine.dispose()
+
+    async def test_dismissed_topics_are_not_counted(self) -> None:
+        from server.db.models import CorrectionEvent
+        from server.services.correction_service import correction_stats
+
+        now = datetime.now(timezone.utc)
+        async with self.Session() as db:
+            user = User(email="owner@example.com", role="owner", status="active")
+            db.add(user)
+            await db.flush()
+            rule = CorrectionTopic(user_id=user.id, statement="始终用中文回复", status="accepted", times=2)
+            prompt = CorrectionTopic(user_id=user.id, statement="面向化学博士回答", status="dismissed", times=3)
+            db.add_all([rule, prompt])
+            await db.flush()
+            for i, (topic, learned) in enumerate([(rule, True), (rule, False), (prompt, True), (prompt, True), (prompt, False)]):
+                db.add(CorrectionEvent(
+                    user_id=user.id, topic_id=topic.id, quote=f"q{i}", said_at=now - timedelta(days=1, minutes=i),
+                    repeat=True, already_learned=learned, fingerprint=f"fp{i}",
+                ))
+            await db.commit()
+            stats = await correction_stats(db, user)
+        self.assertEqual(stats["total"], 2)
+        self.assertEqual(stats["learned_repeat"], 1)
+        self.assertEqual(stats["weekly"][-1]["total"], 2)
+        self.assertEqual([t["statement"] for t in stats["top"]], ["始终用中文回复"])

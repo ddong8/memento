@@ -410,7 +410,8 @@ _FILE_LIKE_NAME = re.compile(
     re.IGNORECASE,
 )
 # Folders the tools keep their own state in; no project lives there.
-_TOOL_STATE_MARKERS = ("/.gemini/antigravity/brain/", "/.system_generated/", "/.claude/projects/", "/.codex/sessions/")
+# AppData holds installed apps' own folders (Memento's own is AppData/Local/Memento on Windows).
+_TOOL_STATE_MARKERS = ("/.gemini/antigravity/brain/", "/.system_generated/", "/.claude/projects/", "/.codex/sessions/", "/appdata/")
 _ROOT_LIKE_PATH = re.compile(r"^(?:[a-z]:)?/?(?:users|home)?/?$", re.IGNORECASE)
 
 

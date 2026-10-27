@@ -48,7 +48,8 @@ def _ts(value: datetime | None) -> datetime:
 
 
 def _leaf(name: str) -> str:
-    return name.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower()
+    """Last folder name, lowercased, "-" and "_" alike: Claude Code turns favorite_chat into favorite-chat."""
+    return name.replace("\\", "/").rstrip("/").split("/")[-1].strip("-\"'` ").lower().replace("_", "-")
 
 
 def pick_project_path(placements: Iterable[Placement], slug: str, title: str | None) -> str | None:
@@ -59,7 +60,7 @@ def pick_project_path(placements: Iterable[Placement], slug: str, title: str | N
     one, then the most recently active folder wins (the project may have moved).
     """
     p_leaf = _leaf(slug)
-    p_title = (title or "").strip("-\"'` ").lower()
+    p_title = (title or "").strip("-\"'` ").lower().replace("_", "-")
     best_key: tuple[int, datetime, int] | None = None
     best_path: str | None = None
     for pl in placements:

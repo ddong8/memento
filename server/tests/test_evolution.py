@@ -153,6 +153,44 @@ def test_condense_keeps_user_words_actions_and_errors_only():
     assert "ignore" not in text
 
 
+def test_condense_reads_tool_rows():
+    text = rs.condense([
+        ("user", "帮我部署 memento", "user", None, None),
+        ("tool", "[Bash]", "tool_call", "Bash", "kubectl get pods"),
+        ("tool", "NAME READY\napi 1/1", "tool_output", None, None),
+        ("assistant", "改一下配置。", "assistant", "Edit", "/srv/app.yaml"),
+        ("tool", "[exec]", "tool_call", None, None),
+        ("tool", "Error from server: forbidden", "tool_result", "exec", None),
+    ])
+    assert "【用户】帮我部署 memento" in text
+    assert "⚙ Bash: kubectl get pods" in text and "⚙ Edit: /srv/app.yaml" in text and "⚙ exec" in text
+    assert "api 1/1" not in text
+    assert "↳ 出错: Error from server: forbidden" in text
+
+
+def test_tool_summary_reads_antigravity_inputs():
+    # as stored: a Python dict whose values are JSON strings
+    raw = r"""{'CommandLine': '"Get-ChildItem -Path . -Depth 2"', 'Cwd': '"d:\\\\dev"', 'IsDaemon': 'false'}"""
+    assert rs._tool_summary("run_command", raw) == "run_command: Get-ChildItem -Path . -Depth 2"
+    raw = r"""{'AbsolutePath': '"d:\\\\dev\\\\app.vue"', 'StartLine': '1'}"""
+    assert rs._tool_summary("view_file", raw) == r"view_file: d:\dev\app.vue"
+    assert rs._tool_summary("Read", '{"file_path": "/a.py"}') == "Read: /a.py"
+    assert rs._tool_summary("Bash", "ls -la") == "Bash: ls -la"
+
+
+def test_user_voice_drops_the_continuation_snapshot():
+    from server.services.dreaming_service import clean_user_voice
+
+    snapshot = (
+        "【前序会话核心记忆快照（原会话 ID: aa549791...）】\n### 核心记忆快照\n- 用户要求：必须先自测再交付\n"
+        "[10-27 07:29] 助手: 已部署\n\n【执行规则】\n你已完整继承以上前序会话的全部背景。\n\n当前用户指令：\n"
+    )
+    assert clean_user_voice(snapshot + "把评测也跑一遍") == "把评测也跑一遍"
+    assert clean_user_voice(snapshot + "继续") is None
+    assert clean_user_voice("【前序会话核心记忆快照】\n只有快照，没有指令") is None
+    assert clean_user_voice("【前文对话历史】\n用户: 旧问题\n\n【当前用户指令】\n新问题怎么办") == "新问题怎么办"
+
+
 def test_harness_pitfalls_are_rejected():
     assert rs.is_harness_pitfall({"title": "Write 前必须先 Read", "symptom": "File has not been read yet"})
     assert rs.is_harness_pitfall({"title": "cd 失败", "cause": "每次 Bash 是独立 shell，工作目录不保留"})

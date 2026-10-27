@@ -17,6 +17,7 @@ Only concrete, observed things are kept; the prompt forbids generic advice.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import logging
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -70,25 +71,68 @@ def squash(text: str) -> str:
 
 # ---- condensing a transcript ----
 
+_TOOL_ARG_KEYS = (
+    "command", "cmd", "commandline", "file_path", "absolutepath", "targetfile", "path",
+    "pattern", "url", "query", "prompt", "description",
+)
+
+
+def _tool_args(raw: str) -> dict | None:
+    """Tool input as a dict with lower-cased keys: JSON, or Antigravity's Python-dict text whose
+    values are themselves JSON-encoded ({'CommandLine': '"ls"', ...})."""
+    if not raw.startswith("{"):
+        return None
+    try:
+        args = json.loads(raw)
+    except ValueError:
+        if len(raw) > 20000:
+            return None
+        try:
+            args = ast.literal_eval(raw)
+        except Exception:
+            return None
+    if not isinstance(args, dict):
+        return None
+    out = {}
+    for key, value in args.items():
+        if isinstance(value, str) and len(value) >= 2 and value[0] == value[-1] == '"':
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = value[1:-1]
+        out[str(key).lower()] = value
+    return out
+
+
 def _tool_summary(name: str, raw: str) -> str:
     raw = raw.strip()
-    try:
-        args = json.loads(raw) if raw.startswith("{") else None
-    except ValueError:
-        args = None
-    if isinstance(args, dict):
-        for key in ("command", "cmd", "file_path", "path", "pattern", "url", "query", "prompt", "description"):
+    if not raw:
+        return name
+    args = _tool_args(raw)
+    if args is not None:
+        for key in _TOOL_ARG_KEYS:
             if args.get(key):
                 return f"{name}: {str(args[key])[:200]}"
-        return f"{name}: {json.dumps(args, ensure_ascii=False)[:160]}"
+        return f"{name}: {json.dumps(args, ensure_ascii=False, default=str)[:160]}"
     return f"{name}: {raw[:160]}"
 
 
-def condense(messages: list[tuple[str | None, str]]) -> str:
-    """(role, content) oldest first → a compact timeline an LLM can read in one go."""
+def condense(messages: list[tuple]) -> str:
+    """(role, content[, message_type, tool_name, tool_input]) oldest first → a compact timeline an
+    LLM can read in one go.
+
+    Since 2026-09-12 a tool call is its own row (role "tool", message_type "tool_call", content
+    "[Name]", name and input in the metadata) followed by a "tool" row with the output; before
+    that, calls were "[Tool: Name]" inside the assistant text and outputs "[Result]" user rows.
+    """
     lines: list[str] = []
-    for role, content in messages:
+    for role, content, *extra in messages:
+        message_type, tool_name, tool_input = (list(extra) + [None, None, None])[:3]
         content = content or ""
+        if role == "tool" and message_type == "tool_call":
+            name = tool_name or content.strip().strip("[]") or "tool"
+            lines.append(f"  ⚙ {_tool_summary(name, tool_input or '')}")
+            continue
         if role == "user":
             if content.startswith("[Result]"):
                 body = content[len("[Result]"):].strip()
@@ -106,6 +150,8 @@ def condense(messages: list[tuple[str | None, str]]) -> str:
                 lines.append(f"【AI】{squash(text)[:300]}")
             for i in range(1, len(parts) - 1, 2):
                 lines.append(f"  ⚙ {_tool_summary(parts[i], parts[i + 1])}")
+            if tool_name:  # text and a tool call in one turn
+                lines.append(f"  ⚙ {_tool_summary(tool_name, tool_input or '')}")
             continue
         if _ERR_RE.search(content[:2000]):
             lines.append(f"  ↳ 出错: {squash(content)[:240]}")
@@ -134,7 +180,12 @@ class Candidate:
 async def pick_sessions(db: AsyncSession, user: User, since: datetime, now: datetime) -> list[Candidate]:
     machines = select(Machine.id).where(Machine.user_id == user.id)
     n_msgs = func.count(ConversationMessage.id)
-    n_tools = func.sum(case((ConversationMessage.content.like("%[Tool:%"), 1), else_=0))
+    is_tool_call = or_(
+        ConversationMessage.message_type == "tool_call",
+        and_(ConversationMessage.role == "assistant", ConversationMessage.metadata_.has_key("tool_name")),
+        ConversationMessage.content.like("%[Tool:%"),  # sessions stored before 2026-09-12
+    )
+    n_tools = func.sum(case((is_tool_call, 1), else_=0))
     last_at = func.max(ConversationMessage.timestamp)
     rows = (await db.execute(
         select(Document.id, Document.title, Document.tool_id, Project.title, Project.slug, n_msgs, n_tools, last_at)
@@ -174,7 +225,10 @@ async def pick_sessions(db: AsyncSession, user: User, since: datetime, now: date
 
 
 async def load_transcript(db: AsyncSession, doc_id: uuid.UUID, prev_messages: int = 0) -> str:
-    base = select(ConversationMessage.role, ConversationMessage.content).where(ConversationMessage.document_id == doc_id)
+    base = select(
+        ConversationMessage.role, ConversationMessage.content, ConversationMessage.message_type,
+        ConversationMessage.metadata_["tool_name"].astext, ConversationMessage.metadata_["tool_input"].astext,
+    ).where(ConversationMessage.document_id == doc_id)
     if prev_messages > 0:
         start_line = max(0, prev_messages - 20)
         base = base.where(ConversationMessage.line_number >= start_line)
@@ -189,7 +243,7 @@ async def load_transcript(db: AsyncSession, doc_id: uuid.UUID, prev_messages: in
             base.order_by(ConversationMessage.line_number.desc()).limit(MESSAGE_CAP - MESSAGE_CAP // 5)
         )).all()
         rows = list(head) + [("assistant", "（中间省略了较早的消息）")] + list(reversed(tail))
-    return condense([(r, c) for r, c in rows])
+    return condense([tuple(r) for r in rows])
 
 
 # ---- what the model is told it already knows ----

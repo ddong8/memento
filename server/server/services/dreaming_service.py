@@ -112,6 +112,14 @@ _SCRIPTED_PROMPT_RE = re.compile(
 )
 SCRIPTED_PROMPT_MIN_CHARS = 120
 
+# Continuing a session, Memento sends the earlier session's snapshot (quoting the user's old words)
+# in front of the prompt (session_compactor.format_injected_context); only what follows the
+# "当前用户指令" marker was typed this time. A snapshot with no prompt after it is dropped.
+_INJECTED_CONTEXT_RE = re.compile(
+    r"^(?:Memento: )?(?:【前序会话核心记忆快照|【前文对话历史】)[\s\S]*?(?:当前用户指令[：:]|【当前用户指令】)\s*"
+)
+_INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话历史】", "Memento: 【前序会话核心记忆快照")
+
 _CLIENT_INJECTED_BLOCK_RE = re.compile(
     r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
 )
@@ -122,7 +130,8 @@ def clean_user_voice(content: str | None) -> str | None:
     if not content:
         return None
     text = _CLIENT_INJECTED_BLOCK_RE.sub("", content).strip()
-    if not text or text.startswith(_NON_USER_PREFIXES):
+    text = _INJECTED_CONTEXT_RE.sub("", text, count=1).strip()
+    if not text or text.startswith(_NON_USER_PREFIXES) or text.startswith(_INJECTED_CONTEXT_HEADS):
         return None
     text = _EMBEDDED_CONTEXT_RE.sub("", text)
     text = re.sub(r"\s+", " ", sanitize_transient_text(text)).strip()

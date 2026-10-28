@@ -688,8 +688,19 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     };
 
     void fetchActiveRuns();
-    // Runs starting and ending are pushed (ask_run): refresh on those, poll slowly as a fallback
-    const offLive = onLiveEvent("ask_run", () => void fetchActiveRuns());
+    // Runs starting and ending are pushed (ask_run) with what the list needs, poll slowly as a fallback
+    const offLive = onLiveEvent("ask_run", (e) => {
+      const run = e.data as { conversation_id?: string; done?: boolean };
+      const convId = run.conversation_id;
+      if (!convId) return void fetchActiveRuns();
+      setLiveRunningIds((prev) => {
+        if (prev.has(convId) === !run.done) return prev;
+        const next = new Set(prev);
+        if (run.done) next.delete(convId);
+        else next.add(convId);
+        return next;
+      });
+    });
     const interval = setInterval(() => {
       if (!isLiveConnected()) void fetchActiveRuns();
     }, 2500);

@@ -9,6 +9,11 @@
  *
  * fetch, not EventSource: it sends the token in the Authorization header (EventSource can only put
  * it in the URL, which ends up in the access log).
+ *
+ * It counts as connected once data arrives (the server opens with a keepalive), not when the request
+ * is sent: a request stuck without an answer left the page polling every 2 s for half an hour while it
+ * thought pushes would come. Reconnecting, it sends the id of the last event it got (Last-Event-ID)
+ * and the server replays only what came after.
  */
 
 import { getApiBase } from "./api-client";
@@ -28,6 +33,14 @@ let started = false;
 let abort: AbortController | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryDelay = 2_000;
+let lastEventId = "";
+let lastDataAt = 0;
+
+// No answer to the request in this long: it's stuck (a connection the network dropped silently), open
+// another. Longer than the server's keepalive interval (30 s), for a server that sends nothing first.
+const OPEN_TIMEOUT_MS = 40_000;
+// The server sends a keepalive every 30 s: silence for this long means the connection is gone.
+const SILENCE_TIMEOUT_MS = 75_000;
 
 /** Whether pushes are arriving: callers stretch their polling while this holds. */
 export function isLiveConnected(): boolean {
@@ -83,7 +96,14 @@ function ensureStarted(): void {
   started = true;
   // Come back right away when the tab is shown again or the network returns
   const wake = () => {
-    if (!connected && document.visibilityState !== "hidden") reconnectSoon(0);
+    if (document.visibilityState === "hidden") return;
+    if (!connected) {
+      reconnectSoon(0);
+      return;
+    }
+    // Back from the background, a phone has usually cut the connection without the page hearing of
+    // it: silence past a keepalive interval means it's gone, reopen now instead of after 75 s.
+    if (Date.now() - lastDataAt > 35_000) abort?.abort();
   };
   document.addEventListener("visibilitychange", wake);
   window.addEventListener("online", wake);
@@ -107,32 +127,40 @@ async function connect(): Promise<void> {
   }
   const ctrl = new AbortController();
   abort = ctrl;
+  let openedAt = 0;
+  let watchdog = setTimeout(() => ctrl.abort(), OPEN_TIMEOUT_MS);
   try {
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}`, Accept: "text/event-stream" };
+    if (lastEventId) headers["Last-Event-ID"] = lastEventId;
     const res = await fetch(`${getApiBase()}/api/events/stream`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+      headers,
       cache: "no-store",
       signal: ctrl.signal,
     });
     if (!res.ok || !res.body) throw new Error(`events ${res.status}`);
-    retryDelay = 2_000;
-    setConnected(true);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
-    // The server sends a keepalive every 30 s: silence for 75 s means the connection is gone
-    let watchdog = setTimeout(() => ctrl.abort(), 75_000);
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       clearTimeout(watchdog);
-      watchdog = setTimeout(() => ctrl.abort(), 75_000);
+      watchdog = setTimeout(() => ctrl.abort(), SILENCE_TIMEOUT_MS);
+      lastDataAt = Date.now();
+      if (!openedAt) {
+        openedAt = lastDataAt;
+        retryDelay = 2_000;
+        setConnected(true);
+      }
       buf += decoder.decode(value, { stream: true });
       let sep: number;
       while ((sep = buf.indexOf("\n\n")) !== -1) {
         const block = buf.slice(0, sep);
         buf = buf.slice(sep + 2);
-        const data = block
-          .split("\n")
+        const lines = block.split("\n");
+        const id = lines.find((l) => l.startsWith("id:"));
+        if (id) lastEventId = id.slice(3).trim();
+        const data = lines
           .filter((l) => l.startsWith("data:"))
           .map((l) => l.slice(5).trimStart())
           .join("\n");
@@ -145,13 +173,16 @@ async function connect(): Promise<void> {
         }
       }
     }
-    clearTimeout(watchdog);
   } catch {
-    // dropped or refused: retried below
+    // dropped, refused or timed out: retried below
   } finally {
+    clearTimeout(watchdog);
     if (abort === ctrl) abort = null;
     setConnected(false);
   }
-  retryDelay = Math.min(retryDelay * 2, 60_000);
-  reconnectSoon(document.visibilityState === "hidden" ? Math.max(retryDelay, 30_000) : retryDelay);
+  // One that was up a while and dropped (a server restart, the phone coming back) reopens at once; one
+  // that failed or dropped straight away waits longer each time, up to a minute.
+  const wasUp = openedAt > 0 && Date.now() - openedAt > 10_000;
+  const delay = wasUp ? 500 : (retryDelay = Math.min(retryDelay * 2, 60_000));
+  reconnectSoon(document.visibilityState === "hidden" ? Math.max(delay, 30_000) : delay);
 }

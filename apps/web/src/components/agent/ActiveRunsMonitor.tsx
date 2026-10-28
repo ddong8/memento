@@ -97,9 +97,7 @@ export default function ActiveRunsMonitor() {
   }, [hasActiveRuns, hasVisibleNotifications]);
 
   // Poll server for active and recently finished runs
-  const fetchRuns = useCallback(async () => {
-    if (!token) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  const loadRuns = useCallback(async () => {
     try {
       // Ask for runs active or finished in the last 20 seconds
       const data = await api.listAskRuns(20);
@@ -163,7 +161,29 @@ export default function ActiveRunsMonitor() {
     } catch {
       // Ignore network errors during polling
     }
-  }, [token, isWatching]);
+  }, [isWatching]);
+
+  // One request at a time: what asks for one meanwhile (a push, the poll, the page coming back) gets
+  // one more after it, not one each
+  const fetchingRef = useRef(false);
+  const refetchRef = useRef(false);
+  const fetchRuns = useCallback(async () => {
+    if (!token) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (fetchingRef.current) {
+      refetchRef.current = true;
+      return;
+    }
+    fetchingRef.current = true;
+    try {
+      do {
+        refetchRef.current = false;
+        await loadRuns();
+      } while (refetchRef.current);
+    } finally {
+      fetchingRef.current = false;
+    }
+  }, [token, loadRuns]);
 
   // 监听任务结束与启动事件，实现零延迟即时响应，打破 1.5s~4s 纯轮询固有滞后
   useEffect(() => {
@@ -247,14 +267,22 @@ export default function ActiveRunsMonitor() {
       pending = setTimeout(() => void fetchRuns(), 150);
     };
     const offEvent = onLiveEvent("ask_run", refresh);
+    // A run this tab hasn't listed yet keeps sending steps (or one it marked finished, whose server
+    // side is still winding down): fetch for it once every 5 s, not on each step
+    const unlistedFetchedAt = new Map<string, number>();
     // A running run moving on is pushed too: show its new step without fetching the list
     const offStep = onLiveEvent("ask_run_step", (e) => {
       const step = e.data as Partial<AskRunSummary> & { conversation_id?: string };
-      if (!step.conversation_id) return;
+      const convId = step.conversation_id;
+      if (!convId) return;
       setRuns((prev) => {
-        const i = prev.findIndex((r) => r.conversation_id === step.conversation_id && !r.done);
+        const i = prev.findIndex((r) => r.conversation_id === convId && !r.done);
         if (i < 0) {
-          refresh(); // a run this tab hasn't listed yet
+          const t = Date.now();
+          if (t - (unlistedFetchedAt.get(convId) || 0) > 5000) {
+            unlistedFetchedAt.set(convId, t);
+            refresh();
+          }
           return prev;
         }
         const next = prev.slice();
@@ -296,6 +324,7 @@ export default function ActiveRunsMonitor() {
   }, [token, fetchRuns, hasActiveRuns, live]);
 
   const lastHiddenAtRef = useRef<number>(0);
+  const lastResumeSyncAtRef = useRef<number>(0);
   const autoJumpedKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -306,6 +335,9 @@ export default function ActiveRunsMonitor() {
         lastHiddenAtRef.current = Date.now();
         return;
       }
+      // Coming back fires visibilitychange, focus and the app's own wake events together: one sync
+      if (Date.now() - lastResumeSyncAtRef.current < 1500) return;
+      lastResumeSyncAtRef.current = Date.now();
       const hiddenSince =
         lastHiddenAtRef.current > 0
           ? lastHiddenAtRef.current

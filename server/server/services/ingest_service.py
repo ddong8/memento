@@ -1218,10 +1218,10 @@ async def ingest_file(
         except Exception:
             pass  # Celery may not be running in dev
 
-    # Publish SSE event
+    # Tell open clients (the overview refreshes on it), at most every 5 s however many files come in
     try:
-        from .sse_service import publish_event
-        publish_event("file_synced", {
+        from .sse_service import publish_event_throttled
+        publish_event_throttled("file_synced", {
             "document_id": str(doc.id),
             "tool_id": tool_id,
             "category": category,

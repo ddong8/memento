@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
-import { useSSE } from "@/lib/use-sse";
+import { onLiveEvent } from "@/lib/live-events";
 import { useNow } from "@/lib/use-now";
 import { timeAgo } from "@/lib/constants";
 import { Icon, ToolGlyph, PlatformGlyph, TOOL_HUE } from "@/components/aurora/Icon";
@@ -100,15 +100,22 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  useSSE((event) => {
-    setLastEvent(`${event.data.tool_id}: ${event.data.title || event.data.relative_path}`);
-    if (sseDebounceTimerRef.current) {
-      clearTimeout(sseDebounceTimerRef.current);
-    }
-    sseDebounceTimerRef.current = setTimeout(() => {
-      fetchData();
-    }, 800);
-  });
+  // Files synced are pushed over the page's one live connection (at most every 5 s while a collector
+  // uploads), not a second EventSource with the token in its URL
+  useEffect(
+    () =>
+      onLiveEvent("file_synced", (event) => {
+        const d = event.data as { tool_id?: string; title?: string; relative_path?: string };
+        setLastEvent(`${d.tool_id}: ${d.title || d.relative_path}`);
+        if (sseDebounceTimerRef.current) {
+          clearTimeout(sseDebounceTimerRef.current);
+        }
+        sseDebounceTimerRef.current = setTimeout(() => {
+          fetchData();
+        }, 800);
+      }),
+    [fetchData]
+  );
 
   if (loading) return <div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>{t.loading}</div>;
   if (!data) return <div style={{ color: "var(--aurora-fg4)", textAlign: "center", marginTop: 80 }}>Failed to load dashboard</div>;

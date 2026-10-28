@@ -5,6 +5,7 @@ EventSource can only pass ?token=, which lands in the access log."""
 from __future__ import annotations
 
 import asyncio
+import time
 import types
 import unittest
 import uuid
@@ -33,6 +34,84 @@ class EventStreamAuthTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             asyncio.run(events.event_stream(token=None, authorization=None))
         self.assertEqual(ctx.exception.status_code, 401)
+
+
+    def test_last_event_id_is_where_the_replay_starts(self):
+        seen = {}
+
+        async def fake_subscribe(user_id, since=None):
+            seen["since"] = since
+            yield {"type": "keepalive", "data": {}, "timestamp": 0}
+
+        async def go():
+            res = await events.event_stream(token=None, authorization="Bearer abc", last_event_id="1761650000.250000")
+            async for _ in res.body_iterator:
+                break
+
+        with patch.object(events, "decode_token", return_value={"sub": "u1"}), \
+             patch.object(events, "subscribe", fake_subscribe):
+            asyncio.run(go())
+        self.assertEqual(seen["since"], 1761650000.25)
+
+
+class ReplayTests(unittest.TestCase):
+    """A connection gets what its user missed, not the last 50 events again each time."""
+
+    def setUp(self):
+        sse_service._recent_events.clear()
+        self.uid = str(uuid.uuid4())
+        now = time.time()
+        for age, user in ((300, self.uid), (60, self.uid), (3, self.uid), (2, "someone-else"), (1, None)):
+            sse_service._recent_events.append((user, {"type": "ask_run", "data": {"age": age}, "timestamp": now - age}))
+        self.now = now
+
+    def tearDown(self):
+        sse_service._recent_events.clear()
+
+    def _first(self, n, since=None):
+        async def go():
+            agen = sse_service.subscribe(self.uid, since=since)
+            got = [await agen.__anext__() for _ in range(n)]
+            await agen.aclose()
+            return got
+        return asyncio.run(asyncio.wait_for(go(), timeout=5))
+
+    def test_starts_with_a_keepalive_then_only_the_last_seconds(self):
+        got = self._first(3)
+        self.assertEqual(got[0]["type"], "keepalive")
+        self.assertEqual([e["data"]["age"] for e in got[1:]], [3, 1])  # not 300 / 60, not another user's
+
+    def test_since_replays_everything_after_it(self):
+        got = self._first(4, since=self.now - 100)
+        self.assertEqual([e["data"]["age"] for e in got[1:]], [60, 3, 1])
+
+    def test_ids_round_trip_and_keepalives_carry_none(self):
+        event = {"type": "ask_run", "data": {}, "timestamp": 1761650000.123456}
+        frame = sse_service.format_sse(event)
+        self.assertTrue(frame.startswith("id: 1761650000.123456\nevent: ask_run\n"))
+        self.assertEqual(sse_service.parse_event_id("1761650000.123456"), 1761650000.123456)
+        self.assertNotIn("id:", sse_service.format_sse({"type": "keepalive", "data": {}, "timestamp": 1.0}))
+        self.assertIsNone(sse_service.parse_event_id("bogus"))
+        self.assertIsNone(sse_service.parse_event_id(None))
+
+
+class ThrottleTests(unittest.TestCase):
+    def test_a_burst_goes_out_as_the_first_and_the_last(self):
+        sent: list = []
+
+        async def go():
+            with patch.object(sse_service, "publish_event", lambda t, d, user_id=None: sent.append(d["i"])):
+                for i in range(5):
+                    sse_service.publish_event_throttled("file_synced", {"i": i}, user_id="u-burst", interval=0.2)
+                self.assertEqual(sent, [0])
+                await asyncio.sleep(0.3)
+                self.assertEqual(sent, [0, 4])
+                await asyncio.sleep(0.25)
+                sse_service.publish_event_throttled("file_synced", {"i": 5}, user_id="u-burst", interval=0.2)
+                self.assertEqual(sent, [0, 4, 5])  # quiet for an interval: straight out again
+
+        sse_service._throttled.clear()
+        asyncio.run(go())
 
 
 class RunEventTests(unittest.TestCase):

@@ -248,12 +248,53 @@ def main():
     parser = argparse.ArgumentParser(description="Antigravity CLI Runner")
     parser.add_argument("-p", "--prompt", dest="prompt_flag", help="Prompt to send to Antigravity")
     parser.add_argument("--resume", dest="resume_id", default="", help="Resume an existing conversation by ID")
+    parser.add_argument("--conversation", dest="conversation_id", default="", help="Resume an existing conversation by ID (alias for --resume)")
+    parser.add_argument("-c", "--continue", dest="continue_recent", action="store_true", help="Continue the most recent conversation")
     parser.add_argument("--model", dest="model", default="", help="Model tier: flash_lite, flash, or pro")
+    parser.add_argument("--effort", dest="effort", default="", help="Reasoning effort: low, medium, high, xhigh, max")
     parser.add_argument("--title", dest="title", default="", help="Conversation title")
     parser.add_argument("--timeout", type=int, default=0, help="Timeout in seconds (0 = unlimited)")
+    parser.add_argument("--print-timeout", dest="print_timeout", default="", help="Print timeout in seconds or duration (0 = unlimited)")
+    parser.add_argument("--dangerously-skip-permissions", action="store_true", help="Auto-approve tool requests without prompting")
+    parser.add_argument("--output-format", dest="output_format", default="text", help="Output format: text, json, stream-json")
     parser.add_argument("prompt_pos", nargs="*", help="Positional prompt words")
 
     args, unknown = parser.parse_known_args()
+
+    # Normalize conversation resumption ID and timeout
+    conv_id = (args.conversation_id or args.resume_id).strip()
+    timeout_sec = args.timeout
+    if args.print_timeout:
+        pt = str(args.print_timeout).strip().lower()
+        if pt.endswith("s"):
+            pt = pt[:-1]
+        elif pt.endswith("m"):
+            try:
+                pt = str(int(float(pt[:-1]) * 60))
+            except Exception:
+                pass
+        try:
+            timeout_sec = int(pt)
+        except Exception:
+            pass
+    args.timeout = timeout_sec
+    args.resume_id = conv_id
+
+    if args.continue_recent and not conv_id:
+        try:
+            db_path = Path.home() / ".gemini" / "antigravity" / "conversation_summaries.db"
+            if db_path.exists():
+                import sqlite3
+                conn = sqlite3.connect(str(db_path), timeout=2)
+                cur = conn.cursor()
+                cur.execute("SELECT conversation_id FROM conversation_summaries WHERE status != 'deleted' ORDER BY updated_at DESC LIMIT 1")
+                row = cur.fetchone()
+                if row and row[0]:
+                    conv_id = str(row[0]).strip()
+                    args.resume_id = conv_id
+                conn.close()
+        except Exception:
+            pass
 
     prompt_parts = []
     if args.prompt_flag:

@@ -356,6 +356,8 @@ const RUNNER_MARKERS = [
   "in_flight_tools",
   "gemini-3.8-flash",
   "--timeout",
+  "--conversation",
+  "--print-timeout",
   "ANTIGRAVITY_SOURCE_METADATA",
   "last_error_message",
   "active_background_tasks",

@@ -173,6 +173,44 @@ export function codexArgs(o: {
   ];
 }
 
+/**
+ * Arguments for invoking the Antigravity CLI (`agy` / `agy.exe` or `agy_cli.py`).
+ *
+ * Official `agy` (Go CLI) parameter protocol:
+ *   - `--conversation <id>`: Resume previous conversation by ID (does NOT support `--resume`)
+ *   - `--print-timeout <duration>`: Non-interactive turn timeout (e.g. `300s`, does NOT support `--timeout`)
+ *   - `--dangerously-skip-permissions`: Headless tool auto-approval without terminal prompting
+ *   - `-p <prompt>`: Single prompt non-interactive print mode
+ *   - `--model <model>`: Model tier or ID
+ *   - `--effort <effort>`: Reasoning effort (low|medium|high|xhigh|max)
+ */
+export function antigravityArgs(o: {
+  sessionId?: string;
+  model?: string;
+  effort?: string;
+  timeoutSeconds?: number;
+  prompt: string;
+}): string[] {
+  const args: string[] = [];
+  const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? o.sessionId.trim()) : "";
+  if (sid) {
+    args.push("--conversation", sid);
+  }
+  if (o.model) {
+    args.push("--model", o.model);
+  }
+  if (o.effort) {
+    args.push("--effort", o.effort);
+  }
+  if (o.timeoutSeconds && o.timeoutSeconds > 0) {
+    const s = Math.max(60, o.timeoutSeconds - 15);
+    args.push("--print-timeout", `${s}s`);
+  }
+  args.push("--dangerously-skip-permissions");
+  args.push("-p", o.prompt);
+  return args;
+}
+
 /** Errors that mean the session to resume isn't on this device (or the CLI didn't take the resume flags). */
 export function isSessionNotFound(text: string): boolean {
   return (
@@ -192,6 +230,9 @@ export function isSessionNotFound(text: string): boolean {
       "invalid value",
       "Usage: codex exec",
       "Usage: agy",
+      "Usage of agy",
+      "flags provided but not defined: -resume",
+      "flags provided but not defined: -conversation",
     ].some((s) => text.includes(s)) ||
     (text.includes("conversation") && text.includes("not found"))
   );
@@ -918,6 +959,16 @@ export class TaskRunner {
           ];
           parser = new ClaudeStreamParser();
         }
+      } else if (isAntigravity) {
+        args = antigravityArgs({
+          sessionId,
+          model,
+          effort,
+          timeoutSeconds: task.timeoutSeconds,
+          prompt,
+        });
+        parser = new UniversalStreamParser();
+        this.runnerTasks.add(taskId);
       } else {
         args = [
           ...(sessionId ? ["--resume", sessionId] : []),
@@ -927,7 +978,6 @@ export class TaskRunner {
           prompt,
         ];
         parser = new UniversalStreamParser();
-        if (isAntigravity) this.runnerTasks.add(taskId);
       }
     }
 
@@ -989,13 +1039,12 @@ export class TaskRunner {
           `\n⚡ [模型容灾降级] 检测到当前模型容量不足 (503 No capacity)，已自动切换至 ${fallbackModel.toUpperCase()} 档位全新会话无缝重试...\n\n`,
         );
         parser = new UniversalStreamParser();
-        const fallbackArgs = [
-          "--model",
-          fallbackModel,
-          ...(task.timeoutSeconds > 0 ? ["--timeout", String(Math.max(60, task.timeoutSeconds - 15))] : ["--timeout", "0"]),
-          "-p",
+        const fallbackArgs = antigravityArgs({
+          model: fallbackModel,
+          effort,
+          timeoutSeconds: task.timeoutSeconds,
           prompt,
-        ];
+        });
         exitCode = await run({ args: fallbackArgs, parser });
       }
 
@@ -1047,6 +1096,17 @@ export class TaskRunner {
               parser,
             });
           }
+        } else if (isAntigravity) {
+          parser = new UniversalStreamParser();
+          exitCode = await run({
+            args: antigravityArgs({
+              model,
+              effort,
+              timeoutSeconds: task.timeoutSeconds,
+              prompt,
+            }),
+            parser,
+          });
         } else {
           parser = new UniversalStreamParser();
           exitCode = await run({ args: [...(model ? ["--model", model] : []), "-p", prompt], parser });

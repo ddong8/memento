@@ -327,6 +327,7 @@ const zhCN = {
     statusDeviceRunning: "设备运行中...",
     statusStreaming: "⚡ 实时输出中...",
     statusStillRunning: "后台仍在执行...",
+    statusBackgroundLeft: "留有后台任务",
     statusSucceeded: "执行成功",
     statusFailed: "执行失败",
     statusTimeout: "执行超时",

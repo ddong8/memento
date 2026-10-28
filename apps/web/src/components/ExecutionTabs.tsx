@@ -32,8 +32,9 @@ function isCallRunning(call: ToolCallItem, hasParentContent?: boolean): boolean 
   ) {
     return false;
   }
-  if (call.result?.status === "still_running") return true;
+  // An answered turn is over, even if the agent left background work (still_running) behind
   if (hasParentContent) return false;
+  if (call.result?.status === "still_running") return true;
   return !call.result || call.result.status === "running" || call.result.status === "queued";
 }
 

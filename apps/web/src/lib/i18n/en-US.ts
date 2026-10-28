@@ -319,6 +319,7 @@ const enUS: Translations = {
     statusDeviceRunning: "Executing on device...",
     statusStreaming: "⚡ Live streaming...",
     statusStillRunning: "Still running in background...",
+    statusBackgroundLeft: "Left background work",
     statusSucceeded: "Succeeded",
     statusFailed: "Failed",
     statusTimeout: "Timed out",

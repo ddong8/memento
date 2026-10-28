@@ -120,11 +120,12 @@ const ExecutionCard = memo(function ExecutionCard({
     callStatus === "failed";
   const isStillRunning = result?.status === "still_running";
 
-  // If the parent turn already produced its answer (hasParentContent) and this is not an explicit still_running background task,
-  // it cannot be actively running.
+  // Once the turn has its answer (hasParentContent) the agent is done: still_running then only says it
+  // left background work behind, nothing more comes back here, so it isn't shown as running.
   const isRunning =
     !isTerminal &&
-    (isStillRunning || (!hasParentContent && (!result || result.status === "running" || result.status === "queued")));
+    !hasParentContent &&
+    (isStillRunning || !result || result.status === "running" || result.status === "queued");
 
   // 过滤内部遥测噪音（例如 agy_cli 写入 stderr 的 session id: <uuid>，用于服务端进程关联，并非实际报错）
   const cleanStderr = useMemo(() => {
@@ -482,7 +483,7 @@ const ExecutionCard = memo(function ExecutionCard({
                 whiteSpace: "nowrap",
               }}
             >
-              ⏳ {t.ask.statusStillRunning || "后台执行中"}
+              ⏳ {hasParentContent ? (t.ask.statusBackgroundLeft || "留有后台任务") : (t.ask.statusStillRunning || "后台执行中")}
             </span>
           )}
 

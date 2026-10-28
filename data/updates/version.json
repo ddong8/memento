@@ -1,25 +1,25 @@
 {
-  "version": "1.0.89",
-  "title": "Memento v1.0.89",
+  "version": "1.0.90",
+  "title": "Memento v1.0.90",
   "release_notes": "1. Claude Code 额度用完时如实显示“额度已用完”和恢复时间，不再显示成后台仍在执行或已完成，并推送提醒\n2. 回答失败时也保留设备上实际用的会话，额度恢复后发送“继续”就在原会话接着做\n3. 设备上的会话已失效时自动改用新会话，不再反复续接失败\n4. 服务更新后没人跟进的任务，同一对话再次提问时会先停掉它、把那次提问记进对话，并在它的会话里接着做，不再两个进程同时写一个会话；设备离线时等重新连上再停\n5. 手机端版本号与客户端统一为 1.0.90",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.89-win-x64.zip",
-      "size": 157925974,
-      "sha256": "deaabb624a381773a815c2016f99fc5f28c44c3fb80334254578dc61b947b3db",
-      "sha512": "9Zvi11FH+tBvCZFVwKIHTgbW+FfDIOnggkbJoKI8pt7v88HlJ04O6exZ/ohncLySIcx1DcCILOVXaAlY2OgXlQ=="
+      "asset_name": "Memento-1.0.90-win-x64.zip",
+      "size": 157927740,
+      "sha256": "5ca415e9fec1a72be1500422327bcf9a55adfb225348b51ce095eb71516306ef",
+      "sha512": "zAcEc9QpkfH2tkRxBXujcp3xWB72GIU0mNLpNkYgqu8e+ds8sfTOsutjryGNf9z0K/AvRsQKral2poq4KlN3SQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.89-mac-arm64.zip",
-      "size": 132398983,
-      "sha256": "a8b86c292a31a69c36449db539313ce4981e38bf900fb92d1e3a1fda07f798e1",
-      "sha512": "WvBb8eihfg1rBCMeJb/7IVmpm4Eug9EGxj3nuvJvEBloOJHC9mIMDXOXwLLRMnGSRNIInhiuYhDVD4f4tmRnQw=="
+      "asset_name": "Memento-1.0.90-mac-arm64.zip",
+      "size": 132400149,
+      "sha256": "7d9209f7e07cf0db47386d7e72a84593a033acb35275947216a28f7e52def17e",
+      "sha512": "1dWZweXMbe3ol9q7J1lBcnQEBPI6jiWD2dzDNMfQ8m0VsgyKecxMifXUWtKg0H3U2deKwYlM+S39+alLvoIY8A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.89-linux-x64.tar.gz",
-      "size": 131694200,
-      "sha256": "f4e396db1b05b423a58c3ce3ac1f162f680d3787241c5f52579e056fcd0e0dd8",
-      "sha512": "/j7tytlQtLOuS5TpTMR9bK/V5klTovhDyPZLMSxNNh123BjfCtBIG/Lx3uB4nGGouxstf0AxNVwFRQGmZiaY/g=="
+      "asset_name": "Memento-1.0.90-linux-x64.tar.gz",
+      "size": 131695534,
+      "sha256": "34e2e861a7a8e707fa1d3e38c3c7942c0d61941039b013e7f886ec72652b384c",
+      "sha512": "I0cU3vdqq4Mxp/0ZQca9K3PljadAh25JFNFzZ84+fmoASjN8pXpztpu6wrlzGXSCKjIfmzDpQC35pztetjHdKA=="
     }
   }
 }

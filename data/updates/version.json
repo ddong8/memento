@@ -1,25 +1,25 @@
 {
-  "version": "1.0.88",
-  "title": "Memento v1.0.88",
+  "version": "1.0.89",
+  "title": "Memento v1.0.89",
   "release_notes": "1. 服务更新时，设备上正在运行的 Claude Code、Codex 等任务不再被打断：回答自动交给其他服务实例继续跟进，任务结束后结果照常保存到对话\n2. Claude Code 启动的后台命令结束后，任务不再一直显示“后台仍在执行”；已经回复完的对话不再显示运行中\n3. 手动停止、出错、服务更新中断的回答如实记为已停止或失败，不再显示成“任务执行完成”\n4. 长时间没有输出、但仍在设备上执行的任务不再被误判为超时终止\n5. 手机端版本号与客户端统一为 1.0.89",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.88-win-x64.zip",
-      "size": 157924442,
-      "sha256": "0583f4cf040b003dc29b4c192789978eb6fb07dcdd6fe11efac8da8a44a1fe5e",
-      "sha512": "iGlFRPbUZRgeJSKDdXxzvxQ067dtkna2vFksnfo3fqUAa6Pzabrr6kOTWUh/Oqi9WXveU6ok3xwmSIq0++3xqA=="
+      "asset_name": "Memento-1.0.89-win-x64.zip",
+      "size": 157925974,
+      "sha256": "deaabb624a381773a815c2016f99fc5f28c44c3fb80334254578dc61b947b3db",
+      "sha512": "9Zvi11FH+tBvCZFVwKIHTgbW+FfDIOnggkbJoKI8pt7v88HlJ04O6exZ/ohncLySIcx1DcCILOVXaAlY2OgXlQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.88-mac-arm64.zip",
-      "size": 132397912,
-      "sha256": "8ffef5407a746834f714c6eda25a078a8d5cf6a7a745214627275662d6821c51",
-      "sha512": "DeOVXVfVQ2mD4VroWgKuz1fdsMeQfFp2jFFOqX03XRusMupjTBiNDGYMFK+m2CEKaYKTV6vBfavmGj9NuDLcFg=="
+      "asset_name": "Memento-1.0.89-mac-arm64.zip",
+      "size": 132398983,
+      "sha256": "a8b86c292a31a69c36449db539313ce4981e38bf900fb92d1e3a1fda07f798e1",
+      "sha512": "WvBb8eihfg1rBCMeJb/7IVmpm4Eug9EGxj3nuvJvEBloOJHC9mIMDXOXwLLRMnGSRNIInhiuYhDVD4f4tmRnQw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.88-linux-x64.tar.gz",
-      "size": 131692847,
-      "sha256": "4432d8a900df476032b79184a68317d5d849934d5d4d7d810e233a1e79180c7e",
-      "sha512": "H0lQ7lTagfePaPEHRNiyicu2iDI0tlIu0PNR3piM5UyYGpBbtf/TICZ5e2fVikIcmWdVZcJi6tl6NWMePVqQlw=="
+      "asset_name": "Memento-1.0.89-linux-x64.tar.gz",
+      "size": 131694200,
+      "sha256": "f4e396db1b05b423a58c3ce3ac1f162f680d3787241c5f52579e056fcd0e0dd8",
+      "sha512": "/j7tytlQtLOuS5TpTMR9bK/V5klTovhDyPZLMSxNNh123BjfCtBIG/Lx3uB4nGGouxstf0AxNVwFRQGmZiaY/g=="
     }
   }
 }

@@ -480,7 +480,9 @@ async def _await_task_stream(
                     "status": current.status,
                 }
 
-            if current.status in ("succeeded", "failed", "timeout", "cancelled"):
+            # still_running: the agent ended and left work going in the background (only a
+            # task_finished sets it), so this run's part is over too
+            if current.status in ("succeeded", "failed", "timeout", "cancelled", "still_running"):
                 yield {"type": "_task_finished", "task": current}
                 return
 
@@ -611,6 +613,12 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             "name": "run_on_device",
             "result": {"error": "远程执行未启用（服务端设 MEMENTO_REMOTE_EXEC=1 即可，设备端无需配置）"},
         }
+        return
+
+    if args.get("attach_task_id"):
+        # Already on the device: follow it from here instead of dispatching again
+        async for evt in _attach_device_task(db, user, str(args["attach_task_id"])):
+            yield evt
         return
 
     device_id = args.get("device_id") or ""
@@ -989,9 +997,35 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             deadline = asyncio.get_event_loop().time() + server_wait
         else:
             deadline = 0.0
-        done_task = None
-        done_ws = None
+        async for evt in _follow_device_task(db, user, task, mach_name, deadline, task_q, server_wait, proj_id_val):
+            yield evt
+    except Exception as e:
+        logger.exception("run_on_device failed: %s", e)
+        yield {
+            "type": "tool_result",
+            "name": "run_on_device",
+            "result": {"error": f"执行遇到异常: {e}"},
+        }
 
+
+async def _follow_device_task(
+    db: AsyncSession,
+    user: User,
+    task: DeviceTask,
+    mach_name: str,
+    deadline: float,
+    task_q: asyncio.Queue | None,
+    server_wait: float,
+    proj_id_val: Any = None,
+):
+    """Stream a dispatched task's output until it ends, then its tool_result."""
+    task_id_str = str(task.id)
+    device_id = task.device_id
+    action = task.action
+    device_timeout = task.timeout_seconds or 0
+    done_task = None
+    done_ws = None
+    try:
         try:
             async for evt in _await_task_stream(db, task, mach_name, deadline, task_q=task_q, server_wait=server_wait):
                 if evt["type"] == "_task_finished":
@@ -1005,8 +1039,8 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                     yield evt
         except (asyncio.CancelledError, GeneratorExit):
             from .ask_runs import ask_runs
-            if ask_runs.shutting_down:
-                # A deploy cut the run short: the device keeps going and its result is saved when it reports
+            if ask_runs.keeps_device_tasks(task_id_str):
+                # A deploy cut the run short or moved it to another replica: the device keeps going
                 logger.info("Task %s left running on device %s while the server shuts down", task_id_str, device_id)
             else:
                 logger.info("Task %s cancelled by client, sending cancel to device %s", task_id_str, device_id)
@@ -1109,12 +1143,55 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             "result": task_result,
         }
     except Exception as e:
-        logger.exception("run_on_device failed: %s", e)
+        logger.exception("following task %s failed: %s", task_id_str, e)
         yield {
             "type": "tool_result",
             "name": "run_on_device",
             "result": {"error": f"执行遇到异常: {e}"},
         }
+
+
+async def _attach_device_task(db: AsyncSession, user: User, task_id: str):
+    """Follow a task another replica dispatched: it moved its ask run here while shutting down
+    (ask_runs.drain) and the device kept going. Output from now on, then the result."""
+    try:
+        tid = uuid.UUID(task_id)
+    except ValueError:
+        tid = None
+    # Subscribe before reading the row: output from now on is queued here, and an end the device
+    # reported while nobody was subscribed is already in the row
+    task_q = await ws_manager.subscribe_task(task_id) if tid else None
+    try:
+        task = None
+        if tid:
+            async with async_session_factory() as read_session:
+                task = (await read_session.execute(select(DeviceTask).where(DeviceTask.id == tid))).scalars().first()
+        if task is None or task.user_id != user.id:
+            yield {
+                "type": "tool_result",
+                "name": "run_on_device",
+                "result": {"task_id": task_id, "status": "failed", "error": "要继续跟进的设备任务不存在"},
+            }
+            return
+        machine = (await db.get(Machine, task.machine_id)) if task.machine_id else None
+        mach_name = machine.name if machine else task.device_id
+        device_timeout = task.timeout_seconds or 0
+        if device_timeout > 0:
+            # Same server-side budget as when it was dispatched, counted from then
+            server_wait = device_timeout + (10 if task.action == "shell" else 30)
+            started = task.dispatched_at or task.created_at
+            if started is not None and started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds() if started else 0
+            deadline = asyncio.get_event_loop().time() + max(server_wait - elapsed, 30)
+        else:
+            server_wait, deadline = 0, 0.0
+        project_id = (task.payload or {}).get("project_id")
+        async for evt in _follow_device_task(db, user, task, mach_name, deadline, task_q, server_wait, project_id):
+            yield evt
+    finally:
+        if task_q is not None:
+            await ws_manager.unsubscribe_task(task_id)
 
 
 async def _extract_pitfall_hint(

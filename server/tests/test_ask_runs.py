@@ -285,6 +285,42 @@ class RunRegistryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertNotEqual(c.kwargs.get("current_step"), "任务完成")
 
 
+    async def test_pings_keep_a_quiet_run_alive_and_a_silent_one_is_stopped(self):
+        release = asyncio.Event()
+        cleaned = asyncio.Event()
+
+        async def gen(db, user):
+            try:
+                yield frame({"type": "conversation_id", "id": "c20"})
+                while not release.is_set():
+                    yield frame({"type": "ping"})  # waiting on a device task: no output for a long time
+                    await asyncio.sleep(0.01)
+                await asyncio.Event().wait()  # then stuck without even pinging
+            finally:
+                cleaned.set()
+
+        run = await self.registry.start("c20", self.user.id, "q", gen)
+        with patch.object(ar, "STALL_SECONDS", 0.2):
+            await asyncio.sleep(0.4)
+            active = await self.registry.active_for_user(self.user.id)
+            self.assertEqual([r.conversation_id for r in active], ["c20"])  # pings count as progress
+            self.assertFalse(run.done)
+
+            release.set()
+            await asyncio.sleep(0.4)
+            await self.registry.active_for_user(self.user.id)
+        # Stopped for real: the generator is cancelled and readers get the end
+        await asyncio.wait_for(cleaned.wait(), 2)
+        self.assertTrue(run.done)
+        self.assertTrue(run.failed)
+        self.assertEqual(run.current_step, ar.STALLED)
+        self.assertEqual(types(run.frames)[-2:], ["error", "done"])
+        # and the conversation takes a new question
+        again = await self.registry.start("c20", self.user.id, "again", gen)
+        self.assertTrue(await self.registry.cancel("c20", self.user.id))
+        await asyncio.wait({again.task}, timeout=2)
+
+
 if __name__ == "__main__":
     unittest.main()
 

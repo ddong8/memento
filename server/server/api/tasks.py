@@ -466,10 +466,11 @@ async def device_websocket_endpoint(
                                 t.error = data.get("error")
                                 if isinstance(data.get("events"), list):
                                     t.events = data["events"][:400]
-                                if new_status != "still_running":
-                                    t.finished_at = datetime.now(timezone.utc)
+                                # still_running too: the agent has exited and nothing more comes for this task
+                                # (left open, the reaper turned it into a timeout a day later)
+                                t.finished_at = datetime.now(timezone.utc)
                                 await db.commit()
-                                if not watched and new_status != "still_running":
+                                if not watched:
                                     try:
                                         from ..db.models import AskConversation
                                         from ..services.ask_store import infer_conversation_config, recover_orphaned_tasks_for_conv

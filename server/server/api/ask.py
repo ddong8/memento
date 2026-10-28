@@ -252,6 +252,24 @@ async def ask(
         device_id = routed_device or ""
         resolved_device_name = await _device_display_name(device_id)
 
+        agent_kwargs = dict(
+            question=question,
+            conv_title=conv_title,
+            execution_mode=exec_mode,
+            device_id=device_id or None,
+            cwd=effective_cwd,
+            model=effective_model,
+            effort=effective_effort,
+            session_id=effective_session_id,
+            project_id=effective_project_id,
+            fork=body.fork,
+            compact_mode=body.compact_mode,
+            timeout_seconds=body.timeout_seconds,
+            images=body.images,
+            attachments=body.attachments,
+            worktree=bool(body.worktree),
+        )
+        ckpt: dict = {}  # filled in by the run; lets another replica take it over on a deploy
         return await run_response(
             conv_id,
             _user,
@@ -260,23 +278,10 @@ async def ask(
             lambda run_db, run_user: direct_agent_stream(
                 db=run_db,
                 user=run_user,
-                question=question,
                 conv_id=conv_id,
-                conv_title=conv_title,
-                execution_mode=exec_mode,
-                device_id=device_id or None,
-                cwd=effective_cwd,
-                model=effective_model,
-                effort=effective_effort,
-                session_id=effective_session_id,
-                project_id=effective_project_id,
-                fork=body.fork,
-                compact_mode=body.compact_mode,
                 history=body.history,
-                timeout_seconds=body.timeout_seconds,
-                images=body.images,
-                attachments=body.attachments,
-                worktree=bool(body.worktree),
+                checkpoint=ckpt,
+                **agent_kwargs,
             ),
             execution_mode=exec_mode,
             model=effective_model,
@@ -284,6 +289,8 @@ async def ask(
             title=conv_title,
             images=body.images,
             request_db=db,
+            # history only shapes the prompt, which is already on the device by the time it is handed over
+            resume={"kind": "direct_agent", "kwargs": {**agent_kwargs, "conv_id": str(conv_id)}, "checkpoint": ckpt},
         )
 
     if not get_ai_providers():

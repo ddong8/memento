@@ -1134,7 +1134,7 @@ async def recover_orphaned_tasks_for_conv(
             select(DeviceTask)
             .where(
                 DeviceTask.user_id == conv.user_id,
-                DeviceTask.status.in_(["succeeded", "failed", "timeout"]),
+                DeviceTask.status.in_(["succeeded", "failed", "timeout", "still_running"]),
             )
             .order_by(DeviceTask.created_at.desc())
             .limit(8)
@@ -1190,7 +1190,7 @@ async def recover_orphaned_tasks_for_conv(
                 "args": clean_pl,
                 "action": dt_row.action,
                 "binary": pl.get("binary"),
-                "status": "executed" if dt_row.status == "succeeded" else "failed",
+                "status": "executed" if dt_row.status in ("succeeded", "still_running") else "failed",
                 "result": {
                     "task_id": str(dt_row.id),
                     "status": dt_row.status,

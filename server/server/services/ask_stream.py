@@ -54,7 +54,7 @@ def _clean_agent_summary(text: str) -> str:
     return text.strip()
 
 
-async def direct_agent_stream(
+async def _prepare_agent_args(
     db: AsyncSession,
     user: User,
     question: str,
@@ -63,26 +63,21 @@ async def direct_agent_stream(
     execution_mode: str,
     device_id: str | None,
     cwd: str | None,
-    model: str | None = None,
-    effort: str | None = None,
-    session_id: str | None = None,
-    project_id: str | None = None,
-    fork: bool | None = None,
-    compact_mode: bool | None = None,
-    history: list[dict] | None = None,
-    timeout_seconds: int | None = None,
-    images: list[str] | None = None,
-    attachments: list[dict] | None = None,
-    worktree: bool = False,
-):
-    """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step."""
-    from ..services.orchestrator import _tool_run_on_device, is_likely_long_running_task
-
-    user_created_at = datetime.now(timezone.utc).isoformat()
-    req_start_mono = time.monotonic()
-
-    yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
-    yield f"data: {json.dumps({'type': 'sources', 'sources': []}, ensure_ascii=False)}\n\n"
+    model: str | None,
+    effort: str | None,
+    session_id: str | None,
+    project_id: str | None,
+    fork: bool | None,
+    compact_mode: bool | None,
+    history: list[dict] | None,
+    timeout_seconds: int | None,
+    images: list[str] | None,
+    attachments: list[dict] | None,
+    worktree: bool,
+) -> tuple[str, dict, str, str | None, str | None]:
+    """The run_on_device args of a direct agent/shell ask: (action, args, command shown, session id
+    the task resumes (None once compacted), session id the client asked for)."""
+    from ..services.orchestrator import is_likely_long_running_task
 
     action = "shell" if execution_mode == "shell" else "agent"
 
@@ -252,30 +247,115 @@ async def direct_agent_stream(
         effort_tag = f" [{effort}]" if effort else ""
         cmd_display = f"[{execution_mode.upper()}{model_tag}{effort_tag}]{resume_tag} {question}"
 
-    call_id = f"direct_{uuid.uuid4().hex[:8]}"
-    tool_call_item = {
-        "id": call_id,
-        "tool_call_id": call_id,
-        "name": "run_on_device",
-        "device_name": device_id or "auto",
-        "args": args,
-        "command": cmd_display,
-        "action": action,
-        "binary": args.get("binary"),
-        "status": "running",
-    }
-    yield f"data: {json.dumps({'type': 'tool_call', 'id': call_id, 'tool_call_id': call_id, 'name': 'run_on_device', 'args': args, 'device_name': device_id or 'auto', 'call': tool_call_item}, ensure_ascii=False)}\n\n"
+    return action, args, cmd_display, session_id, orig_session_id
+
+
+def _without_images(args: dict) -> dict:
+    """Args as saved: image data replaced by placeholders."""
+    if "images" not in args:
+        return args
+    clean = dict(args)
+    img_val = clean.get("images")
+    if isinstance(img_val, list):
+        clean["images"] = [f"<image attachment {i+1}>" for i in range(len(img_val))]
+    else:
+        del clean["images"]
+    return clean
+
+
+async def direct_agent_stream(
+    db: AsyncSession,
+    user: User,
+    question: str,
+    conv_id: uuid.UUID,
+    conv_title: str,
+    execution_mode: str,
+    device_id: str | None,
+    cwd: str | None,
+    model: str | None = None,
+    effort: str | None = None,
+    session_id: str | None = None,
+    project_id: str | None = None,
+    fork: bool | None = None,
+    compact_mode: bool | None = None,
+    history: list[dict] | None = None,
+    timeout_seconds: int | None = None,
+    images: list[str] | None = None,
+    attachments: list[dict] | None = None,
+    worktree: bool = False,
+    checkpoint: dict | None = None,
+    resume: bool = False,
+):
+    """Directly dispatch an agent/shell task to the user's online device without LLM intermediate step.
+
+    checkpoint is filled in as the run goes (the call, the task on the device, thinking so far).
+    When this replica shuts down mid-task, another one continues the run from it with resume=True
+    (ask_runs.drain): it follows the task already on the device and saves the turn when it ends."""
+    from ..services.orchestrator import _tool_run_on_device
+
+    ckpt = checkpoint if checkpoint is not None else {}
+    if resume:
+        user_created_at = ckpt["user_created_at"]
+        req_start_mono = time.monotonic() - max(0.0, time.time() - float(ckpt.get("started_at") or time.time()))
+        action = ckpt["action"]
+        session_id = ckpt.get("session_id")
+        orig_session_id = ckpt.get("orig_session_id")
+        call_id = ckpt["call_id"]
+        tool_call_item = ckpt["call"]
+        run_args = {"attach_task_id": ckpt["task_id"]}
+    else:
+        user_created_at = datetime.now(timezone.utc).isoformat()
+        req_start_mono = time.monotonic()
+
+        yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'sources', 'sources': []}, ensure_ascii=False)}\n\n"
+
+        action, run_args, cmd_display, session_id, orig_session_id = await _prepare_agent_args(
+            db, user, question, conv_id, conv_title, execution_mode, device_id, cwd, model, effort, session_id,
+            project_id, fork, compact_mode, history, timeout_seconds, images, attachments, worktree,
+        )
+        call_id = f"direct_{uuid.uuid4().hex[:8]}"
+        tool_call_item = {
+            "id": call_id,
+            "tool_call_id": call_id,
+            "name": "run_on_device",
+            "device_name": device_id or "auto",
+            "args": run_args,
+            "command": cmd_display,
+            "action": action,
+            "binary": run_args.get("binary"),
+            "status": "running",
+        }
+        yield f"data: {json.dumps({'type': 'tool_call', 'id': call_id, 'tool_call_id': call_id, 'name': 'run_on_device', 'args': run_args, 'device_name': device_id or 'auto', 'call': tool_call_item}, ensure_ascii=False)}\n\n"
+        ckpt.update(
+            user_created_at=user_created_at,
+            started_at=time.time(),
+            action=action,
+            session_id=session_id,
+            orig_session_id=orig_session_id,
+            call_id=call_id,
+            call={**tool_call_item, "args": _without_images(run_args)},
+        )
 
     result_dict = None
     summary_text = ""
-    accumulated_thinking: list[str] = []
+    accumulated_thinking: list[str] = ckpt.setdefault("thinking", [])
     saved = False
+    stopped: str | None = None  # "cancelled" by the user, or "interrupted" with the device task left going
+    stream_error: str | None = None
     assistant_created_at_final: str | None = None
     duration_ms_final: int | None = None
 
     async def _persist():
-        nonlocal saved, assistant_created_at_final, duration_ms_final
+        nonlocal saved, summary_text, assistant_created_at_final, duration_ms_final
         if saved:
+            return
+        if ckpt.get("moving") and not result_dict:
+            return  # handed over: the replica taking the run saves the turn when the task ends
+        if stopped == "interrupted" and ckpt.get("task_id") and not result_dict:
+            # Shut down with nowhere to hand it over: the device task goes on, and when it reports
+            # the whole turn is saved from it (ask_store.recover_orphaned_tasks_for_conv). Saving a
+            # placeholder here left the question in the conversation twice.
             return
         saved = True
         assistant_created_at_final = datetime.now(timezone.utc).isoformat()
@@ -286,6 +366,20 @@ async def direct_agent_stream(
             if result_dict:
                 saved_call["result"] = result_dict
                 saved_call["status"] = result_dict.get("status", "executed")
+            elif stopped == "cancelled":
+                # Stopped by the user: say so, not "done" (the device task was cancelled with it)
+                summary_text = summary_text or "⏹ 已停止"
+                saved_call["status"] = "failed"
+                saved_call["result"] = {"task_id": ckpt.get("task_id"), "status": "cancelled", "error": "已手动停止"}
+            elif stopped == "interrupted":
+                # Cut short before its task reached the device
+                summary_text = summary_text or "⚠️ 服务更新中断了这次回答，任务还没发到设备上，请重新发送。"
+                saved_call["status"] = "failed"
+                saved_call["result"] = {"status": "interrupted", "error": summary_text}
+            elif stream_error:
+                summary_text = summary_text or f"❌ {stream_error}"
+                saved_call["status"] = "failed"
+                saved_call["result"] = {"task_id": ckpt.get("task_id"), "status": "failed", "error": stream_error}
             else:
                 saved_call["status"] = "executed"
                 saved_call["result"] = {
@@ -293,14 +387,8 @@ async def direct_agent_stream(
                     "stdout": summary_text or "任务执行完成",
                     "exit_code": 0,
                 }
-            if isinstance(saved_call.get("args"), dict) and "images" in saved_call["args"]:
-                clean_args = dict(saved_call["args"])
-                img_val = clean_args.get("images")
-                if isinstance(img_val, list):
-                    clean_args["images"] = [f"<image attachment {i+1}>" for i in range(len(img_val))]
-                else:
-                    del clean_args["images"]
-                saved_call["args"] = clean_args
+            if isinstance(saved_call.get("args"), dict):
+                saved_call["args"] = _without_images(saved_call["args"])
             tool_calls_to_save.append(saved_call)
 
         persisted_session_id = ""
@@ -353,13 +441,15 @@ async def direct_agent_stream(
 
     try:
         try:
-            async for evt in _tool_run_on_device(db, user, args):
+            async for evt in _tool_run_on_device(db, user, run_args):
                 etype = evt.get("type")
                 if etype == "task_chunk":
                     stream_name = evt.get("stream", "stdout")
                     text = evt.get("text", "")
                     yield f"data: {json.dumps({'type': 'task_chunk', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'stream': stream_name, 'text': text}, ensure_ascii=False)}\n\n"
                 elif etype == "task_progress":
+                    if evt.get("task_id"):
+                        ckpt["task_id"] = str(evt["task_id"])  # on the device from here on: a resume follows it
                     yield f"data: {json.dumps({'type': 'task_progress', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'device_id': evt.get('device_id'), 'status': evt.get('status')}, ensure_ascii=False)}\n\n"
                 elif etype == "task_alert":
                     yield f"data: {json.dumps({'type': 'task_alert', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'device_name': evt.get('device_name'), 'alert': evt.get('alert')}, ensure_ascii=False)}\n\n"
@@ -372,13 +462,18 @@ async def direct_agent_stream(
                     yield f"data: {json.dumps({'type': 'task_event', 'task_id': evt.get('task_id'), 'tool_call_id': call_id, 'event': evt.get('event')}, ensure_ascii=False)}\n\n"
                 elif etype == "tool_result":
                     result_dict = evt.get("result") or {}
+                    ckpt["result"] = True
                     if result_dict.get("device_name"):
                         tool_call_item["device_name"] = result_dict["device_name"]
                     yield f"data: {json.dumps({'type': 'tool_result', 'task_id': result_dict.get('task_id'), 'tool_call_id': call_id, 'result': result_dict}, ensure_ascii=False)}\n\n"
                 elif etype == "ping":
                     yield "data: {\"type\": \"ping\"}\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            stopped = "interrupted" if ask_runs.keeps_device_tasks(ckpt.get("task_id")) else "cancelled"
+            raise
         except Exception as e:
             logger.exception("Error in direct agent stream: %s", e)
+            stream_error = str(e) or type(e).__name__
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
         # Summary delta message
@@ -407,9 +502,9 @@ async def direct_agent_stream(
                     summary_text = f"⚠️ 任务执行超时（{err_msg[:100]}）。您可以发送“继续”继续获取结果。"
             elif status == "still_running":
                 if stdout:
-                    summary_text = f"{_clean_agent_summary(stdout)}\n\n> ⏳ *[原始工具后台任务仍在持续执行中，请稍候]*"
+                    summary_text = f"{_clean_agent_summary(stdout)}\n\n> ⏳ *[智能体结束时还有它启动的后台任务没有跑完]*"
                 else:
-                    summary_text = "⏳ 任务已转入后台持续执行中。"
+                    summary_text = "⏳ 智能体结束时还有它启动的后台任务没有跑完。"
             elif action == "agent" and stdout:
                 if is_only_tool_calls:
                     summary_text = f"{stdout}\n\n> 💡 *[阶段工具排查已完成，正在生成结论。如未显示完整回复，请发送“继续”]*"
@@ -433,6 +528,8 @@ async def direct_agent_stream(
                         summary_text = cleaned if cleaned.strip() else f"✅ {execution_mode.capitalize()} 任务在设备上执行完毕。"
             else:
                 summary_text = f"⚠️ 任务执行完成（{err_msg[:100]}）。"
+        elif stream_error:
+            summary_text = f"❌ {stream_error}"
         else:
             summary_text = "任务执行结束。"
 
@@ -465,12 +562,16 @@ async def run_response(
     title: str | None = None,
     images: list[str] | None = None,
     request_db: AsyncSession | None = None,
+    resume: dict | None = None,
 ) -> StreamingResponse:
     """Start the ask as a background run and stream it. The run survives the
     client disconnecting; see services/ask_runs.py.
 
     request_db is the request's own session: the run uses its own, so this one's transaction
-    ends here instead of staying open for the whole stream (the database cuts it after 60 s)."""
+    ends here instead of staying open for the whole stream (the database cuts it after 60 s).
+
+    resume ({"kind", "kwargs", "checkpoint"}) lets another replica continue the run when this
+    one shuts down; kind names an entry in ask_runs.resumers."""
     if request_db is not None:
         await request_db.commit()
     try:
@@ -485,7 +586,17 @@ async def run_response(
             device_name=device_name,
             title=title,
             images=images,
+            resume=resume,
         )
     except RunConflict:
         raise HTTPException(status_code=409, detail="这个对话还有任务在运行，请等它结束或先停止")
     return StreamingResponse(run.stream(0), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+def _resume_direct_agent(kwargs: dict, ckpt: dict):
+    return lambda db, user: direct_agent_stream(
+        db, user, **{**kwargs, "conv_id": uuid.UUID(kwargs["conv_id"])}, checkpoint=ckpt, resume=True
+    )
+
+
+ask_runs.resumers["direct_agent"] = _resume_direct_agent

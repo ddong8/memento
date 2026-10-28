@@ -294,5 +294,180 @@ class AskRunsAcrossReplicas(TwoReplicas):
         self.assertEqual(types(frames)[-2:], ["error", "done"])
 
 
+    def resumable(self, ckpt: dict, seen: dict):
+        """A run waiting on its device task (ckpt["task_id"]), as direct_agent_stream does."""
+        registry = self.ra
+
+        async def gen(db, user):
+            try:
+                yield frame({"type": "conversation_id", "id": "c7"})
+                ckpt["task_id"] = "dev-task-1"
+                yield frame({"type": "task_progress", "task_id": "dev-task-1", "status": "running"})
+                await asyncio.Event().wait()  # the device works on it
+            except (asyncio.CancelledError, GeneratorExit):
+                # what orchestrator / ask_stream check before cancelling the device task and saving
+                seen["kept"] = registry.keeps_device_tasks("dev-task-1")
+                seen["moving"] = bool(ckpt.get("moving"))
+                raise
+        return gen
+
+    def resumer(self, seen: dict):
+        def resume(kwargs: dict, ckpt: dict):
+            async def gen(db, user):
+                seen["resumed"] = (kwargs, dict(ckpt))
+                yield frame({"type": "task_chunk", "text": "rest of the output"})
+                yield frame({"type": "tool_result", "result": {"status": "succeeded"}})
+                yield frame({"type": "done"})
+            return gen
+        return resume
+
+    async def test_shutdown_hands_a_device_run_to_the_other_replica(self) -> None:
+        seen: dict = {}
+        self.ra.resumers["fake"] = self.rb.resumers["fake"] = self.resumer(seen)
+        ckpt: dict = {}
+        run = await self.ra.start("c7", self.user.id, "q", self.resumable(ckpt, seen), request_id="req-7",
+                                  resume={"kind": "fake", "kwargs": {"x": 1}, "checkpoint": ckpt})
+        reader = asyncio.create_task(self.collect(run.stream(0)))
+        await eventually(lambda: ckpt.get("task_id") and len(run.frames) >= 3)
+
+        await asyncio.wait_for(self.ra.drain(timeout=5), 3)  # doesn't wait out the task
+        self.assertTrue(seen["kept"])  # the device task is left going, not cancelled
+        self.assertTrue(seen["moving"])  # and the generator saves nothing
+        self.assertFalse(self.ra.shutting_down)
+        before = await asyncio.wait_for(reader, 2)  # the reader here ends, to reconnect
+        self.assertEqual(types(before), ["run_started", "conversation_id", "task_progress"])
+
+        # The other replica took it over: same run, same frame ids, following the same task
+        taken = None
+
+        def took_over():
+            nonlocal taken
+            taken = self.rb._runs.get("c7")
+            return taken is not None and taken.done
+
+        await eventually(took_over, 3)
+        self.assertEqual(taken.run_id, run.run_id)
+        self.assertEqual(seen["resumed"][0], {"x": 1})
+        self.assertEqual(seen["resumed"][1]["task_id"], "dev-task-1")
+        self.assertFalse(taken.failed)
+        # The client reconnects from the last id it saw and gets just the rest
+        again = await self.rb.get("c7", self.user.id)
+        rest = await asyncio.wait_for(self.collect(again.stream(3)), 2)
+        self.assertEqual([f.split("\n")[0] for f in rest], ["id: 4", "id: 5", "id: 6"])
+        self.assertEqual(types(rest), ["task_chunk", "tool_result", "done"])
+        self.assertEqual((await self.ra.by_request("req-7", self.user.id)).run_id, run.run_id)
+        # Over: the conversation is free again, from either replica
+        await eventually(lambda: self.a.redis is not None, 1)
+        follow_up = await self.ra.start("c7", self.user.id, "next", self.gated(asyncio.Event()))
+        self.assertTrue(await self.ra.cancel("c7", self.user.id))
+        await asyncio.wait({follow_up.task}, timeout=2)
+
+    async def test_a_handed_over_run_nobody_can_continue_ends_for_its_readers(self) -> None:
+        seen: dict = {}
+        self.ra.resumers["fake"] = self.resumer(seen)  # B can't continue this kind
+        ckpt: dict = {}
+        run = await self.ra.start("c8", self.user.id, "q", self.resumable(ckpt, seen),
+                                  resume={"kind": "fake", "kwargs": {}, "checkpoint": ckpt})
+        await eventually(lambda: ckpt.get("task_id") and len(run.frames) >= 3)
+        await asyncio.wait_for(self.ra.drain(timeout=5), 3)
+
+        async def ended() -> bool:
+            remote = await self.rb.get("c8", self.user.id)
+            return remote is not None and remote.done
+
+        deadline = asyncio.get_running_loop().time() + 3
+        while not await ended():
+            self.assertLess(asyncio.get_running_loop().time(), deadline)
+            await asyncio.sleep(0.02)
+        remote = await self.rb.get("c8", self.user.id)
+        self.assertEqual(remote.summary()["current_step"], ar.LOST)
+        frames = await asyncio.wait_for(self.collect(remote.stream(0)), 2)
+        self.assertEqual(types(frames)[-2:], ["error", "done"])
+        self.assertNotIn("resumed", seen)
+        self.assertIsNone(await self.b.owner(ar.CLAIM + "c8"))  # the conversation is free
+
+    async def test_handed_over_while_no_replica_listened_is_taken_on_start(self) -> None:
+        seen: dict = {}
+        self.ra.resumers["fake"] = self.rb.resumers["fake"] = self.resumer(seen)
+        await self.b.stop()  # B is restarting
+        ckpt: dict = {}
+        run = await self.ra.start("c9", self.user.id, "q", self.resumable(ckpt, seen),
+                                  resume={"kind": "fake", "kwargs": {}, "checkpoint": ckpt})
+        await eventually(lambda: ckpt.get("task_id") and len(run.frames) >= 3)
+        await asyncio.wait_for(self.ra.drain(timeout=5), 3)
+        self.assertNotIn("resumed", seen)
+        # A newly started replica picks up what's waiting
+        make = lambda: fakeredis.FakeAsyncRedis(server=self.server, decode_responses=True)  # noqa: E731
+        c = Cluster(make, pod_id="pod-c")
+        rc = ar.AskRunRegistry(c)
+        rc.resumers["fake"] = self.resumer(seen)
+        await c.start()
+        try:
+            await eventually(lambda: "c9" in rc._runs and rc._runs["c9"].done, 3)
+            self.assertEqual(rc._runs["c9"].run_id, run.run_id)
+            self.assertEqual(seen["resumed"][1]["task_id"], "dev-task-1")
+        finally:
+            await c.stop()
+
+    async def test_stopping_a_run_between_two_replicas_ends_it(self) -> None:
+        seen: dict = {}
+        self.ra.resumers["fake"] = self.rb.resumers["fake"] = self.resumer(seen)
+        await self.b.stop()  # nobody there to take it yet
+        ckpt: dict = {}
+        run = await self.ra.start("c10", self.user.id, "q", self.resumable(ckpt, seen),
+                                  resume={"kind": "fake", "kwargs": {}, "checkpoint": ckpt})
+        await eventually(lambda: ckpt.get("task_id") and len(run.frames) >= 3)
+        await asyncio.wait_for(self.ra.drain(timeout=5), 3)
+        self.assertEqual((await self.ra.get("c10", self.user.id)).pod, ar.HANDOVER)
+
+        with patch.object(ar.AskRunRegistry, "_cancel_associated_device_tasks", AsyncMock()) as cancel_tasks:
+            self.assertTrue(await self.ra.cancel("c10", self.user.id))
+        cancel_tasks.assert_awaited_once()  # the task on the device is stopped too
+        remote = await self.ra.get("c10", self.user.id)
+        self.assertTrue(remote.done)
+        self.assertEqual(remote.summary()["current_step"], "已停止")
+        self.assertTrue(remote.summary()["cancelled"])
+        frames = await asyncio.wait_for(self.collect(remote.stream(0)), 2)
+        self.assertEqual(types(frames)[-2:], ["error", "done"])
+        self.assertIsNone(await self.a.owner(ar.CLAIM + "c10"))  # the conversation is free
+        self.assertFalse(await self.a.redis.sismember(ar.HANDOVERS_KEY, run.run_id))
+
+        # A replica starting afterwards doesn't bring it back
+        make = lambda: fakeredis.FakeAsyncRedis(server=self.server, decode_responses=True)  # noqa: E731
+        c = Cluster(make, pod_id="pod-c")
+        rc = ar.AskRunRegistry(c)
+        rc.resumers["fake"] = self.resumer(seen)
+        await c.start()
+        try:
+            await asyncio.sleep(0.1)
+            self.assertNotIn("c10", rc._runs)
+            self.assertNotIn("resumed", seen)
+        finally:
+            await c.stop()
+
+    async def test_a_taken_over_run_knows_its_device_task(self) -> None:
+        seen: dict = {}
+        self.ra.resumers["fake"] = self.rb.resumers["fake"] = self.resumer(seen)
+        release = asyncio.Event()
+
+        def resume(kwargs: dict, ckpt: dict):
+            async def gen(db, user):
+                await release.wait()
+                yield frame({"type": "done"})
+            return gen
+
+        self.rb.resumers["fake"] = resume
+        ckpt: dict = {}
+        run = await self.ra.start("c11", self.user.id, "q", self.resumable(ckpt, seen),
+                                  resume={"kind": "fake", "kwargs": {}, "checkpoint": ckpt})
+        await eventually(lambda: ckpt.get("task_id") and len(run.frames) >= 3)
+        await asyncio.wait_for(self.ra.drain(timeout=5), 3)
+        await eventually(lambda: "c11" in self.rb._runs, 3)
+        taken = self.rb._runs["c11"]
+        self.assertEqual(taken.active_device_task_id, "dev-task-1")  # stopping it there cancels this task
+        release.set()
+        await asyncio.wait({taken.task}, timeout=2)
+
+
 if __name__ == "__main__":
     unittest.main()

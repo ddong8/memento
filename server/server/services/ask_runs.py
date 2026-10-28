@@ -9,10 +9,12 @@ reattach and replay from the last frame it saw. Stopping is explicit (cancel).
 A run executes on the api replica that started it. Its frames and status are
 mirrored to Redis (a stream per run, see services/cluster.py), so a client that
 reconnects through another replica replays, follows and stops the same run
-there. A replica shutting down for a deploy first lets its runs finish (drain);
-their readers reattach through the replica that replaced it. Without Redis runs
-stay in this process: a restart drops them, and tasks already on devices still
-finish there and report as usual.
+there. A replica shutting down for a deploy hands agent runs waiting on a device
+to a replica that stays (the device keeps going and the other replica follows it
+from the frame this one reached, saving the answer when it ends) and lets its
+other runs finish (drain); their readers reattach through another replica.
+Without Redis runs stay in this process: a restart drops them, and tasks already
+on devices still finish there and report as usual.
 """
 
 from __future__ import annotations
@@ -40,11 +42,19 @@ MAX_BUFFER_BYTES = 8 * 1024 * 1024
 KEEPALIVE_SECONDS = 8.0
 NOTIFY_MIN_SECONDS = 0.5         # notify on any task taking >= 0.5s
 
+STALL_SECONDS = 900              # a run that hasn't even pinged for this long is stuck: stop it
+HANDOVER_TTL = 1800              # how long a run handed over at shutdown waits for a replica to take it
+
 CLAIM = "askrun:"                # cluster claim: conversation -> the run (replica/run id) going on it
+HANDOVER = "handover"            # holder (instead of a replica) of a run between two replicas
+HANDOVER_CHANNEL = f"{PREFIX}askrun-handover"
 INTERRUPTED = "服务更新中断了这次回答；设备上已在执行的任务会继续，完成后结果自动保存到对话"
 LOST = "运行这次回答的服务实例已退出，回答中断；设备上的任务完成后结果会自动保存到对话"
+STALLED = "这次回答超过 15 分钟没有任何进展，已停止"
 
 GeneratorFactory = Callable[[AsyncSession, User], AsyncGenerator[str, None]]
+# (kwargs, checkpoint) of a run handed over -> the factory continuing it on this replica
+Resumer = Callable[[dict, dict], GeneratorFactory]
 
 
 def _cur_key(conversation_id: str) -> str:
@@ -65,6 +75,13 @@ def _user_key(user_id: uuid.UUID | str) -> str:
 
 def _req_key(user_id: uuid.UUID | str, request_id: str) -> str:
     return f"{PREFIX}askrun-req:{user_id}:{request_id}"
+
+
+def _handover_key(run_id: str) -> str:
+    return f"{PREFIX}askrun-handover:{run_id}"
+
+
+HANDOVERS_KEY = f"{PREFIX}askrun-handovers"  # run ids waiting to be taken over
 
 
 class RunConflict(Exception):
@@ -161,6 +178,10 @@ class AskRun:
         # Mirror to Redis: called with (run, frame index, frame) until the end is written
         self.on_frame: Callable[["AskRun", int, str], None] | None = None
         self.mirror_closed = False
+        # How another replica continues it: {"kind", "kwargs", "checkpoint"}, the checkpoint
+        # filled in by the generator as it goes (see AskRunRegistry.resumers)
+        self.resume: dict | None = None
+        self.moved = False  # handed over to another replica: this copy is out of the picture
 
     def add(self, frame: str) -> None:
         self.frames.append(frame)
@@ -205,8 +226,12 @@ class AskRun:
         }
 
     async def append(self, frame: str) -> None:
-        # Pings are the reader's job; storing them would only bloat replays.
-        if not frame.startswith("data:") or '"type": "ping"' in frame:
+        if not frame.startswith("data:"):
+            return
+        # Pings are the reader's job; storing them would only bloat replays. They do show the
+        # run is alive (waiting on a device that's quiet), so a long silent step isn't taken as stuck.
+        if '"type": "ping"' in frame:
+            self.last_active_at = time.time()
             return
 
         should_push_la = False
@@ -335,13 +360,14 @@ class AskRun:
             idx = max(0, after)
             while True:
                 async with self._cond:
-                    if idx >= len(self.frames) and not self.done:
+                    if idx >= len(self.frames) and not self.done and not self.moved:
                         try:
                             await asyncio.wait_for(self._cond.wait(), timeout=KEEPALIVE_SECONDS)
                         except asyncio.TimeoutError:
                             pass
                     pending = self.frames[idx:]
-                    done = self.done
+                    # Moved: the reader reconnects and follows it on the replica that took it
+                    done = self.done or self.moved
                 if not pending and not done:
                     yield ": keepalive\n\n"
                     continue
@@ -352,7 +378,7 @@ class AskRun:
                     return
         finally:
             self.readers -= 1
-            if self.readers == 0 and self.cancel_on_disconnect and not self.done and self.task:
+            if self.readers == 0 and self.cancel_on_disconnect and not self.done and not self.moved and self.task:
                 self.cancelled = True
                 self.task.cancel()
 
@@ -438,7 +464,14 @@ class AskRunRegistry:
         # Set when shutdown stops runs that didn't finish in time: their device
         # tasks are left running (they report back and get saved) instead of killed.
         self.shutting_down = False
+        self.draining = False  # shutting down: hands runs over, takes none
+        self._moving: set[asyncio.Task] = set()  # pumps being stopped to hand their run over
+        self._handed_tasks: set[str] = set()  # device tasks of runs handed over: left going
+        # kind -> how to continue a run of that kind handed over by another replica
+        self.resumers: dict[str, Resumer] = {}
         cl.op("askrun.cancel", self._op_cancel)
+        cl.on(HANDOVER_CHANNEL, self._on_handover)
+        cl.on_start(self._on_cluster_start)
 
     # ── lookups (this replica first, then the mirror) ─────────────────────
     async def get(self, conversation_id: str, user_id: uuid.UUID) -> Run | None:
@@ -492,26 +525,14 @@ class AskRunRegistry:
                         engine=r.engine_label(),
                     )
                 )
-            # Safety timeout: if a run has had no frames or activity for > 15 minutes, mark as finished
-            if not r.done and (now - r.last_active_at > 900):
-                r.done = True
+            # Stuck: not even a ping (a run waiting on a device pings every second) for 15 minutes.
+            # Stop it for real (task, readers, mirror, claim): only flagging it done left the pump
+            # going and the conversation open to a second run next to it.
+            if not r.done and not r.moved and now - r.last_active_at > STALL_SECONDS:
+                logger.warning("ask run %s silent for %.0fs, stopping it", r.conversation_id, now - r.last_active_at)
                 r.failed = True
-                r.finished_at = now
-                r.current_step = "任务超时已终止"
-                notify_service.spawn(
-                    notify_service.push_live_activity_event(
-                        r.user_id,
-                        r.conversation_id,
-                        "end",
-                        status="error",
-                        current_step=r.current_step,
-                        step_count=r.step_count,
-                        tool_name=r.tool_name,
-                        elapsed_seconds=int(now - r.started_at),
-                        title=r.title or (r.question[:40] if r.question else "后台任务"),
-                        engine=r.engine_label(),
-                    )
-                )
+                self._stop(r, STALLED)
+                self._cluster.spawn(self._cluster.disown(CLAIM + r.conversation_id, r.claim_value))
             runs[r.run_id] = r
         for remote in await self._remote_for_user(user_id):
             runs.setdefault(remote.run_id, remote)
@@ -542,7 +563,10 @@ class AskRunRegistry:
         device_name: str | None = None,
         title: str | None = None,
         images: list[str] | None = None,
+        resume: dict | None = None,
     ) -> AskRun:
+        """resume: {"kind", "kwargs", "checkpoint"} if another replica can continue the run
+        when this one shuts down (see resumers and drain)."""
         existing = self._runs.get(conversation_id)
         if existing and not existing.done:
             raise RunConflict(conversation_id)
@@ -564,6 +588,7 @@ class AskRunRegistry:
         if existing and not existing.done:  # started on this replica while we waited
             await self._cluster.disown(CLAIM + conversation_id, run.claim_value)
             raise RunConflict(conversation_id)
+        run.resume = resume
         self._runs[conversation_id] = run
         if self._cluster.available:
             await self._announce(run)
@@ -610,6 +635,12 @@ class AskRunRegistry:
             await self._cancel_associated_device_tasks(user_id, conversation_id, active_did, active_tid)
             return True
         remote = await self._remote(conversation_id=conversation_id)
+        if remote is not None and not remote.done and remote.user_id == user_id and remote.pod == HANDOVER:
+            # Handed over at a deploy and not taken yet: no replica runs it to ask
+            remote = await self._stop_handed_over(remote)
+            if remote is None:
+                await self._cancel_associated_device_tasks(user_id, conversation_id, None, None)
+                return True
         if remote is None or remote.done or remote.user_id != user_id:
             await self._cancel_associated_device_tasks(user_id, conversation_id, None, None)
             return False
@@ -647,6 +678,7 @@ class AskRunRegistry:
                 stmt = select(DeviceTask).where(
                     DeviceTask.user_id == user_id,
                     DeviceTask.status.in_(("queued", "running", "still_running")),
+                    DeviceTask.finished_at.is_(None),  # still_running ones already reported are over
                 ).order_by(DeviceTask.created_at.desc()).limit(10)
                 tasks = (await db.execute(stmt)).scalars().all()
 
@@ -695,17 +727,34 @@ class AskRunRegistry:
         except RuntimeError:
             pass
 
+    def keeps_device_tasks(self, task_id: str | None = None) -> bool:
+        """Whether a run cut short right now leaves its device task going: the replica is
+        shutting down, or the run is moving to another replica that follows the task.
+
+        task_id covers generators closed later from another task (an async generator left
+        suspended in `async for` is closed when collected, not when its caller stops)."""
+        return (self.shutting_down or asyncio.current_task() in self._moving
+                or (task_id is not None and task_id in self._handed_tasks))
+
     async def drain(self, timeout: float) -> None:
-        """Shutdown: let runs in progress finish — their readers reattach through
-        another replica and keep following them there — then stop the rest."""
+        """Shutdown: runs waiting on a device task move to a replica that stays; the
+        rest get to finish — their readers reattach through another replica and keep
+        following them there — and whatever is still going at the deadline is stopped."""
+        self.draining = True
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         active = [r for r in self._runs.values() if not r.done]
         if active:
             logger.info("waiting up to %.0fs for %d ask run(s) to finish", timeout, len(active))
-        while active and loop.time() < deadline:
+        while active:
+            # Checked every round: a run still preparing gets movable once its task is dispatched
+            for run in active:
+                if self._movable(run):
+                    await self._move(run)
+            active = [r for r in self._runs.values() if not r.done and not r.moved]
+            if not active or loop.time() >= deadline:
+                break
             await asyncio.sleep(min(1.0, max(deadline - loop.time(), 0.01)))
-            active = [r for r in self._runs.values() if not r.done]
         if not active:
             return
         self.shutting_down = True
@@ -744,7 +793,7 @@ class AskRunRegistry:
         """A task cancelled before its first step never enters _pump's try block,
         so its finally never runs. Close such a run here, or it would stay
         "running" forever and block its conversation."""
-        if run.done:
+        if run.done or run.moved:
             return
         run.cancelled = True
         run.current_step = "已停止"
@@ -802,33 +851,38 @@ class AskRunRegistry:
             await run.append(_frame({"type": "error", "message": f"运行失败: {e}"}))
             await run.append(_frame({"type": "done"}))
         finally:
-            # cancel() has already closed the run; a reader dropping (old clients) hasn't
-            if run.cancelled and not run.done:
-                run.current_step = "已停止"
-                run.step_type = "cancelled"
-                await run.append(_frame({"type": "error", "message": "已停止"}))
-                await run.append(_frame({"type": "done"}))
-            await run.finish()
-            self._mirror_end(run)
-            _publish_run(run)
-            await self._cluster.disown(CLAIM + run.conversation_id, run.claim_value)
-            asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
-            notify_service.spawn(
-                notify_service.push_live_activity_event(
-                    run.user_id,
-                    run.conversation_id,
-                    "end",
-                    status="error" if run.failed else ("cancelled" if run.cancelled else "done"),
-                    current_step=run.current_step,
-                    step_count=run.step_count,
-                    tool_name=run.tool_name,
-                    elapsed_seconds=int((run.finished_at or time.time()) - run.started_at),
-                    title=run.title or (run.question[:40] if run.question else "后台任务"),
-                    engine=run.engine_label(),
-                )
+            # Moved to another replica: it goes on there, nothing here is over
+            if not run.moved:
+                await self._close(run)
+
+    async def _close(self, run: AskRun) -> None:
+        # cancel() has already closed the run; a reader dropping (old clients) hasn't
+        if run.cancelled and not run.done:
+            run.current_step = "已停止"
+            run.step_type = "cancelled"
+            await run.append(_frame({"type": "error", "message": "已停止"}))
+            await run.append(_frame({"type": "done"}))
+        await run.finish()
+        self._mirror_end(run)
+        _publish_run(run)
+        await self._cluster.disown(CLAIM + run.conversation_id, run.claim_value)
+        asyncio.get_running_loop().call_later(RETAIN_AFTER_DONE, self._drop, run)
+        notify_service.spawn(
+            notify_service.push_live_activity_event(
+                run.user_id,
+                run.conversation_id,
+                "end",
+                status="error" if run.failed else ("cancelled" if run.cancelled else "done"),
+                current_step=run.current_step,
+                step_count=run.step_count,
+                tool_name=run.tool_name,
+                elapsed_seconds=int((run.finished_at or time.time()) - run.started_at),
+                title=run.title or (run.question[:40] if run.question else "后台任务"),
+                engine=run.engine_label(),
             )
-            if not run.cancelled and (run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS):
-                notify_service.spawn(self._notify_finished(run))
+        )
+        if not run.cancelled and (run.finished_at - run.started_at >= NOTIFY_MIN_SECONDS):
+            notify_service.spawn(self._notify_finished(run))
 
     def _drop(self, run: AskRun) -> None:
         if self._runs.get(run.conversation_id) is run:
@@ -848,6 +902,238 @@ class AskRunRegistry:
             body,
             url=conv_url,
         )
+
+    # ── handing runs over at shutdown ─────────────────────────────────────
+    def _movable(self, run: AskRun) -> bool:
+        """An agent run waiting on its device task: another replica can follow the task from here."""
+        if not self._cluster.available or run.done or run.moved or run.task is None or not run.resume:
+            return False
+        ckpt = run.resume.get("checkpoint") or {}
+        return (run.resume.get("kind") in self.resumers
+                and bool(ckpt.get("task_id")) and not ckpt.get("result"))
+
+    async def _move(self, run: AskRun) -> None:
+        """Stop following the run's device task here and leave the run in Redis for a replica
+        that stays (_adopt). Its frames, ids and request stay the same; readers here reconnect
+        and follow it there."""
+        ckpt = run.resume["checkpoint"]
+        ckpt["moving"] = True  # the generator saves nothing as it stops: the answer isn't in yet
+        run.moved = True
+        self._handed_tasks.add(str(ckpt["task_id"]))
+        task = run.task
+        self._moving.add(task)  # its device task keeps going (keeps_device_tasks)
+        task.cancel()
+        try:
+            await asyncio.wait({task}, timeout=5)
+        finally:
+            self._moving.discard(task)
+        ckpt.pop("moving", None)
+        run.on_frame = None
+        await self._cluster.flush(timeout=5)  # every frame so far is in the mirror
+        record = {
+            "run_id": run.run_id,
+            "conv": run.conversation_id,
+            "user_id": str(run.user_id),
+            "question": run.question,
+            "request_id": run.request_id,
+            "execution_mode": run.execution_mode,
+            "model": run.model,
+            "device_name": run.device_name,
+            "title": run.title,
+            "images": run.images,
+            "started_at": run.started_at,
+            "step": {"current_step": run.current_step, "step_type": run.step_type,
+                     "tool_name": run.tool_name, "step_count": run.step_count},
+            "active": {"task_id": run.active_device_task_id, "device_id": run.active_device_id},
+            "kind": run.resume["kind"],
+            "kwargs": run.resume.get("kwargs") or {},
+            "checkpoint": ckpt,
+            "from": self._cluster.pod_id,
+        }
+        key = CLAIM + run.conversation_id
+        self._cluster.forget(key)  # held for the run from now on, not by this replica
+        try:
+            r = self._cluster.redis
+            pipe = r.pipeline(transaction=True)
+            pipe.set(_handover_key(run.run_id), json.dumps(record, ensure_ascii=False, default=str), ex=HANDOVER_TTL)
+            pipe.sadd(HANDOVERS_KEY, run.run_id)
+            # Still taken (no second run starts on it) and still alive to readers (_replica_alive)
+            pipe.set(PREFIX + key, f"{HANDOVER}/{run.run_id}", ex=HANDOVER_TTL)
+            pipe.hset(_meta_key(run.run_id), mapping={
+                "pod": HANDOVER,
+                "summary": json.dumps(run.summary(), ensure_ascii=False),
+                "active_at": time.time(),
+            })
+            pipe.expire(_meta_key(run.run_id), RUN_TTL)
+            pipe.expire(_frames_key(run.run_id), RUN_TTL)
+            pipe.expire(_cur_key(run.conversation_id), RUN_TTL)
+            await pipe.execute()
+        except Exception as e:
+            logger.warning("handing ask run %s over failed, stopping it: %s", run.run_id, e)
+            run.moved = False  # its device task goes on (_handed_tasks); tasks.py saves its result
+            run.on_frame = self._mirror_frame
+            self._stop(run, INTERRUPTED)
+            await self._cluster.disown(key, run.claim_value)
+            return
+        self._drop(run)  # lookups here go to the mirror, which leads to the replica taking it
+        await self._wake(run)
+        self._cluster.publish(HANDOVER_CHANNEL, {"run_id": run.run_id})
+        logger.info("handed ask run %s (conversation %s) over; device task %s keeps going",
+                    run.run_id, run.conversation_id, ckpt.get("task_id"))
+
+    def _on_handover(self, _channel: str, msg: dict) -> None:
+        if msg.get("origin") != self._cluster.pod_id and msg.get("run_id"):
+            self._cluster.spawn(self._adopt(str(msg["run_id"])))
+
+    async def _on_cluster_start(self) -> None:
+        # Handed over while no replica was there to take them (or the message got lost)
+        await self._adopt_pending()
+        self._cluster.spawn(self._sweep())
+
+    async def _sweep(self) -> None:
+        while self._cluster.available and not self.draining:
+            await asyncio.sleep(30)
+            await self._adopt_pending()
+
+    async def _adopt_pending(self) -> None:
+        r = self._cluster.redis
+        if r is None or self.draining:
+            return
+        try:
+            run_ids = await r.smembers(HANDOVERS_KEY)
+        except Exception as e:
+            logger.warning("listing handed over ask runs failed: %s", e)
+            return
+        for run_id in run_ids:
+            await self._adopt(run_id)
+
+    async def _adopt(self, run_id: str) -> None:
+        """Take over a run another replica handed over at shutdown and continue it here."""
+        if self.draining or self._cluster.redis is None:
+            return
+        lock = "askrun-adopt:" + run_id
+        token = await self._cluster.try_lock(lock, ttl=60)
+        if not token:
+            return  # another replica is on it
+        try:
+            r = self._cluster.redis
+            raw = await r.get(_handover_key(run_id))
+            if not raw:
+                await r.srem(HANDOVERS_KEY, run_id)  # taken already, or expired
+                return
+            rec = json.loads(raw)
+            conv = rec["conv"]
+            key = CLAIM + conv
+            resumer = self.resumers.get(rec.get("kind") or "")
+            holder = await r.get(PREFIX + key)
+            existing = self._runs.get(conv)
+            if resumer is None or holder not in (None, f"{HANDOVER}/{run_id}") or (existing and not existing.done):
+                await self._abandon(rec, holder == f"{HANDOVER}/{run_id}")
+                return
+            run = AskRun(
+                conv,
+                uuid.UUID(rec["user_id"]),
+                rec.get("question") or "",
+                rec.get("request_id") or None,
+                execution_mode=rec.get("execution_mode"),
+                model=rec.get("model"),
+                device_name=rec.get("device_name"),
+                title=rec.get("title"),
+                images=rec.get("images"),
+            )
+            run.run_id = run_id
+            run.started_at = float(rec.get("started_at") or run.started_at)
+            run.cancel_on_disconnect = False
+            step = rec.get("step") or {}
+            run.current_step = step.get("current_step") or run.current_step
+            run.step_type = step.get("step_type") or run.step_type
+            run.tool_name = step.get("tool_name")
+            run.step_count = int(step.get("step_count") or run.step_count)
+            active = rec.get("active") or {}
+            run.active_device_task_id = active.get("task_id")
+            run.active_device_id = active.get("device_id")
+            # Its frames so far at the same indexes: readers resume from the id they last saw
+            for entry_id, fields in await r.xrange(_frames_key(run_id)):
+                if "f" not in fields:
+                    continue
+                idx = int(str(entry_id).split("-")[1])
+                while len(run.frames) < idx - 1:
+                    run.frames.append(": \n\n")
+                run.frames.append(fields["f"])
+            run._bytes = sum(map(len, run.frames))
+            ckpt = dict(rec.get("checkpoint") or {})
+            run.resume = {"kind": rec["kind"], "kwargs": rec.get("kwargs") or {}, "checkpoint": ckpt}
+            run.claim_value = f"{self._cluster.pod_id}/{run_id}"
+            await self._cluster.own(key, value=run.claim_value)
+            self._runs[conv] = run
+            await self._announce(run)
+            run.on_frame = self._mirror_frame
+            pipe = r.pipeline(transaction=False)
+            pipe.delete(_handover_key(run_id))
+            pipe.srem(HANDOVERS_KEY, run_id)
+            await pipe.execute()
+            run.task = asyncio.create_task(self._pump(run, resumer(run.resume["kwargs"], ckpt)))
+            run.task.add_done_callback(lambda _: self._ensure_finished(run))
+            logger.info("took over ask run %s (conversation %s) from %s, following device task %s",
+                        run_id, conv, rec.get("from"), ckpt.get("task_id"))
+        except Exception as e:
+            logger.warning("taking over ask run %s failed: %s", run_id, e)
+        finally:
+            await self._cluster.unlock(lock, token)
+
+    async def _abandon(self, rec: dict, holds_claim: bool, stopped: bool = False) -> None:
+        """A handed over run nothing here can continue (or a newer run has its conversation), or
+        one stopped before a replica took it: end it for its readers. A device task left going
+        still reports, and the result is saved to the conversation then (tasks.py recovers
+        unwatched tasks, and opening the conversation does too)."""
+        r = self._cluster.redis
+        run_id = rec["run_id"]
+        message = "已停止" if stopped else LOST
+        last = await r.xrevrange(_frames_key(run_id), count=1)
+        idx = int(str(last[0][0]).split("-")[1]) if last else 0
+        summary = json.loads(await r.hget(_meta_key(run_id), "summary") or "{}")
+        summary.update(done=True, cancelled=stopped, failed=not stopped, current_step=message,
+                       step_type="cancelled" if stopped else "error", finished_at=time.time())
+        pipe = r.pipeline(transaction=False)
+        endings = ({"f": _frame({"type": "error", "message": message})}, {"f": _frame({"type": "done"})}, {"end": "1"})
+        for n, fields in enumerate(endings, 1):
+            pipe.xadd(_frames_key(run_id), fields, id=f"0-{idx + n}")
+        pipe.hset(_meta_key(run_id), mapping={"summary": json.dumps(summary, ensure_ascii=False)})
+        pipe.expire(_meta_key(run_id), RETAIN_AFTER_DONE)
+        pipe.expire(_frames_key(run_id), RETAIN_AFTER_DONE)
+        pipe.delete(_handover_key(run_id))
+        pipe.srem(HANDOVERS_KEY, run_id)
+        if holds_claim:
+            pipe.delete(PREFIX + CLAIM + rec["conv"])
+        await pipe.execute()
+        if stopped:
+            logger.info("stopped handed over ask run %s (conversation %s)", run_id, rec["conv"])
+        else:
+            logger.warning("ended handed over ask run %s (conversation %s): not continued here", run_id, rec["conv"])
+
+    async def _stop_handed_over(self, remote: RemoteRun) -> RemoteRun | None:
+        """Stop a run between two replicas. Ended here (None) unless a replica is taking it over
+        at this moment: then it is returned as it is there, to be stopped on that replica."""
+        lock = "askrun-adopt:" + remote.run_id
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 5
+        while True:
+            token = await self._cluster.try_lock(lock, ttl=60)
+            if token:
+                try:
+                    r = self._cluster.redis
+                    raw = await r.get(_handover_key(remote.run_id)) if r is not None else None
+                    if raw:
+                        rec = json.loads(raw)
+                        holder = await r.get(PREFIX + CLAIM + rec["conv"])
+                        await self._abandon(rec, holder == f"{HANDOVER}/{remote.run_id}", stopped=True)
+                        return None
+                finally:
+                    await self._cluster.unlock(lock, token)
+            fresh = await self._remote(run_id=remote.run_id)
+            if fresh is None or fresh.done or fresh.pod != HANDOVER or loop.time() >= deadline:
+                return fresh
+            await asyncio.sleep(0.1)
 
     # ── the Redis mirror ──────────────────────────────────────────────────
     async def _announce(self, run: AskRun) -> None:

@@ -57,6 +57,8 @@ async def _run() -> dict:
             tasks = (await db.execute(
                 select(DeviceTask).where(
                     DeviceTask.status.in_(OPEN_STATUSES),
+                    # A still_running task the agent reported on is over (it left background work)
+                    DeviceTask.finished_at.is_(None),
                     DeviceTask.created_at < now - GRACE,
                 )
             )).scalars().all()

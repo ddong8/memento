@@ -44,6 +44,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ingest/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Files Endpoint
+         * @description Several small files in one request: a collector catching up sent each of 1,600 files on its
+         *     own (2026-10-28, 440 requests a minute from one Windows machine). Each file is committed on its
+         *     own, so one that fails doesn't take the others with it; the result lists them in order.
+         */
+        post: operations["ingest_files_endpoint_api_ingest_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ingest/discovery": {
         parameters: {
             query?: never;
@@ -78,6 +100,28 @@ export interface paths {
          * @description Collector heartbeat — also registers/updates the device.
          */
         post: operations["heartbeat_api_ingest_heartbeat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest/lan-hello": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lan Hello
+         * @description Proves to a device on the LAN that it reached this server before it sends its token over plain
+         *     HTTP: HMAC of its challenge under the key its heartbeat got. Only answered for LAN callers, so a
+         *     host posing as the server on another network can't fetch proofs through the public entry.
+         */
+        get: operations["lan_hello_api_ingest_lan_hello_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -127,6 +171,30 @@ export interface paths {
         };
         /** List Tool Files */
         get: operations["list_tool_files_api_tools__tool_id__files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/proxy-fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proxy Fetch Document
+         * @description Proxy fetch an external documentation file (e.g. Apple technotes, GitHub raw, etc.)
+         *     to bypass browser CORS restrictions and render safely in the workbench inspector.
+         *
+         *     Each hop (redirects included) connects to the address that was checked, so a name can't resolve to
+         *     a public address for the check and to an internal one for the request.
+         */
+        get: operations["proxy_fetch_document_api_documents_proxy_fetch_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -677,6 +745,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ask/conversations/recent-active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Recent Active Conversation
+         * @description The run going on for the user right now (on any device), for the page's handoff banner and its
+         *     startup restore, which then load the conversation itself.
+         *
+         *     Every open page polls this every 12 s, so it reads no conversation at all: it used to return the
+         *     latest conversation with every turn, 1–2 MB per call even gzipped, which made it 91% of the traffic
+         *     through the 3 Mbps public entry and kept reading the turns column from the database.
+         */
+        get: operations["get_recent_active_conversation_api_ask_conversations_recent_active_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ask/conversations/{conv_id}": {
         parameters: {
             query?: never;
@@ -686,7 +779,7 @@ export interface paths {
         };
         /**
          * Get Conversation
-         * @description Get conversation history with runtime configuration and optional recent turn limiting.
+         * @description Get conversation history with runtime configuration and optional recent turn limiting or cursor pagination.
          */
         get: operations["get_conversation_api_ask_conversations__conv_id__get"];
         put?: never;
@@ -725,20 +818,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/ask/conversations/recent-active": {
+    "/api/ask/warmup": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Recent Active Conversation
-         * @description Get the most relevant active or recent conversation to restore seamlessly on client startup.
-         */
-        get: operations["get_recent_active_conversation_api_ask_conversations_recent_active_get"];
+        get?: never;
         put?: never;
-        post?: never;
+        /**
+         * Warmup Ask
+         * @description Pre-warm HTTP connection pools and mind resonance caches for near-zero TTFT.
+         */
+        post: operations["warmup_ask_api_ask_warmup_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1432,7 +1525,11 @@ export interface paths {
         };
         /**
          * Event Stream
-         * @description SSE endpoint for real-time updates. Auth via query param (EventSource limitation).
+         * @description SSE endpoint for real-time updates: files synced, notifications, ask runs starting and ending.
+         *
+         *     Auth by the Authorization header (fetch-based readers: the desktop app, the web app's live
+         *     connection), or ?token= for EventSource, which can't send headers (the token then lands in the
+         *     access log). A reconnecting client sends Last-Event-ID and gets the events it missed.
          */
         get: operations["event_stream_api_events_stream_get"];
         put?: never;
@@ -1495,10 +1592,52 @@ export interface paths {
         post?: never;
         /**
          * Delete Device
-         * @description Delete a device and ALL its associated data (documents, messages, embeddings,
-         *     knowledge observations, sync state, orphaned projects/entities).
+         * @description Delete or unbind a device.
+         *     If keep_data=True, marks the device as archived so it disappears from the active device list,
+         *     but retains all its documents, embeddings, knowledge observations, and user data intact.
+         *     If keep_data=False, permanently purges all documents and the machine record.
          */
         delete: operations["delete_device_api_devices__device_db_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_db_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive Device
+         * @description Unbind/archive a device while keeping all its documents and data.
+         */
+        post: operations["archive_device_api_devices__device_db_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_db_id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unarchive Device
+         * @description Restore an archived device back to the active device list.
+         */
+        post: operations["unarchive_device_api_devices__device_db_id__unarchive_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1584,6 +1723,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/{device_id}/files/locate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Locate Device File
+         * @description Which of the user's devices holds a file, so the page can fetch it from that device directly over
+         *     WebRTC instead of through the server: {"device", "size", "ice_servers"}, or {"local": true} when the
+         *     server has it itself (on its disk or in its media cache).
+         */
+        get: operations["locate_device_file_api_devices__device_id__files_locate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{device_id}/p2p/offer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * P2P Offer
+         * @description Relays the page's WebRTC offer to its device and returns the device's answer: only this exchange
+         *     (a few KB) goes through the server; the file data then flows between the two directly.
+         */
+        post: operations["p2p_offer_api_devices__device_id__p2p_offer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{device_id}/files/stream/{filename}": {
         parameters: {
             query?: never;
@@ -1593,14 +1775,18 @@ export interface paths {
         };
         /**
          * Stream Device File
-         * @description Stream a media or artifact file directly from the target device with HTTP 206 Range support.
+         * @description Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining.
          */
         get: operations["stream_device_file_api_devices__device_id__files_stream__filename__get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Stream Device File
+         * @description Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining.
+         */
+        head: operations["stream_device_file_api_devices__device_id__files_stream__filename__head"];
         patch?: never;
         trace?: never;
     };
@@ -1613,14 +1799,18 @@ export interface paths {
         };
         /**
          * Stream Device File
-         * @description Stream a media or artifact file directly from the target device with HTTP 206 Range support.
+         * @description Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining.
          */
         get: operations["stream_device_file_api_devices__device_id__files_stream_get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Stream Device File
+         * @description Stream a media or artifact file directly from target device with HTTP 206 Range, disk cache and pipelining.
+         */
+        head: operations["stream_device_file_api_devices__device_id__files_stream_head"];
         patch?: never;
         trace?: never;
     };
@@ -1724,6 +1914,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/memory/resonance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Resonance
+         * @description 心领神会·默契前置激活层 (Mind Resonance).
+         *     主动与用户完成心智同频：推断领域场景、激活图谱实体、召回防御性避坑预警与专属铁律。
+         */
+        get: operations["get_resonance_api_memory_resonance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/memory/graph": {
         parameters: {
             query?: never;
@@ -1773,7 +1984,8 @@ export interface paths {
         };
         /**
          * Search Memory
-         * @description Search entities and observations.
+         * @description Search entities and observations: entities named q first, then names starting with or containing
+         *     it, then those that only mention it in their summary.
          */
         get: operations["search_memory_api_memory_search_get"];
         put?: never;
@@ -1819,9 +2031,9 @@ export interface paths {
          * Semantic Search
          * @description Semantic search over document chunks via BGE-M3 embeddings.
          *
-         *     Embeds the query against the host-side embedding server, ranks
-         *     DocumentEmbedding rows by pgvector cosine distance, deduplicates by
-         *     document keeping the best-scoring chunk's text as snippet. Returns empty
+         *     Embeds the query, ranks documents by their best chunk's cosine similarity
+         *     (embedding_service.semantic_document_hits) and returns that chunk's text
+         *     as snippet; score is the raw similarity. Returns empty
          *     list if the embedding server is unavailable — caller should fall back to
          *     substring search.
          */
@@ -2351,6 +2563,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/profile/llm/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agent Settings
+         * @description How memento runs the user's coding agents (Claude Code's auto-compact window).
+         */
+        get: operations["get_agent_settings_api_profile_llm_agent_get"];
+        /** Update Agent Settings */
+        put: operations["update_agent_settings_api_profile_llm_agent_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profile/llm/test": {
         parameters: {
             query?: never;
@@ -2427,6 +2660,26 @@ export interface paths {
          * @description Register iOS ActivityKit pushToStartToken or per-conversation activity pushToken for Dynamic Island.
          */
         post: operations["register_live_activity_token_api_notify_live_activity_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify/live-activity/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Live Activities
+         * @description Explicitly clean up all live activities on Dynamic Island for the user.
+         */
+        post: operations["clear_live_activities_api_notify_live_activity_clear_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2629,6 +2882,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/learning/outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Outcomes
+         * @description Weekly learning eval: corrections per 100 prompts, repeats of learned rules.
+         */
+        get: operations["outcomes_api_learning_outcomes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/learning/outcomes/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Outcomes */
+        post: operations["run_outcomes_api_learning_outcomes_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/learning/pitfalls": {
         parameters: {
             query?: never;
@@ -2640,6 +2930,58 @@ export interface paths {
         put?: never;
         /** Add Pitfall */
         post: operations["add_pitfall_api_learning_pitfalls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/learning/guard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Guard */
+        get: operations["guard_api_learning_guard_get"];
+        /** Set Guard */
+        put: operations["set_guard_api_learning_guard_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/learning/guard/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Guard Events */
+        post: operations["guard_events_api_learning_guard_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/learning/guard/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Guard Status */
+        post: operations["guard_status_api_learning_guard_status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2865,6 +3207,27 @@ export interface paths {
         get?: never;
         /** Edit Todo */
         put: operations["edit_todo_api_todos__todo_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/media/image/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Media Image
+         * @description Serve an image pasted into a conversation. Pages get these links signed with an expiry (the
+         *     conversation and share APIs sign them); a signed-in request needs no signature.
+         */
+        get: operations["get_media_image_api_media_image__key__get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -3124,7 +3487,15 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Download Update
+         * @description Download update asset file with directory traversal protection.
+         *
+         *     If hosted locally on the server filesystem, serves it immediately via FileResponse.
+         *     If not cached locally, resolves GitHub Release Asset API pre-signed URL (supporting private repos)
+         *     or redirects to upstream GitHub Release URL.
+         */
+        head: operations["download_update_api_system_update_download_head"];
         patch?: never;
         trace?: never;
     };
@@ -3144,7 +3515,11 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Generic Updater File
+         * @description Serve electron-updater generic provider requests (e.g. latest.yml, latest-mac.yml, latest-linux.yml, and binary/blockmap files).
+         */
+        head: operations["generic_updater_file_api_system_update__filename__head"];
         patch?: never;
         trace?: never;
     };
@@ -3291,7 +3666,7 @@ export interface paths {
         put?: never;
         /**
          * Test Evening Reflection
-         * @description Instantly test and run memory dreaming reflection and push summary.
+         * @description Send today's evening reflection now and return its text (a few counts, so no background task).
          */
         post: operations["test_evening_reflection_api_proactive_test_evening_reflection_post"];
         delete?: never;
@@ -3682,6 +4057,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health/deep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health Deep
+         * @description Also checks Postgres and Redis, for the outside monitor: /health stays up while either is down.
+         *     Not the readiness probe: a database hiccup must not take every replica out of the Service at once.
+         */
+        get: operations["health_deep_health_deep_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3695,6 +4091,11 @@ export interface components {
              * @default false
              */
             general: boolean;
+        };
+        /** AgentSettingsBody */
+        AgentSettingsBody: {
+            /** Claude Auto Compact Window */
+            claude_auto_compact_window: number;
         };
         /** ApproveMissionBody */
         ApproveMissionBody: {
@@ -4020,6 +4421,25 @@ export interface components {
              */
             permission: string;
         };
+        /** GuardBody */
+        GuardBody: {
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** GuardEventsBody */
+        GuardEventsBody: {
+            /** Events */
+            events: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** GuardStatusBody */
+        GuardStatusBody: {
+            /** Results */
+            results: {
+                [key: string]: string;
+            };
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -4071,6 +4491,11 @@ export interface components {
              * @default
              */
             content: string;
+        };
+        /** IngestFilesRequest */
+        IngestFilesRequest: {
+            /** Files */
+            files: components["schemas"]["IngestFileRequest"][];
         };
         /** IngestResponse */
         IngestResponse: {
@@ -4253,6 +4678,11 @@ export interface components {
              */
             entity_type: string;
         };
+        /** P2POffer */
+        P2POffer: {
+            /** Sdp */
+            sdp: string;
+        };
         /** ParseImageBody */
         ParseImageBody: {
             /** Image */
@@ -4432,6 +4862,8 @@ export interface components {
         TaskInputRequest: {
             /** Input */
             input: string;
+            /** Question Id */
+            question_id?: string | null;
         };
         /** TodoCreate */
         TodoCreate: {
@@ -4699,6 +5131,46 @@ export interface operations {
             };
         };
     };
+    ingest_files_endpoint_api_ingest_files_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-device-id"?: string;
+                "x-device-name"?: string;
+                "x-device-platform"?: string;
+                "x-collector-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngestFilesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     ingest_discovery_api_ingest_discovery_post: {
         parameters: {
             query?: never;
@@ -4747,6 +5219,40 @@ export interface operations {
                 "x-device-platform"?: string;
                 "x-collector-token": string;
             };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lan_hello_api_ingest_lan_hello_get: {
+        parameters: {
+            query: {
+                device: string;
+                challenge: string;
+            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -4869,6 +5375,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    proxy_fetch_document_api_documents_proxy_fetch_get: {
+        parameters: {
+            query: {
+                /** @description External document URL to proxy */
+                url: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -5306,6 +5848,8 @@ export interface operations {
                 max_messages_per_session?: number;
                 order?: string;
                 device_id?: string | null;
+                /** @description Each session's plan documents (5 KB each); the session picker skips them */
+                artifacts?: boolean;
                 as_of?: string | null;
             };
             header?: {
@@ -5857,10 +6401,42 @@ export interface operations {
             };
         };
     };
+    get_recent_active_conversation_api_ask_conversations_recent_active_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_conversation_api_ask_conversations__conv_id__get: {
         parameters: {
             query?: {
                 limit?: number;
+                before?: number | null;
             };
             header?: {
                 authorization?: string;
@@ -5997,7 +6573,7 @@ export interface operations {
             };
         };
     };
-    get_recent_active_conversation_api_ask_conversations_recent_active_get: {
+    warmup_ask_api_ask_warmup_post: {
         parameters: {
             query?: never;
             header?: {
@@ -6014,7 +6590,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -7318,10 +7896,13 @@ export interface operations {
     };
     event_stream_api_events_stream_get: {
         parameters: {
-            query: {
-                token: string;
+            query?: {
+                token?: string | null;
             };
-            header?: never;
+            header?: {
+                authorization?: string | null;
+                "last-event-id"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -7349,7 +7930,10 @@ export interface operations {
     };
     list_devices_api_devices_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Whether to include unlinked/archived devices */
+                include_archived?: boolean;
+            };
             header?: {
                 authorization?: string;
             };
@@ -7416,6 +8000,79 @@ export interface operations {
         };
     };
     delete_device_api_devices__device_db_id__delete: {
+        parameters: {
+            query?: {
+                /** @description If True, archive/unbind device and keep all documents/data */
+                keep_data?: boolean;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_db_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_device_api_devices__device_db_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_db_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unarchive_device_api_devices__device_db_id__unarchive_post: {
         parameters: {
             query?: never;
             header?: {
@@ -7591,13 +8248,129 @@ export interface operations {
             };
         };
     };
+    locate_device_file_api_devices__device_id__files_locate_get: {
+        parameters: {
+            query: {
+                /** @description Absolute path on the device */
+                path: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    p2p_offer_api_devices__device_id__p2p_offer_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["P2POffer"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     stream_device_file_api_devices__device_id__files_stream__filename__get: {
         parameters: {
             query: {
                 /** @description Absolute path on the device or NAS */
                 path: string;
-                token?: string;
-                access_token?: string;
+                /** @description Optional public share token for anonymous visitors */
+                share_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_id: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_device_file_api_devices__device_id__files_stream__filename__head: {
+        parameters: {
+            query: {
+                /** @description Absolute path on the device or NAS */
+                path: string;
+                /** @description Optional public share token for anonymous visitors */
+                share_token?: string;
             };
             header?: {
                 authorization?: string;
@@ -7636,8 +8409,47 @@ export interface operations {
                 /** @description Absolute path on the device or NAS */
                 path: string;
                 filename?: string;
-                token?: string;
-                access_token?: string;
+                /** @description Optional public share token for anonymous visitors */
+                share_token?: string;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_device_file_api_devices__device_id__files_stream_head: {
+        parameters: {
+            query: {
+                /** @description Absolute path on the device or NAS */
+                path: string;
+                filename?: string;
+                /** @description Optional public share token for anonymous visitors */
+                share_token?: string;
             };
             header?: {
                 authorization?: string;
@@ -7817,6 +8629,46 @@ export interface operations {
     get_memory_stats_api_memory_stats_get: {
         parameters: {
             query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_resonance_api_memory_resonance_get: {
+        parameters: {
+            query?: {
+                query?: string | null;
+                project?: string | null;
+                action?: string | null;
+                format?: string;
+                limit_entities?: number;
+                limit_pitfalls?: number;
+            };
             header?: {
                 authorization?: string;
             };
@@ -8242,7 +9094,10 @@ export interface operations {
     };
     get_core_memory_markdown_api_memory_core_markdown_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Comma-separated categories to leave out, e.g. pitfall */
+                exclude?: string | null;
+            };
             header?: {
                 authorization?: string;
             };
@@ -9093,6 +9948,76 @@ export interface operations {
             };
         };
     };
+    get_agent_settings_api_profile_llm_agent_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_agent_settings_api_profile_llm_agent_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_llm_connection_api_profile_llm_test_post: {
         parameters: {
             query?: never;
@@ -9288,6 +10213,39 @@ export interface operations {
                 "application/json": components["schemas"]["LiveActivityTokenBody"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_live_activities_api_notify_live_activity_clear_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -9693,6 +10651,72 @@ export interface operations {
             };
         };
     };
+    outcomes_api_learning_outcomes_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_outcomes_api_learning_outcomes_run_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     add_pitfall_api_learning_pitfalls_post: {
         parameters: {
             query?: never;
@@ -9705,6 +10729,154 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PitfallBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guard_api_learning_guard_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_guard_api_learning_guard_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guard_events_api_learning_guard_events_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Id": string;
+                "x-collector-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardEventsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guard_status_api_learning_guard_status_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Device-Id": string;
+                "x-collector-token": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuardStatusBody"];
             };
         };
         responses: {
@@ -10199,6 +11371,42 @@ export interface operations {
             };
         };
     };
+    get_media_image_api_media_image__key__get: {
+        parameters: {
+            query?: {
+                exp?: number | null;
+                sig?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     public_stats_api_public_stats_get: {
         parameters: {
             query?: never;
@@ -10639,7 +11847,75 @@ export interface operations {
             };
         };
     };
+    download_update_api_system_update_download_head: {
+        parameters: {
+            query: {
+                /** @description Asset filename to download */
+                file: string;
+                /** @description Target release version */
+                version?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generic_updater_file_api_system_update__filename__get: {
+        parameters: {
+            query?: {
+                /** @description Optional target release version */
+                version?: string | null;
+            };
+            header?: never;
+            path: {
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generic_updater_file_api_system_update__filename__head: {
         parameters: {
             query?: {
                 /** @description Optional target release version */
@@ -11714,6 +12990,26 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+        };
+    };
+    health_deep_health_deep_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

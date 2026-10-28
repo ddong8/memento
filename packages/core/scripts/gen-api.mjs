@@ -16,9 +16,20 @@ const spec = execFileSync(
   ["-c", "import json; from server.main import app; print(json.dumps(app.openapi(), ensure_ascii=False))"],
   { cwd: server, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
 );
+// A route serving several methods (api_route(..., methods=["GET", "HEAD"])) gets one operationId for
+// all of them from FastAPI, ending in whichever method its set yields first (not the same every run),
+// and the generated types then declare it twice: each gets its own method instead
+const schema = JSON.parse(spec);
+const ops = Object.values(schema.paths ?? {}).flatMap((byMethod) => Object.entries(byMethod));
+const count = new Map();
+for (const [, op] of ops) if (op?.operationId) count.set(op.operationId, (count.get(op.operationId) ?? 0) + 1);
+for (const [method, op] of ops) {
+  if (!op?.operationId || count.get(op.operationId) < 2) continue;
+  op.operationId = `${op.operationId.replace(/_(get|head|post|put|patch|delete|options)$/, "")}_${method}`;
+}
 const out = join(here, "..", "openapi.json");
 mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, spec);
+writeFileSync(out, JSON.stringify(schema));
 
 execFileSync(
   process.execPath,

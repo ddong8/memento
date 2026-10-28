@@ -33,6 +33,7 @@ from ..db.models import User
 from ..db.session import async_session_factory
 from . import notify_service
 from .cluster import PREFIX, Cluster, cluster
+from .storage_service import sign_media_url
 
 logger = logging.getLogger("server.ask_runs")
 
@@ -208,7 +209,7 @@ class AskRun:
             "conversation_id": self.conversation_id,
             "title": self.title or (self.question[:40] if self.question else ""),
             "question": self.question,
-            "images": self.images,
+            "images": [sign_media_url(i) for i in self.images],
             "execution_mode": self.execution_mode,
             "model": self.model,
             "device_name": self.device_name,

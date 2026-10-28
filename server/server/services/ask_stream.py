@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import User
 from ..services.ask_runs import RunConflict, ask_runs
 from .agent_limits import USAGE_LIMIT
-from .ask_store import append_conversation_turns, record_stopped_orphans
+from .ask_store import append_conversation_turns, record_stopped_orphans, store_images
 from .device_reports import get_device_environment_summary
 
 logger = logging.getLogger("server.ask")
@@ -622,6 +622,14 @@ async def run_response(
     one shuts down; kind names an entry in ask_runs.resumers."""
     if request_db is not None:
         await request_db.commit()
+    if images:
+        # The run's summary goes out with every /run and /runs poll and every mirror write:
+        # links to the stored images, not the pasted base64 (a photo was 200 KB+ each time).
+        # The answer itself still gets the originals through the factory.
+        try:
+            images = await asyncio.wait_for(store_images(images), timeout=5)
+        except asyncio.TimeoutError:
+            logger.warning("storing the images of an ask timed out, the run keeps them inline")
     try:
         run = await ask_runs.start(
             str(conv_id),

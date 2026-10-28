@@ -4,6 +4,7 @@ turns, inferring their runtime config, recovering orphaned device tasks.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -389,6 +390,16 @@ def _compress_b64_image_safe(data_uri: str, max_size: int = 1600, quality: int =
         return data_uri
 
 
+async def store_images(images: list[str] | None) -> list[str]:
+    """Pasted images as stored /api/media links, compressed the way a saved turn keeps them.
+    One that can't be stored stays as it came."""
+    stored = []
+    for img in images or []:
+        compressed = await asyncio.to_thread(_compress_b64_image_safe, img)
+        stored.append(await store_image_b64(compressed))
+    return stored
+
+
 async def append_conversation_turns(
     conv_id: uuid.UUID,
     user_content: str,
@@ -430,12 +441,7 @@ async def append_conversation_turns(
                 "created_at": u_iso,
             }
             if images:
-                stored_images = []
-                for img in images:
-                    compressed = _compress_b64_image_safe(img)
-                    stored = await store_image_b64(compressed)
-                    stored_images.append(stored)
-                user_turn["images"] = stored_images
+                user_turn["images"] = await store_images(images)
             if attachments:
                 user_turn["attachments"] = attachments
             turns.append(user_turn)

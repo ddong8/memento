@@ -188,3 +188,58 @@ cat > /dev/null
   },
   45_000,
 );
+
+it.skipIf(process.platform === "win32")(
+  "Claude task that runs out of quota with a background task open: reported failed as usage_limit, not still running",
+  async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "limit_"));
+    const home = join(tmp, "home");
+    execFileSync("mkdir", ["-p", home]);
+    const limit = "You've hit your session limit · resets 11:40am (Asia/Shanghai)";
+    // What Claude Code wrote on 10-28: a background build left open, then the synthetic rate_limit reply
+    const lines = [
+      { type: "system", subtype: "init", session_id: "6f3d1184-787b-4878-a8f5-2f5ade4fb740" },
+      { type: "system", subtype: "task_started", task_id: "b1", tool_use_id: "t-b1", description: "npm run build", task_type: "local_bash", is_backgrounded: true },
+      {
+        type: "assistant",
+        error: "rate_limit",
+        message: { role: "assistant", model: "<synthetic>", content: [{ type: "text", text: limit }] },
+        session_id: "6f3d1184-787b-4878-a8f5-2f5ade4fb740",
+      },
+      { type: "result", subtype: "success", is_error: true, result: limit, session_id: "6f3d1184-787b-4878-a8f5-2f5ade4fb740" },
+    ];
+    const stream = join(tmp, "limit_stream.jsonl");
+    writeFileSync(stream, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    const fake = join(sharedBin, "claude-limit-memento");
+    writeFileSync(fake, `#!/bin/sh\nIFS= read -r first\ncat "${stream}"\ncat > /dev/null\nexit 1\n`);
+    chmodSync(fake, 0o755);
+    process.env.HOME = home;
+
+    const taskId = "feedbeef-0000-4000-8000-000000000003";
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    let resolveDone!: (m: Record<string, unknown>) => void;
+    const finished = new Promise<Record<string, unknown>>((r) => (resolveDone = r));
+    wss.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "connected", device_name: "test" }));
+      ws.send(JSON.stringify({ type: "task_dispatch", task: { id: taskId, action: "agent", timeout_seconds: 60, payload: { binary: "claude-limit-memento", prompt: "构建一下", cwd: tmp } } }));
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        if (msg.type === "task_finished") resolveDone(msg);
+      });
+    });
+    await new Promise((r) => wss.once("listening", r));
+    const port = (wss.address() as { port: number }).port;
+    const client = new WsTaskClient({ serverUrl: `http://127.0.0.1:${port}`, token: "t", deviceId: "dev", deviceName: "test", platform: "test", extraWatchDirs: [] });
+    void client.start();
+    const done = await finished;
+    client.dispose();
+    await new Promise((r) => wss.close(r));
+
+    // The session it was in is kept, so "继续" picks up there once the quota is back
+    expect(done).toMatchObject({ status: "failed", error_type: "usage_limit", error: limit, session_id: "6f3d1184-787b-4878-a8f5-2f5ade4fb740" });
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {}
+  },
+  45_000,
+);

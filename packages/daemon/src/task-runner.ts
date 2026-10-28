@@ -216,6 +216,19 @@ export function agentLoginHint(binary: string, text: string, device = hostname()
   return undefined;
 }
 
+// Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read the
+// same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
+// Read up to a quote too, for when it turns up inside a logged JSON line.
+const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*/i;
+
+/**
+ * The agent's own report that the account's quota ran out, from what it gave as errors (stderr, errors in
+ * its stream), never its answer, which may well discuss limits; undefined when there is none.
+ */
+export function usageLimitMessage(errors: string): string | undefined {
+  return USAGE_LIMIT.exec(errors)?.[0].trim();
+}
+
 /**
  * Checks whether an agent or process exited while its background subtasks or
  * daemons are still actively running.
@@ -1086,7 +1099,9 @@ export class TaskRunner {
       }
 
       const sessionFailedFinal = !fullOut && (isSessionNotFound(fullErr) || isSessionNotFound(streamErrors));
-      const effectiveExitCode = sessionFailedFinal && exitCode === 0 ? 1 : exitCode;
+      // Out of quota: the run stopped there, whatever background work it had open or however it exited
+      const usageLimit = action === "agent" ? usageLimitMessage(`${streamErrors}\n${fullErr}`) : undefined;
+      const effectiveExitCode = (sessionFailedFinal || usageLimit) && exitCode === 0 ? 1 : exitCode;
 
       if (this.cancelledTasks.has(taskId)) {
         this.log(`Task ${taskId} was cancelled by user; skipping final task_finished overwrite`);
@@ -1096,16 +1111,26 @@ export class TaskRunner {
       this.send(
         taskFinishedMessage({
           taskId,
-          status: timedOut && !isStillRunning ? "timeout" : isStillRunning ? "still_running" : effectiveExitCode === 0 ? "succeeded" : "failed",
+          status: usageLimit
+            ? "failed"
+            : timedOut && !isStillRunning
+              ? "timeout"
+              : isStillRunning
+                ? "still_running"
+                : effectiveExitCode === 0
+                  ? "succeeded"
+                  : "failed",
           exitCode: effectiveExitCode,
           stdout: fullOut,
           stderr: safeErr,
-          error: timedOut
-            ? `Task timed out after ${task.timeoutSeconds}s`
-            : effectiveExitCode !== 0
-              ? loginHint || fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
-              : null,
-          errorType: promptTooLong ? "prompt_too_long" : loginHint ? "agent_login_required" : null,
+          error: usageLimit
+            ? usageLimit
+            : timedOut
+              ? `Task timed out after ${task.timeoutSeconds}s`
+              : effectiveExitCode !== 0
+                ? loginHint || fullErr || streamErrors || (sessionFailedFinal ? "会话未找到或已过期" : `Exit code ${effectiveExitCode}`)
+                : null,
+          errorType: usageLimit ? "usage_limit" : promptTooLong ? "prompt_too_long" : loginHint ? "agent_login_required" : null,
           sessionId: parser?.sessionId ?? sid ?? (sessionFailedFinal ? null : (sessionId || null)),
           events: this.eventLogs.get(taskId)?.events,
         }),

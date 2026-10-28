@@ -10,7 +10,7 @@ import {
   probeAntigravityQuota,
   usableClaudeAccessToken,
 } from "../src/quotas.js";
-import { agentLoginHint } from "../src/task-runner.js";
+import { agentLoginHint, usageLimitMessage } from "../src/task-runner.js";
 
 describe("Real Agent Quotas", () => {
   it("probes Claude Code real utilization from ~/.claude.json fixture", async () => {
@@ -176,5 +176,21 @@ describe("agentLoginHint", () => {
     expect(agentLoginHint("claude", "API Error: 529 overloaded", "m")).toBeUndefined();
     expect(agentLoginHint("codex", "thread not found", "m")).toBeUndefined();
     expect(agentLoginHint("agy", "Please run /login", "m")).toBeUndefined();
+  });
+});
+
+describe("usageLimitMessage", () => {
+  it("reads the quota message Claude Code and Codex end on", () => {
+    expect(usageLimitMessage("x\nYou've hit your session limit · resets 11:40am (Asia/Shanghai)\n")).toBe(
+      "You've hit your session limit · resets 11:40am (Asia/Shanghai)",
+    );
+    expect(usageLimitMessage("You’ve hit your weekly limit · resets Nov 3")).toBe("You’ve hit your weekly limit · resets Nov 3");
+    expect(usageLimitMessage("Claude AI usage limit reached|1761710400")).toBe("usage limit reached|1761710400");
+  });
+
+  it("stays quiet for other failures", () => {
+    expect(usageLimitMessage("API Error: 529 overloaded")).toBeUndefined();
+    expect(usageLimitMessage("Prompt is too long")).toBeUndefined();
+    expect(usageLimitMessage("")).toBeUndefined();
   });
 });

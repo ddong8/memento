@@ -98,39 +98,79 @@ export class IngestClient {
     return sent;
   }
 
+  /** The request body for one document, with secrets stripped. */
+  private uploadBody(doc: IngestDocument): Record<string, unknown> {
+    const sanitized = sanitizeDocumentContent(doc.content, doc.contentType);
+    const metadata = { ...(doc.metadata ?? {}) };
+    if (
+      typeof doc.content === "string" &&
+      /(?:以后|严禁|杜绝|不要|不能|必须|统一|切记|记住)(?:在|用|加|使用|包含|反问|回滚|删除)/.test(doc.content)
+    ) {
+      metadata.is_user_correction = true;
+    }
+    return {
+      tool: doc.toolId,
+      category: doc.category,
+      content_type: doc.contentType,
+      relative_path: doc.relativePath,
+      content: sanitized,
+      hash: doc.contentHash,
+      file_size: doc.fileSize ?? Buffer.byteLength(sanitized),
+      mode: doc.mode ?? "full",
+      offset: doc.offset ?? 0,
+      metadata,
+    };
+  }
+
   private async uploadSingleDocument(doc: IngestDocument): Promise<boolean> {
     try {
-      const sanitized = sanitizeDocumentContent(doc.content, doc.contentType);
-      const metadata = { ...(doc.metadata ?? {}) };
-      if (
-        typeof doc.content === "string" &&
-        /(?:以后|严禁|杜绝|不要|不能|必须|统一|切记|记住)(?:在|用|加|使用|包含|反问|回滚|删除)/.test(doc.content)
-      ) {
-        metadata.is_user_correction = true;
-      }
-
-      const res = await this.request("/api/ingest/file", {
-        method: "POST",
-        timeoutMs: 30_000,
-        body: {
-          tool: doc.toolId,
-          category: doc.category,
-          content_type: doc.contentType,
-          relative_path: doc.relativePath,
-          content: sanitized,
-          hash: doc.contentHash,
-          file_size: doc.fileSize ?? Buffer.byteLength(sanitized),
-          mode: doc.mode ?? "full",
-          offset: doc.offset ?? 0,
-          metadata,
-        },
-      });
+      const res = await this.request("/api/ingest/file", { method: "POST", timeoutMs: 30_000, body: this.uploadBody(doc) });
       if (res.ok) return true;
       this.log(`Upload ${doc.relativePath} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       return false;
     } catch (e) {
       this.log(`Upload ${doc.relativePath} failed: ${e instanceof Error ? e.message : e}`);
       return false;
+    }
+  }
+
+  /** Until when the server is taken to be one from before /api/ingest/files (documents go one by one). */
+  private batchUnsupportedUntil = 0;
+
+  /**
+   * Several small documents in one request, whether each went in, in order. A collector catching up
+   * sent 1,600 small files one request each (2026-10-28). Not buffered offline: what didn't go in is
+   * still unsynced and the next scan sends it again.
+   */
+  async ingestBatch(docs: IngestDocument[]): Promise<boolean[]> {
+    if (docs.length === 1 || Date.now() < this.batchUnsupportedUntil) {
+      const out: boolean[] = [];
+      for (const doc of docs) out.push(await this.uploadSingleDocument(doc));
+      return out;
+    }
+    try {
+      const res = await this.request("/api/ingest/files", {
+        method: "POST",
+        timeoutMs: 60_000,
+        body: { files: docs.map((d) => this.uploadBody(d)) },
+      });
+      if (res.status === 404 || res.status === 405) {
+        this.batchUnsupportedUntil = Date.now() + 3_600_000; // asked again in an hour: the server may have been updated
+        return this.ingestBatch(docs);
+      }
+      if (!res.ok) {
+        this.log(`Upload of ${docs.length} files HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        return docs.map(() => false);
+      }
+      const { results } = (await res.json()) as { results?: { ok?: boolean; error?: string }[] };
+      return docs.map((d, i) => {
+        const r = results?.[i];
+        if (r && !r.ok) this.log(`Upload ${d.relativePath} failed: ${r.error ?? "unknown"}`);
+        return r?.ok === true;
+      });
+    } catch (e) {
+      this.log(`Upload of ${docs.length} files failed: ${e instanceof Error ? e.message : e}`);
+      return docs.map(() => false);
     }
   }
 

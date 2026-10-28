@@ -5,7 +5,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { homeDir, type CollectorConfig } from "./config.js";
 import { cleanPath, decodeClaudeDir, isInvalidProjectName, type DiscoveredTool } from "./discovery.js";
 import { getAntigravitySessionInfo, healAntigravitySession, healAllAntigravitySessions, isJunkAntigravityTitle } from "./antigravity.js";
-import type { IngestClient } from "./ingest.js";
+import type { IngestClient, IngestDocument } from "./ingest.js";
 import { contentHash } from "./sanitizer.js";
 
 const MAX_BATCH = 512 * 1024; // bytes per upload
@@ -21,6 +21,11 @@ const DEBOUNCE_MS = 2000;
 const LARGE_FILE_BYTES = 1024 * 1024;
 const LARGE_FILE_GAP_MS = 15_000;
 const RESCAN_MS = 60_000;
+// Files sent whole (a subagent's .meta.json, a memory note) go up together, this many to a request
+const WHOLE_BATCH_FILES = 50;
+const WHOLE_BATCH_BYTES = 1024 * 1024;
+
+const isJsonl = (file: string) => extname(file).toLowerCase() === ".jsonl";
 
 type Log = (message: string) => void;
 
@@ -420,7 +425,9 @@ function sessionMetadata(
  * Watches the tools' session directories and uploads what changes. Session logs
  * (.jsonl) go up incrementally from a saved byte offset, in slices that end on a
  * line boundary, so logs of any size sync without re-sending what the server has.
- * Offsets live in ~/.memento/offsets.json, shared with the Flutter collector.
+ * Offsets live in ~/.memento/offsets.json. Other files go up whole when their modification time
+ * changes; the times sent are kept in ~/.memento/synced-mtimes.json, so a restart doesn't send them
+ * all again (on 2026-10-28 each restart of a Windows collector sent its 1,600 again).
  */
 export class FileWatcher {
   private readonly offsets = new Map<string, number>();
@@ -437,6 +444,8 @@ export class FileWatcher {
   private processing = false;
   private disposed = false;
   private readonly offsetsPath: string;
+  private readonly mtimesPath: string;
+  private mtimesDirty = false;
 
   constructor(
     private readonly config: CollectorConfig,
@@ -445,6 +454,7 @@ export class FileWatcher {
     private readonly home: string = homeDir(),
   ) {
     this.offsetsPath = join(home, ".memento", "offsets.json");
+    this.mtimesPath = join(home, ".memento", "synced-mtimes.json");
   }
 
   async start(tools: Record<string, DiscoveredTool>): Promise<void> {
@@ -469,6 +479,7 @@ export class FileWatcher {
   async resync(): Promise<void> {
     this.offsets.clear();
     this.mtimes.clear();
+    this.mtimesDirty = true;
     this.failures.clear();
     await this.saveOffsets(true);
     this.log("Resync: re-uploading all watched files");
@@ -546,12 +557,13 @@ export class FileWatcher {
     if (this.processing || this.disposed) return;
     this.processing = true;
     try {
+      await sleep(0); // a scan enqueues its files in one go: let it finish, so they can go up together
       while (this.queue.length && !this.disposed) {
         const [file, toolId] = this.queue.shift()!;
         this.queued.delete(file);
         let uploaded = false;
         try {
-          uploaded = await this.syncFile(file, toolId);
+          uploaded = isJsonl(file) ? await this.syncFile(file, toolId) : await this.syncWholeFiles(this.takeWholeFiles([file, toolId]));
         } catch (e) {
           this.log(`Error syncing ${file}: ${e instanceof Error ? e.message : e}`);
         }
@@ -565,9 +577,24 @@ export class FileWatcher {
   /** Sync one file now (also used by tests). */
   async syncFile(file: string, toolId: string): Promise<boolean> {
     if (!existsSync(file)) return false;
-    const relPath = relativePathFor(file, toolId, this.config.extraWatchDirs);
-    if (extname(file).toLowerCase() === ".jsonl") return this.syncJsonl(file, toolId, relPath);
-    return this.syncWhole(file, toolId, relPath);
+    if (!isJsonl(file)) return this.syncWholeFiles([[file, toolId]]);
+    return this.syncJsonl(file, toolId, relativePathFor(file, toolId, this.config.extraWatchDirs));
+  }
+
+  /** `first` and up to a batch more of the queued files that go up whole. */
+  private takeWholeFiles(first: [string, string]): [string, string][] {
+    const group = [first];
+    for (let i = 0; i < this.queue.length && group.length < WHOLE_BATCH_FILES; ) {
+      const item = this.queue[i]!;
+      if (isJsonl(item[0])) {
+        i++;
+        continue;
+      }
+      this.queue.splice(i, 1);
+      this.queued.delete(item[0]);
+      group.push(item);
+    }
+    return group;
   }
 
   private async syncJsonl(file: string, toolId: string, relPath: string): Promise<boolean> {
@@ -667,28 +694,65 @@ export class FileWatcher {
     return uploaded;
   }
 
-  private async syncWhole(file: string, toolId: string, relPath: string): Promise<boolean> {
-    const s = await stat(file);
-    if (this.mtimes.get(file) === s.mtimeMs) return false;
-    if (s.size > 20 * 1024 * 1024) {
-      this.log(`Skipping ${file}: larger than 20MB (${s.size} bytes)`);
-      return false;
+  /** Uploads the files that changed since they last went up, several to a request; whether any did. */
+  private async syncWholeFiles(items: [string, string][]): Promise<boolean> {
+    let group: { file: string; mtime: number; doc: IngestDocument }[] = [];
+    let bytes = 0;
+    let attempted = false;
+    const flush = async () => {
+      if (!group.length) return;
+      const batch = group;
+      group = [];
+      bytes = 0;
+      attempted = true;
+      const ok = batch.length === 1 ? [await this.ingest.ingestDocument(batch[0]!.doc)] : await this.ingest.ingestBatch(batch.map((g) => g.doc));
+      batch.forEach((g, i) => {
+        if (!ok[i]) return;
+        this.mtimes.set(g.file, g.mtime);
+        this.mtimesDirty = true;
+      });
+    };
+    for (const [file, toolId] of items) {
+      if (this.disposed) break;
+      let s: Awaited<ReturnType<typeof stat>>;
+      let content: string;
+      try {
+        if (!existsSync(file)) continue;
+        s = await stat(file);
+        if (this.mtimes.get(file) === s.mtimeMs) continue;
+        if (s.size > 20 * 1024 * 1024) {
+          this.log(`Skipping ${file}: larger than 20MB (${s.size} bytes)`);
+          continue;
+        }
+        content = await readFile(file, "utf8");
+      } catch (e) {
+        this.log(`Error syncing ${file}: ${e instanceof Error ? e.message : e}`); // the next scan tries it again
+        continue;
+      }
+      const relPath = relativePathFor(file, toolId, this.config.extraWatchDirs);
+      this.log(`Syncing updated file: ${relPath} (${toolId})`);
+      const size = Buffer.byteLength(content);
+      if (group.length && (group.length >= WHOLE_BATCH_FILES || bytes + size > WHOLE_BATCH_BYTES)) await flush();
+      group.push({
+        file,
+        mtime: s.mtimeMs,
+        doc: {
+          toolId,
+          category: toolId === "obsidian" ? "notes" : "conversation",
+          contentType: extname(file).replace(".", ""),
+          relativePath: relPath,
+          content,
+          contentHash: contentHash(content),
+          fileSize: s.size,
+          mode: "full",
+          offset: 0,
+        },
+      });
+      bytes += size;
     }
-    const content = await readFile(file, "utf8");
-    this.log(`Syncing updated file: ${relPath} (${toolId})`);
-    const ok = await this.ingest.ingestDocument({
-      toolId,
-      category: toolId === "obsidian" ? "notes" : "conversation",
-      contentType: extname(file).replace(".", ""),
-      relativePath: relPath,
-      content,
-      contentHash: contentHash(content),
-      fileSize: s.size,
-      mode: "full",
-      offset: 0,
-    });
-    if (ok) this.mtimes.set(file, s.mtimeMs);
-    return true;
+    await flush();
+    if (attempted) await this.saveOffsets(false);
+    return attempted;
   }
 
   private async loadOffsets(): Promise<void> {
@@ -698,6 +762,14 @@ export class FileWatcher {
       for (const [k, v] of Object.entries(map)) if (typeof v === "number") this.offsets.set(k, Math.trunc(v));
     } catch {
       // first run
+    }
+    try {
+      const map = JSON.parse(await readFile(this.mtimesPath, "utf8")) as Record<string, unknown>;
+      this.mtimes.clear();
+      // A file since deleted is dropped (with the next save)
+      for (const [k, v] of Object.entries(map)) if (typeof v === "number" && existsSync(k)) this.mtimes.set(k, v);
+    } catch {
+      // first run, or a collector from before these were kept: everything goes up once more
     }
   }
 
@@ -723,8 +795,12 @@ export class FileWatcher {
     try {
       await mkdir(dirname(this.offsetsPath), { recursive: true });
       await writeFile(this.offsetsPath, JSON.stringify(Object.fromEntries(this.offsets)));
+      if (this.mtimesDirty) {
+        this.mtimesDirty = false;
+        await writeFile(this.mtimesPath, JSON.stringify(Object.fromEntries(this.mtimes)));
+      }
     } catch {
-      // try again on the next slice
+      this.mtimesDirty = true; // try again on the next slice
     }
   }
 }

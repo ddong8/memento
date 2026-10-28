@@ -6,13 +6,14 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import re
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..api.tasks import REMOTE_EXEC_ENABLED
@@ -28,6 +29,8 @@ from ..services.ingest_service import (
     _is_invalid_project_name,
     _prettify_project_name,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
@@ -95,6 +98,55 @@ async def ingest_file_endpoint(
         user_id=str(_collector_user.id),
     )
     return IngestResponse(document_id=str(doc.id), message="Ingested successfully")
+
+
+class IngestFilesRequest(BaseModel):
+    files: list[IngestFileRequest] = Field(..., min_length=1, max_length=100)
+
+
+@router.post("/files")
+async def ingest_files_endpoint(
+    req: IngestFilesRequest,
+    _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
+    db: AsyncSession = Depends(get_db),
+    x_device_id: str = Header("unknown"),
+    x_device_name: str = Header("unknown"),
+    x_device_platform: str = Header("unknown"),
+) -> dict:
+    """Several small files in one request: a collector catching up sent each of 1,600 files on its
+    own (2026-10-28, 440 requests a minute from one Windows machine). Each file is committed on its
+    own, so one that fails doesn't take the others with it; the result lists them in order."""
+    machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
+    # Plain strings: a rollback below expires the ORM objects, and reading one then would hit the database
+    machine_id, user_id = str(machine.id), str(_collector_user.id)
+    await db.commit()
+    results: list[dict] = []
+    for f in req.files:
+        try:
+            doc = await ingest_file(
+                db=db,
+                tool_id=f.tool,
+                category=f.category,
+                content_type=f.content_type,
+                relative_path=f.relative_path,
+                content=f.content,
+                content_hash=f.hash,
+                file_size=f.file_size or len(f.content.encode("utf-8")),
+                mode=f.mode,
+                offset=f.offset,
+                metadata=f.metadata,
+                timestamp=f.timestamp,
+                machine_id=machine_id,
+                user_id=user_id,
+            )
+            await db.commit()
+            results.append({"ok": True, "document_id": str(doc.id)})
+        except Exception as e:
+            await db.rollback()
+            logger.warning("Batch ingest of %s failed: %s", f.relative_path, e)
+            results.append({"ok": False, "error": str(e)[:200]})
+    return {"status": "ok", "results": results}
 
 
 @router.post("/discovery")

@@ -1,9 +1,74 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { Activity, createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { LayoutRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import {
+  NavigationPromisesContext,
+  PathParamsContext,
+  PathnameContext,
+  SearchParamsContext,
+} from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 
 const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+// What Next's route tree and its navigation hooks (usePathname, useSearchParams, useParams) read. The
+// `children` kept for a view is Next's slot, which renders the route the router is on *now* from these:
+// kept bare, every kept view rendered the current page (on 2026-10-28 the ask page ran in up to 4
+// copies on the phone and 6 on the desktop, each following the answer and polling on its own) and the
+// page left behind was gone. Each view gets the values it had when it was last shown.
+interface RouterView {
+  layout: React.ContextType<typeof LayoutRouterContext>;
+  pathname: React.ContextType<typeof PathnameContext>;
+  searchParams: React.ContextType<typeof SearchParamsContext>;
+  params: React.ContextType<typeof PathParamsContext>;
+  navigation: React.ContextType<typeof NavigationPromisesContext>;
+}
+
+function RouterViewProvider({ view, children }: { view: RouterView; children: React.ReactNode }) {
+  return (
+    <LayoutRouterContext.Provider value={view.layout}>
+      <PathnameContext.Provider value={view.pathname}>
+        <SearchParamsContext.Provider value={view.searchParams}>
+          <PathParamsContext.Provider value={view.params}>
+            <NavigationPromisesContext.Provider value={view.navigation}>{children}</NavigationPromisesContext.Provider>
+          </PathParamsContext.Provider>
+        </SearchParamsContext.Provider>
+      </PathnameContext.Provider>
+    </LayoutRouterContext.Provider>
+  );
+}
+
+// Kept views that go on while hidden: the ask page keeps following a running answer, so coming back
+// shows it at once. The others are paused (effects off, state and DOM kept): their polling and
+// animation stop while out of sight and start again when shown.
+const LIVE_WHILE_HIDDEN = new Set(["/ask"]);
+
+interface KeptView {
+  shownListeners: Set<() => void>;
+}
+
+const KeptViewContext = createContext<KeptView | null>(null);
+
+/**
+ * Calls `listener` when the kept view it's in is shown again after another menu was open, before the
+ * browser draws it. Hiding a view loses the scroll position of the lists inside it.
+ */
+export function useRouteShown(listener: () => void): void {
+  const view = useContext(KeptViewContext);
+  const latest = useRef(listener);
+  useIsomorphicLayoutEffect(() => {
+    latest.current = listener;
+  });
+  useIsomorphicLayoutEffect(() => {
+    if (!view) return;
+    const call = () => latest.current();
+    view.shownListeners.add(call);
+    return () => {
+      view.shownListeners.delete(call);
+    };
+  }, [view]);
+}
 
 /**
  * Returns the canonical KeepAlive key for supported top-level menu routes.
@@ -66,9 +131,9 @@ interface RouteKeepAliveProps {
  * RouteKeepAlive keeps visited top-level views mounted in the DOM using display: block / none.
  * This completely avoids unmounting components when switching between sidebar menus
  * (e.g. AI 执事 and 全景总览), preserving:
- * 1) Component states and React hooks
- * 2) Ongoing active streams and SSE connections
- * 3) DOM scroll positions and draft input text
+ * 1) Component states and React hooks, each view on the route it was left at
+ * 2) The ask page's running answer (the other hidden views are paused)
+ * 3) Draft input text, and the window's scroll position
  * 4) Zero network refetching and zero flickering upon menu switches.
  */
 const WEBGL_HEAVY_ROUTES = new Set(["/memory", "/memory/persona", "/skills"]);
@@ -80,13 +145,26 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
   // Managed list of mounted route keys to ensure safe React reconciliation
   const [mountedKeys, setMountedKeys] = useState<string[]>(() => (currentKey ? [currentKey] : []));
   const viewsCacheRef = useRef<Record<string, React.ReactNode>>({});
+  const routerViewsRef = useRef<Record<string, RouterView>>({});
+  const keptViewsRef = useRef<Record<string, KeptView>>({});
   const lruOrderRef = useRef<string[]>(currentKey ? [currentKey] : []);
   const scrollMapRef = useRef<Record<string, number>>({});
   const activeKeyRef = useRef<string | null>(currentKey);
+  const shownKeysRef = useRef<Set<string>>(new Set());
+
+  const liveRouter: RouterView = {
+    layout: useContext(LayoutRouterContext),
+    pathname: useContext(PathnameContext),
+    searchParams: useContext(SearchParamsContext),
+    params: useContext(PathParamsContext),
+    navigation: useContext(NavigationPromisesContext),
+  };
 
   // Always update the cached view of the current active route with latest children
   if (currentKey) {
     viewsCacheRef.current[currentKey] = children;
+    routerViewsRef.current[currentKey] = liveRouter;
+    keptViewsRef.current[currentKey] ??= { shownListeners: new Set() };
   }
 
   // Ensure currentKey is tracked immediately during render phase (zero blank frame)
@@ -140,6 +218,9 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
     for (const key of Object.keys(viewsCacheRef.current)) {
       if (!updatedKeys.includes(key) && key !== currentKey) {
         delete viewsCacheRef.current[key];
+        delete routerViewsRef.current[key];
+        delete keptViewsRef.current[key];
+        shownKeysRef.current.delete(key);
         delete scrollMapRef.current[key];
       }
     }
@@ -166,6 +247,18 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
       const savedScroll = scrollMapRef.current[currentKey] ?? 0;
       window.scrollTo({ top: savedScroll, behavior: "instant" as ScrollBehavior });
     }
+
+    // A view shown before, hidden since, is back (not one just opened for the first time)
+    if (currentKey && currentKey !== prevKey && shownKeysRef.current.has(currentKey)) {
+      for (const listener of keptViewsRef.current[currentKey]?.shownListeners ?? []) {
+        try {
+          listener();
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+    if (currentKey) shownKeysRef.current.add(currentKey);
   }, [currentKey]);
 
   return (
@@ -174,6 +267,7 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
         const isCurrent = key === currentKey;
         // Current route always receives latest live children; dormant routes display their preserved cache
         const content = isCurrent ? children : viewsCacheRef.current[key];
+        const router = isCurrent ? liveRouter : (routerViewsRef.current[key] ?? liveRouter);
         return (
           <div
             key={key}
@@ -189,7 +283,11 @@ export default function RouteKeepAlive({ children }: RouteKeepAliveProps) {
               pointerEvents: isCurrent ? "auto" : "none",
             }}
           >
-            {content}
+            <KeptViewContext.Provider value={keptViewsRef.current[key] ?? null}>
+              <RouterViewProvider view={router}>
+                <Activity mode={isCurrent || LIVE_WHILE_HIDDEN.has(key) ? "visible" : "hidden"}>{content}</Activity>
+              </RouterViewProvider>
+            </KeptViewContext.Provider>
           </div>
         );
       })}

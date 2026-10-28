@@ -2,12 +2,13 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
+import { useRouteShown } from "@/components/layout/RouteKeepAlive";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { MediaInspectorProvider, useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { ToolCallItem } from "@/components/ExecutionCard";
@@ -54,6 +55,23 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
 // Coming back to the page fires several wake events: within this long (or while one check runs) they're one
 const WAKE_COALESCE_MS = 3_000;
+
+// The page goes on while another menu is open (src/components/layout/RouteKeepAlive.tsx): the keys and
+// pastes there aren't for it
+function askShown(): boolean {
+  return typeof window !== "undefined" && window.location.pathname.startsWith("/ask");
+}
+
+// Next follows history.replaceState into its router: setting the address from the page while hidden took
+// the user back to it. Kept for when it's shown again instead.
+function replaceAskUrl(hiddenUrl: { current: string | null }, url: string) {
+  if (!askShown()) {
+    hiddenUrl.current = url;
+    return;
+  }
+  hiddenUrl.current = null;
+  window.history.replaceState(null, "", url);
+}
 
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
@@ -102,8 +120,6 @@ function AskPageContent() {
   );
   const [cwd, setCwd] = useState<string>(() => askCache?.cwd || initSnap?.cwd || "");
   const [showCwd, setShowCwd] = useState<boolean>(false);
-  const pathname = usePathname();
-  const prevPathnameRef = useRef<string>(pathname);
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
 
@@ -285,7 +301,7 @@ function AskPageContent() {
       ) {
         return;
       }
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || !askShown()) return;
 
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -385,6 +401,7 @@ function AskPageContent() {
   // remount, so a remount still reattaches what was running.
   const openedConvIdRef = useRef<string | null>(null);
   const awayFromAskRef = useRef<boolean>(false);
+  const hiddenUrlRef = useRef<string | null>(null);
   const isUnmountedRef = useRef<boolean>(false);
   const userCancelledRef = useRef<boolean>(false);
 
@@ -739,30 +756,31 @@ function AskPageContent() {
     };
   }, []);
 
-  // When returning from another menu (e.g. /memory, /inbox, /daily, /profile) back to AI Deacon:
-  // Instantly restore exact scroll position (0ms) within the kept-alive DOM container
-  useEffect(() => {
-    const prev = prevPathnameRef.current;
-    prevPathnameRef.current = pathname;
-    const isNowAsk = pathname === "/ask" || pathname.startsWith("/ask/");
-    const wasNotAsk = !prev || !prev.startsWith("/ask");
-
-    if (isNowAsk && wasNotAsk) {
-      if (streamingRef.current || askCache?.streaming) {
-        scrollConversationToBottom(true);
-      } else {
-        const targetScroll = askCache?.scrollTop;
-        if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
-          chatScrollRef.current.scrollTop = targetScroll;
-          requestAnimationFrame(() => {
-            if (chatScrollRef.current) {
-              chatScrollRef.current.scrollTop = targetScroll;
-            }
-          });
-        }
+  // When returning from another menu (e.g. /memory, /inbox, /daily, /profile) back to AI Deacon: the
+  // page stayed mounted, hidden, which lost the list's scroll position. Restore it before it's drawn.
+  useRouteShown(() => {
+    // The conversation it opened meanwhile (a new chat's run naming its own), unless the way back
+    // names one
+    const hiddenUrl = hiddenUrlRef.current;
+    hiddenUrlRef.current = null;
+    const back = new URLSearchParams(window.location.search);
+    if (hiddenUrl && !back.has("id") && !back.has("q")) window.history.replaceState(null, "", hiddenUrl);
+    // What went on meanwhile (a run started elsewhere, replies saved) is the watchdog's check
+    window.dispatchEvent(new Event("memento_wake_stream"));
+    if (streamingRef.current || askCache?.streaming) {
+      scrollConversationToBottom(true);
+    } else {
+      const targetScroll = askCache?.scrollTop;
+      if (typeof targetScroll === "number" && targetScroll > 0 && chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = targetScroll;
+        requestAnimationFrame(() => {
+          if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTop = targetScroll;
+          }
+        });
       }
     }
-  }, [pathname, scrollConversationToBottom]);
+  });
 
   // RAF-batched streaming: accumulate updates, flush once per frame
   const turnsRef = useRef<Turn[]>([]);
@@ -1292,7 +1310,7 @@ function AskPageContent() {
       if (lastRestoredIdRef.current !== id) return;
       activeConversationIdRef.current = data.id;
       setActiveConversationId(data.id);
-      window.history.replaceState(null, "", `/ask?id=${data.id}`);
+      replaceAskUrl(hiddenUrlRef, `/ask?id=${data.id}`);
       try {
         localStorage.setItem("memento_last_ask_conv_id", data.id);
       } catch {}
@@ -1419,12 +1437,12 @@ function AskPageContent() {
     setSelectedEffort("");
     setWorktreeMode(false);
 
-    try {
-      router.replace("/ask");
-    } catch {}
-    if (typeof window !== "undefined") {
-      window.history.replaceState(null, "", "/ask");
+    if (askShown()) {
+      try {
+        router.replace("/ask");
+      } catch {}
     }
+    replaceAskUrl(hiddenUrlRef, "/ask");
     try {
       localStorage.removeItem("memento_last_ask_conv_id");
     } catch {}
@@ -1686,7 +1704,7 @@ function AskPageContent() {
           }
           if (new URLSearchParams(window.location.search).get("scroll") === "bottom") {
             toBottom = true;
-            window.history.replaceState(null, "", `/ask?id=${idParam}`);
+            replaceAskUrl(hiddenUrlRef, `/ask?id=${idParam}`);
           }
         } catch {}
         if (toBottom) {
@@ -1725,7 +1743,7 @@ function AskPageContent() {
         // URL, nothing to restore
         if (resolvedTargetId && (openedConvIdRef.current === resolvedTargetId || followingRun(resolvedTargetId))) {
           if (userMovedOn()) return;
-          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+          replaceAskUrl(hiddenUrlRef, `/ask?id=${resolvedTargetId}`);
           if (cameBack) window.dispatchEvent(new Event("memento_wake_stream"));
           return;
         }
@@ -1796,7 +1814,7 @@ function AskPageContent() {
           };
         }
         if (!idParam) {
-          window.history.replaceState(null, "", `/ask?id=${targetConvId}`);
+          replaceAskUrl(hiddenUrlRef, `/ask?id=${targetConvId}`);
         }
         try {
           localStorage.setItem("memento_last_ask_conv_id", targetConvId);
@@ -1837,7 +1855,7 @@ function AskPageContent() {
         const sp = new URLSearchParams(window.location.search);
         if (sp.get("scroll") === "bottom") {
           forceJumpToBottom = true;
-          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+          replaceAskUrl(hiddenUrlRef, `/ask?id=${resolvedTargetId}`);
         }
       } catch {}
 
@@ -2695,7 +2713,7 @@ function AskPageContent() {
           openedConvIdRef.current = evt.id;
           activeConversationIdRef.current = evt.id;
           setActiveConversationId(evt.id);
-          window.history.replaceState(null, "", `/ask?id=${evt.id}`);
+          replaceAskUrl(hiddenUrlRef, `/ask?id=${evt.id}`);
           try {
             localStorage.setItem("memento_last_ask_conv_id", evt.id);
           } catch {}
@@ -3682,6 +3700,7 @@ function AskPageContent() {
     window.addEventListener("memento_fill_input", handleFillInput);
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (!askShown()) return;
       const hasModifier = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
 
@@ -4014,7 +4033,7 @@ function AskPageContent() {
         if (matchedAskConv) {
           activeConversationIdRef.current = matchedAskConv.id;
           setActiveConversationId(matchedAskConv.id);
-          window.history.replaceState(null, "", `/ask?id=${matchedAskConv.id}`);
+          replaceAskUrl(hiddenUrlRef, `/ask?id=${matchedAskConv.id}`);
           try {
             localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
           } catch {}
@@ -4202,7 +4221,7 @@ function AskPageContent() {
       if (matchedAskConv) {
         activeConversationIdRef.current = matchedAskConv.id;
         setActiveConversationId(matchedAskConv.id);
-        window.history.replaceState(null, "", `/ask?id=${matchedAskConv.id}`);
+        replaceAskUrl(hiddenUrlRef, `/ask?id=${matchedAskConv.id}`);
         try {
           localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
         } catch {}
@@ -4231,7 +4250,7 @@ function AskPageContent() {
           if (ensured && ensured.id) {
             activeConversationIdRef.current = ensured.id;
             setActiveConversationId(ensured.id);
-            window.history.replaceState(null, "", `/ask?id=${ensured.id}`);
+            replaceAskUrl(hiddenUrlRef, `/ask?id=${ensured.id}`);
             try {
               localStorage.setItem("memento_last_ask_conv_id", ensured.id);
             } catch {}

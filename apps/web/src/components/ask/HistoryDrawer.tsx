@@ -701,10 +701,14 @@ export const HistoryDrawer = memo(function HistoryDrawer({
         return next;
       });
     });
+    // Not while another menu is open (the ask page goes on, hidden)
+    const shown = () => window.location.pathname.startsWith("/ask");
     const interval = setInterval(() => {
-      if (!isLiveConnected()) void fetchActiveRuns();
+      if (!isLiveConnected() && shown()) void fetchActiveRuns();
     }, 2500);
-    const slowInterval = setInterval(() => void fetchActiveRuns(), 30_000);
+    const slowInterval = setInterval(() => {
+      if (shown()) void fetchActiveRuns();
+    }, 30_000);
 
     // 监听实时任务启动、完成和全局广播事件，达成 0ms 零延迟更新
     const handleStart = (e: any) => {
@@ -866,6 +870,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Left open on the ask page, which goes on while another menu is open: that menu's Escape
+      if (!window.location.pathname.startsWith("/ask")) return;
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();

@@ -43,6 +43,8 @@ describe("task events", () => {
   it("labels tools by what they do", () => {
     expect(taskToolLabel("Bash")).toBe("运行命令");
     expect(taskToolLabel("Shell")).toBe("运行命令");
+    expect(taskToolLabel("Bash: `du -sh ~/.memento`")).toBe("运行命令");
+    expect(taskToolLabel("TaskOutput")).toBe("任务输出");
     expect(taskToolLabel("mcp.search")).toBe("mcp.search");
   });
 });

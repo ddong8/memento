@@ -620,11 +620,20 @@ export class UniversalStreamParser extends AgentStreamParser {
         });
       }
       this.lastToolId = `tool_${++this.toolSeq}`;
+
+      let toolName = label;
+      let toolDetail = label;
+      const colonIdx = label.indexOf(":");
+      if (colonIdx > 0 && colonIdx < 30) {
+        toolName = label.slice(0, colonIdx).trim();
+        toolDetail = label.slice(colonIdx + 1).trim();
+      }
+
       events.push({
         kind: "tool",
         id: this.lastToolId,
-        name: label,
-        detail: label,
+        name: toolName,
+        detail: toolDetail,
         status: "running",
       });
       return events;

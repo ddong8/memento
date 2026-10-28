@@ -54,7 +54,9 @@ export function taskRunSummary(events: readonly TaskEvent[]): string {
 
 /** What a Claude Code / Codex tool does, in the user's words. */
 export function taskToolLabel(name: string | undefined): string {
-  switch (name) {
+  if (!name) return "工具";
+  const clean = name.includes(":") ? (name.split(":")[0] ?? "").trim() : name;
+  switch (clean) {
     case "Bash":
     case "BashOutput":
     case "Shell":
@@ -77,10 +79,12 @@ export function taskToolLabel(name: string | undefined): string {
     case "Task":
     case "Agent":
       return "派子任务";
+    case "TaskOutput":
+      return "任务输出";
     case "TodoWrite":
       return "更新待办";
     default:
-      return name ?? "工具";
+      return clean;
   }
 }
 

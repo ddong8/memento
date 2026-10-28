@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
@@ -644,8 +644,13 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   // 实时跟踪处于运行中的会话 ID 集合
   const [liveRunningIds, setLiveRunningIds] = useState<Set<string>>(() => new Set(runningConversationIds || []));
 
+  // Read by the polling below: depending on it restarted the polling, and fetched the run list again,
+  // whenever a run started, ended or another conversation was opened
+  const runningIdsRef = useRef(runningConversationIds);
+
   // 当外部传入的 runningConversationIds 变化时，合并保持最新
   useEffect(() => {
+    runningIdsRef.current = runningConversationIds;
     if (!runningConversationIds) return;
     setLiveRunningIds((prev) => {
       let changed = false;
@@ -675,9 +680,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
             activeIds.add(r.conversation_id);
           }
         });
-        if (runningConversationIds) {
-          runningConversationIds.forEach((id) => activeIds.add(id));
-        }
+        runningIdsRef.current?.forEach((id) => activeIds.add(id));
         setLiveRunningIds(activeIds);
       } catch {
         // 静默兜底
@@ -713,9 +716,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const ids = e?.detail?.conversation_ids;
       if (Array.isArray(ids)) {
         const set = new Set<string>(ids);
-        if (runningConversationIds) {
-          runningConversationIds.forEach((id) => set.add(id));
-        }
+        runningIdsRef.current?.forEach((id) => set.add(id));
         setLiveRunningIds(set);
       }
     };
@@ -733,7 +734,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       window.removeEventListener("memento_ask_done", handleDone);
       window.removeEventListener("memento_active_runs_update", handleUpdate);
     };
-  }, [open, runningConversationIds]);
+  }, [open]);
 
   const handleToggleBatch = useCallback((id: string) => {
     setSelectedConvIds((prev) => {

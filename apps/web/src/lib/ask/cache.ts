@@ -3,6 +3,7 @@ import { api,AskConversationSummary,ProjectSummary,type AskConversationDetail,ty
 import type { AgentCapabilities } from "@/lib/api-client";
 import { isConcreteDevice } from "@/lib/ask/devices";
 import { ExecutionMode,Turn } from "@/lib/ask/turns";
+import type { ToolCallItem } from "@/components/ExecutionCard";
 
 export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: string; desc?: string }>> = {
   codex: [
@@ -203,8 +204,81 @@ export interface LocalConvSnapshot {
 export const SNAPSHOT_KEY = "memento_last_conv_snapshot_v2";
 const LEGACY_SNAPSHOT_KEY = "memento_last_conv_snapshot";
 
+// localStorage is synchronous and what goes in here is large (whole conversations with their tool
+// output): serializing it where a conversation opens or a run ends held the page up for a moment.
+// The latest value per key waits here and is written when the browser is idle; leaving or hiding
+// the page writes it at once.
+const pendingWrites = new Map<string, () => string>();
+let flushScheduled = false;
+
+function writeLater(key: string, value: () => string) {
+  if (typeof window === "undefined") return;
+  pendingWrites.set(key, value);
+  if (flushScheduled) return;
+  flushScheduled = true;
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+  if (typeof w.requestIdleCallback === "function") w.requestIdleCallback(flushAskCacheWrites, { timeout: 2000 });
+  else setTimeout(flushAskCacheWrites, 300);
+}
+
+/** Writes what is waiting for localStorage now. */
+export function flushAskCacheWrites() {
+  flushScheduled = false;
+  if (typeof window === "undefined") return;
+  const writes = [...pendingWrites];
+  pendingWrites.clear();
+  for (const [key, value] of writes) {
+    try {
+      localStorage.setItem(key, value());
+    } catch {}
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushAskCacheWrites);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushAskCacheWrites();
+  });
+}
+
+/** Forgets the last opened conversation (a new chat): a write still waiting would bring it back. */
+export function clearLocalConvSnapshot() {
+  pendingWrites.delete(SNAPSHOT_KEY);
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(SNAPSHOT_KEY);
+    localStorage.removeItem(LEGACY_SNAPSHOT_KEY);
+  } catch {}
+}
+
+const KEPT_OUTPUT_CHARS = 8000;
+const KEPT_EVENTS = 200;
+
+/** A tool call as kept in localStorage: the tail of long output and the last steps, enough to show
+ *  the conversation at once before the saved one arrives. */
+function compactToolCall(call: ToolCallItem): ToolCallItem {
+  const r = call.result;
+  if (!r) return call;
+  const tooLong = (v?: string) => typeof v === "string" && v.length > KEPT_OUTPUT_CHARS;
+  if (!tooLong(r.stdout) && !tooLong(r.stderr) && !(r.events && r.events.length > KEPT_EVENTS)) return call;
+  return {
+    ...call,
+    result: {
+      ...r,
+      ...(tooLong(r.stdout) ? { stdout: r.stdout!.slice(-KEPT_OUTPUT_CHARS) } : {}),
+      ...(tooLong(r.stderr) ? { stderr: r.stderr!.slice(-KEPT_OUTPUT_CHARS) } : {}),
+      ...(r.events && r.events.length > KEPT_EVENTS ? { events: r.events.slice(-KEPT_EVENTS) } : {}),
+    },
+  };
+}
+
+function compactTurnsForStorage(turns: Turn[]): Turn[] {
+  return turns.map((t) => (t.toolCalls?.length ? { ...t, toolCalls: t.toolCalls.map(compactToolCall) } : t));
+}
+
 export function getLocalConvSnapshot(): LocalConvSnapshot | null {
   if (typeof window === "undefined") return null;
+  if (pendingWrites.has(SNAPSHOT_KEY)) flushAskCacheWrites();
   try {
     localStorage.removeItem(LEGACY_SNAPSHOT_KEY);
     const raw = localStorage.getItem(SNAPSHOT_KEY);
@@ -297,7 +371,7 @@ export function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: s
         worktreeMode: data.worktreeMode,
       },
     });
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+    writeLater(SNAPSHOT_KEY, () => JSON.stringify({ ...snapshot, turns: compactTurnsForStorage(snapshot.turns) }));
   } catch {}
 }
 
@@ -324,6 +398,11 @@ export const CONVERSATIONS_CACHE_KEY = "memento_cached_ask_convs";
 export const QUOTAS_CACHE_KEY = "memento_agent_quotas_cache";
 const RECENT_TURNS_CACHE_KEY = "memento_recent_conv_turns_cache_v1";
 
+type RecentConvEntry = { id: string; turns: Turn[]; config: CachedConversationConfig; updatedAt: number };
+const RECENT_CONVS_KEPT = 10;
+// The list as stored, read once: parsing it again for every conversation opened was the cost
+let recentConvEntries: RecentConvEntry[] = [];
+
 function loadRecentConvTurnsIntoMemory() {
   if (typeof window === "undefined") return;
   try {
@@ -334,6 +413,7 @@ function loadRecentConvTurnsIntoMemory() {
         for (const item of list) {
           if (item && typeof item.id === "string" && Array.isArray(item.turns)) {
             conversationTurnsCache.set(item.id, { turns: item.turns, config: item.config });
+            recentConvEntries.push(item);
           }
         }
       }
@@ -369,32 +449,33 @@ export function saveToRecentConvTurnsCache(
 
     if (typeof window === "undefined") return;
 
-    const recentRaw = localStorage.getItem(RECENT_TURNS_CACHE_KEY);
-    let list: Array<{ id: string; turns: Turn[]; config: CachedConversationConfig; updatedAt: number }> = [];
-    if (recentRaw) {
-      try {
-        const parsed = JSON.parse(recentRaw);
-        if (Array.isArray(parsed)) list = parsed;
-      } catch {}
-    }
+    const recent = turns.slice(-30);
+    recentConvEntries = [
+      { id, turns: recent, config, updatedAt: Date.now() },
+      ...recentConvEntries.filter((item) => item.id !== id),
+    ].slice(0, RECENT_CONVS_KEPT);
 
-    const sanitizedTurns = turns.slice(-30).map((t) => ({
-      role: t.role,
-      content: t.content && t.content.length > 40000 ? t.content.slice(0, 40000) : t.content,
-      thinking: t.thinking,
-      sources: t.sources,
-      toolCalls: t.toolCalls,
-      error: t.error,
-      created_at: t.created_at,
-      started_at: t.started_at,
-      duration_ms: t.duration_ms,
-    }));
-
-    list = list.filter((item) => item.id !== id);
-    list.unshift({ id, turns: sanitizedTurns, config, updatedAt: Date.now() });
-    list = list.slice(0, 10);
-
-    localStorage.setItem(RECENT_TURNS_CACHE_KEY, JSON.stringify(list));
+    // Trimmed when written (idle), not here: this runs as a conversation opens
+    writeLater(RECENT_TURNS_CACHE_KEY, () =>
+      JSON.stringify(
+        recentConvEntries.map((item) => ({
+          ...item,
+          turns: compactTurnsForStorage(
+            item.turns.map((t) => ({
+              role: t.role,
+              content: t.content && t.content.length > 40000 ? t.content.slice(0, 40000) : t.content,
+              thinking: t.thinking,
+              sources: t.sources,
+              toolCalls: t.toolCalls,
+              error: t.error,
+              created_at: t.created_at,
+              started_at: t.started_at,
+              duration_ms: t.duration_ms,
+            }))
+          ),
+        }))
+      )
+    );
   } catch {}
 }
 

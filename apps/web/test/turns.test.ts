@@ -4,8 +4,11 @@ import {
   formatTurnDuration,
   formatTurnTimestamp,
   interruptibleSleep,
+  mergeFinishedTurns,
   normalizeEpochMs,
   normalizeIsoTimestamp,
+  turnsChanged,
+  type Turn,
 } from "../src/lib/ask/turns";
 
 describe("turns utility functions", () => {
@@ -54,5 +57,65 @@ describe("turns utility functions", () => {
     await interruptibleSleep(5000, controller.signal);
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+describe("mergeFinishedTurns", () => {
+  const call = { name: "run_on_device", args: { command: "ls" } };
+
+  it("keeps the streamed reply and tool calls the saved turn does not have yet", () => {
+    const shown: Turn[] = [
+      { role: "user", content: "看下目录" },
+      { role: "assistant", content: "目录里有三个文件", toolCalls: [call] },
+    ];
+    const saved: Turn[] = [
+      { role: "user", content: "看下目录", created_at: "2026-10-28T08:00:00Z" },
+      { role: "assistant", content: "", created_at: "2026-10-28T08:00:05Z" },
+    ];
+    const merged = mergeFinishedTurns(shown, saved);
+    expect(merged[0]).toBe(saved[0]);
+    expect(merged[1]).toMatchObject({ content: "目录里有三个文件", toolCalls: [call], created_at: "2026-10-28T08:00:05Z" });
+    // Neither input is changed: a 304 hands back the cached object
+    expect(saved[1].content).toBe("");
+    expect(saved[1].toolCalls).toBeUndefined();
+  });
+
+  it("takes the saved turns as they are when they have the reply", () => {
+    const shown: Turn[] = [{ role: "assistant", content: "半截回" }];
+    const saved: Turn[] = [{ role: "assistant", content: "完整回答", toolCalls: [call] }];
+    expect(mergeFinishedTurns(shown, saved)).toBe(saved);
+  });
+
+  it("does not carry a reply over to a different kind of turn", () => {
+    const shown: Turn[] = [{ role: "assistant", content: "上一个对话的回答" }];
+    const saved: Turn[] = [{ role: "user", content: "新问题" }];
+    expect(mergeFinishedTurns(shown, saved)).toBe(saved);
+    expect(mergeFinishedTurns([], saved)).toBe(saved);
+  });
+});
+
+describe("turnsChanged", () => {
+  const turn = (role: Turn["role"], content: string, at: string): Turn => ({ role, content, created_at: at });
+  const shown = [turn("user", "问", "t1"), turn("assistant", "答", "t2")];
+
+  it("sees nothing new in the same turns", () => {
+    expect(turnsChanged(shown, shown.map((t) => ({ ...t })), 30)).toBe(false);
+  });
+
+  it("sees a turn added or the last reply grown", () => {
+    expect(turnsChanged(shown, [...shown, turn("user", "再问", "t3")], 30)).toBe(true);
+    expect(turnsChanged(shown, [shown[0], turn("assistant", "答得更长了", "t2")], 30)).toBe(true);
+    expect(turnsChanged(shown, [shown[0], { ...shown[1], error: true }], 30)).toBe(true);
+  });
+
+  it("compares the tail when earlier history was loaded on top", () => {
+    const older = Array.from({ length: 4 }, (_, i) => turn(i % 2 ? "assistant" : "user", `早${i}`, `e${i}`));
+    // The screen holds 6 turns, the saved page only the last 2 of a limit of 2
+    expect(turnsChanged([...older, ...shown], shown, 2)).toBe(false);
+    expect(turnsChanged([...older, ...shown], [shown[0], turn("assistant", "新答", "t9")], 2)).toBe(true);
+  });
+
+  it("sees turns removed while everything fits in one page", () => {
+    expect(turnsChanged(shown, [shown[0]], 30)).toBe(true);
   });
 });

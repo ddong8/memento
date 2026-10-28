@@ -36,11 +36,11 @@ import { HandoffCapsule, OfflineCapsule, type HandoffTask } from "@/components/a
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { formatContextTokens, isJunkSessionTitle, type AgentSessionItem } from "@/lib/ask/sessions";
-import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, SNAPSHOT_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache } from "@/lib/ask/cache";
+import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot } from "@/lib/ask/cache";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
-import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, normalizeEpochMs, normalizeIsoTimestamp } from "@/lib/ask/turns";
+import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
 
 
 
@@ -378,6 +378,11 @@ function AskPageContent() {
   }, []);
   const isNewChatModeRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
+  // The conversation this page itself opened (loadConversation, or a new chat's run naming its own):
+  // the URL change that follows is its echo, not a request to restore it again. Not carried over a
+  // remount, so a remount still reattaches what was running.
+  const openedConvIdRef = useRef<string | null>(null);
+  const awayFromAskRef = useRef<boolean>(false);
   const isUnmountedRef = useRef<boolean>(false);
   const userCancelledRef = useRef<boolean>(false);
 
@@ -474,7 +479,6 @@ function AskPageContent() {
   const [shareContent, setShareContent] = useState<string>("");
   const [shareInitialTab, setShareInitialTab] = useState<"link" | "publish">("link");
   const [batchSelectMode, setBatchSelectMode] = useState<boolean>(false);
-  const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
   const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
 
@@ -696,18 +700,13 @@ function AskPageContent() {
     setShareModalOpen(true);
   }, [isZh]);
 
-  const openBatchShare = useCallback(() => {
-    if (selectedConvIds.size === 0) return;
-    const ids = Array.from(selectedConvIds);
-    setShareTargetId(ids.join(","));
-    setShareTitle(isZh ? `批量对话分享 (${ids.length}条)` : `Batch Conversations (${ids.length})`);
-    setShareModalOpen(true);
-  }, [selectedConvIds, isZh]);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollSettleTimersRef = useRef<NodeJS.Timeout[]>([]);
   const pendingScrollToBottomRef = useRef<boolean>(false);
   const lastStreamActivityRef = useRef<number>(Date.now());
+  // Drops the connection the run's stream is read from (a dead one): its follower reconnects from the last frame
+  const kickStreamRef = useRef<(() => void) | null>(null);
   const lastWakeAtRef = useRef<number>(0);
 
   // 用户主动交互与手势防冲突状态跟踪（彻底消除移动端手势对抗与滑动阻滞）
@@ -811,6 +810,25 @@ function AskPageContent() {
   const turnsRef = useRef<Turn[]>([]);
   const rafIdRef = useRef<number>(0);
   const turnsDirtyRef = useRef(false);
+
+  // Stop showing the run this page follows (the run itself goes on): its stream's frames, its
+  // end-of-stream bookkeeping and a frame still waiting to be drawn all stay off the screen.
+  const detachStream = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (rafIdRef.current) {
+      window.cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = 0;
+    }
+    turnsDirtyRef.current = false;
+    streamingRef.current = false;
+    setStreaming(false);
+    setIsReconnecting(false);
+    if (askCache) {
+      askCache.streaming = false;
+      askCache.activeRun = null;
+    }
+  }, []);
 
   const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(false);
 
@@ -1263,21 +1281,14 @@ function AskPageContent() {
     const preserveScroll = options?.preserveScroll ?? false;
     const gen = beginRestore();
     lastRestoredIdRef.current = id;
+    openedConvIdRef.current = id;
     try {
       // 若指定了 force，或者在流式运行中切换到了不同会话：立即断开前端对当前旧会话的流式监听，释放前端主线程
       if (options?.force || (streamingRef.current && isSwitchingDifferentConv)) {
         invalidateApiCache(`/api/ask/conversations/${id}`);
-        abortRef.current?.abort();
-        abortRef.current = null;
-        streamingRef.current = false;
-        setStreaming(false);
-        if (askCache) {
-          askCache.streaming = false;
-          askCache.activeRun = null;
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("memento_wake_stream"));
-        }
+        // Only this page's view of the old run ends; the run goes on and is picked up again when opened.
+        // (Signalling a wake here made the watchdog and the runs monitor reopen the old conversation.)
+        detachStream();
       }
 
       setHistoryOpen(false);
@@ -1364,7 +1375,7 @@ function AskPageContent() {
     } finally {
       endRestore(gen);
     }
-  }, [applyCachedCascade, beginRestore, endRestore, restoreCascade]);
+  }, [applyCachedCascade, beginRestore, detachStream, endRestore, restoreCascade]);
 
   // Load earlier history for long conversation (Cursor Pagination)
   const loadEarlierHistoryTurns = useCallback(async () => {
@@ -1417,12 +1428,13 @@ function AskPageContent() {
     // A conversation still loading must not fill the new chat with its device, project or session
     takeOverCascade();
     isNewChatModeRef.current = true;
-    abortRef.current?.abort();
-    streamingRef.current = false;
-    setStreaming(false);
+    // A run still going keeps going on the server (the runs dock shows it); nothing of its stream may
+    // land in the new chat
+    detachStream();
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
     lastRestoredIdRef.current = null;
+    openedConvIdRef.current = null;
     setSelectedSessionId("");
     setSelectedProjectId("");
     selectedProjectIdRef.current = "";
@@ -1456,15 +1468,14 @@ function AskPageContent() {
     }
     try {
       localStorage.removeItem("memento_last_ask_conv_id");
-      localStorage.removeItem(SNAPSHOT_KEY);
-      localStorage.removeItem("memento_last_conv_snapshot_v2");
     } catch {}
+    clearLocalConvSnapshot();
     setHasMoreTurns(false);
     setTotalTurns(0);
     askCache = null;
     setHistoryOpen(false);
     setSourcesOpen(false);
-  }, [router, takeOverCascade]);
+  }, [detachStream, router, takeOverCascade]);
 
   const [exportingMd, setExportingMd] = useState(false);
 
@@ -1603,6 +1614,20 @@ function AskPageContent() {
     [startNewChat, t.ask.deleteConfirm]
   );
 
+  // The history drawer's callbacks, kept the same between renders: it is memoized so a streaming
+  // reply (a render per frame) does not redraw the whole list, which new functions every render undid
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
+  const openFromHistory = useCallback((id: string) => {
+    void loadConversation(id, { force: true });
+  }, [loadConversation]);
+  const shareFromHistory = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    // The ids picked in the drawer, which holds the selection
+    setShareTargetId(ids.join(","));
+    setShareTitle(isZh ? `批量对话分享 (${ids.length}条)` : `Batch Conversations (${ids.length})`);
+    setShareModalOpen(true);
+  }, [isZh]);
+
   // Fetch online/registered devices
   useEffect(() => {
     devicesLoadedRef.current = authFetch(`${getApiBase()}/api/devices`)
@@ -1671,8 +1696,13 @@ function AskPageContent() {
     // If not currently on the /ask route (e.g. view is kept alive in background),
     // do NOT trigger checkAndRestore or re-fetch conversations!
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/ask")) {
+      awayFromAskRef.current = true;
       return;
     }
+    // Back on /ask from another menu: what went on meanwhile (a run started elsewhere, replies saved)
+    // is the watchdog's check, cheap for a conversation still open here
+    const cameBack = awayFromAskRef.current;
+    awayFromAskRef.current = false;
 
     if (conversations.length === 0) {
       loadConversationsRef.current();
@@ -1683,9 +1713,36 @@ function AskPageContent() {
       if (isNewChatModeRef.current && !idParam && !qParam) {
         return;
       }
+      // The URL change opening a conversation (or a new chat's run naming its own) makes: it is
+      // already open here, being loaded or its run followed. Restoring it again attached the same
+      // run a second time and replayed it from the start.
+      const followingRun = (id: string) =>
+        activeConversationIdRef.current === id && streamingRef.current && Boolean(abortRef.current && !abortRef.current.signal.aborted);
+      if (idParam && !qParam && (openedConvIdRef.current === idParam || followingRun(idParam))) {
+        let toBottom = false;
+        try {
+          if (localStorage.getItem("memento_pending_jump_conv_id") === idParam) {
+            localStorage.removeItem("memento_pending_jump_conv_id");
+            toBottom = true;
+          }
+          if (new URLSearchParams(window.location.search).get("scroll") === "bottom") {
+            toBottom = true;
+            window.history.replaceState(null, "", `/ask?id=${idParam}`);
+          }
+        } catch {}
+        if (toBottom) {
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
+        }
+        if (cameBack) window.dispatchEvent(new Event("memento_wake_stream"));
+        return;
+      }
       if (idParam || qParam) {
         isNewChatModeRef.current = false;
       }
+      // While this looks, the user may start a new chat or open another conversation: theirs stays
+      let openedAtStart = openedConvIdRef.current;
+      const userMovedOn = () => isNewChatModeRef.current || openedConvIdRef.current !== openedAtStart;
 
       // Determine target conversation ID:
       // 1) Explicit URL idParam
@@ -1704,6 +1761,14 @@ function AskPageContent() {
               resolvedTargetId = recent.id;
             }
           } catch {}
+        }
+        // Back on /ask from another menu with the conversation still open here: put its id back in the
+        // URL, nothing to restore
+        if (resolvedTargetId && (openedConvIdRef.current === resolvedTargetId || followingRun(resolvedTargetId))) {
+          if (userMovedOn()) return;
+          window.history.replaceState(null, "", `/ask?id=${resolvedTargetId}`);
+          if (cameBack) window.dispatchEvent(new Event("memento_wake_stream"));
+          return;
         }
       }
 
@@ -1748,11 +1813,14 @@ function AskPageContent() {
         console.error("Failed to check active runs:", err);
       }
 
-      if (!resolvedTargetId) return;
+      if (!resolvedTargetId || userMovedOn()) return;
 
       // If an active run is currently ongoing on the server: MUST reattach live stream!
       if (activeRunToAttach) {
         const targetConvId = activeRunToAttach.conversation_id || resolvedTargetId;
+        // Opened by this restore: the URL it sets below is its own echo
+        openedConvIdRef.current = targetConvId;
+        openedAtStart = targetConvId;
         activeConversationIdRef.current = targetConvId;
         setActiveConversationId(targetConvId);
         lastRestoredIdRef.current = targetConvId;
@@ -1788,6 +1856,10 @@ function AskPageContent() {
           }
           if (gen === cascadeGenRef.current) restoring = restoreCascadeRef.current(data, baseTurns, gen);
         } catch {}
+        if (userMovedOn()) {
+          void restoring.catch(() => {}).finally(() => endRestore(gen));
+          return;
+        }
         attachRunRef.current?.(targetConvId, activeRunToAttach.question || "", baseTurns);
         pendingScrollToBottomRef.current = true;
         scrollConversationToBottom(true);
@@ -1859,6 +1931,23 @@ function AskPageContent() {
 
   // Support instantaneous chat navigation / switching via notifications or banners
   useEffect(() => {
+    // The conversation asked for is the one open here (back from the Dynamic Island, a notification,
+    // the runs dock): a stream following its run stays, and the watchdog reconnects it only if it went
+    // quiet. Reloading it tore the stream down and replayed the whole run.
+    const showOpenConversation = (id: string, reload: boolean, toBottom: boolean) => {
+      const following = streamingRef.current && Boolean(abortRef.current && !abortRef.current.signal.aborted);
+      if (following) {
+        window.dispatchEvent(new Event("memento_wake_stream"));
+      } else if (reload || streamingRef.current || askCache?.streaming) {
+        void loadConversation(id, { force: true, preserveScroll: !toBottom });
+        return;
+      }
+      if (toBottom) {
+        pendingScrollToBottomRef.current = true;
+        scrollConversationToBottom(true);
+      }
+    };
+
     const handleSwitchChat = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const targetId = detail?.id;
@@ -1872,17 +1961,7 @@ function AskPageContent() {
             pushFn(`/ask?id=${encodeURIComponent(targetId)}`);
           }
         }
-        if (detail?.forceReload || streamingRef.current || askCache?.streaming) {
-          void loadConversation(targetId, {
-            force: true,
-            preserveScroll: detail?.scrollToBottom === false,
-          });
-          return;
-        }
-        if (!detail?.preserveScroll) {
-          pendingScrollToBottomRef.current = true;
-          scrollConversationToBottom(true);
-        }
+        showOpenConversation(targetId, Boolean(detail?.forceReload), detail?.scrollToBottom !== false && !detail?.preserveScroll);
         return;
       }
 
@@ -1907,12 +1986,7 @@ function AskPageContent() {
             pushFn(`/ask?id=${encodeURIComponent(id)}&scroll=bottom`);
           }
         }
-        if (options?.force || streamingRef.current || askCache?.streaming) {
-          void loadConversation(id, { force: true, preserveScroll: false });
-        } else {
-          pendingScrollToBottomRef.current = true;
-          scrollConversationToBottom(true);
-        }
+        showOpenConversation(id, Boolean(options?.force), true);
         return;
       }
       lastRestoredIdRef.current = null;
@@ -2048,153 +2122,72 @@ function AskPageContent() {
     };
   }, []);
 
-  // Active Run Watchdog: continuously safeguards background task state across tabs and network drops
+  // Active Run Watchdog: keeps the open conversation's run true to the server when its stream may have
+  // died (a network drop, the app in the background, the window coming back). A stream still receiving
+  // is left alone: reloading the conversation on every window focus tore it down and replayed the
+  // whole run, which was the stutter. Every answer is checked against the conversation still open.
   useEffect(() => {
     let isMounted = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Keepalives come every 8 s (server services/ask_runs.py KEEPALIVE_SECONDS): quieter than this, dead
+    const STREAM_SILENT_MS = 15000;
+    const following = () => Boolean(abortRef.current && !abortRef.current.signal.aborted);
+    const streamAlive = () => following() && Date.now() - lastStreamActivityRef.current < STREAM_SILENT_MS;
 
-    const checkServerRun = async (forceRefreshWhenIdle = false) => {
+    const checkServerRun = async (resumed = false) => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
-      if (!forceRefreshWhenIdle && typeof document !== "undefined" && document.visibilityState === "hidden") {
+      if (!resumed && typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
       }
-      // When not streaming and no active run is tracked, skip empty /run polling unless explicitly forced
-      const hasActiveRunExpected = streamingRef.current || Boolean(askCache?.streaming) || Boolean(askCache?.activeRun);
-      if (!forceRefreshWhenIdle && !hasActiveRunExpected) {
+      // When not streaming and no active run is tracked, skip empty /run polling unless the page just came back
+      const runExpected = streamingRef.current || Boolean(askCache?.streaming) || Boolean(askCache?.activeRun);
+      if (!resumed && !runExpected) {
         return;
       }
+      const stillOpen = () => isMounted && activeConversationIdRef.current === convId;
 
       try {
         const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${convId}/run`);
-        if (!isMounted) return;
+        if (!stillOpen()) return;
+        if (!runRes.ok && runRes.status !== 404) return; // the server's trouble: the next tick retries
+        const run = runRes.ok ? await runRes.json() : null;
+        if (!stillOpen()) return;
 
-        if (runRes.ok) {
-          const run = await runRes.json();
-          if (!isMounted) return;
-
-          if (run && !run.done && !run.cancelled) {
-            // Task is STILL running on server
-            if (forceRefreshWhenIdle) {
-              void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
-              return;
-            }
-            if (!streamingRef.current) {
-              streamingRef.current = true;
-              setStreaming(true);
-              if (askCache) {
-                askCache.streaming = true;
-                askCache.activeRun = {
-                  convId,
-                  question: run.question || "",
-                  startedAt: normalizeEpochMs(run.started_at),
-                };
-              }
-            }
-
-            // If local SSE reader is dead or aborted, or was zombie in background (> 5s no activity on resume), reattach to stream
-            const isStreamZombie = forceRefreshWhenIdle && (Date.now() - lastStreamActivityRef.current > 5000);
-            if (!abortRef.current || abortRef.current.signal.aborted || isStreamZombie) {
-              if (isStreamZombie && abortRef.current) {
-                try {
-                  abortRef.current.abort();
-                } catch {}
-              }
-              attachRunRef.current?.(convId, run.question || "", turnsRef.current);
-              pendingScrollToBottomRef.current = true;
-              scrollConversationToBottom(true);
-            }
-          } else if (run && run.done) {
-            // Task has completed on server
-            if (forceRefreshWhenIdle || streamingRef.current) {
-              void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
-              return;
-            }
-            const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
-            if (isStreamActive) {
-              // The SSE stream is actively receiving frames from the server.
-              // Do NOT abort it or race with final delta/done frames still in transit!
-              return;
-            }
-            if (streamingRef.current || forceRefreshWhenIdle) {
-              if (abortRef.current) {
-                try {
-                  abortRef.current.abort();
-                } catch {}
-              }
-              const wasStreaming = streamingRef.current;
-              invalidateApiCache(`/api/ask/conversations/${convId}`);
-              const data = await api.getAskConversation(convId, 40).catch(() => null);
-              if (isMounted && data?.turns) {
-                const prevLast = turnsRef.current[turnsRef.current.length - 1];
-                const nextLast = data.turns[data.turns.length - 1];
-                if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
-                  nextLast.content = prevLast.content;
-                }
-                if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
-                  nextLast.toolCalls = prevLast.toolCalls;
-                }
-                const changed =
-                  wasStreaming ||
-                  data.turns.length !== turnsRef.current.length ||
-                  (nextLast?.content || "") !== (prevLast?.content || "") ||
-                  Boolean(nextLast?.created_at) !== Boolean(prevLast?.created_at);
-                turnsRef.current = data.turns;
-                setTurns(data.turns);
-                if (changed) {
-                  pendingScrollToBottomRef.current = true;
-                  scrollConversationToBottom(true);
-                }
-              }
-              streamingRef.current = false;
-              setStreaming(false);
-              if (askCache) {
-                askCache.streaming = false;
-                askCache.activeRun = null;
-              }
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(
-                  new CustomEvent("memento_ask_done", {
-                    detail: { conversation_id: convId },
-                  })
-                );
-              }
-            }
+        if (run && !run.done && !run.cancelled) {
+          // Still running on the server
+          if (streamAlive()) return;
+          if (following()) {
+            // This page's stream went quiet: drop the dead connection, the follower picks the run up where it stopped
+            kickStreamRef.current?.();
+            return;
           }
-        } else if (runRes.status === 404 && (streamingRef.current || forceRefreshWhenIdle)) {
-          // No active run on server
-          if (forceRefreshWhenIdle || streamingRef.current) {
+          if (!streamingRef.current) {
+            // Started elsewhere (another device, or before this page opened it): the conversation with its run
             void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
             return;
           }
-          const isStreamActive = streamingRef.current && (Date.now() - lastStreamActivityRef.current < 8000) && (!abortRef.current?.signal.aborted);
-          if (isStreamActive) {
-            return;
-          }
-          if (abortRef.current) {
-            try {
-              abortRef.current.abort();
-            } catch {}
-          }
+          attachRunRef.current?.(convId, run.question || "", turnsRef.current);
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
+          return;
+        }
+
+        // Ended, or no longer held by the server
+        if (runExpected) {
+          if (streamingRef.current && streamAlive()) return; // its done frame is on the way
+          // Ends the follower; its own end-of-stream bookkeeping still runs
+          abortRef.current?.abort();
           const wasStreaming = streamingRef.current;
           invalidateApiCache(`/api/ask/conversations/${convId}`);
           const data = await api.getAskConversation(convId, 40).catch(() => null);
-          if (isMounted && data?.turns) {
-            const prevLast = turnsRef.current[turnsRef.current.length - 1];
-            const nextLast = data.turns[data.turns.length - 1];
-            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
-              nextLast.content = prevLast.content;
-            }
-            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
-              nextLast.toolCalls = prevLast.toolCalls;
-            }
-            const changed =
-              wasStreaming ||
-              data.turns.length !== turnsRef.current.length ||
-              (nextLast?.content || "") !== (prevLast?.content || "") ||
-              Boolean(nextLast?.created_at) !== Boolean(prevLast?.created_at);
-            turnsRef.current = data.turns;
-            setTurns(data.turns);
+          if (!stillOpen()) return;
+          if (data?.turns) {
+            const prev = turnsRef.current;
+            const merged = mergeFinishedTurns(prev, data.turns);
+            const changed = wasStreaming || turnsChanged(prev, merged, 40);
+            turnsRef.current = merged;
+            setTurns(merged);
             if (changed) {
               pendingScrollToBottomRef.current = true;
               scrollConversationToBottom(true);
@@ -2213,6 +2206,23 @@ function AskPageContent() {
               })
             );
           }
+          return;
+        }
+
+        if (resumed) {
+          // Nothing running: only what was saved meanwhile (another device went on with it). The request
+          // is conditional, so nothing new costs a 304 and nothing on screen is touched.
+          const data = await api.getAskConversation(convId, 40).catch(() => null);
+          if (!stillOpen() || streamingRef.current || !data?.turns) return;
+          const prev = turnsRef.current;
+          const next = mergeFinishedTurns(prev, data.turns);
+          if (!turnsChanged(prev, next, 40)) return;
+          turnsRef.current = next;
+          setTurns(next);
+          setHasMoreTurns(Boolean(data.has_more));
+          setTotalTurns(data.total_turns ?? next.length);
+          pendingScrollToBottomRef.current = true;
+          scrollConversationToBottom(true);
         }
       } catch {
         // Network errors are ignored; next tick will retry
@@ -2244,14 +2254,7 @@ function AskPageContent() {
       const now = Date.now();
       if (now - lastWakeAtRef.current < 600) return;
       lastWakeAtRef.current = now;
-
-      const convId = activeConversationIdRef.current;
-      // 当有任务在执行时，切换到其它app，再切回来后，正在运行的对话强制重新加载与最新状态同步
-      if (convId && (streamingRef.current || askCache?.streaming || askCache?.activeRun)) {
-        void loadConversationRef.current?.(convId, { force: true, preserveScroll: false });
-      } else {
-        void checkServerRun(true);
-      }
+      void checkServerRun(true);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -2635,8 +2638,13 @@ function AskPageContent() {
   }, [executionMode, selectedDevice]);
 
   // Read one SSE response of a run, applying its events. Returns true once the run is done.
-  const consumeRun = useCallback(async (res: Response, cursor: RunCursor): Promise<boolean> => {
+  const consumeRun = useCallback(async (res: Response, cursor: RunCursor, ctrl: AbortController): Promise<boolean> => {
     const reader = res.body!.getReader();
+    const kick = () => {
+      reader.cancel().catch(() => {});
+    };
+    kickStreamRef.current = kick;
+    lastStreamActivityRef.current = Date.now(); // connected: the watchdog counts silence from here
     const decoder = new TextDecoder();
     let buffer = "";
     let sawDone = false;
@@ -2663,6 +2671,8 @@ function AskPageContent() {
     };
 
     const handleFrame = (frame: string) => {
+      // Detached (another conversation or a new chat opened): a chunk already read is not this screen's
+      if (ctrl.signal.aborted) return;
       lastStreamActivityRef.current = Date.now();
       const lines = frame.split("\n");
       const idLine = lines.find((l) => l.startsWith("id: "));
@@ -2711,15 +2721,20 @@ function AskPageContent() {
         }
       } else if (evt.type === "conversation_id" && evt.id) {
         cursor.convId = evt.id;
-        activeConversationIdRef.current = evt.id;
-        setActiveConversationId(evt.id);
-        window.history.replaceState(null, "", `/ask?id=${evt.id}`);
-        try {
-          localStorage.setItem("memento_last_ask_conv_id", evt.id);
-        } catch {}
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("memento_active_chat_change", { detail: { id: evt.id } }));
-          window.dispatchEvent(new CustomEvent("memento_ask_start", { detail: { conversation_id: evt.id } }));
+        // A new chat learning its id. Replayed when a run is reattached: the conversation is open
+        // already, and switching to it again re-ran the restore and attached the run twice.
+        if (activeConversationIdRef.current !== evt.id) {
+          openedConvIdRef.current = evt.id;
+          activeConversationIdRef.current = evt.id;
+          setActiveConversationId(evt.id);
+          window.history.replaceState(null, "", `/ask?id=${evt.id}`);
+          try {
+            localStorage.setItem("memento_last_ask_conv_id", evt.id);
+          } catch {}
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("memento_active_chat_change", { detail: { id: evt.id } }));
+            window.dispatchEvent(new CustomEvent("memento_ask_start", { detail: { conversation_id: evt.id } }));
+          }
         }
         if (!laStartedSent) {
           laStartedSent = true;
@@ -3088,7 +3103,7 @@ function AskPageContent() {
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("memento_ask_done", {
-              detail: { conversation_id: activeConversationIdRef.current || cursor.convId },
+              detail: { conversation_id: cursor.convId || activeConversationIdRef.current },
             })
           );
         }
@@ -3144,6 +3159,7 @@ function AskPageContent() {
     } catch {
       // Reader read interrupted (network hiccup, socket drop, etc.)
     } finally {
+      if (kickStreamRef.current === kick) kickStreamRef.current = null;
       try {
         reader.releaseLock();
       } catch {}
@@ -3152,6 +3168,18 @@ function AskPageContent() {
   }, [patchLast, persistCurrentConfig, t, executionMode, selectedDevice, normalizeDeviceId]);
 
   const followRun = useCallback(async (cursor: RunCursor, ctrl: AbortController) => {
+    // The run has ended: show the saved conversation, unless this page has moved on meanwhile
+    // (writing it then put the old conversation over the one opened, or into a new chat)
+    const showSaved = async () => {
+      const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
+      if (ctrl.signal.aborted || activeConversationIdRef.current !== cursor.convId) return;
+      if (data?.turns) {
+        const merged = mergeFinishedTurns(turnsRef.current, data.turns);
+        turnsRef.current = merged;
+        setTurns(merged);
+      }
+      scrollConversationToBottom(true);
+    };
     let attempt = 1;
     while (!ctrl.signal.aborted) {
       if (attempt > 1) {
@@ -3170,25 +3198,12 @@ function AskPageContent() {
             currentStep: "任务完成",
           });
           // Finished and no longer held by the server: the saved conversation has it all.
-          const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
-          if (data?.turns) {
-            const prevLast = turnsRef.current[turnsRef.current.length - 1];
-            const nextLast = data.turns[data.turns.length - 1];
-            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
-              nextLast.content = prevLast.content;
-            }
-            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
-              nextLast.toolCalls = prevLast.toolCalls;
-            }
-            turnsRef.current = data.turns;
-            setTurns(data.turns);
-          }
-          scrollConversationToBottom(true);
+          await showSaved();
           return;
         }
         if (res.ok && res.body) {
           setIsReconnecting(false);
-          const finished = await consumeRun(res, cursor);
+          const finished = await consumeRun(res, cursor, ctrl);
           if (finished) return;
         }
       } catch (err) {
@@ -3216,20 +3231,7 @@ function AskPageContent() {
             status: "done",
             currentStep: "任务完成",
           });
-          const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
-          if (data?.turns) {
-            const prevLast = turnsRef.current[turnsRef.current.length - 1];
-            const nextLast = data.turns[data.turns.length - 1];
-            if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
-              nextLast.content = prevLast.content;
-            }
-            if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
-              nextLast.toolCalls = prevLast.toolCalls;
-            }
-            turnsRef.current = data.turns;
-            setTurns(data.turns);
-          }
-          scrollConversationToBottom(true);
+          await showSaved();
           return;
         }
         if (runRes.ok) {
@@ -3241,20 +3243,7 @@ function AskPageContent() {
               status: run.cancelled ? "cancelled" : (run.failed ? "error" : "done"),
               currentStep: run.cancelled ? "任务已取消" : (run.failed ? "任务失败" : "任务完成"),
             });
-            const data = await api.getAskConversation(cursor.convId!, 40).catch(() => null);
-            if (data?.turns) {
-              const prevLast = turnsRef.current[turnsRef.current.length - 1];
-              const nextLast = data.turns[data.turns.length - 1];
-              if (prevLast?.content?.trim() && !nextLast?.content?.trim()) {
-                nextLast.content = prevLast.content;
-              }
-              if (prevLast?.toolCalls?.length && (!nextLast?.toolCalls || nextLast.toolCalls.length === 0)) {
-                nextLast.toolCalls = prevLast.toolCalls;
-              }
-              turnsRef.current = data.turns;
-              setTurns(data.turns);
-            }
-            scrollConversationToBottom(true);
+            await showSaved();
             return;
           }
           // Server confirmed task is still running: keep reconnecting!
@@ -3588,7 +3577,7 @@ function AskPageContent() {
         return;
       }
 
-      const done = await consumeRun(res, cursor);
+      const done = await consumeRun(res, cursor, ctrl);
       // The run lives on the server: a dropped connection reattaches, never resends.
       if (!done && !ctrl.signal.aborted && cursor.convId) await followRun(cursor, ctrl);
     } catch (err) {
@@ -6394,27 +6383,20 @@ function AskPageContent() {
       {/* History Drawer Overlay & Sidebar (Isolated with React.memo to prevent streaming re-render lag) */}
       <HistoryDrawer
         open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
+        onClose={closeHistory}
         conversations={conversations}
         activeConversationId={activeConversationId}
         selectedDevice={selectedDevice}
         devices={devices}
-        onSelectConversation={(id) => {
-          loadConversation(id, { force: true });
-        }}
+        onSelectConversation={openFromHistory}
         onStartNewChat={startNewChat}
         onDeleteConversation={deleteConversation}
         onRenameConversation={renameConversation}
         onTogglePinConversation={togglePinConversation}
         onOpenSingleShare={openSingleShare}
-        onOpenBatchShare={(ids) => {
-          setSelectedConvIds(new Set(ids));
-          openBatchShare();
-        }}
+        onOpenBatchShare={shareFromHistory}
         onPrefetchTurns={prefetchConversationTurns}
-        onFilterDeviceChange={(filterCurrent) => {
-          setHistoryFilterDevice(filterCurrent);
-        }}
+        onFilterDeviceChange={setHistoryFilterDevice}
         isZh={isZh}
         t={t}
         runningConversationIds={runningConversationIds}

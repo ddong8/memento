@@ -35,6 +35,44 @@ export interface Turn {
   cached?: boolean;
 }
 
+/**
+ * The saved turns of a run that has ended, keeping what the page streamed where the save has not
+ * caught up yet (a reply still empty, no tool calls). Neither list is changed: the saved one may
+ * be the request cache's own object.
+ */
+export function mergeFinishedTurns(shown: Turn[], saved: Turn[]): Turn[] {
+  const prevLast = shown[shown.length - 1];
+  const nextLast = saved[saved.length - 1];
+  if (prevLast?.role !== "assistant" || nextLast?.role !== "assistant") return saved;
+  const keepContent = Boolean(prevLast.content?.trim()) && !nextLast.content?.trim();
+  const keepCalls = Boolean(prevLast.toolCalls?.length) && !nextLast.toolCalls?.length;
+  if (!keepContent && !keepCalls) return saved;
+  return [
+    ...saved.slice(0, -1),
+    {
+      ...nextLast,
+      ...(keepContent ? { content: prevLast.content } : {}),
+      ...(keepCalls ? { toolCalls: prevLast.toolCalls } : {}),
+    },
+  ];
+}
+
+const turnSignature = (t: Turn | undefined) =>
+  t ? [t.role, t.created_at || "", t.content?.length ?? 0, t.toolCalls?.length ?? 0, t.error ? 1 : 0].join("|") : "";
+
+/**
+ * Whether the saved turns (the last `limit` of the conversation) show anything the screen does
+ * not. Compared from the end: the screen may also hold earlier history loaded on top.
+ */
+export function turnsChanged(shown: Turn[], saved: Turn[], limit: number): boolean {
+  if (saved.length > shown.length) return true;
+  if (saved.length < shown.length && shown.length <= limit) return true;
+  for (let k = 1; k <= Math.min(2, saved.length); k++) {
+    if (turnSignature(shown[shown.length - k]) !== turnSignature(saved[saved.length - k])) return true;
+  }
+  return false;
+}
+
 export function interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) {

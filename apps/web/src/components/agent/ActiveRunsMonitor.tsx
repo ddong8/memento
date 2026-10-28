@@ -41,6 +41,23 @@ export default function ActiveRunsMonitor() {
   }, [pathname, searchParams]);
 
   const currentConvId = pathname === "/ask" ? (searchParams.get("id") || activeChatId) : null;
+  // Read by the polling and event handlers, so switching conversations does not rebuild them (each
+  // rebuild fetched the run list again)
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const currentConvIdRef = useRef(currentConvId);
+  currentConvIdRef.current = currentConvId;
+  // The user is looking at this conversation right now. A new chat being written is not looking at
+  // any run: one ending elsewhere then still notifies.
+  const isWatching = useCallback((convId: string) => {
+    return (
+      pathnameRef.current === "/ask" &&
+      currentConvIdRef.current === convId &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible" &&
+      (typeof document.hasFocus !== "function" || document.hasFocus())
+    );
+  }, []);
 
   const [runs, setRuns] = useState<AskRunSummary[]>([]);
   const [now, setNow] = useState<number>(() => Date.now());
@@ -110,12 +127,7 @@ export default function ActiveRunsMonitor() {
           !notifiedConvIdsRef.current.has(r.conversation_id)
         ) {
           notifiedConvIdsRef.current.add(r.conversation_id);
-          const isActivelyWatching =
-            pathname === "/ask" &&
-            (currentConvId === r.conversation_id || !currentConvId) &&
-            typeof document !== "undefined" &&
-            document.visibilityState === "visible" &&
-            (typeof document.hasFocus !== "function" || document.hasFocus());
+          const isActivelyWatching = isWatching(r.conversation_id);
           // 如果用户当前就在 /ask 页面、窗口处于前台且查看的就是该会话，直接静默消除通知
           if (isActivelyWatching) {
             seenFinishedWhileVisibleRef.current.add(r.conversation_id);
@@ -151,7 +163,7 @@ export default function ActiveRunsMonitor() {
     } catch {
       // Ignore network errors during polling
     }
-  }, [token, pathname, currentConvId]);
+  }, [token, isWatching]);
 
   // 监听任务结束与启动事件，实现零延迟即时响应，打破 1.5s~4s 纯轮询固有滞后
   useEffect(() => {
@@ -169,12 +181,7 @@ export default function ActiveRunsMonitor() {
         }
         const alreadyNotified = notifiedConvIdsRef.current.has(convId);
         notifiedConvIdsRef.current.add(convId);
-        const isActivelyWatching =
-          pathname === "/ask" &&
-          (currentConvId === convId || !currentConvId) &&
-          typeof document !== "undefined" &&
-          document.visibilityState === "visible" &&
-          (typeof document.hasFocus !== "function" || document.hasFocus());
+        const isActivelyWatching = isWatching(convId);
         setRuns((prev) => {
           const target = prev.find((r) => r.conversation_id === convId);
           if (target && !isActivelyWatching && !alreadyNotified) {
@@ -228,7 +235,7 @@ export default function ActiveRunsMonitor() {
       window.removeEventListener("memento_ask_done", handleAskDone);
       window.removeEventListener("memento_ask_start", handleAskStart);
     };
-  }, [fetchRuns, pathname, currentConvId]);
+  }, [fetchRuns, isWatching]);
 
   // A run starting or ending anywhere (another tab, device or the phone) is pushed: refresh at once
   const [live, setLive] = useState(isLiveConnected);
@@ -321,12 +328,23 @@ export default function ActiveRunsMonitor() {
           return false;
         });
         if (finishedWhileHidden) {
-          const key = `${finishedWhileHidden.conversation_id}:${Math.round(finishedWhileHidden.finished_at || 0)}`;
+          const convId = finishedWhileHidden.conversation_id;
+          const key = `${convId}:${Math.round(finishedWhileHidden.finished_at || 0)}`;
           autoJumpedKeysRef.current.add(key);
-          seenFinishedWhileVisibleRef.current.add(finishedWhileHidden.conversation_id);
-          setDismissedNotificationIds((prev) => new Set([...prev, finishedWhileHidden.conversation_id]));
+          // On the chat page what the user has open stays: a new chat being written or another
+          // conversation was swapped for the finished one, often a moment after they had left it.
+          // The conversation open refreshes itself when the page wakes; another one keeps its notice.
+          if (pathnameRef.current === "/ask") {
+            if (currentConvIdRef.current === convId) {
+              seenFinishedWhileVisibleRef.current.add(convId);
+              setDismissedNotificationIds((prev) => new Set([...prev, convId]));
+            }
+            return;
+          }
+          seenFinishedWhileVisibleRef.current.add(convId);
+          setDismissedNotificationIds((prev) => new Set([...prev, convId]));
           if (typeof (window as any).__memento_open_chat === "function") {
-            (window as any).__memento_open_chat(finishedWhileHidden.conversation_id, { force: true });
+            (window as any).__memento_open_chat(convId, { force: true });
           }
         }
       } catch {}
@@ -369,11 +387,13 @@ export default function ActiveRunsMonitor() {
     (r) => r.done && !dismissedNotificationIds.has(r.conversation_id) && (now / 1000 - (r.finished_at || 0) < 20)
   );
 
-  // Suppress floating dock for runs that are already actively in the user's viewport on /ask
+  // Suppress floating dock for runs that are already actively in the user's viewport on /ask. In a new
+  // chat only its own run, the moment before its conversation id comes back; any other run stays in
+  // the dock (hiding it there left no way to see or stop it).
   const unobservedActiveRuns = activeRuns.filter((r) => {
     if (pathname === "/ask") {
       if (currentConvId && r.conversation_id === currentConvId) return false;
-      if (activeRuns.length === 1 && (!currentConvId || currentConvId === r.conversation_id)) return false;
+      if (!currentConvId && now / 1000 - (r.started_at || 0) < 8) return false;
     }
     return true;
   });

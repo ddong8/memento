@@ -830,28 +830,54 @@ class AskRunRegistry:
             run._cond.notify_all()
 
     async def _pump(self, run: AskRun, factory: GeneratorFactory) -> None:
+        agen = None
+        db = None
         try:
-            # The run outlives the request, so it gets its own session and user row.
-            async with async_session_factory() as db:
-                user = await db.get(User, run.user_id)
+            # The user row is fetched in a short-lived session so it releases the connection immediately.
+            async with async_session_factory() as user_db:
+                user = await user_db.get(User, run.user_id)
                 if user is None:
                     raise RuntimeError("user not found")
-                agen = factory(db, user)
-                try:
-                    async for frame in agen:
-                        await run.append(frame)
-                finally:
-                    await agen.aclose()
+
+            # Factory receives a dedicated session for initial setup. We do not wrap the long-running
+            # stream in an `async with` block because PgBouncer / PostgreSQL idle timeout will drop
+            # the underlying socket during prolonged tasks (e.g. Claude Code running for minutes),
+            # causing `rollback()` inside `__aexit__` to raise InterfaceError.
+            db = async_session_factory()
+            agen = factory(db, user)
+            async for frame in agen:
+                await run.append(frame)
         except asyncio.CancelledError:
             pass  # reported below; some generators swallow the cancel themselves
         except Exception as e:
-            logger.exception("Ask run %s failed", run.conversation_id)
-            run.failed = True
-            run.current_step = f"运行失败: {e}"
-            run.step_type = "error"
-            await run.append(_frame({"type": "error", "message": f"运行失败: {e}"}))
-            await run.append(_frame({"type": "done"}))
+            # If the run already completed its response, do not overwrite it with late connection cleanup errors.
+            if not run.done:
+                logger.exception("Ask run %s failed", run.conversation_id)
+                run.failed = True
+                run.current_step = f"运行失败: {e}"
+                run.step_type = "error"
+                await run.append(_frame({"type": "error", "message": f"运行失败: {e}"}))
+                await run.append(_frame({"type": "done"}))
+            else:
+                logger.warning("Ask run %s encountered post-completion error: %s", run.conversation_id, e)
         finally:
+            if agen is not None:
+                try:
+                    await agen.aclose()
+                except Exception as ex:
+                    logger.debug("agen aclose error in run %s: %s", run.conversation_id, ex)
+            if db is not None:
+                try:
+                    # Safely rollback if active, suppressing InterfaceError from closed connections
+                    if db.is_active:
+                        try:
+                            await db.rollback()
+                        except Exception as rb_err:
+                            logger.debug("Safe ignore db rollback error on closed connection: %s", rb_err)
+                    await db.close()
+                except Exception as close_err:
+                    logger.debug("Safe ignore db close error: %s", close_err)
+
             # Moved to another replica: it goes on there, nothing here is over
             if not run.moved:
                 await self._close(run)

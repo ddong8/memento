@@ -1233,7 +1233,7 @@ async def stop_orphaned_agent_tasks(db: AsyncSession, user: User, conversation_i
 
 
 async def _extract_pitfall_hint(
-    db: AsyncSession, user: User, action: str, err_text: str, project_id: str | None = None,
+    db: AsyncSession | None, user: User, action: str, err_text: str, project_id: str | None = None,
 ) -> str | None:
     """If a tool failed, extract matching pitfalls to guide the next agent round."""
     if not err_text or not err_text.strip():
@@ -1241,7 +1241,20 @@ async def _extract_pitfall_hint(
     try:
         from .guidance_service import guidance_for
         clean_err = compact_tool_output(err_text, max_chars=300)
-        g = await guidance_for(db, user, action=action, project=project_id, query=clean_err)
+
+        async def _query_with(session: AsyncSession) -> dict:
+            return await guidance_for(session, user, action=action, project=project_id, query=clean_err)
+
+        g = None
+        if db is not None and db.is_active:
+            try:
+                g = await _query_with(db)
+            except Exception:
+                g = None
+        if g is None:
+            async with async_session_factory() as fresh_session:
+                g = await _query_with(fresh_session)
+
         pf_list = g.get("pitfalls") or []
         if pf_list:
             hints = []

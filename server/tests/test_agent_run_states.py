@@ -365,3 +365,73 @@ def test_stopping_old_tasks_failing_never_blocks_the_question():
     _run_to_end(h)
     content, _ = h.saved_call()
     assert content == "好了"
+
+
+def test_pump_handles_closed_connection_rollback_without_failing_completed_run():
+    """Verify that when the underlying db connection closes during a long task (InterfaceError on rollback),
+    the run does not fail and completed output is preserved."""
+    from server.services.ask_runs import AskRun
+    from sqlalchemy.exc import InterfaceError
+
+    async def main():
+        run = AskRun(
+            conversation_id=str(CONV),
+            user_id=USER.id,
+            question="长任务测试",
+            request_id="req-1",
+            execution_mode="claude",
+        )
+
+        mock_db = AsyncMock()
+        mock_db.is_active = True
+        mock_db.rollback.side_effect = InterfaceError("rollback", {}, Exception("cannot call Transaction.rollback(): the underlying connection is closed"))
+        mock_db.close = AsyncMock()
+
+        user_db = AsyncMock()
+        user_db.get.return_value = USER
+        user_db_ctx = AsyncMock()
+        user_db_ctx.__aenter__.return_value = user_db
+        user_db_ctx.__aexit__.return_value = None
+
+        async def fake_factory(db, user):
+            yield 'data: {"type": "conversation_id", "id": "123"}\n\n'
+            yield 'data: {"type": "task_progress", "status": "running"}\n\n'
+            yield 'data: {"type": "delta", "text": "任务结果"}\n\n'
+            yield 'data: {"type": "done"}\n\n'
+
+        with patch("server.services.ask_runs.async_session_factory", side_effect=[user_db_ctx, mock_db]):
+            await ask_runs._pump(run, fake_factory)
+
+        assert run.done is True
+        assert run.failed is False
+        assert "运行失败" not in run.current_step
+        mock_db.rollback.assert_awaited_once()
+        mock_db.close.assert_awaited_once()
+
+    asyncio.run(main())
+
+
+def test_extract_pitfall_hint_falls_back_to_fresh_session_when_stale():
+    from server.services.orchestrator import _extract_pitfall_hint
+
+    async def main():
+        stale_db = AsyncMock()
+        stale_db.is_active = True
+
+        fresh_session = AsyncMock()
+        fresh_ctx = AsyncMock()
+        fresh_ctx.__aenter__.return_value = fresh_session
+        fresh_ctx.__aexit__.return_value = None
+
+        with patch("server.services.guidance_service.guidance_for") as mock_guidance, \
+             patch("server.services.orchestrator.async_session_factory", return_value=fresh_ctx):
+            mock_guidance.side_effect = [
+                RuntimeError("connection closed"),
+                {"pitfalls": [{"title": "超时排查", "fix": "增加超时时间", "cause": "网络慢"}]},
+            ]
+            hint = await _extract_pitfall_hint(stale_db, USER, "agent", "Error: timeout")
+            assert hint is not None
+            assert "增加超时时间" in hint
+            assert mock_guidance.await_count == 2
+
+    asyncio.run(main())

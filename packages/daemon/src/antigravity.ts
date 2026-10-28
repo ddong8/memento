@@ -416,6 +416,22 @@ export async function antigravityExecutable(home = homeDir()): Promise<string | 
 
 let cached: { env: Record<string, string>; at: number } | undefined;
 
+/** The running Antigravity app's language server, as `agentapi` and the quota probe reach it. */
+export interface AntigravityLanguageServer {
+  /** Plain-HTTP port serving the app page and the Connect RPC API on 127.0.0.1. */
+  port: number;
+  csrf?: string;
+  /** The language_server executable, when the OS reports it. */
+  binary?: string;
+}
+
+interface LanguageServerProcess {
+  pid?: string;
+  csrf?: string;
+  binary?: string;
+  ports: number[];
+}
+
 function findLanguageServer(lines: string[]): { pid?: string; csrf?: string } {
   for (const line of lines) {
     const lower = line.toLowerCase();
@@ -426,6 +442,87 @@ function findLanguageServer(lines: string[]): { pid?: string; csrf?: string } {
   return {};
 }
 
+/**
+ * Prints the language server process `$p`, when there is one, and the ports it
+ * listens on as JSON. Non-ASCII characters go out as \uXXXX, so a user folder in
+ * Chinese survives whatever code page the hidden console has (setting
+ * [Console]::OutputEncoding fails without a console). Ports are joined into a
+ * string: Windows PowerShell 5.1 can serialize a one-element array as
+ * {"value":[...],"Count":1}.
+ */
+export const WINDOWS_LS_REPORT =
+  "if ($p) { $ports = ''; try { $ports = (Get-NetTCPConnection -State Listen -OwningProcess $p.ProcessId -ErrorAction Stop | ForEach-Object { $_.LocalPort } | Sort-Object -Unique) -join ',' } catch {}; " +
+  "$j = [pscustomobject]@{ ProcessId = $p.ProcessId; ExecutablePath = $p.ExecutablePath; CommandLine = $p.CommandLine; Ports = $ports } | ConvertTo-Json -Compress; " +
+  "[regex]::Replace($j, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char]$m.Value }) }";
+
+/** One PowerShell call for the language server process and its listening ports. */
+const WINDOWS_LS_QUERY =
+  "$p = Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | Where-Object { $_.CommandLine -match 'antigravity' } | Select-Object -First 1; " +
+  WINDOWS_LS_REPORT;
+
+/** Parses WINDOWS_LS_QUERY's output. */
+export function parseWindowsLanguageServer(stdout: string): LanguageServerProcess {
+  try {
+    const item = JSON.parse(stdout.trim()) as { ProcessId?: unknown; ExecutablePath?: unknown; CommandLine?: unknown; Ports?: unknown };
+    if (item?.ProcessId == null) return { ports: [] };
+    const ports = String(item.Ports ?? "")
+      .split(",")
+      .map((p) => Number(p.trim()))
+      .filter((p) => Number.isInteger(p) && p > 0);
+    return {
+      pid: String(item.ProcessId),
+      csrf: /--csrf_token\s+(\S+)/.exec(String(item.CommandLine ?? ""))?.[1],
+      binary: typeof item.ExecutablePath === "string" && item.ExecutablePath ? item.ExecutablePath : undefined,
+      ports: [...new Set(ports)],
+    };
+  } catch {
+    return { ports: [] };
+  }
+}
+
+/**
+ * Listening TCP ports of `pid` from `netstat -ano -p TCP`. Matches the PID column
+ * exactly (findstr would also match the PID inside other ports and PIDs) and
+ * tells listening rows by their 0-port foreign address, since the state column
+ * is localized on some Windows languages.
+ */
+export function parseNetstatListeningPorts(stdout: string, pid: string): number[] {
+  const ports: number[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length < 5 || cols[0]?.toUpperCase() !== "TCP" || cols[cols.length - 1] !== pid) continue;
+    if (!/:0$/.test(cols[2] ?? "")) continue;
+    const port = Number(/:(\d+)$/.exec(cols[1] ?? "")?.[1]);
+    if (port > 0 && !ports.includes(port)) ports.push(port);
+  }
+  return ports;
+}
+
+async function languageServerProcess(launch: boolean): Promise<LanguageServerProcess> {
+  if (process.platform === "win32") {
+    const ls = parseWindowsLanguageServer((await run("powershell", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_LS_QUERY], 15_000)).stdout);
+    if (ls.pid && !ls.ports.length) ls.ports = parseNetstatListeningPorts((await run("netstat", ["-ano", "-p", "TCP"], 10_000)).stdout, ls.pid);
+    return ls;
+  }
+  const list = async () => (await run("ps", ["-eo", "pid,command"])).stdout.split("\n");
+  let { pid, csrf } = findLanguageServer(await list());
+  if (!pid && launch && process.platform === "darwin" && existsSync("/Applications/Antigravity.app")) {
+    await run("open", ["-a", "Antigravity"]);
+    await new Promise((r) => setTimeout(r, 3000));
+    ({ pid, csrf } = findLanguageServer(await list()));
+  }
+  const ports: number[] = [];
+  if (pid) {
+    const lsof = await run("lsof", ["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", pid]);
+    for (const line of lsof.stdout.split("\n")) {
+      const m = /TCP\s+(?:127\.0\.0\.1|localhost|\*):(\d+)\s+\(LISTEN\)/.exec(line);
+      if (m && !ports.includes(Number(m[1]))) ports.push(Number(m[1]));
+    }
+  }
+  return { pid, csrf, ports };
+}
+
+/** The first port answering with the Antigravity app page; its CSRF token is the one that port checks. */
 async function probePorts(ports: number[], csrf: string | undefined): Promise<{ port?: number; csrf?: string }> {
   for (const port of ports) {
     try {
@@ -436,13 +533,38 @@ async function probePorts(ports: number[], csrf: string | undefined): Promise<{ 
       if (res.status !== 200) continue;
       const body = await res.text();
       if (body.toLowerCase().includes("antigravity") || body.includes("csrfToken")) {
-        return { port, csrf: csrf || /"csrfToken":"([^"]+)"/.exec(body)?.[1] };
+        return { port, csrf: /"csrfToken":"([^"]+)"/.exec(body)?.[1] || csrf };
       }
     } catch {
       // not this one
     }
   }
   return {};
+}
+
+let located: AntigravityLanguageServer | undefined;
+
+/**
+ * Where the running Antigravity app's language server listens, on every OS;
+ * undefined when it isn't running. The last answer is reused while its port
+ * still serves the app page, so a repeat lookup is one local HTTP request
+ * rather than a process listing (a PowerShell start on Windows). With `launch`,
+ * a closed app is started on macOS.
+ */
+export async function findAntigravityLanguageServer(
+  options: { launch?: boolean; forceRefresh?: boolean } = {},
+): Promise<AntigravityLanguageServer | undefined> {
+  if (located && !options.forceRefresh) {
+    const again = await probePorts([located.port], located.csrf);
+    if (again.port !== undefined) return (located = { ...located, csrf: again.csrf });
+  }
+  located = undefined;
+  const ls = await languageServerProcess(options.launch ?? false);
+  if (!ls.pid) return undefined;
+  const found = await probePorts(ls.ports, ls.csrf);
+  if (found.port === undefined) return undefined;
+  located = { port: found.port, csrf: found.csrf, binary: ls.binary };
+  return located;
 }
 
 async function lastProjectId(files: string[]): Promise<string | undefined> {
@@ -467,69 +589,19 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
   cached = undefined;
   const home = homeDir();
   try {
-    let pid: string | undefined;
-    let csrf: string | undefined;
-    let binary: string | undefined;
-    const ports: number[] = [];
-    let projectFiles: string[];
-
-    if (process.platform === "win32") {
-      const ps = await run("powershell", [
-        "-NoProfile",
-        "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | Select-Object -Property ProcessId, ExecutablePath, CommandLine | ConvertTo-Json",
-      ]);
-      try {
-        const decoded = JSON.parse(ps.stdout.trim()) as unknown;
-        for (const item of (Array.isArray(decoded) ? decoded : [decoded]) as {
-          ProcessId?: unknown;
-          ExecutablePath?: unknown;
-          CommandLine?: unknown;
-        }[]) {
-          const cmd = String(item?.CommandLine ?? "");
-          if (cmd.toLowerCase().includes("antigravity")) {
-            pid = String(item.ProcessId);
-            csrf = /--csrf_token\s+(\S+)/.exec(cmd)?.[1];
-            if (typeof item.ExecutablePath === "string" && item.ExecutablePath) binary = item.ExecutablePath;
-            break;
-          }
-        }
-      } catch {
-        // no process list
-      }
-      if (!pid) return null;
-      const net = await run("cmd", ["/c", `netstat -ano | findstr ${pid}`]);
-      for (const line of net.stdout.split("\n")) {
-        const m = line.includes("LISTENING") ? /127\.0\.0\.1:(\d+)/.exec(line) : null;
-        if (m && !ports.includes(Number(m[1]))) ports.push(Number(m[1]));
-      }
-      projectFiles = [join(process.env.APPDATA ?? "", "Antigravity", "app_storage.json")];
-    } else {
-      const list = async () => (await run("ps", ["-eo", "pid,command"])).stdout.split("\n");
-      ({ pid, csrf } = findLanguageServer(await list()));
-      if (!pid && process.platform === "darwin" && existsSync("/Applications/Antigravity.app")) {
-        await run("open", ["-a", "Antigravity"]);
-        await new Promise((r) => setTimeout(r, 3000));
-        ({ pid, csrf } = findLanguageServer(await list()));
-      }
-      if (!pid) return null;
-      const lsof = await run("lsof", ["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", pid]);
-      for (const line of lsof.stdout.split("\n")) {
-        const m = /TCP\s+(?:127\.0\.0\.1|localhost|\*):(\d+)\s+\(LISTEN\)/.exec(line);
-        if (m && !ports.includes(Number(m[1]))) ports.push(Number(m[1]));
-      }
-      projectFiles = [
-        join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
-        join(home, ".config", "Antigravity", "app_storage.json"),
-      ];
-    }
-
-    const found = await probePorts(ports, csrf);
-    if (found.port === undefined) return null;
-    const env: Record<string, string> = { ANTIGRAVITY_LS_ADDRESS: `localhost:${found.port}` };
-    if (found.csrf) env.ANTIGRAVITY_CSRF_TOKEN = found.csrf;
+    const ls = await findAntigravityLanguageServer({ launch: true, forceRefresh });
+    if (!ls) return null;
+    const projectFiles =
+      process.platform === "win32"
+        ? [join(process.env.APPDATA ?? "", "Antigravity", "app_storage.json")]
+        : [
+            join(home, "Library", "Application Support", "Antigravity", "app_storage.json"),
+            join(home, ".config", "Antigravity", "app_storage.json"),
+          ];
+    const env: Record<string, string> = { ANTIGRAVITY_LS_ADDRESS: `localhost:${ls.port}` };
+    if (ls.csrf) env.ANTIGRAVITY_CSRF_TOKEN = ls.csrf;
     // The runner's agentapi, for an app installed somewhere other than the default folder
-    if (binary) env.ANTIGRAVITY_LS_BINARY = binary;
+    if (ls.binary) env.ANTIGRAVITY_LS_BINARY = ls.binary;
     const project = await lastProjectId(projectFiles);
     if (project) env.ANTIGRAVITY_PROJECT_ID = project;
     cached = { env, at: Date.now() };

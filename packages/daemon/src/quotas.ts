@@ -6,6 +6,7 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import https from "node:https";
 
+import { type AntigravityLanguageServer, findAntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
@@ -59,24 +60,32 @@ function run(cmd: string, args: string[], timeout = 6000): Promise<{ code: numbe
   });
 }
 
-/** Probe Antigravity Language Server for live user quotas. */
-export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
+/** GetUserStatus from the language server's Connect RPC API; undefined when it doesn't answer. */
+async function antigravityUserStatus(ls: AntigravityLanguageServer): Promise<any> {
   try {
-    let pid: string | undefined;
-    let csrf: string | undefined;
+    const res = await fetch(`http://127.0.0.1:${ls.port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(ls.csrf ? { "x-codeium-csrf-token": ls.csrf } : {}) },
+      body: "{}",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return undefined;
+    return ((await res.json()) as { userStatus?: unknown }).userStatus || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-    if (process.platform === "darwin" || process.platform === "linux") {
-      const psRes = await run("ps", ["-eo", "pid,command"], 4000);
-      for (const line of psRes.stdout.split("\n")) {
-        if (line.includes("language_server") && line.includes("antigravity") && !line.includes("grep")) {
-          pid = /^\s*(\d+)/.exec(line)?.[1];
-          csrf = /--csrf_token\s+(\S+)/.exec(line)?.[1];
-          break;
-        }
-      }
-    }
-
-    if (!pid || !csrf) {
+/**
+ * Live Antigravity quotas from the running app's language server, found the same
+ * way on every OS as for running tasks. Never starts a closed app.
+ */
+export async function probeAntigravityQuota(
+  locate: typeof findAntigravityLanguageServer = findAntigravityLanguageServer,
+): Promise<ToolQuotaInfo> {
+  try {
+    let ls = await locate();
+    if (!ls) {
       return {
         tool: "antigravity",
         name: "Google Antigravity",
@@ -84,116 +93,75 @@ export async function probeAntigravityQuota(): Promise<ToolQuotaInfo> {
         error: "Antigravity 本地服务未运行",
       };
     }
-
-    let ports: number[] = [];
-    if (process.platform === "darwin" || process.platform === "linux") {
-      const lsofRes = await run("lsof", ["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", pid], 3000);
-      for (const line of lsofRes.stdout.split("\n")) {
-        const m = /TCP\s+(?:127\.0\.0\.1|localhost|\*):(\d+)\s+\(LISTEN\)/.exec(line);
-        if (m) ports.push(parseInt(m[1]!, 10));
-      }
+    let us = await antigravityUserStatus(ls);
+    if (!us) {
+      // The server moved or rotated its token since the last lookup
+      ls = await locate({ forceRefresh: true });
+      us = ls ? await antigravityUserStatus(ls) : undefined;
+    }
+    if (!us) {
+      return {
+        tool: "antigravity",
+        name: "Google Antigravity",
+        available: false,
+        error: ls ? "无法连接 Antigravity 语言服务端口" : "Antigravity 本地服务未运行",
+      };
     }
 
-    for (const port of ports) {
-      try {
-        const raw = await new Promise<string>((resolve, reject) => {
-          const req = https.request(
-            {
-              hostname: "127.0.0.1",
-              port,
-              path: "/exa.language_server_pb.LanguageServerService/GetUserStatus",
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-codeium-csrf-token": csrf,
-              },
-              rejectUnauthorized: false,
-              timeout: 3000,
-            },
-            (res) => {
-              let buf = "";
-              res.on("data", (c) => (buf += c));
-              res.on("end", () => resolve(buf));
-            },
-          );
-          req.on("error", reject);
-          req.on("timeout", () => {
-            req.destroy();
-            reject(new Error("timeout"));
-          });
-          req.write("{}");
-          req.end();
+    const rawModels: any[] = us.cascadeModelConfigData?.clientModelConfigs || [];
+    const models: QuotaModelItem[] = [];
+    for (const m of rawModels) {
+      const qi = m.quotaInfo;
+      if (qi && typeof qi.remainingFraction === "number") {
+        const fraction = Math.max(0, Math.min(1, qi.remainingFraction));
+        const pct = Math.round(fraction * 1000) / 10;
+        models.push({
+          label: m.label || m.modelId || "Model",
+          model_id: m.modelId || "",
+          remaining_fraction: fraction,
+          remaining_percent: pct,
+          status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余`,
+          reset_time: qi.resetTime,
         });
-
-        const data = JSON.parse(raw);
-        const us = data.userStatus;
-        if (!us) continue;
-
-        const rawModels: any[] = us.cascadeModelConfigData?.clientModelConfigs || [];
-        const models: QuotaModelItem[] = [];
-        for (const m of rawModels) {
-          const qi = m.quotaInfo;
-          if (qi && typeof qi.remainingFraction === "number") {
-            const fraction = Math.max(0, Math.min(1, qi.remainingFraction));
-            const pct = Math.round(fraction * 1000) / 10;
-            models.push({
-              label: m.label || m.modelId || "Model",
-              model_id: m.modelId || "",
-              remaining_fraction: fraction,
-              remaining_percent: pct,
-              status_text: pct === 100 ? "满额 (未消耗)" : `${pct}% 剩余`,
-              reset_time: qi.resetTime,
-            });
-          } else {
-            models.push({
-              label: m.label || m.modelId || "Model",
-              model_id: m.modelId || "",
-              remaining_fraction: null,
-              remaining_percent: null,
-              status_text: "无配额限制",
-            });
-          }
-        }
-
-        // 确定主力模型的真实剩余配额：优先选择推荐模型或最常用的 Flash/Pro 模型
-        let primary = models.find((m) => m.label.includes("3.8 Flash") || m.label.includes("Flash (Medium)"));
-        if (!primary) primary = models[0];
-
-        const planStatus = us.planStatus || {};
-        const planInfo = planStatus.planInfo || {};
-
-        return {
-          tool: "antigravity",
-          name: "Google Antigravity",
-          available: true,
-          logged_in: true,
-          account_name: us.name || "Google 用户",
-          account_email: us.email || "",
-          plan_name: us.userTier?.name || planInfo.planName || "Google AI Pro",
-          tier: planInfo.teamsTier || "PRO",
-          quota_type: "percentage",
-          quota_desc: "Google AI Pro 阶梯算力池 (按模型计费)",
-          probe_source: "本地 Language Server RPC",
-          remaining_percent: primary?.remaining_percent ?? null,
-          reset_time: primary?.reset_time ?? null,
-          models,
-          details: {
-            available_prompt_credits: planStatus.availablePromptCredits,
-            monthly_prompt_credits: planInfo.monthlyPromptCredits,
-            available_flow_credits: planStatus.availableFlowCredits,
-            monthly_flow_credits: planInfo.monthlyFlowCredits,
-          },
-        };
-      } catch {
-        // next port
+      } else {
+        models.push({
+          label: m.label || m.modelId || "Model",
+          model_id: m.modelId || "",
+          remaining_fraction: null,
+          remaining_percent: null,
+          status_text: "无配额限制",
+        });
       }
     }
+
+    // 确定主力模型的真实剩余配额：优先选择推荐模型或最常用的 Flash/Pro 模型
+    let primary = models.find((m) => m.label.includes("3.8 Flash") || m.label.includes("Flash (Medium)"));
+    if (!primary) primary = models[0];
+
+    const planStatus = us.planStatus || {};
+    const planInfo = planStatus.planInfo || {};
 
     return {
       tool: "antigravity",
       name: "Google Antigravity",
-      available: false,
-      error: "无法连接 Antigravity 语言服务端口",
+      available: true,
+      logged_in: true,
+      account_name: us.name || "Google 用户",
+      account_email: us.email || "",
+      plan_name: us.userTier?.name || planInfo.planName || "Google AI Pro",
+      tier: planInfo.teamsTier || "PRO",
+      quota_type: "percentage",
+      quota_desc: "Google AI Pro 阶梯算力池 (按模型计费)",
+      probe_source: "本地 Language Server RPC",
+      remaining_percent: primary?.remaining_percent ?? null,
+      reset_time: primary?.reset_time ?? null,
+      models,
+      details: {
+        available_prompt_credits: planStatus.availablePromptCredits,
+        monthly_prompt_credits: planInfo.monthlyPromptCredits,
+        available_flow_credits: planStatus.availableFlowCredits,
+        monthly_flow_credits: planInfo.monthlyFlowCredits,
+      },
     };
   } catch (err: any) {
     return {

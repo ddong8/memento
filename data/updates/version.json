@@ -1,7 +1,7 @@
 {
   "version": "1.0.91",
   "title": "Memento v1.0.91",
-  "release_notes": "1. Windows 上续接 Antigravity 项目的会话不再报“flags provided but not defined: -resume”：Antigravity 任务固定由 Memento 自带的执行脚本经 Antigravity 应用运行，不再被同目录的官方 agy.exe 抢先，续接的就是 Antigravity 应用里的原会话\n2. Windows 上发给 Antigravity 的多行提问完整送达，不再只发出第一行；含 & | % 等符号的内容也不再被系统命令行改写\n3. Windows 上 Antigravity 任务的中文和表情输出不再乱码或中断\n4. 设备上没有 Python 3 时，Antigravity 任务会提示安装 Python 3\n5. 手机端版本号与客户端统一为 1.0.91",
+  "release_notes": "1. Windows 上的 AI 工具额度面板能显示 Antigravity 各模型的剩余额度和重置时间，不再一直提示“Antigravity 本地服务未运行”\n2. Antigravity 应用重启后，额度和任务会自动找到新的本地服务，不用重启 Memento\n3. 用户目录带中文的 Windows 设备上也能正确找到 Antigravity\n4. 手机端版本号与客户端统一为 1.0.92",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.91-win-x64.zip",

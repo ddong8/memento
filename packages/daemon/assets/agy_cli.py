@@ -12,6 +12,15 @@ import time
 import urllib.request
 from pathlib import Path
 
+# Piped stdio on Windows uses the ANSI code page (GBK on Chinese systems): the daemon reads and writes UTF-8,
+# and emoji in our progress lines would raise UnicodeEncodeError there.
+if sys.platform == "win32":
+    for _stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 
 def _signal_handler(signum, frame):
     sys.stderr.write(f"\n⏹️ [收到系统终止信号 ({signum})，已主动停止 Antigravity 任务]\n\n")
@@ -140,6 +149,60 @@ def _auto_discover_antigravity_ls():
                 pass
     except Exception:
         pass
+
+
+def _agentapi_command():
+    """argv prefix for `agentapi`, a subcommand of the Antigravity app's language_server; None when it isn't there.
+    The binary is called directly, never through a .cmd wrapper: cmd.exe would cut a multi-line prompt at the first
+    line break and act on & | < > ^ % in it."""
+    bin_dir = Path.home() / ".gemini" / "antigravity" / "bin"
+    candidates = [
+        Path("/Applications/Antigravity.app/Contents/Resources/bin/language_server"),
+        Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "Programs" / "Antigravity" / "resources" / "bin" / "language_server.exe",
+        Path("C:/Program Files/Antigravity/resources/bin/language_server.exe"),
+    ]
+    # The running app's binary, found by the daemon (Antigravity installed somewhere else)
+    if os.environ.get("ANTIGRAVITY_LS_BINARY"):
+        candidates.append(Path(os.environ["ANTIGRAVITY_LS_BINARY"]))
+    # What an older runner wrote into agentapi.cmd
+    try:
+        m = re.search(r'"([^"]+)"\s+agentapi', (bin_dir / "agentapi.cmd").read_text(encoding="utf-8", errors="replace"))
+        if m:
+            candidates.append(Path(m.group(1)))
+    except Exception:
+        pass
+    for c in candidates:
+        if c.is_file():
+            return [str(c), "agentapi"]
+    wrapper = bin_dir / "agentapi"
+    if sys.platform != "win32" and wrapper.is_file() and os.access(wrapper, os.X_OK):
+        return [str(wrapper)]
+    return None
+
+
+def _latest_conversation_id(db_path=None):
+    """The app's most recently active top-level conversation (what `-c` continues); "" when there's none."""
+    db_path = db_path or Path.home() / ".gemini" / "antigravity" / "conversation_summaries.db"
+    if not db_path.exists():
+        return ""
+    try:
+        import sqlite3
+
+        conn = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True, timeout=2)
+        try:
+            row = conn.execute(
+                "SELECT conversation_id FROM conversation_summaries WHERE killed = 0 AND parent_conversation_id = '' "
+                "ORDER BY last_modified_time DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+        return str(row[0]).strip() if row and row[0] else ""
+    except Exception:
+        return ""
+
+
+def _run_agentapi(agentapi, *args):
+    return subprocess.run([*agentapi, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", env=dict(os.environ))
 
 
 def _is_antigravity_ls_alive():
@@ -281,20 +344,8 @@ def main():
     args.resume_id = conv_id
 
     if args.continue_recent and not conv_id:
-        try:
-            db_path = Path.home() / ".gemini" / "antigravity" / "conversation_summaries.db"
-            if db_path.exists():
-                import sqlite3
-                conn = sqlite3.connect(str(db_path), timeout=2)
-                cur = conn.cursor()
-                cur.execute("SELECT conversation_id FROM conversation_summaries WHERE status != 'deleted' ORDER BY updated_at DESC LIMIT 1")
-                row = cur.fetchone()
-                if row and row[0]:
-                    conv_id = str(row[0]).strip()
-                    args.resume_id = conv_id
-                conn.close()
-        except Exception:
-            pass
+        conv_id = _latest_conversation_id()
+        args.resume_id = conv_id
 
     prompt_parts = []
     if args.prompt_flag:
@@ -314,27 +365,9 @@ def main():
         print("Error: empty prompt", file=sys.stderr)
         sys.exit(1)
 
-    agentapi = Path.home() / ".gemini" / "antigravity" / "bin" / ("agentapi.cmd" if sys.platform == "win32" else "agentapi")
-    if not agentapi.exists():
-        ls_candidates = [
-            Path("/Applications/Antigravity.app/Contents/Resources/bin/language_server"),
-            Path.home() / "AppData" / "Local" / "Programs" / "Antigravity" / "resources" / "bin" / "language_server.exe",
-            Path("C:/Program Files/Antigravity/resources/bin/language_server.exe"),
-        ]
-        for c in ls_candidates:
-            if c.exists():
-                agentapi.parent.mkdir(parents=True, exist_ok=True)
-                if sys.platform == "win32":
-                    with open(agentapi, "w", encoding="utf-8") as f:
-                        f.write(f'@echo off\r\n"{c}" agentapi %*\r\n')
-                else:
-                    with open(agentapi, "w", encoding="utf-8") as f:
-                        f.write(f'#!/bin/sh\nexec "{c}" agentapi "$@"\n')
-                    agentapi.chmod(0o755)
-                break
-
-    if not agentapi.exists():
-        print(f"Error: agentapi not found at {agentapi}", file=sys.stderr)
+    agentapi = _agentapi_command()
+    if not agentapi:
+        print("Error: agentapi not found: Antigravity's language_server isn't installed where expected", file=sys.stderr)
         sys.exit(1)
 
     # Auto-detect Antigravity language_server address and CSRF token if not set
@@ -371,15 +404,8 @@ def main():
         elif fallback_log.exists():
             start_pos = fallback_log.stat().st_size
 
-        cmd = [
-            str(agentapi),
-            "send-message",
-            f"--title={title}",
-            conv_id,
-            prompt,
-        ]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ))
+            res = _run_agentapi(agentapi, "send-message", f"--title={title}", conv_id, prompt)
             if res.returncode != 0:
                 err_text = (res.stderr or res.stdout or "").strip()
                 print(f"Error resuming conversation via Antigravity: {err_text}", file=sys.stderr)
@@ -392,15 +418,8 @@ def main():
         created = False
         last_init_err = ""
         for cand in candidate_models:
-            cmd = [
-                str(agentapi),
-                "new-conversation",
-                f"--model={cand}",
-                f"--title={title}",
-                prompt,
-            ]
             try:
-                res = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ))
+                res = _run_agentapi(agentapi, "new-conversation", f"--model={cand}", f"--title={title}", prompt)
                 if res.returncode == 0:
                     out_json = json.loads(res.stdout)
                     conv_id = out_json["response"]["newConversation"]["conversationId"]
@@ -558,9 +577,8 @@ def main():
                     continue
                 # Not an answer: a follow-up for the running conversation
                 state["waiting_user_input"] = False
-                cmd_send = [str(agentapi_bin), "send-message", cid, ans]
                 try:
-                    subprocess.run(cmd_send, capture_output=True, text=True, env=dict(os.environ))
+                    _run_agentapi(agentapi_bin, "send-message", cid, ans)
                 except Exception as ex:
                     sys.stderr.write(f"Error forwarding answer to Antigravity: {ex}\n")
                     sys.stderr.flush()

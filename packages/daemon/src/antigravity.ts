@@ -1,10 +1,11 @@
 import { execFile, execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir } from "./config.js";
+import { findExecutable, findPython } from "./exec-env.js";
 
 export interface AntigravitySessionInfo {
   title?: string;
@@ -344,36 +345,14 @@ export async function healAllAntigravitySessions(home = homeDir()): Promise<numb
 
 
 /**
- * Antigravity has no headless CLI of its own; tasks go through a small Python
- * runner (assets/agy_cli.py) that talks to the running app's language server.
+ * Antigravity tasks go through a small Python runner (assets/agy_cli.py) that
+ * talks to the running app's language server, so they work in the app's own
+ * conversations (~/.gemini/antigravity), the ones memento collects and resumes.
+ * Google's agy CLI keeps its conversations apart (~/.gemini/antigravity-cli)
+ * and can't resume the app's, so it is only the fallback.
  */
 /** Where the runner ships: next to the daemon's code, or MEMENTO_AGY_RUNNER (bundled apps). */
 const runnerAsset = () => process.env.MEMENTO_AGY_RUNNER || fileURLToPath(new URL("../assets/agy_cli.py", import.meta.url));
-/** A runner older than these features gets rewritten. */
-const RUNNER_MARKERS = [
-  "_auto_discover_antigravity_ls",
-  "_is_antigravity_ls_alive",
-  "in_flight_tools",
-  "gemini-3.8-flash",
-  "--timeout",
-  "--conversation",
-  "--print-timeout",
-  "ANTIGRAVITY_SOURCE_METADATA",
-  "last_error_message",
-  "active_background_tasks",
-  "STATUS_STILL_RUNNING",
-  "is_waiting_transition",
-  "is_canceled",
-  "task_log_sizes",
-  "ask_question_interactive",
-  "stream was interrupted",
-  "get_model_candidates",
-  "is_transient_error",
-  "_signal_handler",
-  "自动退避重试",
-  'if __name__ == "__main__":',
-];
-
 function run(cmd: string, args: string[], timeout = 5000): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) =>
@@ -382,17 +361,27 @@ function run(cmd: string, args: string[], timeout = 5000): Promise<{ code: numbe
   });
 }
 
-/** Installs ~/.gemini/antigravity/bin/agy_cli.py and an `agy` wrapper on PATH. */
-export async function ensureAgyCliInstalled(home = homeDir()): Promise<void> {
+/**
+ * Installs ~/.gemini/antigravity/bin/agy_cli.py (rewritten whenever it differs
+ * from the shipped one) and an `agy` wrapper on PATH; the script's path, or
+ * undefined when it couldn't be written.
+ */
+export async function ensureAgyCliInstalled(home = homeDir()): Promise<string | undefined> {
+  const dir = join(home, ".gemini", "antigravity", "bin");
+  const script = join(dir, "agy_cli.py");
   try {
-    const dir = join(home, ".gemini", "antigravity", "bin");
     await mkdir(dir, { recursive: true });
-    const script = join(dir, "agy_cli.py");
-    const current = await readFile(script, "utf8").catch(() => "");
-    if (!RUNNER_MARKERS.every((m) => current.includes(m))) {
-      await writeFile(script, await readFile(runnerAsset(), "utf8"));
-      if (process.platform !== "win32") await chmod(script, 0o755);
+    const target = await readFile(runnerAsset(), "utf8");
+    if ((await readFile(script, "utf8").catch(() => "")) !== target) {
+      // Whole file or nothing: a task starting meanwhile must not run half a script.
+      await writeFile(`${script}.tmp`, target);
+      if (process.platform !== "win32") await chmod(`${script}.tmp`, 0o755);
+      await rename(`${script}.tmp`, script);
     }
+  } catch {
+    if (!existsSync(script)) return undefined;
+  }
+  try {
     if (process.platform === "win32") {
       const winBin = join(home, "AppData", "Local", "agy", "bin");
       await mkdir(winBin, { recursive: true });
@@ -408,8 +397,21 @@ export async function ensureAgyCliInstalled(home = homeDir()): Promise<void> {
       }
     }
   } catch {
-    // Antigravity tasks will report the missing runner.
+    // only for running `agy` by hand; tasks run the script itself
   }
+  return script;
+}
+
+/**
+ * What runs an Antigravity task: the runner itself, not the first `agy` on
+ * PATH, since Google's agy CLI installs to the same folders (on Windows its
+ * agy.exe sits beside our agy.cmd and wins). Google's CLI or agentapi only
+ * when the runner can't run (not written, or no Python).
+ */
+export async function antigravityExecutable(home = homeDir()): Promise<string | undefined> {
+  const script = await ensureAgyCliInstalled(home);
+  if (script && (await findPython())) return script;
+  return findExecutable(["agy", "agentapi"]);
 }
 
 let cached: { env: Record<string, string>; at: number } | undefined;
@@ -467,6 +469,7 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
   try {
     let pid: string | undefined;
     let csrf: string | undefined;
+    let binary: string | undefined;
     const ports: number[] = [];
     let projectFiles: string[];
 
@@ -474,15 +477,20 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
       const ps = await run("powershell", [
         "-NoProfile",
         "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | Select-Object -Property ProcessId, CommandLine | ConvertTo-Json",
+        "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | Select-Object -Property ProcessId, ExecutablePath, CommandLine | ConvertTo-Json",
       ]);
       try {
         const decoded = JSON.parse(ps.stdout.trim()) as unknown;
-        for (const item of (Array.isArray(decoded) ? decoded : [decoded]) as { ProcessId?: unknown; CommandLine?: unknown }[]) {
+        for (const item of (Array.isArray(decoded) ? decoded : [decoded]) as {
+          ProcessId?: unknown;
+          ExecutablePath?: unknown;
+          CommandLine?: unknown;
+        }[]) {
           const cmd = String(item?.CommandLine ?? "");
           if (cmd.toLowerCase().includes("antigravity")) {
             pid = String(item.ProcessId);
             csrf = /--csrf_token\s+(\S+)/.exec(cmd)?.[1];
+            if (typeof item.ExecutablePath === "string" && item.ExecutablePath) binary = item.ExecutablePath;
             break;
           }
         }
@@ -520,6 +528,8 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
     if (found.port === undefined) return null;
     const env: Record<string, string> = { ANTIGRAVITY_LS_ADDRESS: `localhost:${found.port}` };
     if (found.csrf) env.ANTIGRAVITY_CSRF_TOKEN = found.csrf;
+    // The runner's agentapi, for an app installed somewhere other than the default folder
+    if (binary) env.ANTIGRAVITY_LS_BINARY = binary;
     const project = await lastProjectId(projectFiles);
     if (project) env.ANTIGRAVITY_PROJECT_ID = project;
     cached = { env, at: Date.now() };

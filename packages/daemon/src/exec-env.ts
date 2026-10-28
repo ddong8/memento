@@ -143,8 +143,12 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
   return { ...env };
 }
 
-/** The first of `names` found on the execution PATH. */
-export async function findExecutable(names: string[], env?: NodeJS.ProcessEnv): Promise<string | undefined> {
+/** The first of `names` found on the execution PATH (and not refused by `skip`). */
+export async function findExecutable(
+  names: string[],
+  env?: NodeJS.ProcessEnv,
+  skip?: (file: string) => boolean,
+): Promise<string | undefined> {
   const e = env ?? (await executionEnvironment());
   const isWin = process.platform === "win32";
   const pathKey = Object.keys(e).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
@@ -157,7 +161,7 @@ export async function findExecutable(names: string[], env?: NodeJS.ProcessEnv): 
         const target = name.toLowerCase().endsWith(ext.toLowerCase()) ? name : `${name}${ext}`;
         const file = `${dir}${sep}${target}`;
         try {
-          if (statSync(file).isFile()) {
+          if (statSync(file).isFile() && !skip?.(file)) {
             // Guard: WorkBuddy.exe is Tencent's Electron desktop GUI app, not a task CLI runner.
             const lowerFile = file.toLowerCase();
             if (
@@ -174,6 +178,26 @@ export async function findExecutable(names: string[], env?: NodeJS.ProcessEnv): 
         }
       }
     }
+  }
+  return undefined;
+}
+
+/**
+ * A Python 3 for our .py runners: python3 off Windows; on Windows python or
+ * the py launcher, passing over the Microsoft Store's python.exe placeholder
+ * (it only opens the Store) unless Python from the Store is installed.
+ */
+export async function findPython(env?: NodeJS.ProcessEnv): Promise<string | undefined> {
+  if (process.platform !== "win32") return findExecutable(["python3", "python"], env);
+  const inWindowsApps = (f: string) => /\\microsoft\\windowsapps\\[^\\]+$/i.test(f);
+  const found = await findExecutable(["python", "py", "python3"], env, inWindowsApps);
+  if (found) return found;
+  const alias = await findExecutable(["python", "python3"], env);
+  if (!alias) return undefined;
+  try {
+    if (readdirSync(win32.dirname(alias)).some((n) => n.startsWith("PythonSoftwareFoundation.Python."))) return alias;
+  } catch {
+    // no Store Python
   }
   return undefined;
 }
@@ -196,16 +220,17 @@ export async function prepareCommand(
     comSpec?: string;
     readText?: (path: string) => Promise<string | undefined>;
     exists?: (path: string) => boolean;
+    python?: string;
   } = {},
 ): Promise<ResolvedExecution> {
   const isWindows = options.isWindows ?? process.platform === "win32";
-  if (!isWindows) return { executable: exe, args };
+  const python = async () => options.python ?? (await findPython()) ?? (isWindows ? "python" : "python3");
   const lower = exe.toLowerCase();
+  // Not left to the shebang: the script may have lost its exec bit, and Windows has none.
+  if (lower.endsWith(".py")) return { executable: await python(), args: [exe, ...args] };
+  if (!isWindows) return { executable: exe, args };
   if (lower.endsWith(".mjs") || lower.endsWith(".js")) {
     return { executable: "node", args: [exe, ...args] };
-  }
-  if (lower.endsWith(".py")) {
-    return { executable: "python", args: [exe, ...args] };
   }
   if (!lower.endsWith(".cmd") && !lower.endsWith(".bat")) return { executable: exe, args };
 
@@ -224,7 +249,7 @@ export async function prepareCommand(
         }
       }
       const py = /python(?:\.exe)?\s+["']?([^"\r\n']+\.py)["']?/.exec(content);
-      if (py && exists(py[1]!)) return { executable: "python", args: [py[1]!, ...args] };
+      if (py && exists(py[1]!)) return { executable: await python(), args: [py[1]!, ...args] };
       const mjs = /node(?:\.exe)?\s+["']?([^"\r\n']+\.m?js)["']?/.exec(content);
       if (mjs && exists(mjs[1]!)) return { executable: "node", args: [mjs[1]!, ...args] };
     }

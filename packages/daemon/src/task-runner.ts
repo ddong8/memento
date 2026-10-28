@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 
 import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
-import { discoverAntigravityEnv, ensureAgyCliInstalled } from "./antigravity.js";
+import { antigravityExecutable, discoverAntigravityEnv } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
@@ -863,21 +863,16 @@ export class TaskRunner {
     } else {
       isAntigravity = binary.includes("agy") || binary.includes("antigravity");
       const isWorkbuddy = binary.includes("workbuddy") || binary.includes("codebuddy");
-      if (isAntigravity) await ensureAgyCliInstalled();
       if (isWorkbuddy) await ensureWorkbuddyCliInstalled();
-      let candidates: string[] = [];
-      if (binary === "agy") candidates = ["agy", "agy_cli.py", "agentapi"];
-      else if (binary === "antigravity") candidates = ["agy", "agy_cli.py", "agentapi"];
-      else if (binary === "workbuddy") candidates = ["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"];
-      else candidates = [binary];
-      const resolved = await findExecutable(candidates);
+      const candidates = binary === "workbuddy" ? ["workbuddy_cli.mjs", "workbuddy.cmd", "workbuddy", "codebuddy"] : [binary];
+      const resolved = isAntigravity ? await antigravityExecutable() : await findExecutable(candidates);
       if (!resolved) {
         let tip = "";
         if (isAntigravity) {
           tip =
             process.platform === "win32"
-              ? "\n💡 Antigravity CLI 未安装，请在 PowerShell 中执行以下命令进行安装：\nirm https://antigravity.google/cli/install.ps1 | iex"
-              : "\n💡 Antigravity CLI 未安装，请在终端中执行以下命令进行安装：\ncurl -fsSL https://antigravity.google/cli/install.sh | bash";
+              ? "\n💡 运行 Antigravity 任务需要 Python 3（安装时勾选 Add python.exe to PATH），并保持 Antigravity 应用运行；装好后重启 Memento。"
+              : "\n💡 运行 Antigravity 任务需要 python3，并保持 Antigravity 应用运行；装好后重启 Memento。";
         } else if (isWorkbuddy) {
           tip = "\n💡 未检测到 CodeBuddy/WorkBuddy 命令行工具。请运行 npm install -g @tencent-ai/codebuddy-code 进行安装，并确保腾讯 WorkBuddy 客户端保持启动。";
         } else if (binary.includes("claude")) {

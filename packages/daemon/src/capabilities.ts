@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 
-import { ensureAgyCliInstalled } from "./antigravity.js";
+import { antigravityExecutable } from "./antigravity.js";
 import { homeDir } from "./config.js";
-import { findExecutable } from "./exec-env.js";
+import { findExecutable, findPython } from "./exec-env.js";
 import { ensureWorkbuddyCliInstalled, isWorkbuddyInstalled } from "./workbuddy.js";
 import { workbuddyProductModels } from "./workbuddy-models.js";
 
@@ -481,7 +481,7 @@ async function workbuddyCapabilities(wbPath: string, home: string): Promise<Reco
 export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Record<string, unknown>> {
   const [gitExe, pyExe, dockerExe, cargoExe, pnpmExe] = await Promise.all([
     findExecutable(["git"]),
-    findExecutable(["python3", "python"]),
+    findPython(),
     findExecutable(["docker"]),
     findExecutable(["cargo"]),
     findExecutable(["pnpm"]),
@@ -535,8 +535,7 @@ export async function probeCapabilities(home = homeDir(), options?: { force?: bo
   }
   const codex = await findExecutable(["codex", "codex-cli"]);
   if (codex) caps.codex = await codexCapabilities(codex, home);
-  await ensureAgyCliInstalled(home);
-  const agy = await findExecutable(["agy", "agy_cli.py", "agentapi"]);
+  const agy = await antigravityExecutable(home);
   if (agy) {
     caps.antigravity = {
       tool: "antigravity",

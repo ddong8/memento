@@ -41,6 +41,7 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node
       isWindows: true,
       readText: async () => '@echo off\r\npython "C:\\Users\\admin\\AppData\\Local\\agy\\bin\\agy_cli.py" %*\r\n',
       exists: () => true,
+      python: "python",
     });
     expect(res).toEqual({ executable: "python", args: ["C:\\Users\\admin\\AppData\\Local\\agy\\bin\\agy_cli.py", "-p", "fix bug"] });
   });
@@ -71,9 +72,10 @@ endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node
   it("wraps a .py file directly with python on Windows", async () => {
     const res = await prepareCommand("C:\\Users\\admin\\.gemini\\antigravity\\bin\\agy_cli.py", ["-p", "task"], {
       isWindows: true,
+      python: "C:\\Python312\\python.exe",
     });
     expect(res).toEqual({
-      executable: "python",
+      executable: "C:\\Python312\\python.exe",
       args: ["C:\\Users\\admin\\.gemini\\antigravity\\bin\\agy_cli.py", "-p", "task"],
     });
   });

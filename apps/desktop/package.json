@@ -1,7 +1,7 @@
 {
   "name": "@memento/desktop",
   "productName": "Memento",
-  "version": "1.0.90",
+  "version": "1.0.91",
   "private": true,
   "description": "Memento: the web app in a window, with the local daemon, tray and auto-update",
   "author": "Memento",

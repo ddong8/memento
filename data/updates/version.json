@@ -1,7 +1,7 @@
 {
   "version": "1.0.90",
   "title": "Memento v1.0.90",
-  "release_notes": "1. Claude Code 额度用完时如实显示“额度已用完”和恢复时间，不再显示成后台仍在执行或已完成，并推送提醒\n2. 回答失败时也保留设备上实际用的会话，额度恢复后发送“继续”就在原会话接着做\n3. 设备上的会话已失效时自动改用新会话，不再反复续接失败\n4. 服务更新后没人跟进的任务，同一对话再次提问时会先停掉它、把那次提问记进对话，并在它的会话里接着做，不再两个进程同时写一个会话；设备离线时等重新连上再停\n5. 手机端版本号与客户端统一为 1.0.90",
+  "release_notes": "1. Windows 上续接 Antigravity 项目的会话不再报“flags provided but not defined: -resume”：Antigravity 任务固定由 Memento 自带的执行脚本经 Antigravity 应用运行，不再被同目录的官方 agy.exe 抢先，续接的就是 Antigravity 应用里的原会话\n2. Windows 上发给 Antigravity 的多行提问完整送达，不再只发出第一行；含 & | % 等符号的内容也不再被系统命令行改写\n3. Windows 上 Antigravity 任务的中文和表情输出不再乱码或中断\n4. 设备上没有 Python 3 时，Antigravity 任务会提示安装 Python 3\n5. 手机端版本号与客户端统一为 1.0.91",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.90-win-x64.zip",

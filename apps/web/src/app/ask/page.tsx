@@ -2979,7 +2979,11 @@ function AskPageContent() {
         const newSid = (evt.result as any)?.session_id;
         const resDevRaw = (evt.result as any)?.device_id || (evt.result as any)?.device_name;
         const patchCfg: Record<string, any> = { compact_mode: false };
-        if (newSid && typeof newSid === "string") {
+        if ((evt.result as any)?.session_reset) {
+          // 设备上的会话已失效：下一问开新会话，而不是再去续接它
+          setSelectedSessionId("");
+          patchCfg.session_id = "";
+        } else if (newSid && typeof newSid === "string") {
           setSelectedSessionId(newSid);
           patchCfg.session_id = newSid;
         }

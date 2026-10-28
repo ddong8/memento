@@ -24,11 +24,15 @@ export interface ToolCallItem {
     stdout?: string;
     stderr?: string;
     error?: string;
+    /** "usage_limit": the agent's account ran out of quota; "prompt_too_long", "agent_login_required" */
+    error_type?: string | null;
     note?: string;
     devices?: Array<{ device_id: string; name: string; collector_version?: string; online: boolean }>;
     /** Steps of a structured agent run (Claude Code / Codex), live and after it ends. */
     events?: TaskEvent[];
     session_id?: string;
+    /** The device's session for this conversation is gone: the next question starts a new one. */
+    session_reset?: boolean;
     alerts?: Array<{ label: string; detail?: string; tool?: string; level?: string }>;
   };
 }
@@ -525,7 +529,9 @@ const ExecutionCard = memo(function ExecutionCard({
                 whiteSpace: "nowrap",
               }}
             >
-              ✕ {result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusFailed || "失败")}
+              ✕ {result?.error_type === "usage_limit"
+                ? (t.ask.statusUsageLimit || "额度已用完")
+                : result?.exit_code !== undefined ? `exit ${result.exit_code}` : (t.ask.statusFailed || "失败")}
             </span>
           )}
 

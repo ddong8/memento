@@ -322,6 +322,7 @@ const enUS: Translations = {
     statusBackgroundLeft: "Left background work",
     statusSucceeded: "Succeeded",
     statusFailed: "Failed",
+    statusUsageLimit: "Usage limit reached",
     statusTimeout: "Timed out",
     promptLabel: "Prompt",
     terminalTitle: "Terminal Output",

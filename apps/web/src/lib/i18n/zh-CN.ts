@@ -330,6 +330,7 @@ const zhCN = {
     statusBackgroundLeft: "留有后台任务",
     statusSucceeded: "执行成功",
     statusFailed: "执行失败",
+    statusUsageLimit: "额度已用完",
     statusTimeout: "执行超时",
     promptLabel: "提示词",
     terminalTitle: "终端输出",

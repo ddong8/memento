@@ -273,6 +273,12 @@ describe("Interactive questions", () => {
     parser.feed("session id: test-session-1234");
     expect(parser.sessionId).toBe("test-session-1234");
 
+    parser.feed("Conversation ID: agy-conv-uuid-5678");
+    expect(parser.sessionId).toBe("agy-conv-uuid-5678");
+
+    parser.feed('{"conversation_id": "json-conv-9999"}');
+    expect(parser.sessionId).toBe("json-conv-9999");
+
     parser.feed("Hello from agent!");
     expect(parser.finalText).toBe("Hello from agent!");
   });

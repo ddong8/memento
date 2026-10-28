@@ -416,7 +416,8 @@ let cached: { env: Record<string, string>; at: number } | undefined;
 
 function findLanguageServer(lines: string[]): { pid?: string; csrf?: string } {
   for (const line of lines) {
-    if (line.includes("language_server") && line.includes("antigravity") && !line.includes("grep")) {
+    const lower = line.toLowerCase();
+    if (lower.includes("language_server") && lower.includes("antigravity") && !lower.includes("grep")) {
       return { pid: /^\s*(\d+)/.exec(line)?.[1], csrf: /--csrf_token\s+(\S+)/.exec(line)?.[1] };
     }
   }
@@ -432,7 +433,7 @@ async function probePorts(ports: number[], csrf: string | undefined): Promise<{ 
       });
       if (res.status !== 200) continue;
       const body = await res.text();
-      if (body.includes("antigravity") || body.includes("csrfToken")) {
+      if (body.toLowerCase().includes("antigravity") || body.includes("csrfToken")) {
         return { port, csrf: csrf || /"csrfToken":"([^"]+)"/.exec(body)?.[1] };
       }
     } catch {
@@ -479,7 +480,7 @@ export async function discoverAntigravityEnv(forceRefresh = false): Promise<Reco
         const decoded = JSON.parse(ps.stdout.trim()) as unknown;
         for (const item of (Array.isArray(decoded) ? decoded : [decoded]) as { ProcessId?: unknown; CommandLine?: unknown }[]) {
           const cmd = String(item?.CommandLine ?? "");
-          if (cmd.includes("antigravity")) {
+          if (cmd.toLowerCase().includes("antigravity")) {
             pid = String(item.ProcessId);
             csrf = /--csrf_token\s+(\S+)/.exec(cmd)?.[1];
             break;

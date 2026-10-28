@@ -550,12 +550,14 @@ export class UniversalStreamParser extends AgentStreamParser {
   private toolSeq = 0;
 
   get finalText(): string | undefined {
-    if (this.lastText.trim()) return this.lastText.trim();
-    if (this.plainTexts.length > 0) {
-      const combined = this.plainTexts.join("\n").trim();
-      if (combined) return combined;
+    const fromEvents = this.lastText.trim();
+    const fromPlain = this.plainTexts.map((t) => t.trim()).filter(Boolean).join("\n\n").trim();
+    if (fromEvents && fromPlain) {
+      if (fromPlain.includes(fromEvents)) return fromPlain;
+      if (fromEvents.includes(fromPlain)) return fromEvents;
+      return `${fromPlain}\n\n${fromEvents}`;
     }
-    return undefined;
+    return fromEvents || fromPlain || undefined;
   }
 
   feed(line: string): AgentEvent[] | null {
@@ -565,28 +567,40 @@ export class UniversalStreamParser extends AgentStreamParser {
       return null;
     }
 
-    const sidMatch = /session id:\s*([^\s\n\r]+)/i.exec(raw) ?? /thread[_-]id:\s*([^\s\n\r]+)/i.exec(raw);
+    const sidMatch =
+      /session[ _-]id:\s*([^\s\n\r]+)/i.exec(raw) ??
+      /conversation[ _-]id:\s*([^\s\n\r]+)/i.exec(raw) ??
+      /thread[ _-]id:\s*([^\s\n\r]+)/i.exec(raw);
     if (sidMatch && sidMatch[1]) {
-      this.sessionId = sidMatch[1];
+      this.sessionId = sidMatch[1].trim();
     }
 
     // 1. Explicit memento structured event line: {"type":"memento_event","event":{...}}
     if (raw.startsWith("{") && raw.endsWith("}")) {
       try {
         const d = JSON.parse(raw) as Json;
-        if (d.type === "memento_event" && isObject(d.event)) {
-          const ev = d.event as AgentEvent;
-          if (ev.kind === "text" && typeof ev.text === "string") {
-            this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+        if (isObject(d)) {
+          let consumed = false;
+          const cid = typeof d.conversation_id === "string" ? d.conversation_id : typeof d.session_id === "string" ? d.session_id : undefined;
+          if (cid) {
+            this.sessionId = cid.trim();
+            consumed = true;
           }
-          return [ev];
-        }
-        if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text" || d.kind === "thinking") {
-          const ev = d as AgentEvent;
-          if (ev.kind === "text" && typeof ev.text === "string") {
-            this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+          if (d.type === "memento_event" && isObject(d.event)) {
+            const ev = d.event as AgentEvent;
+            if (ev.kind === "text" && typeof ev.text === "string") {
+              this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+            }
+            return [ev];
           }
-          return [ev];
+          if (d.kind === "question" || d.kind === "tool" || d.kind === "steer" || d.kind === "text" || d.kind === "thinking") {
+            const ev = d as AgentEvent;
+            if (ev.kind === "text" && typeof ev.text === "string") {
+              this.lastText += (this.lastText ? "\n\n" : "") + ev.text;
+            }
+            return [ev];
+          }
+          if (consumed) return null;
         }
       } catch {
         // Not a JSON event, proceed
@@ -647,7 +661,7 @@ export class UniversalStreamParser extends AgentStreamParser {
       ];
     }
 
-    if (!/^(?:⚡|⏳|⏹️|❓|session id:)/i.test(raw)) {
+    if (!/^(?:⚡|⏳|⏹️|❓|(?:session|conversation|thread)[ _-]id:)/i.test(raw)) {
       this.plainTexts.push(line);
     }
     return null;

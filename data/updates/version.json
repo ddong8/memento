@@ -1,7 +1,7 @@
 {
-  "version": "1.0.92",
+  "version": "1.0.93",
   "title": "Memento v1.0.92",
-  "release_notes": "1. Windows 上的 AI 工具额度面板能显示 Antigravity 各模型的剩余额度和重置时间，不再一直提示“Antigravity 本地服务未运行”\n2. Antigravity 应用重启后，额度和任务会自动找到新的本地服务，不用重启 Memento\n3. 用户目录带中文的 Windows 设备上也能正确找到 Antigravity\n4. 手机端版本号与客户端统一为 1.0.92",
+  "release_notes": "1. 采集端把多份文件合成一次上传，同步对话发出的请求大幅减少，网络差时也更快同步完\n2. 重启 Memento 后不再把没有变化的文件重新上传一遍\n3. 应用使用时长只在有变化时上报，最多 5 分钟一次，电脑睡眠或退出前补发；跨天时先把前一天的记录发完\n4. 手机端版本号与客户端统一为 1.0.93",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.92-win-x64.zip",

@@ -445,10 +445,10 @@ function findLanguageServer(lines: string[]): { pid?: string; csrf?: string } {
 /**
  * Prints the language server process `$p`, when there is one, and the ports it
  * listens on as JSON. Non-ASCII characters go out as \uXXXX, so a user folder in
- * Chinese survives whatever code page the hidden console has (setting
- * [Console]::OutputEncoding fails without a console). Ports are joined into a
- * string: Windows PowerShell 5.1 can serialize a one-element array as
- * {"value":[...],"Count":1}.
+ * Chinese reads back right whatever code page PowerShell writes in (it depends
+ * on the console it gets, and setting [Console]::OutputEncoding fails in a host
+ * without one). Ports are joined into a string: Windows PowerShell 5.1 can
+ * serialize a one-element array as {"value":[...],"Count":1}.
  */
 export const WINDOWS_LS_REPORT =
   "if ($p) { $ports = ''; try { $ports = (Get-NetTCPConnection -State Listen -OwningProcess $p.ProcessId -ErrorAction Stop | ForEach-Object { $_.LocalPort } | Sort-Object -Unique) -join ',' } catch {}; " +

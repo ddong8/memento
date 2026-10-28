@@ -38,7 +38,7 @@ describe("Antigravity language server on Windows", () => {
     // No Get-NetTCPConnection here: ports are left to the netstat fallback
     expect(parseWindowsLanguageServer(out)).toEqual({ pid: "4321", csrf: "abc-123", binary, ports: [] });
     expect(execFileSync(powershell!, ["-NoProfile", "-NonInteractive", "-Command", "$p = $null; " + WINDOWS_LS_REPORT], { encoding: "utf8" })).toBe("");
-  });
+  }, 30_000); // a cold PowerShell start takes seconds on a shared CI runner
 
   it("finds nothing when Antigravity isn't running", () => {
     expect(parseWindowsLanguageServer("")).toEqual({ ports: [] });

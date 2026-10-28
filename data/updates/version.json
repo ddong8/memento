@@ -1,25 +1,25 @@
 {
-  "version": "1.0.91",
-  "title": "Memento v1.0.91",
+  "version": "1.0.92",
+  "title": "Memento v1.0.92",
   "release_notes": "1. Windows 上的 AI 工具额度面板能显示 Antigravity 各模型的剩余额度和重置时间，不再一直提示“Antigravity 本地服务未运行”\n2. Antigravity 应用重启后，额度和任务会自动找到新的本地服务，不用重启 Memento\n3. 用户目录带中文的 Windows 设备上也能正确找到 Antigravity\n4. 手机端版本号与客户端统一为 1.0.92",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.91-win-x64.zip",
-      "size": 157931586,
-      "sha256": "3d69a983bccd89e184fbe4542cfb1491d89ec7578a4072ac6fb2632997d8bbab",
-      "sha512": "w31jNLnbwJa2GK7gF2T3+m+GtKgvpHrJmz8kO04UvjoaMrNMvoi2M3zykdRjtTFPnO9WK4jVbKrc04CloiHWxQ=="
+      "asset_name": "Memento-1.0.92-win-x64.zip",
+      "size": 157935342,
+      "sha256": "58d082bc052a74aba73c908ed2d3b66e620737059a43b00d36297a1005d61aa7",
+      "sha512": "674pJP1yCfqOE7i7YodDETghE7Gy6MCD5yrNRFh54aTctUd3nAYi82ZFgIve4kRzu7y75wkwNNAz4X1GqbyjYg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.91-mac-arm64.zip",
-      "size": 132405026,
-      "sha256": "840a44d909dc051f1cc0f2c8bfa9d3031cd7370b4e00b3b1ad6dec864397df47",
-      "sha512": "kHIbVAxQJD0gRR5COYNr6Zz5JwY0YLuUEYaGCtBYRnxb0oM4pNjgoFX8x3r4bI9r8uBEc0ijbGSERmXccP0JAQ=="
+      "asset_name": "Memento-1.0.92-mac-arm64.zip",
+      "size": 132408380,
+      "sha256": "1137b648e9b15875f974d3776992a1a01051de494c84d8447fc762e4ca9f2f38",
+      "sha512": "f+HbMBL2NxUYaMuIMYAnYsCNPOtWzhHy6g2AZ1a1+QSj7p3CFiUh2HqwHfQHszsugzjXwQdPaMicmOEg1sN8XQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.91-linux-x64.tar.gz",
-      "size": 131699153,
-      "sha256": "d0cd0dadd6c1e29e9025406a1a04226f83bda2ef9eadb336ac197e267a663f37",
-      "sha512": "zhJx6EaineIBTLFQPG8I/VnPF7kx9y+u2iKYzs4S5AZWbO5W9wBBeUIaff4mE5q8Jkrb1RTAJq3XXqT+S6PmhQ=="
+      "asset_name": "Memento-1.0.92-linux-x64.tar.gz",
+      "size": 131702356,
+      "sha256": "324434eb8d4ee4139f431cc0bf1d66e308640f28e74ab286079264f272a54ab9",
+      "sha512": "sRWMpfRCFaXNJhD03UrI/QONLxpzHF84ja5MyCY2MZggAqsNd1JtOU1G7s+EkWC5NrkjumLCnUTGy1z3s3Ck1w=="
     }
   }
 }

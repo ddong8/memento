@@ -32,7 +32,7 @@ import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
 import { SessionResumeBanner } from "@/components/ask/SessionResumeBanner";
-import { HandoffCapsule, OfflineCapsule, type HandoffTask } from "@/components/ask/StatusCapsules";
+import { OfflineCapsule } from "@/components/ask/StatusCapsules";
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { formatContextTokens, isJunkSessionTitle, type AgentSessionItem } from "@/lib/ask/sessions";
@@ -423,50 +423,6 @@ function AskPageContent() {
     };
   }, []);
 
-  // Universal Handoff: detect active runs on other devices
-  const [handoffTask, setHandoffTask] = useState<HandoffTask | null>(null);
-
-  const checkUniversalHandoff = useCallback(async () => {
-    try {
-      const recent = await api.getRecentActiveConversation();
-      if (recent && recent.active_run && recent.id && recent.id !== activeConversationIdRef.current) {
-        setHandoffTask({
-          id: recent.id,
-          title: recent.title || "正在执行的长任务",
-          device: recent.device_id,
-        });
-      } else {
-        setHandoffTask(null);
-      }
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    checkUniversalHandoff();
-    // A run starting or ending on another device is pushed (ask_run): check then. The poll backs the
-    // pushes up, and is skipped while the tab is hidden (the visibility check below catches up)
-    let lastCheck = Date.now();
-    const offLive = onLiveEvent("ask_run", () => {
-      if (document.visibilityState !== "visible") return;
-      lastCheck = Date.now();
-      checkUniversalHandoff();
-    });
-    const interval = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (isLiveConnected() && Date.now() - lastCheck < 120_000) return;
-      lastCheck = Date.now();
-      checkUniversalHandoff();
-    }, 12000);
-    const handleVis = () => {
-      if (document.visibilityState === "visible") checkUniversalHandoff();
-    };
-    document.addEventListener("visibilitychange", handleVis);
-    return () => {
-      offLive();
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", handleVis);
-    };
-  }, [checkUniversalHandoff]);
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const showScrollBottomRef = useRef<boolean>(false);
@@ -4580,17 +4536,6 @@ function AskPageContent() {
       <div className="pointer-events-none absolute inset-0 rounded-none sm:rounded-2xl sm:backdrop-blur-xl -z-10" />
       {/* 离线状态全局浮动感知胶囊 */}
       <OfflineCapsule offline={isOffline} recovered={offlineRecovered} />
-      {/* 跨端任务接力悬浮胶囊 */}
-      {handoffTask && (
-        <HandoffCapsule
-          task={handoffTask}
-          onOpen={(id) => {
-            loadConversation(id, { force: true });
-            setHandoffTask(null);
-          }}
-          onDismiss={() => setHandoffTask(null)}
-        />
-      )}
 
       {/* 主对话区与输入控制台 */}
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative bg-transparent">

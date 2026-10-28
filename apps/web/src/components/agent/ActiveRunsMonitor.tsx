@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { api, type AskRunSummary } from "@/lib/api-client";
+import { api, forgetRunStatus, type AskRunSummary } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { sendLocalNotification } from "@/lib/native-notify";
@@ -189,6 +189,7 @@ export default function ActiveRunsMonitor() {
   useEffect(() => {
     const handleAskDone = (e: any) => {
       const convId = e?.detail?.conversation_id;
+      forgetRunStatus(convId);
       if (convId) {
         locallyFinishedMapRef.current.set(convId, Date.now());
         activeIdsRef.current.delete(convId);
@@ -228,6 +229,7 @@ export default function ActiveRunsMonitor() {
 
     const handleAskStart = (e: any) => {
       const convId = e?.detail?.conversation_id;
+      forgetRunStatus(convId);
       if (convId) {
         locallyFinishedMapRef.current.delete(convId);
         activeIdsRef.current.add(convId);
@@ -309,8 +311,13 @@ export default function ActiveRunsMonitor() {
   }, [token, fetchRuns]);
 
   useEffect(() => {
+    if (token) void fetchRuns();
+  }, [token, fetchRuns]);
+
+  useEffect(() => {
     if (!token) return;
-    fetchRuns();
+    // Not fetching here: the push connection dropping or coming back (which changes the interval)
+    // isn't news by itself, and its coming back fetches already (above)
 
     // Starts, steps and ends are pushed (above) and the elapsed time ticks locally, so with the push
     // connection up the poll is only a fallback: 15 s while a run is going, 2 minutes idle. Without
@@ -325,6 +332,7 @@ export default function ActiveRunsMonitor() {
 
   const lastHiddenAtRef = useRef<number>(0);
   const lastResumeSyncAtRef = useRef<number>(0);
+  const resumeSyncingRef = useRef(false);
   const autoJumpedKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -335,8 +343,9 @@ export default function ActiveRunsMonitor() {
         lastHiddenAtRef.current = Date.now();
         return;
       }
-      // Coming back fires visibilitychange, focus and the app's own wake events together: one sync
-      if (Date.now() - lastResumeSyncAtRef.current < 1500) return;
+      // Coming back fires visibilitychange, focus and the app's own wake events, on a phone spread over
+      // a second or more: one sync, unless it couldn't reach the server
+      if (resumeSyncingRef.current || Date.now() - lastResumeSyncAtRef.current < 3000) return;
       lastResumeSyncAtRef.current = Date.now();
       const hiddenSince =
         lastHiddenAtRef.current > 0
@@ -345,8 +354,19 @@ export default function ActiveRunsMonitor() {
             ? Date.now() - 180_000
             : 0;
       lastHiddenAtRef.current = 0;
+      let recent: AskRunSummary[];
+      resumeSyncingRef.current = true;
       try {
-        const recent = await api.listAskRuns(300);
+        recent = await api.listAskRuns(300);
+      } catch {
+        // No network yet (or the server's trouble): the next wake event tries again, still knowing since when
+        lastResumeSyncAtRef.current = 0;
+        if (lastHiddenAtRef.current === 0) lastHiddenAtRef.current = hiddenSince;
+        return;
+      } finally {
+        resumeSyncingRef.current = false;
+      }
+      try {
         if (!Array.isArray(recent)) return;
         setRuns(recent);
         const finishedWhileHidden = recent.find((r) => {

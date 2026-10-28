@@ -16,7 +16,7 @@
  * and the server replays only what came after.
  */
 
-import { getApiBase } from "./api-client";
+import { forgetRunStatus, getApiBase } from "./api-client";
 
 export interface LiveEvent<T = Record<string, unknown>> {
   type: string;
@@ -80,6 +80,8 @@ function setConnected(value: boolean): void {
 }
 
 function dispatch(event: LiveEvent): void {
+  // A run started or ended: what was shared of its status is out of date
+  if (event.type === "ask_run") forgetRunStatus((event.data as { conversation_id?: string }).conversation_id);
   const set = handlers.get(event.type);
   if (!set) return;
   for (const h of set) {

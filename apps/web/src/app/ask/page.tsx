@@ -52,6 +52,8 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 
 // The session picker shows the latest few messages as a preview and loads the full conversation on pick
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
+// Coming back to the page fires several wake events: within this long (or while one check runs) they're one
+const WAKE_COALESCE_MS = 3_000;
 
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
@@ -1280,8 +1282,9 @@ function AskPageContent() {
 
       // Concurrently query active run status and conversation turns for instant presentation
       const [runInfo, data] = await Promise.all([
-        authFetch(`${getApiBase()}/api/ask/conversations/${id}/run`)
-          .then((r) => (r.ok ? r.json() : null))
+        api
+          .getAskRunStatus(id)
+          .then((s) => s.run)
           .catch(() => null),
         api.getAskConversation(id, limitToUse),
       ]);
@@ -1741,27 +1744,28 @@ function AskPageContent() {
         : null;
 
       try {
-        const runsRes = await authFetch(`${getApiBase()}/api/ask/runs`);
-        if (runsRes.ok) {
-          const activeRuns = await runsRes.json();
-          if (Array.isArray(activeRuns)) {
-            const serverMatch = resolvedTargetId
-              ? activeRuns.find((r: any) => r.conversation_id === resolvedTargetId && !r.done && !r.cancelled)
-              : null;
-            if (serverMatch) {
-              activeRunToAttach = serverMatch;
-            } else if (resolvedTargetId && activeRunToAttach && activeRunToAttach.conversation_id === resolvedTargetId) {
-              // Server confirmed this run is NO LONGER running!
-              activeRunToAttach = null;
-              streamingRef.current = false;
-              setStreaming(false);
-              if (askCache) {
-                askCache.streaming = false;
-                askCache.activeRun = null;
-              }
-            } else if (!activeRunToAttach && !idParam && activeRuns[0] && !activeRuns[0].done && !activeRuns[0].cancelled) {
-              activeRunToAttach = activeRuns[0];
-              resolvedTargetId = activeRunToAttach.conversation_id;
+        const activeRuns = await api.listAskRuns(0);
+        if (Array.isArray(activeRuns)) {
+          const serverMatch = resolvedTargetId
+            ? activeRuns.find((r: any) => r.conversation_id === resolvedTargetId && !r.done && !r.cancelled)
+            : null;
+          if (serverMatch) {
+            activeRunToAttach = serverMatch;
+          } else if (resolvedTargetId && activeRunToAttach && activeRunToAttach.conversation_id === resolvedTargetId) {
+            // Server confirmed this run is NO LONGER running!
+            activeRunToAttach = null;
+            streamingRef.current = false;
+            setStreaming(false);
+            if (askCache) {
+              askCache.streaming = false;
+              askCache.activeRun = null;
+            }
+          } else if (!activeRunToAttach && !idParam) {
+            // The list may hold runs that already ended (a shared answer reaches further back)
+            const running = activeRuns.find((r) => !r.done && !r.cancelled);
+            if (running) {
+              activeRunToAttach = running;
+              resolvedTargetId = running.conversation_id;
             }
           }
         }
@@ -2090,7 +2094,8 @@ function AskPageContent() {
     const following = () => Boolean(abortRef.current && !abortRef.current.signal.aborted);
     const streamAlive = () => following() && Date.now() - lastStreamActivityRef.current < STREAM_SILENT_MS;
 
-    const checkServerRun = async (resumed = false) => {
+    // false: the server couldn't be asked (no network yet, its trouble), a later wake tries again
+    const checkServerRun = async (resumed = false): Promise<false | void> => {
       const convId = activeConversationIdRef.current;
       if (!convId || !isMounted) return;
       if (!resumed && typeof document !== "undefined" && document.visibilityState === "hidden") {
@@ -2104,11 +2109,10 @@ function AskPageContent() {
       const stillOpen = () => isMounted && activeConversationIdRef.current === convId;
 
       try {
-        const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${convId}/run`);
+        const status = await api.getAskRunStatus(convId);
         if (!stillOpen()) return;
-        if (!runRes.ok && runRes.status !== 404) return; // the server's trouble: the next tick retries
-        const run = runRes.ok ? await runRes.json() : null;
-        if (!stillOpen()) return;
+        if (!status.ok) return false; // the server's trouble: the next tick retries
+        const run = status.run;
 
         if (run && !run.done && !run.cancelled) {
           // Still running on the server
@@ -2182,6 +2186,7 @@ function AskPageContent() {
         }
       } catch {
         // Network errors are ignored; next tick will retry
+        return false;
       }
     };
 
@@ -2205,12 +2210,19 @@ function AskPageContent() {
       }
     });
 
-    // Recheck immediately when window regains visibility from background or wakes
+    // Recheck immediately when window regains visibility from background or wakes. Coming back fires
+    // visibilitychange, focus, pageshow and the app's own wake events, on a phone spread over a second
+    // or more: one check answers them all, unless it couldn't reach the server.
+    let waking = false;
     const onWake = () => {
       const now = Date.now();
-      if (now - lastWakeAtRef.current < 600) return;
+      if (waking || now - lastWakeAtRef.current < WAKE_COALESCE_MS) return;
       lastWakeAtRef.current = now;
-      void checkServerRun(true);
+      waking = true;
+      void checkServerRun(true).then((learned) => {
+        waking = false;
+        if (learned === false) lastWakeAtRef.current = 0;
+      });
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -3177,10 +3189,8 @@ function AskPageContent() {
 
       // Check server status before sleeping or retrying: is the task still active on the server?
       try {
-        const runRes = await authFetch(`${getApiBase()}/api/ask/conversations/${cursor.convId}/run`, {
-          signal: ctrl.signal,
-        });
-        if (runRes.status === 404) {
+        const status = await api.getAskRunStatus(cursor.convId!, ctrl.signal);
+        if (status.ok && !status.run) {
           setIsReconnecting(false);
           postNativeLiveActivity("end", {
             conversationId: cursor.convId,
@@ -3190,8 +3200,8 @@ function AskPageContent() {
           await showSaved();
           return;
         }
-        if (runRes.ok) {
-          const run = await runRes.json();
+        const run = status.run;
+        if (run) {
           if (run.done || run.cancelled) {
             setIsReconnecting(false);
             postNativeLiveActivity("end", {
@@ -3391,7 +3401,7 @@ function AskPageContent() {
         status: "cancelled",
         currentStep: "已停止",
       });
-      authFetch(`${getApiBase()}/api/ask/conversations/${convId}/cancel`, { method: "POST" }).catch(() => {});
+      api.cancelAskRun(convId).catch(() => {});
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("memento_ask_done", {
@@ -3743,7 +3753,7 @@ function AskPageContent() {
           status: "cancelled",
           currentStep: "已停止",
         });
-        authFetch(`${getApiBase()}/api/ask/conversations/${targetId}/cancel`, { method: "POST" }).catch(() => {});
+        api.cancelAskRun(targetId).catch(() => {});
         streamingRef.current = false;
         setStreaming(false);
         userCancelledRef.current = true;

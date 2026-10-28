@@ -633,6 +633,84 @@ function fresh<T>(path: string): Promise<T> {
   return apiFetch<T>(path);
 }
 
+/** GET /api/ask/conversations/{id}/run: `ok` false when the server couldn't be asked (no network yet,
+ * its trouble), `run` null when it holds none (404). */
+export interface AskRunStatus {
+  ok: boolean;
+  run: (AskRunSummary & { images?: string[] }) | null;
+}
+
+// Coming back to the page asks for the same run status from several places at once (the open
+// conversation's watchdog and loader, the runs monitor, the history drawer, the push connection coming
+// back up), spread over a second or more on a phone: within this long they share one request. What
+// changes a run (a pushed ask_run, one started or stopped here) forgets it first.
+const RUN_STATUS_SHARE_MS = 2_000;
+let _runsShared: { at: number; recent: number; promise: Promise<AskRunSummary[]> } | null = null;
+const _runShared = new Map<string, { at: number; promise: Promise<AskRunStatus> }>();
+
+/** The next ask for the run list and this conversation's run (every one's, without an id) goes to the server. */
+export function forgetRunStatus(conversationId?: string): void {
+  _runsShared = null;
+  if (conversationId) _runShared.delete(conversationId);
+  else _runShared.clear();
+}
+
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  const aborted = () => new DOMException("Aborted", "AbortError");
+  if (signal.aborted) return Promise.reject(aborted());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(aborted());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** Runs going, and those finished in the last `recentSeconds`. A shared answer may reach further back. */
+function listAskRunsShared(recentSeconds: number): Promise<AskRunSummary[]> {
+  const now = Date.now();
+  const shared = _runsShared;
+  if (shared && shared.recent >= recentSeconds && now - shared.at < RUN_STATUS_SHARE_MS) return shared.promise;
+  const promise = fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`);
+  const entry = { at: now, recent: recentSeconds, promise };
+  _runsShared = entry;
+  // A failure isn't shared: the next ask tries again
+  promise.catch(() => {
+    if (_runsShared === entry) _runsShared = null;
+  });
+  return promise;
+}
+
+function getAskRunStatusShared(conversationId: string, signal?: AbortSignal): Promise<AskRunStatus> {
+  const now = Date.now();
+  const shared = _runShared.get(conversationId);
+  if (shared && now - shared.at < RUN_STATUS_SHARE_MS) return abortable(shared.promise, signal);
+  for (const [id, e] of _runShared) if (now - e.at >= RUN_STATUS_SHARE_MS) _runShared.delete(id);
+  const promise = authFetch(`${getApiBase()}/api/ask/conversations/${conversationId}/run`).then(
+    async (res): Promise<AskRunStatus> => {
+      if (res.status === 404) return { ok: true, run: null };
+      if (!res.ok) return { ok: false, run: null };
+      return { ok: true, run: await res.json() };
+    },
+  );
+  const entry = { at: now, promise };
+  _runShared.set(conversationId, entry);
+  const drop = () => {
+    if (_runShared.get(conversationId) === entry) _runShared.delete(conversationId);
+  };
+  promise.then((s) => !s.ok && drop(), drop);
+  return abortable(promise, signal);
+}
+
 const post = <T = Json>(path: string, body?: unknown) =>
   apiFetch<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
 const put = <T = Json>(path: string, body: unknown) => apiFetch<T>(path, { method: "PUT", body: JSON.stringify(body) });
@@ -1034,8 +1112,9 @@ export const api = {
     invalidateApiCache(`/api/ask/conversations`);
     return apiFetch<{ ok: boolean }>(`/api/ask/conversations/${id}`, { method: "DELETE" });
   },
-  listAskRuns: (recentSeconds = 0) =>
-    fresh<AskRunSummary[]>(`/api/ask/runs${recentSeconds > 0 ? `?recent=${recentSeconds}` : ""}`),
+  listAskRuns: (recentSeconds = 0) => listAskRunsShared(recentSeconds),
+  /** The conversation's run; rejects on a network error, or with AbortError once `signal` aborts. */
+  getAskRunStatus: (convId: string, signal?: AbortSignal) => getAskRunStatusShared(convId, signal),
   warmupAsk: () =>
     apiFetch<{ warmed: boolean }>("/api/ask/warmup", { method: "POST" }),
   ensureConversationBySession: (body: {
@@ -1060,7 +1139,9 @@ export const api = {
       active_run?: boolean;
     }>("/api/ask/conversations/recent-active"),
   cancelAskRun: (convId: string) =>
-    apiFetch<{ status: string }>(`/api/ask/conversations/${convId}/cancel`, { method: "POST" }),
+    apiFetch<{ status: string }>(`/api/ask/conversations/${convId}/cancel`, { method: "POST" }).finally(() =>
+      forgetRunStatus(convId),
+    ),
   listProjects: (toolId?: string, deviceId?: string) => {
     const params = new URLSearchParams();
     if (toolId) params.set("tool_id", toolId);

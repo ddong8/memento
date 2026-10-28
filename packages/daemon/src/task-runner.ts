@@ -228,6 +228,8 @@ export function detectStillRunning(
 ): boolean {
   if (parser?.isStillRunning) return true;
   if (stdout.includes("STATUS_STILL_RUNNING") || stderr.includes("STATUS_STILL_RUNNING")) return true;
+  // The stream said which background tasks ended; the answer's wording about them proves nothing
+  if (parser?.tracksBackgroundTasks) return false;
 
   if (exitCode !== 0) return false;
 

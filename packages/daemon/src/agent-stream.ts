@@ -48,6 +48,11 @@ export abstract class AgentStreamParser {
   isStillRunning = false;
   /** Active background task or process IDs detected in the stream. */
   activeBackgroundTasks = new Set<string>();
+  /**
+   * The stream reports every background task's end, so isStillRunning is the whole answer and the
+   * agent's own words ("left it running in the background") mustn't override it (detectStillRunning).
+   */
+  tracksBackgroundTasks = false;
 
   /** The agent's final answer, once known. */
   abstract get finalText(): string | undefined;
@@ -83,7 +88,11 @@ const allowTool = (requestId: string, updatedInput: Json): Json => ({
   response: { subtype: "success", request_id: requestId, response: { behavior: "allow", updatedInput } },
 });
 
+/** Background task states Claude Code reports once a task is over (task_notification / task_updated). */
+const TASK_ENDED = new Set(["completed", "failed", "stopped", "killed", "cancelled"]);
+
 export class ClaudeStreamParser extends AgentStreamParser {
+  override tracksBackgroundTasks = true;
   private result: string | undefined;
   private readonly texts: string[] = [];
   private readonly asks: PendingAsk[] = [];
@@ -99,6 +108,19 @@ export class ClaudeStreamParser extends AgentStreamParser {
     if (!res) return combinedTexts;
     if (combinedTexts.includes(res)) return combinedTexts;
     return `${combinedTexts}\n\n${res}`;
+  }
+
+  private readonly endedTasks = new Set<string>();
+
+  private startTask(id: string): void {
+    if (!this.endedTasks.has(id)) this.activeBackgroundTasks.add(id);
+  }
+
+  private endTask(id: string): void {
+    this.endedTasks.add(id);
+    this.activeBackgroundTasks.delete(id);
+    // Ended after the answer (it waited on the task): nothing is left running any more
+    if (this.finished) this.isStillRunning = this.activeBackgroundTasks.size > 0;
   }
 
   /** Control responses for the CLI's stdin, in order; each is handed out once. */
@@ -139,6 +161,15 @@ export class ClaudeStreamParser extends AgentStreamParser {
         if (d.subtype === "init" && d.session_id != null) {
           this.sessionId = String(d.session_id);
           events.push({ kind: "session", session_id: this.sessionId, ...(d.model != null ? { model: d.model } : {}) });
+        } else if (d.subtype === "task_started" && d.task_id != null) {
+          // Background shells, subagents and the like; each one's end comes as task_notification
+          // (or task_updated). A task still open when the agent exits is left running.
+          this.startTask(String(d.task_id));
+        } else if (d.subtype === "task_notification" && d.task_id != null) {
+          this.endTask(String(d.task_id));
+        } else if (d.subtype === "task_updated" && d.task_id != null) {
+          const patch = isObject(d.patch) ? d.patch : {};
+          if (TASK_ENDED.has(String(patch.status ?? "")) || patch.end_time != null) this.endTask(String(d.task_id));
         } else if (d.subtype === "compact_boundary") {
           // Claude Code summarized the conversation so far (auto at the compact window, or /compact)
           const meta = isObject(d.compact_metadata) ? d.compact_metadata : {};
@@ -163,9 +194,6 @@ export class ClaudeStreamParser extends AgentStreamParser {
             } else if (block.type === "tool_use") {
               const name = str(block.name) ?? "tool";
               const input = isObject(block.input) ? block.input : {};
-              if (name === "Bash" && input.run_in_background === true) {
-                this.isStillRunning = true;
-              }
               const blockId = str(block.id);
               events.push({
                 kind: "tool",
@@ -187,12 +215,11 @@ export class ClaudeStreamParser extends AgentStreamParser {
             const resText = toolResultText(block.content);
             const toolUseId = str(block.tool_use_id);
             const bgMatch =
-              /Command running in background with ID:\s*([^\s\n\r]+)/i.exec(resText) ??
-              /Task running in background with ID:\s*([^\s\n\r]+)/i.exec(resText);
-            if (bgMatch && bgMatch[1]) {
-              this.activeBackgroundTasks.add(bgMatch[1]);
-              this.isStillRunning = true;
-            }
+              // "…with ID: b1x2. Output is being written to …": the id stops before the period
+              /Command running in background with ID:\s*([\w-]+)/i.exec(resText) ??
+              /Task running in background with ID:\s*([\w-]+)/i.exec(resText);
+            // CLIs without task events; with them it's the same id, already counted
+            if (bgMatch && bgMatch[1] && !this.endedTasks.has(bgMatch[1])) this.startTask(bgMatch[1]);
             events.push({
               kind: "tool",
               id: toolUseId,
@@ -245,9 +272,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
         this.queuedTurns = num(d.queued_turn_count) ?? 0;
         if (d.session_id != null) this.sessionId = String(d.session_id);
         if (typeof d.result === "string") this.result = d.result;
-        if (this.activeBackgroundTasks.size > 0) {
-          this.isStillRunning = true;
-        }
+        this.isStillRunning = this.activeBackgroundTasks.size > 0;
         if (d.is_error === true) {
           const message = String(d.result ?? d.subtype ?? "error");
           this.addError(message);

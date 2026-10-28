@@ -54,6 +54,14 @@ Tool is running as a background task with task id: eebfe902/task-73
     expect(detectStillRunning("正常输出", "", parser, 0)).toBe(true);
   });
 
+  it("trusts Claude's task events over the answer's wording", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed('{"type":"system","subtype":"task_started","task_id":"b1","task_type":"local_bash"}');
+    parser.feed('{"type":"system","subtype":"task_notification","task_id":"b1","status":"completed","output_file":"","summary":""}');
+    parser.feed('{"type":"result","result":"构建已在后台启动，现已完成"}');
+    expect(detectStillRunning("构建已在后台启动，正在后台运行中，现已完成。", "", parser, 0)).toBe(false);
+  });
+
   it("detects Chinese background text patterns", () => {
     const stdout = "任务已提交，已经在后台启动编译脚本，正在后台运行。";
     expect(detectStillRunning(stdout, "", undefined, 0)).toBe(true);

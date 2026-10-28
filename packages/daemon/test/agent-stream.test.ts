@@ -145,13 +145,56 @@ describe("Background task detection", () => {
   it("Claude detects background bash command", () => {
     const parser = new ClaudeStreamParser();
     parser.feed('{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm run build","run_in_background":true}}]}}');
-    expect(parser.isStillRunning).toBe(true);
-
     parser.feed('{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Command running in background with ID: bg-998"}]}}');
     expect(parser.activeBackgroundTasks.has("bg-998")).toBe(true);
 
     parser.feed('{"type":"result","result":"已在后台启动构建任务"}');
     expect(parser.isStillRunning).toBe(true);
+  });
+
+  const started = (id: string) => `{"type":"system","subtype":"task_started","task_id":"${id}","tool_use_id":"t-${id}","description":"npm run build","task_type":"local_bash","is_backgrounded":true}`;
+  const notified = (id: string, status = "completed") => `{"type":"system","subtype":"task_notification","task_id":"${id}","tool_use_id":"t-${id}","status":"${status}","output_file":"","summary":""}`;
+
+  it("Claude: a background task that ended before the answer leaves nothing running", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed(started("b1"));
+    parser.feed('{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t-b1","content":"Command running in background with ID: b1. Output is being written to: /tmp/b1.output"}]}}');
+    parser.feed(notified("b1"));
+    parser.feed('{"type":"result","result":"构建完成"}');
+    expect(parser.activeBackgroundTasks.size).toBe(0);
+    expect(parser.isStillRunning).toBe(false);
+  });
+
+  it("Claude: a task still open at the answer is left running, until its end is reported", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed(started("b1"));
+    parser.feed(started("b2"));
+    parser.feed(notified("b1", "failed"));
+    parser.feed('{"type":"result","result":"已在后台启动"}');
+    expect(parser.isStillRunning).toBe(true);
+    expect([...parser.activeBackgroundTasks]).toEqual(["b2"]);
+
+    parser.feed(notified("b2", "stopped"));
+    expect(parser.isStillRunning).toBe(false);
+  });
+
+  it("Claude: task_updated with a final status ends the task", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed(started("a1"));
+    parser.feed('{"type":"system","subtype":"task_updated","task_id":"a1","patch":{"status":"running"}}');
+    expect(parser.activeBackgroundTasks.has("a1")).toBe(true);
+    parser.feed('{"type":"system","subtype":"task_updated","task_id":"a1","patch":{"status":"killed","end_time":1761600000000}}');
+    parser.feed('{"type":"result","result":"done"}');
+    expect(parser.isStillRunning).toBe(false);
+  });
+
+  it("Claude: a late tool result naming an ended task doesn't bring it back", () => {
+    const parser = new ClaudeStreamParser();
+    parser.feed(started("b1"));
+    parser.feed(notified("b1"));
+    parser.feed('{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t-b1","content":"Command running in background with ID: b1"}]}}');
+    parser.feed('{"type":"result","result":"ok"}');
+    expect(parser.isStillRunning).toBe(false);
   });
 
   it("Codex detects background nohup execution", () => {

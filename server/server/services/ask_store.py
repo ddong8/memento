@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, User, AskConversation, Project
 from ..db.session import async_session_factory
+from .agent_limits import mark_usage_limit
 from .storage_service import sign_media_url, store_image_b64
 
 logger = logging.getLogger("server.ask")
@@ -403,8 +404,12 @@ async def append_conversation_turns(
     user_created_at: str | None = None,
     assistant_created_at: str | None = None,
     duration_ms: int | None = None,
+    forget_session: bool = False,
 ):
-    """Persist user and assistant turns into the conversation row."""
+    """Persist user and assistant turns into the conversation row.
+
+    forget_session: the session the conversation resumed is gone from the device and nothing replaced
+    it, so the next question starts a new one (a "" session_id in config is otherwise "not said")."""
     try:
         async with async_session_factory() as session:
             # Locked until the commit below: this writes the whole list back, so two appends at once
@@ -491,7 +496,7 @@ async def append_conversation_turns(
                 conv.device_id = effective_dev
             if cwd:
                 conv.cwd = cwd
-            if config or (effective_dev and effective_dev != "auto"):
+            if config or forget_session or (effective_dev and effective_dev != "auto"):
                 cfg = dict(conv.config or {})
                 if config:
                     for k, v in config.items():
@@ -501,6 +506,9 @@ async def append_conversation_turns(
                             if k == "device_id" and v == "auto" and cfg.get("device_id") and cfg.get("device_id") not in ("auto", "ask_only", "all"):
                                 continue
                             cfg[k] = v
+                if forget_session:
+                    # "", not removed: removed, the session would be inferred back from this very turn
+                    cfg["session_id"] = ""
                 if effective_dev and effective_dev != "auto":
                     cfg["device_id"] = effective_dev
                 conv.config = cfg
@@ -1087,6 +1095,43 @@ async def _recorded_task_ids(db: AsyncSession, conv_id: uuid.UUID) -> set[str]:
     return {str(v) for col in (row or []) for v in (col or []) if v}
 
 
+async def record_stopped_orphans(db: AsyncSession, conv_id: uuid.UUID, tasks: list) -> int:
+    """Agent tasks stopped because a new question came while no run followed them (orchestrator.
+    stop_orphaned_agent_tasks). Recovery leaves cancelled tasks out, so their question would be gone from
+    the conversation: saved here, ahead of the new question's turn, unless a turn records them already."""
+    if not tasks:
+        return 0
+    recorded = await _recorded_task_ids(db, conv_id)
+    saved = 0
+    for t in tasks:
+        if str(t.id) in recorded:
+            continue
+        pl = t.payload or {}
+        call_id = f"direct_{str(t.id).replace('-', '')[:8]}"
+        began = t.dispatched_at or t.created_at
+        await append_conversation_turns(
+            conv_id=conv_id,
+            user_content=str(pl.get("user_question") or "").strip() or "（上一次的提问）",
+            assistant_content="⏹ 这一问在设备上执行时服务更新了，结果没能传回来；下一次提问时先停掉了它，在同一会话里接着做。",
+            tool_calls=[{
+                "id": call_id,
+                "tool_call_id": call_id,
+                "name": "run_on_device",
+                "device_name": t.device_id or "auto",
+                "args": {k: v for k, v in pl.items() if k != "images"},
+                "action": t.action,
+                "binary": pl.get("binary"),
+                "status": "failed",
+                "result": {"task_id": str(t.id), "status": "cancelled", "error": t.error},
+            }],
+            device_id=t.device_id,
+            user_created_at=began.isoformat() if began else None,
+            assistant_created_at=(t.finished_at or datetime.now(timezone.utc)).isoformat(),
+        )
+        saved += 1
+    return saved
+
+
 async def recover_orphaned_tasks_for_conv(
     db: AsyncSession, conv: AskConversation, cfg: dict, sample_turns: list[dict] | None = None
 ) -> list[dict] | None:
@@ -1164,6 +1209,7 @@ async def recover_orphaned_tasks_for_conv(
             return None
 
         new_turns: list[dict] = []
+        next_session: str | None = None
         for dt_row in to_recover:
             pl = dt_row.payload or {}
             user_q = str(pl.get("user_question") or "").strip()
@@ -1182,6 +1228,20 @@ async def recover_orphaned_tasks_for_conv(
             dur_ms = max(0, int((end_dt - start_dt).total_seconds() * 1000))
             call_id = f"direct_{str(dt_row.id).replace('-', '')[:8]}"
             clean_pl = {k: v for k, v in pl.items() if k != "images"}
+            result = mark_usage_limit({
+                "task_id": str(dt_row.id),
+                "action": dt_row.action,
+                "status": dt_row.status,
+                "exit_code": dt_row.exit_code,
+                "stdout": dt_row.stdout,
+                "stderr": dt_row.stderr,
+                "error": dt_row.error,
+                "session_id": dt_row.session_id,
+                "events": dt_row.events or [],
+            })
+            if dt_row.session_id:
+                # The latest one wins: the next question resumes the session these turns ran in
+                next_session = dt_row.session_id
             tc_entry = {
                 "id": call_id,
                 "tool_call_id": call_id,
@@ -1190,16 +1250,8 @@ async def recover_orphaned_tasks_for_conv(
                 "args": clean_pl,
                 "action": dt_row.action,
                 "binary": pl.get("binary"),
-                "status": "executed" if dt_row.status in ("succeeded", "still_running") else "failed",
-                "result": {
-                    "task_id": str(dt_row.id),
-                    "status": dt_row.status,
-                    "exit_code": dt_row.exit_code,
-                    "stdout": dt_row.stdout,
-                    "stderr": dt_row.stderr,
-                    "error": dt_row.error,
-                    "events": dt_row.events or [],
-                },
+                "status": "executed" if result["status"] in ("succeeded", "still_running") else "failed",
+                "result": result,
             }
             new_turns.append({
                 "role": "user",
@@ -1225,19 +1277,26 @@ async def recover_orphaned_tasks_for_conv(
             func.jsonb_build_object("ids", ids_json),
             type_=Boolean,
         ))
+        values = {
+            "turns": AskConversation.turns.op("||")(literal(new_turns, JSONB)),
+            "message_count": func.jsonb_array_length(AskConversation.turns) + len(new_turns),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if next_session:
+            values["config"] = func.coalesce(AskConversation.config, literal({}, JSONB)).op("||")(
+                literal({"session_id": next_session}, JSONB)
+            )
         res = await db.execute(
             update(AskConversation)
             .where(AskConversation.id == conv.id, not_yet)
-            .values(
-                turns=AskConversation.turns.op("||")(literal(new_turns, JSONB)),
-                message_count=func.jsonb_array_length(AskConversation.turns) + len(new_turns),
-                updated_at=datetime.now(timezone.utc),
-            )
+            .values(**values)
             .execution_options(synchronize_session=False)
         )
         await db.commit()
         if not res.rowcount:
             return None
+        if next_session:
+            cfg["session_id"] = next_session  # what the caller goes on to show and resume
         await bust_conv_list(conv.user_id)
         logger.info("Recovered %d orphaned device task(s) into conversation %s", len(to_recover), conv_id_str)
         return raw_turns + new_turns

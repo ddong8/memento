@@ -18,6 +18,7 @@ from sqlalchemy import select
 from ..db.models import DeviceTask
 from ..db.session import async_session_factory
 from . import notify_service
+from .agent_limits import usage_limit_message
 from .risk_policy import RiskFinding, classify_tool_use
 from .ws_manager import ws_manager
 
@@ -122,6 +123,9 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             )).scalar_one_or_none()
         if task is None or task.action != "agent":
             return
+        out_of_quota = usage_limit_message({"action": task.action, "error": task.error})
+        if out_of_quota:
+            status = "failed"  # older daemons said still_running
         pl = task.payload or {}
         explicit_conv_id = str(pl.get("conversation_id") or "").strip()
         conv_id = explicit_conv_id
@@ -160,8 +164,10 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
         if watched and explicit_conv_id:
             return
 
-        title = {"succeeded": "✅ 任务完成", "timeout": "⏱️ 任务超时"}.get(status or "", "❌ 任务失败")
+        title = "⛔ 智能体额度已用完" if out_of_quota else {"succeeded": "✅ 任务完成", "timeout": "⏱️ 任务超时"}.get(status or "", "❌ 任务失败")
         body = f"{display_device_name(device_name)}：{_task_summary(task)}"
+        if out_of_quota:
+            body += f"（{out_of_quota}）"
         if task.alerts:
             body += f"（期间 {len(task.alerts)} 次危险操作）"
         await notify_service.notify_user(

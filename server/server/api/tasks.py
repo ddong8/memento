@@ -45,10 +45,28 @@ from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
 from ..services import device_reports, notify_service, task_alerts
+from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_service import HEARTBEAT_WRITE_EVERY
 
 logger = logging.getLogger("server.tasks_api")
+
+
+async def _note_task_session(task_id: str, session_id: str) -> None:
+    """The session an agent task runs in, kept from its start: a task whose run is lost (a restart, a
+    deploy with nowhere to hand it) still says where its work is, for the next question to go on in."""
+    try:
+        async with async_session_factory() as db:
+            await db.execute(
+                update(DeviceTask)
+                .where(DeviceTask.id == uuid.UUID(task_id), DeviceTask.finished_at.is_(None))
+                .values(session_id=session_id[:128])
+            )
+            await db.commit()
+    except Exception as e:
+        logger.debug("Could not note the session of task %s: %s", task_id, e)
+
+
 _last_ws_heartbeat: dict[uuid.UUID, float] = {}
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -149,6 +167,7 @@ def _serialize(t: DeviceTask, truncate_output: bool = False, include_events: boo
         "finished_at": t.finished_at.isoformat() if t.finished_at else None,
         "alerts": t.alerts or [],
         "events": (t.events or []) if include_events else [],
+        "session_id": t.session_id,
     }
 
 
@@ -371,6 +390,7 @@ async def device_websocket_endpoint(
     )
     await ws_manager.register(real_device_id, websocket, *aliases)
     device_reports.record_owner(aliases, str(machine.user_id) if machine.user_id else None)
+    await ws_manager.send_kept_cancels(*aliases)
 
     try:
         async with async_session_factory() as db:
@@ -440,6 +460,8 @@ async def device_websocket_endpoint(
                 tid = data.get("task_id")
                 if tid and isinstance(data.get("event"), dict):
                     ws_manager.push_event(tid, data["event"])
+                    if data["event"].get("kind") == "session" and data["event"].get("session_id"):
+                        notify_service.spawn(_note_task_session(tid, str(data["event"]["session_id"])))
             elif msg_type == "agent_tool_use":
                 # Classified and pushed off the receive loop: a slow push must
                 # never stall chunk streaming.
@@ -458,12 +480,15 @@ async def device_websocket_endpoint(
                                 select(DeviceTask).where(DeviceTask.id == tid_uuid)
                             )).scalar_one_or_none()
                             if t and t.status != "cancelled":
-                                new_status = data.get("status", "succeeded")
+                                # Ended on the account's quota: failed, not done or left running
+                                done = mark_usage_limit({**data, "action": t.action})
+                                new_status = done.get("status", "succeeded")
                                 t.status = new_status
                                 t.exit_code = data.get("exit_code")
                                 t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
                                 t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
-                                t.error = data.get("error")
+                                t.error = done.get("error")
+                                t.session_id = str(data.get("session_id") or "")[:128] or None
                                 if isinstance(data.get("events"), list):
                                     t.events = data["events"][:400]
                                 # still_running too: the agent has exited and nothing more comes for this task

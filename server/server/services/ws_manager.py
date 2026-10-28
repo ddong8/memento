@@ -25,6 +25,8 @@ logger = logging.getLogger("server.ws_manager")
 
 DEVICE = "device:"  # device alias -> replica holding its WebSocket
 TASK_WAITER = "taskwait:"  # task id -> replica streaming its output to an ask
+CANCEL_LATER = PREFIX + "cancel-later:"  # device alias -> tasks to cancel once it is connected again
+CANCEL_LATER_TTL = 86400
 PRESENCE = f"{PREFIX}presence"
 BROADCAST = f"{PREFIX}broadcast"
 TASK_CHANNEL = f"{PREFIX}task:"
@@ -46,6 +48,8 @@ class DeviceConnectionManager:
         self._remote: dict[str, str] = {}
         # task_id -> replica whose device runs it, for cancel / stdin
         self._remote_tasks: dict[str, str] = {}
+        # cancel_when_back without Redis (single replica): device alias -> task ids
+        self._cancel_later: dict[str, set[str]] = {}
         # aliases whose presence changed during a resync scan
         self._touched: set[str] | None = None
         self._refresher: asyncio.Task | None = None
@@ -249,6 +253,37 @@ class DeviceConnectionManager:
         if not pod:
             logger.warning("Cannot cancel task %s: no WebSocket connection found for device %s or task", tid, device_id)
         return await self._remote_call(pod, "ws.send_cancel", {"device_id": device_id, "task_id": tid}, 5.0, False)
+
+    async def cancel_when_back(self, device_id: str, task_id: str) -> bool:
+        """Cancel now or, with the device away (asleep, offline), once it connects again: its agent goes
+        on meanwhile and would otherwise run beside the next one in the same session. True if sent now."""
+        if await self.send_cancel(device_id, task_id):
+            return True
+        r = self._cluster.redis
+        if r is None:
+            self._cancel_later.setdefault(device_id, set()).add(str(task_id))
+            return False
+        try:
+            await r.sadd(CANCEL_LATER + device_id, str(task_id))
+            await r.expire(CANCEL_LATER + device_id, CANCEL_LATER_TTL)
+        except Exception as e:
+            logger.warning("Could not keep the cancel of %s for device %s: %s", task_id, device_id, e)
+        return False
+
+    async def send_kept_cancels(self, *aliases: str | None) -> None:
+        """The cancels cancel_when_back kept for a device, sent now it is connected here."""
+        r = self._cluster.redis
+        for alias in dict.fromkeys(a for a in aliases if a):
+            if r is None:
+                tids = self._cancel_later.pop(alias, set())
+            else:
+                try:
+                    tids = await r.spop(CANCEL_LATER + alias, 1000) or []
+                except Exception as e:
+                    logger.warning("Could not read the kept cancels of device %s: %s", alias, e)
+                    continue
+            for tid in tids:
+                await self._send_cancel_local(alias, tid)
 
     async def _send_cancel_local(self, device_id: str, tid: str) -> bool:
         ws = self._task_connections.get(tid) or self._connections.get(device_id)

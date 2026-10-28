@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User
 from ..services.ask_runs import RunConflict, ask_runs
-from .ask_store import append_conversation_turns
+from .agent_limits import USAGE_LIMIT
+from .ask_store import append_conversation_turns, record_stopped_orphans
 from .device_reports import get_device_environment_summary
 
 logger = logging.getLogger("server.ask")
@@ -263,6 +264,28 @@ def _without_images(args: dict) -> dict:
     return clean
 
 
+# The session to resume isn't on the device (any more)
+_SESSION_GONE = ("No conversation found", "session not found", "conversation not found", "could not find session", "no rollout found")
+
+
+def _next_session(result: dict | None, session_id: str | None, orig_session_id: str | None) -> str | None:
+    """The session the conversation goes on in after a run: the one the device reports it ran, also when
+    the run failed (a resume that found nothing starts a new session, and its work is in that one); ""
+    when the session to resume is gone and nothing replaced it; None to keep what the conversation has."""
+    res = result or {}
+    asked = {str(s) for s in (session_id, orig_session_id) if s}
+    reported = str(res.get("session_id") or "")
+    errors = f"{res.get('error') or ''}\n{res.get('stderr') or ''}"
+    gone = bool(asked) and any(s in errors for s in _SESSION_GONE)
+    if reported and not (gone and reported in asked):
+        return reported
+    if gone:
+        return ""
+    if res.get("status") == "failed":
+        return None
+    return str(session_id or orig_session_id or "") or None
+
+
 async def direct_agent_stream(
     db: AsyncSession,
     user: User,
@@ -310,6 +333,22 @@ async def direct_agent_stream(
         yield f"data: {json.dumps({'type': 'conversation_id', 'id': str(conv_id), 'title': conv_title, 'user_created_at': user_created_at}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'sources', 'sources': []}, ensure_ascii=False)}\n\n"
 
+        orphans = []
+        if execution_mode != "shell":
+            from ..services.orchestrator import stop_orphaned_agent_tasks
+            try:
+                orphans = await stop_orphaned_agent_tasks(db, user, str(conv_id))
+                await record_stopped_orphans(db, conv_id, orphans)
+            except Exception as e:  # never in the way of the question itself
+                logger.warning("Could not stop orphaned agent tasks of %s: %s", conv_id, e)
+                await db.rollback()
+            # Its result never came back, so this question still asks for the session it set out from;
+            # it goes on in the one the stopped task ran in instead (a new one, when it started without)
+            for old in orphans:
+                if (not fork and not compact_mode and old.session_id
+                        and str((old.payload or {}).get("session_id") or "") == (session_id or "")):
+                    session_id = old.session_id
+
         action, run_args, cmd_display, session_id, orig_session_id = await _prepare_agent_args(
             db, user, question, conv_id, conv_title, execution_mode, device_id, cwd, model, effort, session_id,
             project_id, fork, compact_mode, history, timeout_seconds, images, attachments, worktree,
@@ -336,6 +375,17 @@ async def direct_agent_stream(
             call_id=call_id,
             call={**tool_call_item, "args": _without_images(run_args)},
         )
+        for old in orphans:
+            asked = str((old.payload or {}).get("user_question") or "").strip().replace("\n", " ")
+            asked = f"「{asked[:40]}{'…' if len(asked) > 40 else ''}」" if asked else ""
+            began = old.dispatched_at or old.created_at
+            mins = int((datetime.now(timezone.utc) - began).total_seconds() // 60) if began else None
+            since = "" if mins is None else ("（刚开始）" if mins < 1 else f"（{mins} 分钟前开始）")
+            its_session = old.session_id or str((old.payload or {}).get("session_id") or "")
+            then = ("这次在它的会话里接着执行，它做到的部分智能体都能看到" if its_session and its_session in (session_id, orig_session_id)
+                    else "这次重新执行")
+            note = f"\n⚡ [接替] 上一次的提问{asked}{since}还在设备上运行，但没有回答在跟进；已先停掉它，{then}。\n\n"
+            yield f"data: {json.dumps({'type': 'task_chunk', 'task_id': None, 'tool_call_id': call_id, 'device_name': old.device_id, 'stream': 'stdout', 'text': note}, ensure_ascii=False)}\n\n"
 
     result_dict = None
     summary_text = ""
@@ -391,19 +441,7 @@ async def direct_agent_stream(
                 saved_call["args"] = _without_images(saved_call["args"])
             tool_calls_to_save.append(saved_call)
 
-        persisted_session_id = ""
-        res_status = (result_dict or {}).get("status")
-        res_err = str((result_dict or {}).get("error") or (result_dict or {}).get("stderr") or "")
-        session_dead = res_status == "failed" or any(s in res_err for s in [
-            "No conversation found", "session not found", "conversation not found", "could not find session", "no rollout found"
-        ])
-        if not session_dead:
-            if result_dict and result_dict.get("session_id"):
-                persisted_session_id = str(result_dict.get("session_id"))
-            elif session_id:
-                persisted_session_id = str(session_id)
-            elif orig_session_id:
-                persisted_session_id = str(orig_session_id)
+        next_session = _next_session(result_dict, session_id, orig_session_id)
 
         persisted_dev_id = (
             (result_dict.get("device_id") or result_dict.get("device_name"))
@@ -429,7 +467,7 @@ async def direct_agent_stream(
                 "model": model or "",
                 "effort": effort or "",
                 "project_id": project_id or "",
-                "session_id": persisted_session_id,
+                "session_id": next_session or "",
                 "device_id": persisted_dev_id or "",
                 "worktree": bool(worktree),
                 "compact_mode": False,  # 瘦身完成后复位，后续在当前对话中默认以正常会话无缝续接
@@ -437,6 +475,7 @@ async def direct_agent_stream(
             user_created_at=user_created_at,
             assistant_created_at=assistant_created_at_final,
             duration_ms=duration_ms_final,
+            forget_session=next_session == "",
         )
 
     try:
@@ -465,6 +504,9 @@ async def direct_agent_stream(
                     ckpt["result"] = True
                     if result_dict.get("device_name"):
                         tool_call_item["device_name"] = result_dict["device_name"]
+                    if action == "agent" and _next_session(result_dict, session_id, orig_session_id) == "":
+                        # The session is gone from the device and nothing replaced it: the client drops it too
+                        result_dict["session_reset"] = True
                     yield f"data: {json.dumps({'type': 'tool_result', 'task_id': result_dict.get('task_id'), 'tool_call_id': call_id, 'result': result_dict}, ensure_ascii=False)}\n\n"
                 elif etype == "ping":
                     yield "data: {\"type\": \"ping\"}\n\n"
@@ -490,7 +532,13 @@ async def direct_agent_stream(
                 if non_empty_lines and all(l.startswith(("[Tool:", "⚡ [", "[Tool ")) for l in non_empty_lines):
                     is_only_tool_calls = True
 
-            if status == "failed":
+            if result_dict.get("error_type") == USAGE_LIMIT:
+                tool_name = {"claude": "Claude Code", "codex": "Codex", "antigravity": "Antigravity", "workbuddy": "WorkBuddy"}.get(execution_mode, execution_mode)
+                note = f"⛔ {tool_name} 的额度已用完（{err_msg}），这一步没做完。额度恢复后发送“继续”接着做。"
+                # Claude Code also gives the message as its answer
+                before = _clean_agent_summary(stdout.replace(str(err_msg), "")).strip() if stdout else ""
+                summary_text = f"{before}\n\n> {note}" if before else note
+            elif status == "failed":
                 if action == "agent" and stdout:
                     summary_text = f"{_clean_agent_summary(stdout)}\n\n> ❌ *[任务执行遇到错误: {err_msg}]*"
                 else:

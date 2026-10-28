@@ -85,6 +85,9 @@ def _run_migrations(conn) -> None:
         # DeviceTask.events — steps of a structured agent run, for the task timeline.
         if "events" not in task_cols:
             conn.execute(text("ALTER TABLE device_tasks ADD COLUMN events JSONB NOT NULL DEFAULT '[]'"))
+        # DeviceTask.session_id — the agent session the device reports it ran.
+        if "session_id" not in task_cols:
+            conn.execute(text("ALTER TABLE device_tasks ADD COLUMN session_id VARCHAR(128)"))
 
     # User.notify_settings — phone push (Bark) preferences.
     if "notify_settings" not in user_cols:

@@ -24,9 +24,10 @@ def _kwargs(**over):
 class _Harness:
     """direct_agent_stream with the device and the database stubbed out."""
 
-    def __init__(self, device_events, hang=False, raise_exc=None):
+    def __init__(self, device_events, hang=False, raise_exc=None, orphans=()):
         self.sent: list[dict] = []
         self.saved = AsyncMock()
+        self.stop_orphans = AsyncMock(return_value=list(orphans))
         self.device_events = device_events
         self.hang = hang
         self.raise_exc = raise_exc
@@ -43,6 +44,7 @@ class _Harness:
     def patches(self):
         stack = ExitStack()
         stack.enter_context(patch("server.services.orchestrator._tool_run_on_device", self.fake_run))
+        stack.enter_context(patch("server.services.orchestrator.stop_orphaned_agent_tasks", self.stop_orphans))
         stack.enter_context(patch("server.services.user_filter.user_machine_ids", AsyncMock(return_value=["m1"])))
         stack.enter_context(patch.object(ask_stream, "append_conversation_turns", self.saved))
         stack.enter_context(patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""))
@@ -272,3 +274,94 @@ def test_attach_to_a_missing_task_fails_instead_of_dispatching():
     events, _, _ = _attach(None)
     assert len(events) == 1 and events[0]["type"] == "tool_result"
     assert events[0]["result"]["error"] == "要继续跟进的设备任务不存在"
+
+
+LIMIT = "You've hit your session limit · resets 11:40am (Asia/Shanghai)"
+
+
+def _run_to_end(h: _Harness, **over):
+    over.setdefault("compact_mode", False)  # not sizing the session against the stubbed database
+
+    async def run():
+        gen = ask_stream.direct_agent_stream(db=AsyncMock(), user=USER, conv_id=CONV, checkpoint={}, **_kwargs(**over))
+        return [f async for f in gen]
+
+    with h.patches():
+        return _events(asyncio.run(run()))
+
+
+def test_out_of_quota_says_so_and_keeps_the_session():
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {
+        "task_id": "t-1", "status": "failed", "error_type": "usage_limit", "error": LIMIT, "stdout": LIMIT,
+        "exit_code": 1, "session_id": "s-1"}}])
+    _run_to_end(h, session_id="s-1")
+    content, call = h.saved_call()
+    assert content.startswith("⛔ Claude Code 的额度已用完") and "11:40am" in content and "继续" in content
+    assert content.count(LIMIT) == 1  # given as its answer too, shown once
+    assert call["result"]["status"] == "failed"
+    kw = h.saved.await_args.kwargs
+    assert kw["config"]["session_id"] == "s-1" and kw["forget_session"] is False
+
+
+def test_a_failed_run_keeps_the_session_the_device_ran():
+    # Resuming found nothing, the device started a new session and that one failed: its work is in it
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {
+        "task_id": "t-1", "status": "failed", "error": "API Error: 529", "exit_code": 1, "session_id": "s-new"}}])
+    _run_to_end(h, session_id="s-old")
+    kw = h.saved.await_args.kwargs
+    assert kw["config"]["session_id"] == "s-new" and kw["forget_session"] is False
+
+
+def test_a_session_gone_from_the_device_is_dropped():
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {
+        "task_id": "t-1", "status": "failed", "exit_code": 1, "session_id": "s-gone",
+        "error": "No conversation found with session ID: s-gone"}}])
+    events = _run_to_end(h, session_id="s-gone")
+    assert [e for e in events if e["type"] == "tool_result"][0]["result"]["session_reset"] is True
+    kw = h.saved.await_args.kwargs
+    assert kw["config"]["session_id"] == "" and kw["forget_session"] is True
+
+
+def _orphan(**over):
+    from datetime import datetime, timedelta, timezone
+
+    from server.db.models import DeviceTask
+
+    t = DeviceTask(id=uuid.uuid4(), user_id=USER.id, device_id="mini", action="agent", status="cancelled",
+                   payload={"conversation_id": str(CONV), "user_question": "把构建跑完", "session_id": ""},
+                   created_at=datetime.now(timezone.utc) - timedelta(minutes=7))
+    for k, v in over.items():
+        setattr(t, k, v)
+    return t
+
+
+def test_a_task_no_run_follows_is_stopped_and_its_session_goes_on():
+    old = _orphan(session_id="s-orphan")
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {"task_id": "t-1", "status": "succeeded", "stdout": "好了", "exit_code": 0}}],
+                 orphans=[old])
+    recorded = AsyncMock(return_value=1)
+    with patch.object(ask_stream, "record_stopped_orphans", recorded):
+        events = _run_to_end(h)
+    assert recorded.await_args.args[2] == [old]  # its question stays in the conversation
+    # Its result never came back, so the question asked for no session: it goes on in the stopped task's
+    assert h.sent[0]["session_id"] == "s-orphan"
+    note = "".join(e["text"] for e in events if e["type"] == "task_chunk")
+    assert "「把构建跑完」（7 分钟前开始）" in note and "在它的会话里接着执行" in note
+
+
+def test_a_stopped_task_of_another_session_leaves_this_one_alone():
+    old = _orphan(session_id="s-orphan", payload={"conversation_id": str(CONV), "user_question": "q", "session_id": "s-x"})
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {"task_id": "t-1", "status": "succeeded", "stdout": "好了", "exit_code": 0}}],
+                 orphans=[old])
+    with patch.object(ask_stream, "record_stopped_orphans", AsyncMock(return_value=1)):
+        events = _run_to_end(h, session_id="s-y")
+    assert h.sent[0]["session_id"] == "s-y"
+    assert "这次重新执行" in "".join(e["text"] for e in events if e["type"] == "task_chunk")
+
+
+def test_stopping_old_tasks_failing_never_blocks_the_question():
+    h = _Harness([PROGRESS, {"type": "tool_result", "result": {"task_id": "t-1", "status": "succeeded", "stdout": "好了", "exit_code": 0}}])
+    h.stop_orphans.side_effect = RuntimeError("db down")
+    _run_to_end(h)
+    content, _ = h.saved_call()
+    assert content == "好了"

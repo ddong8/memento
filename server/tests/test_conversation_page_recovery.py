@@ -155,5 +155,84 @@ class ConversationPageRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([t["content"] for t in res["turns"]], [f"turn {i}" for i in range(10)])
 
 
+    async def test_a_recovered_task_brings_its_session_and_its_quota_stop(self) -> None:
+        from sqlalchemy import update
+
+        from server.db.models import AskConversation, DeviceTask
+
+        # A daemon before 1.0.90 reported running out of quota with background work open as still_running
+        async with self.Session() as db:
+            await db.execute(update(DeviceTask).where(DeviceTask.id == self.orphan.id).values(
+                action="agent", status="still_running", session_id="s-lost",
+                error="You've hit your session limit · resets 11:40am (Asia/Shanghai)"))
+            await db.commit()
+        await self._open(limit=40)
+        turns, _ = await self._stored()
+        call = turns[-1]["toolCalls"][0]
+        self.assertEqual((call["status"], call["result"]["status"], call["result"]["error_type"]), ("failed", "failed", "usage_limit"))
+        async with self.Session() as db:
+            conv = await db.get(AskConversation, self.conv_id)
+            # The next question resumes the session the recovered turn ran in
+            self.assertEqual((conv.config["session_id"], conv.config["execution_mode"]), ("s-lost", "claude"))
+
+    async def test_a_task_stopped_for_a_new_question_keeps_its_question(self) -> None:
+        from server.db.models import DeviceTask
+        from server.services import ask_store
+
+        async with self.Session() as db:
+            stopped = DeviceTask(user_id=self.user.id, device_id="dev-mac", action="agent", status="cancelled",
+                                 payload={"conversation_id": str(self.conv_id), "user_question": "跑一下构建"},
+                                 error="同一对话有了新的提问", created_at=T0 + timedelta(hours=3),
+                                 finished_at=T0 + timedelta(hours=4))
+            db.add(stopped)
+            await db.commit()
+        with patch.object(ask_store, "async_session_factory", self.Session):
+            async with self.Session() as db:
+                saved = await ask_store.record_stopped_orphans(db, self.conv_id, [stopped, self.recorded])
+        self.assertEqual(saved, 1)  # turn 5 records the other one already
+        turns, count = await self._stored()
+        self.assertEqual((len(turns), count), (102, 102))
+        self.assertEqual(turns[:100], self.turns)
+        self.assertEqual(turns[100]["content"], "跑一下构建")
+        self.assertEqual(turns[101]["toolCalls"][0]["result"], {"task_id": str(stopped.id), "status": "cancelled", "error": "同一对话有了新的提问"})
+
+    async def test_a_session_gone_from_the_device_is_forgotten(self) -> None:
+        from server.db.models import AskConversation
+        from server.services import ask_store
+
+        async with self.Session() as db:
+            conv = await db.get(AskConversation, self.conv_id)
+            conv.config = {"execution_mode": "claude", "session_id": "s-gone"}
+            await db.commit()
+        with patch.object(ask_store, "async_session_factory", self.Session):
+            # "" from a run is "not said": the session stays
+            await ask_store.append_conversation_turns(conv_id=self.conv_id, user_content="q1", assistant_content="a1",
+                                                      config={"execution_mode": "claude", "session_id": ""})
+            async with self.Session() as db:
+                self.assertEqual((await db.get(AskConversation, self.conv_id)).config["session_id"], "s-gone")
+            await ask_store.append_conversation_turns(conv_id=self.conv_id, user_content="q2", assistant_content="a2",
+                                                      config={"execution_mode": "claude", "session_id": ""},
+                                                      forget_session=True)
+            async with self.Session() as db:
+                self.assertEqual((await db.get(AskConversation, self.conv_id)).config["session_id"], "")
+
+
+    async def test_a_running_task_keeps_its_session_from_the_start(self) -> None:
+        from server.api import tasks
+        from server.db.models import DeviceTask
+
+        async with self.Session() as db:
+            running = DeviceTask(user_id=self.user.id, device_id="dev-mac", action="agent", status="running",
+                                 payload={"conversation_id": str(self.conv_id)})
+            db.add(running)
+            await db.commit()
+        with patch.object(tasks, "async_session_factory", self.Session):
+            await tasks._note_task_session(str(running.id), "s-run")
+            await tasks._note_task_session(str(self.orphan.id), "s-late")  # finished: what it reported stays
+        async with self.Session() as db:
+            self.assertEqual((await db.get(DeviceTask, running.id)).session_id, "s-run")
+            self.assertIsNone((await db.get(DeviceTask, self.orphan.id)).session_id)
+
+
 if __name__ == "__main__":
     unittest.main()

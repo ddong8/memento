@@ -42,6 +42,7 @@ from .ai_provider import (
     split_thinking,
 )
 from . import notify_service, task_alerts
+from .agent_limits import mark_usage_limit, usage_limit_message
 from .risk_policy import classify_shell_command
 from .ws_manager import ws_manager
 
@@ -1061,6 +1062,8 @@ async def _follow_device_task(
             if done_task.status in ("failed", "timeout") or (done_task.exit_code and done_task.exit_code != 0):
                 is_failed = True
                 err_candidate = str(done_task.stderr or done_task.error or "")
+        if is_failed and usage_limit_message({"action": action, "error": err_candidate}):
+            is_failed = False  # an empty quota has no pitfall to look up
 
         pitfall_hint = await _extract_pitfall_hint(
             db, user, action=action, err_text=err_candidate, project_id=str(proj_id_val or "") if proj_id_val else None,
@@ -1084,10 +1087,12 @@ async def _follow_device_task(
                 "stdout": ws_out if action == "agent" else compact_tool_output(ws_out),
                 "stderr": ws_err if action == "agent" else compact_tool_output(ws_err),
                 "error": done_ws.get("error"),
+                "error_type": done_ws.get("error_type"),
                 "session_id": ext_sid,
                 "alerts": await _load_alerts(task_id_str),
                 "events": (done_ws.get("events") or [])[:MAX_TASK_EVENTS],
             }
+            mark_usage_limit(ws_result)
             if pitfall_hint:
                 ws_result["pitfall_hint"] = pitfall_hint
             yield {
@@ -1114,7 +1119,7 @@ async def _follow_device_task(
 
         task_out = done_task.stdout or ""
         task_err = done_task.stderr or ""
-        task_sid = getattr(done_task, "session_id", None)
+        task_sid = done_task.session_id
         if not task_sid:
             m = re.search(r"session id:\s*([0-9a-fA-F-]+)", task_out + "\n" + task_err, re.I)
             if m:
@@ -1134,6 +1139,7 @@ async def _follow_device_task(
             "alerts": done_task.alerts or [],
             "events": (done_task.events or [])[:MAX_TASK_EVENTS],
         }
+        mark_usage_limit(task_result)
         if pitfall_hint:
             task_result["pitfall_hint"] = pitfall_hint
 
@@ -1192,6 +1198,38 @@ async def _attach_device_task(db: AsyncSession, user: User, task_id: str):
     finally:
         if task_q is not None:
             await ws_manager.unsubscribe_task(task_id)
+
+
+ORPHAN_STOPPED = "同一对话有了新的提问，已停止这个没有回答在跟进的任务"
+
+
+async def stop_orphaned_agent_tasks(db: AsyncSession, user: User, conversation_id: str) -> list[DeviceTask]:
+    """Agent tasks of this conversation still going on a device with no run following them (a server
+    restart lost the run, or a deploy found no replica to hand it to). The run asking now holds the
+    conversation, so any such task is one of those. Left going, a new question starts a second agent
+    process in the same session beside it, both writing it: stop them first. The new run resumes the
+    session, with whatever they got done in it."""
+    rows = (await db.execute(
+        select(DeviceTask).where(
+            DeviceTask.user_id == user.id,
+            DeviceTask.action == "agent",
+            # still_running is an agent that has exited already
+            DeviceTask.status.in_(("queued", "pending", "dispatched", "running")),
+            DeviceTask.finished_at.is_(None),
+            DeviceTask.payload.op("->>")("conversation_id") == conversation_id,
+        )
+    )).scalars().all()
+    if not rows:
+        return []
+    now = datetime.now(timezone.utc)
+    for t in rows:
+        await ws_manager.cancel_when_back(t.device_id, str(t.id))
+        t.status = "cancelled"
+        t.finished_at = now
+        t.error = ORPHAN_STOPPED
+    await db.commit()
+    logger.info("Stopped %d orphaned agent task(s) of conversation %s before a new question", len(rows), conversation_id)
+    return list(rows)
 
 
 async def _extract_pitfall_hint(

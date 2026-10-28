@@ -100,6 +100,21 @@ class DeviceAcrossReplicas(TwoReplicas):
         await self.wb.unsubscribe_task("t1")
         self.assertFalse(await self.wa.is_watched("t1"))
 
+    async def test_a_cancel_for_a_device_away_is_sent_when_it_is_back(self) -> None:
+        # Asleep: its agent goes on and would run beside the next question's once it wakes
+        self.assertFalse(await self.wb.cancel_when_back("MacMini", "t-old"))
+        ws = AsyncMock()
+        await self.wa.register("dev-hash", ws, "MacMini", "machine-1")
+        await self.wa.send_kept_cancels("dev-hash", "MacMini", "machine-1")
+        self.assertEqual(ws.send_json.await_args_list[-1].args[0], {"type": "task_cancel", "task_id": "t-old"})
+        # Sent once
+        await self.wa.send_kept_cancels("dev-hash", "MacMini", "machine-1")
+        self.assertEqual(ws.send_json.await_count, 1)
+        # Connected: sent right away, nothing kept
+        await eventually(lambda: self.wb.has_device("MacMini"))
+        self.assertTrue(await self.wb.cancel_when_back("MacMini", "t-2"))
+        self.assertEqual(ws.send_json.await_args.args[0], {"type": "task_cancel", "task_id": "t-2"})
+
     async def test_file_reads_are_relayed(self) -> None:
         ws = await self.connect()
 

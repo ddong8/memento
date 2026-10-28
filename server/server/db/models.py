@@ -619,6 +619,9 @@ class DeviceTask(Base):
     alerts: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     # Steps of a structured agent run: tool calls, file changes, steers, worktree, usage.
     events: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    # The agent session the device reports it ran (a resume that found no session runs a new one),
+    # so a turn saved from this row later goes on in that session
+    session_id: Mapped[str | None] = mapped_column(String(128))
 
     # Seconds the collector may spend before killing the process.
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)

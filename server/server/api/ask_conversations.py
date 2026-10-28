@@ -117,7 +117,8 @@ async def list_conversations(
                     tc_args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
                     tc_res = tc.get("result") if isinstance(tc.get("result"), dict) else {}
                     sid = tc_res.get("session_id") or tc_args.get("session_id") or (tc.get("call") or {}).get("session_id")
-                    if sid and not cfg.get("session_id"):
+                    # A saved "" is a choice: a new session, or one gone from its device
+                    if sid and cfg.get("session_id") is None:
                         cfg["session_id"] = str(sid)
                     bin_name = str(tc_args.get("binary") or tc.get("binary") or "").lower()
                     if "agy" in bin_name or "antigravity" in bin_name:

@@ -13,6 +13,7 @@ import CommandPalette from "@/components/CommandPalette";
 import ActiveRunsMonitor from "@/components/agent/ActiveRunsMonitor";
 import TopProgressBar from "@/components/layout/TopProgressBar";
 import ServerSwitchModal from "@/components/server/ServerSwitchModal";
+import { reloadIfNewBuild, watchForNewBuild } from "@/lib/build-update";
 
 /** Detect the best initial locale: user's saved choice → browser preference → zh-CN default. */
 function detectInitialLocale(): Locale {
@@ -200,41 +201,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
-  // Automatically detect newly deployed frontend builds in long-running desktop clients
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const extractChunkSig = (htmlOrDoc: string): string | null => {
-      const m = htmlOrDoc.match(/\/_next\/static\/chunks\/main-app-[a-zA-Z0-9_-]+\.js/);
-      return m ? m[0] : null;
-    };
-    const initialScripts = Array.from(document.querySelectorAll("script[src]"))
-      .map((s) => s.getAttribute("src") || "")
-      .join(" ");
-    const currentSig = extractChunkSig(initialScripts);
-    if (!currentSig) return;
-
-    const checkBuildUpdate = async () => {
-      if (document.visibilityState === "hidden") return;
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA")) return;
-      try {
-        const res = await fetch(`/auth/login?_bc=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) return;
-        const html = await res.text();
-        const latestSig = extractChunkSig(html);
-        if (latestSig && latestSig !== currentSig) {
-          window.location.reload();
-        }
-      } catch {}
-    };
-
-    const timer = setInterval(checkBuildUpdate, 60_000);
-    window.addEventListener("focus", checkBuildUpdate);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", checkBuildUpdate);
-    };
-  }, []);
+  // Long-open windows (desktop, phone) reload onto a newly deployed build
+  useEffect(() => watchForNewBuild(), []);
+  useEffect(() => reloadIfNewBuild(), [pathname]);
 
   // Always plain layout for the marketing landing page — its own nav is
   // rendered by the landing component itself.

@@ -16,6 +16,8 @@ const nextConfig: NextConfig = {
   },
   // The image build passes the commit (apps/web/Dockerfile); elsewhere Next picks a random id
   generateBuildId: async () => process.env.GIT_SHA || null,
+  // The same id for the page itself and /build-id: open windows reload when they differ (src/lib/build-update.ts)
+  env: { MEMENTO_BUILD_ID: process.env.GIT_SHA || "" },
   experimental: {
     optimizePackageImports: ["react-icons", "three", "highlight.js", "lowlight"],
   },

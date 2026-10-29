@@ -15,8 +15,24 @@ export interface IngestDocument {
   offset?: number;
   fileSize?: number;
   mode?: "full" | "delta";
+  /** Where a slice of a log ends in the file: the server stores each slice once, in order. */
+  endOffset?: number;
   metadata?: Record<string, unknown>;
 }
+
+/** What an upload came to. */
+export interface UploadResult {
+  ok: boolean;
+  /** Where the server's copy of the log ends (a slice it had already: a retry whose first try went in). */
+  nextOffset?: number;
+  /** The slice doesn't follow what the server holds: the next one has to start here (HTTP 409). */
+  expectedOffset?: number;
+  /** Failed for a reason that passes (network, timeout, 5xx, 429): try again after a while. */
+  retryable?: boolean;
+  error?: string;
+}
+
+const retryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
 
 type Log = (message: string) => void;
 
@@ -65,15 +81,11 @@ export class IngestClient {
     return this.fetchImpl(`${this.config.serverUrl}${path}`, { method, headers, body, signal: AbortSignal.timeout(timeoutMs) });
   }
 
-  private readonly offlineBuffer: IngestDocument[] = [];
-  private readonly maxOfflineBuffer = 100;
-
-  /** Heartbeat; returns the remote-exec key the server hands out (or the one already held). */
-  async sendHeartbeat(): Promise<string | undefined> {
+  /** Heartbeat, with how collection is going; returns the remote-exec key the server hands out (or the one already held). */
+  async sendHeartbeat(collect?: object): Promise<string | undefined> {
     try {
-      const res = await this.request("/api/ingest/heartbeat", { method: "POST", body: {} });
+      const res = await this.request("/api/ingest/heartbeat", { method: "POST", body: collect ? { collect } : {} });
       if (res.ok) {
-        void this.flushOfflineBuffer();
         const data = (await res.json()) as { remote_exec_key?: string; lan?: LanInfo };
         await this.route?.update(data.lan);
         if (data.remote_exec_key) return data.remote_exec_key;
@@ -82,20 +94,6 @@ export class IngestClient {
       this.log(`Heartbeat failed: ${e instanceof Error ? e.message : e}`);
     }
     return this.config.remoteExecKey;
-  }
-
-  /** Flush any documents queued while offline once connectivity is restored. */
-  async flushOfflineBuffer(): Promise<number> {
-    if (!this.offlineBuffer.length) return 0;
-    let sent = 0;
-    while (this.offlineBuffer.length) {
-      const doc = this.offlineBuffer[0]!;
-      const ok = await this.uploadSingleDocument(doc);
-      if (!ok) break;
-      this.offlineBuffer.shift();
-      sent++;
-    }
-    return sent;
   }
 
   /** The request body for one document, with secrets stripped. */
@@ -118,19 +116,35 @@ export class IngestClient {
       file_size: doc.fileSize ?? Buffer.byteLength(sanitized),
       mode: doc.mode ?? "full",
       offset: doc.offset ?? 0,
+      ...(doc.endOffset !== undefined ? { end_offset: doc.endOffset } : {}),
       metadata,
     };
   }
 
-  private async uploadSingleDocument(doc: IngestDocument): Promise<boolean> {
+  /**
+   * Upload a file or a slice of one, with secrets stripped first. Nothing is kept to send later: what
+   * didn't go in is still past the file's offset and goes up again from there. (An offline buffer
+   * replayed old slices after newer ones had gone up, and the server appended them twice: 10-27, 10-28.)
+   */
+  async ingestDocument(doc: IngestDocument): Promise<UploadResult> {
     try {
       const res = await this.request("/api/ingest/file", { method: "POST", timeoutMs: 30_000, body: this.uploadBody(doc) });
-      if (res.ok) return true;
-      this.log(`Upload ${doc.relativePath} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      return false;
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { next_offset?: number | null };
+        return { ok: true, ...(typeof data.next_offset === "number" ? { nextOffset: data.next_offset } : {}) };
+      }
+      const body = (await res.text()).slice(0, 2000);
+      if (res.status === 409) {
+        const expected = expectedOffsetOf(body);
+        if (expected !== undefined) return { ok: false, expectedOffset: expected };
+      }
+      const error = `HTTP ${res.status}: ${body.slice(0, 200)}`;
+      this.log(`Upload ${doc.relativePath} ${error}`);
+      return { ok: false, retryable: retryableStatus(res.status), error };
     } catch (e) {
-      this.log(`Upload ${doc.relativePath} failed: ${e instanceof Error ? e.message : e}`);
-      return false;
+      const error = e instanceof Error ? e.message : String(e);
+      this.log(`Upload ${doc.relativePath} failed: ${error}`);
+      return { ok: false, retryable: true, error };
     }
   }
 
@@ -138,14 +152,13 @@ export class IngestClient {
   private batchUnsupportedUntil = 0;
 
   /**
-   * Several small documents in one request, whether each went in, in order. A collector catching up
-   * sent 1,600 small files one request each (2026-10-28). Not buffered offline: what didn't go in is
-   * still unsynced and the next scan sends it again.
+   * Several small documents in one request, what came of each, in order. A collector catching up
+   * sent 1,600 small files one request each (2026-10-28).
    */
-  async ingestBatch(docs: IngestDocument[]): Promise<boolean[]> {
+  async ingestBatch(docs: IngestDocument[]): Promise<UploadResult[]> {
     if (docs.length === 1 || Date.now() < this.batchUnsupportedUntil) {
-      const out: boolean[] = [];
-      for (const doc of docs) out.push(await this.uploadSingleDocument(doc));
+      const out: UploadResult[] = [];
+      for (const doc of docs) out.push(await this.ingestDocument(doc));
       return out;
     }
     try {
@@ -159,18 +172,45 @@ export class IngestClient {
         return this.ingestBatch(docs);
       }
       if (!res.ok) {
-        this.log(`Upload of ${docs.length} files HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-        return docs.map(() => false);
+        const error = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`;
+        this.log(`Upload of ${docs.length} files ${error}`);
+        return docs.map(() => ({ ok: false, retryable: retryableStatus(res.status), error }));
       }
-      const { results } = (await res.json()) as { results?: { ok?: boolean; error?: string }[] };
+      const { results } = (await res.json()) as {
+        results?: { ok?: boolean; error?: string; next_offset?: number | null; expected_offset?: number }[];
+      };
       return docs.map((d, i) => {
         const r = results?.[i];
-        if (r && !r.ok) this.log(`Upload ${d.relativePath} failed: ${r.error ?? "unknown"}`);
-        return r?.ok === true;
+        if (r?.ok === true) return { ok: true, ...(typeof r.next_offset === "number" ? { nextOffset: r.next_offset } : {}) };
+        if (typeof r?.expected_offset === "number") return { ok: false, expectedOffset: r.expected_offset };
+        const error = r?.error ?? "unknown";
+        this.log(`Upload ${d.relativePath} failed: ${error}`);
+        // A file the server failed on (its database, say): tried again with the next scan
+        return { ok: false, retryable: true, error };
       });
     } catch (e) {
-      this.log(`Upload of ${docs.length} files failed: ${e instanceof Error ? e.message : e}`);
-      return docs.map(() => false);
+      const error = e instanceof Error ? e.message : String(e);
+      this.log(`Upload of ${docs.length} files failed: ${error}`);
+      return docs.map(() => ({ ok: false, retryable: true, error }));
+    }
+  }
+
+  /**
+   * The logs whose copy on the server doesn't end where this device's offset says, with where it
+   * does end; null when the server can't tell (one from before /api/ingest/reconcile, or unreachable).
+   */
+  async reconcile(files: { tool: string; relativePath: string; offset: number }[]): Promise<{ tool: string; relativePath: string; expectedOffset: number }[] | null> {
+    try {
+      const res = await this.request("/api/ingest/reconcile", {
+        method: "POST",
+        timeoutMs: 60_000,
+        body: { files: files.map((f) => ({ tool: f.tool, relative_path: f.relativePath, offset: f.offset })) },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { files?: { tool: string; relative_path: string; expected_offset: number }[] };
+      return (data.files ?? []).map((f) => ({ tool: f.tool, relativePath: f.relative_path, expectedOffset: f.expected_offset }));
+    } catch {
+      return null;
     }
   }
 
@@ -189,18 +229,6 @@ export class IngestClient {
     } catch {
       return false;
     }
-  }
-
-  /** Upload a file or a slice of one, with secrets stripped first. Automatically buffers offline on transient errors. */
-  async ingestDocument(doc: IngestDocument): Promise<boolean> {
-    if (this.offlineBuffer.length) {
-      await this.flushOfflineBuffer();
-    }
-    const ok = await this.uploadSingleDocument(doc);
-    if (!ok && this.offlineBuffer.length < this.maxOfflineBuffer) {
-      this.offlineBuffer.push(doc);
-    }
-    return ok;
   }
 
   /** Control commands (resync etc.), acknowledged as they're picked up. */
@@ -258,5 +286,16 @@ export class IngestClient {
     } catch {
       return null;
     }
+  }
+}
+
+/** expected_offset from a 409's body ({"detail": {"expected_offset": n}}). */
+function expectedOffsetOf(body: string): number | undefined {
+  try {
+    const detail = (JSON.parse(body) as { detail?: { expected_offset?: unknown } }).detail;
+    const n = detail?.expected_offset;
+    return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
+  } catch {
+    return undefined;
   }
 }

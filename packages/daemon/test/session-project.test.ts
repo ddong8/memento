@@ -20,7 +20,7 @@ async function setup() {
   const ingest = {
     ingestDocument: async (doc: (typeof sent)[number]) => {
       sent.push(doc);
-      return true;
+      return { ok: true };
     },
   } as unknown as IngestClient;
   const config = { extraWatchDirs: [] } as unknown as CollectorConfig;
@@ -91,7 +91,7 @@ describe("the project a session log is filed under", () => {
 });
 
 describe("how often a changing session log is uploaded", () => {
-  it("uploads a small file once it settles, a large one at most every 15 s however busy it is", async () => {
+  it("uploads a small file once it settles, a large one at most every 5 s however busy it is", async () => {
     vi.useFakeTimers();
     try {
       const { watcher } = await setup();
@@ -113,11 +113,11 @@ describe("how often a changing session log is uploaded", () => {
       vi.advanceTimersByTime(600);
       expect(runs).toEqual(["small.jsonl"]);
 
-      // Large, uploaded just now, written to every second: one upload 15 s after the last
+      // Large, uploaded just now, written to every second: one upload 5 s after the last
       runs.length = 0;
       w.offsets.set("big.jsonl", 5 * 1024 * 1024);
       w.lastUpload.set("big.jsonl", Date.now());
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 4; i++) {
         w.schedule("big.jsonl", "claude_code");
         vi.advanceTimersByTime(1000);
       }

@@ -30,11 +30,11 @@ async function setup() {
   const ingest = {
     ingestDocument: async (doc: IngestDocument) => {
       sent.singles.push(doc.relativePath);
-      return true;
+      return { ok: true };
     },
     ingestBatch: async (docs: IngestDocument[]) => {
       sent.batches.push(docs.map((d) => d.relativePath));
-      return docs.map((d) => !sent.failBatch?.(d));
+      return docs.map((d) => ({ ok: !sent.failBatch?.(d), retryable: false }));
     },
   } as unknown as IngestClient;
   const make = () => new FileWatcher({ extraWatchDirs: [] } as unknown as CollectorConfig, ingest, () => {}, home);
@@ -149,7 +149,7 @@ describe("IngestClient.ingestBatch", () => {
       expect(body.files).toHaveLength(2);
       return new Response(JSON.stringify({ results: [{ ok: true }, { ok: false, error: "x" }] }), { status: 200 });
     }) as typeof fetch);
-    expect(await client.ingestBatch([doc("a"), doc("b")])).toEqual([true, false]);
+    expect((await client.ingestBatch([doc("a"), doc("b")])).map((r) => r.ok)).toEqual([true, false]);
     expect(urls).toEqual(["https://mem.example/api/ingest/files"]);
   });
 
@@ -159,13 +159,13 @@ describe("IngestClient.ingestBatch", () => {
       urls.push(url.replace("https://mem.example", ""));
       return url.endsWith("/files") ? new Response("Not Found", { status: 404 }) : new Response('{"document_id":"x"}', { status: 200 });
     }) as typeof fetch);
-    expect(await client.ingestBatch([doc("a"), doc("b")])).toEqual([true, true]);
-    expect(await client.ingestBatch([doc("c"), doc("d")])).toEqual([true, true]);
+    expect((await client.ingestBatch([doc("a"), doc("b")])).map((r) => r.ok)).toEqual([true, true]);
+    expect((await client.ingestBatch([doc("c"), doc("d")])).map((r) => r.ok)).toEqual([true, true]);
     expect(urls).toEqual(["/api/ingest/files", "/api/ingest/file", "/api/ingest/file", "/api/ingest/file", "/api/ingest/file"]);
   });
 
   it("a request that fails leaves them all unsent", async () => {
     const client = new IngestClient(config, () => {}, (async () => new Response("busy", { status: 503 })) as typeof fetch);
-    expect(await client.ingestBatch([doc("a"), doc("b")])).toEqual([false, false]);
+    expect((await client.ingestBatch([doc("a"), doc("b")])).map((r) => r.ok)).toEqual([false, false]);
   });
 });

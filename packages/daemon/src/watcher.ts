@@ -1,26 +1,38 @@
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
-import { mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 
 import { homeDir, type CollectorConfig } from "./config.js";
 import { cleanPath, decodeClaudeDir, isInvalidProjectName, type DiscoveredTool } from "./discovery.js";
 import { getAntigravitySessionInfo, healAntigravitySession, healAllAntigravitySessions, isJunkAntigravityTitle } from "./antigravity.js";
-import type { IngestClient, IngestDocument } from "./ingest.js";
+import type { IngestClient, IngestDocument, UploadResult } from "./ingest.js";
 import { contentHash } from "./sanitizer.js";
 
 const MAX_BATCH = 512 * 1024; // bytes per upload
 const MAX_LINE = 128 * 1024; // a longer line (a pasted screenshot, a huge tool output) is shrunk to this
+const USER_TEXT_MAX = 1_000_000; // characters of the user's own words a shrunk line keeps (shrinkLine)
 // A line longer than a batch is read whole before it goes up; past this it keeps only its head and tail
 const MAX_WHOLE_LINE = 64 * 1024 * 1024;
 // A last line without its newline is still being written, unless the file has been this quiet
 const PARTIAL_LINE_QUIET_MS = 30_000;
 const HEAD_BYTES = 64 * 1024; // where a session log says which folder it was started in
 const DEBOUNCE_MS = 2000;
-// A large session log is rewritten whole on the server for every upload (5 MB, every few seconds while an
-// agent works): upload it at most this often, and on a timer that writes to it don't keep pushing back
+// A large session log goes up at most this often, on a timer that writes to it don't keep pushing back.
+// It was 15 s while the server rewrote a large log whole for each upload; since 10-28 its slices wait in
+// a staging table and go in with one write (content_staging.py), so this is only about request count.
 const LARGE_FILE_BYTES = 1024 * 1024;
-const LARGE_FILE_GAP_MS = 15_000;
+const LARGE_FILE_GAP_MS = 5_000;
 const RESCAN_MS = 60_000;
+// Failures that pass (network, a server restarting): everything waits, 2 s doubling to a minute
+const BACKOFF_MIN_MS = 2_000;
+const BACKOFF_MAX_MS = 60_000;
+// A file the server turns down: it alone waits, 30 s doubling to half an hour
+const FILE_BACKOFF_MIN_MS = 30_000;
+const FILE_BACKOFF_MAX_MS = 30 * 60_000;
+// Asking the server where its copy of each log ends: a while after start, then daily
+const RECONCILE_FIRST_MS = 2 * 60_000;
+const RECONCILE_EVERY_MS = 24 * 3_600_000;
+const RECONCILE_BATCH = 500;
 // Files sent whole (a subagent's .meta.json, a memory note) go up together, this many to a request
 const WHOLE_BATCH_FILES = 50;
 const WHOLE_BATCH_BYTES = 1024 * 1024;
@@ -161,6 +173,10 @@ export function cleanLines(raw: string): string[] {
  * down until it fits, so the server still parses the message and keeps the text around them. Cutting
  * the raw line into head and tail left neither part parseable and the whole message, the user's own
  * words included, was dropped. Only a line that isn't JSON still gets that.
+ *
+ * What the user wrote is kept whole, up to USER_TEXT_MAX (a 630k-character prompt was cut to 16K):
+ * it is what memento learns from, and it was typed or pasted once, not generated. The line runs past
+ * MAX_LINE by as much (the entry proxy takes 50 MB a request).
  */
 function shrinkLine(line: string): string {
   let value: unknown;
@@ -170,25 +186,73 @@ function shrinkLine(line: string): string {
     value = undefined;
   }
   if (value !== undefined && typeof value === "object" && value !== null) {
+    const keep = userTexts(value);
+    let budget = MAX_LINE;
+    for (const [holder, keys] of keep) {
+      for (const k of keys) {
+        const s = (holder as Record<string | number, unknown>)[k];
+        if (typeof s === "string") budget += JSON.stringify(s.length > USER_TEXT_MAX ? cut(s, USER_TEXT_MAX) : s).length;
+      }
+    }
     for (const limit of [16 * 1024, 4 * 1024, 1024, 256]) {
-      const out = JSON.stringify(shrinkStrings(value, limit));
-      if (out.length <= MAX_LINE) return out;
+      const out = JSON.stringify(shrinkStrings(value, limit, keep));
+      if (out.length <= budget) return out;
     }
   }
   return `${line.slice(0, 64 * 1024)}\n...[TRUNCATED: line exceeded 128KB limit]...\n${line.slice(-32 * 1024)}`;
 }
 
-function shrinkStrings(v: unknown, limit: number): unknown {
-  if (typeof v === "string") {
-    if (v.length <= limit) return v;
-    const head = Math.floor(limit * 0.75);
-    const tail = Math.floor(limit * 0.2);
-    return `${v.slice(0, head)}…[已截断 ${v.length - head - tail} 字]…${v.slice(v.length - tail)}`;
+type Kept = Map<object, Set<string | number>>;
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * Where a log line holds text the user wrote, as (object, key) pairs: the prompt of Claude Code and
+ * WorkBuddy (a string, or the text parts of a list; tool results come back as "user" lines too and
+ * aren't kept), and of Codex (event_msg user_message, response_item message of role user).
+ */
+export function userTexts(v: unknown): Kept {
+  const keep: Kept = new Map();
+  const add = (o: object, k: string | number) => {
+    let keys = keep.get(o);
+    if (!keys) keep.set(o, (keys = new Set()));
+    keys.add(k);
+  };
+  const parts = (content: unknown, kind: string) => {
+    if (typeof content === "string") return true;
+    if (!Array.isArray(content)) return false;
+    for (const part of content) if (isObj(part) && part.type === kind && typeof part.text === "string") add(part, "text");
+    return false;
+  };
+  if (!isObj(v)) return keep;
+  const payload = v.payload;
+  if (v.type === "user" && isObj(v.message)) {
+    if (parts(v.message.content, "text")) add(v.message, "content");
+  } else if (v.type === "event_msg" && isObj(payload) && payload.type === "user_message") {
+    if (typeof payload.message === "string") add(payload, "message");
+  } else if (v.type === "response_item" && isObj(payload) && payload.type === "message" && payload.role === "user") {
+    if (parts(payload.content, "input_text")) add(payload, "content");
+  } else if (v.role === "user" && parts(v.content, "text")) {
+    add(v, "content");
   }
-  if (Array.isArray(v)) return v.map((x) => shrinkStrings(x, limit));
+  return keep;
+}
+
+function cut(v: string, limit: number): string {
+  const head = Math.floor(limit * 0.75);
+  const tail = Math.floor(limit * 0.2);
+  return `${v.slice(0, head)}…[已截断 ${v.length - head - tail} 字]…${v.slice(v.length - tail)}`;
+}
+
+function shrinkStrings(v: unknown, limit: number, keep?: Kept): unknown {
+  if (typeof v === "string") return v.length <= limit ? v : cut(v, limit);
+  const kept = v && typeof v === "object" ? keep?.get(v) : undefined;
+  const child = (k: string | number, x: unknown) =>
+    kept?.has(k) && typeof x === "string" ? (x.length > USER_TEXT_MAX ? cut(x, USER_TEXT_MAX) : x) : shrinkStrings(x, limit, keep);
+  if (Array.isArray(v)) return v.map((x, i) => child(i, x));
   if (v && typeof v === "object") {
     const o: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v)) o[k] = shrinkStrings(x, limit);
+    for (const [k, x] of Object.entries(v)) o[k] = child(k, x);
     return o;
   }
   return v;
@@ -421,22 +485,68 @@ function sessionMetadata(
   };
 }
 
+/** How collection is going on this device: sent with the heartbeat, shown on the devices page. */
+export interface CollectStats {
+  /** Session logs with an offset */
+  files: number;
+  /** Files waiting to go up: changed just now, and found by a scan / resync */
+  queued: number;
+  urgent: number;
+  /** Files whose last upload failed */
+  failing: number;
+  backoff_until: string | null;
+  /** Since the collector started */
+  uploads: number;
+  bytes: number;
+  /** Slices the server said didn't follow its copy (and where to go on from) */
+  conflicts: number;
+  /** Logs set to where the server's copy ends by a reconcile */
+  reconciled: number;
+  /** Logs sent again from the start on the server's request */
+  resent: number;
+  last_upload_at: string | null;
+  last_reconcile_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  started_at: string;
+}
+
 /**
  * Watches the tools' session directories and uploads what changes. Session logs
  * (.jsonl) go up incrementally from a saved byte offset, in slices that end on a
  * line boundary, so logs of any size sync without re-sending what the server has.
- * Offsets live in ~/.memento/offsets.json. Other files go up whole when their modification time
- * changes; the times sent are kept in ~/.memento/synced-mtimes.json, so a restart doesn't send them
- * all again (on 2026-10-28 each restart of a Windows collector sent its 1,600 again).
+ * Each slice says where it starts and ends: the server stores it once and in order, and when it
+ * doesn't follow the server's copy (a retry whose first try went in, an offset saved before a commit
+ * that failed) says where the next one has to start. Offsets live in ~/.memento/offsets.json, written
+ * whole or not at all; a daily reconcile checks them against the server. Other files go up whole when
+ * their modification time changes; the times sent are kept in ~/.memento/synced-mtimes.json, so a
+ * restart doesn't send them all again (on 2026-10-28 each restart of a Windows collector sent its 1,600 again).
+ *
+ * Files that just changed go before the ones a scan or resync found, so a backlog doesn't hold up
+ * what's being written now.
  */
 export class FileWatcher {
   private readonly offsets = new Map<string, number>();
   private readonly mtimes = new Map<string, number>();
   private readonly failures = new Map<string, number>();
+  /** When a file the server turned down may go again */
+  private readonly retryAt = new Map<string, number>();
   private readonly debounce = new Map<string, NodeJS.Timeout>();
   private readonly lastUpload = new Map<string, number>();
+  /** Files that just changed */
+  private readonly urgent: [string, string][] = [];
+  /** Files a scan, resync or reconcile found */
   private readonly queue: [string, string][] = [];
   private readonly queued = new Set<string>();
+  private backoffUntil = 0;
+  private retryableFailures = 0;
+  private reconcileTimer: NodeJS.Timeout | undefined;
+  private reconcileInterval: NodeJS.Timeout | undefined;
+  private readonly counters = { uploads: 0, bytes: 0, conflicts: 0, reconciled: 0, resent: 0 };
+  private lastUploadAt: number | null = null;
+  private lastReconcileAt: number | null = null;
+  private lastError: { message: string; at: number } | null = null;
+  private readonly startedAt = Date.now();
   private readonly watchers: FSWatcher[] = [];
   private rescan: NodeJS.Timeout | undefined;
   private saveOffsetsTimer: NodeJS.Timeout | undefined;
@@ -446,6 +556,10 @@ export class FileWatcher {
   private readonly offsetsPath: string;
   private readonly mtimesPath: string;
   private mtimesDirty = false;
+  private flushing: Promise<void> = Promise.resolve();
+  private markStarted: () => void = () => {};
+  /** Once the directories to watch are known (start) */
+  private readonly started = new Promise<void>((resolve) => (this.markStarted = resolve));
 
   constructor(
     private readonly config: CollectorConfig,
@@ -458,10 +572,24 @@ export class FileWatcher {
   }
 
   async start(tools: Record<string, DiscoveredTool>): Promise<void> {
-    await this.loadOffsets();
+    const hadOffsets = await this.loadOffsets();
     const targets = watchTargets(tools, this.config.extraWatchDirs);
     this.targets = targets;
+    this.markStarted();
     this.log(`Watching ${targets.size} tool data directories`);
+    if (!hadOffsets) {
+      // No offsets (lost, or never written): logs the server already holds go on from where its copy
+      // ends instead of all going up again from the start. Nothing to find on a first run.
+      const files: string[] = [];
+      for (const [dir, toolId] of targets) files.push(...(await this.listLogs(dir, toolId)));
+      if (files.length) await this.reconcile(files);
+    }
+    this.reconcileTimer = setTimeout(() => {
+      void this.reconcile();
+      this.reconcileInterval = setInterval(() => void this.reconcile(), RECONCILE_EVERY_MS);
+      this.reconcileInterval.unref?.();
+    }, RECONCILE_FIRST_MS);
+    this.reconcileTimer.unref?.();
     for (const [dir, toolId] of targets) {
       this.watchDir(dir, toolId);
       void this.scan(dir, toolId);
@@ -481,14 +609,105 @@ export class FileWatcher {
     this.mtimes.clear();
     this.mtimesDirty = true;
     this.failures.clear();
+    this.retryAt.clear();
     await this.saveOffsets(true);
     this.log("Resync: re-uploading all watched files");
     for (const [dir, toolId] of this.targets) void this.scan(dir, toolId);
   }
 
+  /**
+   * Send some logs again from the start (the server's "resync_files": its copy has a line an older
+   * collector cut, message_audit.py). How many were found here.
+   */
+  async resyncFiles(files: { tool: string; relative_path: string }[]): Promise<number> {
+    // A command picked up while starting: the logs can't be found before the directories are known
+    if (!this.targets.size) await Promise.race([this.started, sleep(60_000)]);
+    const wanted = new Set(files.map((f) => `${f.tool}\u0000${f.relative_path}`));
+    let found = 0;
+    for (const [dir, toolId] of this.targets) {
+      for (const file of await this.listLogs(dir, toolId)) {
+        if (!wanted.has(`${toolId}\u0000${relativePathFor(file, toolId, this.config.extraWatchDirs)}`)) continue;
+        this.offsets.set(file, 0);
+        this.failures.delete(file);
+        this.retryAt.delete(file);
+        this.enqueue(file, toolId);
+        found++;
+      }
+    }
+    this.counters.resent += found;
+    await this.saveOffsets(true);
+    this.log(`Sending ${found} of ${files.length} logs again from the start, as the server asked`);
+    return found;
+  }
+
+  /**
+   * Check the offsets of these logs (default: all with one) against where the server's copy ends, and
+   * go on from there where they differ: a slice whose commit failed after the offset was saved, an
+   * offsets file lost. Nothing changes for a log uploaded meanwhile (its upload sorts it out itself)
+   * or when the server can't tell.
+   */
+  async reconcile(files?: string[]): Promise<number> {
+    if (this.disposed) return 0;
+    const items: { file: string; toolId: string; relativePath: string; offset: number }[] = [];
+    const byKey = new Map<string, string | null>();
+    for (const file of files ?? [...this.offsets.keys()]) {
+      const toolId = this.toolOf(file);
+      if (!toolId || !isJsonl(file)) continue;
+      const relativePath = relativePathFor(file, toolId, this.config.extraWatchDirs);
+      const key = `${toolId}\u0000${relativePath}`;
+      byKey.set(key, byKey.has(key) ? null : file); // two files under one name: neither is touched
+      items.push({ file, toolId, relativePath, offset: this.offsets.get(file) ?? 0 });
+    }
+    let changed = 0;
+    for (let i = 0; i < items.length && !this.disposed; i += RECONCILE_BATCH) {
+      const batch = items.slice(i, i + RECONCILE_BATCH);
+      const diffs = await this.ingest.reconcile(batch.map(({ toolId, relativePath, offset }) => ({ tool: toolId, relativePath, offset })));
+      if (!diffs) return changed; // a server from before reconcile, or unreachable: next time
+      const sent = new Map(batch.map((b) => [b.file, b.offset]));
+      for (const d of diffs) {
+        const file = byKey.get(`${d.tool}\u0000${d.relativePath}`);
+        if (!file || (this.offsets.get(file) ?? 0) !== sent.get(file)) continue;
+        let size = 0;
+        try {
+          size = (await stat(file)).size;
+        } catch {
+          continue;
+        }
+        const next = d.expectedOffset > size ? 0 : d.expectedOffset;
+        this.log(`Reconcile: ${d.relativePath} goes on from ${next} (offset here ${sent.get(file)}, server's copy ends at ${d.expectedOffset})`);
+        this.offsets.set(file, next);
+        this.enqueue(file, d.tool);
+        changed++;
+      }
+    }
+    this.lastReconcileAt = Date.now();
+    this.counters.reconciled += changed;
+    if (changed) await this.saveOffsets(true);
+    return changed;
+  }
+
+  stats(): CollectStats {
+    const iso = (t: number | null | undefined) => (t ? new Date(t).toISOString() : null);
+    return {
+      files: this.offsets.size,
+      queued: this.urgent.length + this.queue.length,
+      urgent: this.urgent.length,
+      failing: this.failures.size,
+      backoff_until: this.backoffUntil > Date.now() ? iso(this.backoffUntil) : null,
+      ...this.counters,
+      last_upload_at: iso(this.lastUploadAt),
+      last_reconcile_at: iso(this.lastReconcileAt),
+      last_error: this.lastError?.message.slice(0, 300) ?? null,
+      last_error_at: iso(this.lastError?.at),
+      started_at: new Date(this.startedAt).toISOString(),
+    };
+  }
+
   async dispose(): Promise<void> {
     this.disposed = true;
     if (this.rescan) clearInterval(this.rescan);
+    if (this.reconcileTimer) clearTimeout(this.reconcileTimer);
+    if (this.reconcileInterval) clearInterval(this.reconcileInterval);
     if (this.saveOffsetsTimer) {
       clearTimeout(this.saveOffsetsTimer);
       this.saveOffsetsTimer = undefined;
@@ -496,6 +715,7 @@ export class FileWatcher {
     for (const t of this.debounce.values()) clearTimeout(t);
     for (const w of this.watchers) w.close();
     this.queue.length = 0;
+    this.urgent.length = 0;
     this.queued.clear();
     await this.saveOffsets(true);
   }
@@ -512,7 +732,7 @@ export class FileWatcher {
       file,
       setTimeout(() => {
         this.debounce.delete(file);
-        this.enqueue(file, toolId);
+        this.enqueue(file, toolId, true);
       }, delay),
     );
   }
@@ -546,10 +766,39 @@ export class FileWatcher {
     }
   }
 
-  private enqueue(file: string, toolId: string): void {
-    if (this.disposed || this.queued.has(file)) return;
+  /** The session logs under a tool's directory. */
+  private async listLogs(dir: string, toolId: string): Promise<string[]> {
+    try {
+      const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+      return entries
+        .filter((e) => e.isFile())
+        .map((e) => join(e.parentPath, e.name))
+        .filter((f) => isJsonl(f) && isWatchedFile(f, toolId));
+    } catch {
+      return [];
+    }
+  }
+
+  /** The tool whose watched directory a file is in. */
+  private toolOf(file: string): string | undefined {
+    let best: [string, string] | undefined;
+    for (const [dir, toolId] of this.targets) {
+      if ((file.startsWith(`${dir}/`) || file.startsWith(`${dir}\\`)) && (!best || dir.length > best[0].length)) best = [dir, toolId];
+    }
+    return best?.[1];
+  }
+
+  /** Queue a file to go up; `urgent`: it just changed, so it goes before what a scan found. */
+  private enqueue(file: string, toolId: string, urgent = false): void {
+    if (this.disposed) return;
+    if (this.queued.has(file)) {
+      if (!urgent) return;
+      const i = this.queue.findIndex(([f]) => f === file);
+      if (i === -1) return; // already among the urgent ones
+      this.queue.splice(i, 1);
+    }
     this.queued.add(file);
-    this.queue.push([file, toolId]);
+    (urgent ? this.urgent : this.queue).push([file, toolId]);
     void this.process();
   }
 
@@ -558,20 +807,58 @@ export class FileWatcher {
     this.processing = true;
     try {
       await sleep(0); // a scan enqueues its files in one go: let it finish, so they can go up together
-      while (this.queue.length && !this.disposed) {
-        const [file, toolId] = this.queue.shift()!;
+      while (!this.disposed) {
+        const wait = this.backoffUntil - Date.now();
+        if (wait > 0) {
+          await sleep(Math.min(wait, 1_000));
+          continue;
+        }
+        const lane = this.urgent.length ? this.urgent : this.queue;
+        if (!lane.length) break;
+        const [file, toolId] = lane.shift()!;
         this.queued.delete(file);
+        if ((this.retryAt.get(file) ?? 0) > Date.now()) continue; // the rescan brings it back once it may go
         let uploaded = false;
         try {
-          uploaded = isJsonl(file) ? await this.syncFile(file, toolId) : await this.syncWholeFiles(this.takeWholeFiles([file, toolId]));
+          uploaded = isJsonl(file) ? await this.syncFile(file, toolId) : await this.syncWholeFiles(this.takeWholeFiles([file, toolId], lane));
         } catch (e) {
           this.log(`Error syncing ${file}: ${e instanceof Error ? e.message : e}`);
         }
-        if (uploaded && this.queue.length) await sleep(100);
+        if (uploaded && (this.urgent.length || this.queue.length)) await sleep(100);
       }
     } finally {
       this.processing = false;
     }
+  }
+
+  private uploaded(file: string, bytes: number): void {
+    const now = Date.now();
+    this.lastUpload.set(file, now);
+    this.lastUploadAt = now;
+    this.failures.delete(file);
+    this.retryAt.delete(file);
+    this.retryableFailures = 0;
+    this.backoffUntil = 0;
+    this.counters.uploads++;
+    this.counters.bytes += bytes;
+  }
+
+  /**
+   * An upload that failed: everything waits a while when it may pass, the file alone when it was
+   * turned down. `wait: false` only counts it (one file of a batch the rest of which went in).
+   */
+  private failed(file: string, result: UploadResult, wait = true): number {
+    const fails = (this.failures.get(file) ?? 0) + 1;
+    this.failures.set(file, fails);
+    this.lastError = { message: result.error ?? "upload failed", at: Date.now() };
+    if (!wait) return fails;
+    if (result.retryable !== false) {
+      this.retryableFailures++;
+      this.backoffUntil = Date.now() + Math.min(BACKOFF_MIN_MS * 2 ** (this.retryableFailures - 1), BACKOFF_MAX_MS);
+    } else {
+      this.retryAt.set(file, Date.now() + Math.min(FILE_BACKOFF_MIN_MS * 2 ** (fails - 1), FILE_BACKOFF_MAX_MS));
+    }
+    return fails;
   }
 
   /** Sync one file now (also used by tests). */
@@ -581,16 +868,16 @@ export class FileWatcher {
     return this.syncJsonl(file, toolId, relativePathFor(file, toolId, this.config.extraWatchDirs));
   }
 
-  /** `first` and up to a batch more of the queued files that go up whole. */
-  private takeWholeFiles(first: [string, string]): [string, string][] {
+  /** `first` and up to a batch more of the queued files (in its lane) that go up whole. */
+  private takeWholeFiles(first: [string, string], lane: [string, string][] = this.queue): [string, string][] {
     const group = [first];
-    for (let i = 0; i < this.queue.length && group.length < WHOLE_BATCH_FILES; ) {
-      const item = this.queue[i]!;
-      if (isJsonl(item[0])) {
+    for (let i = 0; i < lane.length && group.length < WHOLE_BATCH_FILES; ) {
+      const item = lane[i]!;
+      if (isJsonl(item[0]) || (this.retryAt.get(item[0]) ?? 0) > Date.now()) {
         i++;
         continue;
       }
-      this.queue.splice(i, 1);
+      lane.splice(i, 1);
       this.queued.delete(item[0]);
       group.push(item);
     }
@@ -598,6 +885,7 @@ export class FileWatcher {
   }
 
   private async syncJsonl(file: string, toolId: string, relPath: string): Promise<boolean> {
+    // Where the server's copy ends: each slice starts here
     let offset = this.offsets.get(file) ?? 0;
     const size0 = (await stat(file)).size;
     if (size0 < offset) {
@@ -608,26 +896,29 @@ export class FileWatcher {
     if (size0 === offset) return false;
 
     let uploaded = false;
+    let conflicts = 0;
     const handle = await open(file, "r");
     try {
+      // Where reading goes on: past `offset` by lines with nothing to send, which go with the next slice
+      let pos = offset;
       while (!this.disposed) {
         const size = (await handle.stat()).size;
-        if (size <= offset) break;
-        const want = Math.min(MAX_BATCH, size - offset);
+        if (size <= pos) break;
+        const want = Math.min(MAX_BATCH, size - pos);
         const buf = Buffer.alloc(want);
-        const { bytesRead } = await handle.read(buf, 0, want, offset);
+        const { bytesRead } = await handle.read(buf, 0, want, pos);
         if (!bytesRead) break;
         // Whole lines only: half of a line goes up now and the rest with the next slice, neither half
         // parses, and the server loses that message for good
         let slice: Buffer = buf.subarray(0, bytesRead);
         let consumed = bytesRead;
-        const reachesEnd = offset + bytesRead >= size;
+        const reachesEnd = pos + bytesRead >= size;
         const nl = slice.lastIndexOf(10);
         if (nl === -1 && !reachesEnd) {
           // One line longer than a batch: read on to its end
           const long =
-            (await readLongLine(handle, offset, size)) ??
-            ((await isQuiet(handle)) ? await readLongLine(handle, offset, size, true) : null);
+            (await readLongLine(handle, pos, size)) ??
+            ((await isQuiet(handle)) ? await readLongLine(handle, pos, size, true) : null);
           if (!long) break; // its end isn't written yet
           slice = long.bytes;
           consumed = long.consumed;
@@ -644,15 +935,12 @@ export class FileWatcher {
         const raw = slice.toString("utf8");
         const lines = raw.trim() ? cleanLines(raw) : [];
         // A later slice still belongs to the folder the session was started in
-        const head = offset > 0 ? await readHead(handle) : lines;
-        if (!lines.length) {
-          offset += consumed;
-          this.offsets.set(file, offset);
-          continue;
-        }
+        const head = pos > 0 ? await readHead(handle) : lines;
+        pos += consumed;
+        if (!lines.length) continue;
         const batch = lines.join("\n");
         const mode = offset > 0 ? "delta" : "full";
-        this.log(`Syncing ${relPath} (${toolId}) ${offset > 0 ? `delta: ${slice.length}B at offset ${offset}` : `initial: ${slice.length}B`} (file size: ${size}B)`);
+        this.log(`Syncing ${relPath} (${toolId}) ${offset > 0 ? `delta: ${pos - offset}B at offset ${offset}` : `initial: ${pos}B`} (file size: ${size}B)`);
         const doc = {
           toolId,
           category: "conversation",
@@ -662,29 +950,37 @@ export class FileWatcher {
           contentHash: contentHash(batch),
           fileSize: size,
           offset,
+          endOffset: pos,
           mode,
           metadata: sessionMetadata(file, toolId, relPath, lines, this.home, head),
         } as const;
-        let ok = await this.ingest.ingestDocument(doc);
-        if (!ok && !this.disposed) {
-          await sleep(500);
-          ok = await this.ingest.ingestDocument(doc);
-        }
+        const result = await this.ingest.ingestDocument(doc);
         uploaded = true;
-        if (ok) {
-          this.lastUpload.set(file, Date.now());
-          this.failures.delete(file);
-          offset += consumed;
+        if (result.ok) {
+          this.uploaded(file, batch.length);
+          // A retry whose first try went in, after which the server got more of the log: on from there
+          if (result.nextOffset !== undefined && result.nextOffset > pos && result.nextOffset <= size) pos = result.nextOffset;
+          offset = pos;
           this.offsets.set(file, offset);
           await this.saveOffsets(false);
+        } else if (result.expectedOffset !== undefined) {
+          // The slice doesn't follow the server's copy: on from where that ends (from the start when it
+          // ends past this file, which must have been replaced)
+          this.counters.conflicts++;
+          const next = result.expectedOffset > size ? 0 : result.expectedOffset;
+          this.log(`Server's copy of ${relPath} ends at ${result.expectedOffset}: going on from ${next} (offset was ${offset})`);
+          offset = pos = next;
+          this.offsets.set(file, offset);
+          await this.saveOffsets(true);
+          if (++conflicts >= 3) break; // something keeps moving it: the next scan comes back to it
+          continue;
         } else {
-          const fails = (this.failures.get(file) ?? 0) + 1;
-          this.failures.set(file, fails);
+          const fails = this.failed(file, result);
           this.log(`Upload failed for ${relPath} at offset ${offset} (attempt ${fails}), retaining offset to retry`);
           await this.saveOffsets(true);
           break;
         }
-        if (offset < size) await sleep(50);
+        if (pos < size) await sleep(50);
         else break;
       }
       await this.saveOffsets(true);
@@ -705,9 +1001,20 @@ export class FileWatcher {
       group = [];
       bytes = 0;
       attempted = true;
-      const ok = batch.length === 1 ? [await this.ingest.ingestDocument(batch[0]!.doc)] : await this.ingest.ingestBatch(batch.map((g) => g.doc));
+      const results = batch.length === 1 ? [await this.ingest.ingestDocument(batch[0]!.doc)] : await this.ingest.ingestBatch(batch.map((g) => g.doc));
+      // The server down or the request turned down: it waits once (the files alone, when turned
+      // down). One file failing in a batch the rest of which went in goes with the next scan.
+      const whole = results.every((r) => !r?.ok);
+      let waited = false;
       batch.forEach((g, i) => {
-        if (!ok[i]) return;
+        const r = results[i] ?? { ok: false, retryable: true };
+        if (!r.ok) {
+          const wait = whole && (r.retryable === false || !waited);
+          waited ||= wait;
+          this.failed(g.file, r, wait);
+          return;
+        }
+        this.uploaded(g.file, g.doc.content.length);
         this.mtimes.set(g.file, g.mtime);
         this.mtimesDirty = true;
       });
@@ -755,13 +1062,20 @@ export class FileWatcher {
     return attempted;
   }
 
-  private async loadOffsets(): Promise<void> {
-    try {
-      const map = JSON.parse(await readFile(this.offsetsPath, "utf8")) as Record<string, unknown>;
-      this.offsets.clear();
-      for (const [k, v] of Object.entries(map)) if (typeof v === "number") this.offsets.set(k, Math.trunc(v));
-    } catch {
-      // first run
+  /** Whether there were offsets to load (none: a first run, or the file was lost). */
+  private async loadOffsets(): Promise<boolean> {
+    let loaded = false;
+    // The file itself, else what a write that never got renamed in left (written whole, see flushOffsets)
+    for (const path of [this.offsetsPath, `${this.offsetsPath}.tmp`]) {
+      try {
+        const map = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        this.offsets.clear();
+        for (const [k, v] of Object.entries(map)) if (typeof v === "number") this.offsets.set(k, Math.trunc(v));
+        loaded = true;
+        break;
+      } catch {
+        // missing, or cut short by a crash while a collector before v1.0.95 wrote it in place
+      }
     }
     try {
       const map = JSON.parse(await readFile(this.mtimesPath, "utf8")) as Record<string, unknown>;
@@ -771,6 +1085,7 @@ export class FileWatcher {
     } catch {
       // first run, or a collector from before these were kept: everything goes up once more
     }
+    return loaded;
   }
 
   private async saveOffsets(immediate = false): Promise<void> {
@@ -791,17 +1106,42 @@ export class FileWatcher {
     }
   }
 
-  private async flushOffsets(): Promise<void> {
+  /**
+   * One write at a time: a save on the timer and an immediate one together wrote the same .tmp file,
+   * and a shorter write over the start of a longer one left it no longer JSON.
+   */
+  private flushOffsets(): Promise<void> {
+    const run = this.flushing.then(() => this.writeOffsets());
+    this.flushing = run;
+    return run;
+  }
+
+  private async writeOffsets(): Promise<void> {
     try {
       await mkdir(dirname(this.offsetsPath), { recursive: true });
-      await writeFile(this.offsetsPath, JSON.stringify(Object.fromEntries(this.offsets)));
+      await writeWhole(this.offsetsPath, JSON.stringify(Object.fromEntries(this.offsets)));
       if (this.mtimesDirty) {
         this.mtimesDirty = false;
-        await writeFile(this.mtimesPath, JSON.stringify(Object.fromEntries(this.mtimes)));
+        await writeWhole(this.mtimesPath, JSON.stringify(Object.fromEntries(this.mtimes)));
       }
     } catch {
       this.mtimesDirty = true; // try again on the next slice
     }
+  }
+}
+
+/**
+ * Write a file whole or not at all: to a temporary file renamed over it. A crash while writing in place
+ * left offsets.json cut short, and every log went up again from the start. Windows may refuse the
+ * rename while something (an antivirus scan) has the file open: then it's written in place.
+ */
+async function writeWhole(path: string, data: string): Promise<void> {
+  const tmp = `${path}.tmp`;
+  await writeFile(tmp, data);
+  try {
+    await rename(tmp, path);
+  } catch {
+    await writeFile(path, data);
   }
 }
 

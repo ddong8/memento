@@ -9,7 +9,7 @@ import { IngestClient } from "./ingest.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
 import { ServerRoute } from "./server-route.js";
 import { applySkillInjection } from "./skill-inject.js";
-import { FileWatcher } from "./watcher.js";
+import { FileWatcher, type CollectStats } from "./watcher.js";
 import { TaskWorktree } from "./worktree.js";
 import { WsTaskClient } from "./ws-client.js";
 
@@ -22,9 +22,13 @@ export interface DaemonStatus {
   tools: Record<string, Record<string, unknown>>;
   runningTasks: string[];
   startedAt: string | null;
+  /** How collection is going (null until the watcher runs) */
+  collect: CollectStats | null;
 }
 
 const COMMAND_POLL_MS = 30_000;
+// Also how the server learns how collection is going here (backlog, failures), shown on the devices page
+const HEARTBEAT_MS = 2 * 60_000;
 const WORKBUDDY_GATEWAY_SWEEP_MS = 5 * 60_000;
 const LOG_LIMIT = 200;
 
@@ -67,6 +71,7 @@ export class Daemon extends EventEmitter {
       tools: Object.fromEntries(Object.entries(this.tools).map(([k, t]) => [k, toolReport(t)])),
       runningTasks: this.ws?.runner.runningTaskIds ?? [],
       startedAt: this.startedAt?.toISOString() ?? null,
+      collect: this.watcher?.stats() ?? null,
     };
   }
 
@@ -118,6 +123,12 @@ export class Daemon extends EventEmitter {
 
     this.watcher = new FileWatcher(config, ingest, this.log);
     void this.watcher.start(this.tools);
+    this.timers.push(
+      setInterval(() => {
+        void ingest.sendHeartbeat(this.watcher?.stats());
+        this.notify();
+      }, HEARTBEAT_MS),
+    );
 
     this.ws = new WsTaskClient(config, this.log, (online) => {
       this.online = online;
@@ -211,6 +222,15 @@ export class Daemon extends EventEmitter {
       this.log(`Server command: ${action}`);
       if (action === "resync") await this.watcher?.resync();
       else if (action === "rediscover") await this.rediscover();
+      else if (action === "resync_files") {
+        const files = (cmd.payload as { files?: unknown } | undefined)?.files;
+        if (Array.isArray(files)) {
+          await this.watcher?.resyncFiles(
+            files.filter((f): f is { tool: string; relative_path: string } =>
+              !!f && typeof (f as { tool?: unknown }).tool === "string" && typeof (f as { relative_path?: unknown }).relative_path === "string"),
+          );
+        }
+      }
     }
   }
 

@@ -25,7 +25,7 @@ async function setup() {
   const ingest = {
     ingestDocument: async (doc: (typeof sent)[number]) => {
       sent.push(doc);
-      return true;
+      return { ok: true };
     },
   } as unknown as IngestClient;
   const watcher = new FileWatcher({ extraWatchDirs: [] } as unknown as CollectorConfig, ingest, () => {}, home);
@@ -108,6 +108,63 @@ describe("a giant line shrinks and stays JSON", () => {
     const v = JSON.parse(out!);
     expect(v.message.content).toBe("用户原话");
     expect(v.toolUseResult.stdout).toContain("已截断");
+  });
+
+  it("keeps what the user wrote whole, cuts the rest", () => {
+    const prompt = "粘贴的长文档\n".repeat(90_000); // 630k characters
+    const line = msg(prompt, { toolUseResult: { stdout: "y".repeat(300_000) } });
+    const [out] = cleanLines(line);
+    const v = JSON.parse(out!);
+    expect(v.message.content).toBe(prompt);
+    expect(v.toolUseResult.stdout).toContain("已截断");
+  });
+
+  it("keeps the text parts of a prompt, not a tool result sent as the user's", () => {
+    const words = "我".repeat(200_000);
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: "z".repeat(300_000) },
+          { type: "text", text: words },
+          { type: "image", source: { type: "base64", data: "A".repeat(500_000) } },
+        ],
+      },
+    });
+    const [out] = cleanLines(line);
+    const parts = JSON.parse(out!).message.content;
+    expect(parts[1].text).toBe(words);
+    expect(parts[0].content).toContain("已截断");
+    expect(parts[2].source.data).toContain("已截断");
+  });
+
+  it("keeps a Codex prompt whole", () => {
+    const words = "codex prompt ".repeat(40_000);
+    const event = JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: words, images: ["B".repeat(300_000)] } });
+    const item = JSON.stringify({
+      type: "response_item",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: words }, { type: "input_image", image_url: "C".repeat(300_000) }] },
+    });
+    const [a, b] = cleanLines(`${event}\n${item}`);
+    expect(JSON.parse(a!).payload.message).toBe(words);
+    expect(JSON.parse(a!).payload.images[0]).toContain("已截断");
+    const parts = JSON.parse(b!).payload.content;
+    expect(parts[0].text).toBe(words);
+    expect(parts[1].image_url).toContain("已截断");
+  });
+
+  it("doesn't keep an assistant's long text", () => {
+    const line = JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "a".repeat(300_000) }] } });
+    const [out] = cleanLines(line);
+    expect(out!.length).toBeLessThanOrEqual(128 * 1024);
+  });
+
+  it("cuts the user's words past a million characters", () => {
+    const [out] = cleanLines(msg("字".repeat(1_200_000)));
+    const content: string = JSON.parse(out!).message.content;
+    expect(content).toContain("已截断");
+    expect(content.length).toBeLessThan(1_000_100);
   });
 
   it("leaves a line that isn't JSON to head and tail", () => {

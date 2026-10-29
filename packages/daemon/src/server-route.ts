@@ -109,7 +109,7 @@ export class ServerRoute {
  */
 export function hostFetch(
   url: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number },
+  init: { method?: string; headers?: Record<string, string>; body?: string | Uint8Array; timeoutMs?: number },
   host: string,
 ): Promise<Response> {
   const u = new URL(url);

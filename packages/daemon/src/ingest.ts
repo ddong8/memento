@@ -1,3 +1,6 @@
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
+
 import type { CollectorConfig } from "./config.js";
 import { toolReport, type DiscoveredTool } from "./discovery.js";
 import { sanitizeDocumentContent } from "./sanitizer.js";
@@ -34,6 +37,15 @@ export interface UploadResult {
 
 const retryableStatus = (status: number) => status === 408 || status === 429 || status >= 500;
 
+const gzipAsync = promisify(gzip);
+/**
+ * Bodies from this size go gzip-compressed: a slice of a log to about a sixth, through an uplink to the
+ * public entry of about 400 KB/s (10-30: a Windows collector sending a 150 MB log again took hours).
+ */
+const COMPRESS_FROM = 8 * 1024;
+/** What a server from before compressed bodies answers one (it can't parse it) */
+const UNREAD_BODY = new Set([400, 415, 422]);
+
 type Log = (message: string) => void;
 
 /** HTTP calls a device makes as itself (collector token + device id), not as the user. */
@@ -65,11 +77,35 @@ export class IngestClient {
     };
   }
 
+  /** Until when bodies go plain: the server turned a compressed one down */
+  private plainUntil = 0;
+
   private async request(path: string, init: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<Response> {
     const method = init.method ?? "GET";
-    const headers = { ...this.headers, ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}) };
-    const body = init.body !== undefined ? JSON.stringify(init.body) : undefined;
+    const json = init.body !== undefined ? JSON.stringify(init.body) : undefined;
     const timeoutMs = init.timeoutMs ?? 20_000;
+    if (json === undefined || json.length < COMPRESS_FROM || Date.now() < this.plainUntil) {
+      return this.send(path, method, json, false, timeoutMs);
+    }
+    const res = await this.send(path, method, json, true, timeoutMs);
+    if (!UNREAD_BODY.has(res.status)) return res;
+    // Turned down before it was read, maybe: plain once more, and plain for an hour if that passes
+    await res.text().catch(() => "");
+    const plain = await this.send(path, method, json, false, timeoutMs);
+    if (!UNREAD_BODY.has(plain.status)) {
+      this.plainUntil = Date.now() + 3_600_000;
+      this.log("Server can't read compressed uploads: sending them plain for an hour");
+    }
+    return plain;
+  }
+
+  private async send(path: string, method: string, json: string | undefined, compressed: boolean, timeoutMs: number): Promise<Response> {
+    const headers: Record<string, string> = {
+      ...this.headers,
+      ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(compressed ? { "Content-Encoding": "gzip" } : {}),
+    };
+    const body = json !== undefined && compressed ? new Uint8Array(await gzipAsync(json)) : json;
     const lan = this.route?.target();
     if (lan?.host) {
       try {

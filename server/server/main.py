@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from .middleware.etag import ETagMiddleware
+from .middleware.gzip_request import GzipRequestMiddleware
 
 from .api import admin, ask, auth, conversations, daily, dashboard, data_io, devices, documents, events, health, hierarchy, ingest, install_bootstrap, learning, life_rhythm, llm, media, memory, missions, notify, proactive, profile, projects, public, quotas, search, share, skills, todos, tools, updates
 # Aliased: `server.api.tasks` (remote device task queue) is a different module
@@ -619,6 +620,7 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(ETagMiddleware)
+app.add_middleware(GzipRequestMiddleware)
 
 # Register routers
 app.include_router(dashboard.router)

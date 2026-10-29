@@ -133,6 +133,17 @@ class PlanAlignmentTests(unittest.TestCase):
         self.assertFalse(plan.changes)
         self.assertEqual((plan.stand_ins, plan.unknown), (1, 0))
 
+    def test_interleave_counts_copies_only_the_file_can_judge(self):
+        # 10-30: a 2 GB log whose stored text kept 7.6M characters, 45,908 rows outside it copies of others
+        lost = _msg("assistant", "文本里丢掉的中间段", 40)
+        stored = [_row(10, 1, self.a), _row(11, 2, lost), _row(12, 3, lost), _row(13, 4, lost), _row(14, 5, self.a)]
+        plan = plan_alignment(stored, [self.a], 1, "interleave")
+        self.assertEqual(plan.delete, [14])  # a copy of what the text holds goes
+        self.assertEqual((plan.duplicates, plan.unknown, plan.unvouched), (1, 3, 2))
+        # the text holding a message twice vouches for both rows
+        twice = plan_alignment([_row(10, 1, self.a), _row(11, 2, self.a)], [self.a, self.a], 1, "interleave")
+        self.assertEqual((twice.changes, twice.unvouched), (False, 0))
+
     def test_interleave_inserts_what_no_row_holds(self):
         x, y = _msg("tool", "[Bash]", 5, "git log"), _msg("tool", "[Bash]", 5, "git diff")
         stored = [_row(10, 1, self.a), _row(11, 2, x)]
@@ -356,6 +367,52 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         # once only
         third = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
         self.assertNotIn("resync_requested", third)
+        self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
+
+    async def test_copies_outside_the_text_ask_for_the_file_and_an_older_check_is_done_again(self):
+        import uuid
+
+        import fakeredis
+        from sqlalchemy import text
+
+        from server.db.models import Machine
+        from server.services import device_commands, message_audit
+
+        content = _user("一", 1)
+        size = len(content.encode())
+        await self._store(content, "full", 0, size, size)
+        doc_id = await self._doc_id()
+        async with self.Session() as db:
+            # Two rows of a message the stored text no longer holds, right after it
+            for line in (2, 3):
+                await db.execute(text(
+                    "INSERT INTO conversation_messages (document_id, line_number, message_type, role, content, metadata, \"timestamp\") "
+                    "VALUES (:d, :l, 'message', 'assistant', '中间丢的', '{}', :t)"
+                ), {"d": doc_id, "l": line, "t": T0})
+            await db.execute(text("UPDATE documents SET synced_at = now() - interval '1 hour'"))
+            # Repaired by the check before it looked for these, the text unchanged since
+            await db.execute(text(
+                "INSERT INTO message_audit (document_id, content_hash, checked_at, outcome, expected, stored, missing, duplicates, unknown, detail) "
+                "SELECT id, content_hash, '2026-10-29T17:48:00+00:00', 'repaired', 1, 1, 0, 0, 0, '{}' FROM documents"
+            ))
+            machine = await db.get(Machine, uuid.UUID(self.machine_id))
+            machine.collect_status = {"queued": 0, "reported_at": "2026-10-30T00:00:00+00:00"}
+            await db.commit()
+        redis = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+
+        first = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+        self.assertEqual((first.get("ok"), first.get("resync_requested")), (1, 1))
+        self.assertEqual(len(await self._rows()), 3)  # kept: only the file can tell
+        [cmd] = await device_commands.pending(redis, "dev-mac")
+        self.assertEqual(cmd["payload"]["files"], [{"tool": "claude_code", "relative_path": self.REL}])
+        async with self.Session() as db:
+            detail = await db.scalar(text("SELECT detail FROM message_audit WHERE document_id = :d"), {"d": doc_id})
+        self.assertEqual((detail["v"], detail["unvouched"]), (message_audit.AUDIT_VERSION, 1))
+        self.assertTrue(detail["repaired_at"].startswith("2026-10-29T17:48"))
+        self.assertIn("resync_requested_at", detail)
+
+        second = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+        self.assertNotIn("ok", second)  # checked by this version: not again
         self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
 
     async def test_reconcile_lists_logs_whose_copy_ends_elsewhere(self):

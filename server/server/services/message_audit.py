@@ -16,8 +16,10 @@ A conversation is checked once its text has been quiet for QUIET_MINUTES with no
 - line numbers follow the text. Rows keep their ids: the learning scans read by id (message_store.py).
 
 settings.message_audit_mode: "observe" writes what it would do to message_audit and changes nothing,
-"repair" does it, "off" stops. In "repair", a text with a line the old collector cut asks its device,
-once, to send the file again (command "resync_files"); only a device whose collector knows the
+"repair" does it, "off" stops. In "repair", a text with a line the old collector cut, or rows outside
+the text that are copies of each other (a big log whose stored text lost its middle: replayed slices
+or the log's own repeats, only the file tells), asks its device, once, to send the file again
+(command "resync_files"; store_slice then lines the rows up with it); only a device whose collector knows the
 command, which one before v1.0.95 acknowledges and drops. Those that know it report their upload
 state in the heartbeat (machines.collect_status): a device that doesn't yet is asked once it updates.
 """
@@ -51,6 +53,9 @@ TOO_BIG_CHARS = MAX_CONTENT_CHARS - 200_000
 SKIP_TOOLS = ("memento", "hermes")
 TRUNCATED_MARK = "[TRUNCATED: line exceeded"
 RETRY_ERRORS_AFTER = "1 day"
+# Raised when the check looks for something it didn't: texts checked by an older one are checked again
+# (2: copies outside the text, "unvouched")
+AUDIT_VERSION = 2
 _AUDIT_LOCK = 0x6D656D61756469  # "memaudi"
 
 MODES = ("off", "observe", "repair")
@@ -67,18 +72,21 @@ def _candidates_sql(repair: bool) -> str:
           AND d.synced_at < now() - interval '{QUIET_MINUTES} minutes'
           AND NOT EXISTS (SELECT 1 FROM document_pending_deltas p WHERE p.document_id = d.id)
           AND (a.document_id IS NULL OR a.content_hash IS DISTINCT FROM d.content_hash{redo}
+               OR coalesce((a.detail->>'v')::int, 1) < {AUDIT_VERSION}
                OR (a.outcome = 'error' AND a.checked_at < now() - interval '{RETRY_ERRORS_AFTER}'))
         ORDER BY a.checked_at NULLS FIRST, d.synced_at DESC
         LIMIT :n
     """
 
 
-# Texts with lines the old collector cut, on devices that can send them again, not asked yet
+# Texts with lines the old collector cut or rows only the file can vouch for, on devices that can send
+# them again, not asked yet
 _RESYNC_DUE_SQL = """
     SELECT a.document_id, d.machine_id, d.tool_id, d.relative_path FROM message_audit a
     JOIN documents d ON d.id = a.document_id
     JOIN machines m ON m.id = d.machine_id
-    WHERE a.detail->>'truncated' IS NOT NULL AND a.detail->>'resync_requested_at' IS NULL
+    WHERE (a.detail->>'truncated' IS NOT NULL OR a.detail->>'unvouched' IS NOT NULL)
+      AND a.detail->>'resync_requested_at' IS NULL
       AND m.collect_status->>'reported_at' IS NOT NULL
     ORDER BY a.checked_at
     LIMIT :n
@@ -86,7 +94,7 @@ _RESYNC_DUE_SQL = """
 
 
 async def _record(db: AsyncSession, doc_id: uuid.UUID, content_hash: str | None, outcome: str, **counts) -> None:
-    detail = counts.pop("detail", {}) or {}
+    detail = {**(counts.pop("detail", {}) or {}), "v": AUDIT_VERSION}
     values = {
         "document_id": doc_id,
         "content_hash": content_hash,
@@ -125,8 +133,13 @@ async def audit_document(db: AsyncSession, doc_id: uuid.UUID, repair: bool) -> d
         {"k": slice_lock_key(machine_id, tool_id, relative_path)},
     ):
         return None
-    prev = await db.scalar(text("SELECT detail FROM message_audit WHERE document_id = :d"), {"d": doc_id}) or {}
-    detail: dict = {k: prev[k] for k in ("resync_requested_at",) if k in prev}
+    prev_row = (await db.execute(
+        text("SELECT detail, outcome, checked_at FROM message_audit WHERE document_id = :d"), {"d": doc_id},
+    )).first()
+    prev = (prev_row[0] if prev_row else None) or {}
+    detail: dict = {k: prev[k] for k in ("resync_requested_at", "repaired_at") if k in prev}
+    if prev_row and prev_row[1] == "repaired" and "repaired_at" not in detail:
+        detail["repaired_at"] = prev_row[2].isoformat()
     content = content or ""
     if len(content) >= TOO_BIG_CHARS:
         await _record(db, doc_id, content_hash, "too_big", detail=detail)
@@ -151,11 +164,14 @@ async def audit_document(db: AsyncSession, doc_id: uuid.UUID, repair: bool) -> d
         detail["moved"] = len(plan.move)
     if plan.parked:
         detail["parked"] = plan.parked
+    if plan.unvouched:
+        detail["unvouched"] = plan.unvouched
     if not plan.changes:
         outcome = "ok"
     elif repair:
         await message_store.apply_alignment(db, doc_id, plan, archive_reason="audit")
         outcome = "repaired"
+        detail["repaired_at"] = datetime.now(timezone.utc).isoformat()
     else:
         outcome = "needs_repair"
     await _record(db, doc_id, content_hash, outcome, detail=detail, **counts)

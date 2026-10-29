@@ -234,7 +234,9 @@ ingest_service.py(按 机器|工具|路径 加 advisory 锁)
     ├─ 采集端启动 2 分钟后和每天调 /api/ingest/reconcile,按服务端记录的结束位置修正本地偏移
     └─ Celery message-audit 每 5 分钟按原文核对安静 10 分钟以上的对话(message_audit.py):
        observe 只记录到 message_audit;repair 补缺、删重复(归档到 conversation_messages_removed),
-       旧采集端截断过的文件请设备重传(resync_files,只发给心跳带采集状态的新版设备)
+       旧采集端截断过的文件、原文外有互为副本的行(大文件存的原文不全,只有文件本身能判断)
+       请设备重传(resync_files,只发给心跳带采集状态的新版设备);核对逻辑升级时提高 AUDIT_VERSION,
+       旧版本核对过的对话自动重核
 ```
 
 ### 认证体系

@@ -55,6 +55,9 @@ class Alignment:
     duplicates: int = 0  # rows deleted that are another copy of a message the text holds
     unknown: int = 0  # rows whose message the text doesn't hold (deleted, or kept by "interleave")
     stand_ins: int = 0  # rows an older parser stored for a message, kept for it ("interleave")
+    # Rows kept by "interleave" that are another copy of a kept row: the text can't say whether the
+    # log holds the message that often (a replayed slice) or not, only the file sent again can
+    unvouched: int = 0
 
     @property
     def changes(self) -> bool:
@@ -118,6 +121,7 @@ def plan_alignment(
                 plan.parked += 1
         kept = [r for r in kept if r[1] < PARKED]
         plan.unknown = len(kept)
+        plan.unvouched = len(kept) - len({r[2] for r in kept})
         # Each kept row goes after the message whose row stood last before it
         anchors = sorted((r[1], r[0], i) for i, r in enumerate(taken) if r is not None)
         after: dict[int, list[Row]] = defaultdict(list)

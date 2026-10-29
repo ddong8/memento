@@ -1,3 +1,22 @@
+/** How collection is going (packages/daemon/src/watcher.ts CollectStats); null before v1.0.95. */
+export interface CollectStats {
+  files: number;
+  queued: number;
+  urgent: number;
+  failing: number;
+  backoff_until: string | null;
+  uploads: number;
+  bytes: number;
+  conflicts: number;
+  reconciled: number;
+  resent: number;
+  last_upload_at: string | null;
+  last_reconcile_at: string | null;
+  last_error: string | null;
+  last_error_at: string | null;
+  started_at: string;
+}
+
 /** What the Memento desktop app exposes to the web UI (apps/desktop/src/preload.ts). */
 interface DaemonStatus {
   running: boolean;
@@ -8,6 +27,7 @@ interface DaemonStatus {
   tools: Record<string, { root?: string; projects?: { name: string; path: string }[] } & Record<string, unknown>>;
   runningTasks: string[];
   startedAt: string | null;
+  collect?: CollectStats | null;
 }
 
 export interface DaemonState {

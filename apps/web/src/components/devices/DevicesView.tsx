@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useI18n } from "@/lib/i18n";
+import { fmt, useI18n } from "@/lib/i18n";
 import { useNow } from "@/lib/use-now";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph, Icon } from "@/components/aurora/Icon";
@@ -18,6 +18,12 @@ export interface Device {
   tools: string[];
   is_archived?: boolean;
   archived_at?: string | null;
+  /** The collector's own report with its heartbeat (null before v1.0.95) */
+  collect?: { queued?: number; failing?: number; last_error?: string | null } | null;
+  /** How long the last 24 hours' messages took to be stored, in seconds */
+  lag?: { messages: number; p50: number; p99: number; max: number };
+  /** What the message audit found in its conversations (server/services/message_audit.py) */
+  audit?: { checked: number; ok: number; needs_repair: number; repaired: number; missing: number; duplicates: number };
 }
 
 function useTimeAgo(t: ReturnType<typeof useI18n>["t"]) {
@@ -297,6 +303,54 @@ node packages/daemon/dist/cli.js install-service`}
                     </Btn>
                   </div>
                 </div>
+
+                {!isArchived && (d.lag || d.audit || d.collect) && (
+                  <div
+                    style={{
+                      borderTop: "1px solid var(--aurora-border)",
+                      marginTop: 14,
+                      paddingTop: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      fontSize: 11.5,
+                      color: "var(--aurora-fg3)",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    {d.lag && (
+                      <span>
+                        {fmt(t.devices.lag, { p50: d.lag.p50, p99: d.lag.p99, max: d.lag.max, n: d.lag.messages })}
+                      </span>
+                    )}
+                    {d.audit && d.audit.checked > 0 && (
+                      <span>
+                        {fmt(t.devices.audit, { checked: d.audit.checked, ok: d.audit.ok })}
+                        {d.audit.repaired > 0 && <> · {fmt(t.devices.auditRepaired, { n: d.audit.repaired })}</>}
+                        {d.audit.needs_repair > 0 && (
+                          <span style={{ color: "#F59E0B" }}>
+                            {" · "}
+                            {fmt(t.devices.auditNeedsRepair, { n: d.audit.needs_repair, missing: d.audit.missing, duplicates: d.audit.duplicates })}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {d.collect && ((d.collect.queued ?? 0) > 0 || (d.collect.failing ?? 0) > 0) && (
+                      <span>
+                        {(d.collect.queued ?? 0) > 0 && fmt(t.devices.collectBacklog, { n: d.collect.queued ?? 0 })}
+                        {(d.collect.queued ?? 0) > 0 && (d.collect.failing ?? 0) > 0 && " · "}
+                        {(d.collect.failing ?? 0) > 0 && (
+                          <span style={{ color: "#EF4444" }}>{fmt(t.devices.collectFailing, { n: d.collect.failing ?? 0 })}</span>
+                        )}
+                      </span>
+                    )}
+                    {d.collect?.last_error && (d.collect.failing ?? 0) > 0 && (
+                      <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+                        {fmt(t.devices.collectError, { msg: d.collect.last_error })}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {discoveries[d.id] && Object.keys(discoveries[d.id]).length > 0 && (
                   <div

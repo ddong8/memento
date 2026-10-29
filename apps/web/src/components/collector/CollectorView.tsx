@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { desktop, mcpSnippets, type DaemonState, type DesktopInfo, type MementoDesktop } from "@/lib/desktop";
+import { desktop, mcpSnippets, type CollectStats, type DaemonState, type DesktopInfo, type MementoDesktop } from "@/lib/desktop";
 import { fmt, useI18n } from "@/lib/i18n";
+import { formatBytes } from "@/lib/constants";
+import { useNow } from "@/lib/use-now";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
 import { BrandMark } from "@/components/aurora/BrandMark";
 
@@ -112,6 +114,8 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
         </div>
         {notice && <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "var(--aurora-fg2)" }}>{notice}</p>}
       </Glass>
+
+      {active && status && <CollectCard stats={status.collect ?? null} />}
 
       {tools.length > 0 && (
         <Glass padding="clamp(14px, 3vw, 20px)" radius={18} style={{ marginBottom: 14 }}>
@@ -230,5 +234,64 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
         </pre>
       </Glass>
     </div>
+  );
+}
+
+/** How collection is going on this computer: backlog, failures, uploads, corrections (watcher.ts stats). */
+function CollectCard({ stats }: { stats: CollectStats | null }) {
+  const { t } = useI18n();
+  const c = t.collector;
+  const now = useNow();
+  const ago = (iso: string | null) => {
+    if (!iso) return t.never;
+    const secs = Math.round((now - new Date(iso).getTime()) / 1000);
+    if (secs < 60) return t.justNow;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}${t.mAgo}`;
+    const hrs = Math.floor(mins / 60);
+    return hrs < 24 ? `${hrs}${t.hAgo}` : `${Math.floor(hrs / 24)}${t.dAgo}`;
+  };
+  const line = { fontSize: 12.5, color: "var(--aurora-fg2)", lineHeight: 1.7 } as const;
+  const muted = { ...line, color: "var(--aurora-fg3)" } as const;
+
+  return (
+    <Glass padding="clamp(14px, 3vw, 20px)" radius={18} style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: stats ? 10 : 6 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)" }}>{c.collectTitle}</span>
+        {stats && (
+          <>
+            {stats.backoff_until ? (
+              <Chip tone="warn">{fmt(c.collectBackoff, { time: new Date(stats.backoff_until).toLocaleTimeString() })}</Chip>
+            ) : stats.queued > 0 ? (
+              <Chip tone="accent">{fmt(c.collectQueued, { n: stats.queued })}</Chip>
+            ) : (
+              <Chip tone="success">{c.collectIdle}</Chip>
+            )}
+            {stats.failing > 0 && <Chip tone="danger">{fmt(c.collectFailing, { n: stats.failing })}</Chip>}
+          </>
+        )}
+      </div>
+      {!stats ? (
+        <div style={muted}>{c.collectNone}</div>
+      ) : (
+        <>
+          {stats.urgent > 0 && <div style={line}>{fmt(c.collectUrgent, { n: stats.urgent })}</div>}
+          <div style={line}>
+            {fmt(c.collectUploads, { n: stats.uploads, size: formatBytes(stats.bytes) })}
+            {stats.last_upload_at && <span style={{ color: "var(--aurora-fg3)" }}> · {fmt(c.collectLastUpload, { time: ago(stats.last_upload_at) })}</span>}
+          </div>
+          <div style={muted}>{fmt(c.collectFiles, { n: stats.files })}</div>
+          <div style={muted}>{fmt(c.collectFixes, { conflicts: stats.conflicts, reconciled: stats.reconciled, resent: stats.resent })}</div>
+          <div style={muted}>
+            {stats.last_reconcile_at ? fmt(c.collectLastReconcile, { time: ago(stats.last_reconcile_at) }) : c.collectNeverReconciled}
+          </div>
+          {stats.last_error && (
+            <div style={{ ...muted, marginTop: 4, fontFamily: "ui-monospace, monospace", fontSize: 11.5, overflowWrap: "anywhere" }}>
+              {fmt(c.collectLastError, { time: ago(stats.last_error_at), msg: stats.last_error })}
+            </div>
+          )}
+        </>
+      )}
+    </Glass>
   );
 }

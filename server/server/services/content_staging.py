@@ -11,7 +11,11 @@ or the oldest has waited MAX_WAIT_SECONDS.
 What readers see meanwhile: a conversation's messages (the conversation page, search, embedding,
 resume) are extracted from each delta as it arrives, not from documents.content; the content of a
 conversation this big serves its start (title, full-text index, previews), which staging never
-changes. The document view and the export add the pending tail (pending_tails).
+changes. The document view and the export add the pending tail (with_pending).
+
+The deltas waiting can add up to far more than a text keeps (MAX_CONTENT_CHARS): on 10-30 a 150 MB
+log sent again from the start waited in 450 deltas, and the merge that read them all at once was
+killed past the worker's 2 GB, every minute. Joining them (_joined) reads only the deltas it keeps.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 from sqlalchemy import delete, func, or_, select, text, update
@@ -91,27 +96,94 @@ async def drop_pending(db: AsyncSession, doc_id: uuid.UUID) -> None:
     await db.execute(delete(DocumentPendingDelta).where(DocumentPendingDelta.document_id == doc_id))
 
 
-async def pending_tails(db: AsyncSession, doc_ids) -> dict:
-    """The text waiting to be appended to each document, for readers of the whole content."""
+async def pending_ids(db: AsyncSession, doc_ids) -> set:
+    """Which of these documents have deltas waiting."""
     ids = list(doc_ids)
     if not ids:
-        return {}
-    rows = (await db.execute(
-        select(DocumentPendingDelta.document_id, DocumentPendingDelta.content)
-        .where(DocumentPendingDelta.document_id.in_(ids))
-        .order_by(DocumentPendingDelta.document_id, DocumentPendingDelta.id)
-    )).all()
-    tails: dict = {}
-    for doc_id, delta in rows:
-        tails[doc_id] = tails.get(doc_id, "") + "\n" + delta
-    return tails
+        return set()
+    return set((await db.execute(
+        select(DocumentPendingDelta.document_id).where(DocumentPendingDelta.document_id.in_(ids)).distinct()
+    )).scalars().all())
+
+
+async def _pending_sizes(db: AsyncSession, doc_id: uuid.UUID) -> list[tuple[int, int]]:
+    """A document's waiting deltas in order, (id, characters), without fetching them."""
+    return [(i, n) for i, n in (await db.execute(
+        select(DocumentPendingDelta.id, func.char_length(DocumentPendingDelta.content))
+        .where(DocumentPendingDelta.document_id == doc_id)
+        .order_by(DocumentPendingDelta.id)
+    )).all()]
+
+
+def _fetcher(db: AsyncSession) -> Callable[[list[int]], Awaitable[list[str]]]:
+    async def fetch(ids: list[int]) -> list[str]:
+        if not ids:
+            return []
+        rows = dict((await db.execute(
+            select(DocumentPendingDelta.id, DocumentPendingDelta.content).where(DocumentPendingDelta.id.in_(ids))
+        )).all())
+        return [rows[i] for i in ids]
+    return fetch
+
+
+def _joined_size(length: int, deltas: list[tuple[int, int]]) -> int:
+    """How long the content (`length` characters) is with the deltas appended, before capping."""
+    return length + sum(n + 1 for _, n in deltas) - (0 if length else 1)
+
+
+async def _joined(
+    content: str | None, deltas: list[tuple[int, int]], fetch: Callable[[list[int]], Awaitable[list[str]]],
+) -> str:
+    """cap_content of the content with these deltas appended (as append() joins them), fetching only the
+    deltas that end up in it: the head (when the content is shorter) and as many from the end as fill
+    the rest."""
+    content = content or ""
+    # Each delta's share of the whole text: itself and the newline before it (none before the first
+    # when there's no content)
+    sizes = [n + 1 for _, n in deltas]
+    if not content:
+        sizes[0] -= 1
+
+    def join(texts: list[str], first: int) -> str:
+        joined = "".join("\n" + t for t in texts)
+        return joined[1:] if first == 0 and not content else joined
+
+    if len(content) + sum(sizes) <= MAX_CONTENT_CHARS:
+        return content + join(await fetch([i for i, _ in deltas]), 0)
+
+    head, k = content[:HEAD_CHARS], 0
+    if len(head) < HEAD_CHARS:
+        size = len(content)
+        while k < len(deltas) and size < HEAD_CHARS:
+            size += sizes[k]
+            k += 1
+        head = (content + join(await fetch([i for i, _ in deltas[:k]]), 0))[:HEAD_CHARS]
+    head_end = head.rfind("\n", 0, HEAD_CHARS)
+    if head_end <= 0:
+        head_end = HEAD_CHARS
+
+    # The tail cap_content keeps: its last `keep` characters, on from the next line start
+    keep = MAX_CONTENT_CHARS - head_end - 1
+    j, size = len(deltas), 0
+    while j > 0 and size < keep:
+        j -= 1
+        size += sizes[j]
+    tail = join(await fetch([i for i, _ in deltas[j:]]), j)
+    if size < keep:
+        tail = content[len(content) - (keep - size):] + tail
+    tail = tail[len(tail) - keep:]
+    nl = tail.find("\n")
+    if nl != -1 and nl + 1 < len(tail):
+        tail = tail[nl + 1:]
+    return head[:head_end] + "\n" + tail
 
 
 async def with_pending(db: AsyncSession, doc_id: uuid.UUID, content: str | None) -> str | None:
-    tail = (await pending_tails(db, [doc_id])).get(doc_id)
-    if not tail:
+    """The content with the deltas waiting, for readers of the whole text."""
+    deltas = await _pending_sizes(db, doc_id)
+    if not deltas:
         return content
-    return cap_content(content + tail) if content else tail[1:]
+    return await _joined(content, deltas, _fetcher(db))
 
 
 async def merge_pending(db: AsyncSession, doc_id: uuid.UUID) -> int:
@@ -121,26 +193,23 @@ async def merge_pending(db: AsyncSession, doc_id: uuid.UUID) -> int:
     )
     if locked is None:
         return 0  # an ingest holds it: the next sweep merges
-    rows = (await db.execute(
-        select(DocumentPendingDelta.id, DocumentPendingDelta.content)
-        .where(DocumentPendingDelta.document_id == doc_id)
-        .order_by(DocumentPendingDelta.id)
-    )).all()
-    if not rows:
+    deltas = await _pending_sizes(db, doc_id)
+    if not deltas:
         return 0
-    tail = "".join("\n" + delta for _, delta in rows)
-    length = await db.scalar(select(func.char_length(Document.content)).where(Document.id == doc_id))
-    if length and length + len(tail) <= MAX_CONTENT_CHARS:
+    ids = [i for i, _ in deltas]
+    length = await db.scalar(select(func.char_length(Document.content)).where(Document.id == doc_id)) or 0
+    if length and _joined_size(length, deltas) <= MAX_CONTENT_CHARS:
+        tail = "".join("\n" + t for t in await _fetcher(db)(ids))
         new_content = Document.content + tail  # appended by the database: the text never leaves it
     else:
-        current = await db.scalar(select(Document.content).where(Document.id == doc_id))
-        new_content = cap_content(current + tail) if current else tail[1:]
+        current = await db.scalar(select(Document.content).where(Document.id == doc_id)) if length else None
+        new_content = await _joined(current, deltas, _fetcher(db))
     await db.execute(
         update(Document).where(Document.id == doc_id).values(content=new_content)
         .execution_options(synchronize_session=False)
     )
-    await db.execute(delete(DocumentPendingDelta).where(DocumentPendingDelta.id.in_([r[0] for r in rows])))
-    return len(rows)
+    await db.execute(delete(DocumentPendingDelta).where(DocumentPendingDelta.id.in_(ids)))
+    return len(deltas)
 
 
 def _due_query():

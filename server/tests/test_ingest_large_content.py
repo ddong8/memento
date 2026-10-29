@@ -168,6 +168,28 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(doc.content, head)
         self.assertEqual(await self._pending(doc.id), 1)
 
+    async def test_deltas_past_what_a_text_keeps_are_joined_as_capped(self) -> None:
+        from server.services import content_staging as cs
+
+        rel = "projects/-Users-me-dev-memento/resent.jsonl"
+        await self._ingest(rel, [_line(0, 50)])
+        doc = await self._content(rel)
+        deltas = ['{"type":"user","uuid":"c%06d","message":{"content":"第%d行 中文%s"}}' % (i, i, "字" * (i % 7 * 9))
+                  for i in range(1, 120)]
+        async with self.Session() as db:
+            for d in deltas:
+                await cs.stage_delta(db, doc.id, d)
+            await db.commit()
+        with patch.object(cs, "MAX_CONTENT_CHARS", 3000), patch.object(cs, "HEAD_CHARS", 700):
+            want = cs.cap_content("\n".join([doc.content, *deltas]))
+            self.assertLess(len(want), len("\n".join([doc.content, *deltas])))
+            async with self.Session() as db:
+                self.assertEqual(await cs.with_pending(db, doc.id, doc.content), want)
+                self.assertEqual(await cs.merge_pending(db, doc.id), len(deltas))
+                await db.commit()
+        self.assertEqual((await self._content(rel)).content, want)
+        self.assertEqual(await self._pending(doc.id), 0)
+
     async def test_a_short_conversation_is_still_rewritten(self) -> None:
         rel = "projects/-Users-me-dev-memento/short.jsonl"
         slices = [_line(i, 100) for i in range(3)]
@@ -198,6 +220,39 @@ class CapContentTests(unittest.TestCase):
         from server.services.tokenize import _MAX_INPUT_CHARS
 
         self.assertGreaterEqual(STAGE_MIN_BYTES // 4, _MAX_INPUT_CHARS)
+
+
+class JoinedTests(unittest.IsolatedAsyncioTestCase):
+    async def test_joins_as_capped_reading_only_the_deltas_it_keeps(self) -> None:
+        """A log sent again from the start can wait in deltas many times what a text keeps: the join
+        comes out as cap_content of all of it, and fetches about what it keeps (10-30: reading 150 MB
+        of deltas at once killed the worker)."""
+        import random
+
+        from server.services import content_staging as cs
+
+        rnd = random.Random(30)
+        with patch.object(cs, "MAX_CONTENT_CHARS", 300), patch.object(cs, "HEAD_CHARS", 60):
+            for _ in range(600):
+                letters = rnd.choice(["ab\n", "ab", "abcdefgh\n"])
+
+                def text(n: int) -> str:
+                    return "".join(rnd.choice(letters) for _ in range(n))
+
+                content = rnd.choice([None, "", text(rnd.randint(1, 300))])
+                deltas = {i: text(rnd.randint(0, 80)) for i in range(1, rnd.randint(1, 40) + 1)}
+                fetched: list[int] = []
+
+                async def fetch(ids: list[int]) -> list[str]:
+                    fetched.extend(ids)
+                    return [deltas[i] for i in ids]
+
+                got = await cs._joined(content, [(i, len(t)) for i, t in deltas.items()], fetch)
+                whole = "\n".join([content, *deltas.values()] if content else deltas.values())
+                self.assertEqual(got, cs.cap_content(whole))
+                self.assertEqual(cs._joined_size(len(content or ""), [(i, len(t)) for i, t in deltas.items()]), len(whole))
+                # The head and the kept tail, each with at most one delta more
+                self.assertLessEqual(sum(len(deltas[i]) for i in fetched), 300 + 60 + 2 * 80)
 
 if __name__ == "__main__":
     unittest.main()

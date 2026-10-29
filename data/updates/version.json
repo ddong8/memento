@@ -1,25 +1,25 @@
 {
   "version": "1.0.95",
-  "title": "Memento v1.0.94",
+  "title": "Memento v1.0.95",
   "release_notes": "1. 采集更及时：新写入的会话优先上传，大文件上传间隔从 15 秒缩短到 5 秒\n2. 采集不重不漏：每段上传带结束位置，服务端发现重传或缺口时告诉采集器从哪里接着传；每天和服务端核对一次进度，进度文件丢了也能接上\n3. 网络或服务出错时自动退避重试，不再连续失败刷请求；某个文件被拒不影响其他文件\n4. 超长消息里你自己写的文字整段保留（最多 100 万字），只截短工具输出和图片\n5. 采集页新增「上传状态」卡片，设备页显示采集延迟和消息核对结果\n6. 手机端版本号与客户端统一为 1.0.95",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.94-win-x64.zip",
-      "size": 157940414,
-      "sha256": "e3cb28feccdda666832d13f6b2856bf32afc77a714e89d6ce50ba9ff6f719b57",
-      "sha512": "QX9d6DTHB74rKImE6G4quYCLeko9xp4TKahOHwFAenSYHLuDBI+i+0WZmy4t/HHzKMYatewKO4s9GZPXyJQv7Q=="
+      "asset_name": "Memento-1.0.95-win-x64.zip",
+      "size": 157956807,
+      "sha256": "10e01a3a868c1bf2695c916cec531681e48a9b34e122aa598d363393b6eba75b",
+      "sha512": "1d2b5/HHggIf1ObENEokE3GIvdLJtX3wyjWzMfbyQykoHGFfaO+kzy/tTyb0rRypPU8COnHTA7qpLki0h0NPeA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.94-mac-arm64.zip",
-      "size": 132416063,
-      "sha256": "d9bc32d236147c8bbc13edaf98f4ba3fea689a160f5eeb0a32fd94734e406fdd",
-      "sha512": "lrIGzj6FSwy8iHO5tcLNb0iohUrVcP1YJVfKoW7RjwWqVkElykFKdHcKZQnBsOdA2xMh804g6U/wNsODrnDLtw=="
+      "asset_name": "Memento-1.0.95-mac-arm64.zip",
+      "size": 132431693,
+      "sha256": "9dc99b8775105a0d56f2369a79abe8b00cf5a8d127a36f8d80d76650e8e2930b",
+      "sha512": "Ryao6pgmMxs7AZF/NGvgSHLOfECdeYaLgxbe/NCg8rx5WLU1lGzhx6X5SMZDYeEo6vpwo6uSiarMwuWXBGQU3A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.94-linux-x64.tar.gz",
-      "size": 131710089,
-      "sha256": "17940ffe56491f9bfb04153d1067df615fbcf2a8898bdeaea2d81eae49e70954",
-      "sha512": "MiH23YTWoGIRev7474Hc3X2di+qDV334GUnllXB6pk+5thNCkqS6XIjkcEF2v15L3fScLQCkzjHP7B7etHj3AQ=="
+      "asset_name": "Memento-1.0.95-linux-x64.tar.gz",
+      "size": 131724756,
+      "sha256": "be76659999c9ec149cee06ee65940b824111e11538873cf837c146faa0f845da",
+      "sha512": "SQIzDoi8EL+zPMzv2wbeIMYhz5bDRsukF12Gt6oIATfVxFstAAC9RfRVXgNl1HVpBFVWCCzm5QqEtclI5YZEig=="
     }
   }
 }

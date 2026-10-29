@@ -245,6 +245,35 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         after = await self._rows()
         self.assertEqual(after, before)  # same rows, same ids, same lines
 
+    async def test_what_a_log_sent_again_no_longer_holds_is_kept_aside(self):
+        from sqlalchemy import text
+
+        lines = [_user(f"消息{i}", i) for i in range(4)]
+        content = "\n".join(lines) + "\n"
+        size = len(content.encode())
+        await self._store(content.rstrip("\n"), "full", 0, size, size)
+        before = await self._rows()
+        doc_id = await self._doc_id()
+        async with self.Session() as db:
+            # A replayed slice left a copy of 消息1 at the end
+            await db.execute(text(
+                "INSERT INTO conversation_messages (document_id, line_number, message_type, role, content, metadata, \"timestamp\") "
+                "SELECT document_id, 5, message_type, role, content, metadata, \"timestamp\" FROM conversation_messages WHERE id = :i"
+            ), {"i": before[1][0]})
+            await db.commit()
+
+        # The device sends it again (resync_files), in two slices
+        first = "\n".join(lines[:2]) + "\n"
+        await self._store(first.rstrip("\n"), "full", 0, len(first.encode()), size)
+        rest = "\n".join(lines[2:]) + "\n"
+        await self._store(rest.rstrip("\n"), "delta", len(first.encode()), size, size)
+        self.assertEqual(await self._rows(), before)
+        async with self.Session() as db:
+            removed = (await db.execute(text(
+                "SELECT document_id, content, reason FROM conversation_messages_removed"
+            ))).all()
+        self.assertEqual([tuple(r) for r in removed], [(doc_id, "消息1", "upload")])
+
     async def test_a_retried_slice_is_stored_once_and_a_gap_says_where_to_start(self):
         from server.services.ingest_service import OffsetMismatch, claim_slice
 

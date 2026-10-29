@@ -9,7 +9,7 @@ message beyond what the text holds are deleted, and line numbers are set to the 
 A log the collector sends again from the start comes in slices (512 KB each): the first can't tell
 what the rest holds. Its rows that the first slice doesn't take are parked (line numbers from PARKED
 up, in their order) for the later slices to take; whatever is still parked once a slice reaches the
-end of the file isn't in the text and goes.
+end of the file isn't in the text and goes, kept in conversation_messages_removed (reason "upload").
 """
 
 from __future__ import annotations
@@ -39,6 +39,8 @@ LOOSE_KEY_SQL = (
 
 # Line numbers from here up: rows set aside while a log comes again in slices
 PARKED = 1_000_000_000
+# conversation_messages_removed.reason of rows a log sent again from the start no longer holds
+UPLOAD_REMOVED = "upload"
 # While rows are renumbered they pass through -(line) - _TRANSIT, below everything a conversation
 # holds (Codex's history rows go down to -1000): the unique index on (document_id, line_number)
 # would otherwise trip over a row that hasn't moved yet
@@ -206,7 +208,8 @@ async def insert_messages(db: AsyncSession, doc_id: uuid.UUID, rows: list[tuple[
 
 async def apply_alignment(db: AsyncSession, doc_id: uuid.UUID, plan: Alignment, archive_reason: str | None = None) -> None:
     """Carry out a plan. With archive_reason the deleted rows are kept in conversation_messages_removed
-    first (the audit's repairs; a full upload replacing a text just replaces it, as it always did)."""
+    first: the audit's repairs, and what a log sent again from the start no longer holds (a resync can
+    take tens of thousands of a big log's rows, message_audit.py)."""
     if plan.delete:
         ids = bindparam("ids", type_=ARRAY(BigInteger))
         if archive_reason:
@@ -262,7 +265,7 @@ async def store_slice(
     if full:
         msgs = msgs_of(set())
         plan = plan_alignment(await stored_rows(db, doc_id), msgs, 1, "delete" if complete else "park")
-        await apply_alignment(db, doc_id, plan)
+        await apply_alignment(db, doc_id, plan, archive_reason=UPLOAD_REMOVED)
         return msgs
     top = await db.scalar(
         text("SELECT line_number FROM conversation_messages WHERE document_id = :d ORDER BY line_number DESC LIMIT 1"),
@@ -282,5 +285,5 @@ async def store_slice(
     )
     parked = await stored_rows(db, doc_id, start_line=PARKED)
     plan = plan_alignment(parked, msgs, max(last or 0, 0) + 1, "delete" if complete else "keep")
-    await apply_alignment(db, doc_id, plan)
+    await apply_alignment(db, doc_id, plan, archive_reason=UPLOAD_REMOVED)
     return msgs

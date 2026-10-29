@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     summary_model: str = "claude-sonnet-4-20250514"
 
+    # Checking conversation_messages against each conversation's text (services/message_audit.py):
+    # "observe" records what it finds, "repair" also fixes it, "off" stops it.
+    message_audit_mode: str = "observe"
+
     # Large file threshold (bytes) — files bigger go to S3
     large_file_threshold: int = 1_048_576  # 1 MB
 

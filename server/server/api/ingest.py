@@ -23,6 +23,9 @@ from ..db.session import get_db
 from ..middleware.auth import verify_collector_token
 from ..services.device_service import ensure_device
 from ..services.ingest_service import (
+    OffsetMismatch,
+    claim_slice,
+    lock_slice,
     ensure_project,
     ingest_file,
     _get_ingest_semaphore,
@@ -60,12 +63,46 @@ class IngestFileRequest(BaseModel):
     metadata: dict = {}
     timestamp: float | None = None
     content: str = ""
+    # Where a slice of a log ends in the file (bytes): the server takes it only if it starts where
+    # the last one ended (ingest_service.claim_slice). Collectors before 1.0.95 don't send it.
+    end_offset: int | None = None
 
 
 class IngestResponse(BaseModel):
     status: str = "ok"
     document_id: str
     message: str = ""
+    # Where the server's copy of the log ends now: the collector's next slice starts there
+    next_offset: int | None = None
+
+
+async def _ingest_one(db: AsyncSession, f: IngestFileRequest, machine_id: str, user_id: str) -> tuple[str, int | None]:
+    """Store one file or slice of a log: (document id, where the server's copy of it ends). Raises
+    OffsetMismatch for a slice that doesn't fit what's stored."""
+    if f.end_offset is not None:
+        claimed = await claim_slice(db, f.tool, f.relative_path, machine_id, f.mode, f.offset, f.end_offset)
+        if claimed is not None:
+            return str(claimed[0]), claimed[1]  # stored already: a retry whose first upload went through
+    else:
+        await lock_slice(db, machine_id, f.tool, f.relative_path)  # a collector from before end_offset
+    doc = await ingest_file(
+        db=db,
+        tool_id=f.tool,
+        category=f.category,
+        content_type=f.content_type,
+        relative_path=f.relative_path,
+        content=f.content,
+        content_hash=f.hash,
+        file_size=f.file_size or len(f.content.encode("utf-8")),
+        mode=f.mode,
+        offset=f.offset,
+        metadata=f.metadata,
+        timestamp=f.timestamp,
+        machine_id=machine_id,
+        user_id=user_id,
+        end_offset=f.end_offset,
+    )
+    return str(doc.id), f.end_offset
 
 
 @router.post("/file", response_model=IngestResponse)
@@ -78,26 +115,18 @@ async def ingest_file_endpoint(
     x_device_name: str = Header("unknown"),
     x_device_platform: str = Header("unknown"),
 ) -> IngestResponse:
-    """Ingest a file from the collector (JSON payload, for files < 1MB)."""
+    """Ingest a file from the collector (JSON payload, for files < 1MB). 409 with expected_offset for a
+    slice of a log that doesn't start where the server's copy ends: the collector reads again from there."""
     machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
-
-    doc = await ingest_file(
-        db=db,
-        tool_id=req.tool,
-        category=req.category,
-        content_type=req.content_type,
-        relative_path=req.relative_path,
-        content=req.content,
-        content_hash=req.hash,
-        file_size=req.file_size or len(req.content.encode("utf-8")),
-        mode=req.mode,
-        offset=req.offset,
-        metadata=req.metadata,
-        timestamp=req.timestamp,
-        machine_id=str(machine.id),
-        user_id=str(_collector_user.id),
-    )
-    return IngestResponse(document_id=str(doc.id), message="Ingested successfully")
+    try:
+        doc_id, next_offset = await _ingest_one(db, req, str(machine.id), str(_collector_user.id))
+    except OffsetMismatch as e:
+        await db.commit()  # the device's record; the claim wrote nothing
+        raise HTTPException(status_code=409, detail={"expected_offset": e.expected})
+    # Before the response: get_db's commit runs only after it's sent (FastAPI 0.118+), so a collector
+    # was told 200, moved on, and a failed commit lost the slice for good
+    await db.commit()
+    return IngestResponse(document_id=doc_id, message="Ingested successfully", next_offset=next_offset)
 
 
 class IngestFilesRequest(BaseModel):
@@ -124,29 +153,62 @@ async def ingest_files_endpoint(
     results: list[dict] = []
     for f in req.files:
         try:
-            doc = await ingest_file(
-                db=db,
-                tool_id=f.tool,
-                category=f.category,
-                content_type=f.content_type,
-                relative_path=f.relative_path,
-                content=f.content,
-                content_hash=f.hash,
-                file_size=f.file_size or len(f.content.encode("utf-8")),
-                mode=f.mode,
-                offset=f.offset,
-                metadata=f.metadata,
-                timestamp=f.timestamp,
-                machine_id=machine_id,
-                user_id=user_id,
-            )
+            doc_id, next_offset = await _ingest_one(db, f, machine_id, user_id)
             await db.commit()
-            results.append({"ok": True, "document_id": str(doc.id)})
+            results.append({"ok": True, "document_id": doc_id, "next_offset": next_offset})
+        except OffsetMismatch as e:
+            await db.rollback()
+            results.append({"ok": False, "expected_offset": e.expected})
         except Exception as e:
             await db.rollback()
             logger.warning("Batch ingest of %s failed: %s", f.relative_path, e)
             results.append({"ok": False, "error": str(e)[:200]})
     return {"status": "ok", "results": results}
+
+
+class ReconcileFile(BaseModel):
+    tool: str
+    relative_path: str
+    offset: int
+
+
+class ReconcileRequest(BaseModel):
+    files: list[ReconcileFile] = Field(..., max_length=1000)
+
+
+@router.post("/reconcile")
+async def reconcile_offsets(
+    req: ReconcileRequest,
+    _collector_user: User = Depends(verify_collector_token),
+    _throttle: None = Depends(throttle_ingest),
+    db: AsyncSession = Depends(get_db),
+    x_device_id: str = Header("unknown"),
+    x_device_name: str = Header("unknown"),
+    x_device_platform: str = Header("unknown"),
+) -> dict:
+    """The logs whose copy here doesn't end where the collector's offset says (a slice whose commit
+    failed, an offsets file the collector lost), with where it does end: the collector reads them
+    again from there. A log the server has nothing of isn't listed: its data was deleted on purpose."""
+    from sqlalchemy import select, tuple_
+
+    from ..db.models import SyncState
+
+    machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
+    wanted = {(f.tool, f.relative_path): f.offset for f in req.files}
+    out: list[dict] = []
+    if wanted:
+        rows = await db.execute(
+            select(SyncState.tool_id, SyncState.relative_path, SyncState.last_end_offset).where(
+                SyncState.machine_id == machine.id,
+                SyncState.last_end_offset.isnot(None),
+                tuple_(SyncState.tool_id, SyncState.relative_path).in_(list(wanted)),
+            )
+        )
+        for tool_id, path, end in rows.all():
+            if wanted.get((tool_id, path)) != end:
+                out.append({"tool": tool_id, "relative_path": path, "expected_offset": end})
+    await db.commit()
+    return {"status": "ok", "files": out}
 
 
 @router.post("/discovery")
@@ -205,8 +267,18 @@ async def heartbeat(
     x_device_name: str = Header("unknown"),
     x_device_platform: str = Header("unknown"),
 ) -> dict:
-    """Collector heartbeat — also registers/updates the device."""
+    """Collector heartbeat — also registers/updates the device. The body may carry how collection is
+    going ({"collect": {...}}: backlog, failing files, upload lag), shown on the devices page."""
     machine = await ensure_device(db, x_device_id, x_device_name, x_device_platform, user_id=_collector_user.id)
+    try:
+        raw = await request.body()
+        body = json.loads(raw) if raw else None
+    except ValueError:
+        body = None
+    collect = body.get("collect") if isinstance(body, dict) else None
+    if isinstance(collect, dict) and len(json.dumps(collect)) <= 16_000:
+        machine.collect_status = {**collect, "reported_at": datetime.now(timezone.utc).isoformat()}
+        await db.commit()
 
     resp = {
         "status": "ok",

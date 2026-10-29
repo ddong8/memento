@@ -1012,8 +1012,7 @@ def parse_conversation(raw_content: str, tool_id: str, offset: int = 0, limit: i
         if msg and msg.role in ("user", "assistant"):
             # Deduplicate: same role + content + timestamp (within same second)
             # Prevents event_msg/user_message and response_item/user duplicates
-            ts_bucket = (msg.timestamp or "")[:19]
-            dedupe_key = hashlib.md5(f"{msg.role}:{ts_bucket}:{msg.content}".encode()).hexdigest()
+            dedupe_key = dialogue_key(msg.role, msg.timestamp, msg.content)
             if dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
@@ -1044,8 +1043,7 @@ def count_conversation_messages(raw_content: str, tool_id: str) -> int:
             continue
         msg = parse_conversation_line(line.strip(), tool_id)
         if msg and msg.role in ("user", "assistant"):
-            ts_bucket = (msg.timestamp or "")[:19]
-            dedupe_key = hashlib.md5(f"{msg.role}:{ts_bucket}:{msg.content}".encode()).hexdigest()
+            dedupe_key = dialogue_key(msg.role, msg.timestamp, msg.content)
             if dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
@@ -1053,3 +1051,125 @@ def count_conversation_messages(raw_content: str, tool_id: str) -> int:
         elif msg:
             count += 1
     return count
+
+
+# ---- what conversation_messages stores ----
+
+STORED_ROLES = ("user", "assistant", "tool", "system")
+
+
+def parse_timestamp(raw: str | None) -> datetime | None:
+    """A message's time as conversation_messages stores it. One without a zone is UTC, as the
+    database takes it."""
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def _second(raw: str | None, ts: datetime | None) -> str:
+    if ts is not None:
+        return str(int(ts.replace(microsecond=0).timestamp()))
+    return (raw or "")[:19]
+
+
+def dialogue_key(role: str, timestamp: str | None, content: str, ts: datetime | None = None) -> str:
+    """What two copies of one user or assistant message share: Codex writes each of them twice (an
+    event_msg and a response_item). Same role, same text, same second."""
+    if ts is None:
+        ts = parse_timestamp(timestamp)
+    return hashlib.md5(f"{role}:{_second(timestamp, ts)}:{content}".encode("utf-8", "surrogatepass")).hexdigest()
+
+
+@dataclass
+class StoredMessage:
+    """One row conversation_messages gets for a message, before its line number."""
+    message_type: str
+    role: str
+    content: str
+    metadata: dict
+    timestamp: datetime | None
+    key: str  # what a stored row for this message matches on (row_key)
+
+    @property
+    def loose(self) -> str | None:
+        """Role and second only: what a row an older parser stored for this message still shares
+        with it (message_store.plan_alignment, "interleave")."""
+        if self.timestamp is None:
+            return None
+        return f"{self.role}:{int(self.timestamp.replace(microsecond=0).timestamp())}"
+
+
+def row_key(role: str | None, ts: datetime | None, content: str | None, tool_input: str | None = "") -> str:
+    """Identity of a stored message: role, second, text and, for a tool call, its input. Parallel calls
+    of one tool in the same second (content "[Bash]" each) differ by their input. message_store.ROW_KEY_SQL
+    computes the same in the database."""
+    sec = str(int(ts.replace(microsecond=0).timestamp())) if ts is not None else ""
+    return hashlib.md5(f"{role or ''}:{sec}:{content or ''}\x1f{tool_input or ''}".encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def messages_to_store(raw_content: str, tool_id: str, seen: set[str] | None = None) -> list[StoredMessage]:
+    """The messages of a JSONL conversation conversation_messages keeps, in order.
+
+    A line that is there twice (a slice appended twice when an upload was retried) counts once.
+    User and assistant messages are also deduplicated by dialogue_key, as parse_conversation does;
+    tool calls only as identical lines: deduplicating them by role, second and text ("[Bash]") dropped
+    parallel calls of one tool (10-29: 33 calls missing from three days of one Mac's sessions).
+    `seen` carries dialogue keys over from the messages already stored, for a delta."""
+    seen = seen if seen is not None else set()
+    lines_seen: set[str] = set()
+    out: list[StoredMessage] = []
+    for line in _iter_json_objects(raw_content):
+        line = line.strip()
+        if not line:
+            continue
+        msg = parse_conversation_line(line, tool_id)
+        if not msg or msg.role not in STORED_ROLES:
+            continue
+        line_key = hashlib.md5(line.encode("utf-8", "surrogatepass")).hexdigest()
+        if line_key in lines_seen:
+            continue
+        lines_seen.add(line_key)
+        content = msg.content.replace("\x00", "")
+        ts = parse_timestamp(msg.timestamp)
+        if msg.role in ("user", "assistant"):
+            dk = dialogue_key(msg.role, msg.timestamp, content, ts)
+            if dk in seen:
+                continue
+            seen.add(dk)
+        meta: dict = {}
+        if msg.thinking:
+            meta["thinking"] = msg.thinking.replace("\x00", "")
+        if msg.tool_name:
+            meta["tool_name"] = msg.tool_name.replace("\x00", "")
+        if msg.tool_input:
+            meta["tool_input"] = msg.tool_input.replace("\x00", "")
+        out.append(StoredMessage(
+            message_type=msg.raw_type or msg.role,
+            role=msg.role,
+            content=content,
+            metadata=meta,
+            timestamp=ts,
+            key=row_key(msg.role, ts, content, meta.get("tool_input", "")),
+        ))
+    return out
+
+
+def hermes_messages_to_store(raw_content: str) -> list[StoredMessage]:
+    """messages_to_store for a Hermes session (one JSON document, not JSONL)."""
+    out: list[StoredMessage] = []
+    for m in parse_conversation(raw_content, "hermes"):
+        content = (m.content or "").replace("\x00", "")
+        ts = parse_timestamp(m.timestamp)
+        out.append(StoredMessage(
+            message_type=m.role,
+            role=m.role,
+            content=content,
+            metadata={"tool_name": m.tool_name} if m.tool_name else {},
+            timestamp=ts,
+            key=row_key(m.role, ts, content),
+        ))
+    return out

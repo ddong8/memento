@@ -62,6 +62,14 @@ def _run_migrations(conn) -> None:
         conn.execute(text("ALTER TABLE machines ADD COLUMN profile_status JSONB NOT NULL DEFAULT '{}'"))
     if "skill_status" not in machine_cols:
         conn.execute(text("ALTER TABLE machines ADD COLUMN skill_status JSONB NOT NULL DEFAULT '{}'"))
+    if "collect_status" not in machine_cols:
+        conn.execute(text("ALTER TABLE machines ADD COLUMN collect_status JSONB NOT NULL DEFAULT '{}'"))
+
+    # SyncState.last_end_offset: where the collector's last slice of a file ended
+    if "sync_state" in tables:
+        sync_cols = {c["name"] for c in insp.get_columns("sync_state")}
+        if "last_end_offset" not in sync_cols:
+            conn.execute(text("ALTER TABLE sync_state ADD COLUMN last_end_offset BIGINT"))
 
     # CorrectionTopic.scope — a learned rule can hold in one project or on one device only.
     if "correction_topics" in tables:

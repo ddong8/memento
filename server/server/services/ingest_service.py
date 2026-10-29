@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import uuid
@@ -35,7 +34,7 @@ def _get_ingest_semaphore() -> asyncio.Semaphore:
         _ingest_semaphore = asyncio.Semaphore(24)
     return _ingest_semaphore
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -569,6 +568,74 @@ async def ensure_project(
     return project
 
 
+class OffsetMismatch(Exception):
+    """A slice of a log that doesn't start where the server's copy of the log ends."""
+
+    def __init__(self, expected: int):
+        super().__init__(f"expected offset {expected}")
+        self.expected = expected
+
+
+def slice_lock_key(machine_id, tool_id: str, relative_path: str) -> str:
+    """The advisory lock one file of a device is stored under (claim_slice, lock_slice); the audit
+    takes it too (message_audit.py)."""
+    return f"slice|{machine_id}|{tool_id}|{relative_path}"
+
+
+async def lock_slice(db: AsyncSession, machine_id, tool_id: str, relative_path: str) -> None:
+    """Hold one file of a device until the transaction ends: two replicas storing slices of it at once
+    each read the other's state before it was written."""
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+        {"k": slice_lock_key(machine_id, tool_id, relative_path)},
+    )
+
+
+async def claim_slice(
+    db: AsyncSession,
+    tool_id: str,
+    relative_path: str,
+    machine_id: str,
+    mode: str,
+    offset: int,
+    end_offset: int,
+) -> tuple[uuid.UUID, int] | None:
+    """Whether a slice of a log (bytes offset..end_offset) is the next one: None to store it,
+    (document id, where the stored copy ends) when it's stored already, OffsetMismatch with where the
+    next slice has to start when it doesn't fit.
+
+    Without it a retried slice whose first upload had gone through was appended again, and so was an
+    old slice replayed after a newer one (10-27, 10-28: postgres restarting, five messages twice). The
+    lock holds until the transaction ends: two replicas taking one slice at once both found it new."""
+    await lock_slice(db, machine_id, tool_id, relative_path)
+    if mode != "delta":
+        return None  # the log from its start: replaces what's there
+    mach = uuid.UUID(str(machine_id))
+    doc_id = await db.scalar(
+        select(Document.id)
+        .where(
+            Document.tool_id == tool_id,
+            Document.relative_path == relative_path,
+            or_(Document.machine_id == mach, Document.machine_id.is_(None)),
+        )
+        .limit(1)
+    )
+    if doc_id is None:
+        raise OffsetMismatch(0)  # nothing of the log here (deleted with its device's data): from the start
+    end = await db.scalar(
+        select(SyncState.last_end_offset).where(
+            SyncState.tool_id == tool_id,
+            SyncState.relative_path == relative_path,
+            SyncState.machine_id == mach,
+        )
+    )
+    if end is None or offset == end:
+        return None  # next (or stored by a collector that didn't send where its slices end)
+    if end_offset <= end:
+        return doc_id, end
+    raise OffsetMismatch(end)
+
+
 async def ingest_file(
     db: AsyncSession,
     tool_id: str,
@@ -584,8 +651,10 @@ async def ingest_file(
     timestamp: float | None = None,
     machine_id: str | None = None,
     user_id: str | None = None,
+    end_offset: int | None = None,
 ) -> Document:
-    """Process and store an ingested file."""
+    """Process and store an ingested file. `end_offset`: where a slice of a log ends in the file (see
+    claim_slice); None from a collector that doesn't send it."""
     category = _infer_category(tool_id, category, content_type, relative_path)
     index_unchanged = False  # set when a delta can't change what the full-text index reads
     index_body: str | None = None  # the document's content as the index sees it (None: not fetched)
@@ -618,6 +687,7 @@ async def ingest_file(
         # Touch last_synced_at so dashboards know we still see this file,
         # but skip all the actual ingestion work + the post-ingest task.
         sync_row.last_synced_at = datetime.now(timezone.utc)
+        sync_row.last_end_offset = end_offset
         doc_query = (
             select(Document)
             .options(
@@ -1205,10 +1275,10 @@ async def ingest_file(
         content_type == "jsonl"
         or (content_type == "json" and tool_id == "hermes")
     ):
-        await _extract_messages(db, doc, content, mode)
+        await _extract_messages(db, doc, content, mode, end_offset is not None and end_offset >= file_size)
 
     # Update sync state
-    await _update_sync_state(db, tool_id, relative_path, content_hash, offset, machine_id)
+    await _update_sync_state(db, tool_id, relative_path, content_hash, offset, machine_id, end_offset)
 
     # Trigger AI summary generation (async via Celery)
     if category in ("memory", "identity", "plan", "note", "learning") and len(content) > 50:
@@ -1297,124 +1367,27 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
 
 
 async def _extract_messages(
-    db: AsyncSession, doc: Document, content: str, mode: str,
+    db: AsyncSession, doc: Document, content: str, mode: str, complete: bool = False,
 ) -> None:
-    """Parse conversation content and store normalized messages."""
-    from .conversation_parser import _iter_json_objects, parse_conversation_line
+    """Parse conversation content and store normalized messages. `complete`: the content reaches the
+    end of the log, so a full upload's rows it doesn't hold can go (message_store.store_slice)."""
 
-    # Hermes stores a whole session as a single top-level JSON, not JSONL.
-    # Always full-replace (file is rewritten on each turn).
+    # Messages already stored keep their rows and ids (message_store): the learning scans read by id
+    from . import message_store
+    from .conversation_parser import hermes_messages_to_store, messages_to_store
+
+    # Hermes stores a whole session as a single top-level JSON, not JSONL, rewritten on each turn:
+    # always the whole text (it was deleted and inserted again on every turn, new ids each time)
     if doc.tool_id == "hermes":
-        from sqlalchemy import delete
-        from .conversation_parser import parse_conversation
-        await db.execute(
-            delete(ConversationMessage).where(ConversationMessage.document_id == doc.id)
-        )
-        msgs = parse_conversation(content, "hermes")
-        for i, m in enumerate(msgs, start=1):
-            ts = None
-            if m.timestamp:
-                try:
-                    ts = datetime.fromisoformat(m.timestamp.replace("Z", "+00:00"))
-                except (ValueError, AttributeError):
-                    pass
-            db.add(ConversationMessage(
-                document_id=doc.id,
-                line_number=i,
-                message_type=m.role,
-                role=m.role,
-                content=(m.content or "").replace("\x00", ""),
-                metadata_={"tool_name": m.tool_name} if m.tool_name else {},
-                timestamp=ts,
-            ))
-        if msgs:
-            await db.flush()
+        msgs = hermes_messages_to_store(content)
+        plan = message_store.plan_alignment(await message_store.stored_rows(db, doc.id), msgs)
+        await message_store.apply_alignment(db, doc.id, plan)
         return
 
-    # Get current max line number for delta mode
-    if mode == "delta":
-        result = await db.execute(
-            select(ConversationMessage.line_number)
-            .where(ConversationMessage.document_id == doc.id)
-            .order_by(ConversationMessage.line_number.desc())
-            .limit(1)
-        )
-        row = result.scalar_one_or_none()
-        start_line = (row or 0) + 1
-    else:
-        # Full mode: clear existing messages
-        from sqlalchemy import delete
-        await db.execute(
-            delete(ConversationMessage).where(ConversationMessage.document_id == doc.id)
-        )
-        start_line = 1
-
-    tool_id = doc.tool_id
-    line_num = start_line
-    batch = []
-    seen_contents: set[str] = set()  # Deduplicate identical messages
-    user_messages_for_title: list[str] = []
-    # Walk the content with the tolerant JSON iterator so pretty-printed
-    # multi-line entries from Claude Code (Windows 2.1.x) don't get
-    # shattered into unparseable single-character fragments by split("\n").
-    for line in _iter_json_objects(content):
-        line = line.strip()
-        if not line:
-            continue
-
-        # Use conversation_parser for normalized output. We store user / assistant
-        # plus OpenClaw-style tool / system (compaction summaries) so the
-        # conversation viewer + /api/search can see the full transcript —
-        # downstream "daily activity" queries already filter to user+assistant
-        # on their side, so this doesn't inflate message counts.
-        normalized = parse_conversation_line(line, tool_id)
-        if normalized and normalized.role in ("user", "assistant", "tool", "system"):
-            # Deduplicate: same role + content + timestamp (within same second).
-            # This prevents event_msg/user_message and response_item/user duplicates
-            # while keeping genuinely repeated inputs across different turns.
-            ts_bucket = (normalized.timestamp or "")[:19]  # truncate to second
-            dedupe_key = hashlib.md5(f"{normalized.role}:{ts_bucket}:{normalized.content}".encode()).hexdigest()
-            if dedupe_key in seen_contents:
-                continue
-            seen_contents.add(dedupe_key)
-
-            if normalized.role == "user" and len(user_messages_for_title) < 25:
-                user_messages_for_title.append(normalized.content.replace("\x00", ""))
-
-            ts = None
-            if normalized.timestamp:
-                try:
-                    ts = datetime.fromisoformat(normalized.timestamp.replace("Z", "+00:00"))
-                except (ValueError, AttributeError):
-                    pass
-
-            meta = {}
-            if normalized.thinking:
-                meta["thinking"] = normalized.thinking.replace("\x00", "")
-            if normalized.tool_name:
-                meta["tool_name"] = normalized.tool_name.replace("\x00", "")
-            if normalized.tool_input:
-                meta["tool_input"] = normalized.tool_input.replace("\x00", "")
-            batch.append(ConversationMessage(
-                document_id=doc.id,
-                line_number=line_num,
-                message_type=normalized.raw_type or normalized.role,
-                role=normalized.role,
-                content=normalized.content.replace("\x00", ""),
-                metadata_=meta,
-                timestamp=ts,
-            ))
-            line_num += 1
-
-            # Flush in batches to avoid memory issues with large files
-            if len(batch) >= 100:
-                db.add_all(batch)
-                await db.flush()
-                batch = []
-
-    if batch:
-        db.add_all(batch)
-        await db.flush()
+    msgs = await message_store.store_slice(
+        db, doc.id, lambda seen: messages_to_store(content, doc.tool_id, seen), mode != "delta", complete,
+    )
+    user_messages_for_title = [m.content for m in msgs if m.role == "user"][:25]
 
     # Ensure doc.title is updated if it was previously junk or UUID
     sid = (doc.metadata_ or {}).get("session_id")
@@ -1498,6 +1471,7 @@ async def _update_sync_state(
     content_hash: str,
     offset: int,
     machine_id: str | None,
+    end_offset: int | None = None,
 ) -> None:
     """Update server-side sync state."""
     mach_uuid = None
@@ -1527,10 +1501,13 @@ async def _update_sync_state(
             relative_path=relative_path,
             last_hash=content_hash,
             last_offset=offset,
+            last_end_offset=end_offset,
             last_synced_at=now,
         )
         db.add(state)
     else:
         state.last_hash = content_hash
         state.last_offset = offset
+        # None from an older collector: the next slice can't be checked against it
+        state.last_end_offset = end_offset
         state.last_synced_at = now

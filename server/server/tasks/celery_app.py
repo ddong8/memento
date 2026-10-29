@@ -60,6 +60,7 @@ celery_app = Celery(
         "server.tasks.learning_tasks",
         "server.tasks.task_reaper",
         "server.tasks.content_merge",
+        "server.tasks.message_audit",
     ],
 )
 
@@ -111,6 +112,11 @@ celery_app.conf.beat_schedule = {
     "merge-staged-deltas": {
         "task": "server.tasks.content_merge.merge_staged_deltas",
         "schedule": crontab(minute="*"),
+    },
+    # Every 5 min: check the stored messages of conversations that changed against their text.
+    "message-audit": {
+        "task": "server.tasks.message_audit.audit_messages",
+        "schedule": crontab(minute="3-58/5"),
     },
     # Same cadence (offset by 2 min so the two retry beats don't hammer
     # the DB / LLM provider at the same instant). Picks up docs whose

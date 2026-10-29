@@ -18,13 +18,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import bindparam, delete, func, select, text
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AccessLog, ConversationMessage, Document, DocumentVersion, Machine, Project, SyncState, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user, get_current_user_flexible, get_optional_user
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
+from ..services import device_commands
 from ..services.cluster import PREFIX, cluster
 from ..services.user_filter import normalize_device_name, user_machine_ids
 from ..services.ws_manager import ws_manager
@@ -33,37 +36,25 @@ router = APIRouter(prefix="/api/devices", tags=["devices"])
 logger = logging.getLogger("server.devices")
 
 # Command queue per device_id (collector_token_hash), picked up on the device's
-# next poll. In Redis so a command queued through one api replica reaches a
-# device polling another; this process's memory only without Redis.
-# Format: [{id, action, created_at}, ...]
+# next poll: in Redis (services/device_commands.py); this process's memory only without Redis.
 _command_queue: dict[str, list[dict]] = defaultdict(list)
 _cmd_counter = 0
-_CMD_KEY = f"{PREFIX}devcmd:"
-_CMD_SEQ = f"{PREFIX}devcmd-seq"
-_CMD_TTL = 7 * 86400
 
 
-async def _enqueue_command(device_collector_id: str, action: str) -> int:
+async def _enqueue_command(device_collector_id: str, action: str, payload: dict | None = None) -> int:
     """Add a command to the queue for a device."""
     global _cmd_counter
     r = cluster.redis
     if r is not None:
         try:
-            cmd_id = int(await r.incr(_CMD_SEQ))
-            cmd = {"id": cmd_id, "action": action, "created_at": time.time()}
-            pipe = r.pipeline(transaction=False)
-            pipe.rpush(_CMD_KEY + device_collector_id, json.dumps(cmd))
-            pipe.expire(_CMD_KEY + device_collector_id, _CMD_TTL)
-            await pipe.execute()
-            return cmd_id
+            return await device_commands.push(r, device_collector_id, action, payload)
         except Exception as e:
             logger.warning("queueing %s for %s in Redis failed, keeping it here: %s", action, device_collector_id, e)
     _cmd_counter += 1
-    _command_queue[device_collector_id].append({
-        "id": _cmd_counter,
-        "action": action,
-        "created_at": time.time(),
-    })
+    cmd: dict = {"id": _cmd_counter, "action": action, "created_at": time.time()}
+    if payload:
+        cmd["payload"] = payload
+    _command_queue[device_collector_id].append(cmd)
     return _cmd_counter
 
 
@@ -72,7 +63,7 @@ async def _pending_commands(device_collector_id: str) -> list[dict]:
     r = cluster.redis
     if r is not None:
         try:
-            commands += [json.loads(c) for c in await r.lrange(_CMD_KEY + device_collector_id, 0, -1)]
+            commands += await device_commands.pending(r, device_collector_id)
         except Exception as e:
             logger.warning("reading commands for %s failed: %s", device_collector_id, e)
     return commands
@@ -84,9 +75,7 @@ async def _ack_command(device_collector_id: str, cmd_id: int) -> None:
     r = cluster.redis
     if r is not None:
         try:
-            for raw in await r.lrange(_CMD_KEY + device_collector_id, 0, -1):
-                if json.loads(raw).get("id") == cmd_id:
-                    await r.lrem(_CMD_KEY + device_collector_id, 0, raw)
+            await device_commands.ack(r, device_collector_id, cmd_id)
         except Exception as e:
             logger.warning("acking command %s for %s failed: %s", cmd_id, device_collector_id, e)
 
@@ -133,6 +122,8 @@ async def list_devices(
                 tlist.append(tid)
         await cache_set(stats_cache_key, {"totals": totals_by_name, "tools": tools_by_name}, ttl_seconds=60)
 
+    collect_by_mid = await _collect_metrics(db, machine_ids)
+
     items = []
     seen_names = set()
     now_utc = datetime.now(timezone.utc)
@@ -168,9 +159,60 @@ async def list_devices(
             "is_archived": is_arch,
             "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
             "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
+            # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
+            "collect": m.collect_status or None,
+            # From the server's side: how long its messages took to arrive, what the audit found
+            **collect_by_mid.get(str(m.id), {}),
         })
 
     return items
+
+
+async def _collect_metrics(db: AsyncSession, machine_ids: list[uuid.UUID]) -> dict[str, dict]:
+    """Per device: how long the messages of the last 24 hours took from being written to being stored
+    (p50, p99, max seconds), and what the message audit found in its conversations (message_audit.py).
+    Cached 5 minutes; both read indexes only (~15 ms)."""
+    key = "devices:collect:" + ",".join(sorted(str(i) for i in machine_ids))
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached
+    out: dict[str, dict] = {}
+    lag_rows = await db.execute(
+        text(
+            "SELECT d.machine_id, count(*), "
+            "percentile_cont(0.5) WITHIN GROUP (ORDER BY x.lag), percentile_cont(0.99) WITHIN GROUP (ORDER BY x.lag), max(x.lag) "
+            "FROM (SELECT m.document_id, greatest(extract(epoch from m.created_at - m.\"timestamp\"), 0) AS lag "
+            "      FROM conversation_messages m WHERE m.\"timestamp\" > now() - interval '24 hours') x "
+            "JOIN documents d ON d.id = x.document_id "
+            "WHERE d.machine_id = ANY(:ids) AND d.tool_id NOT IN ('memento', 'system') "
+            "GROUP BY d.machine_id"
+        ).bindparams(bindparam("ids", type_=ARRAY(PG_UUID(as_uuid=True)))),
+        {"ids": machine_ids},
+    )
+    for mid, n, p50, p99, mx in lag_rows.all():
+        out.setdefault(str(mid), {})["lag"] = {
+            "messages": int(n), "p50": round(float(p50), 1), "p99": round(float(p99), 1), "max": round(float(mx)),
+        }
+    audit_rows = await db.execute(
+        text(
+            "SELECT d.machine_id, a.outcome, count(*), coalesce(sum(a.missing), 0), coalesce(sum(a.duplicates), 0) "
+            "FROM message_audit a JOIN documents d ON d.id = a.document_id "
+            "WHERE d.machine_id = ANY(:ids) GROUP BY d.machine_id, a.outcome"
+        ).bindparams(bindparam("ids", type_=ARRAY(PG_UUID(as_uuid=True)))),
+        {"ids": machine_ids},
+    )
+    for mid, outcome, n, missing, dups in audit_rows.all():
+        audit = out.setdefault(str(mid), {}).setdefault(
+            "audit", {"checked": 0, "ok": 0, "needs_repair": 0, "repaired": 0, "missing": 0, "duplicates": 0},
+        )
+        audit["checked"] += int(n)
+        if outcome in ("ok", "needs_repair", "repaired"):
+            audit[outcome] += int(n)
+        if outcome in ("needs_repair", "repaired"):
+            audit["missing"] += int(missing)
+            audit["duplicates"] += int(dups)
+    await cache_set(key, out, ttl_seconds=300)
+    return out
 
 
 async def _verify_device_ownership(

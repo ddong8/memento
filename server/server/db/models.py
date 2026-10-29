@@ -49,6 +49,8 @@ class Machine(Base):
     profile_status: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # What the collector last reported writing into the tools' skills folders.
     skill_status: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    # How collection is going on the device, from its heartbeat: backlog, failing files, upload lag.
+    collect_status: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     # Set when this record was folded into another one for the same computer
     # (its device id changed); the row is kept for audit, never listed again.
     merged_into: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("machines.id"))
@@ -294,6 +296,46 @@ class DocumentVersion(Base):
     )
 
 
+class ConversationMessageRemoved(Base):
+    """Messages the audit removed from a conversation (another copy of one it holds), as they were:
+    for review, and to put back. See services/message_audit.py."""
+
+    __tablename__ = "conversation_messages_removed"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)  # its id when stored
+    document_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    message_type: Mapped[str | None] = mapped_column(String(50))
+    role: Mapped[str | None] = mapped_column(String(50))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+    timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    removed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reason: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    __table_args__ = (Index("idx_conv_msg_removed_doc", "document_id"),)
+
+
+class MessageAudit(Base):
+    """The audit's last look at a conversation: whether its messages matched its text (services/message_audit.py)."""
+
+    __tablename__ = "message_audit"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    outcome: Mapped[str] = mapped_column(String(30), nullable=False)
+    expected: Mapped[int] = mapped_column(Integer, default=0)
+    stored: Mapped[int] = mapped_column(Integer, default=0)
+    missing: Mapped[int] = mapped_column(Integer, default=0)
+    duplicates: Mapped[int] = mapped_column(Integer, default=0)
+    unknown: Mapped[int] = mapped_column(Integer, default=0)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+
+    __table_args__ = (Index("idx_message_audit_outcome", "outcome", "checked_at"),)
+
+
 class DocumentPendingDelta(Base):
     """A delta waiting to be appended to a big conversation, see services/content_staging.py."""
 
@@ -413,6 +455,9 @@ class SyncState(Base):
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     last_hash: Mapped[str | None] = mapped_column(String(64))
     last_offset: Mapped[int] = mapped_column(BigInteger, default=0)
+    # Where the last slice the collector sent ends in the file: the next one has to start there
+    # (ingest_service.claim_slice). NULL when unknown (a collector from before it sent end_offset).
+    last_end_offset: Mapped[int | None] = mapped_column(BigInteger)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (

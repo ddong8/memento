@@ -1,25 +1,25 @@
 {
   "version": "1.0.94",
-  "title": "Memento v1.0.93",
+  "title": "Memento v1.0.94",
   "release_notes": "1. 在 Memento 里跑的 Claude Code 改用 Memento 自己的名字（不再是 sdk-cli），新开的会话能在终端 claude --resume 的列表里找到并接着用；个人中心「Claude Code 运行」里可以关掉\n2. 从 Claude Code 会话里启动的 Memento 跑任务时，不再被当成那个会话的子会话\n3. 执行过程里工具名和命令分开显示，长命令不再撑破卡片\n4. 手机端版本号与客户端统一为 1.0.94",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.93-win-x64.zip",
-      "size": 157938885,
-      "sha256": "3823d26492ce1361aaab86f6f7718157c556105f2cc5ea5d2baaebbfe8ee2f81",
-      "sha512": "153rxqsHDaRP4v9Uqbml7t0MzKLnkWEApDIDNnUyWgDkzBCUFrRlGnTCdd6NlVOY9I8XGrS5qsbvJ3kLfW/Ixg=="
+      "asset_name": "Memento-1.0.94-win-x64.zip",
+      "size": 157940414,
+      "sha256": "e3cb28feccdda666832d13f6b2856bf32afc77a714e89d6ce50ba9ff6f719b57",
+      "sha512": "QX9d6DTHB74rKImE6G4quYCLeko9xp4TKahOHwFAenSYHLuDBI+i+0WZmy4t/HHzKMYatewKO4s9GZPXyJQv7Q=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.93-mac-arm64.zip",
-      "size": 132413922,
-      "sha256": "598b154991de27bcb91497bcb3646fcea7aa3183066984d86f10c71762c91344",
-      "sha512": "oT2R3UR0nSn/BudQcrPH4zFr8mJ7gfOenG9BNDVq5Frk9iNFKL8FB2fI5RfFyektOHrKUjVaov2bBF0rqukh9w=="
+      "asset_name": "Memento-1.0.94-mac-arm64.zip",
+      "size": 132416063,
+      "sha256": "d9bc32d236147c8bbc13edaf98f4ba3fea689a160f5eeb0a32fd94734e406fdd",
+      "sha512": "lrIGzj6FSwy8iHO5tcLNb0iohUrVcP1YJVfKoW7RjwWqVkElykFKdHcKZQnBsOdA2xMh804g6U/wNsODrnDLtw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.93-linux-x64.tar.gz",
-      "size": 131705714,
-      "sha256": "bf3831707e0decbe59cb69a7de73b05404baba78b5bf34e5b76f176134d179d6",
-      "sha512": "0SsJ/4M2AbEbGWDYP+FX8fRU2LhhYloYsgqhL6cx1r5MsTSTL5YO6NBp2yzTPBUBr4ZgS0ZCz3M3pfszS/l6rQ=="
+      "asset_name": "Memento-1.0.94-linux-x64.tar.gz",
+      "size": 131710089,
+      "sha256": "17940ffe56491f9bfb04153d1067df615fbcf2a8898bdeaea2d81eae49e70954",
+      "sha512": "MiH23YTWoGIRev7474Hc3X2di+qDV334GUnllXB6pk+5thNCkqS6XIjkcEF2v15L3fScLQCkzjHP7B7etHj3AQ=="
     }
   }
 }

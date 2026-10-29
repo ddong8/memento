@@ -40,8 +40,10 @@ class Settings(BaseSettings):
     summary_model: str = "claude-sonnet-4-20250514"
 
     # Checking conversation_messages against each conversation's text (services/message_audit.py):
-    # "observe" records what it finds, "repair" also fixes it, "off" stops it.
-    message_audit_mode: str = "observe"
+    # "observe" records what it finds, "repair" also fixes it, "off" stops it. Repairing since 10-30, after
+    # observing the first 200: what it inserts are parallel tool calls an old dedup key dropped, what it
+    # deletes are copies an offline buffer replayed (kept in conversation_messages_removed)
+    message_audit_mode: str = "repair"
 
     # Large file threshold (bytes) — files bigger go to S3
     large_file_threshold: int = 1_048_576  # 1 MB

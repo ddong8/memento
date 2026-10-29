@@ -444,6 +444,65 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("ok", second)  # checked by this version: not again
         self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
 
+    async def test_rows_from_before_the_text_ask_for_the_file_and_are_looked_for_again(self):
+        import uuid
+
+        import fakeredis
+        from sqlalchemy import text
+
+        from server.db.models import Machine
+        from server.services import device_commands, message_audit
+
+        # The stored text is a later part of the log (ingestion before 10-27 kept only the latest delta)
+        content = _user("二", 60)
+        size = len(content.encode())
+        await self._store(content, "full", 0, size, size)
+        doc_id = await self._doc_id()
+        async with self.Session() as db:
+            # Rows the text doesn't hold, from after its start: an older parser's, nothing to ask for
+            for line, word, sec in ((2, "后来一", 61), (3, "后来二", 62)):
+                await db.execute(text(
+                    "INSERT INTO conversation_messages (document_id, line_number, message_type, role, content, metadata, \"timestamp\") "
+                    "VALUES (:d, :l, 'message', 'assistant', :c, '{}', :t)"
+                ), {"d": doc_id, "l": line, "c": word, "t": T0 + timedelta(seconds=sec)})
+            await db.execute(text("UPDATE documents SET synced_at = now() - interval '1 hour'"))
+            machine = await db.get(Machine, uuid.UUID(self.machine_id))
+            machine.collect_status = {"queued": 0, "reported_at": "2026-10-30T00:00:00+00:00"}
+            await db.commit()
+        redis = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+
+        first = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+        self.assertEqual((first.get("ok"), first.get("resync_requested")), (1, None))
+        async with self.Session() as db:
+            detail = await db.scalar(text("SELECT detail FROM message_audit WHERE document_id = :d"), {"d": doc_id})
+        self.assertNotIn("ahead", detail)
+
+        # They are from before it, and were checked by the version before this one looked: checked again, asked
+        async with self.Session() as db:
+            await db.execute(text(
+                "UPDATE conversation_messages SET \"timestamp\" = :t WHERE document_id = :d AND line_number > 1"
+            ), {"t": T0, "d": doc_id})
+            await db.execute(text("UPDATE message_audit SET detail = jsonb_set(detail, '{v}', '2')"))
+            await db.commit()
+        second = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+        self.assertEqual((second.get("ok"), second.get("resync_requested")), (1, 1))
+        self.assertEqual(len(await self._rows()), 3)  # kept: only the file can tell
+        [cmd] = await device_commands.pending(redis, "dev-mac")
+        self.assertEqual(cmd["payload"]["files"], [{"tool": "claude_code", "relative_path": self.REL}])
+        async with self.Session() as db:
+            detail = await db.scalar(text("SELECT detail FROM message_audit WHERE document_id = :d"), {"d": doc_id})
+        self.assertEqual((detail["v"], detail["ahead"]), (message_audit.AUDIT_VERSION, 2))
+
+        # A text with no rows it doesn't hold, checked by that older version: not checked again
+        async with self.Session() as db:
+            await db.execute(text("DELETE FROM conversation_messages WHERE document_id = :d AND line_number > 1"), {"d": doc_id})
+            await db.execute(text(
+                "UPDATE message_audit SET unknown = 0, detail = jsonb_set(detail - 'ahead', '{v}', '2')"
+            ))
+            await db.commit()
+        third = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+        self.assertNotIn("ok", third)
+
     async def test_a_log_too_big_to_check_is_asked_for_once_and_one_without_rows_not_at_all(self):
         import uuid
 

@@ -24,7 +24,10 @@ command, which one before v1.0.95 acknowledges and drops. Those that know it rep
 state in the heartbeat (machines.collect_status): a device that doesn't yet is asked once it updates.
 A text too big to check here (its stored copy keeps only its head and tail) is asked for the same way:
 the upload lines the rows up with the file slice by slice (10-30: two such logs of one Mac lacked 6 tool
-calls the old dedup key dropped, and nothing else could put them back).
+calls the old dedup key dropped, and nothing else could put them back). So is one with rows from before
+its first message ("ahead"): until 10-27 ingestion replaced a text past MAX_CONTENT_CHARS with its latest
+delta, and what the rows of the part it lost lack only the file tells (10-30: 11 logs, 186k rows; two
+of one Mac lacked 7 tool calls there).
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -57,8 +60,9 @@ SKIP_TOOLS = ("memento", "hermes")
 TRUNCATED_MARK = "[TRUNCATED: line exceeded"
 RETRY_ERRORS_AFTER = "1 day"
 # Raised when the check looks for something it didn't: texts checked by an older one are checked again
-# (2: copies outside the text, "unvouched")
-AUDIT_VERSION = 2
+# (2: copies outside the text, "unvouched"; 3: rows from before the text's start, "ahead", which only a
+# text with rows it doesn't hold can have, so only those are checked again for it)
+AUDIT_VERSION = 3
 _AUDIT_LOCK = 0x6D656D61756469  # "memaudi"
 
 MODES = ("off", "observe", "repair")
@@ -75,21 +79,24 @@ def _candidates_sql(repair: bool) -> str:
           AND d.synced_at < now() - interval '{QUIET_MINUTES} minutes'
           AND NOT EXISTS (SELECT 1 FROM document_pending_deltas p WHERE p.document_id = d.id)
           AND (a.document_id IS NULL OR a.content_hash IS DISTINCT FROM d.content_hash{redo}
-               OR coalesce((a.detail->>'v')::int, 1) < {AUDIT_VERSION}
+               OR coalesce((a.detail->>'v')::int, 1) < 2
+               OR (coalesce((a.detail->>'v')::int, 1) < {AUDIT_VERSION} AND a.unknown > 0)
                OR (a.outcome = 'error' AND a.checked_at < now() - interval '{RETRY_ERRORS_AFTER}'))
         ORDER BY a.checked_at NULLS FIRST, d.synced_at DESC
         LIMIT :n
     """
 
 
-# Texts with lines the old collector cut, rows only the file can vouch for or too big to check, on
-# devices that can send them again, not asked yet. A too big one only with rows: a log nothing was ever
-# read from (an OpenClaw trajectory) gives none the second time either.
+# Texts with lines the old collector cut, rows only the file can vouch for (copies outside the text, or
+# from before its start) or too big to check, on devices that can send them again, not asked yet. A too
+# big one only with rows: a log nothing was ever read from (an OpenClaw trajectory) gives none the second
+# time either.
 _RESYNC_DUE_SQL = """
     SELECT a.document_id, d.machine_id, d.tool_id, d.relative_path FROM message_audit a
     JOIN documents d ON d.id = a.document_id
     JOIN machines m ON m.id = d.machine_id
     WHERE (a.detail->>'truncated' IS NOT NULL OR a.detail->>'unvouched' IS NOT NULL
+           OR a.detail->>'ahead' IS NOT NULL
            OR (a.outcome = 'too_big' AND EXISTS (SELECT 1 FROM conversation_messages cm WHERE cm.document_id = a.document_id)))
       AND a.detail->>'resync_requested_at' IS NULL
       AND m.collect_status->>'reported_at' IS NOT NULL
@@ -171,6 +178,18 @@ async def audit_document(db: AsyncSession, doc_id: uuid.UUID, repair: bool) -> d
         detail["parked"] = plan.parked
     if plan.unvouched:
         detail["unvouched"] = plan.unvouched
+    # Rows older than everything the text holds: it is a later part of the log (10-30 on the server:
+    # either none or over 20 of them)
+    first = min((m.timestamp for m in expected if m.timestamp is not None), default=None)
+    if plan.unknown and first is not None:
+        ahead = await db.scalar(
+            text(
+                'SELECT count(*) FROM conversation_messages WHERE document_id = :d AND line_number >= 1 AND "timestamp" < :t'
+            ),
+            {"d": doc_id, "t": first - timedelta(seconds=1)},
+        )
+        if ahead:
+            detail["ahead"] = ahead
     if not plan.changes:
         outcome = "ok"
     elif repair:

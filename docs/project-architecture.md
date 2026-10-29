@@ -92,7 +92,10 @@ memento/
 │   │   │   ├── public.py      # 匿名可访问端点(首页统计等)
 │   │   │   └── install_bootstrap.py  # /install.sh、/install.ps1 静态分发
 │   │   ├── services/      # 业务逻辑层
-│   │   │   ├── ingest_service.py      # 文件入库 + 后处理触发
+│   │   │   ├── ingest_service.py      # 文件入库 + 后处理触发(按段幂等)
+│   │   │   ├── message_store.py       # 对话消息按原文对齐,保留行 id
+│   │   │   ├── message_audit.py       # 每 5 分钟核对对话消息(observe/repair)
+│   │   │   ├── device_commands.py     # 设备命令队列(Redis,多副本共用)
 │   │   │   ├── conversation_parser.py # JSONL 对话解析（6 种格式）
 │   │   │   ├── embedding_service.py   # 向量化(硅基流动或自建 bge-m3)+ 增量后台处理
 │   │   │   ├── graph_service.py       # LLM 知识图谱提取
@@ -175,7 +178,7 @@ memento/
 
 | 表 | 说明 | 关键字段 |
 |----|------|----------|
-| **machines** | 采集器设备 | name, collector_token_hash, user_id, last_heartbeat |
+| **machines** | 采集器设备 | name, collector_token_hash, user_id, last_heartbeat, collect_status |
 | **tools** | AI 工具 | id (claude_code/codex/...), display_name, total_files |
 | **projects** | 项目 | slug (unique), title, tool_id, source_path |
 | **documents** | 所有采集的文件 | tool_id, project_id, machine_id, category, content, content_hash |
@@ -203,7 +206,9 @@ memento/
 
 | 表 | 说明 | 关键字段 |
 |----|------|----------|
-| **sync_state** | 同步状态 | machine_id, tool_id, relative_path, last_hash, last_offset |
+| **sync_state** | 同步状态 | machine_id, tool_id, relative_path, last_hash, last_offset, last_end_offset |
+| **message_audit** | 消息核对结果 | document_id, outcome (ok/needs_repair/repaired/too_big/error), missing, duplicates, unknown |
+| **conversation_messages_removed** | 核对删掉的消息(留档) | id, document_id, content, reason |
 | **daily_summaries** | AI 日报 | summary_date, tool_id, summary, highlights |
 
 ## 数据流
@@ -211,21 +216,25 @@ memento/
 ### 采集流程
 
 ```
-本机 AI 工具文件变更
-    ↓ Watchdog 检测 (0.3s 去抖)
-Tool.classify_file() → FileClassification
+本机 AI 工具写会话文件
+    ↓ fs.watch(2 秒去抖) + 每分钟补扫;新写入的文件进加急队列,先于积压上传
+@memento/daemon watcher.ts
+    ├─ 只发完整行,每段最多 512KB;超过 128KB 的行截短工具输出、图片等长字符串,用户自己写的文字最多保留 100 万字
+    ├─ 每段带 offset 与 end_offset;偏移文件先写临时文件再改名
+    └─ 可重试的失败全局退避 2–60 秒,被拒的文件单独等 30 秒–30 分钟
     ↓
-Parser.parse() → 内容 + 元数据
+POST /api/ingest/file(s) → 服务端
     ↓
-SyncQueue.enqueue() → SQLite 队列
-    ↓ SyncClient (5 并发, 指数退避)
-POST /api/ingest/file → 服务端
+ingest_service.py(按 机器|工具|路径 加 advisory 锁)
+    ├─ 同一段重发只入库一次;对不上回 409 expected_offset,采集端从那里续传
+    ├─ 整份重传按段对齐已有消息,保留行 id(message_store.py)
+    ├─ 响应前提交,再触发向量化、知识图谱、SSE file_synced
     ↓
-ingest_service.py
-    ├─ 入库 Document + ConversationMessage
-    ├─ 触发 embedding 生成 (→ embedding:8002)
-    ├─ 触发知识图谱提取 (→ LLM API)
-    └─ SSE 广播 file_synced 事件
+对账与核对
+    ├─ 采集端启动 2 分钟后和每天调 /api/ingest/reconcile,按服务端记录的结束位置修正本地偏移
+    └─ Celery message-audit 每 5 分钟按原文核对安静 10 分钟以上的对话(message_audit.py):
+       observe 只记录到 message_audit;repair 补缺、删重复(归档到 conversation_messages_removed),
+       旧采集端截断过的文件请设备重传(resync_files,只发给心跳带采集状态的新版设备)
 ```
 
 ### 认证体系

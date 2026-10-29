@@ -3,9 +3,9 @@
 Every request in a resumed session carries the whole conversation so far. Claude Code logs each
 request's usage, so the latest assistant entry's input + cache_creation + cache_read tokens is the
 context the next step will carry. A session also ran in some client last (VS Code, the terminal,
-or memento via `claude -p`, logged as `sdk-cli`): the prompt cache is per client and lasts an hour,
-so continuing it from memento right after another client, or after an hour, first re-writes the
-whole context to the cache.
+or memento, logged as `memento` from desktop 1.0.94 on and as `claude -p`'s `sdk-cli` before): the
+prompt cache is per client and lasts an hour, so continuing it from memento right after another client,
+or after an hour, first re-writes the whole context to the cache.
 
 Measured on a 276 MB session resumed from memento: about 510k tokens per step, with 320k–590k
 re-cached at every switch from VS Code and after every idle hour.
@@ -26,12 +26,14 @@ from datetime import datetime, timezone
 HEAVY_CONTEXT_TOKENS = int(os.environ.get("MEMENTO_SESSION_HEAVY_TOKENS", "150000"))
 # Claude Code writes its prompt cache for an hour.
 CACHE_TTL_MINUTES = 60
-MEMENTO_CLIENT = "sdk-cli"
+# The client names memento's runs carry: its own, or sdk-cli (before desktop 1.0.94, or when the user keeps it)
+MEMENTO_CLIENT = "memento"
+MEMENTO_CLIENTS = frozenset({MEMENTO_CLIENT, "sdk-cli"})
 # The auto-compact window memento runs Claude Code with unless the user picks another; 0 = Claude Code's
 # own default. Replaying the 7 largest memento sessions of 2026-10-23..27, 200k cut their cost by 22%.
 DEFAULT_AUTO_COMPACT_WINDOW = int(os.environ.get("MEMENTO_CLAUDE_AUTO_COMPACT_WINDOW", "200000"))
 AUTO_COMPACT_MIN, AUTO_COMPACT_MAX = 100_000, 1_000_000
-CLIENT_NAMES = {"claude-vscode": "VS Code", "cli": "终端", "sdk-cli": "Memento"}
+CLIENT_NAMES = {"claude-vscode": "VS Code", "cli": "终端", "sdk-cli": "Memento", MEMENTO_CLIENT: "Memento"}
 
 
 def session_activity(content: str) -> dict:
@@ -91,7 +93,7 @@ def resume_cost(meta: dict | None, now: datetime | None = None) -> dict:
         "minutes_since_activity": idle,
         # The next step re-writes the whole context to the cache: another client used it last
         # (its cache isn't memento's), or it sat for longer than the cache lives.
-        "other_client_recent": bool(client and client != MEMENTO_CLIENT and idle is not None and idle < CACHE_TTL_MINUTES),
+        "other_client_recent": bool(client and client not in MEMENTO_CLIENTS and idle is not None and idle < CACHE_TTL_MINUTES),
         "cache_cold": bool(idle is not None and idle >= CACHE_TTL_MINUTES),
     }
 
@@ -110,3 +112,16 @@ def auto_compact_window(llm_settings: dict | None) -> int:
     if chosen is not None:
         return chosen
     return valid_auto_compact_window(DEFAULT_AUTO_COMPACT_WINDOW) or 0
+
+
+def memento_client(llm_settings: dict | None) -> bool:
+    """Whether this user's Claude Code runs go out under memento's own client name (the default) instead of
+    sdk-cli. As sdk-cli their sessions are hidden from `claude --resume` in the terminal, and the 5-hour limit
+    is reported to drain faster (anthropics/claude-code#97074)."""
+    agent = (llm_settings or {}).get("agent")
+    return not (isinstance(agent, dict) and agent.get("claude_memento_client") is False)
+
+
+def claude_entrypoint(llm_settings: dict | None) -> str:
+    """The client name the device's Claude Code runs under, for the task payload."""
+    return MEMENTO_CLIENT if memento_client(llm_settings) else "sdk-cli"

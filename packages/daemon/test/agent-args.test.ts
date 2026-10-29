@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { antigravityArgs, autoCompactWindow, claudeArgs, codexArgs, isSessionNotFound } from "../src/task-runner.js";
+import { CLAUDE_HOST_KEYS, executionEnvironment } from "../src/exec-env.js";
+import { antigravityArgs, autoCompactWindow, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound } from "../src/task-runner.js";
 
 describe("agent launch arguments", () => {
   it("Claude Code asks its questions over stdio, with every other tool still allowed", () => {
@@ -79,5 +80,30 @@ describe("agent launch arguments", () => {
     expect(autoCompactWindow("300000")).toBe(300000);
     expect(autoCompactWindow(1_000_000)).toBe(1_000_000);
     for (const v of [0, 99_999, 1_000_001, 200000.5, "", "200k", null, undefined, NaN]) expect(autoCompactWindow(v)).toBeUndefined();
+  });
+
+  it("Claude Code runs under memento's name unless the user keeps sdk-cli, without the Artifact tools", () => {
+    for (const v of [undefined, null, "", "memento", "cli"]) {
+      expect(claudeClientEnv(v)).toEqual({ CLAUDE_CODE_ENTRYPOINT: "memento", CLAUDE_CODE_DISABLE_ARTIFACT: "1" });
+    }
+    expect(claudeClientEnv("sdk-cli")).toEqual({});
+    // Claude Code rejects names starting with sdk and the ones it uses itself
+    expect(CLAUDE_CLIENT_NAME).toMatch(/^(?!sdk)[a-z][a-z0-9_-]{0,31}$/);
+  });
+});
+
+describe("execution environment", () => {
+  it("drops the variables of a Claude Code session memento was started from", async () => {
+    const saved = Object.fromEntries(CLAUDE_HOST_KEYS.map((k) => [k, process.env[k]]));
+    for (const k of CLAUDE_HOST_KEYS) process.env[k] = "1";
+    try {
+      const env = await executionEnvironment();
+      for (const k of CLAUDE_HOST_KEYS) expect(env[k]).toBeUndefined();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 });

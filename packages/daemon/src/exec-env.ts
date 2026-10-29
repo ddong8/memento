@@ -18,6 +18,21 @@ const SHELL_KEYS = new Set([
   "CLAUDE_CONFIG_DIR",
 ]);
 
+/** What Claude Code sets for the commands it runs (2.1.311), naming its own session. */
+export const CLAUDE_HOST_KEYS = [
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "AI_AGENT",
+];
+
 const isDir = (p: string) => {
   try {
     return statSync(p).isDirectory();
@@ -67,6 +82,9 @@ export async function executionEnvironment(): Promise<NodeJS.ProcessEnv> {
   for (const k of ["ANTIGRAVITY_SOURCE_METADATA", "ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_AGENT", "ANTIGRAVITY_TRAJECTORY_ID"]) {
     delete env[k];
   }
+  // Nor like children of the Claude Code session whose shell started memento (it exports these to its tools):
+  // a run would count as that session's child and take its client name.
+  for (const k of CLAUDE_HOST_KEYS) delete env[k];
   const home = homeDir();
 
   if (process.platform === "darwin" || process.platform === "linux") {

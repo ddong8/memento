@@ -247,14 +247,17 @@ async def update_llm_settings(
 
 class AgentSettingsBody(BaseModel):
     # Claude Code's auto-compact window for memento's runs, in tokens: 100000–1000000, or 0 for Claude Code's own default
-    claude_auto_compact_window: int
+    claude_auto_compact_window: int | None = None
+    # Run Claude Code under memento's own client name (true) or `claude -p`'s sdk-cli (false)
+    claude_memento_client: bool | None = None
 
 
 def _agent_settings(user: User) -> dict:
-    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window
+    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window, memento_client
 
     return {
         "claude_auto_compact_window": auto_compact_window(user.llm_settings),
+        "claude_memento_client": memento_client(user.llm_settings),
         "default_auto_compact_window": DEFAULT_AUTO_COMPACT_WINDOW,
         # Above this a resumed Claude Code session starts from a compacted snapshot unless the user picks raw
         "heavy_context_tokens": HEAVY_CONTEXT_TOKENS,
@@ -263,7 +266,7 @@ def _agent_settings(user: User) -> dict:
 
 @router.get("/agent")
 async def get_agent_settings(user: User = Depends(get_current_user)) -> dict:
-    """How memento runs the user's coding agents (Claude Code's auto-compact window)."""
+    """How memento runs the user's coding agents (Claude Code's auto-compact window and client name)."""
     return _agent_settings(user)
 
 
@@ -275,12 +278,17 @@ async def update_agent_settings(
 ) -> dict:
     from ..services.claude_session import valid_auto_compact_window
 
-    window = valid_auto_compact_window(body.claude_auto_compact_window)
-    if window is None:
-        raise HTTPException(status_code=422, detail="自动压缩窗口要在 100000 到 1000000 token 之间，或填 0 跟随 Claude Code 默认")
+    if body.claude_auto_compact_window is None and body.claude_memento_client is None:
+        raise HTTPException(status_code=422, detail="没有要修改的设置")
     data = dict(user.llm_settings or {})
     agent = dict(data.get("agent") or {}) if isinstance(data.get("agent"), dict) else {}
-    agent["claude_auto_compact_window"] = window
+    if body.claude_auto_compact_window is not None:
+        window = valid_auto_compact_window(body.claude_auto_compact_window)
+        if window is None:
+            raise HTTPException(status_code=422, detail="自动压缩窗口要在 100000 到 1000000 token 之间，或填 0 跟随 Claude Code 默认")
+        agent["claude_auto_compact_window"] = window
+    if body.claude_memento_client is not None:
+        agent["claude_memento_client"] = body.claude_memento_client
     data["agent"] = agent
     user.llm_settings = data
     await db.commit()

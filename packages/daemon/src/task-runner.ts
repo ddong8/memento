@@ -120,6 +120,22 @@ export function claudeArgs(o: { sessionId?: string; sysAppend?: string; model?: 
   ];
 }
 
+/** The client name memento's Claude Code runs go out under, instead of the sdk-cli every `claude -p` gets. */
+export const CLAUDE_CLIENT_NAME = "memento";
+
+/**
+ * Environment for a Claude Code run. Claude Code puts CLAUDE_CODE_ENTRYPOINT on its requests (User-Agent and
+ * billing header) and in the transcript. As sdk-cli, its sessions are hidden from `claude --resume` in the
+ * terminal, and the 5-hour limit is reported to drain 1.6–2.9x faster (anthropics/claude-code#97074). Under
+ * its own name it is an ordinary client, which also brings the Artifact tools (about 7k tokens a request, and
+ * it publishes pages to claude.ai): those are turned off, leaving requests about 450 tokens larger than as
+ * sdk-cli. `entrypoint` is the user's setting from the server: "sdk-cli" keeps Claude Code's own name.
+ */
+export function claudeClientEnv(entrypoint: unknown): NodeJS.ProcessEnv {
+  if (entrypoint === "sdk-cli") return {};
+  return { CLAUDE_CODE_ENTRYPOINT: CLAUDE_CLIENT_NAME, CLAUDE_CODE_DISABLE_ARTIFACT: "1" };
+}
+
 // Context the server puts in front of the user's prompt when continuing a session or a conversation
 const INJECTED_CONTEXT_RES = [
   /^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*/,
@@ -903,6 +919,10 @@ export class TaskRunner {
       if (binary.includes("claude")) {
         const settings: Record<string, unknown> = {};
         if (effort) settings.effortLevel = effort;
+        // Background memory consolidation (auto-dream) never runs as sdk-cli but would under memento's own name;
+        // it stays with the user's own Claude Code sessions, as before, rather than spending quota on memento's runs.
+        settings.autoDreamEnabled = false;
+        Object.assign(env0, claudeClientEnv(payload.claude_entrypoint));
         const compactWindow = autoCompactWindow(payload.auto_compact_window);
         if (compactWindow) settings.autoCompactWindow = compactWindow;
         // Report each tool call to the server, which pushes risky ones to the phone.

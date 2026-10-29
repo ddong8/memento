@@ -62,3 +62,41 @@ def test_memento_continuing_its_own_recent_session_stays_warm():
 
 def test_unknown_context_gives_no_hints():
     assert resume_cost({}, NOW) == {}
+
+
+def test_memento_under_its_own_name_is_still_memento():
+    meta = {"context_tokens": 40_000, "last_client": "memento", "last_client_at": "2026-10-24T03:50:00Z"}
+    cost = resume_cost(meta, NOW)
+    assert cost["last_client"] == "Memento"
+    assert not cost["cache_cold"] and not cost["other_client_recent"]
+
+
+def test_claude_runs_under_mementos_name_unless_the_user_keeps_sdk_cli():
+    from server.services.claude_session import claude_entrypoint, memento_client
+
+    for settings in (None, {}, {"agent": None}, {"agent": {}}, {"agent": {"claude_memento_client": True}}):
+        assert memento_client(settings) and claude_entrypoint(settings) == "memento"
+    off = {"agent": {"claude_memento_client": False}}
+    assert not memento_client(off) and claude_entrypoint(off) == "sdk-cli"
+
+
+def test_agent_settings_save_either_field_alone():
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+    from fastapi import HTTPException
+
+    from server.api.llm import AgentSettingsBody, update_agent_settings
+
+    class Db:
+        async def commit(self):
+            pass
+
+    user = SimpleNamespace(llm_settings={"agent": {"claude_auto_compact_window": 300_000}})
+    out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_memento_client=False), Db(), user))
+    assert out["claude_memento_client"] is False and out["claude_auto_compact_window"] == 300_000
+    out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_auto_compact_window=500_000), Db(), user))
+    assert out["claude_memento_client"] is False and out["claude_auto_compact_window"] == 500_000
+    with pytest.raises(HTTPException):
+        asyncio.run(update_agent_settings(AgentSettingsBody(), Db(), user))

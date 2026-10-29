@@ -2572,7 +2572,7 @@ export interface paths {
         };
         /**
          * Get Agent Settings
-         * @description How memento runs the user's coding agents (Claude Code's auto-compact window).
+         * @description How memento runs the user's coding agents (Claude Code's auto-compact window and client name).
          */
         get: operations["get_agent_settings_api_profile_llm_agent_get"];
         /** Update Agent Settings */
@@ -4095,7 +4095,9 @@ export interface components {
         /** AgentSettingsBody */
         AgentSettingsBody: {
             /** Claude Auto Compact Window */
-            claude_auto_compact_window: number;
+            claude_auto_compact_window?: number | null;
+            /** Claude Memento Client */
+            claude_memento_client?: boolean | null;
         };
         /** ApproveMissionBody */
         ApproveMissionBody: {

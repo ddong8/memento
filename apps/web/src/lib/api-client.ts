@@ -857,7 +857,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   getAgentRunSettings: () => fresh<AgentRunSettings>("/api/profile/llm/agent"),
-  updateAgentRunSettings: (body: { claude_auto_compact_window: number }) =>
+  updateAgentRunSettings: (body: { claude_auto_compact_window?: number; claude_memento_client?: boolean }) =>
     apiFetch<AgentRunSettings>("/api/profile/llm/agent", {
       method: "PUT",
       body: JSON.stringify(body),
@@ -1310,6 +1310,8 @@ export interface AgentRunSettings {
   /** Claude Code's auto-compact window in tokens; 0 = Claude Code's own default */
   claude_auto_compact_window: number;
   default_auto_compact_window: number;
+  /** Claude Code runs under memento's own client name; false = `claude -p`'s sdk-cli */
+  claude_memento_client: boolean;
   /** A resumed Claude Code session above this starts from a compacted snapshot unless raw is picked */
   heavy_context_tokens: number;
 }

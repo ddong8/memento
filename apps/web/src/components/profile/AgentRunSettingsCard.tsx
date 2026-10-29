@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type AgentRunSettings } from "@/lib/api-client";
 import { Glass, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { SmoothToggle } from "@/components/aurora/SmoothToggle";
 
 const WINDOWS: { value: number; label: string; hint: string }[] = [
   { value: 200_000, label: "20 万", hint: "最省额度" },
@@ -17,10 +18,11 @@ const wan = (n: number) => `${Math.round(n / 10_000)} 万`;
 // Kept across tab switches so the card shows at once
 let cached: AgentRunSettings | null = null;
 
-/** Claude Code's auto-compact window for memento's runs, and when a resume starts from a snapshot. */
+/** Claude Code's auto-compact window and client name for memento's runs, and when a resume starts from a snapshot. */
 export function AgentRunSettingsCard() {
   const [settings, setSettings] = useState<AgentRunSettings | null>(() => cached);
   const [saving, setSaving] = useState<number | null>(null);
+  const [savingClient, setSavingClient] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,6 +47,21 @@ export function AgentRunSettingsCard() {
       setError("保存失败，请重试");
     } finally {
       setSaving(null);
+    }
+  };
+
+  const setMementoClient = async (on: boolean) => {
+    if (!settings || savingClient || on === settings.claude_memento_client) return;
+    setSavingClient(true);
+    setError(null);
+    try {
+      const next = await api.updateAgentRunSettings({ claude_memento_client: on });
+      cached = next;
+      setSettings(next);
+    } catch {
+      setError("保存失败，请重试");
+    } finally {
+      setSavingClient(false);
     }
   };
 
@@ -102,6 +119,28 @@ export function AgentRunSettingsCard() {
           </div>
         )}
         <div>设备上的 Memento 要 1.0.85 及以上才会按这里的设置压缩。</div>
+      </div>
+      <div
+        className="flex items-center justify-between gap-4 p-3.5 rounded-xl"
+        style={{ background: "var(--aurora-surface, rgba(255, 255, 255, 0.55))", border: "1px solid var(--aurora-border)" }}
+      >
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-[var(--aurora-fg1)]">
+            以 Memento 身份运行
+            {savingClient && <span className="ml-1.5 text-[11px] font-normal text-[var(--aurora-fg4)]">保存中…</span>}
+          </div>
+          <div className="text-[11px] text-[var(--aurora-fg3)] mt-0.5 leading-relaxed">
+            claude -p 默认自称 sdk-cli：这样开的会话在终端 claude --resume 的列表里看不到，社区实测 5
+            小时额度也掉得更快。打开后自称 memento，在 Memento 里新开的会话能直接在终端接着用。这个名字 Anthropic
+            没写进文档，关掉即恢复 sdk-cli。设备上的 Memento 要 1.0.94 及以上。
+          </div>
+        </div>
+        <SmoothToggle
+          checked={settings?.claude_memento_client ?? true}
+          onChange={setMementoClient}
+          disabled={!settings || savingClient}
+          size="sm"
+        />
       </div>
       {error && <div className="text-xs text-red-500">{error}</div>}
     </Glass>

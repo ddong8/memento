@@ -1,25 +1,25 @@
 {
   "version": "1.0.96",
-  "title": "Memento v1.0.95",
+  "title": "Memento v1.0.96",
   "release_notes": "1. 采集上传先压缩再发，传输量约为原来的六分之一，网络慢的设备上传快好几倍\n2. 传大文件或整份重传时，每传完一段先让正在进行的会话上传，新消息不再被积压的大文件堵住\n3. 手机端版本号与客户端统一为 1.0.96",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.95-win-x64.zip",
-      "size": 157956807,
-      "sha256": "10e01a3a868c1bf2695c916cec531681e48a9b34e122aa598d363393b6eba75b",
-      "sha512": "1d2b5/HHggIf1ObENEokE3GIvdLJtX3wyjWzMfbyQykoHGFfaO+kzy/tTyb0rRypPU8COnHTA7qpLki0h0NPeA=="
+      "asset_name": "Memento-1.0.96-win-x64.zip",
+      "size": 157964308,
+      "sha256": "a0cfdd64f16eed4b8db321f443dcb3e9af603c095cc828b30ef4a6d911a4b0af",
+      "sha512": "p2WlL8xMSrBKl8XEh6hDkiF8dpWKx0Z5W63YbVTZjZVtMk197LGLyqvAvLHF0ozUSCNFEIQ2aklATNpgtjF59A=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.95-mac-arm64.zip",
-      "size": 132431693,
-      "sha256": "9dc99b8775105a0d56f2369a79abe8b00cf5a8d127a36f8d80d76650e8e2930b",
-      "sha512": "Ryao6pgmMxs7AZF/NGvgSHLOfECdeYaLgxbe/NCg8rx5WLU1lGzhx6X5SMZDYeEo6vpwo6uSiarMwuWXBGQU3A=="
+      "asset_name": "Memento-1.0.96-mac-arm64.zip",
+      "size": 132436542,
+      "sha256": "d7b96ed5836ecc4516cf52d6018210a25ddb64debd9f2a2cfd96cec03e92c9bb",
+      "sha512": "OrndKrZl/FAamxSLIrvzcZQk52nBV+/OAR78Eh3SbXPiGKXiUDJyf8BH0xgxlHPT4KP1r1qdZ3XycGRIx92J8g=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.95-linux-x64.tar.gz",
-      "size": 131724756,
-      "sha256": "be76659999c9ec149cee06ee65940b824111e11538873cf837c146faa0f845da",
-      "sha512": "SQIzDoi8EL+zPMzv2wbeIMYhz5bDRsukF12Gt6oIATfVxFstAAC9RfRVXgNl1HVpBFVWCCzm5QqEtclI5YZEig=="
+      "asset_name": "Memento-1.0.96-linux-x64.tar.gz",
+      "size": 131729957,
+      "sha256": "9340168de64deb16554cd0a18364690121537edd954a8a21198585426fe0e534",
+      "sha512": "lk2WpoXUClE2+HuxC8u04B32a/G3tKOzop+Lg4BG+kMBlEveEmn9d/J5gEvwbOPFQVMF7/HKyJRhmkCzXWLS2A=="
     }
   }
 }

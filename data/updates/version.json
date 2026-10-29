@@ -1,7 +1,7 @@
 {
-  "version": "1.0.93",
+  "version": "1.0.94",
   "title": "Memento v1.0.93",
-  "release_notes": "1. 采集端把多份文件合成一次上传，同步对话发出的请求大幅减少，网络差时也更快同步完\n2. 重启 Memento 后不再把没有变化的文件重新上传一遍\n3. 应用使用时长只在有变化时上报，最多 5 分钟一次，电脑睡眠或退出前补发；跨天时先把前一天的记录发完\n4. 手机端版本号与客户端统一为 1.0.93",
+  "release_notes": "1. 在 Memento 里跑的 Claude Code 改用 Memento 自己的名字（不再是 sdk-cli），新开的会话能在终端 claude --resume 的列表里找到并接着用；个人中心「Claude Code 运行」里可以关掉\n2. 从 Claude Code 会话里启动的 Memento 跑任务时，不再被当成那个会话的子会话\n3. 执行过程里工具名和命令分开显示，长命令不再撑破卡片\n4. 手机端版本号与客户端统一为 1.0.94",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.93-win-x64.zip",

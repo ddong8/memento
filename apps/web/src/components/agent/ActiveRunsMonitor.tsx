@@ -6,7 +6,7 @@ import { api, forgetRunStatus, type AskRunSummary } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { sendLocalNotification } from "@/lib/native-notify";
-import { isLiveConnected, onLiveEvent, onLiveStatus } from "@/lib/live-events";
+import { onLiveEvent, onLiveStatus, useLiveConnected } from "@/lib/live-events";
 
 export default function ActiveRunsMonitor() {
   const { token } = useAuth();
@@ -260,7 +260,7 @@ export default function ActiveRunsMonitor() {
   }, [fetchRuns, isWatching]);
 
   // A run starting or ending anywhere (another tab, device or the phone) is pushed: refresh at once
-  const [live, setLive] = useState(isLiveConnected);
+  const live = useLiveConnected();
   useEffect(() => {
     if (!token) return;
     let pending: ReturnType<typeof setTimeout> | null = null;
@@ -299,7 +299,6 @@ export default function ActiveRunsMonitor() {
       });
     });
     const offStatus = onLiveStatus((up) => {
-      setLive(up);
       if (up) refresh(); // catch up on what happened while it was down
     });
     return () => {

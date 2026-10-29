@@ -16,6 +16,7 @@
  * and the server replays only what came after.
  */
 
+import { useSyncExternalStore } from "react";
 import { forgetRunStatus, getApiBase } from "./api-client";
 
 export interface LiveEvent<T = Record<string, unknown>> {
@@ -46,6 +47,18 @@ const SILENCE_TIMEOUT_MS = 75_000;
 export function isLiveConnected(): boolean {
   return connected;
 }
+
+/**
+ * isLiveConnected() as component state. A copy taken on mount and updated from onLiveStatus missed a
+ * connection that came up before its listener did (another component started it): on 2026-10-29 a
+ * desktop's running-tasks monitor polled every 2 s for nine hours with the push connection up.
+ */
+export function useLiveConnected(): boolean {
+  return useSyncExternalStore(subscribeStatus, isLiveConnected, notConnected);
+}
+
+const subscribeStatus = (onChange: () => void) => onLiveStatus(onChange);
+const notConnected = () => false;
 
 /** Calls `handler` for each pushed event of `type`; returns the unsubscribe. */
 export function onLiveEvent(type: string, handler: Handler): () => void {

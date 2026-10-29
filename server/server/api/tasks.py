@@ -362,6 +362,96 @@ async def _authenticate_ws(
     return None
 
 
+# A finished result that fails to save is kept in parts instead: without the step log, else only why.
+# Lost whole, the task stayed "running" until a later question stopped it and its turn said the service
+# had updated (a NUL in a tool's output did that on 2026-10-29).
+_FINISH_ATTEMPTS = ("full", "no_events", "reason_only")
+
+
+async def _save_finished(tid_str: str, data: dict) -> bool:
+    """Record a device's task_finished; True once the task row has it."""
+    try:
+        tid = uuid.UUID(tid_str)
+    except (TypeError, ValueError):
+        return False
+    err: Exception | None = None
+    for attempt in _FINISH_ATTEMPTS:
+        try:
+            async with async_session_factory() as db:
+                t = (await db.execute(select(DeviceTask).where(DeviceTask.id == tid))).scalar_one_or_none()
+                if not t or t.status == "cancelled":
+                    return False
+                t.exit_code = data.get("exit_code")
+                if attempt == "reason_only":
+                    t.status = "failed"
+                    t.error = f"设备已执行完，但结果没能存进数据库（{type(err).__name__}: {str(err)[:300]}）"
+                else:
+                    # Ended on the account's quota: failed, not done or left running
+                    done = mark_usage_limit({**data, "action": t.action})
+                    t.status = done.get("status", "succeeded")
+                    t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
+                    t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
+                    t.error = done.get("error")
+                    t.session_id = str(data.get("session_id") or "")[:128] or None
+                    if attempt == "full" and isinstance(data.get("events"), list):
+                        t.events = data["events"][:400]
+                # still_running too: the agent has exited and nothing more comes for this task
+                # (left open, the reaper turned it into a timeout a day later)
+                t.finished_at = datetime.now(timezone.utc)
+                await db.commit()
+            if err is not None:
+                logger.warning("Saved finished task %s %s after: %s", tid_str, attempt, err)
+            return True
+        except Exception as e:
+            logger.exception("Error saving WS finished task %s (%s): %s", tid_str, attempt, e)
+            err = e
+    return False
+
+
+async def _recover_turn(tid_str: str) -> None:
+    """No run followed the task: its turn goes into the conversation it was asked from."""
+    from ..db.models import AskConversation
+    from ..services.ask_store import infer_conversation_config, recover_orphaned_tasks_for_conv
+    try:
+        async with async_session_factory() as db:
+            t = (await db.execute(select(DeviceTask).where(DeviceTask.id == uuid.UUID(tid_str)))).scalar_one_or_none()
+            if not t:
+                return
+            pl = t.payload or {}
+            pl_conv = str(pl.get("conversation_id") or "").strip()
+            pl_sess = str(pl.get("session_id") or "").strip()
+            conv_obj = None
+            if pl_conv:
+                try:
+                    conv_obj = (await db.execute(select(AskConversation).where(AskConversation.id == uuid.UUID(pl_conv)))).scalars().first()
+                except Exception:
+                    pass
+            if not conv_obj and pl_sess:
+                # 1. Direct index-backed lookup on config->>'session_id'
+                conv_obj = (await db.execute(
+                    select(AskConversation)
+                    .where(
+                        (AskConversation.user_id == t.user_id) | (AskConversation.user_id.is_(None)),
+                        AskConversation.config.op("->>")("session_id") == pl_sess,
+                    )
+                    .order_by(AskConversation.updated_at.desc())
+                    .limit(1)
+                )).scalars().first()
+                if not conv_obj:
+                    cand_convs = (await db.execute(
+                        select(AskConversation)
+                        .where(AskConversation.user_id == t.user_id)
+                        .order_by(AskConversation.updated_at.desc())
+                        .limit(20)
+                    )).scalars().all()
+                    conv_obj = next((c for c in cand_convs if infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
+            if conv_obj:
+                cfg_c, _ = infer_conversation_config(conv_obj)
+                await recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)
+    except Exception as rec_err:
+        logger.warning("Failed to auto-recover conversation turn for task %s: %s", tid_str, rec_err)
+
+
 @router.websocket("/ws/{device_id}")
 async def device_websocket_endpoint(
     websocket: WebSocket,
@@ -473,67 +563,8 @@ async def device_websocket_endpoint(
                 if tid_str:
                     watched = await ws_manager.is_watched(tid_str)
                     ws_manager.push_finished(tid_str, data)
-                    try:
-                        tid_uuid = uuid.UUID(tid_str)
-                        async with async_session_factory() as db:
-                            t = (await db.execute(
-                                select(DeviceTask).where(DeviceTask.id == tid_uuid)
-                            )).scalar_one_or_none()
-                            if t and t.status != "cancelled":
-                                # Ended on the account's quota: failed, not done or left running
-                                done = mark_usage_limit({**data, "action": t.action})
-                                new_status = done.get("status", "succeeded")
-                                t.status = new_status
-                                t.exit_code = data.get("exit_code")
-                                t.stdout = (data.get("stdout") or "")[:MAX_OUTPUT_CHARS] or None
-                                t.stderr = (data.get("stderr") or "")[:MAX_OUTPUT_CHARS] or None
-                                t.error = done.get("error")
-                                t.session_id = str(data.get("session_id") or "")[:128] or None
-                                if isinstance(data.get("events"), list):
-                                    t.events = data["events"][:400]
-                                # still_running too: the agent has exited and nothing more comes for this task
-                                # (left open, the reaper turned it into a timeout a day later)
-                                t.finished_at = datetime.now(timezone.utc)
-                                await db.commit()
-                                if not watched:
-                                    try:
-                                        from ..db.models import AskConversation
-                                        from ..services.ask_store import infer_conversation_config, recover_orphaned_tasks_for_conv
-                                        pl = t.payload or {}
-                                        pl_conv = str(pl.get("conversation_id") or "").strip()
-                                        pl_sess = str(pl.get("session_id") or "").strip()
-                                        conv_obj = None
-                                        if pl_conv:
-                                            try:
-                                                conv_obj = (await db.execute(select(AskConversation).where(AskConversation.id == uuid.UUID(pl_conv)))).scalars().first()
-                                            except Exception:
-                                                pass
-                                        if not conv_obj and pl_sess:
-                                            # 1. Direct index-backed lookup on config->>'session_id'
-                                            conv_obj = (await db.execute(
-                                                select(AskConversation)
-                                                .where(
-                                                    (AskConversation.user_id == t.user_id) | (AskConversation.user_id.is_(None)),
-                                                    AskConversation.config.op("->>")("session_id") == pl_sess,
-                                                )
-                                                .order_by(AskConversation.updated_at.desc())
-                                                .limit(1)
-                                            )).scalars().first()
-                                            if not conv_obj:
-                                                cand_convs = (await db.execute(
-                                                    select(AskConversation)
-                                                    .where(AskConversation.user_id == t.user_id)
-                                                    .order_by(AskConversation.updated_at.desc())
-                                                    .limit(20)
-                                                )).scalars().all()
-                                                conv_obj = next((c for c in cand_convs if infer_conversation_config(c)[0].get("session_id") == pl_sess), None)
-                                        if conv_obj:
-                                            cfg_c, _ = infer_conversation_config(conv_obj)
-                                            await recover_orphaned_tasks_for_conv(db, conv_obj, cfg_c)
-                                    except Exception as rec_err:
-                                        logger.warning("Failed to auto-recover conversation turn for task %s: %s", tid_str, rec_err)
-                    except Exception as e:
-                        logger.exception("Error saving WS finished task %s: %s", tid_str, e)
+                    if await _save_finished(tid_str, data) and not watched:
+                        await _recover_turn(tid_str)
                     notify_service.spawn(task_alerts.handle_task_finished(
                         tid_str, data.get("status"), machine.name, watched,
                     ))

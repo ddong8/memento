@@ -416,11 +416,12 @@ async def append_conversation_turns(
     assistant_created_at: str | None = None,
     duration_ms: int | None = None,
     forget_session: bool = False,
-):
-    """Persist user and assistant turns into the conversation row.
+) -> bool:
+    """Persist user and assistant turns into the conversation row; True once they are committed.
 
     forget_session: the session the conversation resumed is gone from the device and nothing replaced
     it, so the next question starts a new one (a "" session_id in config is otherwise "not said")."""
+    saved = False
     try:
         async with async_session_factory() as session:
             # Locked until the commit below: this writes the whole list back, so two appends at once
@@ -429,7 +430,7 @@ async def append_conversation_turns(
                 select(AskConversation).where(AskConversation.id == conv_id).with_for_update()
             )).scalars().first()
             if not conv:
-                return
+                return False
 
             turns = list(conv.turns or [])
             now_iso = datetime.now(timezone.utc).isoformat()
@@ -519,6 +520,7 @@ async def append_conversation_turns(
                     cfg["device_id"] = effective_dev
                 conv.config = cfg
             await session.commit()
+            saved = True
             await bust_conv_list(conv.user_id)
 
             # Sync non-CLI AskConversation turns (ai, agent, shell, rag, or sessions without a local daemon JSONL file)
@@ -652,6 +654,7 @@ async def append_conversation_turns(
                 spawn(_bg_instant_learn())
     except Exception as e:
         logger.exception("Failed to persist conversation %s turns: %s", conv_id, e)
+    return saved
 
 
 def infer_conversation_config(conv: AskConversation, sample_turns: list[dict] | None = None) -> tuple[dict, dict]:
@@ -1115,10 +1118,11 @@ async def record_stopped_orphans(db: AsyncSession, conv_id: uuid.UUID, tasks: li
         pl = t.payload or {}
         call_id = f"direct_{str(t.id).replace('-', '')[:8]}"
         began = t.dispatched_at or t.created_at
+        # Not "the service updated": a crash, a lost device connection or a failed save end here too
         await append_conversation_turns(
             conv_id=conv_id,
             user_content=str(pl.get("user_question") or "").strip() or "（上一次的提问）",
-            assistant_content="⏹ 这一问在设备上执行时服务更新了，结果没能传回来；下一次提问时先停掉了它，在同一会话里接着做。",
+            assistant_content="⏹ 这一问在设备上执行时没有回答在跟进，结果没能传回来；下一次提问时先停掉了它，在同一会话里接着做。",
             tool_calls=[{
                 "id": call_id,
                 "tool_call_id": call_id,

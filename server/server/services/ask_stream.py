@@ -286,6 +286,30 @@ def _next_session(result: dict | None, session_id: str | None, orig_session_id: 
     return str(session_id or orig_session_id or "") or None
 
 
+async def _append_turns_or_slim(**kw) -> None:
+    """Save the turn; failing that, again without the step log and with the output cut down, so the
+    answer stays in the conversation (lost whole, the question showed no reply after a refresh)."""
+    if await append_conversation_turns(**kw):
+        return
+    logger.warning("Saving the turn of %s failed, retrying it slimmed", kw.get("conv_id"))
+    kw["tool_calls"] = [_slim_call(c) for c in kw.get("tool_calls") or []]
+    await append_conversation_turns(**kw)
+
+
+def _slim_call(call: dict) -> dict:
+    res = call.get("result")
+    if not isinstance(res, dict):
+        return call
+    res = {k: v for k, v in res.items() if k != "events"}
+    for k in ("stdout", "stderr"):
+        if isinstance(res.get(k), str) and len(res[k]) > _SLIM_OUTPUT_CHARS:
+            res[k] = res[k][-_SLIM_OUTPUT_CHARS:]
+    return {**call, "result": res}
+
+
+_SLIM_OUTPUT_CHARS = 20_000
+
+
 async def direct_agent_stream(
     db: AsyncSession,
     user: User,
@@ -451,7 +475,7 @@ async def direct_agent_stream(
 
         persisted_thinking = "".join(accumulated_thinking).strip() or None
 
-        await append_conversation_turns(
+        await _append_turns_or_slim(
             conv_id=conv_id,
             user_content=question,
             assistant_content=summary_text or "任务执行完成",

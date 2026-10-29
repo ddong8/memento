@@ -73,6 +73,9 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=600,  # 10 min max per task
     worker_max_tasks_per_child=100,
+    # A child keeps what its biggest task took (126 MB idle, 243 MB after a merge on 10-30): past this
+    # (KiB) it's replaced once its task ends, so eight of them can't add up to the pod's 2 GB
+    worker_max_memory_per_child=300_000,
     # Reliability defaults so a crashed / SIGKILLed worker doesn't swallow
     # tasks silently. acks_late: ack only after success; reject_on_worker_lost:
     # if worker dies mid-task, Redis requeues it to another worker.

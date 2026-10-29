@@ -411,7 +411,7 @@ async function main() {
 
   await rpcCall("initialize", {
     protocolVersion: 1,
-    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.94" },
+    clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "1.0.95" },
     // NO_CLIENT_FS_TERMINAL: whatever the client claims, WorkBuddy hands its Read/Write/Edit/Bash to it
     // (fs/*, terminal/* requests) instead of running them itself. This runner doesn't serve those, so it
     // claims none and WorkBuddy runs every tool on its own, in the session's cwd.

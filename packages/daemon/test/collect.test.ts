@@ -214,6 +214,33 @@ describe("files that just changed go first", () => {
     await drain(w);
     expect(sent.map((d) => d.relativePath.split("/").pop())).toEqual(["c.jsonl", "a.jsonl", "b.jsonl"]);
   });
+
+  it("a big log from the backlog stops between slices for them, and goes on before the rest", async () => {
+    // 10-30: a 150 MB log sent again from the start held a Windows collector's live sessions for hours
+    let changed = "";
+    let internals: Internals | undefined;
+    const { dir, sent, w } = await setup({
+      reply: (_d, n) => {
+        if (n === 1) internals!.enqueue(changed, "claude_code", true);
+        return { ok: true };
+      },
+    });
+    internals = w;
+    const [big, other] = ["big", "other"].map((n) => join(dir, `${n}.jsonl`));
+    changed = join(dir, "live.jsonl");
+    const text = Array.from({ length: 12 }, (_, i) => line(`${i} ${"x".repeat(100_000)}`)).join(""); // three slices
+    await writeFile(big!, text);
+    await writeFile(other!, line("other"));
+    await writeFile(changed, line("live"));
+    w.enqueue(big!, "claude_code");
+    w.enqueue(other!, "claude_code");
+    await drain(w);
+    expect(sent.map((d) => d.relativePath.split("/").pop())).toEqual(["big.jsonl", "live.jsonl", "big.jsonl", "big.jsonl", "other.jsonl"]);
+    const slices = sent.filter((d) => d.relativePath.endsWith("big.jsonl"));
+    expect(slices.map((d) => d.mode)).toEqual(["full", "delta", "delta"]);
+    expect(slices.slice(1).map((d) => d.offset)).toEqual(slices.slice(0, 2).map((d) => d.endOffset));
+    expect(w.offsets.get(big!)).toBe(bytes(text));
+  });
 });
 
 describe("reconcile", () => {

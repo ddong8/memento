@@ -820,7 +820,9 @@ export class FileWatcher {
         if ((this.retryAt.get(file) ?? 0) > Date.now()) continue; // the rescan brings it back once it may go
         let uploaded = false;
         try {
-          uploaded = isJsonl(file) ? await this.syncFile(file, toolId) : await this.syncWholeFiles(this.takeWholeFiles([file, toolId], lane));
+          uploaded = isJsonl(file)
+            ? await this.syncFile(file, toolId, lane === this.queue)
+            : await this.syncWholeFiles(this.takeWholeFiles([file, toolId], lane));
         } catch (e) {
           this.log(`Error syncing ${file}: ${e instanceof Error ? e.message : e}`);
         }
@@ -861,11 +863,26 @@ export class FileWatcher {
     return fails;
   }
 
-  /** Sync one file now (also used by tests). */
-  async syncFile(file: string, toolId: string): Promise<boolean> {
+  /**
+   * Sync one file now (also used by tests). `fromBacklog`: a scan or resync found it, so it stops
+   * between slices once a file that just changed is waiting, and goes on before the rest of the
+   * backlog (10-30: a Windows collector sending a 150 MB log again held its live sessions for hours).
+   */
+  async syncFile(file: string, toolId: string, fromBacklog = false): Promise<boolean> {
     if (!existsSync(file)) return false;
     if (!isJsonl(file)) return this.syncWholeFiles([[file, toolId]]);
-    return this.syncJsonl(file, toolId, relativePathFor(file, toolId, this.config.extraWatchDirs));
+    return this.syncJsonl(file, toolId, relativePathFor(file, toolId, this.config.extraWatchDirs), fromBacklog);
+  }
+
+  /** A file from the backlog that stopped for the urgent ones: first in the backlog again. */
+  private resumeFirst(file: string, toolId: string): void {
+    if (this.queued.has(file)) {
+      const i = this.queue.findIndex(([f]) => f === file);
+      if (i === -1) return; // it changed meanwhile: among the urgent ones
+      this.queue.splice(i, 1);
+    }
+    this.queued.add(file);
+    this.queue.unshift([file, toolId]);
   }
 
   /** `first` and up to a batch more of the queued files (in its lane) that go up whole. */
@@ -884,7 +901,7 @@ export class FileWatcher {
     return group;
   }
 
-  private async syncJsonl(file: string, toolId: string, relPath: string): Promise<boolean> {
+  private async syncJsonl(file: string, toolId: string, relPath: string, fromBacklog = false): Promise<boolean> {
     // Where the server's copy ends: each slice starts here
     let offset = this.offsets.get(file) ?? 0;
     const size0 = (await stat(file)).size;
@@ -980,8 +997,12 @@ export class FileWatcher {
           await this.saveOffsets(true);
           break;
         }
-        if (pos < size) await sleep(50);
-        else break;
+        if (pos >= size) break;
+        if (fromBacklog && this.urgent.length) {
+          this.resumeFirst(file, toolId);
+          break;
+        }
+        await sleep(50);
       }
       await this.saveOffsets(true);
     } finally {

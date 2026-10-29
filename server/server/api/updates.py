@@ -240,7 +240,10 @@ async def check_update(
     latest_ver = ""
 
     if gh_ver and local_ver:
-        if _compare_semver(gh_ver, local_ver):
+        # On the same version GitHub's assets are the ones actually published: the release commit bumps
+        # version.json before the workflow fills in its platforms (that commit skips CI), so until the
+        # next server deploy the image's platforms still name the previous release's files and hashes.
+        if _compare_semver(gh_ver, local_ver) or (gh_ver == local_ver and gh_asset):
             latest_ver = gh_ver
             use_github = True
         else:
@@ -292,7 +295,7 @@ async def check_update(
                 sha256_val = raw_digest.split("sha256:", 1)[1].strip()
         if not sha256_val and local_ver == latest_ver:
             plat_meta = local_meta.get("platforms", {}).get(platform.lower(), {})
-            if plat_meta and isinstance(plat_meta, dict):
+            if plat_meta and isinstance(plat_meta, dict) and plat_meta.get("asset_name") == asset_name:
                 sha256_val = plat_meta.get("sha256")
     else:
         title = local_meta.get("title", title)

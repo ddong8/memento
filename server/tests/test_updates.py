@@ -1,6 +1,7 @@
 """Tests for server.api.updates without pytest dependency."""
 
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,6 +191,35 @@ class TestUpdatesApi(unittest.TestCase):
                     else:
                         self.assertEqual(res.status_code, 302)
                         self.assertIn("/v1.0.84/latest-mac.yml", res.headers["location"])
+
+        asyncio.run(run())
+
+    def test_check_on_release_version_uses_published_assets(self):
+        """The release commit bumps version.json while its platforms still name the previous release's
+        files (the workflow fills them in with [skip ci]); /check must not hand those out as the new one."""
+        async def run():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                updates_dir = Path(tmpdir)
+                updates_mod._UPDATES_DIR = updates_dir
+                (updates_dir / "version.json").write_text(json.dumps({
+                    "version": "1.0.94", "title": "Memento v1.0.93", "release_notes": "本地说明",
+                    "platforms": {"macos": {"asset_name": "Memento-1.0.93-mac-arm64.zip", "size": 1, "sha256": "old"},
+                                  "linux": {"asset_name": "Memento-1.0.93-linux-x64.tar.gz", "size": 1, "sha256": "old"}},
+                }), encoding="utf-8")
+                gh = {"tag_name": "v1.0.94", "name": "Memento v1.0.94", "body": "发布说明",
+                      "assets": [{"name": "Memento-1.0.94-mac-arm64.zip", "size": 42, "digest": "sha256:new"}]}
+                app = FastAPI()
+                app.include_router(router)
+                with patch.object(updates_mod, "_fetch_latest_github_release", new_callable=AsyncMock) as mock_fetch:
+                    mock_fetch.return_value = gh
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        mac = (await client.get("/api/system/update/check?platform=macos&version=1.0.93")).json()
+                        linux = (await client.get("/api/system/update/check?platform=linux&version=1.0.93")).json()
+                self.assertEqual((mac["latest_version"], mac["title"], mac["asset_name"], mac["asset_size"], mac["sha256"]),
+                                 ("1.0.94", "Memento v1.0.94", "Memento-1.0.94-mac-arm64.zip", 42, "new"))
+                self.assertIn("Memento-1.0.94-mac-arm64.zip", mac["download_url"])
+                # No published asset for the platform: the local metadata is all there is
+                self.assertEqual(linux["asset_name"], "Memento-1.0.93-linux-x64.tar.gz")
 
         asyncio.run(run())
 

@@ -8,6 +8,7 @@ Supported formats:
 
 from __future__ import annotations
 
+import ast
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -464,8 +465,9 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                     msg_dict = json.loads(raw_msg)
                 except json.JSONDecodeError:
                     try:
-                        msg_dict = eval(raw_msg)  # noqa: S307 — OpenClaw uses repr format
-                    except Exception:
+                        # A repr, read as one: never run as code (a log line is what a device uploaded)
+                        msg_dict = ast.literal_eval(raw_msg)
+                    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
                         pass
             elif isinstance(raw_msg, dict):
                 msg_dict = raw_msg

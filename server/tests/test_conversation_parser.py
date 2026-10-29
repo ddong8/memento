@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -340,6 +341,19 @@ class ConversationParserTests(unittest.TestCase):
         self.assertEqual(msg.exit_code, 1)
         self.assertEqual(msg.error, "Command failed with exit code 2")
 
+
+    def test_openclaw_message_written_as_a_repr_is_read_not_run(self) -> None:
+        line = {"type": "message", "timestamp": "2026-09-07T10:00:00Z"}
+        repr_msg = repr({"role": "toolResult", "content": [{"type": "text", "text": "第一行 ok"}], "isError": False, "details": None})
+        msg = parse_conversation_line(json.dumps({**line, "message": repr_msg}), "openclaw")
+        assert msg is not None
+        self.assertEqual((msg.role, msg.content), ("tool", "第一行 ok"))
+
+        ran = []
+        with unittest.mock.patch("builtins.__import__", side_effect=lambda *a, **k: ran.append(a[0])):
+            code = "__import__('os').system('touch /tmp/x') or {'role': 'user', 'content': 'hi'}"
+            self.assertIsNone(parse_conversation_line(json.dumps({**line, "message": code}), "openclaw"))
+        self.assertEqual(ran, [])
 
 if __name__ == "__main__":
     unittest.main()

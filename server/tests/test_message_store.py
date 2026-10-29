@@ -444,6 +444,53 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("ok", second)  # checked by this version: not again
         self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
 
+    async def test_a_log_too_big_to_check_is_asked_for_once_and_one_without_rows_not_at_all(self):
+        import uuid
+
+        import fakeredis
+        from sqlalchemy import text
+
+        from server.db.models import Machine
+        from server.services import device_commands, message_audit
+
+        content = _user("一", 1)
+        size = len(content.encode())
+        await self._store(content, "full", 0, size, size)
+        async with self.Session() as db:
+            await db.execute(text("UPDATE documents SET synced_at = now() - interval '1 hour'"))
+            machine = await db.get(Machine, uuid.UUID(self.machine_id))
+            machine.collect_status = {"queued": 0, "reported_at": "2026-10-30T00:00:00+00:00"}
+            await db.commit()
+        redis = fakeredis.FakeAsyncRedis(server=fakeredis.FakeServer(), decode_responses=True)
+
+        with patch.object(message_audit, "TOO_BIG_CHARS", 10):
+            # observing: nobody asked
+            first = await message_audit.audit_due(self.Session, self.engine, "observe", redis=redis)
+            self.assertEqual(first.get("too_big"), 1)
+            self.assertEqual(await device_commands.pending(redis, "dev-mac"), [])
+
+            second = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+            self.assertEqual(second.get("resync_requested"), 1)
+            [cmd] = await device_commands.pending(redis, "dev-mac")
+            self.assertEqual(cmd["payload"]["files"], [{"tool": "claude_code", "relative_path": self.REL}])
+
+            # it grows, still too big: checked again, not asked again
+            async with self.Session() as db:
+                await db.execute(text("UPDATE documents SET content_hash = 'grown', synced_at = now() - interval '1 hour'"))
+                await db.commit()
+            third = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+            self.assertEqual((third.get("too_big"), third.get("resync_requested")), (1, None))
+            self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
+
+            # one nothing was ever read from (an OpenClaw trajectory): the file gives nothing either
+            async with self.Session() as db:
+                await db.execute(text("DELETE FROM conversation_messages"))
+                await db.execute(text("UPDATE message_audit SET detail = detail - 'resync_requested_at'"))
+                await db.commit()
+            fourth = await message_audit.audit_due(self.Session, self.engine, "repair", redis=redis)
+            self.assertNotIn("resync_requested", fourth)
+            self.assertEqual(len(await device_commands.pending(redis, "dev-mac")), 1)
+
     async def test_reconcile_lists_logs_whose_copy_ends_elsewhere(self):
         import types
         import uuid

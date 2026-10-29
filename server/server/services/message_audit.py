@@ -22,6 +22,9 @@ or the log's own repeats, only the file tells), asks its device, once, to send t
 (command "resync_files"; store_slice then lines the rows up with it); only a device whose collector knows the
 command, which one before v1.0.95 acknowledges and drops. Those that know it report their upload
 state in the heartbeat (machines.collect_status): a device that doesn't yet is asked once it updates.
+A text too big to check here (its stored copy keeps only its head and tail) is asked for the same way:
+the upload lines the rows up with the file slice by slice (10-30: two such logs of one Mac lacked 6 tool
+calls the old dedup key dropped, and nothing else could put them back).
 """
 
 from __future__ import annotations
@@ -79,13 +82,15 @@ def _candidates_sql(repair: bool) -> str:
     """
 
 
-# Texts with lines the old collector cut or rows only the file can vouch for, on devices that can send
-# them again, not asked yet
+# Texts with lines the old collector cut, rows only the file can vouch for or too big to check, on
+# devices that can send them again, not asked yet. A too big one only with rows: a log nothing was ever
+# read from (an OpenClaw trajectory) gives none the second time either.
 _RESYNC_DUE_SQL = """
     SELECT a.document_id, d.machine_id, d.tool_id, d.relative_path FROM message_audit a
     JOIN documents d ON d.id = a.document_id
     JOIN machines m ON m.id = d.machine_id
-    WHERE (a.detail->>'truncated' IS NOT NULL OR a.detail->>'unvouched' IS NOT NULL)
+    WHERE (a.detail->>'truncated' IS NOT NULL OR a.detail->>'unvouched' IS NOT NULL
+           OR (a.outcome = 'too_big' AND EXISTS (SELECT 1 FROM conversation_messages cm WHERE cm.document_id = a.document_id)))
       AND a.detail->>'resync_requested_at' IS NULL
       AND m.collect_status->>'reported_at' IS NOT NULL
     ORDER BY a.checked_at

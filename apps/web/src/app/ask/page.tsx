@@ -2226,6 +2226,7 @@ function AskPageContent() {
       if (convId && convId === activeConversationIdRef.current && streamingRef.current) {
         void checkServerRun(false);
       }
+      void loadConversations();
     });
 
     // Recheck immediately when window regains visibility from background or wakes. Coming back fires
@@ -2237,6 +2238,7 @@ function AskPageContent() {
       if (waking || now - lastWakeAtRef.current < WAKE_COALESCE_MS) return;
       lastWakeAtRef.current = now;
       waking = true;
+      void loadConversations();
       void checkServerRun(true).then((learned) => {
         waking = false;
         if (learned === false) lastWakeAtRef.current = 0;
@@ -2585,6 +2587,8 @@ function AskPageContent() {
       toolName?: string | null;
       stepCount?: number;
       startedAtEpoch?: number;
+      executionMode?: string | null;
+      engine?: string | null;
     },
   ) => {
     try {
@@ -2592,18 +2596,25 @@ function AskPageContent() {
       if (!w?.ReactNativeWebView?.postMessage) return;
       const cid = patch.conversationId || activeConversationIdRef.current;
       if (!cid) return;
+
+      const resolveEngineStr = (m?: string | null) => {
+        const raw = String(m || "").toLowerCase().trim();
+        if (raw.includes("antigravity") || raw.includes("agy") || raw.includes("gemini")) return "AGY";
+        if (raw.includes("claude")) return "Claude";
+        if (raw.includes("codex") || raw.includes("openai") || raw.includes("gpt")) return "Codex";
+        if (raw.includes("workbuddy") || raw.includes("codebuddy")) return "WB";
+        if (raw === "shell" || raw === "bash" || raw === "sh") return "Shell";
+        return "AI";
+      };
+
+      const targetConv = conversations.find((c) => c.id === cid);
+      const convMode = targetConv?.config?.executionMode || targetConv?.config?.execution_mode;
       const eng =
-        executionMode === "claude"
-          ? "Claude"
-          : executionMode === "antigravity"
-          ? "AGY"
-          : executionMode === "codex"
-          ? "Codex"
-          : executionMode === "workbuddy"
-          ? "WB"
-          : executionMode === "shell"
-          ? "Shell"
-          : "AI";
+        patch.engine ||
+        (patch.executionMode ? resolveEngineStr(patch.executionMode) : null) ||
+        (convMode ? resolveEngineStr(convMode) : null) ||
+        resolveEngineStr(executionMode);
+
       const qTitle = (lastSentQuestionRef.current || "后台任务").replace(/\s+/g, " ").trim().slice(0, 45);
       w.ReactNativeWebView.postMessage(
         JSON.stringify({
@@ -2621,7 +2632,7 @@ function AskPageContent() {
         }),
       );
     } catch {}
-  }, [executionMode, selectedDevice]);
+  }, [executionMode, selectedDevice, conversations]);
 
   // Read one SSE response of a run, applying its events. Returns true once the run is done.
   const consumeRun = useCallback(async (res: Response, cursor: RunCursor, ctrl: AbortController): Promise<boolean> => {
@@ -2637,6 +2648,7 @@ function AskPageContent() {
     let laStepCount = 1;
     let laLastStatus = "";
     let laStartedSent = false;
+    let runExecutionMode: string | undefined = cursor.executionMode;
     const laStartEpoch = Math.floor(Date.now() / 1000);
 
     const postLiveActivity = (
@@ -2646,10 +2658,13 @@ function AskPageContent() {
         status: string;
         currentStep: string;
         toolName?: string | null;
+        executionMode?: string | null;
+        engine?: string | null;
       },
     ) => {
       postNativeLiveActivity(action, {
         ...patch,
+        executionMode: patch.executionMode || runExecutionMode || cursor.executionMode,
         conversationId: patch.conversationId || cursor.convId || activeConversationIdRef.current,
         stepCount: laStepCount,
         startedAtEpoch: laStartEpoch,
@@ -2669,6 +2684,7 @@ function AskPageContent() {
         type: string;
         id?: string;
         conversation_id?: string;
+        execution_mode?: string;
         tool_call_id?: string;
         text?: string;
         sources?: Source[];
@@ -2697,16 +2713,25 @@ function AskPageContent() {
 
       if (evt.type === "run_started" && evt.conversation_id) {
         cursor.convId = evt.conversation_id;
+        if (evt.execution_mode) {
+          runExecutionMode = evt.execution_mode;
+          cursor.executionMode = evt.execution_mode;
+        }
         if (!laStartedSent) {
           laStartedSent = true;
           postLiveActivity("start", {
             conversationId: evt.conversation_id,
             status: "running",
             currentStep: "正在启动任务...",
+            executionMode: evt.execution_mode,
           });
         }
       } else if (evt.type === "conversation_id" && evt.id) {
         cursor.convId = evt.id;
+        if (evt.execution_mode) {
+          runExecutionMode = evt.execution_mode;
+          cursor.executionMode = evt.execution_mode;
+        }
         // A new chat learning its id. Replayed when a run is reattached: the conversation is open
         // already, and switching to it again re-ran the restore and attached the run twice.
         if (activeConversationIdRef.current !== evt.id) {
@@ -6371,6 +6396,7 @@ function AskPageContent() {
         onOpenBatchShare={shareFromHistory}
         onPrefetchTurns={prefetchConversationTurns}
         onFilterDeviceChange={setHistoryFilterDevice}
+        onRefreshConversations={loadConversations}
         isZh={isZh}
         t={t}
         runningConversationIds={runningConversationIds}

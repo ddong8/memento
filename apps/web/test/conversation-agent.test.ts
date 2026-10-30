@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveConversationAgent } from "../src/components/ask/HistoryDrawer";
+import { resolveConversationAgent, safeParseConversationTime } from "../src/components/ask/HistoryDrawer";
 import type { AskConversationSummary } from "../src/lib/api-client";
 
 describe("resolveConversationAgent", () => {
@@ -82,5 +82,24 @@ describe("resolveConversationAgent", () => {
       message_count: 1,
     };
     expect(resolveConversationAgent(cDefault).id).toBe("claude_code");
+  });
+});
+
+describe("safeParseConversationTime", () => {
+  it("handles null and undefined gracefully", () => {
+    expect(safeParseConversationTime(null)).toBe(0);
+    expect(safeParseConversationTime(undefined)).toBe(0);
+    expect(safeParseConversationTime("")).toBe(0);
+  });
+
+  it("handles space-separated datetime without throwing NaN in WebKit", () => {
+    const t = safeParseConversationTime("2026-10-30 07:50:00");
+    expect(t).toBeGreaterThan(0);
+    expect(Number.isNaN(t)).toBe(false);
+  });
+
+  it("handles standard ISO strings with timezone offsets", () => {
+    const t = safeParseConversationTime("2026-10-30T07:50:00+08:00");
+    expect(t).toBeGreaterThan(0);
   });
 });

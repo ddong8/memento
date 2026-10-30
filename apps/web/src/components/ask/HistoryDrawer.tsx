@@ -81,6 +81,19 @@ export function resolveConversationAgent(c: AskConversationSummary): Conversatio
   return { id: "claude_code", name: "Claude Code", brandId: "claude_code" };
 }
 
+/** 跨平台安全解析时间戳，防御 iOS Safari / WebKit 空格时间与非规范 ISO 格式 */
+export function safeParseConversationTime(val?: string | null): number {
+  if (!val) return 0;
+  let str = String(val).trim();
+  if (!str) return 0;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(str)) {
+    str = str.replace(" ", "T");
+  }
+  const d = new Date(str);
+  const t = d.getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 interface HistoryDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -97,6 +110,7 @@ interface HistoryDrawerProps {
   onOpenBatchShare: (selectedIds: string[]) => void;
   onPrefetchTurns?: (id: string) => void;
   onFilterDeviceChange?: (filterCurrent: boolean) => void;
+  onRefreshConversations?: () => void;
   isZh: boolean;
   t: any;
   runningConversationIds?: Set<string>;
@@ -168,9 +182,12 @@ const ConversationItem = memo(function ConversationItem({
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const dateStr = useMemo(() => {
-    if (!c.updated_at) return "";
+    const rawTime = c.updated_at || c.created_at;
+    if (!rawTime) return "";
+    const ms = safeParseConversationTime(rawTime);
+    if (!ms) return "";
     try {
-      return new Date(c.updated_at).toLocaleString(undefined, {
+      return new Date(ms).toLocaleString(undefined, {
         month: "numeric",
         day: "numeric",
         hour: "2-digit",
@@ -179,7 +196,7 @@ const ConversationItem = memo(function ConversationItem({
     } catch {
       return "";
     }
-  }, [c.updated_at]);
+  }, [c.updated_at, c.created_at]);
 
   const handleSaveRename = () => {
     if (editTitle.trim()) {
@@ -223,8 +240,6 @@ const ConversationItem = memo(function ConversationItem({
         alignItems: "center",
         justifyContent: "space-between",
         gap: 10,
-        contentVisibility: "auto",
-        containIntrinsicSize: "0 54px",
       }}
       onMouseEnter={(e) => {
         onPrefetch?.(c.id);
@@ -632,6 +647,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   onOpenBatchShare,
   onPrefetchTurns,
   onFilterDeviceChange,
+  onRefreshConversations,
   isZh,
   t,
   runningConversationIds,
@@ -640,6 +656,20 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   const [filterDevice, setFilterDevice] = useState(false);
   const [batchSelectMode, setBatchSelectMode] = useState(false);
   const [selectedConvIds, setSelectedConvIds] = useState<Set<string>>(new Set());
+
+  // 抽屉打开时，立即主动刷新会话列表，杜绝跨端或后台新会话未及时同步
+  useEffect(() => {
+    if (!open) return;
+    onRefreshConversations?.();
+  }, [open, onRefreshConversations]);
+
+  const refreshTimerRef = useRef<any>(null);
+  const triggerDebouncedRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      onRefreshConversations?.();
+    }, 400);
+  }, [onRefreshConversations]);
 
   // 实时跟踪处于运行中的会话 ID 集合
   const [liveRunningIds, setLiveRunningIds] = useState<Set<string>>(() => new Set(runningConversationIds || []));
@@ -700,6 +730,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
         else next.add(convId);
         return next;
       });
+      // 任务启动或完成时，自动触发会话列表刷新，跨端任务零延迟展示
+      triggerDebouncedRefresh();
     });
     // Not while another menu is open (the ask page goes on, hidden)
     const shown = () => window.location.pathname.startsWith("/ask");
@@ -715,6 +747,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const convId = e?.detail?.conversation_id;
       if (convId) {
         setLiveRunningIds((prev) => new Set([...prev, convId]));
+        triggerDebouncedRefresh();
       }
     };
     const handleDone = (e: any) => {
@@ -725,6 +758,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
           next.delete(convId);
           return next;
         });
+        triggerDebouncedRefresh();
       }
     };
     const handleUpdate = (e: any) => {
@@ -798,8 +832,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const aRunning = liveRunningIds.has(a.id) ? 1 : 0;
       const bRunning = liveRunningIds.has(b.id) ? 1 : 0;
       if (aRunning !== bRunning) return bRunning - aRunning;
-      const aTime = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-      const bTime = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      const aTime = safeParseConversationTime(a.updated_at) || safeParseConversationTime(a.created_at);
+      const bTime = safeParseConversationTime(b.updated_at) || safeParseConversationTime(b.created_at);
       return bTime - aTime;
     });
   }, [conversations, searchQuery, liveRunningIds, filterDevice, selectedDevice, devices]);
@@ -840,7 +874,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
         pinnedItems.push(c);
         continue;
       }
-      const t = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+      const t = safeParseConversationTime(c.updated_at) || safeParseConversationTime(c.created_at);
       if (t >= todayStart) {
         todayItems.push(c);
       } else if (t >= yesterdayStart) {
@@ -1196,8 +1230,6 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                   flexDirection: "column",
                   gap: 3,
                   marginBottom: 8,
-                  contentVisibility: "auto",
-                  containIntrinsicSize: "0 180px",
                 }}
               >
                 <div

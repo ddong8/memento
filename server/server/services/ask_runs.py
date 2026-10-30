@@ -193,14 +193,21 @@ class AskRun:
         m = (self.execution_mode or "").lower()
         if "claude" in m:
             return "Claude"
-        if "antigravity" in m or "agy" in m:
+        if "antigravity" in m or "agy" in m or "gemini" in m:
             return "AGY"
-        if "codex" in m:
+        if "codex" in m or "openai" in m or "gpt" in m:
             return "Codex"
-        if "workbuddy" in m:
+        if "workbuddy" in m or "codebuddy" in m:
             return "WorkBuddy"
-        if "shell" in m:
+        if "shell" in m or "bash" in m or "sh" in m:
             return "Shell"
+        mod = (self.model or "").lower()
+        if "gemini" in mod or "antigravity" in mod:
+            return "AGY"
+        if "claude" in mod:
+            return "Claude"
+        if "gpt" in mod or "o1" in mod or "o3" in mod or "o4" in mod or "codex" in mod:
+            return "Codex"
         return "AI"
 
     def summary(self) -> dict:

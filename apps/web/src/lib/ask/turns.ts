@@ -16,6 +16,7 @@ export interface Source {
 export interface RunCursor {
   lastId: number;
   convId: string | null;
+  executionMode?: string;
 }
 
 export interface Turn {

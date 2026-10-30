@@ -505,6 +505,29 @@ const MANAGER_CODE = `
       }
 
       if let act = existing {
+        // 如果当前已存在的活动其 attributes.engine 与新传入的 engine 发生冲突且新传入的值有效，
+        // 由于 ActivityAttributes 不可变，必须立即结束旧活动，重新 request 以确保灵动岛 Agent 身份准确！
+        if !engine.isEmpty && engine != "AI" && act.attributes.engine != engine {
+          let endContent = ActivityContent(state: state, staleDate: nil)
+          await act.end(endContent, dismissalPolicy: .immediate)
+          let attrs = MementoTaskAttributes(
+            conversationId: convId,
+            title: title,
+            engine: engine,
+            deviceName: deviceName,
+            startedAtEpoch: startedAt
+          )
+          let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(900))
+          if let newAct = try? Activity<MementoTaskAttributes>.request(
+            attributes: attrs,
+            content: content,
+            pushType: .token
+          ) {
+            self.observeActivityPushToken(newAct)
+          }
+          return
+        }
+
         let content = ActivityContent(state: state, staleDate: Date().addingTimeInterval(900))
         await act.update(content)
         self.observeActivityPushToken(act)
@@ -566,7 +589,8 @@ const MANAGER_CODE = `
         if !isDone && !isFailed && !isCancelled {
           activeConvIds.insert(cid)
           let mode = ((r["execution_mode"] as? String) ?? "").lowercased()
-          let eng = mode.contains("claude") ? "Claude" : mode.contains("agy") || mode.contains("antigravity") ? "AGY" : mode.contains("codex") ? "Codex" : mode.contains("workbuddy") ? "WB" : "AI"
+          let model = ((r["model"] as? String) ?? "").lowercased()
+          let eng = (mode.contains("claude") || model.contains("claude")) ? "Claude" : (mode.contains("agy") || mode.contains("antigravity") || model.contains("gemini")) ? "AGY" : (mode.contains("codex") || mode.contains("openai") || model.contains("gpt")) ? "Codex" : (mode.contains("workbuddy") || mode.contains("codebuddy")) ? "WB" : (mode == "shell" || mode == "bash") ? "Shell" : "AI"
           self.handleCommand([
             "action": "start",
             "conversationId": cid,

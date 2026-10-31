@@ -66,6 +66,8 @@ describe("Task resilience: exponential backoff with jitter & idempotent log buff
       token: "test-token",
       deviceId: "dev-test-1",
       deviceName: "test-box",
+      platform: "darwin",
+      extraWatchDirs: [],
     };
 
     const client = new WsTaskClient(dummyConfig);
@@ -93,6 +95,8 @@ describe("Task resilience: exponential backoff with jitter & idempotent log buff
       token: "test-token",
       deviceId: "dev-test-fifo",
       deviceName: "test-box",
+      platform: "darwin",
+      extraWatchDirs: [],
     };
 
     const client = new WsTaskClient(dummyConfig);

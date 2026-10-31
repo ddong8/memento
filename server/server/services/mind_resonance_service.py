@@ -23,8 +23,30 @@ from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
+from contextlib import asynccontextmanager
+import inspect
 import json
 logger = logging.getLogger("server.mind_resonance")
+
+
+@asynccontextmanager
+async def _safe_begin_nested(db: AsyncSession):
+    """Savepoint context manager supporting both SQLAlchemy AsyncSession and unit test AsyncMocks."""
+    if not hasattr(db, "begin_nested"):
+        yield
+        return
+    nested = db.begin_nested()
+    if inspect.iscoroutine(nested):
+        nested = await nested
+    if hasattr(nested, "__aenter__"):
+        async with nested:
+            yield
+    elif hasattr(nested, "__enter__"):
+        with nested:
+            yield
+    else:
+        yield
+
 
 # Built-in baseline domain patterns with fully decoupled metadata and guardrails
 DEFAULT_DOMAIN_SCENARIOS: list[dict[str, Any]] = [
@@ -261,7 +283,8 @@ async def _fetch_scoped_and_general_rules(
     scoped_rules: list[str] = []
     general_rules: list[str] = []
     try:
-        prof = await get_published_profile(db, user)
+        async with _safe_begin_nested(db):
+            prof = await get_published_profile(db, user)
         if prof and prof.content:
             prof_content = prof.content
             scopes = split_profile_scopes(prof_content)
@@ -346,90 +369,91 @@ async def _fetch_graph_entities(
             )
             .limit(ENTITY_CANDIDATES)
         )
-        ent_rows = (await db.execute(ent_q)).scalars().all()
+        async with _safe_begin_nested(db):
+            ent_rows = (await db.execute(ent_q)).scalars().all()
 
-        from datetime import datetime, timezone
+            from datetime import datetime, timezone
 
-        now = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)
 
-        def entity_affinity(ent: KnowledgeEntity) -> float:
-            # A term in the name says more than one somewhere in the summary
-            base_score = float(score(f"{ent.name} {ent.summary or ''}", rank_terms) + 2 * score(ent.name, rank_terms))
-            # 艾宾浩斯时间与频次衰减（半衰期 7 天，越近越活跃）
-            ent_time = getattr(ent, "updated_at", None) or getattr(ent, "created_at", None)
-            if ent_time:
-                if ent_time.tzinfo is None:
-                    ent_time = ent_time.replace(tzinfo=timezone.utc)
-                age_days = max(0.0, (now - ent_time).total_seconds() / 86400.0)
-                temporal_factor = 1.0 / (1.0 + age_days / 7.0)
-            else:
-                temporal_factor = 0.5
+            def entity_affinity(ent: KnowledgeEntity) -> float:
+                # A term in the name says more than one somewhere in the summary
+                base_score = float(score(f"{ent.name} {ent.summary or ''}", rank_terms) + 2 * score(ent.name, rank_terms))
+                # 艾宾浩斯时间与频次衰减（半衰期 7 天，越近越活跃）
+                ent_time = getattr(ent, "updated_at", None) or getattr(ent, "created_at", None)
+                if ent_time:
+                    if ent_time.tzinfo is None:
+                        ent_time = ent_time.replace(tzinfo=timezone.utc)
+                    age_days = max(0.0, (now - ent_time).total_seconds() / 86400.0)
+                    temporal_factor = 1.0 / (1.0 + age_days / 7.0)
+                else:
+                    temporal_factor = 0.5
 
-            decayed_score = base_score * (0.4 + 0.6 * temporal_factor)
+                decayed_score = base_score * (0.4 + 0.6 * temporal_factor)
 
-            if target_project:
-                low_p = target_project.lower()
-                low_name = ent.name.lower()
-                low_sum = (ent.summary or "").lower()
-                if low_p in low_name or low_p in low_sum:
-                    decayed_score += 15.0
-            return decayed_score
+                if target_project:
+                    low_p = target_project.lower()
+                    low_name = ent.name.lower()
+                    low_sum = (ent.summary or "").lower()
+                    if low_p in low_name or low_p in low_sum:
+                        decayed_score += 15.0
+                return decayed_score
 
-        sorted_ents = sorted(
-            ent_rows,
-            key=entity_affinity,
-            reverse=True,
-        )[:limit_entities]
+            sorted_ents = sorted(
+                ent_rows,
+                key=entity_affinity,
+                reverse=True,
+            )[:limit_entities]
 
-        if not sorted_ents:
-            return entities_data
+            if not sorted_ents:
+                return entities_data
 
-        ent_ids = [e.id for e in sorted_ents]
+            ent_ids = [e.id for e in sorted_ents]
 
-        # Batch 1: Observations for all matched entities in single query
-        obs_map: dict[Any, list[str]] = {eid: [] for eid in ent_ids}
-        obs_q = (
-            select(KnowledgeObservation.entity_id, KnowledgeObservation.content)
-            .where(KnowledgeObservation.entity_id.in_(ent_ids))
-            .order_by(KnowledgeObservation.observed_at.desc().nulls_last())
-        )
-        for eid, content in (await db.execute(obs_q)).all():
-            if len(obs_map[eid]) < 2:
-                obs_map[eid].append(content)
-
-        # Batch 2: 1-hop outgoing relations for all matched entities
-        rel_map: dict[Any, list[dict[str, Any]]] = {eid: [] for eid in ent_ids}
-        rel_q = (
-            select(
-                KnowledgeRelation.source_id,
-                KnowledgeRelation.relation_type,
-                KnowledgeEntity.id,
-                KnowledgeEntity.name,
+            # Batch 1: Observations for all matched entities in single query
+            obs_map: dict[Any, list[str]] = {eid: [] for eid in ent_ids}
+            obs_q = (
+                select(KnowledgeObservation.entity_id, KnowledgeObservation.content)
+                .where(KnowledgeObservation.entity_id.in_(ent_ids))
+                .order_by(KnowledgeObservation.observed_at.desc().nulls_last())
             )
-            .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
-            .where(KnowledgeRelation.source_id.in_(ent_ids))
-        )
-        target_ids = []
-        for sid, rel_type, tid, tname in (await db.execute(rel_q)).all():
-            if len(rel_map[sid]) < 2:
-                rel_map[sid].append({"rel": rel_type, "target_id": tid, "target_name": tname})
-                target_ids.append(tid)
+            for eid, content in (await db.execute(obs_q)).all():
+                if len(obs_map[eid]) < 2:
+                    obs_map[eid].append(content)
 
-        # Batch 3: Optional 2-hop extension (fetch 2nd degree outgoing relations for targets)
-        second_hop_map: dict[Any, list[str]] = {tid: [] for tid in target_ids}
-        if target_ids:
-            hop2_q = (
+            # Batch 2: 1-hop outgoing relations for all matched entities
+            rel_map: dict[Any, list[dict[str, Any]]] = {eid: [] for eid in ent_ids}
+            rel_q = (
                 select(
                     KnowledgeRelation.source_id,
                     KnowledgeRelation.relation_type,
+                    KnowledgeEntity.id,
                     KnowledgeEntity.name,
                 )
                 .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
-                .where(KnowledgeRelation.source_id.in_(target_ids[:6]))
+                .where(KnowledgeRelation.source_id.in_(ent_ids))
             )
-            for sid, rtype, name in (await db.execute(hop2_q)).all():
-                if len(second_hop_map[sid]) < 1:
-                    second_hop_map[sid].append(f"{rtype} → {name}")
+            target_ids = []
+            for sid, rel_type, tid, tname in (await db.execute(rel_q)).all():
+                if len(rel_map[sid]) < 2:
+                    rel_map[sid].append({"rel": rel_type, "target_id": tid, "target_name": tname})
+                    target_ids.append(tid)
+
+            # Batch 3: Optional 2-hop extension (fetch 2nd degree outgoing relations for targets)
+            second_hop_map: dict[Any, list[str]] = {tid: [] for tid in target_ids}
+            if target_ids:
+                hop2_q = (
+                    select(
+                        KnowledgeRelation.source_id,
+                        KnowledgeRelation.relation_type,
+                        KnowledgeEntity.name,
+                    )
+                    .join(KnowledgeEntity, KnowledgeRelation.target_id == KnowledgeEntity.id)
+                    .where(KnowledgeRelation.source_id.in_(target_ids[:6]))
+                )
+                for sid, rtype, name in (await db.execute(hop2_q)).all():
+                    if len(second_hop_map[sid]) < 1:
+                        second_hop_map[sid].append(f"{rtype} → {name}")
 
         for ent in sorted_ents:
             formatted_rels = []
@@ -546,13 +570,14 @@ async def _fetch_pitfalls(
     if not terms:
         return pitfalls_data
     try:
-        mem_q = select(UserMemory).where(
-            UserMemory.user_id == user.id,
-            UserMemory.status == "active",
-            UserMemory.is_folder.is_(False),
-            UserMemory.category.in_(("pitfall", "rule", "architecture")),
-        )
-        all_mems = (await db.execute(mem_q)).scalars().all()
+        async with _safe_begin_nested(db):
+            mem_q = select(UserMemory).where(
+                UserMemory.user_id == user.id,
+                UserMemory.status == "active",
+                UserMemory.is_folder.is_(False),
+                UserMemory.category.in_(("pitfall", "rule", "architecture")),
+            )
+            all_mems = (await db.execute(mem_q)).scalars().all()
         texts = [f"{m.key} {m.tree_path or ''} {m.content}".lower() for m in all_mems]
         n = max(len(texts), PITFALL_MIN_CORPUS)
         # A word few memories share (fleet) says more than a common one (卡住); filler says nothing
@@ -607,7 +632,8 @@ async def _project_name(db: AsyncSession, project: str | None) -> str | None:
     except ValueError:
         return p.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or p
     try:
-        return (await db.execute(select(Project.title).where(Project.id == pid))).scalar_one_or_none()
+        async with _safe_begin_nested(db):
+            return (await db.execute(select(Project.title).where(Project.id == pid))).scalar_one_or_none()
     except Exception as e:
         logger.warning("Could not resolve project %s in mind resonance: %s", p, e)
         return None
@@ -952,40 +978,41 @@ async def record_online_graph_observation(
         return None
 
     try:
-        from .entity_canon import find_entity
+        async with _safe_begin_nested(db):
+            from .entity_canon import find_entity
 
-        entity = await find_entity(db, user_id, clean_name, entity_type)
+            entity = await find_entity(db, user_id, clean_name, entity_type)
 
-        now_utc = datetime.now(timezone.utc)
-        if not entity:
-            entity = KnowledgeEntity(
-                user_id=user_id,
-                name=clean_name,
-                entity_type=entity_type,
-                summary=summary or clean_obs[:150],
+            now_utc = datetime.now(timezone.utc)
+            if not entity:
+                entity = KnowledgeEntity(
+                    user_id=user_id,
+                    name=clean_name,
+                    entity_type=entity_type,
+                    summary=summary or clean_obs[:150],
+                )
+                db.add(entity)
+                await db.flush()
+            else:
+                if summary and not entity.summary:
+                    entity.summary = summary
+                entity.updated_at = now_utc
+
+            dup_q = select(KnowledgeObservation).where(
+                KnowledgeObservation.entity_id == entity.id,
+                KnowledgeObservation.content == clean_obs,
             )
-            db.add(entity)
+            dup = (await db.execute(dup_q)).scalars().first()
+            if dup:
+                return dup
+
+            obs = KnowledgeObservation(
+                entity_id=entity.id,
+                content=clean_obs,
+                observed_at=now_utc,
+            )
+            db.add(obs)
             await db.flush()
-        else:
-            if summary and not entity.summary:
-                entity.summary = summary
-            entity.updated_at = now_utc
-
-        dup_q = select(KnowledgeObservation).where(
-            KnowledgeObservation.entity_id == entity.id,
-            KnowledgeObservation.content == clean_obs,
-        )
-        dup = (await db.execute(dup_q)).scalars().first()
-        if dup:
-            return dup
-
-        obs = KnowledgeObservation(
-            entity_id=entity.id,
-            content=clean_obs,
-            observed_at=now_utc,
-        )
-        db.add(obs)
-        await db.flush()
 
         try:
             from .cache import cache_delete_prefix

@@ -18,6 +18,9 @@ from sqlalchemy import or_, select, func, case
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contextlib import asynccontextmanager
+import inspect
+
 from ..db.models import Document, User, UserMemory, Project
 from ..db.session import async_session_factory
 from ..services.user_filter import user_machine_ids, apply_user_filter
@@ -25,6 +28,26 @@ from ..services.memory_lifecycle import touch_recalled
 from ..api.search import _semantic_doc_ranks, RRF_K
 
 logger = logging.getLogger("server.ask")
+
+
+@asynccontextmanager
+async def _safe_begin_nested(db: AsyncSession):
+    """Savepoint context manager supporting both SQLAlchemy AsyncSession and unit test AsyncMocks."""
+    if not hasattr(db, "begin_nested"):
+        yield
+        return
+    nested = db.begin_nested()
+    if inspect.iscoroutine(nested):
+        nested = await nested
+    if hasattr(nested, "__aenter__"):
+        async with nested:
+            yield
+    elif hasattr(nested, "__enter__"):
+        with nested:
+            yield
+    else:
+        yield
+
 
 # How many documents to ground the answer in. Above ~8 the prompt gets long
 # enough that recall degrades (lost-in-the-middle) for no accuracy gain.
@@ -392,22 +415,30 @@ async def retrieve_core_memories(
     if project_id:
         try:
             p_uuid = uuid.UUID(project_id)
-            p_obj = (await db.execute(select(Project).where(Project.id == p_uuid))).scalar_one_or_none()
+            async with _safe_begin_nested(db):
+                p_obj = (await db.execute(select(Project).where(Project.id == p_uuid))).scalar_one_or_none()
             if p_obj:
                 proj_slug = p_obj.slug
         except (ValueError, TypeError):
             proj_slug = project_id.strip()
+        except Exception as e:
+            logger.debug("Failed to resolve project_id %s in retrieve_core_memories: %s", project_id, e)
 
     if not proj_slug and cwd:
         clean_cwd = cwd.strip().rstrip("/\\")
         bname = os.path.basename(clean_cwd)
         if bname:
-            p_obj = (await db.execute(
-                select(Project).where(or_(Project.slug == bname, Project.source_path.ilike(f"%{bname}%"))).limit(1)
-            )).scalar_one_or_none()
-            if p_obj:
-                proj_slug = p_obj.slug
-            else:
+            try:
+                async with _safe_begin_nested(db):
+                    p_obj = (await db.execute(
+                        select(Project).where(or_(Project.slug == bname, Project.source_path.ilike(f"%{bname}%"))).limit(1)
+                    )).scalar_one_or_none()
+                if p_obj:
+                    proj_slug = p_obj.slug
+                else:
+                    proj_slug = bname
+            except Exception as e:
+                logger.debug("Failed to resolve cwd %s in retrieve_core_memories: %s", cwd, e)
                 proj_slug = bname
 
     # 1. Obtain question embedding if query provided
@@ -429,21 +460,22 @@ async def retrieve_core_memories(
     # A. HNSW Vector ANN search on UserMemory via idx_user_memories_embedding_hnsw
     if qvec is not None:
         try:
-            vec_q = (
-                select(UserMemory)
-                .where(
-                    UserMemory.user_id == user.id,
-                    UserMemory.is_folder.is_(False),
-                    UserMemory.status == "active",
-                    UserMemory.embedding.is_not(None),
+            async with _safe_begin_nested(db):
+                vec_q = (
+                    select(UserMemory)
+                    .where(
+                        UserMemory.user_id == user.id,
+                        UserMemory.is_folder.is_(False),
+                        UserMemory.status == "active",
+                        UserMemory.embedding.is_not(None),
+                    )
+                    .order_by(UserMemory.embedding.cosine_distance(qvec).asc())
+                    .limit(60)
                 )
-                .order_by(UserMemory.embedding.cosine_distance(qvec).asc())
-                .limit(60)
-            )
-            for vm in (await db.execute(vec_q)).scalars().all():
-                if vm.id not in seen_ids:
-                    candidates.append(vm)
-                    seen_ids.add(vm.id)
+                for vm in (await db.execute(vec_q)).scalars().all():
+                    if vm.id not in seen_ids:
+                        candidates.append(vm)
+                        seen_ids.add(vm.id)
         except Exception as e:
             logger.debug("HNSW vector candidate query on UserMemory fallback: %s", e)
 

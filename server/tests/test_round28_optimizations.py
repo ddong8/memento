@@ -121,7 +121,6 @@ async def test_coalesced_device_stream():
 
 
 def test_ws_manager_push_chunk_with_seq():
-    import asyncio
     from server.services.ws_manager import ws_manager
 
     task_id = "test_task_seq_1"
@@ -197,7 +196,6 @@ async def test_load_dynamic_scenarios_from_db():
     from server.db.models import UserMemory
     from server.services.mind_resonance_service import (
         detect_scenario,
-        get_all_scenarios,
         load_dynamic_scenarios_from_db,
         reset_scenarios_to_default,
     )

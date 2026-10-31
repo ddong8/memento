@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 import math
 import unittest
@@ -20,7 +19,6 @@ from server.services.ask_retrieval import (
     retrieve_core_memories,
 )
 from server.services.mind_resonance_service import (
-    DEFAULT_DOMAIN_SCENARIOS,
     detect_scenario,
     get_all_scenarios,
     load_dynamic_scenarios_from_db,

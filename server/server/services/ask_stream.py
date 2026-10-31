@@ -460,7 +460,6 @@ async def direct_agent_stream(
     checkpoint is filled in as the run goes (the call, the task on the device, thinking so far).
     When this replica shuts down mid-task, another one continues the run from it with resume=True
     (ask_runs.drain): it follows the task already on the device and saves the turn when it ends."""
-    from ..services.orchestrator import _tool_run_on_device
 
     ckpt = checkpoint if checkpoint is not None else {}
     if resume:

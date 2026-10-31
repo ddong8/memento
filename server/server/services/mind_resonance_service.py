@@ -35,9 +35,13 @@ async def _safe_begin_nested(db: AsyncSession):
     if not hasattr(db, "begin_nested"):
         yield
         return
-    nested = db.begin_nested()
-    if inspect.iscoroutine(nested):
-        nested = await nested
+    try:
+        nested = db.begin_nested()
+        if inspect.iscoroutine(nested):
+            nested = await nested
+    except Exception:
+        yield
+        return
     if hasattr(nested, "__aenter__"):
         async with nested:
             yield
@@ -213,22 +217,23 @@ async def load_dynamic_scenarios_from_db(db: AsyncSession, user_id: uuid.UUID | 
     """Dynamically load and register domain scenarios distilled by dreaming_service into active resonance."""
     loaded: list[dict[str, Any]] = []
     try:
-        q = select(UserMemory).where(
-            UserMemory.category.in_(["resonance_scenario", "scenario", "custom_scenario"]),
-            UserMemory.status == "active",
-            UserMemory.is_folder.is_(False),
-        )
-        if user_id:
-            q = q.where(UserMemory.user_id == user_id)
-        mems = (await db.execute(q)).scalars().all()
-        for m in mems:
-            try:
-                data = json.loads(m.content)
-                if isinstance(data, dict) and data.get("id"):
-                    register_scenario(data)
-                    loaded.append(data)
-            except Exception:
-                pass
+        async with _safe_begin_nested(db):
+            q = select(UserMemory).where(
+                UserMemory.category.in_(["resonance_scenario", "scenario", "custom_scenario"]),
+                UserMemory.status == "active",
+                UserMemory.is_folder.is_(False),
+            )
+            if user_id:
+                q = q.where(UserMemory.user_id == user_id)
+            mems = (await db.execute(q)).scalars().all()
+            for m in mems:
+                try:
+                    data = json.loads(m.content)
+                    if isinstance(data, dict) and data.get("id"):
+                        register_scenario(data)
+                        loaded.append(data)
+                except Exception:
+                    pass
     except Exception as e:
         logger.debug("load_dynamic_scenarios_from_db skipped or failed: %s", e)
     return loaded

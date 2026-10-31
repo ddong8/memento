@@ -22,6 +22,8 @@ from server.services.mind_resonance_service import (
     _fetch_graph_entities,
     _fetch_pitfalls,
     _project_name,
+    _safe_begin_nested,
+    load_dynamic_scenarios_from_db,
     record_online_graph_observation,
 )
 
@@ -142,8 +144,12 @@ class TestTransactionSavepointResilience(unittest.IsolatedAsyncioTestCase):
         """Verify retrieve_core_memories wraps vector search in savepoint and falls back to text candidate query."""
         user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
         mock_db = MagicMock()
-        sp = MockSavepoint()
-        mock_db.begin_nested = MagicMock(return_value=sp)
+        savepoints: list[MockSavepoint] = []
+        def make_sp():
+            s = MockSavepoint()
+            savepoints.append(s)
+            return s
+        mock_db.begin_nested = MagicMock(side_effect=make_sp)
 
         fallback_mem = UserMemory(
             id=uuid.uuid4(),
@@ -177,8 +183,81 @@ class TestTransactionSavepointResilience(unittest.IsolatedAsyncioTestCase):
                 question="测试规则检索",
             )
 
-            self.assertTrue(sp.entered, "Vector ANN search must enter savepoint")
-            self.assertTrue(sp.exited, "Vector ANN search must exit savepoint")
-            self.assertEqual(sp.exc_type, DBAPIError, "Savepoint must roll back vector query exception")
+            self.assertGreaterEqual(len(savepoints), 1, "At least one savepoint must be created")
+            vec_sp = savepoints[0]
+            self.assertTrue(vec_sp.entered, "Vector ANN search must enter savepoint")
+            self.assertTrue(vec_sp.exited, "Vector ANN search must exit savepoint")
+            self.assertEqual(vec_sp.exc_type, DBAPIError, "Savepoint must roll back vector query exception")
             self.assertEqual(len(mems), 1, "Fallback candidate query must succeed and return memory")
             self.assertEqual(mems[0].key, "iron_rule_test")
+
+    async def test_migration_vector_extension_failure_rolls_back_savepoint(self):
+        """Verify CREATE EXTENSION IF NOT EXISTS vector runs in a savepoint and rolls back without aborting tx."""
+        mock_conn = MagicMock()
+        mock_insp = MagicMock()
+        mock_insp.get_table_names.return_value = ["machines", "users", "user_memories", "documents"]
+        mock_insp.get_columns.return_value = [{"name": "id"}]
+
+        sp_mock = MagicMock()
+        mock_conn.begin_nested.return_value = sp_mock
+
+        def fake_conn_execute(statement, *args, **kwargs):
+            sql = str(statement)
+            if "CREATE EXTENSION IF NOT EXISTS vector" in sql:
+                raise DBAPIError(sql, {}, Exception("extension vector is not available"))
+            return MagicMock()
+
+        mock_conn.execute.side_effect = fake_conn_execute
+
+        with patch("sqlalchemy.inspect", return_value=mock_insp):
+            # Must not raise an exception even if vector extension creation fails
+            _run_migrations(mock_conn)
+
+        # Confirm that begin_nested was called and rollback was executed for the failed extension
+        self.assertTrue(sp_mock.rollback.called, "sp.rollback() must be called on extension creation failure")
+
+    async def test_load_dynamic_scenarios_savepoint_rollback_on_db_error(self):
+        """Verify load_dynamic_scenarios_from_db isolates query in savepoint and rolls back on DB error."""
+        mock_db = MagicMock()
+        sp = MockSavepoint()
+        mock_db.begin_nested = MagicMock(return_value=sp)
+
+        db_err = DBAPIError("SELECT ...", {}, Exception("relation user_memories does not exist"))
+        mock_db.execute = AsyncMock(side_effect=db_err)
+
+        scenarios = await load_dynamic_scenarios_from_db(mock_db, uuid.uuid4())
+
+        self.assertTrue(sp.entered, "Savepoint must be entered in load_dynamic_scenarios_from_db")
+        self.assertTrue(sp.exited, "Savepoint must be exited in load_dynamic_scenarios_from_db")
+        self.assertEqual(sp.exc_type, DBAPIError)
+        self.assertEqual(scenarios, [], "Must gracefully return empty scenarios list on DB failure")
+
+    async def test_retrieve_core_memories_cand_q_savepoint_rollback(self):
+        """Verify retrieve_core_memories isolates candidate query in savepoint if cand_q fails."""
+        user = User(id=uuid.uuid4(), email="user@example.com", role="owner")
+        mock_db = MagicMock()
+        sp = MockSavepoint()
+        mock_db.begin_nested = MagicMock(return_value=sp)
+
+        # Simulate both vector and cand_q failing
+        db_err = DBAPIError("SELECT ...", {}, Exception("aborted transaction or table lock"))
+        mock_db.execute = AsyncMock(side_effect=db_err)
+
+        with patch("server.services.embedding_service._call_embedding_server", new_callable=AsyncMock, return_value=[[0.1] * 1024]):
+            mems = await retrieve_core_memories(
+                mock_db,
+                user,
+                question="测试候选查询异常隔离",
+            )
+            self.assertEqual(mems, [], "Should safely degrade to empty list without raising")
+
+    async def test_safe_begin_nested_handles_begin_nested_exception(self):
+        """Verify _safe_begin_nested handles immediate begin_nested() exception (e.g. transaction already aborted)."""
+        mock_db = MagicMock()
+        mock_db.begin_nested.side_effect = DBAPIError("...", {}, Exception("current transaction is aborted"))
+
+        entered = False
+        async with _safe_begin_nested(mock_db):
+            entered = True
+
+        self.assertTrue(entered, "Context block must be entered safely without raising during begin_nested()")

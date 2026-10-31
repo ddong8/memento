@@ -30,10 +30,12 @@ def _run_migrations(conn) -> None:
     insp = inspect(conn)
 
     # Enable pgvector extension
+    sp_vec = conn.begin_nested()
     try:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        sp_vec.commit()
     except Exception:
-        pass  # May not have pgvector installed
+        sp_vec.rollback()
 
     tables = insp.get_table_names()
     if "machines" not in tables or "users" not in tables:
@@ -312,8 +314,13 @@ def _run_migrations(conn) -> None:
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS tree_path VARCHAR(255)"))
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS is_folder BOOLEAN DEFAULT FALSE"))
 
-    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_parent ON user_memories (user_id, parent_id)"))
-    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_tree_path ON user_memories (user_id, tree_path)"))
+    sp_idx_tree = conn.begin_nested()
+    try:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_parent ON user_memories (user_id, parent_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_tree_path ON user_memories (user_id, tree_path)"))
+        sp_idx_tree.commit()
+    except Exception:
+        sp_idx_tree.rollback()
     sp_emb = conn.begin_nested()
     try:
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS embedding vector(1024)"))
@@ -328,7 +335,12 @@ def _run_migrations(conn) -> None:
         "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS superseded_by UUID "
         "REFERENCES user_memories(id) ON DELETE SET NULL"
     ))
-    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
+    sp_idx_status = conn.begin_nested()
+    try:
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
+        sp_idx_status.commit()
+    except Exception:
+        sp_idx_status.rollback()
     # HNSW 向量索引：消除用户核心记忆语义检索暴力扫描，实现毫秒级 ANN 图索引搜索
     sp_um_hnsw = conn.begin_nested()
     try:

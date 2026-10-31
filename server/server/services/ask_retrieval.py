@@ -36,9 +36,13 @@ async def _safe_begin_nested(db: AsyncSession):
     if not hasattr(db, "begin_nested"):
         yield
         return
-    nested = db.begin_nested()
-    if inspect.iscoroutine(nested):
-        nested = await nested
+    try:
+        nested = db.begin_nested()
+        if inspect.iscoroutine(nested):
+            nested = await nested
+    except Exception:
+        yield
+        return
     if hasattr(nested, "__aenter__"):
         async with nested:
             yield
@@ -497,10 +501,14 @@ async def retrieve_core_memories(
         )
         .limit(160)
     )
-    for rm in (await db.execute(cand_q)).scalars().all():
-        if rm.id not in seen_ids:
-            candidates.append(rm)
-            seen_ids.add(rm.id)
+    try:
+        async with _safe_begin_nested(db):
+            for rm in (await db.execute(cand_q)).scalars().all():
+                if rm.id not in seen_ids:
+                    candidates.append(rm)
+                    seen_ids.add(rm.id)
+    except Exception as e:
+        logger.debug("Candidate query on UserMemory fallback: %s", e)
 
     # 3. Score all candidate memories via Vector Semantic Cosine Similarity + Ebbinghaus Decay + Project & Rules Boost
     scored_candidates: list[tuple[float, UserMemory]] = []

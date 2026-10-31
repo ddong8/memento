@@ -80,14 +80,45 @@ async def _ack_command(device_collector_id: str, cmd_id: int) -> None:
             logger.warning("acking command %s for %s failed: %s", cmd_id, device_collector_id, e)
 
 
+def _matches_etag(if_none_match: str | None, etag: str) -> bool:
+    """RFC 7232 conditional header matching for ETags."""
+    if not if_none_match:
+        return False
+    raw = if_none_match.strip()
+    if raw == "*":
+        return True
+    etag_clean = etag.strip('"').strip()
+    tokens = []
+    for t in raw.split(","):
+        s = t.strip()
+        if s.startswith(("W/", "w/")):
+            s = s[2:].strip()
+        tokens.append(s.strip('"').strip())
+    return etag_clean in tokens or etag in tokens
+
+
 @router.get("")
 async def list_devices(
+    request: Request,
     include_archived: bool = Query(False, description="Whether to include unlinked/archived devices"),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
-) -> list[dict]:
-    """List all registered collector devices with their stats."""
+) -> Response:
+    """List all registered collector devices with their stats, with L1 caching and ETag 304 negotiation."""
     inc_arch = include_archived if isinstance(include_archived, bool) else getattr(include_archived, "default", False)
+
+    # 1. Fast path: check cached device list (TTL 5s)
+    list_cache_key = f"devices:list:{_user.id}:{inc_arch}"
+    cached_payload = await cache_get(list_cache_key, l1_ttl_seconds=3.0)
+    if cached_payload is not None and isinstance(cached_payload, dict):
+        etag = cached_payload.get("etag")
+        serialized = cached_payload.get("data")
+        if etag and serialized:
+            if_none_match = request.headers.get("if-none-match")
+            if _matches_etag(if_none_match, etag):
+                return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+            return Response(content=serialized, media_type="application/json", headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+
     machines_q = select(Machine).where(Machine.merged_into.is_(None)).order_by(Machine.last_heartbeat.desc().nulls_last())
     if not inc_arch:
         machines_q = machines_q.where(Machine.is_archived.is_(False))
@@ -95,77 +126,89 @@ async def list_devices(
         machines_q = machines_q.where(Machine.user_id == _user.id)
     machines = list((await db.execute(machines_q)).scalars().all())
     if not machines:
-        return []
-
-    machine_ids = [m.id for m in machines]
-
-    # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips (cached for 60s).
-    stats_cache_key = f"devices:stats:{_user.id}:{inc_arch}"
-    cached_stats = await cache_get(stats_cache_key)
-    if cached_stats is not None:
-        totals_by_name = cached_stats.get("totals", {})
-        tools_by_name = cached_stats.get("tools", {})
+        items: list[dict] = []
     else:
-        stats_q = (
-            select(Document.machine_id, Document.tool_id, func.count())
-            .where(Document.machine_id.in_(machine_ids), Document.tool_id != "system")
-            .group_by(Document.machine_id, Document.tool_id)
-        )
-        totals_by_name = {}
-        tools_by_name = {}
-        name_by_mid = {m.id: m.name for m in machines}
-        for mid, tid, n in (await db.execute(stats_q)).all():
-            mname = name_by_mid.get(mid, "")
-            totals_by_name[mname] = totals_by_name.get(mname, 0) + n
-            tlist = tools_by_name.setdefault(mname, [])
-            if tid not in tlist:
-                tlist.append(tid)
-        await cache_set(stats_cache_key, {"totals": totals_by_name, "tools": tools_by_name}, ttl_seconds=60)
+        machine_ids = [m.id for m in machines]
 
-    collect_by_mid = await _collect_metrics(db, machine_ids)
+        # One GROUP BY replaces the per-machine COUNT + DISTINCT round-trips (cached for 60s).
+        stats_cache_key = f"devices:stats:{_user.id}:{inc_arch}"
+        cached_stats = await cache_get(stats_cache_key)
+        if cached_stats is not None:
+            totals_by_name = cached_stats.get("totals", {})
+            tools_by_name = cached_stats.get("tools", {})
+        else:
+            stats_q = (
+                select(Document.machine_id, Document.tool_id, func.count())
+                .where(Document.machine_id.in_(machine_ids), Document.tool_id != "system")
+                .group_by(Document.machine_id, Document.tool_id)
+            )
+            totals_by_name = {}
+            tools_by_name = {}
+            name_by_mid = {m.id: m.name for m in machines}
+            for mid, tid, n in (await db.execute(stats_q)).all():
+                mname = name_by_mid.get(mid, "")
+                totals_by_name[mname] = totals_by_name.get(mname, 0) + n
+                tlist = tools_by_name.setdefault(mname, [])
+                if tid not in tlist:
+                    tlist.append(tid)
+            await cache_set(stats_cache_key, {"totals": totals_by_name, "tools": tools_by_name}, ttl_seconds=60)
 
-    items = []
-    seen_names = set()
-    now_utc = datetime.now(timezone.utc)
-    for m in machines:
-        if m.name in seen_names:
-            continue
-        seen_names.add(m.name)
-        hb = m.last_heartbeat
-        if hb and hb.tzinfo is None:
-            hb = hb.replace(tzinfo=timezone.utc)
-        age_sec = (now_utc - hb).total_seconds() if hb else None
+        collect_by_mid = await _collect_metrics(db, machine_ids)
 
-        has_ws = False
-        candidates = [m.collector_token_hash, m.name, normalize_device_name(m.name), str(m.id)]
-        for cand in candidates:
-            if cand and ws_manager.has_device(cand):
-                has_ws = True
-                break
+        items = []
+        seen_names = set()
+        now_utc = datetime.now(timezone.utc)
+        for m in machines:
+            if m.name in seen_names:
+                continue
+            seen_names.add(m.name)
+            hb = m.last_heartbeat
+            if hb and hb.tzinfo is None:
+                hb = hb.replace(tzinfo=timezone.utc)
+            age_sec = (now_utc - hb).total_seconds() if hb else None
 
-        is_online = has_ws or (age_sec is not None and age_sec < 180)
-        is_arch = bool(getattr(m, "is_archived", False))
+            has_ws = False
+            candidates = [m.collector_token_hash, m.name, normalize_device_name(m.name), str(m.id)]
+            for cand in candidates:
+                if cand and ws_manager.has_device(cand):
+                    has_ws = True
+                    break
 
-        items.append({
-            "id": str(m.id),
-            "name": m.name,
-            "device_id": m.collector_token_hash,
-            "collector_version": m.collector_version,
-            "last_heartbeat": hb.isoformat() if hb else None,
-            "online": is_online and not is_arch,
-            "created_at": m.created_at.isoformat(),
-            "document_count": totals_by_name.get(m.name, 0),
-            "tools": tools_by_name.get(m.name, []),
-            "is_archived": is_arch,
-            "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
-            "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
-            # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
-            "collect": m.collect_status or None,
-            # From the server's side: how long its messages took to arrive, what the audit found
-            **collect_by_mid.get(str(m.id), {}),
-        })
+            is_online = has_ws or (age_sec is not None and age_sec < 180)
+            is_arch = bool(getattr(m, "is_archived", False))
 
-    return items
+            items.append({
+                "id": str(m.id),
+                "name": m.name,
+                "device_id": m.collector_token_hash,
+                "collector_version": m.collector_version,
+                "last_heartbeat": hb.isoformat() if hb else None,
+                "online": is_online and not is_arch,
+                "created_at": m.created_at.isoformat(),
+                "document_count": totals_by_name.get(m.name, 0),
+                "tools": tools_by_name.get(m.name, []),
+                "is_archived": is_arch,
+                "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
+                "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
+                # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
+                "collect": m.collect_status or None,
+                # From the server's side: how long its messages took to arrive, what the audit found
+                **collect_by_mid.get(str(m.id), {}),
+            })
+
+    serialized = json.dumps(items, ensure_ascii=False, default=str)
+    etag = f'"{hashlib.md5(serialized.encode("utf-8")).hexdigest()}"'
+    await cache_set(list_cache_key, {"etag": etag, "data": serialized}, ttl_seconds=5)
+
+    if_none_match = request.headers.get("if-none-match")
+    if _matches_etag(if_none_match, etag):
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, no-cache"})
+
+    return Response(
+        content=serialized,
+        media_type="application/json",
+        headers={"ETag": etag, "Cache-Control": "private, no-cache"},
+    )
 
 
 async def _collect_metrics(db: AsyncSession, machine_ids: list[uuid.UUID]) -> dict[str, dict]:
@@ -322,6 +365,7 @@ async def _purge_device_data(
 
 
 async def _invalidate_device_caches(user_id: uuid.UUID) -> None:
+    await cache_delete_prefix(f"devices:list:{user_id}")
     await cache_delete_prefix(f"devices:stats:{user_id}")
     await cache_delete_prefix(f"hierarchy:devices:{user_id}")
     await cache_delete_prefix(f"dashboard:{user_id}")

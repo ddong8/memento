@@ -306,27 +306,128 @@ export function getUnixDescendantPids(rootPid: number): Promise<number[]> {
   });
 }
 
+function collectDescendants(rootPid: number, parentToChildren: Map<number, number[]>): number[] {
+  const result: number[] = [];
+  const queue = [rootPid];
+  const seen = new Set<number>([rootPid]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const children = parentToChildren.get(current) || [];
+    for (const ch of children) {
+      if (!seen.has(ch)) {
+        seen.add(ch);
+        result.push(ch);
+        queue.push(ch);
+      }
+    }
+  }
+  return result;
+}
+
+/** Recursively collect all descendant PIDs of a process on Windows using single-pass process query. */
+export function getWindowsDescendantPids(rootPid: number): Promise<number[]> {
+  if (!rootPid || rootPid <= 0) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    // 1. Try wmic to get all (ProcessId, ParentProcessId) pairs in one shot
+    execFile(
+      "wmic",
+      ["process", "get", "ProcessId,ParentProcessId"],
+      { windowsHide: true, timeout: 3000 },
+      (err, stdout) => {
+        if (!err && stdout && stdout.includes("ParentProcessId")) {
+          const map = new Map<number, number[]>();
+          for (const line of stdout.split(/\r?\n/)) {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 2 && parts[0] && parts[1]) {
+              const ppid = parseInt(parts[0], 10);
+              const pid = parseInt(parts[1], 10);
+              if (!isNaN(ppid) && !isNaN(pid) && pid > 0) {
+                const list = map.get(ppid) || [];
+                list.push(pid);
+                map.set(ppid, list);
+              }
+            }
+          }
+          resolve(collectDescendants(rootPid, map));
+          return;
+        }
+
+        // 2. Fallback to PowerShell Get-CimInstance in one shot
+        const psCmd = `Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ForEach-Object { "$($_.ParentProcessId) $($_.ProcessId)" }`;
+        execFile(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", psCmd],
+          { windowsHide: true, timeout: 5000 },
+          (psErr, psStdout) => {
+            if (psErr || !psStdout) {
+              resolve([]);
+              return;
+            }
+            const map = new Map<number, number[]>();
+            for (const line of psStdout.split(/\r?\n/)) {
+              const parts = line.trim().split(/\s+/);
+              if (parts.length >= 2 && parts[0] && parts[1]) {
+                const ppid = parseInt(parts[0], 10);
+                const pid = parseInt(parts[1], 10);
+                if (!isNaN(ppid) && !isNaN(pid) && pid > 0) {
+                  const list = map.get(ppid) || [];
+                  list.push(pid);
+                  map.set(ppid, list);
+                }
+              }
+            }
+            resolve(collectDescendants(rootPid, map));
+          },
+        );
+      },
+    );
+  });
+}
+
 /** Stops a task and everything it started (shells, test runners, dev servers, agent sub-processes). */
-export function killProcessTree(proc: ChildProcess | undefined): void {
-  if (!proc?.pid || proc.exitCode !== null || proc.signalCode !== null) return;
-  const pid = proc.pid;
+export function killProcessTree(proc: ChildProcess | number | undefined): void {
+  const pid = typeof proc === "number" ? proc : proc?.pid;
+  if (!pid || pid <= 0) return;
+
   if (process.platform === "win32") {
-    execFile("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true }, (err) => {
-      if (err) proc.kill("SIGKILL");
+    // 1. Fast path: execute taskkill /F /T on process tree
+    execFile("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true }, () => {
+      if (typeof proc === "object" && proc?.kill) {
+        try {
+          proc.kill("SIGKILL");
+        } catch {}
+      }
     });
+
+    // 2. Asynchronously discover and explicitly kill all deep child PIDs (guards against detached orphan processes)
+    getWindowsDescendantPids(pid)
+      .then((descendants) => {
+        for (const d of descendants) {
+          execFile("taskkill", ["/F", "/PID", String(d)], { windowsHide: true }, () => {});
+        }
+        // 3. Second-pass verification watchdog after 600ms
+        setTimeout(() => {
+          for (const d of descendants) {
+            execFile("taskkill", ["/F", "/PID", String(d)], { windowsHide: true }, () => {});
+          }
+        }, 600);
+      })
+      .catch(() => {});
     return;
   }
 
   // Unix / macOS: First try graceful SIGTERM, then hard SIGKILL to the entire process tree
+  if (typeof proc === "object" && proc?.exitCode === null && proc?.signalCode === null) {
+    try {
+      proc.kill("SIGTERM");
+    } catch {}
+  }
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {}
+
   getUnixDescendantPids(pid)
     .then((descendants) => {
-      // 1. Send SIGTERM to descendants and process group for graceful shutdown
-      try {
-        process.kill(-pid, "SIGTERM");
-      } catch {}
-      try {
-        proc.kill("SIGTERM");
-      } catch {}
       for (const d of descendants) {
         try {
           process.kill(d, "SIGTERM");
@@ -338,9 +439,11 @@ export function killProcessTree(proc: ChildProcess | undefined): void {
         try {
           process.kill(-pid, "SIGKILL");
         } catch {}
-        try {
-          proc.kill("SIGKILL");
-        } catch {}
+        if (typeof proc === "object" && proc?.kill) {
+          try {
+            proc.kill("SIGKILL");
+          } catch {}
+        }
         for (const d of descendants) {
           try {
             process.kill(d, "SIGKILL");
@@ -355,9 +458,11 @@ export function killProcessTree(proc: ChildProcess | undefined): void {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {}
-      try {
-        proc.kill("SIGKILL");
-      } catch {}
+      if (typeof proc === "object" && proc?.kill) {
+        try {
+          proc.kill("SIGKILL");
+        } catch {}
+      }
       try {
         execFile("pkill", ["-9", "-P", String(pid)], () => {});
       } catch {}

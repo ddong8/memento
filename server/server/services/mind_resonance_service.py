@@ -23,56 +23,211 @@ from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
+import json
 logger = logging.getLogger("server.mind_resonance")
 
-# Domain pattern definitions mapping terms to intuitive user scenarios
-DOMAIN_SCENARIOS = [
+# Built-in baseline domain patterns with fully decoupled metadata and guardrails
+DEFAULT_DOMAIN_SCENARIOS: list[dict[str, Any]] = [
     {
         "id": "evolution_memory",
         "name": "AI 记忆与自进化底座",
         "keywords": ("自进化", "心领神会", "懂我", "记忆", "画像", "dreaming", "memento", "mcp", "profile", "agentic"),
         "mindset": "希望工具能越用越了解用户，具备自进化能力；打破工具孤岛，沉淀终身资产；一次做到位，不绕弯子。",
+        "target_project": "memento",
+        "anchors": ["心领神会", "常驻画像", "自进化", "避坑"],
+        "search_query_extras": "心领神会 常驻画像 自进化",
+        "defense_rules": [
+            "1) 仔细深入调查问题，从根子上彻底解决，避免重复出现；一次做到位，交付前本地类型检查与自测确认通过。",
+            "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
+        ],
+        "device_affinity": "mac",
     },
     {
         "id": "chemistry_pubchem",
         "name": "化学研发与逆合成规划",
         "keywords": ("逆合成", "pubchem", "cas", "smiles", "化合物", "路线", "试剂", "化学", "分子"),
         "mindset": "CAS号精准表述不猜测名称；路线条数可控且AI重排；严禁不稳定格式试剂；一键接入oneapi模型。",
+        "target_project": "pubchem",
+        "anchors": ["CAS", "SMILES", "逆合成", "格式试剂", "路线重排"],
+        "search_query_extras": "CAS SMILES 逆合成",
+        "defense_rules": [
+            "1) 遇到原文中是 CAS 号的化合物，直接使用 CAS 号表述，严禁猜测化合物名称。",
+            "2) 逆合成结果必须经过 AI 重排，步数多的路线不能排在前面；避免生成不稳定的格式试剂。",
+        ],
+        "device_affinity": "linux",
     },
     {
         "id": "data_harvest",
         "name": "化学数据抓取与资产沉淀",
         "keywords": ("workbuddy", "抓取", "爬虫", "爬取", "数据源", "数据清洗", "资产登记"),
         "mindset": "优先中文网站且必抓中文名；CAS和SMILES为必须字段；先整库dump本地再处理；提供可溯源登记。",
+        "target_project": "workbuddy",
+        "anchors": ["CAS", "SMILES", "中文名称", "数据抓取", "资产登记"],
+        "search_query_extras": "数据抓取 中文名称 dump",
+        "defense_rules": [
+            "1) 抓取化学数据源优先中文网站，且必须抓取中文名称；CAS 与 SMILES 为必须字段。",
+            "2) 先整库 dump 到本地再处理数据；修改数据前先备份原表数据，倾向打标记而非硬删除。",
+        ],
+        "device_affinity": "linux",
     },
     {
         "id": "ui_performance",
         "name": "前端交互极致性能与设计",
         "keywords": ("前端", "tab", "切换", "卡顿", "渲染", "ui", "aurora", "延迟", "流畅", "动画", "保活"),
         "mindset": "交互零延迟、0ms切换无损保活；界面精致高级；绝不阻塞主线程；桌面端应用名称去掉desktop后缀。",
+        "target_project": "memento",
+        "anchors": ["交互零延迟", "全屏铺满", "缓存", "流式输出"],
+        "search_query_extras": "零延迟 保活 页面流畅",
+        "defense_rules": [
+            "1) 交互零延迟、避免卡顿与页面卡死，重视前端性能与流畅体验。",
+            "2) 界面精致高级，符合 Aurora 设计规范。",
+        ],
+        "device_affinity": "mac",
     },
     {
         "id": "devops_release",
         "name": "发布交付与无故障上线",
         "keywords": ("发布", "部署", "k8s", "pod", "release", "tag", "更新", "发版", "构建", "docker", "fleet", "gitops", "kubectl", "流水线", "上线", "镜像"),
         "mindset": "发版前必查历史经验避免重踩坑；代码发版打tag并确认所有pod状态；CI/CD零停机更新；帮用户做完勿让用户手动敲命令。",
+        "target_project": "memento",
+        "anchors": ["version.json", "kustomization", "Fleet", "package.json", "tag", "部署"],
+        "search_query_extras": "发布 三位一体 version.json tag",
+        "defense_rules": [
+            "1) 发版前必查历史经验避免重踩坑，确认代码发版打 tag，且所有 pod 确认已部署更新。",
+            "2) 桌面端发布严格遵守元数据三位一体校验（version.json、GitHub Release 与 updates.py 强一致）。",
+            "3) 代码提交规范：中文 Conventional Commits 风格，严禁添加 Claude 共同作者信息，保持线性 Git 历史。",
+            "4) 发布、部署全流程直接帮用户闭环做完，严禁让用户手动敲命令。",
+        ],
+        "device_affinity": "linux",
     },
     {
         "id": "data_safety",
         "name": "数据资产安全与审计",
         "keywords": ("删除", "解绑", "设备", "machine", "归档", "purge", "清理数据", "备份"),
         "mindset": "修改前先备份原表数据；倾向打标记归档而非物理硬删除便于审计；删除设备允许保留数据。",
+        "target_project": None,
+        "anchors": ["归档", "备份", "保留标记", "审计"],
+        "search_query_extras": "数据安全 备份 归档 审计",
+        "defense_rules": [
+            "1) 修改数据前先备份原表数据；数据操作倾向打标记而非硬删除，便于审计追踪。",
+            "2) 设备解绑或数据清理操作确保可溯源与可恢复。",
+        ],
+        "device_affinity": None,
     },
 ]
 
+# Dynamic registry supporting custom & self-evolved scenarios from Dreaming sweeps
+_DYNAMIC_SCENARIOS: dict[str, dict[str, Any]] = {}
+_ACTIVE_SCENARIOS: list[dict[str, Any]] = [dict(s) for s in DEFAULT_DOMAIN_SCENARIOS]
+DOMAIN_SCENARIOS = _ACTIVE_SCENARIOS
 
-def detect_scenario(terms: list[str], raw_text: str = "") -> dict[str, str]:
+
+def _refresh_active_scenarios() -> None:
+    merged: list[dict[str, Any]] = []
+    seen = set()
+    for s in DEFAULT_DOMAIN_SCENARIOS:
+        sid = s["id"]
+        if sid in _DYNAMIC_SCENARIOS:
+            merged.append(dict(_DYNAMIC_SCENARIOS[sid]))
+        else:
+            merged.append(dict(s))
+        seen.add(sid)
+    for sid, s in _DYNAMIC_SCENARIOS.items():
+        if sid not in seen:
+            merged.append(dict(s))
+            seen.add(sid)
+    _ACTIVE_SCENARIOS.clear()
+    _ACTIVE_SCENARIOS.extend(merged)
+
+
+def register_domain_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Register or update a dynamic domain scenario for mind resonance and autonomous self-evolution."""
+    sid = scenario.get("id")
+    if not sid:
+        raise ValueError("Scenario must contain an 'id' field")
+    normalized = {
+        "id": str(sid).strip(),
+        "name": str(scenario.get("name") or sid).strip(),
+        "keywords": tuple(str(k).strip() for k in (scenario.get("keywords") or ())),
+        "mindset": str(scenario.get("mindset") or "").strip(),
+        "target_project": str(scenario.get("target_project") or "").strip(),
+        "anchors": [str(a).strip() for a in (scenario.get("anchors") or [])],
+        "search_query_extras": str(scenario.get("search_query_extras") or " ".join(list(scenario.get("anchors") or [])[:3])).strip(),
+        "defense_rules": [str(r).strip() for r in (scenario.get("defense_rules") or [])],
+        "device_affinity": scenario.get("device_affinity"),
+    }
+    _DYNAMIC_SCENARIOS[normalized["id"]] = normalized
+    _refresh_active_scenarios()
+    logger.info("Registered dynamic domain scenario: %s (%s)", normalized["name"], normalized["id"])
+    return normalized
+
+
+def register_scenario(scenario: dict[str, Any]) -> None:
+    """Register or update a dynamic domain scenario for mind resonance."""
+    register_domain_scenario(scenario)
+
+
+def unregister_scenario(scenario_id: str) -> bool:
+    """Unregister a dynamic domain scenario."""
+    if scenario_id in _DYNAMIC_SCENARIOS:
+        del _DYNAMIC_SCENARIOS[scenario_id]
+        _refresh_active_scenarios()
+        return True
+    return False
+
+
+def reset_scenarios_to_default() -> None:
+    """Reset active scenarios to built-in defaults."""
+    _DYNAMIC_SCENARIOS.clear()
+    _refresh_active_scenarios()
+
+
+def get_all_scenarios() -> list[dict[str, Any]]:
+    """Return all active domain scenarios (defaults + dynamic overrides)."""
+    return [dict(s) for s in _ACTIVE_SCENARIOS]
+
+
+async def load_dynamic_scenarios_from_db(db: AsyncSession, user_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
+    """Dynamically load and register domain scenarios distilled by dreaming_service into active resonance."""
+    loaded: list[dict[str, Any]] = []
+    try:
+        q = select(UserMemory).where(
+            UserMemory.category.in_(["resonance_scenario", "scenario", "custom_scenario"]),
+            UserMemory.status == "active",
+            UserMemory.is_folder.is_(False),
+        )
+        if user_id:
+            q = q.where(UserMemory.user_id == user_id)
+        mems = (await db.execute(q)).scalars().all()
+        for m in mems:
+            try:
+                data = json.loads(m.content)
+                if isinstance(data, dict) and data.get("id"):
+                    register_scenario(data)
+                    loaded.append(data)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug("load_dynamic_scenarios_from_db skipped or failed: %s", e)
+    return loaded
+
+
+def detect_scenario(
+    terms: list[str],
+    raw_text: str = "",
+    extra_scenarios: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Infer the primary scenario and user mindset from query terms and text."""
     low_text = raw_text.lower()
     best_match = None
     best_score = 0
-    for scen in DOMAIN_SCENARIOS:
-        sc = sum(2 for k in scen["keywords"] if k in low_text) + sum(1 for k in scen["keywords"] if k in terms)
+    scenarios_pool = list(_ACTIVE_SCENARIOS)
+    if extra_scenarios:
+        scenarios_pool.extend(extra_scenarios)
+
+    for scen in scenarios_pool:
+        kws = scen.get("keywords") or ()
+        sc = sum(2 for k in kws if k in low_text) + sum(1 for k in kws if k in terms)
         if sc > best_score:
             best_score = sc
             best_match = scen
@@ -84,6 +239,14 @@ def detect_scenario(terms: list[str], raw_text: str = "") -> dict[str, str]:
         "name": "工程研发与深度协同",
         "keywords": (),
         "mindset": "直接给结论和指令，不绕弯子、不废话、不反问；仔细深入调查从根子上彻底解决；一次做到位，交付前自测确认。",
+        "target_project": None,
+        "anchors": [],
+        "search_query_extras": "",
+        "defense_rules": [
+            "1) 仔细深入调查问题，从根子上彻底解决；一次做到位，交付前本地类型检查与自测确认通过。",
+            "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
+        ],
+        "device_affinity": None,
     }
 
 
@@ -104,12 +267,8 @@ async def _fetch_scoped_and_general_rules(
             scopes = split_profile_scopes(prof_content)
             target_proj = (project or "").strip().lower()
             if not target_proj:
-                if scenario["id"] == "chemistry_pubchem":
-                    target_proj = "pubchem"
-                elif scenario["id"] == "data_harvest":
-                    target_proj = "workbuddy"
-                elif scenario["id"] in ("evolution_memory", "ui_performance", "devops_release"):
-                    target_proj = "memento"
+                # Decoupled: read target_project directly from scenario schema
+                target_proj = (scenario.get("target_project") or "").strip().lower()
 
             if target_proj:
                 for p_name, lines in scopes.projects.items():
@@ -753,20 +912,7 @@ def expand_query_for_search(query: str, target_project: str | None = None) -> st
         return query
     terms = terms_for(None, target_project, query)
     scen = detect_scenario(terms, f"{query} {target_project or ''}")
-    scen_id = scen.get("id")
-    anchors: list[str] = []
-    if scen_id == "devops_release":
-        anchors = ["version.json", "kustomization", "Fleet", "package.json", "tag", "部署"]
-    elif scen_id == "chemistry_pubchem":
-        anchors = ["CAS", "SMILES", "逆合成", "格式试剂", "路线重排"]
-    elif scen_id == "data_harvest":
-        anchors = ["CAS", "SMILES", "中文名称", "数据抓取", "资产登记"]
-    elif scen_id == "ui_performance":
-        anchors = ["交互零延迟", "全屏铺满", "缓存", "流式输出"]
-    elif scen_id == "data_safety":
-        anchors = ["归档", "备份", "保留标记", "审计"]
-    elif scen_id == "evolution_memory":
-        anchors = ["心领神会", "常驻画像", "自进化", "避坑"]
+    anchors: list[str] = list(scen.get("anchors") or [])
 
     if anchors:
         clean_q = query.strip()
@@ -905,51 +1051,42 @@ def validate_shell_command_against_iron_rules(
     return True, None
 
 
+def _resolve_scenario_meta(scenario: dict[str, Any]) -> dict[str, Any]:
+    """Merge partial scenario dict with registered scenario defaults by id."""
+    scen_id = scenario.get("id")
+    if scen_id:
+        registered = next((s for s in _ACTIVE_SCENARIOS if s.get("id") == scen_id), None)
+        if registered:
+            merged = dict(registered)
+            merged.update(scenario)
+            return merged
+    return scenario
+
+
 def enrich_search_query_with_mindset(query: str, scenario: dict[str, Any]) -> str:
     """Expand short query with domain mindset keywords to boost contextual retrieval recall."""
     clean_q = query.strip()
     if len(clean_q) > 40:
         return clean_q
 
-    scen_id = scenario.get("id", "")
-    if scen_id == "chemistry_pubchem" and not any(k in clean_q.lower() for k in ("cas", "smiles", "pubchem")):
-        return f"{clean_q} CAS SMILES 逆合成"
-    elif scen_id == "data_harvest" and not any(k in clean_q.lower() for k in ("dump", "workbuddy", "中文名")):
-        return f"{clean_q} 数据抓取 中文名称 dump"
-    elif scen_id == "devops_release" and not any(k in clean_q.lower() for k in ("version.json", "tag", "release")):
-        return f"{clean_q} 发布 三位一体 version.json tag"
-    elif scen_id == "ui_performance" and not any(k in clean_q.lower() for k in ("延迟", "保活", "卡顿")):
-        return f"{clean_q} 零延迟 保活 页面流畅"
+    scen = _resolve_scenario_meta(scenario)
+    extras = scen.get("search_query_extras") or ""
+    if extras:
+        words = [w for w in extras.split() if w.lower() not in clean_q.lower()]
+        if words:
+            return f"{clean_q} {' '.join(words)}"
     return clean_q
 
 
 def enrich_skill_with_mindset(skill_md: str, scenario: dict[str, Any]) -> str:
     """Append mental guardrails to skill markdown based on scenario."""
-    scen_id = scenario.get("id", "")
-    defense_lines = []
-
-    if scen_id == "devops_release":
-        defense_lines.extend([
-            "1) 发版前必查历史经验避免重踩坑，确认代码发版打 tag，且所有 pod 确认已部署更新。",
-            "2) 桌面端发布严格遵守元数据三位一体校验（version.json、GitHub Release 与 updates.py 强一致）。",
-            "3) 代码提交规范：中文 Conventional Commits 风格，严禁添加 Claude 共同作者信息，保持线性 Git 历史。",
-            "4) 发布、部署全流程直接帮用户闭环做完，严禁让用户手动敲命令。",
-        ])
-    elif scen_id == "chemistry_pubchem":
-        defense_lines.extend([
-            "1) 遇到原文中是 CAS 号的化合物，直接使用 CAS 号表述，严禁猜测化合物名称。",
-            "2) 逆合成结果必须经过 AI 重排，步数多的路线不能排在前面；避免生成不稳定的格式试剂。",
-        ])
-    elif scen_id == "data_harvest":
-        defense_lines.extend([
-            "1) 抓取化学数据源优先中文网站，且必须抓取中文名称；CAS 与 SMILES 为必须字段。",
-            "2) 先整库 dump 到本地再处理数据；修改数据前先备份原表数据，倾向打标记而非硬删除。",
-        ])
-    else:
-        defense_lines.extend([
+    scen = _resolve_scenario_meta(scenario)
+    defense_lines = list(scen.get("defense_rules") or [])
+    if not defense_lines:
+        defense_lines = [
             "1) 仔细深入调查问题，从根子上彻底解决；一次做到位，交付前本地类型检查与自测确认通过。",
             "2) 直接给结论和指令，不绕弯子、不废话、不反问用户。",
-        ])
+        ]
 
     defenses_text = "\n".join(defense_lines)
     return (
@@ -1012,15 +1149,10 @@ def enrich_todo_creation(
     clean_title = title.strip()
     proj = (project or "").strip() or None
 
-    # Auto-infer project from detected scenario if missing
+    scen = _resolve_scenario_meta(scenario)
+    # Auto-infer project from decoupled scenario schema if missing
     if not proj:
-        scen_id = scenario.get("id", "")
-        if scen_id in ("evolution_memory", "ui_performance", "devops_release"):
-            proj = "memento"
-        elif scen_id == "chemistry_pubchem":
-            proj = "pubchem"
-        elif scen_id == "data_harvest":
-            proj = "workbuddy"
+        proj = scen.get("target_project") or None
 
     # Suggestion if the model tries to record an immediate task
     hint = None
@@ -1032,7 +1164,8 @@ def enrich_todo_creation(
 
 def enrich_device_listing(devices: list[dict[str, Any]], scenario: dict[str, Any]) -> list[dict[str, Any]]:
     """Annotate devices with affinity recommendations according to scenario."""
-    scen_id = scenario.get("id", "")
+    scen = _resolve_scenario_meta(scenario)
+    preferred_os = scen.get("device_affinity")
     enriched = []
     for d in devices:
         d_copy = dict(d)
@@ -1048,7 +1181,7 @@ def enrich_device_listing(devices: list[dict[str, Any]], scenario: dict[str, Any
             d_copy["affinity"] = "通用设备节点"
 
         # Highlight if best match for current scenario
-        if (scen_id in ("chemistry_pubchem", "data_harvest") and is_linux) or (scen_id == "ui_performance" and is_mac):
+        if (preferred_os == "linux" and is_linux) or (preferred_os == "mac" and is_mac):
             d_copy["scenario_best_match"] = True
 
         enriched.append(d_copy)

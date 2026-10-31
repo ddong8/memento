@@ -324,6 +324,16 @@ def _run_migrations(conn) -> None:
         "REFERENCES user_memories(id) ON DELETE SET NULL"
     ))
     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
+    # HNSW 向量索引：消除用户核心记忆语义检索暴力扫描，实现毫秒级 ANN 图索引搜索
+    sp_um_hnsw = conn.begin_nested()
+    try:
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_user_memories_embedding_hnsw "
+            "ON user_memories USING hnsw (embedding vector_cosine_ops)"
+        ))
+        sp_um_hnsw.commit()
+    except Exception:
+        sp_um_hnsw.rollback()
 
     # Knowledge graph: merged same-name entities and summaries later conversations contradict
     if "knowledge_entities" in tables:
@@ -414,6 +424,9 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw_half "
         "ON document_embeddings USING hnsw (CAST(embedding AS HALFVEC(1024)) halfvec_cosine_ops) "
         "WITH (m = 16, ef_construction = 64)",
+        # UserMemory HNSW 图向量索引，实现毫秒级记忆召回
+        "CREATE INDEX IF NOT EXISTS idx_user_memories_embedding_hnsw "
+        "ON user_memories USING hnsw (embedding vector_cosine_ops)",
     ):
         sp = conn.begin_nested()
         try:
@@ -585,6 +598,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start 24/7 Always-on Proactive Agent Pulse service
     from .services.pulse_service import start_proactive_pulse, stop_proactive_pulse
     await start_proactive_pulse()
+    # Dynamic mind resonance scenarios learned by dreaming
+    try:
+        from .db.session import async_session_factory
+        from .services.mind_resonance_service import load_dynamic_scenarios_from_db
+        async with async_session_factory() as db:
+            await load_dynamic_scenarios_from_db(db)
+    except Exception as e:
+        import logging
+        logging.getLogger("memento.scenarios").warning("loading dynamic resonance scenarios skipped: %s", e)
     yield
     # Out of the load balancer by now: let ask runs finish while their readers
     # reattach through the other replicas, then leave.

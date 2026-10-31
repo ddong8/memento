@@ -32,6 +32,128 @@ _TRANSIENT_LINE_RE = re.compile(
     r"^(?:(?:⚡|⏳|✅|⏹\uFE0F?|❌|🈳)\s*\[(?:后台任务|模型思考|等待用户|工具|任务在后台)[^\]]*\]|\[STATUS_STILL_RUNNING:[^\]]*\])"
 )
 
+_STDERR_NOISE_PATTERNS = [
+    # Node / npm
+    r"^\s*npm\s+(?:warn|WARN|notice|NOTICE)\b.*",
+    r"^\s*\(node:\d+\)\s+(?:\[\w+\]\s+)?(?:ExperimentalWarning|DeprecationWarning|Warning)\b.*",
+    r"^\s*\(Use `node --trace-warnings \.\.\.` to show where the warning was created\)",
+    r"^\s*node:\s*--openssl-legacy-provider\b.*",
+    r"^\s*Debugger attached\..*",
+    r"^\s*Waiting for the debugger to disconnect\..*",
+    r"^\s*Browserslist: caniuse-lite is outdated\..*",
+    r"^\s*punycode module is deprecated\..*",
+    # Python
+    r"^.*?(?:UserWarning|DeprecationWarning|FutureWarning|SyntaxWarning|RuntimeWarning|PendingDeprecationWarning):\s+.*",
+    r"^\s*warnings\.warn\(.*",
+    r"^.*?/[\w\.\-]+/site-packages/[\w\.\-]+:\d+:\s*(?:UserWarning|DeprecationWarning|FutureWarning|RuntimeWarning).*",
+    r"^\s*Python\(\d+,0x[0-9a-fA-F]+\)\s+malloc:\s+.*",
+    # Git informational notices
+    r"^\s*(?:To|From)\s+https?://.*",
+    r"^\s*\*\s+\[(?:new branch|new tag|branch)\]\s+.*",
+    r"^\s*Switched to a new branch\s+.*",
+    r"^\s*Switched to branch\s+.*",
+    r"^\s*Already on\s+.*",
+]
+
+_STDERR_NOISE_RE = re.compile("|".join(f"(?:{p})" for p in _STDERR_NOISE_PATTERNS), re.IGNORECASE)
+
+
+def _clean_stderr_noise(stderr: str) -> str:
+    """Filter out non-fatal noisy warnings (npm, Python warnings, Node deprecation) from stderr."""
+    if not stderr:
+        return ""
+    meaningful_lines = []
+    for line in stderr.splitlines():
+        trimmed = line.strip()
+        if not trimmed:
+            continue
+        if _STDERR_NOISE_RE.match(trimmed):
+            continue
+        meaningful_lines.append(line)
+    return "\n".join(meaningful_lines).strip()
+
+
+async def _coalesced_device_stream(db: AsyncSession, user: User, run_args: dict, delay: float = 0.020):
+    """Wrap _tool_run_on_device with a 20ms sliding buffer (Chunk Coalescing) to merge micro task_chunk events."""
+    from ..services.orchestrator import _tool_run_on_device
+
+    queue: asyncio.Queue = asyncio.Queue()
+    sentinel = object()
+
+    async def _reader():
+        try:
+            async for event in _tool_run_on_device(db, user, run_args):
+                await queue.put(event)
+        except BaseException as exc:
+            if not isinstance(exc, (asyncio.CancelledError, GeneratorExit)):
+                try:
+                    queue.put_nowait(exc)
+                except Exception:
+                    pass
+            raise
+        finally:
+            try:
+                queue.put_nowait(sentinel)
+            except Exception:
+                pass
+
+    reader_task = asyncio.create_task(_reader())
+    pending_chunk: dict | None = None
+
+    try:
+        while True:
+            if pending_chunk is not None:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=delay)
+                except (asyncio.TimeoutError, TimeoutError):
+                    yield pending_chunk
+                    pending_chunk = None
+                    continue
+            else:
+                item = await queue.get()
+
+            if item is sentinel:
+                if pending_chunk is not None:
+                    yield pending_chunk
+                    pending_chunk = None
+                break
+
+            if isinstance(item, Exception):
+                if pending_chunk is not None:
+                    yield pending_chunk
+                    pending_chunk = None
+                raise item
+
+            if item.get("type") == "task_chunk":
+                if pending_chunk is not None:
+                    if (
+                        pending_chunk.get("stream") == item.get("stream")
+                        and pending_chunk.get("task_id") == item.get("task_id")
+                        and pending_chunk.get("device_name") == item.get("device_name")
+                        and len(pending_chunk.get("text", "")) < 32768
+                    ):
+                        pending_chunk["text"] += item.get("text", "")
+                        if item.get("seq") is not None:
+                            pending_chunk["seq"] = item["seq"]
+                    else:
+                        yield pending_chunk
+                        pending_chunk = dict(item)
+                else:
+                    pending_chunk = dict(item)
+            else:
+                if pending_chunk is not None:
+                    yield pending_chunk
+                    pending_chunk = None
+                yield item
+    finally:
+        if not reader_task.done():
+            reader_task.cancel()
+            try:
+                await reader_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
 
 def _clean_agent_summary(text: str) -> str:
     """Strip transient heartbeat and background task status tags from assistant stdout."""
@@ -504,7 +626,7 @@ async def direct_agent_stream(
 
     try:
         try:
-            async for evt in _tool_run_on_device(db, user, run_args):
+            async for evt in _coalesced_device_stream(db, user, run_args, delay=0.020):
                 etype = evt.get("type")
                 if etype == "task_chunk":
                     stream_name = evt.get("stream", "stdout")
@@ -547,8 +669,9 @@ async def direct_agent_stream(
             status = result_dict.get("status", "completed")
             exit_code = result_dict.get("exit_code")
             stdout = (result_dict.get("stdout") or "").strip()
-            stderr = (result_dict.get("stderr") or "").strip()
-            err_msg = result_dict.get("error") or stderr or f"退出码 {exit_code}"
+            stderr_raw = (result_dict.get("stderr") or "").strip()
+            stderr = _clean_stderr_noise(stderr_raw)
+            err_msg = result_dict.get("error") or stderr or (f"退出码 {exit_code}" if exit_code not in (None, 0) else "") or "任务异常结束"
 
             is_only_tool_calls = False
             if action == "agent" and stdout:

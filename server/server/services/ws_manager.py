@@ -366,8 +366,11 @@ class DeviceConnectionManager:
             except asyncio.QueueFull:
                 pass
 
-    def push_chunk(self, task_id: str, stream: str, text: str) -> None:
-        self._push(task_id, {"type": "task_chunk", "task_id": task_id, "stream": stream, "text": text})
+    def push_chunk(self, task_id: str, stream: str, text: str, seq: int | None = None) -> None:
+        evt: dict[str, Any] = {"type": "task_chunk", "task_id": task_id, "stream": stream, "text": text}
+        if seq is not None:
+            evt["seq"] = seq
+        self._push(task_id, evt)
 
     def push_alert(self, task_id: str, alert: dict[str, Any]) -> None:
         self._push(task_id, {"type": "task_alert", "task_id": task_id, "alert": alert})

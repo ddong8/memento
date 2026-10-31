@@ -7,7 +7,7 @@ import type { CollectorConfig } from "./config.js";
 import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
-import { parseTaskDispatch, TaskRunner } from "./task-runner.js";
+import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 
 type Log = (message: string) => void;
 
@@ -90,31 +90,34 @@ export class WsTaskClient {
 
   /** Connects and stays connected until disposed. */
   async start(): Promise<void> {
-    let backoff = 2;
+    let attempt = 0;
     while (!this.disposed) {
       this.onConnection(false);
       try {
-        const reason = await this.connectOnce(() => (backoff = 2));
+        const reason = await this.connectOnce(() => {
+          attempt = 0;
+        });
         if (reason === 4003) {
-          this.log("Server rejected the device (4003 unauthorized); retrying");
-          backoff = 5;
+          this.log("Server rejected the device (4003 unauthorized); retrying with backoff");
         }
       } catch (e) {
-        this.log(`WebSocket disconnected or failed: ${e instanceof Error ? e.message : e} (reconnecting in ${backoff}s)`);
+        this.log(`WebSocket disconnected or failed: ${e instanceof Error ? e.message : e}`);
       } finally {
         clearInterval(this.pingTimer);
         this.ws = undefined;
         this.onConnection(false);
       }
       if (this.disposed) break;
+      const delayMs = computeBackoffWithJitter(attempt, { baseMs: 1500, maxMs: 30_000, jitterRatio: 0.25 });
+      attempt++;
+      this.log(`Reconnecting WebSocket in ${(delayMs / 1000).toFixed(1)}s (attempt ${attempt})...`);
       await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, backoff * 1000);
+        const t = setTimeout(resolve, delayMs);
         this.wakeUp = () => {
           clearTimeout(t);
           resolve();
         };
       });
-      backoff = Math.min(Math.max(backoff * 2, 2), 30);
     }
   }
 
@@ -216,14 +219,66 @@ export class WsTaskClient {
             typeof data.length === "number" ? data.length : 512 * 1024,
           );
           break;
+        case "task_log_resync": {
+          if (data.task_id != null) {
+            const taskId = String(data.task_id);
+            const fromSeq = typeof data.from_seq === "number" ? data.from_seq : 1;
+            const resent = this.runner.resendBufferedChunks(taskId, fromSeq);
+            this.log(`Resent ${resent} buffered log chunk(s) for task ${taskId} from seq ${fromSeq}`);
+          }
+          break;
+        }
       }
     } catch (e) {
       this.log(`Error processing frame: ${e instanceof Error ? e.message : e}`);
     }
   }
 
+  private enqueuePending(message: Record<string, unknown>): void {
+    const type = String(message.type ?? "");
+    if (!type || type === "ping" || type === "pong") return;
+
+    // Idempotent deduplication: avoid duplicate chunks on reconnect
+    if (type === "task_chunk" && message.task_id && message.seq !== undefined) {
+      const exists = this.pendingOutbox.some(
+        (m) => m.type === "task_chunk" && m.task_id === message.task_id && m.seq === message.seq
+      );
+      if (!exists) {
+        this.pendingOutbox.push(message);
+      }
+    } else {
+      this.pendingOutbox.push(message);
+    }
+    if (this.pendingOutbox.length > 1000) {
+      // Keep queue bounded; never drop task_finished
+      const dropIdx = this.pendingOutbox.findIndex((m) => m.type !== "task_finished");
+      if (dropIdx !== -1) {
+        this.pendingOutbox.splice(dropIdx, 1);
+      } else {
+        this.pendingOutbox.shift();
+      }
+    }
+  }
+
   sendJson(message: Record<string, unknown>): void {
     const ws = this.ws;
+    const type = String(message.type ?? "");
+    if (type === "ping" || type === "pong") {
+      if (ws?.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify(message));
+        } catch {}
+      }
+      return;
+    }
+
+    // Preserve strict FIFO order: if there are pending messages, enqueue and flush
+    if (this.pendingOutbox.length > 0) {
+      this.enqueuePending(message);
+      this.flushPendingOutbox();
+      return;
+    }
+
     if (ws?.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify(message));
@@ -233,19 +288,7 @@ export class WsTaskClient {
       }
     }
     // Queue critical task messages if socket is not open (e.g. during network or VPN switch)
-    const type = String(message.type ?? "");
-    if (type && type !== "ping" && type !== "pong") {
-      this.pendingOutbox.push(message);
-      if (this.pendingOutbox.length > 500) {
-        // Keep queue bounded; never drop task_finished
-        const dropIdx = this.pendingOutbox.findIndex((m) => m.type !== "task_finished");
-        if (dropIdx !== -1) {
-          this.pendingOutbox.splice(dropIdx, 1);
-        } else {
-          this.pendingOutbox.shift();
-        }
-      }
-    }
+    this.enqueuePending(message);
   }
 
   private flushPendingOutbox(): void {

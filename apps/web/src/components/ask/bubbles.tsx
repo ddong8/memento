@@ -39,8 +39,8 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     }
   }, [isLive]);
 
-  // 始终保持铺满全屏展开，除非用户手动点击折叠
-  const expanded = userToggled ? manualExpanded : true;
+  // 当正在流式推演时（isLive），默认完全舒展铺满；推演完成后平滑收拢为精致指标胶囊（用户可点击胶囊手动展开或全屏查看）
+  const expanded = userToggled ? manualExpanded : Boolean(isLive);
 
   if (!thinking && !isLive) return null;
 
@@ -53,12 +53,13 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   return (
     <>
       <div
+        className="transition-all duration-300"
         style={{
           width: "100%",
           marginBottom: 8,
           borderRadius: 10,
           border: "1px solid var(--aurora-border)",
-          background: "rgba(255, 255, 255, 0.02)",
+          background: isLive ? "rgba(255, 255, 255, 0.03)" : "var(--aurora-chip)",
           overflow: "hidden",
           maxWidth: "100%",
           minWidth: 0,
@@ -70,21 +71,22 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             setUserToggled(true);
             setManualExpanded(!expanded);
           }}
+          className="group/pill hover:bg-white/5 transition-colors"
           style={{
             width: "100%",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "5px 8px",
+            padding: "6px 10px",
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            fontSize: 12,
+            fontSize: 13,
             color: "var(--aurora-fg3)",
             textAlign: "left",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1, overflow: "hidden" }}>
             <Icon
               name="zap"
               size={14}
@@ -98,16 +100,16 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
               {isLive ? t.ask.thinking : t.ask.thinkingDone}
             </span>
             {isLive ? (
-              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: 12, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums" }}>
                 ({durLabel ? `推演中 ${durLabel}` : "推演中"}{countLabel ? ` · ${countLabel}` : ""})
               </span>
             ) : (
-              <span style={{ fontSize: 11, color: "var(--aurora-fg4)", opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+              <span style={{ fontSize: 12, color: "var(--aurora-fg4)", opacity: 0.9, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 ({durLabel ? `耗时 ${durLabel}` : ""}{countLabel ? ` · 共 ${countLabel}` : ""}{speedLabel ? ` · ${speedLabel}` : ""})
               </span>
             )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11.5, color: "var(--aurora-fg4)", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--aurora-fg4)", flexShrink: 0 }}>
             <span
               onClick={(e) => {
                 e.stopPropagation();
@@ -132,19 +134,19 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             style={{
               width: "100%",
               borderTop: "1px solid var(--aurora-border)",
-              padding: "8px 10px",
+              padding: "10px 12px",
               background: "rgba(0, 0, 0, 0.12)",
-              fontSize: 13,
-              lineHeight: 1.6,
+              fontSize: 14,
+              lineHeight: 1.625,
               color: "var(--aurora-fg2)",
               overflowWrap: "anywhere",
               wordBreak: "break-word",
               maxWidth: "100%",
-              maxHeight: 480,
+              maxHeight: isLive ? "none" : 800,
               overflowY: "auto",
             }}
           >
-            <div className="prose prose-sm max-w-none w-full text-xs" style={{ opacity: 0.9, width: "100%", maxWidth: "100%" }}>
+            <div className="prose prose-sm max-w-none w-full" style={{ opacity: 0.95, width: "100%", maxWidth: "100%" }}>
               <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
             </div>
           </div>
@@ -275,18 +277,17 @@ export const UserBubble = memo(function UserBubble({
   return (
     <div className="group/user relative flex justify-end">
       <div
-        className="select-text"
+        className="select-text aurora-bevel"
         style={{
           background: "var(--aurora-accent-soft)",
           color: "var(--aurora-fg1)",
-          padding: "7px 10px 5px 10px",
+          padding: "8px 12px",
           borderRadius: 12,
           maxWidth: "min(96%, 720px)",
           fontSize: 14,
-          lineHeight: 1.5,
+          lineHeight: 1.625,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
           display: "flex",
           flexDirection: "column",
           gap: 5,
@@ -528,7 +529,7 @@ export const AssistantBubble = memo(function AssistantBubble({
       <Glass
         padding="clamp(4px, 1.2vw, 16px)"
         radius={12}
-        className="select-text ask-assistant-bubble-card"
+        className="select-text ask-assistant-bubble-card aurora-bevel"
         style={{
           width: "100%",
           maxWidth: "100%",
@@ -589,12 +590,12 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {content ? (
-        <div className="prose prose-sm max-w-none w-full select-text prose-ask-mobile" style={{ fontSize: 14, lineHeight: 1.58, userSelect: "text", WebkitUserSelect: "text" }}>
+        <div className="prose prose-sm max-w-none w-full select-text prose-ask-mobile" style={{ fontSize: 14, lineHeight: 1.625, userSelect: "text", WebkitUserSelect: "text" }}>
           <MarkdownViewer content={content} isStreaming={isCurrentlyStreaming} />
         </div>
       ) : (
         !hasTools && !thinking && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--aurora-fg4)", fontSize: 14, lineHeight: 1.625 }}>
             <span
               style={{
                 width: 8,
@@ -620,7 +621,7 @@ export const AssistantBubble = memo(function AssistantBubble({
             borderRadius: 10,
             background: "rgba(239, 68, 68, 0.08)",
             border: "1px solid rgba(239, 68, 68, 0.25)",
-            fontSize: 12.5,
+            fontSize: 13,
             gap: 8,
             flexWrap: "wrap",
           }}

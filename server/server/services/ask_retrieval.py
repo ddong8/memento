@@ -5,9 +5,12 @@ documents, and the core memories recalled alongside them.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import logging
+import math
 import os
 import re
+from typing import Any
 import uuid
 
 
@@ -304,6 +307,67 @@ async def retrieve(
     return sources
 
 
+def compute_ebbinghaus_memory_score(
+    cosine_sim: float,
+    last_recalled_at: datetime | None,
+    recall_count: int,
+    created_at: datetime | None = None,
+    lambda_decay: float = 0.05,
+    now: datetime | None = None,
+) -> float:
+    """Calculate Ebbinghaus retention / recall score for a memory:
+    Score = CosineSimilarity * exp(-lambda * delta_days) * log(2 + recall_count)
+    """
+    sim = max(0.0, float(cosine_sim))
+    now = now or datetime.now(timezone.utc)
+    ref_time = last_recalled_at or created_at
+    if ref_time:
+        if ref_time.tzinfo is None:
+            ref_time = ref_time.replace(tzinfo=timezone.utc)
+        delta_days = max(0.0, (now - ref_time).total_seconds() / 86400.0)
+    else:
+        delta_days = 0.0
+
+    decay = math.exp(-lambda_decay * delta_days)
+    reinforce = math.log(2.0 + max(0, int(recall_count or 0)))
+    return sim * decay * reinforce
+
+
+def _to_float_vector(raw: Any) -> list[float] | None:
+    """Normalize raw vector representation (pgvector Vector, list, numpy array or json string) to list[float]."""
+    if raw is None:
+        return None
+    if isinstance(raw, (list, tuple)):
+        return [float(x) for x in raw]
+    if hasattr(raw, "tolist"):
+        return [float(x) for x in raw.tolist()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json
+                return [float(x) for x in json.loads(s)]
+            except Exception:
+                pass
+    return None
+
+
+def _vector_cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Cosine similarity between two numeric vectors in [0.0, 1.0]."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot = 0.0
+    norm1 = 0.0
+    norm2 = 0.0
+    for a, b in zip(v1, v2):
+        dot += a * b
+        norm1 += a * a
+        norm2 += b * b
+    if norm1 > 0 and norm2 > 0:
+        return dot / (math.sqrt(norm1) * math.sqrt(norm2))
+    return 0.0
+
+
 async def retrieve_core_memories(
     db: AsyncSession,
     user: User,
@@ -318,7 +382,9 @@ async def retrieve_core_memories(
     Prevents cross-project memory contamination (e.g. 30+ projects) by:
     1. Always including global rules and user preferences (rule, preference, general).
     2. Pinpointing project-specific memories (matching active project slug/path).
-    3. Fusing keyword matching against UserMemory content for the current question.
+    3. Fusing vector semantic similarity recall with Ebbinghaus time decay:
+       Score = CosineSimilarity * exp(-lambda * delta_days) * log(2 + recall_count)
+       with resilient fallback to keyword substring matching if vector provider is offline.
     """
     proj_slug: str | None = None
 
@@ -344,94 +410,133 @@ async def retrieve_core_memories(
             else:
                 proj_slug = bname
 
-    collected: list[UserMemory] = []
+    # 1. Obtain question embedding if query provided
+    qvec: list[float] | None = None
+    clean_q = (question or "").strip()
+    if clean_q:
+        try:
+            from .embedding_service import _call_embedding_server
+            embeds = await _call_embedding_server([clean_q], timeout=5.0)
+            if embeds and embeds[0]:
+                qvec = embeds[0]
+        except Exception as e:
+            logger.debug("Failed to obtain question embedding for core memories: %s", e)
+
+    # 2. Query active candidate memories for user
+    candidates: list[UserMemory] = []
     seen_ids: set[uuid.UUID] = set()
 
-    def _add_mem(mem: UserMemory):
-        if mem.id not in seen_ids and not mem.is_folder and (mem.content or "").strip():
-            seen_ids.add(mem.id)
-            collected.append(mem)
-
-    # 1. Active project-scoped memories (Top priority)
-    if proj_slug:
-        slug_clean = proj_slug.lower()
-        proj_q = (
-            select(UserMemory)
-            .where(
-                UserMemory.user_id == user.id,
-                UserMemory.is_folder.is_(False),
-                UserMemory.status == "active",
-                or_(
-                    UserMemory.tree_path.ilike(f"%{slug_clean}%"),
-                    UserMemory.key.ilike(f"%{slug_clean}%"),
-                    UserMemory.category == "architecture",
-                ),
-            )
-            .order_by(UserMemory.confidence.desc(), UserMemory.updated_at.desc())
-            .limit(6)
-        )
-        for m in (await db.execute(proj_q)).scalars().all():
-            _add_mem(m)
-
-    # 2. Global rules, guidelines, pitfalls & developer preferences (Always preserved)
-    rules_q = (
-        select(UserMemory)
-        .where(
-            UserMemory.user_id == user.id,
-            UserMemory.is_folder.is_(False),
-            UserMemory.status == "active",
-            UserMemory.category.in_(["rule", "rules", "pitfall", "iron_rule", "preference", "general"]),
-        )
-        .order_by(
-            case(
-                (UserMemory.category.in_(["rule", "rules", "iron_rule", "pitfall"]), 1),
-                else_=2,
-            ),
-            UserMemory.confidence.desc(),
-            UserMemory.updated_at.desc(),
-        )
-        .limit(8)
-    )
-    for m in (await db.execute(rules_q)).scalars().all():
-        _add_mem(m)
-
-    # 3. Keyword matching against user memory content for the current question
-    tokens = [t.strip() for t in re.split(r"[\s,;，；]+", question) if len(t.strip()) >= 2]
-    if tokens:
-        kw_conds = [UserMemory.content.ilike(f"%{tok[:20]}%") for tok in tokens[:4]]
-        if kw_conds:
-            kw_q = (
+    # A. HNSW Vector ANN search on UserMemory via idx_user_memories_embedding_hnsw
+    if qvec is not None:
+        try:
+            vec_q = (
                 select(UserMemory)
                 .where(
                     UserMemory.user_id == user.id,
                     UserMemory.is_folder.is_(False),
                     UserMemory.status == "active",
-                    or_(*kw_conds),
+                    UserMemory.embedding.is_not(None),
                 )
-                .order_by(UserMemory.confidence.desc(), UserMemory.updated_at.desc())
-                .limit(4)
+                .order_by(UserMemory.embedding.cosine_distance(qvec).asc())
+                .limit(60)
             )
-            for m in (await db.execute(kw_q)).scalars().all():
-                _add_mem(m)
+            for vm in (await db.execute(vec_q)).scalars().all():
+                if vm.id not in seen_ids:
+                    candidates.append(vm)
+                    seen_ids.add(vm.id)
+        except Exception as e:
+            logger.debug("HNSW vector candidate query on UserMemory fallback: %s", e)
 
-    # 4. Fill remaining budget with highest confidence general memories if needed
-    if len(collected) < limit:
-        remain = limit - len(collected)
-        fill_q = (
-            select(UserMemory)
-            .where(
-                UserMemory.user_id == user.id,
-                UserMemory.is_folder.is_(False),
-                UserMemory.status == "active",
-            )
-            .order_by(UserMemory.confidence.desc(), UserMemory.updated_at.desc())
-            .limit(remain + 5)
+    # B. High-priority iron rules, pitfalls and recent candidate memories
+    cand_q = (
+        select(UserMemory)
+        .where(
+            UserMemory.user_id == user.id,
+            UserMemory.is_folder.is_(False),
+            UserMemory.status == "active",
         )
-        for m in (await db.execute(fill_q)).scalars().all():
-            if len(collected) >= limit:
-                break
-            _add_mem(m)
+        .order_by(
+            case(
+                (UserMemory.category.in_(["iron_rule", "rule", "pitfall"]), 1),
+                else_=2,
+            ),
+            UserMemory.confidence.desc(),
+            UserMemory.updated_at.desc(),
+        )
+        .limit(160)
+    )
+    for rm in (await db.execute(cand_q)).scalars().all():
+        if rm.id not in seen_ids:
+            candidates.append(rm)
+            seen_ids.add(rm.id)
 
-    chosen = collected[:limit]
+    # 3. Score all candidate memories via Vector Semantic Cosine Similarity + Ebbinghaus Decay + Project & Rules Boost
+    scored_candidates: list[tuple[float, UserMemory]] = []
+    processed_ids: set[uuid.UUID] = set()
+    now_utc = datetime.now(timezone.utc)
+    tokens = [t.strip().lower() for t in re.split(r"[\s,;，；]+", clean_q) if len(t.strip()) >= 2] if clean_q else []
+    slug_clean = proj_slug.lower() if proj_slug else None
+
+    for m in candidates:
+        if m.id in processed_ids or m.is_folder or not (m.content or "").strip():
+            continue
+        processed_ids.add(m.id)
+
+        # Check project affinity
+        is_project_match = False
+        if slug_clean:
+            is_project_match = (
+                slug_clean in (m.tree_path or "").lower()
+                or slug_clean in (m.key or "").lower()
+                or m.category == "architecture"
+            )
+
+        # Calculate semantic cosine similarity
+        mem_vec = _to_float_vector(getattr(m, "embedding", None))
+        if qvec and mem_vec:
+            sim = _vector_cosine_similarity(qvec, mem_vec)
+        elif clean_q and tokens:
+            overlap = sum(1 for tok in tokens if tok in (m.content or "").lower() or tok in (m.key or "").lower())
+            sim = min(1.0, 0.35 + 0.25 * overlap) if overlap > 0 else 0.0
+        else:
+            sim = 0.5 if not clean_q else 0.0
+
+        # Ebbinghaus retention score: Score = CosineSimilarity * exp(-lambda * delta_days) * log(2 + recall_count)
+        ebbinghaus = compute_ebbinghaus_memory_score(
+            cosine_sim=sim,
+            last_recalled_at=m.last_recalled_at,
+            recall_count=m.recall_count,
+            created_at=m.created_at,
+            lambda_decay=0.05,
+            now=now_utc,
+        )
+
+        confidence = getattr(m, "confidence", 1.0)
+        score = ebbinghaus * confidence
+
+        # If zero or negative direct similarity, provide baseline priority so essential
+        # rules and project constraints are retained if the quota has room
+        if score <= 0.0:
+            if m.category in ("iron_rule", "rule", "pitfall"):
+                score = 0.15 * confidence
+            elif is_project_match:
+                score = 0.12 * confidence
+            elif m.category in ("preference", "general"):
+                score = 0.05 * confidence
+            else:
+                score = 0.01
+
+        # Project affinity boost
+        if is_project_match:
+            score *= 1.4
+
+        # Rules / guidelines defense boost
+        if m.category in ("iron_rule", "rule", "pitfall"):
+            score *= 1.25
+
+        scored_candidates.append((score, m))
+
+    scored_candidates.sort(key=lambda x: x[0], reverse=True)
+    chosen = [m for _, m in scored_candidates[:limit]]
     await touch_recalled(m.id for m in chosen)
     return chosen

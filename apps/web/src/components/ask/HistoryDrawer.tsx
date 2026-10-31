@@ -900,6 +900,34 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     return groups;
   }, [filteredConversations, searchQuery, liveRunningIds, isZh]);
 
+  // Performance optimization: windowed on-demand rendering to eliminate frame drops on drawer open
+  const INITIAL_RENDER_LIMIT = 32;
+  const BATCH_RENDER_SIZE = 32;
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
+
+  useEffect(() => {
+    if (open) {
+      if (activeConversationId) {
+        const idx = filteredConversations.findIndex((c) => c.id === activeConversationId);
+        if (idx >= 0) {
+          setRenderLimit(Math.max(INITIAL_RENDER_LIMIT, idx + 12));
+          return;
+        }
+      }
+      setRenderLimit(INITIAL_RENDER_LIMIT);
+    }
+  }, [open, searchQuery, activeConversationId, filteredConversations]);
+
+  const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 260) {
+      setRenderLimit((prev) => {
+        if (prev >= filteredConversations.length) return prev;
+        return Math.min(prev + BATCH_RENDER_SIZE, filteredConversations.length);
+      });
+    }
+  }, [filteredConversations.length]);
+
   // Keyboard shortcut: Escape to close drawer
   useEffect(() => {
     if (!open) return;
@@ -1201,6 +1229,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
 
         {/* Drawer List */}
         <div
+          onScroll={handleListScroll}
           style={{
             flex: 1,
             overflowY: "auto",
@@ -1222,74 +1251,109 @@ export const HistoryDrawer = memo(function HistoryDrawer({
               {searchQuery ? (isZh ? "未找到匹配的会话" : "No matching sessions found") : t.ask.noHistory}
             </div>
           ) : (
-            conversationGroups.map((group) => (
-              <div
-                key={group.id}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 3,
-                  marginBottom: 8,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "6px 6px 4px 6px",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: "var(--aurora-fg4)",
-                    letterSpacing: "0.02em",
-                    userSelect: "none",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 5,
-                      height: 5,
-                      borderRadius: "50%",
-                      background:
-                        group.id === "running"
-                          ? "#10b981"
-                          : group.id === "pinned"
-                          ? "#f59e0b"
-                          : "var(--aurora-accent)",
-                      opacity: 0.85,
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span>{group.title}</span>
-                  <span style={{ fontSize: 10.5, opacity: 0.6, fontVariantNumeric: "tabular-nums" }}>
-                    ({group.items.length})
-                  </span>
-                </div>
-                {group.items.map((c) => (
-                  <ConversationItem
-                    key={c.id}
-                    conversation={c}
-                    isActive={c.id === activeConversationId}
-                    isBatchMode={batchSelectMode}
-                    isSelected={selectedConvIds.has(c.id)}
-                    isRunning={liveRunningIds.has(c.id)}
-                    searchQuery={searchQuery}
-                    onSelect={(id) => {
-                      onClose();
-                      onSelectConversation(id);
-                    }}
-                    onToggleBatch={handleToggleBatch}
-                    onPrefetch={onPrefetchTurns}
-                    onTogglePin={onTogglePinConversation}
-                    onShare={onOpenSingleShare}
-                    onRename={onRenameConversation}
-                    onDelete={onDeleteConversation}
-                    isZh={isZh}
-                    t={t}
-                  />
-                ))}
-              </div>
-            ))
+            (() => {
+              let runningRenderCount = 0;
+              return (
+                <>
+                  {conversationGroups.map((group) => {
+                    const remainingQuota = renderLimit - runningRenderCount;
+                    if (remainingQuota <= 0) return null;
+                    const itemsToRender = group.items.slice(0, remainingQuota);
+                    runningRenderCount += itemsToRender.length;
+                    return (
+                      <div
+                        key={group.id}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 3,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "6px 6px 4px 6px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--aurora-fg4)",
+                            letterSpacing: "0.02em",
+                            userSelect: "none",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 5,
+                              height: 5,
+                              borderRadius: "50%",
+                              background:
+                                group.id === "running"
+                                  ? "#10b981"
+                                  : group.id === "pinned"
+                                  ? "#f59e0b"
+                                  : "var(--aurora-accent)",
+                              opacity: 0.85,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span>{group.title}</span>
+                          <span style={{ fontSize: 10.5, opacity: 0.6, fontVariantNumeric: "tabular-nums" }}>
+                            ({group.items.length})
+                          </span>
+                        </div>
+                        {itemsToRender.map((c) => (
+                          <ConversationItem
+                            key={c.id}
+                            conversation={c}
+                            isActive={c.id === activeConversationId}
+                            isBatchMode={batchSelectMode}
+                            isSelected={selectedConvIds.has(c.id)}
+                            isRunning={liveRunningIds.has(c.id)}
+                            searchQuery={searchQuery}
+                            onSelect={(id) => {
+                              onClose();
+                              onSelectConversation(id);
+                            }}
+                            onToggleBatch={handleToggleBatch}
+                            onPrefetch={onPrefetchTurns}
+                            onTogglePin={onTogglePinConversation}
+                            onShare={onOpenSingleShare}
+                            onRename={onRenameConversation}
+                            onDelete={onDeleteConversation}
+                            isZh={isZh}
+                            t={t}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
+                  {filteredConversations.length > renderLimit && (
+                    <div style={{ textAlign: "center", padding: "10px 0 6px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setRenderLimit(filteredConversations.length)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 8,
+                          border: "1px dashed var(--aurora-border)",
+                          background: "var(--aurora-surface)",
+                          color: "var(--aurora-fg3)",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {isZh
+                          ? `展开剩余 ${filteredConversations.length - renderLimit} 条会话 (已加载 ${renderLimit}/${filteredConversations.length})`
+                          : `Load remaining ${filteredConversations.length - renderLimit} (loaded ${renderLimit}/${filteredConversations.length})`}
+                      </button>
+                    </div>
+                  )}
+                </>
+              );
+            })()
           )}
           {batchSelectMode && (
             <div

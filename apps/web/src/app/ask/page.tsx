@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getApiBase, authFetch, api, DeviceSummary, AskConversationSummary, ProjectSummary, seedApiEtagCache, invalidateApiCache, type AgentQuotasResponse, type AskConversationDetail } from "@/lib/api-client";
@@ -76,6 +76,75 @@ function replaceAskUrl(hiddenUrl: { current: string | null }, url: string) {
 // Module-level in-memory cache to preserve state when switching menus in-app
 let askCache: CachedAskState | null = null;
 
+class ActiveStreamingTurnStore {
+  private current: Turn | null = null;
+  private listeners = new Set<(turn: Turn | null) => void>();
+
+  get(): Turn | null {
+    return this.current;
+  }
+
+  set(turn: Turn | null) {
+    this.current = turn;
+    for (const l of this.listeners) {
+      l(turn);
+    }
+  }
+
+  subscribe(listener: (turn: Turn | null) => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+}
+
+const ActiveStreamingTurnBubble = memo(function ActiveStreamingTurnBubble({
+  store,
+  index,
+  isReconnecting,
+  prevUserCreatedAt,
+  onSourcesClick,
+  onSmartCompactAndRetry,
+  onShareTurn,
+  t,
+}: {
+  store: ActiveStreamingTurnStore;
+  index: number;
+  isReconnecting: boolean;
+  prevUserCreatedAt?: string;
+  onSourcesClick: (sources: Source[]) => void;
+  onSmartCompactAndRetry: (sid?: string) => void;
+  onShareTurn?: (index: number) => void;
+  t: any;
+}) {
+  const [turn, setTurn] = useState<Turn | null>(() => store.get());
+
+  useEffect(() => {
+    return store.subscribe((newTurn) => {
+      setTurn(newTurn ? { ...newTurn } : null);
+    });
+  }, [store]);
+
+  if (!turn) return null;
+
+  return (
+    <div className="flex-1 min-w-0">
+      <AssistantBubble
+        index={index}
+        turn={turn}
+        isLast={true}
+        streaming={true}
+        isReconnecting={isReconnecting}
+        prevUserCreatedAt={prevUserCreatedAt}
+        onSourcesClick={onSourcesClick}
+        onSmartCompactAndRetry={onSmartCompactAndRetry}
+        onShareTurn={onShareTurn}
+        t={t}
+      />
+    </div>
+  );
+});
 
 function AskPageContent() {
   const router = useRouter();
@@ -99,7 +168,10 @@ function AskPageContent() {
 
   const inspector = useMediaInspector();
   const syncTurnsMedia = inspector?.syncTurnsMedia;
-  const [turns, setTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
+  const streamingTurnStoreRef = useRef<ActiveStreamingTurnStore>(new ActiveStreamingTurnStore());
+  const [staticTurns, setStaticTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
+  const turns = staticTurns;
+  const setTurns = setStaticTurns;
 
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
@@ -182,6 +254,7 @@ function AskPageContent() {
   const lastPasteTimeRef = useRef<number>(0);
   const recentPastedFingerprintsRef = useRef<Map<string, number>>(new Map());
   const warmedAskRef = useRef<boolean>(false);
+  const lastScrollTopRef = useRef<number>(0);
 
   const addFilesAsImages = useCallback(async (files: FileList | File[] | null, isPaste = false) => {
     if (!files || files.length === 0) return;
@@ -798,6 +871,7 @@ function AskPageContent() {
     }
     turnsDirtyRef.current = false;
     streamingRef.current = false;
+    streamingTurnStoreRef.current.set(null);
     setStreaming(false);
     setIsReconnecting(false);
     if (askCache) {
@@ -809,12 +883,13 @@ function AskPageContent() {
   const [historyFilterDevice, setHistoryFilterDevice] = useState<boolean>(false);
 
   // Load conversation list
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (filterDev?: string) => {
     try {
       if (conversations.length === 0) {
         setLoadingHistory(true);
       }
-      const list = await api.listAskConversations();
+      const devToQuery = filterDev !== undefined ? filterDev : selectedDeviceRef.current;
+      const list = await api.listAskConversations(devToQuery);
       const safeList = list || [];
       setConversations(safeList);
       try {
@@ -842,6 +917,15 @@ function AskPageContent() {
       setLoadingHistory(false);
     }
   }, [conversations.length]);
+
+  const handleHistoryFilterDeviceChange = useCallback((filterCurrent: boolean) => {
+    setHistoryFilterDevice(filterCurrent);
+    if (!filterCurrent) {
+      void loadConversations("all");
+    } else if (selectedDeviceRef.current) {
+      void loadConversations(selectedDeviceRef.current);
+    }
+  }, [loadConversations]);
 
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
@@ -1267,6 +1351,7 @@ function AskPageContent() {
         detachStream();
       }
 
+      streamingTurnStoreRef.current.set(null);
       setHistoryOpen(false);
       setSourcesOpen(false);
 
@@ -1422,6 +1507,7 @@ function AskPageContent() {
     setShowCwd(false);
     setCompactMode(false);
     turnsRef.current = [];
+    streamingTurnStoreRef.current.set(null);
     setTurns([]);
     setInput("");
 
@@ -2550,15 +2636,19 @@ function AskPageContent() {
     void reloadCapabilities(false);
   }, [executionMode, selectedDevice, reloadCapabilities]);
 
-  // Throttled patchLast: mutate ref immediately. When immediate is requested or tab is hidden, flush immediately; otherwise coalesce via requestAnimationFrame.
+  // Throttled patchLast: mutate ref and notify decoupled streamingTurnStore without triggering top-level AskPage re-render
   const patchLast = useCallback((fn: (turn: Turn) => Turn, immediate = false) => {
     const arr = turnsRef.current;
     const i = arr.length - 1;
+    let activeTurn: Turn;
     if (i >= 0 && arr[i].role === "assistant") {
       arr[i] = fn(arr[i]);
+      activeTurn = arr[i];
     } else {
-      arr.push(fn({ role: "assistant", content: "", toolCalls: [] }));
+      activeTurn = fn({ role: "assistant", content: "", toolCalls: [] });
+      arr.push(activeTurn);
     }
+
     const isHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
     if (immediate || isHidden) {
       if (rafIdRef.current) {
@@ -2566,14 +2656,17 @@ function AskPageContent() {
         rafIdRef.current = 0;
       }
       turnsDirtyRef.current = false;
-      setTurns([...turnsRef.current]);
+      streamingTurnStoreRef.current.set(activeTurn);
       return;
     }
     if (!turnsDirtyRef.current) {
       turnsDirtyRef.current = true;
       rafIdRef.current = window.requestAnimationFrame(() => {
         turnsDirtyRef.current = false;
-        setTurns([...turnsRef.current]);
+        const currentLast = turnsRef.current[turnsRef.current.length - 1];
+        if (currentLast?.role === "assistant") {
+          streamingTurnStoreRef.current.set(currentLast);
+        }
       });
     }
   }, []);
@@ -3299,6 +3392,7 @@ function AskPageContent() {
         turnsRef.current = finalTurns;
       }
     }
+    streamingTurnStoreRef.current.set(null);
     setTurns(finalTurns);
     if (!userCancelledRef.current) {
       pendingScrollToBottomRef.current = true;
@@ -3406,7 +3500,16 @@ function AskPageContent() {
     }
 
     turnsRef.current = turnsToUse;
-    setTurns([...turnsToUse]);
+    const activeAttachTurn = turnsToUse.length > 0 && turnsToUse[turnsToUse.length - 1].role === "assistant"
+      ? turnsToUse[turnsToUse.length - 1]
+      : null;
+    if (activeAttachTurn) {
+      streamingTurnStoreRef.current.set(activeAttachTurn);
+      setStaticTurns(turnsToUse.slice(0, -1));
+    } else {
+      streamingTurnStoreRef.current.set(null);
+      setStaticTurns(turnsToUse);
+    }
     streamingRef.current = true;
     setStreaming(true);
     if (askCache) {
@@ -3500,13 +3603,16 @@ function AskPageContent() {
       setIsConfigCollapsed(true);
     }
     const nowIso = new Date().toISOString();
-    const initialTurns: Turn[] = [
+    const userTurn: Turn = { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined, created_at: nowIso };
+    const activeTurn: Turn = { role: "assistant", content: "", toolCalls: [], started_at: nowIso, model: selectedModel || undefined, execution_mode: executionMode };
+    const staticList: Turn[] = [
       ...turns.filter((x) => !x.error),
-      { role: "user", content: question, images: sendImages.length > 0 ? sendImages : undefined, created_at: nowIso },
-      { role: "assistant", content: "", toolCalls: [], started_at: nowIso, model: selectedModel || undefined, execution_mode: executionMode },
+      userTurn,
     ];
+    const initialTurns: Turn[] = [...staticList, activeTurn];
     turnsRef.current = initialTurns;
-    setTurns(initialTurns);
+    streamingTurnStoreRef.current.set(activeTurn);
+    setStaticTurns(staticList);
     if (activeConversationId) {
       // The whole cascade: opening this conversation from the cache sets every field from it
       conversationTurnsCache.set(activeConversationId, {
@@ -3997,6 +4103,7 @@ function AskPageContent() {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
+    void loadConversations(newDev);
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
@@ -4634,6 +4741,13 @@ function AskPageContent() {
               if (askCache) {
                 askCache.scrollTop = el.scrollTop;
               }
+              const st = el.scrollTop;
+              if (st > lastScrollTopRef.current + 15 && st > 50) {
+                if (typeof window !== "undefined" && window.innerWidth < 768) {
+                  setIsConfigCollapsed(true);
+                }
+              }
+              lastScrollTopRef.current = st;
               const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
               const shouldShow = dist > 180;
               if (shouldShow !== showScrollBottomRef.current) {
@@ -4718,6 +4832,20 @@ function AskPageContent() {
           </div>
         )}
         {renderedTurns}
+        <ActiveStreamingTurnBubble
+          store={streamingTurnStoreRef.current}
+          index={staticTurns.length}
+          isReconnecting={isReconnecting}
+          prevUserCreatedAt={
+            staticTurns.length > 0 && staticTurns[staticTurns.length - 1]?.role === "user"
+              ? staticTurns[staticTurns.length - 1].created_at
+              : undefined
+          }
+          onSourcesClick={handleSourcesClick}
+          onSmartCompactAndRetry={handleSmartCompactAndRetry}
+          onShareTurn={handleShareAssistantTurn}
+          t={t}
+        />
         <div ref={bottomRef} style={{ height: 1, minHeight: 1, overflow: "hidden", pointerEvents: "none" }} />
       </div>
     </div>
@@ -4803,8 +4931,8 @@ function AskPageContent() {
       className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
       style={{
         paddingBottom: viewportBottomOffset > 0
-          ? `${viewportBottomOffset + 2}px`
-          : "max(0.125rem, env(safe-area-inset-bottom, 0.125rem))",
+          ? `${viewportBottomOffset + 4}px`
+          : "max(0.625rem, calc(env(safe-area-inset-bottom, 0px) + 0.375rem))",
         transition: "padding-bottom 0.15s cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
@@ -6228,6 +6356,9 @@ function AskPageContent() {
                   onPaste={handlePaste}
                   onFocus={() => {
                     setIsInputFocused(true);
+                    if (typeof window !== "undefined" && window.innerWidth < 768) {
+                      setIsConfigCollapsed(true);
+                    }
                     if (!warmedAskRef.current) {
                       warmedAskRef.current = true;
                       api.warmupAsk().catch(() => {});
@@ -6395,7 +6526,7 @@ function AskPageContent() {
         onOpenSingleShare={openSingleShare}
         onOpenBatchShare={shareFromHistory}
         onPrefetchTurns={prefetchConversationTurns}
-        onFilterDeviceChange={setHistoryFilterDevice}
+        onFilterDeviceChange={handleHistoryFilterDeviceChange}
         onRefreshConversations={loadConversations}
         isZh={isZh}
         t={t}

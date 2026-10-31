@@ -322,6 +322,69 @@ class TestManualMemoryProtection(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(journal.stage_metrics["promoted_count"], 0)
         self.assertIn("保留手写", journal.report_markdown)
 
+    async def test_dreaming_discovers_and_registers_domain_scenario(self):
+        from server.services.mind_resonance_service import get_all_scenarios, reset_scenarios_to_default
+
+        reset_scenarios_to_default()
+        user = User(id=uuid.uuid4(), email="scientist@example.com")
+        llm_json = {
+            "light_sleep_notes": "清洗量子计算与分子动力学对话记录",
+            "rem_reflections": "提炼出高频量子化学模拟特征与收敛性约定",
+            "deep_consolidations": "生成新兴领域场景并固化至 L3 Core Memory",
+            "promoted_memories": [],
+            "discovered_relations": [],
+            "discovered_scenarios": [
+                {
+                    "id": "quantum_chem",
+                    "name": "量子化学模拟与DFT计算",
+                    "keywords": ["dft", "gaussian", "orca", "基组"],
+                    "mindset": "收敛精度第一，严禁盲目加大基组；基准测试先行。",
+                    "target_project": "quantum_orca",
+                    "anchors": ["DFT", "ORCA", "Gaussian"],
+                    "defense_rules": [
+                        "1) 计算前必须先进行小基组预优化，严禁直接上大基组耗尽资源。",
+                    ],
+                    "device_affinity": "linux",
+                }
+            ],
+        }
+
+        def result(scalar_items=None, all_items=None, one_item=None):
+            m = MagicMock()
+            m.scalars.return_value.all.return_value = scalar_items or []
+            m.all.return_value = all_items or []
+            m.scalar_one_or_none.return_value = one_item
+            return m
+
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        mock_db.execute.side_effect = [
+            result(), result(),                      # extract_canonical_projects
+            result(), result(), result(),            # daily, ask, user voice
+            result(), result(all_items=[("t", "session", "s")]),  # docs, entities
+            result(),                                # existing core memories
+            result(one_item=None),                   # lookup for existing scenario in UserMemory
+        ]
+        with patch("server.services.dreaming_service.get_ai_providers", return_value=[{"provider": "t"}]), \
+             patch("server.services.dreaming_service.call_plain_chat", AsyncMock(return_value=json.dumps(llm_json))):
+            journal = await run_dreaming_pipeline(mock_db, user, days_back=1)
+
+        self.assertEqual(journal.stage_metrics.get("discovered_scenarios"), 1)
+        self.assertIn("量子化学模拟与DFT计算", journal.report_markdown)
+
+        # Verify mind resonance service now recognizes the registered scenario
+        all_scens = {s["id"]: s for s in get_all_scenarios()}
+        self.assertIn("quantum_chem", all_scens)
+        self.assertEqual(all_scens["quantum_chem"]["target_project"], "quantum_orca")
+
+        # Verify it was added to UserMemory
+        added_objs = [call[0][0] for call in mock_db.add.call_args_list if len(call[0]) > 0]
+        scen_mem = next((obj for obj in added_objs if isinstance(obj, UserMemory) and obj.category == "resonance_scenario"), None)
+        self.assertIsNotNone(scen_mem)
+        self.assertEqual(scen_mem.key, "scenario_quantum_chem")
+
+        reset_scenarios_to_default()
+
 
 if __name__ == "__main__":
     unittest.main()

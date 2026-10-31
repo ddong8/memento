@@ -545,6 +545,7 @@ async def device_websocket_endpoint(
                         tid,
                         data.get("stream", "stdout"),
                         data.get("text", ""),
+                        seq=data.get("seq"),
                     )
             elif msg_type == "agent_event":
                 tid = data.get("task_id")

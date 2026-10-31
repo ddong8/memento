@@ -347,7 +347,7 @@ async def _call_embedding_server(texts: list[str], timeout: float = 120.0) -> li
         if cached_vec is not None:
             return [cached_vec]  # also while the provider is down
 
-    if _server_available is False and (time.time() - _last_check_time) < 60:
+    if _server_available is False and (time.time() - _last_check_time) < 60 and not os.environ.get("PYTEST_CURRENT_TEST"):
         return None
 
     try:

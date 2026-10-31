@@ -724,6 +724,7 @@ class UserMemory(Base):
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # rule | architecture | preference | project | general
     key: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(EMBEDDING_INDEX_DIM) if Vector else Text, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=1.0)
     source: Mapped[str] = mapped_column(String(50), default="dreaming")  # dreaming | manual | mcp
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("user_memories.id", ondelete="CASCADE"), nullable=True, index=True)
@@ -749,6 +750,12 @@ class UserMemory(Base):
         Index("idx_user_memory_user", "user_id", updated_at.desc()),
         Index("idx_user_memory_parent", "user_id", "parent_id"),
         Index("idx_user_memory_tree_path", "user_id", "tree_path"),
+        Index(
+            "idx_user_memories_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
 

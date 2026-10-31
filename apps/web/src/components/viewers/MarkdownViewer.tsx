@@ -773,32 +773,32 @@ const MarkdownViewer = memo(function MarkdownViewer({
             );
           },
           h1: ({ node, children, ...props }: any) => (
-            <h1 className={compactText ? "text-[13.5px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[18px] font-semibold text-[var(--aurora-fg1)] mt-3.5 mb-1.5 first:mt-0 tracking-tight"} {...props}>
+            <h1 className={compactText ? "text-[16px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[18px] font-semibold text-[var(--aurora-fg1)] mt-3.5 mb-1.5 first:mt-0 tracking-tight"} {...props}>
               {children}
             </h1>
           ),
           h2: ({ node, children, ...props }: any) => (
-            <h2 className={compactText ? "text-[13px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[16px] font-semibold text-[var(--aurora-fg1)] mt-3 mb-1 first:mt-0 tracking-tight"} {...props}>
+            <h2 className={compactText ? "text-[15px] font-semibold text-[var(--aurora-fg1)] mt-2 mb-1 first:mt-0 tracking-tight" : "text-[16px] font-semibold text-[var(--aurora-fg1)] mt-3 mb-1 first:mt-0 tracking-tight"} {...props}>
               {children}
             </h2>
           ),
           h3: ({ node, children, ...props }: any) => (
-            <h3 className={compactText ? "text-[12.5px] font-semibold text-[var(--aurora-fg1)] mt-1.5 mb-0.5 first:mt-0" : "text-[14.5px] font-semibold text-[var(--aurora-fg1)] mt-2.5 mb-1 first:mt-0"} {...props}>
+            <h3 className={compactText ? "text-[14px] font-semibold text-[var(--aurora-fg1)] mt-1.5 mb-0.5 first:mt-0" : "text-[15px] font-semibold text-[var(--aurora-fg1)] mt-2.5 mb-1 first:mt-0"} {...props}>
               {children}
             </h3>
           ),
           h4: ({ node, children, ...props }: any) => (
-            <h4 className="text-[13px] font-semibold text-[var(--aurora-fg2)] mt-2 mb-0.5 first:mt-0" {...props}>
+            <h4 className="text-[14px] font-semibold text-[var(--aurora-fg2)] mt-2 mb-0.5 first:mt-0" {...props}>
               {children}
             </h4>
           ),
           h5: ({ node, children, ...props }: any) => (
-            <h5 className="text-[12px] font-semibold text-[var(--aurora-fg2)] mt-1.5 mb-0.5 first:mt-0" {...props}>
+            <h5 className="text-[13px] font-semibold text-[var(--aurora-fg2)] mt-1.5 mb-0.5 first:mt-0" {...props}>
               {children}
             </h5>
           ),
           h6: ({ node, children, ...props }: any) => (
-            <h6 className="text-[11.5px] font-semibold text-[var(--aurora-fg3)] mt-1.5 mb-0.5 first:mt-0 uppercase" {...props}>
+            <h6 className="text-[12px] font-semibold text-[var(--aurora-fg3)] mt-1.5 mb-0.5 first:mt-0 uppercase" {...props}>
               {children}
             </h6>
           ),
@@ -814,23 +814,23 @@ const MarkdownViewer = memo(function MarkdownViewer({
             }
 
             return (
-              <p className={compactText ? "text-[12px] leading-relaxed my-1 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]" : "text-[13.5px] leading-relaxed my-1.5 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]"} {...props}>
+              <p className={compactText ? "text-[13px] leading-[1.5] my-1 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]" : "text-[14px] leading-[1.625] my-1.5 first:mt-0 last:mb-0 text-[var(--aurora-fg1)]"} {...props}>
                 {children}
               </p>
             );
           },
           ul: ({ node, children, ...props }: any) => (
-            <ul className={compactText ? "list-disc pl-4 my-1 space-y-0.5 text-[12px]" : "list-disc pl-5 my-1.5 space-y-1 text-[13.5px]"} {...props}>
+            <ul className={compactText ? "list-disc pl-4 my-1 space-y-0.5 text-[13px] leading-[1.5]" : "list-disc pl-5 my-1.5 space-y-1 text-[14px] leading-[1.625]"} {...props}>
               {children}
             </ul>
           ),
           ol: ({ node, children, ...props }: any) => (
-            <ol className={compactText ? "list-decimal pl-4 my-1 space-y-0.5 text-[12px]" : "list-decimal pl-5 my-1.5 space-y-1 text-[13.5px]"} {...props}>
+            <ol className={compactText ? "list-decimal pl-4 my-1 space-y-0.5 text-[13px] leading-[1.5]" : "list-decimal pl-5 my-1.5 space-y-1 text-[14px] leading-[1.625]"} {...props}>
               {children}
             </ol>
           ),
           li: ({ node, children, ...props }: any) => (
-            <li className={compactText ? "text-[12px] leading-relaxed break-words" : "text-[13.5px] leading-relaxed break-words"} {...props}>
+            <li className={compactText ? "text-[13px] leading-[1.5] break-words" : "text-[14px] leading-[1.625] break-words"} {...props}>
               {children}
             </li>
           ),

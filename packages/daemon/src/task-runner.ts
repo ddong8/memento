@@ -83,7 +83,45 @@ export function smartTruncateOutput(text: string, maxChars = 150_000, headChars 
   return `${head}\n\n... [已自动折叠中间约 ${omittedLines} 行 / ${omitted.toLocaleString()} 字符日志] ...\n\n${tail}`;
 }
 
-const chunk = (taskId: string, stream: "stdout" | "stderr", text: string) => ({ type: "task_chunk", task_id: taskId, stream, text });
+export interface BackoffWithJitterOptions {
+  baseMs?: number;
+  maxMs?: number;
+  factor?: number;
+  jitterRatio?: number;
+}
+
+export function computeBackoffWithJitter(
+  attempt: number,
+  options: BackoffWithJitterOptions = {},
+): number {
+  const {
+    baseMs = 1500,
+    maxMs = 30_000,
+    factor = 2,
+    jitterRatio = 0.3,
+  } = options;
+  const rawBackoff = Math.min(baseMs * Math.pow(factor, Math.max(0, attempt)), maxMs);
+  const jitterRange = rawBackoff * jitterRatio;
+  const jitter = (Math.random() * 2 - 1) * jitterRange;
+  return Math.max(500, Math.min(maxMs, Math.round(rawBackoff + jitter)));
+}
+
+export interface TaskChunkMessage {
+  type: "task_chunk";
+  task_id: string;
+  stream: "stdout" | "stderr";
+  text: string;
+  seq?: number;
+  timestamp?: number;
+}
+
+export const chunk = (taskId: string, stream: "stdout" | "stderr", text: string, seq?: number): TaskChunkMessage => ({
+  type: "task_chunk",
+  task_id: taskId,
+  stream,
+  text,
+  ...(seq !== undefined ? { seq } : {}),
+});
 
 const claudeUserMessage = (text: string) => ({ type: "user", message: { role: "user", content: text } });
 
@@ -451,6 +489,7 @@ type Send = (message: Record<string, unknown>) => void;
  */
 export class TaskRunner {
   private readonly running = new Map<string, ChildProcess>();
+  private readonly taskPids = new Map<string, number>();
   private readonly outputs = new Map<string, { stdout: string; stderr: string }>();
   /** Claude tasks keep stdin open for follow-up instructions until their run ends. */
   private readonly steerInputs = new Map<string, NodeJS.WritableStream & { writable: boolean }>();
@@ -463,12 +502,58 @@ export class TaskRunner {
   /** Per running task: its agent, the session it runs and, for WorkBuddy, the file of the gateway it is on. */
   private readonly taskSessions = new Map<string, { binary: string; sessionId?: string; gatewayFile?: string }>();
   private readonly cancelledTasks = new Set<string>();
+  private readonly taskSeq = new Map<string, number>();
+  private readonly taskLogBuffer = new Map<string, TaskChunkMessage[]>();
+  private readonly MAX_TASK_LOG_BUFFER = 2000;
   private hookBridge: HookBridge | undefined;
 
   constructor(
     private readonly send: Send,
     private readonly log: (message: string) => void = () => {},
   ) {}
+
+  sendChunk(taskId: string, stream: "stdout" | "stderr", text: string): TaskChunkMessage {
+    const nextSeq = (this.taskSeq.get(taskId) ?? 0) + 1;
+    this.taskSeq.set(taskId, nextSeq);
+    const msg: TaskChunkMessage = {
+      type: "task_chunk",
+      task_id: taskId,
+      stream,
+      text,
+      seq: nextSeq,
+      timestamp: Date.now(),
+    };
+    let buf = this.taskLogBuffer.get(taskId);
+    if (!buf) {
+      buf = [];
+      this.taskLogBuffer.set(taskId, buf);
+    }
+    buf.push(msg);
+    if (buf.length > this.MAX_TASK_LOG_BUFFER) {
+      buf.shift();
+    }
+    this.send(msg as unknown as Record<string, unknown>);
+    return msg;
+  }
+
+  getBufferedChunks(taskId: string, fromSeq = 1): TaskChunkMessage[] {
+    const buf = this.taskLogBuffer.get(taskId);
+    if (!buf) return [];
+    return buf.filter((c) => (c.seq ?? 0) >= fromSeq);
+  }
+
+  resendBufferedChunks(taskId: string, fromSeq = 1): number {
+    const toResend = this.getBufferedChunks(taskId, fromSeq);
+    for (const msg of toResend) {
+      this.send(msg as unknown as Record<string, unknown>);
+    }
+    return toResend.length;
+  }
+
+  clearTaskLogBuffer(taskId: string): void {
+    this.taskLogBuffer.delete(taskId);
+    this.taskSeq.delete(taskId);
+  }
 
   get runningTaskIds(): string[] {
     return [...this.running.keys()];
@@ -520,9 +605,11 @@ export class TaskRunner {
 
   cancel(taskId: string): boolean {
     const proc = this.running.get(taskId);
-    this.log(`Cancelling task ${taskId} (proc running: ${Boolean(proc)})`);
+    const pid = this.taskPids.get(taskId) ?? proc?.pid;
+    this.log(`Cancelling task ${taskId} (proc running: ${Boolean(proc)}, pid: ${pid})`);
     this.cancelledTasks.add(taskId);
     this.running.delete(taskId);
+    this.taskPids.delete(taskId);
     this.steerInputs.delete(taskId);
     this.claudeTasks.delete(taskId);
 
@@ -543,8 +630,8 @@ export class TaskRunner {
       void stopWorkbuddyGateway(gatewayFile).catch(() => {});
     }
 
-    if (proc) {
-      killProcessTree(proc);
+    if (proc || pid) {
+      killProcessTree(proc ?? pid);
     }
     // 立即向服务端发送 task_finished (status: cancelled)，防止服务端、灵动岛挂死等待
     this.send(
@@ -589,13 +676,24 @@ export class TaskRunner {
     const echo = `\n[输入] ${text}\n`;
     const out = this.outputs.get(taskId);
     if (out) out.stdout += echo;
-    this.send(chunk(taskId, "stdout", echo));
+    this.sendChunk(taskId, "stdout", echo);
   }
 
 
   dispose(): void {
-    for (const proc of this.running.values()) killProcessTree(proc);
+    const killedPids = new Set<number>();
+    for (const proc of this.running.values()) {
+      if (proc.pid) killedPids.add(proc.pid);
+      killProcessTree(proc);
+    }
+    for (const pid of this.taskPids.values()) {
+      if (!killedPids.has(pid)) {
+        killedPids.add(pid);
+        killProcessTree(pid);
+      }
+    }
     this.running.clear();
+    this.taskPids.clear();
     this.outputs.clear();
     void this.hookBridge?.stop();
     this.hookBridge = undefined;
@@ -613,6 +711,7 @@ export class TaskRunner {
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.running.set(taskId, proc);
+    if (proc.pid) this.taskPids.set(taskId, proc.pid);
     const out = this.outputs.get(taskId)!;
     const { parser } = spec;
 
@@ -705,7 +804,7 @@ export class TaskRunner {
         } else if (!out.stdout.endsWith("[...后续输出过大已转为实时流式传输...]\n")) {
           out.stdout += "\n[...后续输出过大已转为实时流式传输...]\n";
         }
-        this.send(chunk(taskId, "stdout", text));
+        this.sendChunk(taskId, "stdout", text);
       };
       if (consoleText) {
         lineText(proc.stdout, onStdout);
@@ -722,13 +821,13 @@ export class TaskRunner {
             // Preserve paragraph separation while preventing excessive empty lines
             if (out.stdout.endsWith("\n\n")) return;
             out.stdout += "\n";
-            this.send(chunk(taskId, "stdout", "\n"));
+            this.sendChunk(taskId, "stdout", "\n");
             return;
           }
           if (out.stdout.length < 2_500_000) {
             out.stdout += `${line}\n`;
           }
-          this.send(chunk(taskId, "stdout", `${line}\n`));
+          this.sendChunk(taskId, "stdout", `${line}\n`);
           return;
         }
         for (const e of events) {
@@ -736,7 +835,7 @@ export class TaskRunner {
             // What the agent says along the way; the final answer replaces it at the end.
             const text = `${String(e.text)}\n\n`;
             out.stdout += text;
-            this.send(chunk(taskId, "stdout", text));
+            this.sendChunk(taskId, "stdout", text);
           } else {
             this.emitEvent(taskId, e);
           }
@@ -761,7 +860,7 @@ export class TaskRunner {
       const sid = /^session id:\s*(\S+)/m.exec(text)?.[1];
       const sess = this.taskSessions.get(taskId);
       if (sid && sess) sess.sessionId = sid;
-      this.send(chunk(taskId, "stderr", text));
+      this.sendChunk(taskId, "stderr", text);
     };
     if (consoleText) {
       lineText(proc.stderr, onStderr);
@@ -790,7 +889,7 @@ export class TaskRunner {
   private notice(taskId: string, text: string): void {
     const out = this.outputs.get(taskId);
     if (out) out.stderr += text;
-    this.send(chunk(taskId, "stderr", text));
+    this.sendChunk(taskId, "stderr", text);
   }
 
   async execute(task: TaskDispatch): Promise<void> {
@@ -1223,11 +1322,16 @@ export class TaskRunner {
       this.steerInputs.get(taskId)?.end();
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);
+      this.taskPids.delete(taskId);
       const gatewayFile = this.taskSessions.get(taskId)?.gatewayFile;
       this.taskSessions.delete(taskId);
       // Its idle time starts now.
       if (gatewayFile) void touchWorkbuddyGateway(gatewayFile).catch(() => {});
-      setTimeout(() => this.cancelledTasks.delete(taskId), 5000);
+      setTimeout(() => {
+        this.cancelledTasks.delete(taskId);
+        this.taskLogBuffer.delete(taskId);
+        this.taskSeq.delete(taskId);
+      }, 30_000);
     }
   }
 }

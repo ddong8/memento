@@ -358,6 +358,17 @@ _DREAM_PROMPT = """你是一个高阶智能大脑的认知记忆固化中枢（�
    - confidence: 0.0 ~ 1.0 (仅当大于等于 0.75 时才会正式写入)。
 3. **知识图谱关系 (Knowledge Graph Links)**：
    - 如果发现关键概念/技术之间的明确关联，可输出实体关联（如：{{"source": "Windows更新", "target": "PowerShell", "relation": "uses"}}）。
+4. **自进化心智场景 (Evolving Domain Scenarios)**：
+   - 深入分析用户在近期对话与任务中是否形成了新兴的独立业务领域、专属架构偏好或高频工作流。
+   - 若发现具备独立特征的新业务领域，提炼场景对象并放入 `discovered_scenarios`：
+     - id: 规范下划线小写标识 (如: `fintech_risk`, `mobile_flutter`, `bio_data`)
+     - name: 中文场景名 (如: "量化风控与衍生品定价")
+     - keywords: 5~10个核心触发词/项目词列表
+     - mindset: 该领域的核心心智模型与用户底层偏好
+     - target_project: 关联的主工程或项目标识
+     - anchors: 3~6个关键实体锚点
+     - defense_rules: 1~3条针对该领域的防御性避雷/铁律规约
+     - device_affinity: 设备亲和性 ("mac", "linux", "windows" 或 null)
 
 请严格输出合法的 JSON 格式（不要输出任何前后注释或 markdown 外部包裹）：
 {{
@@ -378,6 +389,18 @@ _DREAM_PROMPT = """你是一个高阶智能大脑的认知记忆固化中枢（�
       "source": "实体A",
       "target": "实体B",
       "relation": "uses/depends_on/creates"
+    }}
+  ],
+  "discovered_scenarios": [
+    {{
+      "id": "scenario_id",
+      "name": "场景名称",
+      "keywords": ["关键词1", "关键词2"],
+      "mindset": "心智诉求与偏好",
+      "target_project": "项目标识",
+      "anchors": ["锚点1", "锚点2"],
+      "defense_rules": ["1) 规则一", "2) 规则二"],
+      "device_affinity": null
     }}
   ]
 }}
@@ -1201,6 +1224,7 @@ async def run_dreaming_pipeline(
     # -----------------------------------------------------------------------
     promoted_count = 0
     promoted_details: list[str] = []
+    touched_user_memories: list[UserMemory] = []
 
     for item in promoted:
         cat = str(item.get("category", "general")).strip()
@@ -1237,9 +1261,10 @@ async def run_dreaming_pipeline(
             existing.source = "dreaming"
             existing.tree_path = tree_path
             existing.updated_at = now
+            touched_user_memories.append(existing)
             promoted_details.append(f"- 🔄 更新【{tree_path}】: {content}")
         else:
-            db.add(UserMemory(
+            new_mem = UserMemory(
                 user_id=user.id,
                 category=cat,
                 key=key,
@@ -1249,7 +1274,9 @@ async def run_dreaming_pipeline(
                 tree_path=tree_path,
                 created_at=now,
                 updated_at=now,
-            ))
+            )
+            db.add(new_mem)
+            touched_user_memories.append(new_mem)
             promoted_details.append(f"- 🌟 新增【{tree_path}】: {content}")
         promoted_count += 1
 
@@ -1271,7 +1298,7 @@ async def run_dreaming_pipeline(
             already_covered = any(f"/project/{slug}" in path for path in existing_paths) or expected_key in existing_keys
             if not already_covered:
                 content_desc = f"【{p['title']}】{p['summary']}"
-                db.add(UserMemory(
+                proj_mem = UserMemory(
                     user_id=user.id,
                     category="project",
                     key=expected_key,
@@ -1281,7 +1308,9 @@ async def run_dreaming_pipeline(
                     tree_path=expected_path,
                     created_at=now,
                     updated_at=now,
-                ))
+                )
+                db.add(proj_mem)
+                touched_user_memories.append(proj_mem)
                 existing_paths.add(expected_path)
                 existing_keys.add(expected_key)
                 promoted_count += 1
@@ -1329,6 +1358,105 @@ async def run_dreaming_pipeline(
         except Exception:
             pass  # Non-blocking for graph relation insertion
 
+    # Stage 3.2: Evolving Domain Scenario Learning & Closed-Loop Resonance
+    learned_scenarios_count = 0
+    try:
+        from .mind_resonance_service import get_all_scenarios, register_domain_scenario
+
+        discovered_scenarios = list(llm_output.get("discovered_scenarios") or [])
+        active_scenarios_list = get_all_scenarios()
+        active_scenario_ids = {s.get("id") for s in active_scenarios_list if s.get("id")}
+        active_target_projects = {s.get("target_project", "").lower() for s in active_scenarios_list if s.get("target_project")}
+
+        # Heuristic scenario discovery from recent canonical project clusters if LLM did not propose any
+        if not discovered_scenarios and canonical_projects:
+            for p in canonical_projects:
+                slug = p["slug"]
+                if slug not in active_scenario_ids and slug.lower() not in active_target_projects:
+                    title = p.get("title", slug)
+                    clean_title = title.split("(")[0].strip()
+                    discovered_scenarios.append({
+                        "id": f"proj_{slug}",
+                        "name": f"{clean_title} 领域研发",
+                        "keywords": [slug, clean_title.lower()],
+                        "mindset": f"专注 {title} 业务目标，交付前严格验证，保持代码整洁。",
+                        "target_project": slug,
+                        "anchors": [clean_title, slug],
+                        "defense_rules": [
+                            f"1) 涉及 {slug} 项目的所有改动必须遵循系统架构设计，交付前先自测确认。",
+                        ],
+                        "device_affinity": None,
+                    })
+
+        for scen in discovered_scenarios:
+            sid = scen.get("id")
+            if not sid:
+                continue
+            try:
+                registered = register_domain_scenario(scen)
+                scen_content = json.dumps(registered, ensure_ascii=False)
+                scen_key = f"scenario_{registered['id']}"
+                scen_tree_path = f"/scenario/{registered['id']}"
+
+                existing_scen = (await db.execute(
+                    select(UserMemory).where(
+                        UserMemory.user_id == user.id,
+                        UserMemory.category == "resonance_scenario",
+                        UserMemory.key == scen_key,
+                    ).limit(1)
+                )).scalar_one_or_none()
+
+                if existing_scen:
+                    existing_scen.content = scen_content
+                    existing_scen.confidence = 0.95
+                    existing_scen.source = "dreaming"
+                    existing_scen.tree_path = scen_tree_path
+                    existing_scen.updated_at = now
+                    touched_user_memories.append(existing_scen)
+                    promoted_details.append(f"- 🧬 更新心智场景【{registered['name']} ({registered['id']})】: 规约与偏好已同步至共鸣引擎")
+                else:
+                    scen_mem = UserMemory(
+                        user_id=user.id,
+                        category="resonance_scenario",
+                        key=scen_key,
+                        content=scen_content,
+                        confidence=0.95,
+                        source="dreaming",
+                        tree_path=scen_tree_path,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(scen_mem)
+                    touched_user_memories.append(scen_mem)
+                    promoted_details.append(f"- 🧬 自主学习新兴心智场景【{registered['name']} ({registered['id']})】: 沉淀 {len(registered.get('defense_rules', []))} 条避雷规则")
+                learned_scenarios_count += 1
+            except Exception as e:
+                logger.warning("Failed registering domain scenario %s during dreaming: %s", sid, e)
+
+        if learned_scenarios_count > 0:
+            rem_notes += f"\n- 🧠 场景自进化：成功提炼并闭环注册 {learned_scenarios_count} 个新兴业务心智场景。"
+            deep_notes += f"\n- 心智共鸣：已将 {learned_scenarios_count} 个自主演化场景固化至 L3 Core Memory 并激活动态匹配。"
+    except Exception as e:
+        logger.debug("Domain scenario extraction skipped or failed: %s", e)
+
+    # Batch-generate 1024-dim embeddings for all promoted/updated user memories to feed HNSW index
+    if touched_user_memories:
+        try:
+            from .embedding_service import _call_embedding_server
+            memories_to_embed = [
+                m for m in touched_user_memories
+                if m.content and not getattr(m, "embedding", None)
+            ]
+            if memories_to_embed:
+                texts = [m.content[:800] for m in memories_to_embed]
+                vectors = await _call_embedding_server(texts, timeout=10.0)
+                if vectors:
+                    for mem, vec in zip(memories_to_embed, vectors):
+                        if vec:
+                            mem.embedding = vec
+        except Exception as e:
+            logger.debug("Batch embedding generation in dreaming skipped/failed: %s", e)
+
     # Stage 3.5: Entity disambiguation & deduplication for clean knowledge graph
     try:
         dedup_stats = await deduplicate_and_merge_entities(db, user.id)
@@ -1372,6 +1500,7 @@ async def run_dreaming_pipeline(
         "scanned_items": scanned_count,
         "promoted_count": promoted_count,
         "relations_found": len(relations),
+        "discovered_scenarios": learned_scenarios_count,
         "user_voice": voice_stats,
         "days_back": (until_date - since_date).days + 1,
         "start_date": since_date.isoformat(),

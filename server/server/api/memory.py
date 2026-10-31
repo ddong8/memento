@@ -848,8 +848,20 @@ async def create_core_memory(
         ).limit(1)
     )).scalar_one_or_none()
 
+    # Attempt embedding generation for vector semantic retrieval
+    emb = None
+    try:
+        from ..services.embedding_service import _call_embedding_server
+        embeds = await _call_embedding_server([content], timeout=3.0)
+        if embeds and embeds[0]:
+            emb = embeds[0]
+    except Exception:
+        pass
+
     if existing:
         existing.content = content
+        if emb:
+            existing.embedding = emb
         existing.confidence = body.confidence
         existing.source = "manual"
         existing.parent_id = body.parent_id
@@ -865,6 +877,7 @@ async def create_core_memory(
         category=cat,
         key=key,
         content=content,
+        embedding=emb,
         confidence=body.confidence,
         source="manual",
         parent_id=body.parent_id,
@@ -900,6 +913,13 @@ async def update_core_memory(
         mem.content = body.content.strip()
         # Hand-edited content is the user's now; dreaming must not overwrite it.
         mem.source = "manual"
+        try:
+            from ..services.embedding_service import _call_embedding_server
+            embeds = await _call_embedding_server([mem.content], timeout=3.0)
+            if embeds and embeds[0]:
+                mem.embedding = embeds[0]
+        except Exception:
+            pass
     if body.confidence is not None:
         mem.confidence = body.confidence
     if body.parent_id is not None:

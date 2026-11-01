@@ -888,7 +888,8 @@ function AskPageContent() {
       if (conversations.length === 0) {
         setLoadingHistory(true);
       }
-      const devToQuery = filterDev !== undefined ? filterDev : selectedDeviceRef.current;
+      // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
+      const devToQuery = filterDev !== undefined ? filterDev : "all";
       const list = await api.listAskConversations(devToQuery);
       const safeList = list || [];
       setConversations(safeList);
@@ -4103,7 +4104,11 @@ function AskPageContent() {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
-    void loadConversations(newDev);
+    if (historyFilterDevice && isConcreteDevice(newDev)) {
+      void loadConversations(newDev);
+    } else {
+      void loadConversations("all");
+    }
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
@@ -4715,7 +4720,7 @@ function AskPageContent() {
           selecting={selectTurnsMode}
           onOpenHistory={() => {
             setHistoryOpen(true);
-            void loadConversations();
+            void loadConversations("all");
           }}
           onOpenQuota={() => setQuotaOpen(true)}
           onNewChat={startNewChat}
@@ -6518,6 +6523,7 @@ function AskPageContent() {
         activeConversationId={activeConversationId}
         selectedDevice={selectedDevice}
         devices={devices}
+        projects={projects}
         onSelectConversation={openFromHistory}
         onStartNewChat={startNewChat}
         onDeleteConversation={deleteConversation}

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { safeParseConversationTime } from "../src/components/ask/HistoryDrawer";
+import { resolveSafeProjectName } from "../src/lib/ask/cache";
+import type { AskConversationSummary, DeviceSummary, ProjectSummary } from "../src/lib/api-client";
 
 describe("HistoryDrawer and CommandPalette Optimizations", () => {
   it("safeParseConversationTime handles standard ISO and Safari-style spaced timestamps", () => {
@@ -45,7 +47,7 @@ describe("HistoryDrawer and CommandPalette Optimizations", () => {
       title: `Session ${i}`,
     }));
 
-    const INITIAL_RENDER_LIMIT = 32;
+    const INITIAL_RENDER_LIMIT = 64;
     const calculateInitialLimit = (activeId: string | null, list: { id: string }[]) => {
       if (activeId) {
         const idx = list.findIndex((c) => c.id === activeId);
@@ -56,11 +58,11 @@ describe("HistoryDrawer and CommandPalette Optimizations", () => {
       return INITIAL_RENDER_LIMIT;
     };
 
-    // Case 1: No active conversation -> 32
-    expect(calculateInitialLimit(null, totalConversations)).toBe(32);
+    // Case 1: No active conversation -> 64
+    expect(calculateInitialLimit(null, totalConversations)).toBe(64);
 
-    // Case 2: Active conversation early in list -> 32
-    expect(calculateInitialLimit("conv_5", totalConversations)).toBe(32);
+    // Case 2: Active conversation early in list -> 64
+    expect(calculateInitialLimit("conv_5", totalConversations)).toBe(64);
 
     // Case 3: Active conversation deep in list (conv_60) -> 60 + 12 = 72
     expect(calculateInitialLimit("conv_60", totalConversations)).toBe(72);
@@ -85,12 +87,12 @@ describe("HistoryDrawer and CommandPalette Optimizations", () => {
       return { result, totalRendered: runningCount };
     };
 
-    const { result: sliced32, totalRendered: total32 } = sliceGroups(32);
-    expect(total32).toBe(32);
-    expect(sliced32.length).toBe(2); // today (20) + yesterday (12)
-    expect(sliced32[0].items.length).toBe(20);
-    expect(sliced32[1].items.length).toBe(12);
-    expect(sliced32.find((g) => g.id === "older")).toBeUndefined();
+    const { result: sliced64, totalRendered: total64 } = sliceGroups(64);
+    expect(total64).toBe(64);
+    expect(sliced64.length).toBe(3); // today (20) + yesterday (30) + older (14)
+    expect(sliced64[0].items.length).toBe(20);
+    expect(sliced64[1].items.length).toBe(30);
+    expect(sliced64[2].items.length).toBe(14);
   });
 
   it("verifies CommandPalette flat items 1:1 match with rendered items count", () => {
@@ -125,5 +127,217 @@ describe("HistoryDrawer and CommandPalette Optimizations", () => {
     const withHits = buildFlatItems("update", [{ id: "act_1", category: "action" }], [], [{ id: "doc_1" }]);
     expect(withHits.length).toBe(4);
     expect(withHits.map((x) => x.id)).toEqual(["act_1", "ask_ai_card", "hit_doc_1", "view_all_footer"]);
+  });
+
+  it("resolves project tag and device tag separately, eliminating memento- prefix", () => {
+    const mockProjects: ProjectSummary[] = [
+      {
+        id: "proj_1",
+        title: "memento",
+        slug: "memento",
+        tool_id: "claude_code",
+        source_path: "/Users/haixingdong/dev/memento",
+        visibility: "private",
+        document_count: 10,
+        created_at: "2026-01-01",
+        updated_at: null,
+      },
+      {
+        id: "proj_2",
+        title: "pubchem",
+        slug: "pubchem",
+        tool_id: "claude_code",
+        source_path: "/Users/haixingdong/dev/pubchem",
+        visibility: "private",
+        document_count: 5,
+        created_at: "2026-01-01",
+        updated_at: null,
+      },
+    ];
+
+    const mockDevices: DeviceSummary[] = [
+      {
+        id: "dev_1",
+        device_id: "memento-192e28374-98ad",
+        name: "MacBook Pro (haixingdong)",
+        collector_version: "1.0.96",
+        last_heartbeat: "2026-11-01T10:00:00Z",
+        document_count: 50,
+      },
+      {
+        id: "dev_2",
+        device_id: "DESKTOP-KR9IPP4",
+        name: "DESKTOP-KR9IPP4",
+        collector_version: "1.0.96",
+        last_heartbeat: "2026-11-01T10:00:00Z",
+        document_count: 12,
+      },
+    ];
+
+    // Helper matching ConversationItem tag resolution
+    const resolveTags = (c: AskConversationSummary, isZh = true) => {
+      let safeProjectTitle = "";
+      if (c.project_title && c.project_title.trim()) {
+        safeProjectTitle = c.project_title.trim();
+      } else {
+        const resolved = resolveSafeProjectName({
+          projectId: c.project_id || c.config?.project_id,
+          projectTitle: c.project_title || undefined,
+          projects: mockProjects,
+          cwd: c.cwd || c.config?.cwd,
+          isZh,
+        });
+        if (resolved !== (isZh ? "项目代码库" : "Project")) {
+          safeProjectTitle = resolved;
+        }
+      }
+
+      let resolvedDevName = "";
+      if (c.device_name && c.device_name.trim()) {
+        resolvedDevName = c.device_name
+          .replace(/\.local$/i, "")
+          .replace(/ \(\w+\)$/, "")
+          .trim();
+      } else if (c.device_id) {
+        const found = mockDevices.find(
+          (d) => d.device_id === c.device_id || d.id === c.device_id || d.name === c.device_id
+        );
+        if (found?.name) {
+          resolvedDevName = found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
+        } else if (!c.device_id.startsWith("memento-")) {
+          resolvedDevName = c.device_id;
+        }
+      }
+
+      return { safeProjectTitle, resolvedDevName };
+    };
+
+    // Case 1: Explicit project_title and device_name
+    const conv1: AskConversationSummary = {
+      id: "c1",
+      title: "优化对话抽屉",
+      created_at: "2026-11-01T10:00:00Z",
+      updated_at: "2026-11-01T10:05:00Z",
+      device_id: "dev_2",
+      device_name: "DESKTOP-KR9IPP4.local",
+      project_title: "memento",
+      message_count: 5,
+    };
+    const tags1 = resolveTags(conv1);
+    expect(tags1.safeProjectTitle).toBe("memento");
+    expect(tags1.resolvedDevName).toBe("DESKTOP-KR9IPP4");
+
+    // Case 2: Resolved via cwd and matching device_id in devices
+    const conv2: AskConversationSummary = {
+      id: "c2",
+      title: "化学逆合成规划",
+      created_at: "2026-11-01T09:00:00Z",
+      updated_at: "2026-11-01T09:30:00Z",
+      device_id: "memento-192e28374-98ad",
+      cwd: "/Users/haixingdong/dev/pubchem",
+      message_count: 3,
+    };
+    const tags2 = resolveTags(conv2);
+    expect(tags2.safeProjectTitle).toBe("pubchem");
+    expect(tags2.resolvedDevName).toBe("MacBook Pro");
+
+    // Case 3: Generic conversation without project, and device_id with memento- prefix without match
+    const conv3: AskConversationSummary = {
+      id: "c3",
+      title: "今天天气如何",
+      created_at: "2026-11-01T08:00:00Z",
+      updated_at: "2026-11-01T08:05:00Z",
+      device_id: "memento-unknown-hash",
+      message_count: 1,
+    };
+    const tags3 = resolveTags(conv3);
+    // Project and device tags must be gracefully omitted, never showing "memento-"
+    expect(tags3.safeProjectTitle).toBe("");
+    expect(tags3.resolvedDevName).toBe("");
+    expect(tags3.resolvedDevName).not.toContain("memento-");
+  });
+
+  it("validates drawer client-side filtering between all devices and current device", () => {
+    const mockDevices: DeviceSummary[] = [
+      {
+        id: "d1",
+        device_id: "DESKTOP-KR9IPP4",
+        name: "DESKTOP-KR9IPP4",
+        collector_version: "1.0.96",
+        last_heartbeat: "2026-11-01T10:00:00Z",
+        document_count: 12,
+      },
+      {
+        id: "d2",
+        device_id: "memento-mac-123",
+        name: "MacBook Pro",
+        collector_version: "1.0.96",
+        last_heartbeat: "2026-11-01T10:00:00Z",
+        document_count: 50,
+      },
+    ];
+
+    const conversations: AskConversationSummary[] = [
+      { id: "1", title: "Windows Conv 1", device_id: "DESKTOP-KR9IPP4", message_count: 2, created_at: null, updated_at: null },
+      { id: "2", title: "Windows Conv 2", device_id: "DESKTOP-KR9IPP4", message_count: 4, created_at: null, updated_at: null },
+      { id: "3", title: "Mac Conv 1", device_id: "memento-mac-123", message_count: 6, created_at: null, updated_at: null },
+      { id: "4", title: "Cloud Conv", device_id: null, message_count: 1, created_at: null, updated_at: null },
+    ];
+
+    const filterConversations = (list: AskConversationSummary[], filterDevice: boolean, selectedDevice: string) => {
+      if (filterDevice && selectedDevice && selectedDevice !== "auto" && selectedDevice !== "ask_only") {
+        const targetDev = mockDevices.find(
+          (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
+        );
+        return list.filter((c) => {
+          if (!c.device_id) return false;
+          if (c.device_id === selectedDevice) return true;
+          if (targetDev) {
+            return (
+              c.device_id === targetDev.device_id ||
+              c.device_id === targetDev.id ||
+              c.device_id === targetDev.name
+            );
+          }
+          return false;
+        });
+      }
+      return list;
+    };
+
+    // When filterDevice is false ("全部设备"): all 4 conversations are shown
+    const allList = filterConversations(conversations, false, "DESKTOP-KR9IPP4");
+    expect(allList.length).toBe(4);
+
+    // When filterDevice is true ("当前设备"): only 2 Windows conversations are shown
+    const currentList = filterConversations(conversations, true, "DESKTOP-KR9IPP4");
+    expect(currentList.length).toBe(2);
+    expect(currentList.map((c) => c.id)).toEqual(["1", "2"]);
+
+    // When switching to Mac: only 1 Mac conversation is shown
+    const macList = filterConversations(conversations, true, "memento-mac-123");
+    expect(macList.length).toBe(1);
+    expect(macList[0].id).toBe("3");
+  });
+
+  it("supports limit and offset in api.listAskConversations query construction", () => {
+    const buildQuery = (deviceId?: string, limit?: number, offset?: number) => {
+      const params = new URLSearchParams();
+      if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
+        params.set("device_id", deviceId);
+      }
+      if (limit !== undefined && limit !== null && limit > 0) {
+        params.set("limit", String(limit));
+      }
+      if (offset !== undefined && offset !== null && offset >= 0) {
+        params.set("offset", String(offset));
+      }
+      return params.toString() ? `?${params.toString()}` : "";
+    };
+
+    expect(buildQuery("all")).toBe("");
+    expect(buildQuery("all", 50, 10)).toBe("?limit=50&offset=10");
+    expect(buildQuery("DESKTOP-KR9IPP4", 100, 0)).toBe("?device_id=DESKTOP-KR9IPP4&limit=100&offset=0");
+    expect(buildQuery(undefined, 200)).toBe("?limit=200");
   });
 });

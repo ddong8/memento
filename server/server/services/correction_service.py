@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Boolean, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
@@ -250,7 +250,7 @@ async def fetch_new_corrections(
             ConversationMessage.timestamp.is_not(None),
             ConversationMessage.timestamp >= now - BACKFILL,
             ~ConversationMessage.content.startswith("[Result]"),
-            ~Document.relative_path.op("~")(SUBAGENT_PATH_REGEX),
+            not_(Document.relative_path.op("~", return_type=Boolean)(SUBAGENT_PATH_REGEX)),
             ~func.coalesce(Document.metadata_.has_key("parent_session_id"), False),
         )
         .order_by(ConversationMessage.id)

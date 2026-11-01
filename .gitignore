@@ -55,3 +55,4 @@ apps/desktop/dist/
 apps/desktop/release/
 apps/desktop/assets/
 !apps/desktop/build/
+.agents/

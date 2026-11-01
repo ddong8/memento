@@ -19,8 +19,8 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   const [manualExpanded, setManualExpanded] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [elapsedSec, setElapsedSec] = useState<number>(0);
+  const [finalDuration, setFinalDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
-  const finalDurationRef = useRef<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,11 +33,11 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
       }, 100);
       return () => clearInterval(interval);
     } else {
-      if (startTimeRef.current && finalDurationRef.current === null) {
-        finalDurationRef.current = Math.max(0.1, (Date.now() - startTimeRef.current) / 1000);
+      if (startTimeRef.current && finalDuration === null) {
+        setFinalDuration(Math.max(0.1, (Date.now() - startTimeRef.current) / 1000));
       }
     }
-  }, [isLive]);
+  }, [isLive, finalDuration]);
 
   // 当正在流式推演时（isLive），默认完全舒展铺满；推演完成后平滑收拢为精致指标胶囊（用户可点击胶囊手动展开或全屏查看）
   const expanded = userToggled ? manualExpanded : Boolean(isLive);
@@ -46,7 +46,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
 
   const charCount = thinking.trim().length;
   const countLabel = charCount > 0 ? `${charCount.toLocaleString()} 字` : "";
-  const duration = isLive ? elapsedSec : (finalDurationRef.current ?? elapsedSec);
+  const duration = isLive ? elapsedSec : (finalDuration ?? elapsedSec);
   const durLabel = duration > 0 ? `${duration.toFixed(1)}s` : "";
   const speedLabel = (!isLive && duration > 0.5 && charCount > 10) ? `约 ${Math.round(charCount / duration)} 字/秒` : "";
 

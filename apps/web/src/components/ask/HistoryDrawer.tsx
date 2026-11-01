@@ -4,10 +4,10 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import { Icon } from "@/components/aurora/Icon";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn } from "@/components/aurora/primitives";
-import { api, type AskConversationSummary, type DeviceSummary } from "@/lib/api-client";
+import { api, type AskConversationSummary, type DeviceSummary, type ProjectSummary } from "@/lib/api-client";
 import { triggerHapticFeedback } from "@/lib/native-notify";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
-import { cancelPrefetchConversationTurns } from "@/lib/ask/cache";
+import { cancelPrefetchConversationTurns, resolveSafeProjectName } from "@/lib/ask/cache";
 
 export interface ConversationAgentInfo {
   id: "claude_code" | "antigravity" | "codex" | "workbuddy" | "shell" | "ai";
@@ -101,6 +101,7 @@ interface HistoryDrawerProps {
   activeConversationId: string | null;
   selectedDevice: string;
   devices: DeviceSummary[];
+  projects?: ProjectSummary[];
   onSelectConversation: (id: string) => void;
   onStartNewChat: () => void;
   onDeleteConversation: (e: React.MouseEvent, id: string) => void;
@@ -151,6 +152,8 @@ const ConversationItem = memo(function ConversationItem({
   isSelected,
   isRunning,
   searchQuery,
+  devices,
+  projects,
   onSelect,
   onToggleBatch,
   onPrefetch,
@@ -167,6 +170,8 @@ const ConversationItem = memo(function ConversationItem({
   isSelected: boolean;
   isRunning?: boolean;
   searchQuery?: string;
+  devices?: DeviceSummary[];
+  projects?: ProjectSummary[];
   onSelect: (id: string) => void;
   onToggleBatch: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -180,6 +185,43 @@ const ConversationItem = memo(function ConversationItem({
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(c.title || "");
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
+
+  const safeProjectTitle = useMemo(() => {
+    if (c.project_title && c.project_title.trim()) {
+      return c.project_title.trim();
+    }
+    const resolved = resolveSafeProjectName({
+      projectId: c.project_id || c.config?.project_id,
+      projectTitle: c.project_title || undefined,
+      projects,
+      cwd: c.cwd || c.config?.cwd,
+      isZh,
+    });
+    if (resolved === (isZh ? "项目代码库" : "Project")) {
+      return "";
+    }
+    return resolved;
+  }, [c.project_title, c.project_id, c.config, c.cwd, projects, isZh]);
+
+  const resolvedDevName = useMemo(() => {
+    if (c.device_name && c.device_name.trim()) {
+      return c.device_name
+        .replace(/\.local$/i, "")
+        .replace(/ \(\w+\)$/, "")
+        .trim();
+    }
+    if (!c.device_id) return "";
+    const found = devices?.find(
+      (d) => d.device_id === c.device_id || d.id === c.device_id || d.name === c.device_id
+    );
+    if (found?.name) {
+      return found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
+    }
+    if (c.device_id.startsWith("memento-")) {
+      return "";
+    }
+    return c.device_id;
+  }, [c.device_name, c.device_id, devices]);
 
   const dateStr = useMemo(() => {
     const rawTime = c.updated_at || c.created_at;
@@ -481,22 +523,59 @@ const ConversationItem = memo(function ConversationItem({
               ) : (
                 <span>{dateStr}</span>
               )}
-              {c.device_id && (
+              {safeProjectTitle ? (
                 <>
                   <span>·</span>
                   <span
+                    title={isZh ? `所属工程: ${safeProjectTitle}` : `Project: ${safeProjectTitle}`}
                     style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3.5,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      background: "rgba(109, 40, 217, 0.08)",
+                      border: "1px solid rgba(109, 40, 217, 0.2)",
+                      color: "var(--aurora-accent)",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      maxWidth: 120,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Icon name="code" size={10} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{safeProjectTitle}</span>
+                  </span>
+                </>
+              ) : null}
+              {resolvedDevName ? (
+                <>
+                  <span>·</span>
+                  <span
+                    title={isZh ? `来源设备: ${resolvedDevName}` : `Device: ${resolvedDevName}`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3.5,
                       padding: "1px 5px",
                       borderRadius: 4,
                       background: "var(--aurora-chip)",
                       fontSize: 10,
-                      fontFamily: "monospace",
+                      fontFamily: "ui-monospace, monospace",
+                      color: "var(--aurora-fg3)",
+                      maxWidth: 130,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
-                    {c.device_id.slice(0, 8)}
+                    <Icon name="devices" size={10} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{resolvedDevName}</span>
                   </span>
                 </>
-              )}
+              ) : null}
               <span>·</span>
               <span>{t.ask.turnsCount.replace("{n}", String(c.message_count))}</span>
             </div>
@@ -638,6 +717,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
   activeConversationId,
   selectedDevice,
   devices,
+  projects,
   onSelectConversation,
   onStartNewChat,
   onDeleteConversation,
@@ -671,29 +751,25 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     }, 400);
   }, [onRefreshConversations]);
 
-  // 实时跟踪处于运行中的会话 ID 集合
-  const [liveRunningIds, setLiveRunningIds] = useState<Set<string>>(() => new Set(runningConversationIds || []));
+  // 跟踪本地轮询与事件推达的活跃会话 ID 集合
+  const [polledRunningIds, setPolledRunningIds] = useState<Set<string>>(new Set());
 
-  // Read by the polling below: depending on it restarted the polling, and fetched the run list again,
-  // whenever a run started, ended or another conversation was opened
+  // 始终同步外部传入的 ref 供轮询闭包使用
   const runningIdsRef = useRef(runningConversationIds);
-
-  // 当外部传入的 runningConversationIds 变化时，合并保持最新
   useEffect(() => {
     runningIdsRef.current = runningConversationIds;
-    if (!runningConversationIds) return;
-    setLiveRunningIds((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const id of runningConversationIds) {
-        if (!next.has(id)) {
-          next.add(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
   }, [runningConversationIds]);
+
+  // 派生合并活跃任务集合，彻底消除 React 19 set-state-in-effect 级联重渲染警告
+  const liveRunningIds = useMemo(() => {
+    const combined = new Set(polledRunningIds);
+    if (runningConversationIds) {
+      for (const id of runningConversationIds) {
+        combined.add(id);
+      }
+    }
+    return combined;
+  }, [polledRunningIds, runningConversationIds]);
 
   // 当抽屉打开时，立即向后端拉取最新的活跃任务列表，并在打开期间保持轻量轮询
   useEffect(() => {
@@ -710,8 +786,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
             activeIds.add(r.conversation_id);
           }
         });
-        runningIdsRef.current?.forEach((id) => activeIds.add(id));
-        setLiveRunningIds(activeIds);
+        setPolledRunningIds(activeIds);
       } catch {
         // 静默兜底
       }
@@ -723,7 +798,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const run = e.data as { conversation_id?: string; done?: boolean };
       const convId = run.conversation_id;
       if (!convId) return void fetchActiveRuns();
-      setLiveRunningIds((prev) => {
+      setPolledRunningIds((prev) => {
         if (prev.has(convId) === !run.done) return prev;
         const next = new Set(prev);
         if (run.done) next.delete(convId);
@@ -746,14 +821,14 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     const handleStart = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
-        setLiveRunningIds((prev) => new Set([...prev, convId]));
+        setPolledRunningIds((prev) => new Set([...prev, convId]));
         triggerDebouncedRefresh();
       }
     };
     const handleDone = (e: any) => {
       const convId = e?.detail?.conversation_id;
       if (convId) {
-        setLiveRunningIds((prev) => {
+        setPolledRunningIds((prev) => {
           const next = new Set(prev);
           next.delete(convId);
           return next;
@@ -765,8 +840,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const ids = e?.detail?.conversation_ids;
       if (Array.isArray(ids)) {
         const set = new Set<string>(ids);
-        runningIdsRef.current?.forEach((id) => set.add(id));
-        setLiveRunningIds(set);
+        setPolledRunningIds(set);
       }
     };
 
@@ -900,33 +974,35 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     return groups;
   }, [filteredConversations, searchQuery, liveRunningIds, isZh]);
 
-  // Performance optimization: windowed on-demand rendering to eliminate frame drops on drawer open
-  const INITIAL_RENDER_LIMIT = 32;
-  const BATCH_RENDER_SIZE = 32;
-  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
+  // 性能优化：首屏与视口按需渲染（提升首屏至 64 条，分类完整展现），避免抽屉打开掉帧
+  const INITIAL_RENDER_LIMIT = 64;
+  const BATCH_RENDER_SIZE = 64;
+  const [userExpandedLimit, setUserExpandedLimit] = useState<number | null>(null);
+  const [prevFilterKey, setPrevFilterKey] = useState("");
+  const currentFilterKey = `${open}:${searchQuery}:${filterDevice}`;
 
-  useEffect(() => {
-    if (open) {
-      if (activeConversationId) {
-        const idx = filteredConversations.findIndex((c) => c.id === activeConversationId);
-        if (idx >= 0) {
-          setRenderLimit(Math.max(INITIAL_RENDER_LIMIT, idx + 12));
-          return;
-        }
-      }
-      setRenderLimit(INITIAL_RENDER_LIMIT);
-    }
-  }, [open, searchQuery, activeConversationId, filteredConversations]);
+  if (currentFilterKey !== prevFilterKey) {
+    setPrevFilterKey(currentFilterKey);
+    setUserExpandedLimit(null);
+  }
+
+  const activeIdx = useMemo(() => {
+    return activeConversationId ? filteredConversations.findIndex((c) => c.id === activeConversationId) : -1;
+  }, [activeConversationId, filteredConversations]);
+
+  const baseLimit = activeIdx >= 0 ? Math.max(INITIAL_RENDER_LIMIT, activeIdx + 12) : INITIAL_RENDER_LIMIT;
+  const renderLimit = userExpandedLimit !== null ? Math.max(userExpandedLimit, baseLimit) : baseLimit;
 
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 260) {
-      setRenderLimit((prev) => {
-        if (prev >= filteredConversations.length) return prev;
-        return Math.min(prev + BATCH_RENDER_SIZE, filteredConversations.length);
+      setUserExpandedLimit((prev) => {
+        const current = prev !== null ? Math.max(prev, baseLimit) : baseLimit;
+        if (current >= filteredConversations.length) return current;
+        return Math.min(current + BATCH_RENDER_SIZE, filteredConversations.length);
       });
     }
-  }, [filteredConversations.length]);
+  }, [baseLimit, filteredConversations.length]);
 
   // Keyboard shortcut: Escape to close drawer
   useEffect(() => {
@@ -945,7 +1021,12 @@ export const HistoryDrawer = memo(function HistoryDrawer({
 
   if (!open) return null;
 
-  const currentDevName = devices.find((d) => d.device_id === selectedDevice)?.name || selectedDevice.slice(0, 8);
+  const currentDev = devices.find(
+    (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
+  );
+  const currentDevName =
+    currentDev?.name?.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() ||
+    (selectedDevice.startsWith("memento-") ? (isZh ? "当前设备" : "Current Device") : selectedDevice);
 
   return (
     <div
@@ -1312,6 +1393,8 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                             isSelected={selectedConvIds.has(c.id)}
                             isRunning={liveRunningIds.has(c.id)}
                             searchQuery={searchQuery}
+                            devices={devices}
+                            projects={projects}
                             onSelect={(id) => {
                               onClose();
                               onSelectConversation(id);
@@ -1333,7 +1416,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                     <div style={{ textAlign: "center", padding: "10px 0 6px" }}>
                       <button
                         type="button"
-                        onClick={() => setRenderLimit(filteredConversations.length)}
+                        onClick={() => setUserExpandedLimit(filteredConversations.length)}
                         style={{
                           padding: "6px 14px",
                           borderRadius: 8,

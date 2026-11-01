@@ -135,7 +135,10 @@ async function connect(device: string, iceServers: string[]): Promise<Session> {
       if (pc.iceGatheringState === "complete") return resolve();
       const t = setTimeout(resolve, 2500);
       pc.addEventListener("icegatheringstatechange", () => {
-        if (pc.iceGatheringState === "complete") (clearTimeout(t), resolve());
+        if (pc.iceGatheringState === "complete") {
+          clearTimeout(t);
+          resolve();
+        }
       });
     });
     const res = await authFetch(`${getApiBase()}/api/devices/${encodeURIComponent(device)}/p2p/offer`, {
@@ -170,7 +173,10 @@ function onMessage(s: Session, data: unknown): void {
       const total = w.chunks.reduce((n, c) => n + c.byteLength, 0);
       const out = new Uint8Array(total);
       let at = 0;
-      for (const c of w.chunks) (out.set(c, at), (at += c.byteLength));
+      for (const c of w.chunks) {
+        out.set(c, at);
+        at += c.byteLength;
+      }
       w.resolve(out);
     }
     return;

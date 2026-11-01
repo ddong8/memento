@@ -1068,10 +1068,18 @@ export const api = {
     if (category) params.set("category", category);
     return apiFetch<TimelineResponse>(`/api/projects/${projectId}/timeline?${params}`);
   },
-  listAskConversations: (deviceId?: string) => {
-    const q = deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all"
-      ? `?device_id=${encodeURIComponent(deviceId)}`
-      : "";
+  listAskConversations: (deviceId?: string, limit?: number, offset?: number) => {
+    const params = new URLSearchParams();
+    if (deviceId && deviceId !== "auto" && deviceId !== "ask_only" && deviceId !== "all") {
+      params.set("device_id", deviceId);
+    }
+    if (limit !== undefined && limit !== null && limit > 0) {
+      params.set("limit", String(limit));
+    }
+    if (offset !== undefined && offset !== null && offset >= 0) {
+      params.set("offset", String(offset));
+    }
+    const q = params.toString() ? `?${params.toString()}` : "";
     return apiFetch<AskConversationSummary[]>(`/api/ask/conversations${q}`);
   },
   getAskConversation: (id: string, limit?: number, opts?: FetchOptions & { before?: number }) => {
@@ -1375,6 +1383,9 @@ export interface AskConversationSummary {
   created_at: string | null;
   updated_at: string | null;
   device_id: string | null;
+  device_name?: string | null;
+  project_id?: string | null;
+  project_title?: string | null;
   cwd?: string | null;
   config?: Record<string, any>;
   message_count: number;

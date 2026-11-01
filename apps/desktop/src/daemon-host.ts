@@ -2,14 +2,14 @@ import { app, utilityProcess, type UtilityProcess } from "electron";
 import { EventEmitter } from "node:events";
 import { join, sep } from "node:path";
 
-import { flutterAppRunning, readLocalApiInfo, runningCollectorPid, type LocalApiInfo } from "@memento/daemon";
+import { readLocalApiInfo, runningCollectorPid, type LocalApiInfo } from "@memento/daemon";
 
 export type DaemonMode = "starting" | "running" | "external" | "flutter" | "stopped" | "no-token" | "crashed";
 
 /**
  * Runs the daemon in a utility process and talks to it over its loopback API.
- * If a collector already runs on this machine (a standalone daemon, or the
- * Flutter app's), it attaches instead of starting a second one.
+ * If a collector already runs on this machine (a standalone daemon),
+ * it attaches instead of starting a second one.
  */
 export class DaemonHost extends EventEmitter {
   private child: UtilityProcess | undefined;
@@ -54,16 +54,9 @@ export class DaemonHost extends EventEmitter {
         this.log(`Using the daemon already running (pid ${other})`);
         this.subscribe();
       } else {
-        this.setMode("flutter");
+        this.setMode("external");
         this.log(`Another Memento collector is running (pid ${other}); not starting a second one`);
       }
-      return;
-    }
-    if (!process.env.MEMENTO_DAEMON_FORCE && (await flutterAppRunning([process.pid]))) {
-      // Its built-in collector writes no pid file: check again later, it may be quit.
-      this.setMode("flutter");
-      this.log("The older Memento app is running and collects itself; not starting a second collector");
-      setTimeout(() => !this.stopping && this.mode === "flutter" && void this.start(), 60_000);
       return;
     }
     this.spawn();
@@ -108,12 +101,6 @@ export class DaemonHost extends EventEmitter {
       const noToken = this.logs.slice(-5).some((l) => l.includes("collector token"));
       if (noToken) {
         this.setMode("no-token");
-        return;
-      }
-      if (code === 3) {
-        // The Flutter app started in the meantime and collects itself.
-        this.setMode("flutter");
-        setTimeout(() => !this.stopping && this.mode === "flutter" && void this.start(), 60_000);
         return;
       }
       this.setMode("crashed");

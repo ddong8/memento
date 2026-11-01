@@ -96,30 +96,12 @@ export function flutterAppPids(
   return pids;
 }
 
-/** Whether the Flutter desktop app is running (it collects in-process unless it sees our pid file). */
-export async function flutterAppRunning(excludePids: number[] = []): Promise<boolean> {
-  const list = await new Promise<string>((resolve) => {
-    if (process.platform === "win32") {
-      // In Flutter desktop on Windows, the app process loads flutter_windows.dll.
-      // Searching only for processes loading flutter_windows.dll avoids false positives
-      // from Electron's own child processes (which are all named memento.exe).
-      execFile("tasklist", ["/M", "flutter_windows.dll", "/FO", "CSV", "/NH"], { windowsHide: true }, (err, stdout) =>
-        resolve(
-          err
-            ? ""
-            : String(stdout)
-                .split("\n")
-                .map((l) => l.split('","'))
-                .filter((c) => c.length > 1)
-                .map((c) => `${c[1]} ${c[0]!.replace(/^"/, "")}`)
-                .join("\n"),
-        ),
-      );
-    } else {
-      execFile("ps", ["-axo", "pid=,comm="], (err, stdout) => resolve(err ? "" : String(stdout)));
-    }
-  });
-  return flutterAppPids(list, process.platform, excludePids).length > 0;
+/**
+ * Whether the Flutter desktop app is running.
+ * @deprecated Legacy Flutter desktop app is retired; always returns false.
+ */
+export async function flutterAppRunning(_excludePids: number[] = []): Promise<boolean> {
+  return false;
 }
 
 /** Claims the pid file; false when another live collector holds it. Released on exit. */

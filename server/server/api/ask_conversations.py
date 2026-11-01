@@ -10,13 +10,13 @@ import uuid
 from datetime import datetime, timezone
 
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import User, AskConversation
+from ..db.models import User, AskConversation, Project, Machine, Document, ConversationMessage
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
@@ -36,11 +36,13 @@ router = APIRouter()
 @router.get("/conversations")
 async def list_conversations(
     device_id: str | None = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
     """List recent Ask conversations for the current user."""
-    cache_key = f"ask_conv_list:{_user.id}:{device_id or 'all'}"
+    cache_key = f"ask_conv_list:{_user.id}:{device_id or 'all'}:{limit}:{offset}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -67,11 +69,12 @@ async def list_conversations(
         )
         .where(cond)
         .order_by(AskConversation.updated_at.desc().nulls_last())
-        .limit(100)
+        .limit(limit)
+        .offset(offset)
     )
     res = await db.execute(query)
     rows = res.all()
-    from ..services.ingest_service import _is_junk_or_uuid_title
+    from ..services.ingest_service import _clean_source_path, _is_invalid_project_name, _is_junk_or_uuid_title
 
     # 1. 预先收集需要补全元数据的会话 ID，采用单次批量查询替换循环体内的 N+1 次 db.get
     need_turn_ids = []
@@ -98,6 +101,44 @@ async def list_conversations(
         )
         for obj in batch_res.scalars().all():
             conv_obj_map[obj.id] = obj
+
+    # 2. 批量预查项目与设备元数据，构建 O(1) 内存字典映射，消除 N+1 查询
+    proj_rows = (await db.execute(select(Project))).scalars().all()
+    proj_id_map: dict[str, str] = {}
+    proj_slug_map: dict[str, str] = {}
+    proj_slug_to_id: dict[str, str] = {}
+    proj_path_map: dict[str, tuple[str, str]] = {}
+    for p in proj_rows:
+        pid_str = str(p.id)
+        title = p.title or p.slug or ""
+        proj_id_map[pid_str] = title
+        if p.slug:
+            slug_lower = p.slug.lower()
+            proj_slug_map[slug_lower] = title
+            proj_slug_to_id[slug_lower] = pid_str
+        if p.source_path:
+            cleaned_p = _clean_source_path(p.source_path)
+            if cleaned_p:
+                proj_path_map[cleaned_p.lower()] = (pid_str, title)
+
+    mach_rows = (await db.execute(select(Machine))).scalars().all()
+    mach_by_id = {m.id: m for m in mach_rows}
+    mach_map: dict[str, str] = {}
+    for m in mach_rows:
+        target = m
+        seen_merge = set()
+        while target.merged_into and target.merged_into in mach_by_id and target.id not in seen_merge:
+            seen_merge.add(target.id)
+            target = mach_by_id[target.merged_into]
+        clean_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target.name or ""), flags=re.IGNORECASE).strip()
+        disp_name = clean_name or target.name or ""
+        if disp_name:
+            if m.collector_token_hash:
+                mach_map[m.collector_token_hash] = disp_name
+            mach_map[str(m.id)] = disp_name
+            if m.name:
+                mach_map[m.name] = disp_name
+                mach_map[clean_name] = disp_name
 
     out_items = []
     dirty_repaired = False
@@ -151,12 +192,70 @@ async def list_conversations(
                 conv_obj.title = display_title
             dirty_repaired = True
 
+        # 解析 project_title 与 project_id
+        pid_raw = str(cfg.get("project_id") or "").strip()
+        p_title: str | None = None
+        resolved_pid: str | None = pid_raw or None
+
+        if pid_raw:
+            if pid_raw in proj_id_map:
+                p_title = proj_id_map[pid_raw]
+            elif pid_raw.lower() in proj_slug_map:
+                p_title = proj_slug_map[pid_raw.lower()]
+                resolved_pid = proj_slug_to_id.get(pid_raw.lower(), pid_raw)
+
+        if not p_title and r.cwd:
+            cleaned_cwd = _clean_source_path(r.cwd)
+            if cleaned_cwd:
+                cleaned_lower = cleaned_cwd.lower()
+                best_match = None
+                best_len = 0
+                for p_path, (p_id, p_tit) in proj_path_map.items():
+                    if cleaned_lower == p_path or cleaned_lower.startswith(p_path + "/"):
+                        if len(p_path) > best_len:
+                            best_match = (p_id, p_tit)
+                            best_len = len(p_path)
+                if best_match:
+                    p_title = best_match[1]
+                    if not resolved_pid:
+                        resolved_pid = best_match[0]
+                else:
+                    cand_name = cleaned_cwd.replace("\\", "/").rstrip("/").split("/")[-1]
+                    if cand_name:
+                        if cand_name.lower() in proj_slug_map:
+                            p_title = proj_slug_map[cand_name.lower()]
+                            if not resolved_pid:
+                                resolved_pid = proj_slug_to_id.get(cand_name.lower())
+                        elif not _is_invalid_project_name(cand_name):
+                            p_title = cand_name
+
+        # 解析 device_name 友好名
+        dev_friendly_name: str | None = None
+        raw_dev = r.device_id or cfg.get("device_id")
+        if raw_dev and raw_dev not in ("auto", "ask_only", "all"):
+            if raw_dev in mach_map:
+                dev_friendly_name = mach_map[raw_dev]
+            elif cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
+                dev_friendly_name = cfg["device_name"]
+            elif raw_dev.startswith("memento-"):
+                clipped = raw_dev.replace("memento-", "")[:8]
+                if clipped and clipped not in ("memento-", "memento"):
+                    dev_friendly_name = clipped
+            else:
+                dev_friendly_name = raw_dev
+
+        if dev_friendly_name in ("memento-", "memento", ""):
+            dev_friendly_name = None
+
         out_items.append({
             "id": str(r.id),
             "title": display_title,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "device_id": r.device_id,
+            "device_name": dev_friendly_name,
+            "project_id": resolved_pid,
+            "project_title": p_title,
             "cwd": r.cwd,
             "config": cfg,
             "message_count": r.message_count or 0,
@@ -244,7 +343,82 @@ async def get_conversation(
         )
     ).scalars().first()
     if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        # Graceful fallback: check if cid corresponds to a Document with category="conversation"
+        doc = (
+            await db.execute(
+                select(Document)
+                .options(
+                    defer(Document.content),
+                    defer(Document.content_tsv),
+                    defer(Document.rendered_html),
+                )
+                .where(Document.id == cid, Document.category == "conversation")
+            )
+        ).scalars().first()
+        if doc:
+            msg_rows = (
+                await db.execute(
+                    select(ConversationMessage.role, ConversationMessage.content, ConversationMessage.timestamp)
+                    .where(ConversationMessage.document_id == doc.id)
+                    .order_by(ConversationMessage.line_number.asc())
+                )
+            ).all()
+            init_turns = []
+            for role, content, ts in msg_rows:
+                init_turns.append({
+                    "role": role or "user",
+                    "content": content or "",
+                    "toolCalls": [],
+                    "created_at": ts.isoformat() if ts else datetime.now(timezone.utc).isoformat(),
+                })
+            doc_meta = dict(doc.metadata_ or {})
+            conv_dev = None
+            if doc.machine_id:
+                try:
+                    doc_mach = await db.get(Machine, doc.machine_id)
+                    if doc_mach:
+                        conv_dev = doc_mach.collector_token_hash or doc_mach.name
+                except Exception:
+                    pass
+            if not conv_dev:
+                conv_dev = doc_meta.get("device_id")
+
+            conv_cfg = {
+                "compact_mode": False,
+                "session_id": doc_meta.get("session_id") or doc_meta.get("cascade_id") or str(cid),
+                "device_id": conv_dev or "",
+                "project_id": str(doc.project_id) if doc.project_id else "",
+                "execution_mode": doc.tool_id or "ai",
+                "cwd": doc_meta.get("cwd") or doc_meta.get("working_directory") or "",
+                "_materialized_from_doc": True,
+            }
+            conv = AskConversation(
+                id=cid,
+                user_id=_user.id,
+                title=doc.title or "历史会话",
+                turns=init_turns,
+                message_count=len(init_turns),
+                device_id=conv_dev,
+                cwd=conv_cfg["cwd"] or None,
+                config=conv_cfg,
+            )
+            db.add(conv)
+            try:
+                await db.commit()
+                await db.refresh(conv, ["updated_at", "created_at"])
+            except Exception as e:
+                logger.warning("Failed to commit materialized AskConversation for doc %s: %s", cid, e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+            now_utc = datetime.now(timezone.utc)
+            if not conv.created_at:
+                conv.created_at = now_utc
+            if not conv.updated_at:
+                conv.updated_at = now_utc
+        else:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     conv_id_str = str(conv.id)
     updated_at_iso = conv.updated_at.isoformat() if conv.updated_at else None
@@ -270,6 +444,8 @@ async def get_conversation(
         has_more = offset > 0
     elif limit > 0:
         raw_turns = await tail_turns(db, cid, limit)
+        if not raw_turns and conv.turns:
+            raw_turns = list(conv.turns)[-limit:]
         if len(raw_turns) < limit:
             true_count = len(raw_turns)  # the page is the whole conversation
         elif total_turns < len(raw_turns):
@@ -279,8 +455,14 @@ async def get_conversation(
         offset = max(0, total_turns - len(raw_turns))
         has_more = offset > 0
     else:
-        await db.refresh(conv, ["turns"])
-        raw_turns = list(conv.turns or [])
+        if conv.turns is not None:
+            raw_turns = list(conv.turns or [])
+        else:
+            try:
+                await db.refresh(conv, ["turns"])
+            except Exception:
+                pass
+            raw_turns = list(conv.turns or [])
         true_count = total_turns = len(raw_turns)
         offset, has_more = 0, False
 
@@ -348,6 +530,19 @@ async def get_conversation(
     proj_id_val = cfg.get("project_id", "")
     proj_title_val = await lookup_project_title(db, proj_id_val)
 
+    dev_name_val = None
+    if conv_dev and conv_dev not in ("auto", "ask_only", "all"):
+        if cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
+            dev_name_val = cfg["device_name"]
+        elif conv_dev.startswith("memento-"):
+            clipped = conv_dev.replace("memento-", "")[:8]
+            if clipped and clipped not in ("memento-", "memento"):
+                dev_name_val = clipped
+        else:
+            dev_name_val = conv_dev
+    if dev_name_val in ("memento-", "memento", ""):
+        dev_name_val = None
+
     return {
         "id": conv_id_str,
         "title": conv_title,
@@ -356,6 +551,7 @@ async def get_conversation(
         "has_more": has_more,
         "offset": offset,
         "device_id": conv_dev,
+        "device_name": dev_name_val,
         "cwd": conv_cwd,
         "execution_mode": cfg.get("execution_mode", "ai"),
         "model": cfg.get("model", ""),

@@ -30,12 +30,10 @@ def _run_migrations(conn) -> None:
     insp = inspect(conn)
 
     # Enable pgvector extension
-    sp_vec = conn.begin_nested()
     try:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        sp_vec.commit()
     except Exception:
-        sp_vec.rollback()
+        pass  # May not have pgvector installed
 
     tables = insp.get_table_names()
     if "machines" not in tables or "users" not in tables:
@@ -309,24 +307,14 @@ def _run_migrations(conn) -> None:
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_user ON user_memories (user_id, updated_at DESC)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_parent ON user_memories (user_id, parent_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_tree_path ON user_memories (user_id, tree_path)"))
     else:
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES user_memories(id) ON DELETE CASCADE"))
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS tree_path VARCHAR(255)"))
         conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS is_folder BOOLEAN DEFAULT FALSE"))
-
-    sp_idx_tree = conn.begin_nested()
-    try:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_parent ON user_memories (user_id, parent_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_tree_path ON user_memories (user_id, tree_path)"))
-        sp_idx_tree.commit()
-    except Exception:
-        sp_idx_tree.rollback()
-    sp_emb = conn.begin_nested()
-    try:
-        conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS embedding vector(1024)"))
-        sp_emb.commit()
-    except Exception:
-        sp_emb.rollback()
     # Memory lifecycle. Outside the branch above: its CREATE TABLE predates these columns.
     conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS recall_count INTEGER NOT NULL DEFAULT 0"))
     conn.execute(text("ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'"))
@@ -335,12 +323,7 @@ def _run_migrations(conn) -> None:
         "ALTER TABLE user_memories ADD COLUMN IF NOT EXISTS superseded_by UUID "
         "REFERENCES user_memories(id) ON DELETE SET NULL"
     ))
-    sp_idx_status = conn.begin_nested()
-    try:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
-        sp_idx_status.commit()
-    except Exception:
-        sp_idx_status.rollback()
+    conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_memory_status ON user_memories (user_id, status)"))
     # HNSW 向量索引：消除用户核心记忆语义检索暴力扫描，实现毫秒级 ANN 图索引搜索
     sp_um_hnsw = conn.begin_nested()
     try:
@@ -434,6 +417,16 @@ def _run_migrations(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_ask_conv_session_id ON ask_conversations (((config->>'session_id'))) WHERE (config->>'session_id') IS NOT NULL",
         "CREATE INDEX IF NOT EXISTS idx_ask_conv_user_device ON ask_conversations (user_id, device_id, updated_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_device_tasks_status_created ON device_tasks (status, created_at) WHERE status IN ('queued', 'running', 'still_running', 'pending', 'dispatched')",
+        # Vector ANN index for semantic search. Without this, /api/memory/semantic
+        # seq-scans document_embeddings — fine at 50 rows, fatal at 1M. HNSW
+        # preferred over IVFFlat: no training step, better recall, pgvector
+        # 0.7+ required for halfvec. Dim must match EMBEDDING_INDEX_DIM in models.
+        "CREATE INDEX IF NOT EXISTS idx_doc_embedding_hnsw_half "
+        "ON document_embeddings USING hnsw (CAST(embedding AS HALFVEC(1024)) halfvec_cosine_ops) "
+        "WITH (m = 16, ef_construction = 64)",
+        # UserMemory HNSW 图向量索引，实现毫秒级记忆召回
+        "CREATE INDEX IF NOT EXISTS idx_user_memories_embedding_hnsw "
+        "ON user_memories USING hnsw (embedding vector_cosine_ops)",
     ):
         sp = conn.begin_nested()
         try:

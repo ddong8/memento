@@ -78,36 +78,6 @@ export function AskTopBar({
           <Icon name="menu" size={19} />
         </button>
 
-        {/* 历史对话抽屉入口 (桌面端展示；移动端收拢至更多菜单以保证标题展示空间) */}
-        <div className="hidden sm:inline-flex shrink-0">
-          <Btn
-            variant="glass"
-            size="sm"
-            icon="clock"
-            onClick={() => {
-              onOpenHistory();
-            }}
-            title={isZh ? "查看历史对话" : "View history"}
-          >
-            <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
-            {conversationCount > 0 && (
-              <span
-                style={{
-                  fontSize: 10.5,
-                  padding: "1px 5px",
-                  borderRadius: 999,
-                  background: "var(--aurora-chip)",
-                  color: "var(--aurora-fg3)",
-                  marginLeft: 2,
-                  fontVariantNumeric: "tabular-nums",
-                }}
-              >
-                {conversationCount}
-              </span>
-            )}
-          </Btn>
-        </div>
-
         {/* 当前会话标题与智能体图标徽章 */}
         <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-hidden">
           {agent.brandId ? (
@@ -249,6 +219,33 @@ export function AskTopBar({
           </div>
         )}
 
+        {/* 历史对话按钮 (全端统一常驻展示于新增会话旁) */}
+        <Btn
+          variant="glass"
+          size="sm"
+          icon="clock"
+          onClick={onOpenHistory}
+          title={isZh ? "查看历史对话" : "View history"}
+          className="shrink-0"
+        >
+          <span className={inspector?.isOpen ? "hidden 2xl:inline" : "hidden md:inline"}>{t.ask.historyTitle}</span>
+          {conversationCount > 0 && (
+            <span
+              style={{
+                fontSize: 10.5,
+                padding: "1px 5px",
+                borderRadius: 999,
+                background: "var(--aurora-chip)",
+                color: "var(--aurora-fg3)",
+                marginLeft: 2,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {conversationCount}
+            </span>
+          )}
+        </Btn>
+
         {/* 新建会话按钮 */}
         <Btn
           variant="glass"
@@ -333,26 +330,6 @@ export function AskTopBar({
               <div
                 className="absolute right-0 top-10 z-50 min-w-[200px] py-1.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/98 backdrop-blur-xl shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100"
               >
-                {/* 移动端专属：历史会话列表 */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    onOpenHistory();
-                  }}
-                  className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                >
-                  <span className="flex items-center gap-2">
-                    <Icon name="clock" size={14} className="text-[var(--aurora-fg2)]" />
-                    <span>{t.ask.historyTitle}</span>
-                  </span>
-                  {conversationCount > 0 && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] font-mono font-bold">
-                      {conversationCount}
-                    </span>
-                  )}
-                </button>
-
                 {/* 移动端专属：工作台媒体/研报视窗 */}
                 {inspector && inspector.mediaList.length > 0 && (
                   <button

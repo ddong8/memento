@@ -241,6 +241,16 @@ export interface UserBubbleProps {
   onShareTurn?: (index: number) => void;
 }
 
+export function cleanUserMessage(raw: string): string {
+  if (!raw) return "";
+  return raw
+    .replace(/^【用户上传了图片[\s\S]*?提示:[^\n]*\n*/g, "")
+    .replace(/【用户上传了图片[\s\S]*?】/g, "")
+    .replace(/^【用户附加文件:[\s\S]*?```[\s\S]*?```\n*/g, "")
+    .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/g, "")
+    .trim();
+}
+
 function areUserPropsEqual(prev: UserBubbleProps, next: UserBubbleProps) {
   if (prev.content !== next.content) return false;
   if (prev.createdAt !== next.createdAt) return false;
@@ -261,13 +271,14 @@ export const UserBubble = memo(function UserBubble({
   createdAt,
   onShareTurn,
 }: UserBubbleProps) {
+  const displayContent = useMemo(() => cleanUserMessage(content), [content]);
   const [copied, setCopied] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const timeInfo = formatTurnTimestamp(createdAt) || (content ? { short: "刚刚", full: "提问时间已记录" } : null);
+  const timeInfo = formatTurnTimestamp(createdAt) || (displayContent ? { short: "刚刚", full: "提问时间已记录" } : null);
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!content) return;
-    navigator.clipboard.writeText(content).then(() => {
+    if (!displayContent) return;
+    navigator.clipboard.writeText(displayContent).then(() => {
       setCopied(true);
       triggerHapticFeedback(12);
       setTimeout(() => setCopied(false), 2000);
@@ -301,7 +312,7 @@ export const UserBubble = memo(function UserBubble({
               display: "flex",
               flexWrap: "wrap",
               gap: 8,
-              marginBottom: content ? 4 : 0,
+              marginBottom: displayContent ? 4 : 0,
             }}
           >
             {images.map((imgUrl, idx) => (
@@ -350,7 +361,7 @@ export const UserBubble = memo(function UserBubble({
             )}
           </div>
         )}
-        {content && (
+        {displayContent && (
           <div
             className="prose prose-sm max-w-none flex-1 select-text"
             style={{
@@ -362,10 +373,10 @@ export const UserBubble = memo(function UserBubble({
               WebkitUserSelect: "text",
             }}
           >
-            <MarkdownViewer content={content} compactText={true} />
+            <MarkdownViewer content={displayContent} compactText={true} />
           </div>
         )}
-        {(timeInfo || content) && (
+        {(timeInfo || displayContent) && (
           <div className="flex items-center justify-end gap-2 pt-0.5 select-none">
             {timeInfo && (
               <span

@@ -5115,7 +5115,7 @@ function AskPageContent() {
 
                   {/* Target Device Badge */}
                   <span
-                    className="max-w-[125px] sm:max-w-[240px]"
+                    className="max-w-[150px] sm:max-w-[240px]"
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -5144,9 +5144,14 @@ function AskPageContent() {
                       {(() => {
                         if (selectedDevice === "auto") return t.ask.autoDispatch;
                         if (selectedDevice === "ask_only") return t.ask.askOnly;
-                        const baseName = (currentDev?.name || selectedDevice)
+                        const rawName = currentDev?.name || selectedDevice;
+                        const baseName = rawName
                           .replace(/\.local$/i, "")
-                          .replace(/ \(\w+\)$/, "");
+                          .replace(/ \(\w+\)$/, "")
+                          .replace(/([a-zA-Z0-9_-]+)de(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
+                          .replace(/([a-zA-Z0-9_-]+)的(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
+                          .replace(/MacBook-Pro/i, "MacBook Pro")
+                          .replace(/MacBook-Air/i, "MacBook Air");
                         const shortName = baseName || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice);
                         return `${shortName}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`;
                       })()}
@@ -5164,7 +5169,7 @@ function AskPageContent() {
                     });
                     return (
                       <span
-                        className="max-w-[110px] sm:max-w-[190px]"
+                        className="max-w-[150px] sm:max-w-[220px]"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",

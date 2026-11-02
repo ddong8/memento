@@ -44,6 +44,22 @@ interface ExecutionCardProps {
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
 
+export function formatShortPath(pathStr?: string): string {
+  if (!pathStr) return "";
+  const p = pathStr.trim();
+  return p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}
+
+export function cleanPromptText(text?: string): string {
+  if (!text) return "";
+  return text
+    .replace(/^【用户上传了图片[\s\S]*?提示:[^\n]*\n*/g, "")
+    .replace(/【用户上传了图片[\s\S]*?】/g, "")
+    .replace(/^【用户附加文件:[\s\S]*?```[\s\S]*?```\n*/g, "")
+    .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/g, "")
+    .trim();
+}
+
 const ExecutionCard = memo(function ExecutionCard({
   call,
   isVisible = true,
@@ -61,16 +77,31 @@ const ExecutionCard = memo(function ExecutionCard({
   const cwd = (args?.cwd as string) || "";
 
   const discoveredMedia = useMemo(() => {
+    // Only scan actual execution output (stdout, note, stderr), NEVER user input prompts or commands
     const textToScan = [
       result?.stdout,
       result?.note,
       result?.stderr,
-      typeof args?.prompt === "string" ? args.prompt : "",
-      typeof args?.command === "string" ? args.command : "",
     ]
       .filter(Boolean)
       .join("\n");
-    return extractMediaFromMarkdown(textToScan);
+    const extracted = extractMediaFromMarkdown(textToScan);
+    if (extracted.length === 0) return extracted;
+
+    // Filter out temporary user-uploaded paths or items directly present in prompt arguments
+    const promptRef = (
+      (typeof args?.prompt === "string" ? args.prompt : "") + " " +
+      (typeof args?.command === "string" ? args.command : "")
+    );
+    return extracted.filter((item) => {
+      if (item.url.includes("/tmp/memento_images/") || item.url.includes("/memento/images/") || item.url.startsWith("blob:")) {
+        return false;
+      }
+      if (promptRef && promptRef.includes(item.url)) {
+        return false;
+      }
+      return true;
+    });
   }, [result?.stdout, result?.note, result?.stderr, args?.prompt, args?.command]);
 
   const binary = (
@@ -218,7 +249,7 @@ const ExecutionCard = memo(function ExecutionCard({
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [expanded, setExpanded] = useState<boolean>(() => {
     if (waitingQuestion) return true;
-    if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
+    if (hasParentContent && (isSuccess || (isAgent && !isFailed))) {
       return false;
     }
     return true;
@@ -230,10 +261,10 @@ const ExecutionCard = memo(function ExecutionCard({
       return;
     }
     if (userToggled) return;
-    if ((isSuccess && hasParentContent) || (isAgent && hasParentContent && !isFailed && !hasStructuredEvents)) {
+    if (hasParentContent && (isSuccess || (isAgent && !isFailed))) {
       setExpanded(false);
     }
-  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, hasStructuredEvents, waitingQuestion]);
+  }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, waitingQuestion]);
 
   // Agent (Claude Code / Codex / Antigravity) 的输出是 Markdown 富文本，默认必须保持 markdown 视图，杜绝以原始 monospace 打印；shell 默认 terminal 视图
   const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
@@ -617,16 +648,31 @@ const ExecutionCard = memo(function ExecutionCard({
               marginBottom: 8,
               fontSize: 11,
               color: "var(--aurora-fg3)",
-              gap: 8,
-              flexWrap: "wrap",
+              gap: 6,
+              minWidth: 0,
+              width: "100%",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: "1 1 auto", overflow: "hidden", display: "flex", alignItems: "center" }}>
               {cwd && (
-                <span style={{ fontFamily: "monospace", color: "var(--aurora-fg2)" }}>
-                  📁 {cwd}
+                <span
+                  style={{
+                    fontFamily: "monospace",
+                    color: "var(--aurora-fg2)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: "100%",
+                    display: "inline-block",
+                  }}
+                  title={cwd}
+                >
+                  📁 {formatShortPath(cwd)}
                 </span>
               )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
               {(() => {
                 const sid = (result as any)?.session_id || (args?.session_id as string) || "";
                 if (!sid || !isAgent) return null;
@@ -652,20 +698,21 @@ const ExecutionCard = memo(function ExecutionCard({
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 4,
-                      padding: "2px 7px",
+                      gap: 3.5,
+                      padding: "2px 6px",
                       borderRadius: 6,
                       border: "1px solid var(--aurora-border)",
                       background: "var(--aurora-chip)",
                       color: copiedResume ? "var(--aurora-accent)" : "var(--aurora-fg2)",
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontFamily: "monospace",
                       cursor: "pointer",
                       transition: "all 0.15s ease",
+                      whiteSpace: "nowrap",
                     }}
                     title={`点击复制终端接力命令：\n${cmd}`}
                   >
-                    <Icon name={copiedResume ? "check" : "terminal"} size={11} />
+                    <Icon name={copiedResume ? "check" : "terminal"} size={10.5} />
                     <span>{copiedResume ? "已复制命令" : "终端接力"}</span>
                   </button>
                 );
@@ -676,9 +723,9 @@ const ExecutionCard = memo(function ExecutionCard({
                     display: "inline-flex",
                     background: "var(--aurora-chip)",
                     border: "1px solid var(--aurora-border)",
-                    borderRadius: 8,
-                    padding: 2,
-                    gap: 2,
+                    borderRadius: 7,
+                    padding: 1.5,
+                    gap: 1.5,
                   }}
                 >
                   <button
@@ -691,9 +738,9 @@ const ExecutionCard = memo(function ExecutionCard({
                       background: viewMode === "markdown" ? "var(--aurora-accent-soft)" : "transparent",
                       border: "none",
                       color: viewMode === "markdown" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 6,
-                      padding: "2px 8px",
-                      fontSize: 11,
+                      borderRadius: 5,
+                      padding: "1.5px 6px",
+                      fontSize: 10.5,
                       fontWeight: viewMode === "markdown" ? 600 : 400,
                       cursor: "pointer",
                       transition: "all 0.15s ease",
@@ -711,9 +758,9 @@ const ExecutionCard = memo(function ExecutionCard({
                       background: viewMode === "terminal" ? "var(--aurora-accent-soft)" : "transparent",
                       border: "none",
                       color: viewMode === "terminal" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 6,
-                      padding: "2px 8px",
-                      fontSize: 11,
+                      borderRadius: 5,
+                      padding: "1.5px 6px",
+                      fontSize: 10.5,
                       fontWeight: viewMode === "terminal" ? 600 : 400,
                       cursor: "pointer",
                       transition: "all 0.15s ease",
@@ -723,39 +770,41 @@ const ExecutionCard = memo(function ExecutionCard({
                   </button>
                 </div>
               )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyText();
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  background: "var(--aurora-chip)",
+                  border: "1px solid var(--aurora-border-strong)",
+                  borderRadius: 6,
+                  padding: "2px 7px",
+                  color: "var(--aurora-fg2)",
+                  fontSize: 10.5,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  whiteSpace: "nowrap",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--aurora-accent)";
+                  e.currentTarget.style.color = "var(--aurora-accent)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--aurora-border-strong)";
+                  e.currentTarget.style.color = "var(--aurora-fg2)";
+                }}
+                title={t.ask.copyOutput || "复制输出"}
+              >
+                <Icon name={copied ? "check" : "copy"} size={11} />
+                <span>{copied ? (t.ask.copied || "已复制") : "复制"}</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                copyText();
-              }}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                background: "var(--aurora-chip)",
-                border: "1px solid var(--aurora-border-strong)",
-                borderRadius: 6,
-                padding: "3px 9px",
-                color: "var(--aurora-fg2)",
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--aurora-accent)";
-                e.currentTarget.style.color = "var(--aurora-accent)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--aurora-border-strong)";
-                e.currentTarget.style.color = "var(--aurora-fg2)";
-              }}
-            >
-              <Icon name={copied ? "check" : "copy"} size={12} />
-              {copied ? (t.ask.copied || "已复制") : (t.ask.copyOutput || "复制输出")}
-            </button>
           </div>
 
           {result?.events && result.events.length > 0 && (
@@ -831,28 +880,31 @@ const ExecutionCard = memo(function ExecutionCard({
               )}
               {command && (
                 isAgent ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 8,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      background: "var(--aurora-chip)",
-                      border: "1px solid var(--aurora-border)",
-                      marginBottom: 10,
-                      fontSize: 12.5,
-                      lineHeight: 1.5,
-                      color: "var(--aurora-fg1)",
-                    }}
-                  >
-                    <span style={{ color: agentColor, fontWeight: 600, flexShrink: 0 }}>
-                      {t.ask.promptLabel || "提示词"}:
-                    </span>
-                    <span style={{ wordBreak: "break-word" }}>{command}</span>
-                  </div>
+                  // 当外层主对话已包含用户提问气泡（hasParentContent）时，不在此卡片内重复展示提示词；仅当独立卡片且净化后非空时展示
+                  !hasParentContent && cleanPromptText(command) ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 8,
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        background: "var(--aurora-chip)",
+                        border: "1px solid var(--aurora-border)",
+                        marginBottom: 10,
+                        fontSize: 12.5,
+                        lineHeight: 1.5,
+                        color: "var(--aurora-fg1)",
+                      }}
+                    >
+                      <span style={{ color: agentColor, fontWeight: 600, flexShrink: 0 }}>
+                        {t.ask.promptLabel || "提示词"}:
+                      </span>
+                      <span style={{ wordBreak: "break-word" }}>{cleanPromptText(command)}</span>
+                    </div>
+                  ) : null
                 ) : (
-                  <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>
+                  <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600, wordBreak: "break-all" }}>
                     $ {command}
                   </div>
                 )
@@ -882,23 +934,46 @@ const ExecutionCard = memo(function ExecutionCard({
                 isOutputInParentContent ? (
                   <div
                     style={{
-                      padding: "10px 14px",
-                      borderRadius: 8,
-                      background: "var(--aurora-chip)",
-                      border: "1px dashed var(--aurora-border)",
-                      color: "var(--aurora-fg2)",
-                      fontSize: 12.5,
-                      lineHeight: 1.6,
-                      marginBottom: 8,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "6px 10px",
+                      borderRadius: 7,
+                      background: "var(--aurora-chip-soft, rgba(255, 255, 255, 0.04))",
+                      border: "1px solid var(--aurora-border)",
+                      fontSize: 11.5,
+                      color: "var(--aurora-fg3)",
+                      marginTop: 4,
+                      marginBottom: 6,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 2 }}>
-                      <Icon name="check" size={13} style={{ color: "#10b981" }} />
-                      <span>执行产物与回复已在下方主回复区全宽呈现</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Icon name="check" size={12} style={{ color: "#10b981" }} />
+                      <span style={{ color: "var(--aurora-fg2)", fontWeight: 500 }}>
+                        执行产物与回复已在下方主回复区呈现
+                      </span>
                     </div>
-                    <div style={{ color: "var(--aurora-fg3)", fontSize: 11.5 }}>
-                      为避免界面重复排版，此卡片聚焦执行状态。您可以切换至“Terminal”模式查验底层输出与命令日志。
-                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setViewMode("terminal");
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 2,
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--aurora-accent)",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        padding: "2px 4px",
+                      }}
+                    >
+                      <span>底层日志</span>
+                      <Icon name="chevron_right" size={11} />
+                    </button>
                   </div>
                 ) : (
                   <MarkdownViewer

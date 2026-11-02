@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   FiPlay,
   FiPause,
@@ -8,6 +9,8 @@ import {
   FiVolumeX,
   FiMaximize,
   FiMinimize,
+  FiMaximize2,
+  FiMinimize2,
   FiDownload,
   FiExternalLink,
   FiCopy,
@@ -470,6 +473,13 @@ export function VideoPlayer({
   const [showRateMenu, setShowRateMenu] = useState<boolean>(false);
   const [quality, setQuality] = useState<"1080p" | "720p">("1080p");
   const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
+  const [isClientMounted, setIsClientMounted] = useState<boolean>(false);
+  const savedTimeBeforePortal = useRef<number>(0);
+  const wasPlayingBeforePortal = useRef<boolean>(false);
+
+  useEffect(() => {
+    setIsClientMounted(true);
+  }, []);
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [hasSubtitles, setHasSubtitles] = useState<boolean>(false);
   const [subtitlesVisible, setSubtitlesVisible] = useState<boolean>(true);
@@ -1339,6 +1349,10 @@ export function VideoPlayer({
 
     // 1. 如果当前已经是视口全屏，则退出
     if (isPseudoFullscreen) {
+      if (v) {
+        savedTimeBeforePortal.current = v.currentTime;
+        wasPlayingBeforePortal.current = !v.paused;
+      }
       setIsPseudoFullscreen(false);
       setIsLandscapeRotated(false);
       triggerFlashAction("退出全屏", "⛶");
@@ -1432,9 +1446,37 @@ export function VideoPlayer({
     }
 
     // 6. 视口沉浸伪全屏兜底（支持无原生全屏权限的 WebView、iframe 环境）
+    if (v) {
+      savedTimeBeforePortal.current = v.currentTime;
+      wasPlayingBeforePortal.current = !v.paused;
+    }
     setIsPseudoFullscreen(true);
     triggerFlashAction("全屏播放", "⛶");
   };
+
+  const handleEnterFullscreenAndPlay = useCallback(async () => {
+    triggerHapticFeedback();
+    const v = videoRef.current;
+    if (v && v.paused) {
+      try {
+        await v.play();
+        setIsPlaying(true);
+      } catch {}
+    }
+    await toggleFullscreen();
+  }, [toggleFullscreen]);
+
+  useEffect(() => {
+    if (!isPseudoFullscreen) return;
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [isPseudoFullscreen, toggleFullscreen]);
 
   const togglePiP = async () => {
     const v = videoRef.current;
@@ -1680,7 +1722,7 @@ export function VideoPlayer({
   ]);
 
 
-  return (
+  const playerContent = (
     <div
       ref={containerRef}
       tabIndex={0}
@@ -1759,14 +1801,14 @@ export function VideoPlayer({
               title="退出全屏 (ESC)"
               className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 active:bg-white/30 text-white text-xs backdrop-blur-md transition-all shrink-0 mr-1"
             >
-              <FiMinimize className="w-3.5 h-3.5" />
+              <FiMinimize2 className="w-3.5 h-3.5" />
               <span className="text-[11px] font-medium hidden xs:inline">返回</span>
             </button>
           )}
           <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-[var(--aurora-accent)]/20 text-[var(--aurora-accent)] text-xs shrink-0">
             <FiVideo className="w-3.5 h-3.5" />
           </span>
-          <span className="text-xs font-medium text-white/90 truncate tracking-wide" title={displayTitle}>
+          <span className="text-xs font-medium text-white/90 truncate tracking-wide max-w-[120px] sm:max-w-xs md:max-w-md" title={displayTitle}>
             {displayTitle}
           </span>
           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/60 uppercase shrink-0">
@@ -1775,93 +1817,107 @@ export function VideoPlayer({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {localPath && (
+          {!effectiveFullscreen && (
             <button
               type="button"
-              onClick={handleRevealFolder}
-              title="在访达/资源管理器中定位文件"
+              onClick={toggleFullscreen}
+              title="放大全屏播放"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 text-white text-xs backdrop-blur-md transition-all shadow-sm font-medium shrink-0"
+            >
+              <FiMaximize2 className="w-3.5 h-3.5 text-white" />
+              <span className="text-[11px] whitespace-nowrap">放大全屏</span>
+            </button>
+          )}
+
+          <div className={effectiveFullscreen ? "flex items-center gap-1.5 shrink-0" : "hidden sm:flex items-center gap-1.5 shrink-0"}>
+            {localPath && (
+              <button
+                type="button"
+                onClick={handleRevealFolder}
+                title="在访达/资源管理器中定位文件"
+                className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
+              >
+                <FiFolder className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={captureFrame}
+              title="截取当前原画帧并复制到剪贴板 (快捷键 S)"
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
+            >
+              <FiCamera className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">截图</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              title={copied ? "已复制" : localPath ? "复制本地文件路径" : "复制视频链接"}
               className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
             >
-              <FiFolder className="w-3.5 h-3.5" />
+              {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={captureFrame}
-            title="截取当前原画帧并复制到剪贴板 (快捷键 S)"
-            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
-          >
-            <FiCamera className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-[11px]">截图</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleCopyLink}
-            title={copied ? "已复制" : localPath ? "复制本地文件路径" : "复制视频链接"}
-            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
-          >
-            {copied ? <FiCheck className="w-3.5 h-3.5 text-emerald-400" /> : <FiCopy className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            type="button"
-            onClick={handleShare}
-            title="分享视频链接"
-            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
-          >
-            <FiShare2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-[11px]">分享</span>
-          </button>
-          {inspector && (
             <button
               type="button"
-              onClick={() => inspector.openMediaByUrl(src, displayTitle)}
-              title={isPlayingInInspector ? "已在右侧独立视窗播放" : "在右侧独立窗播放"}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all ${
-                isPlayingInInspector
-                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                  : "text-white/80 hover:text-white hover:bg-white/10"
-              }`}
+              onClick={handleShare}
+              title="分享视频链接"
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs flex items-center gap-1"
             >
-              <FiSidebar className="w-3.5 h-3.5 text-sky-300" />
-              <span className="text-[11px]">独立窗</span>
+              <FiShare2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">分享</span>
             </button>
-          )}
-          <button
-            type="button"
-            onClick={handleExternalOpen}
-            title={localPath ? "在系统本地播放器打开" : "在独立窗口或系统外部打开"}
-            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
-          >
-            <FiExternalLink className="w-3.5 h-3.5" />
-          </button>
-          {hasSubtitles && (
+            {inspector && (
+              <button
+                type="button"
+                onClick={() => inspector.openMediaByUrl(src, displayTitle)}
+                title={isPlayingInInspector ? "已在右侧独立视窗播放" : "在右侧独立窗播放"}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs transition-all ${
+                  isPlayingInInspector
+                    ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                    : "text-white/80 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <FiSidebar className="w-3.5 h-3.5 text-sky-300" />
+                <span className="text-[11px]">独立窗</span>
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => {
-                setShowTranscript((v) => !v);
-                triggerControlsActivity();
-              }}
-              title={showTranscript ? "收起字幕文稿" : "展开对白文稿快速定位"}
-              className={`p-1.5 rounded-lg transition-colors text-xs flex items-center gap-1 ${
-                showTranscript
-                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                  : "text-white/70 hover:text-white hover:bg-white/10"
-              }`}
+              onClick={handleExternalOpen}
+              title={localPath ? "在系统本地播放器打开" : "在独立窗口或系统外部打开"}
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs"
             >
-              <FiFileText className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[11px]">文稿</span>
+              <FiExternalLink className="w-3.5 h-3.5" />
             </button>
-          )}
-          {/* Playing straight from the device (WebRTC), not through the server */}
-          {direct === "on" && (
-            <div
-              title="视频直接从设备传过来（点对点），不经过服务器"
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 select-none"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span>直连</span>
-            </div>
-          )}
+            {hasSubtitles && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTranscript((v) => !v);
+                  triggerControlsActivity();
+                }}
+                title={showTranscript ? "收起字幕文稿" : "展开对白文稿快速定位"}
+                className={`p-1.5 rounded-lg transition-colors text-xs flex items-center gap-1 ${
+                  showTranscript
+                    ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                    : "text-white/70 hover:text-white hover:bg-white/10"
+                }`}
+              >
+                <FiFileText className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[11px]">文稿</span>
+              </button>
+            )}
+            {/* Playing straight from the device (WebRTC), not through the server */}
+            {direct === "on" && (
+              <div
+                title="视频直接从设备传过来（点对点），不经过服务器"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 select-none"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>直连</span>
+              </div>
+            )}
+          </div>
 
           <a
             href={finalDownloadUrl}
@@ -1869,10 +1925,10 @@ export function VideoPlayer({
             target="_blank"
             rel="noopener noreferrer"
             title="下载/导出完整原片视频文件"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)] hover:bg-[var(--aurora-accent-hover,var(--aurora-accent))] text-white text-[11px] font-medium transition-all shadow-sm"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--aurora-accent)] hover:bg-[var(--aurora-accent-hover,var(--aurora-accent))] text-white text-[11px] font-medium transition-all shadow-sm shrink-0"
           >
             <FiDownload className="w-3 h-3" />
-            <span>下载原片</span>
+            <span className="hidden xs:inline">下载原片</span>
           </a>
         </div>
       </div>
@@ -1895,7 +1951,11 @@ export function VideoPlayer({
         }
         onClick={() => {
           if (Date.now() - lastTapRef.current.time < 280) return;
-          togglePlay();
+          if (!effectiveFullscreen) {
+            handleEnterFullscreenAndPlay();
+          } else {
+            togglePlay();
+          }
         }}
         onTouchStart={(e) => {
           markPreloadActive();
@@ -1965,21 +2025,29 @@ export function VideoPlayer({
                 v.playbackRate = playbackRate;
               }
               setIsLoading(false);
-              // Resume playback check
-              const posKey = `memento_vpos_${encodeURIComponent(safeDecodePath(src))}`;
-              try {
-                const saved = localStorage.getItem(posKey);
-                if (saved) {
-                  const pos = parseFloat(saved);
-                  if (pos > 3 && (!v.duration || v.duration - pos > 5)) {
-                    v.currentTime = pos;
-                    setCurrentTime(pos);
-                    setResumeNotice({ pos });
-                    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
-                    resumeTimerRef.current = setTimeout(() => setResumeNotice(null), 5000);
-                  }
+              if (savedTimeBeforePortal.current > 0) {
+                v.currentTime = savedTimeBeforePortal.current;
+                setCurrentTime(savedTimeBeforePortal.current);
+                if (wasPlayingBeforePortal.current) {
+                  v.play().catch(() => {});
                 }
-              } catch {}
+              } else {
+                // Resume playback check
+                const posKey = `memento_vpos_${encodeURIComponent(safeDecodePath(src))}`;
+                try {
+                  const saved = localStorage.getItem(posKey);
+                  if (saved) {
+                    const pos = parseFloat(saved);
+                    if (pos > 3 && (!v.duration || v.duration - pos > 5)) {
+                      v.currentTime = pos;
+                      setCurrentTime(pos);
+                      setResumeNotice({ pos });
+                      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+                      resumeTimerRef.current = setTimeout(() => setResumeNotice(null), 5000);
+                    }
+                  }
+                } catch {}
+              }
             }
           }}
           onCanPlay={() => {
@@ -2114,9 +2182,24 @@ export function VideoPlayer({
         {/* Big Center Play Button (When Paused) */}
         {!isPlaying && !isLoading && !hasError && !isRecovering && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-            <div className="w-16 h-16 rounded-full bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl transition-transform group-hover:scale-110">
-              <FiPlay className="w-7 h-7 ml-1 fill-white" />
-            </div>
+            {effectiveFullscreen ? (
+              <div className="w-16 h-16 rounded-full bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shadow-2xl transition-transform group-hover:scale-110">
+                <FiPlay className="w-7 h-7 ml-1 fill-white" />
+              </div>
+            ) : (
+              <div
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/75 hover:bg-black/90 active:scale-95 backdrop-blur-md border border-white/30 text-white shadow-2xl transition-all group-hover:scale-105 pointer-events-auto cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEnterFullscreenAndPlay();
+                }}
+              >
+                <div className="w-7 h-7 rounded-full bg-[var(--aurora-accent)] flex items-center justify-center text-white shadow-sm shrink-0">
+                  <FiPlay className="w-3.5 h-3.5 ml-0.5 fill-white" />
+                </div>
+                <span className="text-xs font-semibold tracking-wide select-none whitespace-nowrap">点击放大全屏播放</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -2401,7 +2484,7 @@ export function VideoPlayer({
             </div>
 
             {/* Volume Control & Audio Boost */}
-            <div className="flex items-center gap-1.5 group/vol">
+            <div className={`items-center gap-1.5 group/vol shrink-0 ${effectiveFullscreen ? "flex" : "hidden sm:flex"}`}>
               <button
                 type="button"
                 onClick={toggleMute}
@@ -2423,7 +2506,7 @@ export function VideoPlayer({
                 type="button"
                 onClick={toggleAudioBoost}
                 title={audioBoost ? "关闭 200% 人声音量增强 (快捷键 B)" : "开启 200% 音量与人声清晰度增强 (快捷键 B)"}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-tight transition-all ${
+                className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-tight whitespace-nowrap shrink-0 transition-all ${
                   audioBoost
                     ? "bg-amber-400 text-black shadow-xs ring-1 ring-amber-300"
                     : "text-white/50 hover:text-white/90 hover:bg-white/10"
@@ -2434,17 +2517,17 @@ export function VideoPlayer({
             </div>
 
             {/* Time Stamp */}
-            <div className="text-[11px] font-mono text-white/70 tracking-tight">
+            <div className="text-[11px] font-mono text-white/70 tracking-tight whitespace-nowrap shrink-0 select-none">
               <span>{formatTime(currentTime)}</span>
               <span className="mx-1 text-white/40">/</span>
               <span>{formatTime(duration)}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-xs shrink-0">
             {/* Quality Selector (弱网/3M公网可快速切720P流畅流) */}
             {src.toLowerCase().endsWith(".mp4") && (
-              <div className="relative">
+              <div className={`relative ${effectiveFullscreen ? "block" : "hidden sm:block"}`}>
                 <button
                   type="button"
                   onClick={() => {
@@ -2485,7 +2568,7 @@ export function VideoPlayer({
             )}
 
             {/* Speed Selector */}
-            <div className="relative">
+            <div className={`relative ${effectiveFullscreen ? "block" : "hidden sm:block"}`}>
               <button
                 type="button"
                 onClick={() => setShowRateMenu((v) => !v)}
@@ -2530,6 +2613,8 @@ export function VideoPlayer({
                 }}
                 title={subtitlesVisible ? "关闭字幕" : "开启中文字幕 (CC)"}
                 className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono transition-colors ${
+                  effectiveFullscreen ? "inline-block" : "hidden sm:inline-block"
+                } ${
                   subtitlesVisible
                     ? "bg-[var(--aurora-accent)] text-white shadow-xs"
                     : "bg-white/10 hover:bg-white/20 text-white/60"
@@ -2544,7 +2629,9 @@ export function VideoPlayer({
               type="button"
               onClick={togglePiP}
               title="画中画模式"
-              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+              className={`p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors ${
+                effectiveFullscreen ? "block" : "hidden sm:block"
+              }`}
             >
               <span className="text-[11px] font-mono border border-white/30 px-1 py-0.5 rounded">PiP</span>
             </button>
@@ -2560,7 +2647,9 @@ export function VideoPlayer({
                   ? `已设A点 ${formatTime(abLoop.a)}，点击设B点 (快捷键 ])`
                   : `正在 A-B 循环 (${formatTime(abLoop.a)} - ${formatTime(abLoop.b)})，点击清除 (快捷键 \\)`
               }
-              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+              className={`p-1.5 rounded-lg transition-colors items-center gap-1 ${
+                effectiveFullscreen ? "flex" : "hidden md:flex"
+              } ${
                 abLoop.a !== null
                   ? "text-amber-400 bg-amber-400/20 font-semibold"
                   : "text-white/80 hover:text-white hover:bg-white/10"
@@ -2581,7 +2670,9 @@ export function VideoPlayer({
               title={`画质模式：${
                 filterMode === "vivid" ? "代码对比度提亮" : filterMode === "warm" ? "夜间暖光护眼" : "标准原画"
               }`}
-              className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 ${
+              className={`p-1.5 rounded-lg transition-colors items-center gap-1 ${
+                effectiveFullscreen ? "flex" : "hidden md:flex"
+              } ${
                 filterMode !== "normal"
                   ? "text-amber-400 bg-amber-400/20 font-semibold shadow-xs"
                   : "text-white/80 hover:text-white hover:bg-white/10"
@@ -2601,6 +2692,8 @@ export function VideoPlayer({
               onClick={cycleFitMode}
               title={`画面比例：${fitMode === "cover" ? "居中裁剪铺满" : fitMode === "fill" ? "拉伸填满" : "适应原比例"}`}
               className={`p-1.5 rounded-lg transition-colors ${
+                effectiveFullscreen ? "block" : "hidden md:block"
+              } ${
                 fitMode !== "contain" ? "text-[var(--aurora-accent)] bg-white/10" : "text-white/80 hover:text-white hover:bg-white/10"
               }`}
             >
@@ -2613,7 +2706,9 @@ export function VideoPlayer({
                 type="button"
                 onClick={enterNativeFullscreen}
                 title="系统原生播放器全屏 (iOS)"
-                className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+                className={`p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors items-center gap-1 ${
+                  effectiveFullscreen ? "flex" : "hidden sm:flex"
+                }`}
               >
                 <FiSmartphone className="w-4 h-4" />
                 <span className="text-[10px] hidden xs:inline">原生</span>
@@ -2641,16 +2736,23 @@ export function VideoPlayer({
             <button
               type="button"
               onClick={toggleFullscreen}
-              title={effectiveFullscreen ? "退出全屏" : "全屏"}
-              className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+              title={effectiveFullscreen ? "退出全屏 (ESC)" : "全屏播放"}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/35 text-white transition-colors shrink-0"
             >
-              {effectiveFullscreen ? <FiMinimize className="w-4 h-4" /> : <FiMaximize className="w-4 h-4" />}
+              {effectiveFullscreen ? <FiMinimize2 className="w-4 h-4" /> : <FiMaximize2 className="w-4 h-4" />}
+              <span className="text-[11px] font-medium hidden xs:inline">{effectiveFullscreen ? "退出全屏" : "全屏"}</span>
             </button>
           </div>
         </div>
       </div>
     </div>
   );
+
+  if (isPseudoFullscreen && isClientMounted && typeof document !== "undefined") {
+    return createPortal(playerContent, document.body);
+  }
+
+  return playerContent;
 }
 
 /* ========================================================================= */

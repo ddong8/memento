@@ -548,7 +548,6 @@ export const AssistantBubble = memo(function AssistantBubble({
           overflow: "hidden",
           userSelect: "text",
           WebkitUserSelect: "text",
-          containerType: "inline-size",
         }}
       >
         {turn.sources && turn.sources.length > 0 && (
@@ -689,7 +688,7 @@ export const AssistantBubble = memo(function AssistantBubble({
         </div>
       )}
       {!isCurrentlyStreaming && (content || hasTools || replyTime || durationText) && (
-        <div className="flex items-center justify-between gap-1 sm:gap-2 mt-2 pt-1.5 border-t border-[var(--aurora-border)]/40 not-prose select-none text-[10.5px] sm:text-[11px] min-w-0">
+        <div className="ask-assistant-bubble-footer flex items-center justify-between gap-1 sm:gap-2 mt-2 pt-1.5 border-t border-[var(--aurora-border)]/40 not-prose select-none text-[10.5px] sm:text-[11px] min-w-0">
           <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5 text-[10.5px] sm:text-[11px] text-[var(--aurora-fg3)]" style={{ fontVariantNumeric: "tabular-nums" }}>
             {replyTime && (
               <span

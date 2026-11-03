@@ -38,7 +38,7 @@ export default function DeviceToolProjectPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--aurora-fg4)", marginBottom: 8, flexWrap: "wrap" }}>
         <Link href="/devices" style={{ color: "var(--aurora-fg4)" }}>{t.nav.devices}</Link>
         <Icon name="chevron_right" size={12} />
-        <span>{deviceId.replace(/^memento-/, "").slice(0, 8)}</span>
+        <span>{deviceId.slice(0, 8)}</span>
         <Icon name="chevron_right" size={12} />
         <Link href={`/devices/${deviceId}/tools/${toolId}`} style={{ color: "var(--aurora-fg4)", textTransform: "capitalize" }}>
           {toolId.replace("_", " ")}
@@ -48,7 +48,7 @@ export default function DeviceToolProjectPage() {
       </div>
 
       <TopBar
-        title={project?.title || (projectId === "none" ? "(No Project)" : projectId.replace(/^memento-/, "").slice(0, 8))}
+        title={project?.title || (projectId === "none" ? "(No Project)" : projectId.slice(0, 8))}
         subtitle={
           project?.source_path
             ? `${project.source_path} · ${total} ${t.files}`

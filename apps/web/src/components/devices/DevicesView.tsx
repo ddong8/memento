@@ -263,7 +263,7 @@ node packages/daemon/dist/cli.js install-service`}
                       </span>
                       <span style={{ color: "var(--aurora-fg5)" }}>·</span>
                       <span style={{ fontFamily: "ui-monospace,monospace", color: "var(--aurora-fg4)" }}>
-                        {d.device_id.replace(/^memento-/, "").slice(0, 8)}
+                        {d.device_id.slice(0, 8)}
                       </span>
                       <span style={{ color: "var(--aurora-fg5)" }}>·</span>
                       <span>

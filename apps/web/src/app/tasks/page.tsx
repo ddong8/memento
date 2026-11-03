@@ -215,7 +215,7 @@ export default function TasksPage() {
                 <Chip tone={statusTone(task.status)}>{statusLabel(task.status)}</Chip>
                 <Chip>{task.action}</Chip>
                 <span style={{ fontSize: 12, color: "var(--aurora-fg3)" }}>
-                  {dev?.name || task.device_id.replace(/^memento-/, "").slice(0, 8)}
+                  {dev?.name || task.device_id.slice(0, 8)}
                 </span>
                 <span
                   style={{

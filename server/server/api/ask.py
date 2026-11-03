@@ -124,10 +124,10 @@ async def list_active_runs_wrapped(
 
 
 @router.get("/conversations/{conv_id}/run")
-async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict | None:
+async def get_run(conv_id: str, _user: User = Depends(get_current_user)) -> dict:
     run = await ask_runs.get(conv_id, _user.id)
     if run is None:
-        return None
+        raise HTTPException(status_code=404, detail="no run")
     return run.summary()
 
 

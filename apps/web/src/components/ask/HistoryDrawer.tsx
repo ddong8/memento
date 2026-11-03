@@ -187,14 +187,15 @@ const ConversationItem = memo(function ConversationItem({
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const safeProjectTitle = useMemo(() => {
-    if (c.project_title && c.project_title.trim()) {
+    if (c.project_title && c.project_title.trim() && !/^[0-9a-fA-F-]{36}$/.test(c.project_title.trim())) {
       return c.project_title.trim();
     }
+    const effectiveCwd = c.cwd || c.config?.cwd;
     const resolved = resolveSafeProjectName({
       projectId: c.project_id || c.config?.project_id,
       projectTitle: c.project_title || undefined,
       projects,
-      cwd: c.cwd || c.config?.cwd,
+      cwd: effectiveCwd,
       isZh,
     });
     if (resolved === (isZh ? "项目代码库" : "Project")) {
@@ -203,25 +204,117 @@ const ConversationItem = memo(function ConversationItem({
     return resolved;
   }, [c.project_title, c.project_id, c.config, c.cwd, projects, isZh]);
 
-  const resolvedDevName = useMemo(() => {
-    if (c.device_name && c.device_name.trim()) {
-      return c.device_name
-        .replace(/\.local$/i, "")
-        .replace(/ \(\w+\)$/, "")
-        .trim();
+  const devMeta = useMemo(() => {
+    const isRawUuid = (str?: string) => Boolean(str && /^[0-9a-fA-F-]{36}$/.test(str));
+    const rawDev = c.device_id?.trim();
+    const rawName = c.device_name?.trim();
+    const effectiveCwd = (c.cwd || c.config?.cwd || "").trim();
+
+    // 1. 如果属于自动调度 / 全局执事 / 无物理绑定
+    if (!rawDev || rawDev === "auto" || rawDev === "ask_only" || rawDev === "all") {
+      if (effectiveCwd) {
+        if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
+          const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
+          };
+        }
+        if (/\/users\/donghaixing/i.test(effectiveCwd)) {
+          const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
+          };
+        }
+        if (/\/users\/haixingdong/i.test(effectiveCwd)) {
+          const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
+          };
+        }
+      }
+      return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
     }
-    if (!c.device_id) return "";
+
+    // 2. 如果后端已经给出清洗好的设备名称（非 UUID 且非 auto）
+    if (rawName && !isRawUuid(rawName) && rawName !== "auto" && rawName !== "ask_only") {
+      return {
+        type: "device" as const,
+        name: rawName.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+      };
+    }
+
+    // 3. 匹配在线设备列表
     const found = devices?.find(
-      (d) => d.device_id === c.device_id || d.id === c.device_id || d.name === c.device_id
+      (d) => d.device_id === rawDev || d.id === rawDev || d.name === rawDev
     );
     if (found?.name) {
-      return found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
+      return {
+        type: "device" as const,
+        name: found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+      };
     }
-    if (c.device_id.startsWith("memento-")) {
-      return "";
+
+    // 4. 匹配历史设备别名
+    if (rawDev === "d233b11b-cc85-4492-b4da-40fed6c954b7") {
+      const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
+      };
     }
-    return c.device_id;
-  }, [c.device_name, c.device_id, devices]);
+    if (rawDev === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || rawDev === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") {
+      const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
+      };
+    }
+    if (rawDev === "b0d4cab2-9cee-465d-a12c-dec705e460b2") {
+      const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
+      };
+    }
+
+    // 5. 路径指纹特征
+    if (effectiveCwd) {
+      if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
+        const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
+        return {
+          type: "device" as const,
+          name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
+        };
+      }
+      if (/\/users\/donghaixing/i.test(effectiveCwd)) {
+        const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
+        return {
+          type: "device" as const,
+          name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
+        };
+      }
+      if (/\/users\/haixingdong/i.test(effectiveCwd)) {
+        const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
+        return {
+          type: "device" as const,
+          name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
+        };
+      }
+    }
+
+    // 6. 兜底防御：绝对禁止暴露原始 UUID
+    if (rawDev.startsWith("memento-")) {
+      const clipped = rawDev.replace("memento-", "").slice(0, 8);
+      return { type: "device" as const, name: clipped };
+    }
+    if (isRawUuid(rawDev)) {
+      return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
+    }
+    return { type: "device" as const, name: rawDev };
+  }, [c.device_name, c.device_id, c.cwd, c.config, devices, isZh]);
 
   const dateStr = useMemo(() => {
     const rawTime = c.updated_at || c.created_at;
@@ -584,20 +677,24 @@ const ConversationItem = memo(function ConversationItem({
                 </span>
               ) : null}
 
-              {resolvedDevName ? (
+              {devMeta ? (
                 <span
-                  title={isZh ? `来源设备: ${resolvedDevName}` : `Device: ${resolvedDevName}`}
+                  title={
+                    devMeta.type === "global"
+                      ? (isZh ? "全局执事自动调度" : "Global AI Agent")
+                      : (isZh ? `来源设备: ${devMeta.name}` : `Device: ${devMeta.name}`)
+                  }
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 3,
                     padding: "1px 5px",
                     borderRadius: 4,
-                    background: "var(--aurora-chip)",
-                    border: "1px solid var(--aurora-border)",
+                    background: devMeta.type === "global" ? "rgba(109, 40, 217, 0.08)" : "var(--aurora-chip)",
+                    border: devMeta.type === "global" ? "1px solid rgba(109, 40, 217, 0.2)" : "1px solid var(--aurora-border)",
                     fontSize: 10,
-                    fontFamily: "ui-monospace, monospace",
-                    color: "var(--aurora-fg3)",
+                    fontFamily: devMeta.type === "global" ? "inherit" : "ui-monospace, monospace",
+                    color: devMeta.type === "global" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                     maxWidth: 110,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -605,12 +702,12 @@ const ConversationItem = memo(function ConversationItem({
                     flexShrink: 0,
                   }}
                 >
-                  <Icon name="devices" size={9.5} style={{ flexShrink: 0 }} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{resolvedDevName}</span>
+                  <Icon name={devMeta.type === "global" ? "sparkles" : "devices"} size={9.5} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{devMeta.name}</span>
                 </span>
               ) : null}
 
-              {(safeProjectTitle || resolvedDevName) && (
+              {(safeProjectTitle || devMeta) && (
                 <span style={{ color: "var(--aurora-fg4)", fontSize: 10, flexShrink: 0 }}>·</span>
               )}
 
@@ -940,16 +1037,33 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const targetDev = devices?.find(
         (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
       );
+      const cleanTargetName = targetDev?.name?.replace(/\.local$/i, "")?.replace(/ \(\w+\)$/, "")?.trim()?.toLowerCase();
+      const isTargetWin = Boolean(targetDev && /desktop-|windows/i.test(targetDev.name));
+      const isTargetMbp = Boolean(targetDev && /macbook/i.test(targetDev.name));
+      const isTargetMini = Boolean(targetDev && /mac-mini/i.test(targetDev.name));
+
       list = list.filter((c) => {
-        if (!c.device_id) return false;
+        if (!c.device_id && !c.device_name && !c.cwd && !c.config?.cwd) return false;
         if (c.device_id === selectedDevice) return true;
-        if (targetDev) {
-          return (
-            c.device_id === targetDev.device_id ||
-            c.device_id === targetDev.id ||
-            c.device_id === targetDev.name
-          );
+        if (targetDev && (c.device_id === targetDev.device_id || c.device_id === targetDev.id || c.device_id === targetDev.name)) return true;
+
+        // 如果会话解析后的真实设备名与当前筛选设备一致，也纳入匹配
+        const cDevName = (c.device_name || "").replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim().toLowerCase();
+        if (cleanTargetName && cDevName === cleanTargetName) return true;
+
+        // 历史设备别名匹配
+        if (isTargetWin && c.device_id === "d233b11b-cc85-4492-b4da-40fed6c954b7") return true;
+        if (isTargetMbp && (c.device_id === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || c.device_id === "07f55f05-59ed-4b27-bf62-79f4f6de64cd")) return true;
+        if (isTargetMini && c.device_id === "b0d4cab2-9cee-465d-a12c-dec705e460b2") return true;
+
+        // 路径特征归属匹配
+        const effectiveCwd = (c.cwd || c.config?.cwd || "").trim().toLowerCase();
+        if (effectiveCwd) {
+          if (isTargetWin && (/^[a-zA-Z]:/.test(effectiveCwd) || effectiveCwd.includes("users/admin") || effectiveCwd.includes("users\\admin"))) return true;
+          if (isTargetMbp && effectiveCwd.includes("/users/donghaixing")) return true;
+          if (isTargetMini && effectiveCwd.includes("/users/haixingdong")) return true;
         }
+
         return false;
       });
     }

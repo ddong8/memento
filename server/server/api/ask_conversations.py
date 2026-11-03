@@ -36,7 +36,7 @@ router = APIRouter()
 @router.get("/conversations")
 async def list_conversations(
     device_id: str | None = None,
-    limit: int = Query(500, ge=1, le=500),
+    limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -53,13 +53,6 @@ async def list_conversations(
         match_vals = [device_id]
         if target_machine:
             match_vals.extend([str(target_machine.id), target_machine.collector_token_hash, target_machine.name])
-            clean_tname = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target_machine.name or ""), flags=re.IGNORECASE).strip().lower()
-            if "desktop-" in clean_tname or "(windows)" in clean_tname:
-                match_vals.append("d233b11b-cc85-4492-b4da-40fed6c954b7")
-            elif "macbook" in clean_tname:
-                match_vals.extend(["1d0cd5b4-42d5-41bd-8d6d-212fdfc66630", "07f55f05-59ed-4b27-bf62-79f4f6de64cd"])
-            elif "mac-mini" in clean_tname:
-                match_vals.append("b0d4cab2-9cee-465d-a12c-dec705e460b2")
         match_vals = list(set(filter(None, match_vals)))
         cond = cond & AskConversation.device_id.in_(match_vals)
 
@@ -147,22 +140,6 @@ async def list_conversations(
                 mach_map[m.name] = disp_name
                 mach_map[clean_name] = disp_name
 
-    # 建立历史设备 UUID 与路径指纹到活跃设备的自动绑定
-    active_win_mach = next((m for m in mach_rows if m.name and ("desktop-" in m.name.lower() or "(windows)" in m.name.lower())), None)
-    active_mbp_mach = next((m for m in mach_rows if m.name and "macbook" in m.name.lower()), None)
-    active_mini_mach = next((m for m in mach_rows if m.name and "mac-mini" in m.name.lower()), None)
-
-    if active_win_mach:
-        w_disp = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", active_win_mach.name or ""), flags=re.IGNORECASE).strip()
-        mach_map["d233b11b-cc85-4492-b4da-40fed6c954b7"] = w_disp
-    if active_mbp_mach:
-        mbp_disp = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", active_mbp_mach.name or ""), flags=re.IGNORECASE).strip()
-        mach_map["1d0cd5b4-42d5-41bd-8d6d-212fdfc66630"] = mbp_disp
-        mach_map["07f55f05-59ed-4b27-bf62-79f4f6de64cd"] = mbp_disp
-    if active_mini_mach:
-        mini_disp = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", active_mini_mach.name or ""), flags=re.IGNORECASE).strip()
-        mach_map["b0d4cab2-9cee-465d-a12c-dec705e460b2"] = mini_disp
-
     out_items = []
     dirty_repaired = False
     for r in rows:
@@ -181,6 +158,7 @@ async def list_conversations(
                     tc_args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
                     tc_res = tc.get("result") if isinstance(tc.get("result"), dict) else {}
                     sid = tc_res.get("session_id") or tc_args.get("session_id") or (tc.get("call") or {}).get("session_id")
+                    # A saved "" is a choice: a new session, or one gone from its device
                     if sid and cfg.get("session_id") is None:
                         cfg["session_id"] = str(sid)
                     bin_name = str(tc_args.get("binary") or tc.get("binary") or "").lower()
@@ -214,8 +192,7 @@ async def list_conversations(
                 conv_obj.title = display_title
             dirty_repaired = True
 
-        # 解析 project_title 与 project_id (支持从 r.cwd 或 cfg['cwd'] 解析)
-        effective_cwd = r.cwd or cfg.get("cwd")
+        # 解析 project_title 与 project_id
         pid_raw = str(cfg.get("project_id") or "").strip()
         p_title: str | None = None
         resolved_pid: str | None = pid_raw or None
@@ -227,8 +204,8 @@ async def list_conversations(
                 p_title = proj_slug_map[pid_raw.lower()]
                 resolved_pid = proj_slug_to_id.get(pid_raw.lower(), pid_raw)
 
-        if not p_title and effective_cwd:
-            cleaned_cwd = _clean_source_path(effective_cwd)
+        if not p_title and r.cwd:
+            cleaned_cwd = _clean_source_path(r.cwd)
             if cleaned_cwd:
                 cleaned_lower = cleaned_cwd.lower()
                 best_match = None
@@ -252,57 +229,36 @@ async def list_conversations(
                         elif not _is_invalid_project_name(cand_name):
                             p_title = cand_name
 
-        # 解析 device_name 友好名与规范化 device_id
+        # 解析 device_name 友好名
         dev_friendly_name: str | None = None
         raw_dev = r.device_id or cfg.get("device_id")
-        norm_dev_id = r.device_id
-
-        # 1. 优先查机器映射字典（含历史别名）
         if raw_dev and raw_dev not in ("auto", "ask_only", "all"):
             if raw_dev in mach_map:
                 dev_friendly_name = mach_map[raw_dev]
-                if raw_dev == "d233b11b-cc85-4492-b4da-40fed6c954b7" and active_win_mach:
-                    norm_dev_id = active_win_mach.collector_token_hash or active_win_mach.name
-                elif raw_dev in ("1d0cd5b4-42d5-41bd-8d6d-212fdfc66630", "07f55f05-59ed-4b27-bf62-79f4f6de64cd") and active_mbp_mach:
-                    norm_dev_id = active_mbp_mach.collector_token_hash or active_mbp_mach.name
-                elif raw_dev == "b0d4cab2-9cee-465d-a12c-dec705e460b2" and active_mini_mach:
-                    norm_dev_id = active_mini_mach.collector_token_hash or active_mini_mach.name
-            elif cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento") and not re.match(r"^[0-9a-fA-F-]{36}$", cfg.get("device_name")):
+            elif cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
                 dev_friendly_name = cfg["device_name"]
+            elif raw_dev.startswith("memento-"):
+                clipped = raw_dev.replace("memento-", "")[:8]
+                if clipped and clipped not in ("memento-", "memento"):
+                    dev_friendly_name = clipped
+            else:
+                dev_friendly_name = raw_dev
 
-        # 2. 路径指纹兜底识别（解决 auto 模式或未命名会话的真实设备归属）
-        if (not dev_friendly_name or re.match(r"^[0-9a-fA-F-]{36}$", str(dev_friendly_name))) and effective_cwd:
-            cwd_str = str(effective_cwd).strip()
-            if re.search(r"^[a-zA-Z]:", cwd_str) or "users/admin" in cwd_str.lower():
-                if active_win_mach:
-                    dev_friendly_name = mach_map.get(active_win_mach.collector_token_hash) or active_win_mach.name
-                    norm_dev_id = active_win_mach.collector_token_hash or active_win_mach.name
-            elif "/users/donghaixing" in cwd_str:
-                if active_mbp_mach:
-                    dev_friendly_name = mach_map.get(active_mbp_mach.collector_token_hash) or active_mbp_mach.name
-                    norm_dev_id = active_mbp_mach.collector_token_hash or active_mbp_mach.name
-            elif "/users/haixingdong" in cwd_str:
-                if active_mini_mach:
-                    dev_friendly_name = mach_map.get(active_mini_mach.collector_token_hash) or active_mini_mach.name
-                    norm_dev_id = active_mini_mach.collector_token_hash or active_mini_mach.name
-
-        # 彻底杜绝暴露裸 UUID、memento- 哈希或 auto 作为设备显示名
-        if dev_friendly_name:
-            if dev_friendly_name in ("memento-", "memento", "auto", "ask_only", "") or re.match(r"^[0-9a-fA-F-]{36}$", str(dev_friendly_name)):
-                dev_friendly_name = None
+        if dev_friendly_name in ("memento-", "memento", ""):
+            dev_friendly_name = None
 
         out_items.append({
             "id": str(r.id),
             "title": display_title,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-            "device_id": norm_dev_id,
+            "device_id": r.device_id,
             "device_name": dev_friendly_name,
             "project_id": resolved_pid,
             "project_title": p_title,
-            "cwd": effective_cwd,
+            "cwd": r.cwd,
             "config": cfg,
-            "message_count": r.message_count or (len(turns_list) if turns_list is not None else 0),
+            "message_count": r.message_count or 0,
         })
 
     # Sort pinned conversations to the top, then newest updated first

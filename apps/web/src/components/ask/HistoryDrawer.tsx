@@ -187,15 +187,14 @@ const ConversationItem = memo(function ConversationItem({
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const safeProjectTitle = useMemo(() => {
-    if (c.project_title && c.project_title.trim() && !/^[0-9a-fA-F-]{36}$/.test(c.project_title.trim())) {
+    if (c.project_title && c.project_title.trim()) {
       return c.project_title.trim();
     }
-    const effectiveCwd = c.cwd || c.config?.cwd;
     const resolved = resolveSafeProjectName({
       projectId: c.project_id || c.config?.project_id,
       projectTitle: c.project_title || undefined,
       projects,
-      cwd: effectiveCwd,
+      cwd: c.cwd || c.config?.cwd,
       isZh,
     });
     if (resolved === (isZh ? "项目代码库" : "Project")) {
@@ -205,62 +204,24 @@ const ConversationItem = memo(function ConversationItem({
   }, [c.project_title, c.project_id, c.config, c.cwd, projects, isZh]);
 
   const resolvedDevName = useMemo(() => {
-    const isRawUuid = (str?: string) => Boolean(str && /^[0-9a-fA-F-]{36}$/.test(str));
-    const rawName = c.device_name?.trim();
-    if (rawName && !isRawUuid(rawName) && rawName !== "auto" && rawName !== "ask_only") {
-      return rawName
+    if (c.device_name && c.device_name.trim()) {
+      return c.device_name
         .replace(/\.local$/i, "")
         .replace(/ \(\w+\)$/, "")
         .trim();
     }
-    const devId = c.device_id?.trim();
-    if (!devId || devId === "auto" || devId === "ask_only") return "";
-
-    // 匹配当前在线设备列表
+    if (!c.device_id) return "";
     const found = devices?.find(
-      (d) => d.device_id === devId || d.id === devId || d.name === devId
+      (d) => d.device_id === c.device_id || d.id === c.device_id || d.name === c.device_id
     );
     if (found?.name) {
       return found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
     }
-
-    // 匹配历史设备别名
-    if (devId === "d233b11b-cc85-4492-b4da-40fed6c954b7") {
-      const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
-      return winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4";
-    }
-    if (devId === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || devId === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") {
-      const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
-      return mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro";
-    }
-    if (devId === "b0d4cab2-9cee-465d-a12c-dec705e460b2") {
-      const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
-      return miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini";
-    }
-
-    // 基于路径指纹兜底识别设备（识别 Windows 盘符与 Mac 目录）
-    const cwdVal = (c.cwd || c.config?.cwd || "").trim();
-    if (cwdVal) {
-      if (/^[a-zA-Z]:/i.test(cwdVal) || /users\/admin/i.test(cwdVal)) {
-        const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
-        return winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4";
-      }
-      if (/\/users\/donghaixing/i.test(cwdVal)) {
-        const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
-        return mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro";
-      }
-      if (/\/users\/haixingdong/i.test(cwdVal)) {
-        const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
-        return miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini";
-      }
-    }
-
-    // 绝对不将生硬的 UUID、哈希前缀或 auto 作为设备名直接暴露给用户
-    if (devId.startsWith("memento-") || isRawUuid(devId) || devId === "auto") {
+    if (c.device_id.startsWith("memento-")) {
       return "";
     }
-    return devId;
-  }, [c.device_name, c.device_id, c.cwd, c.config, devices]);
+    return c.device_id;
+  }, [c.device_name, c.device_id, devices]);
 
   const dateStr = useMemo(() => {
     const rawTime = c.updated_at || c.created_at;
@@ -979,18 +940,16 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const targetDev = devices?.find(
         (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
       );
-      const cleanTargetName = targetDev?.name?.replace(/\.local$/i, "")?.replace(/ \(\w+\)$/, "")?.trim()?.toLowerCase();
       list = list.filter((c) => {
-        if (!c.device_id && !c.device_name) return false;
+        if (!c.device_id) return false;
         if (c.device_id === selectedDevice) return true;
-        if (targetDev && (c.device_id === targetDev.device_id || c.device_id === targetDev.id || c.device_id === targetDev.name)) return true;
-        // 如果会话解析后的真实设备名与当前筛选设备一致，也纳入匹配
-        const cDevName = (c.device_name || "").replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim().toLowerCase();
-        if (cleanTargetName && cDevName === cleanTargetName) return true;
-        // 别名匹配
-        if (targetDev && /desktop-|windows/i.test(targetDev.name) && c.device_id === "d233b11b-cc85-4492-b4da-40fed6c954b7") return true;
-        if (targetDev && /macbook/i.test(targetDev.name) && (c.device_id === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || c.device_id === "07f55f05-59ed-4b27-bf62-79f4f6de64cd")) return true;
-        if (targetDev && /mac-mini/i.test(targetDev.name) && c.device_id === "b0d4cab2-9cee-465d-a12c-dec705e460b2") return true;
+        if (targetDev) {
+          return (
+            c.device_id === targetDev.device_id ||
+            c.device_id === targetDev.id ||
+            c.device_id === targetDev.name
+          );
+        }
         return false;
       });
     }

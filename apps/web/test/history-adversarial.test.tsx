@@ -885,4 +885,59 @@ describe("Adversarial Verification: HistoryDrawer, Tag Decoupling and Scalabilit
       expect(errorCalls.length).toBe(0);
     });
   });
+
+  // =========================================================================
+  // Test Suite 5: Device ID Prefix Stripping and Real Project Integrity
+  // =========================================================================
+  describe("5. Device ID Prefix Stripping and Real Project Integrity", () => {
+    it("5.1 Ensures memento- prefix is NEVER shown as literal project tag or fallback device label", async () => {
+      const convWithMementoDev: AskConversationSummary = {
+        id: "conv-memento-test-1",
+        title: "你是谁",
+        created_at: "2026-11-01T03:31:28Z",
+        updated_at: "2026-11-01T03:31:28Z",
+        device_id: "memento-65d4db33c1c70-18f46486",
+        device_name: "DESKTOP-KR9IPP4",
+        project_id: "21767e3f-1c1f-4c6e-ad67-f5b25264e4b2",
+        project_title: "WorkBuddy",
+        cwd: "c:/Users/Admin/WorkBuddy",
+        message_count: 4,
+        config: {
+          execution_mode: "workbuddy",
+          project_id: "21767e3f-1c1f-4c6e-ad67-f5b25264e4b2",
+        },
+      };
+
+      await act(async () => {
+        root!.render(
+          <HistoryDrawer
+            open={true}
+            onClose={() => {}}
+            conversations={[convWithMementoDev]}
+            activeConversationId={null}
+            selectedDevice="memento-65d4db33c1c70-18f46486"
+            devices={mockDevices}
+            projects={mockProjects}
+            onSelectConversation={() => {}}
+            onStartNewChat={() => {}}
+            onDeleteConversation={() => {}}
+            onRenameConversation={() => {}}
+            onTogglePinConversation={() => {}}
+            onOpenSingleShare={() => {}}
+            onOpenBatchShare={() => {}}
+            isZh={true}
+            t={mockI18n}
+          />
+        );
+      });
+      await tick();
+
+      const text = host.textContent || "";
+      expect(text).toContain("WorkBuddy");
+      expect(text).toContain("DESKTOP-KR9IPP4");
+      // Must NOT contain literal "memento-" as a visible badge
+      const badges = Array.from(host.querySelectorAll("span")).map((s) => s.textContent?.trim());
+      expect(badges.filter((b) => b === "memento-").length).toBe(0);
+    });
+  });
 });

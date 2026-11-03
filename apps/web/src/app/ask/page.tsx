@@ -890,11 +890,11 @@ function AskPageContent() {
       }
       // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
       const devToQuery = filterDev !== undefined ? filterDev : "all";
-      const list = await api.listAskConversations(devToQuery);
+      const list = await api.listAskConversations(devToQuery, 500);
       const safeList = list || [];
       setConversations(safeList);
       try {
-        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 100)));
+        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 300)));
       } catch {}
 
       // Idle prefetch: warm top recent conversations in background for true 0ms clicks
@@ -921,12 +921,8 @@ function AskPageContent() {
 
   const handleHistoryFilterDeviceChange = useCallback((filterCurrent: boolean) => {
     setHistoryFilterDevice(filterCurrent);
-    if (!filterCurrent) {
-      void loadConversations("all");
-    } else if (selectedDeviceRef.current) {
-      void loadConversations(selectedDeviceRef.current);
-    }
-  }, [loadConversations]);
+    // 保持主 conversations 列表为全量数据，抽屉内部基于内存实现 0ms 设备筛选，避免冲刷截断
+  }, []);
 
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
@@ -1768,9 +1764,8 @@ function AskPageContent() {
     const cameBack = awayFromAskRef.current;
     awayFromAskRef.current = false;
 
-    if (conversations.length === 0) {
-      loadConversationsRef.current();
-    }
+    // SWR 策略：即使已有本地缓存瞬时渲染，也始终在后台发起全量重校验，确保会话最新不遗漏
+    loadConversationsRef.current("all");
 
     const checkAndRestore = async () => {
       // 若处于明确的新建对话模式且无显式 URL 参数，彻底阻断任何自动恢复！
@@ -4104,11 +4099,7 @@ function AskPageContent() {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
-    if (historyFilterDevice && isConcreteDevice(newDev)) {
-      void loadConversations(newDev);
-    } else {
-      void loadConversations("all");
-    }
+    void loadConversations("all");
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
@@ -5144,15 +5135,18 @@ function AskPageContent() {
                       {(() => {
                         if (selectedDevice === "auto") return t.ask.autoDispatch;
                         if (selectedDevice === "ask_only") return t.ask.askOnly;
-                        const rawName = currentDev?.name || selectedDevice;
-                        const baseName = rawName
-                          .replace(/\.local$/i, "")
-                          .replace(/ \(\w+\)$/, "")
-                          .replace(/([a-zA-Z0-9_-]+)de(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
-                          .replace(/([a-zA-Z0-9_-]+)的(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
-                          .replace(/MacBook-Pro/i, "MacBook Pro")
-                          .replace(/MacBook-Air/i, "MacBook Air");
-                        const shortName = baseName || (selectedDevice.length > 8 ? selectedDevice.slice(0, 8) : selectedDevice);
+                        const devName = currentDev?.name;
+                        const cleanDevId = selectedDevice.replace(/^memento-/, "");
+                        const baseName = devName
+                          ? devName
+                              .replace(/\.local$/i, "")
+                              .replace(/ \(\w+\)$/, "")
+                              .replace(/([a-zA-Z0-9_-]+)de(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
+                              .replace(/([a-zA-Z0-9_-]+)的(MacBook(?:-Pro|-Air)?)/i, "$1 $2")
+                              .replace(/MacBook-Pro/i, "MacBook Pro")
+                              .replace(/MacBook-Air/i, "MacBook Air")
+                          : (cleanDevId.length > 8 ? cleanDevId.slice(0, 8) : cleanDevId);
+                        const shortName = baseName || cleanDevId;
                         return `${shortName}${!isCurrentDevOnline ? (isZh ? " (离线)" : " (Offline)") : ""}`;
                       })()}
                     </span>

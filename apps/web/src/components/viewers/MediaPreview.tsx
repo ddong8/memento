@@ -563,8 +563,9 @@ export function VideoPlayer({
         }
       }
 
-      // Only auto-probe companion subtitle files if explicitly configured or if dealing with a clean local file path
-      if (candidates.length === 0 && isLocalFilePath(src)) {
+      // 仅在明确配置字幕、桌面客户端或具有本地文件探测能力时嗅探外挂字幕，防止远程模式下的盲目 404 风暴
+      const isElectron = typeof window !== "undefined" && Boolean((window as any).electronAPI);
+      if (candidates.length === 0 && (isElectron || subtitles) && isLocalFilePath(src)) {
         const cleanPath = safeDecodePath(src).replace(/^file:\/\//, "");
         const baseName = cleanPath.replace(/\.[a-zA-Z0-9]+$/, "");
         candidates.push(`${baseName}_字幕.srt`, `${baseName}.vtt`, `${baseName}.srt`);
@@ -575,6 +576,8 @@ export function VideoPlayer({
         try {
           const resolvedSub = resolveMediaUrl(cand);
           if (!resolvedSub.playUrl) continue;
+          const headRes = await fetch(resolvedSub.playUrl, { method: "HEAD" }).catch(() => null);
+          if (!headRes || !headRes.ok) continue;
           const res = await fetch(resolvedSub.playUrl, { method: "GET" });
           if (res.ok) {
             const rawText = await res.text();

@@ -56,7 +56,7 @@ export default function DeviceToolPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--aurora-fg4)", marginBottom: 8 }}>
         <Link href="/devices" style={{ color: "var(--aurora-fg4)" }}>{t.nav.devices}</Link>
         <Icon name="chevron_right" size={12} />
-        <span style={{ color: "var(--aurora-fg3)" }}>{deviceId.slice(0, 8)}</span>
+        <span style={{ color: "var(--aurora-fg3)" }}>{deviceId.replace(/^memento-/, "").slice(0, 8)}</span>
         <Icon name="chevron_right" size={12} />
         <span style={{ color: "var(--aurora-fg2)", textTransform: "capitalize" }}>{toolName}</span>
       </div>

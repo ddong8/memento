@@ -1055,7 +1055,7 @@ const ExecutionCard = memo(function ExecutionCard({
                           {d.online ? "● 在线" : "○ 离线"}
                         </span>
                         <span style={{ color: "#fff", fontWeight: 500 }}>{d.name}</span>
-                        <span style={{ color: "#64748b" }}>({d.device_id.slice(0, 8)})</span>
+                        <span style={{ color: "#64748b" }}>({d.device_id.replace(/^memento-/, "").slice(0, 8)})</span>
                       </div>
                     ))}
               </div>

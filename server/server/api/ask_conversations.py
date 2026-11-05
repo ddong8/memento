@@ -36,7 +36,7 @@ router = APIRouter()
 @router.get("/conversations")
 async def list_conversations(
     device_id: str | None = None,
-    limit: int = Query(200, ge=1, le=500),
+    limit: int = Query(500, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
@@ -53,6 +53,13 @@ async def list_conversations(
         match_vals = [device_id]
         if target_machine:
             match_vals.extend([str(target_machine.id), target_machine.collector_token_hash, target_machine.name])
+            clean_mach_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target_machine.name or "")).strip().lower()
+            if "desktop" in clean_mach_name or "windows" in clean_mach_name:
+                match_vals.append("d233b11b-cc85-4492-b4da-40fed6c954b7")
+            elif "macbook" in clean_mach_name:
+                match_vals.extend(["1d0cd5b4-42d5-41bd-8d6d-212fdfc66630", "07f55f05-59ed-4b27-bf62-79f4f6de64cd"])
+            elif "mac-mini" in clean_mach_name:
+                match_vals.append("b0d4cab2-9cee-465d-a12c-dec705e460b2")
         match_vals = list(set(filter(None, match_vals)))
         cond = cond & AskConversation.device_id.in_(match_vals)
 
@@ -123,7 +130,12 @@ async def list_conversations(
 
     mach_rows = (await db.execute(select(Machine))).scalars().all()
     mach_by_id = {m.id: m for m in mach_rows}
-    mach_map: dict[str, str] = {}
+    mach_map: dict[str, str] = {
+        "d233b11b-cc85-4492-b4da-40fed6c954b7": "DESKTOP-KR9IPP4",
+        "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630": "donghaixingdeMacBook-Pro",
+        "07f55f05-59ed-4b27-bf62-79f4f6de64cd": "donghaixingdeMacBook-Pro",
+        "b0d4cab2-9cee-465d-a12c-dec705e460b2": "haixingdeMac-mini",
+    }
     for m in mach_rows:
         target = m
         seen_merge = set()
@@ -192,6 +204,7 @@ async def list_conversations(
                 conv_obj.title = display_title
             dirty_repaired = True
 
+        effective_cwd = str(r.cwd or cfg.get("cwd") or "").strip()
         # 解析 project_title 与 project_id
         pid_raw = str(cfg.get("project_id") or "").strip()
         p_title: str | None = None
@@ -204,8 +217,8 @@ async def list_conversations(
                 p_title = proj_slug_map[pid_raw.lower()]
                 resolved_pid = proj_slug_to_id.get(pid_raw.lower(), pid_raw)
 
-        if not p_title and r.cwd:
-            cleaned_cwd = _clean_source_path(r.cwd)
+        if not p_title and effective_cwd:
+            cleaned_cwd = _clean_source_path(effective_cwd)
             if cleaned_cwd:
                 cleaned_lower = cleaned_cwd.lower()
                 best_match = None
@@ -241,8 +254,18 @@ async def list_conversations(
                 clipped = raw_dev.replace("memento-", "")[:8]
                 if clipped and clipped not in ("memento-", "memento"):
                     dev_friendly_name = clipped
-            else:
+            elif not re.match(r"^[0-9a-fA-F-]{36}$", raw_dev):
                 dev_friendly_name = raw_dev
+
+        # 路径指纹兜底：若仍未匹配有效设备名，但存在工作目录特征，精准推断物理设备归属
+        if not dev_friendly_name and effective_cwd:
+            cwd_lower = effective_cwd.lower()
+            if re.match(r"^[a-zA-Z]:", cwd_lower) or "users/admin" in cwd_lower or "users\\admin" in cwd_lower:
+                dev_friendly_name = "DESKTOP-KR9IPP4"
+            elif "/users/donghaixing" in cwd_lower:
+                dev_friendly_name = "donghaixingdeMacBook-Pro"
+            elif "/users/haixingdong" in cwd_lower:
+                dev_friendly_name = "haixingdeMac-mini"
 
         if dev_friendly_name in ("memento-", "memento", ""):
             dev_friendly_name = None
@@ -256,7 +279,7 @@ async def list_conversations(
             "device_name": dev_friendly_name,
             "project_id": resolved_pid,
             "project_title": p_title,
-            "cwd": r.cwd,
+            "cwd": effective_cwd or r.cwd,
             "config": cfg,
             "message_count": r.message_count or 0,
         })
@@ -531,15 +554,34 @@ async def get_conversation(
     proj_title_val = await lookup_project_title(db, proj_id_val)
 
     dev_name_val = None
+    historical_aliases = {
+        "d233b11b-cc85-4492-b4da-40fed6c954b7": "DESKTOP-KR9IPP4",
+        "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630": "donghaixingdeMacBook-Pro",
+        "07f55f05-59ed-4b27-bf62-79f4f6de64cd": "donghaixingdeMacBook-Pro",
+        "b0d4cab2-9cee-465d-a12c-dec705e460b2": "haixingdeMac-mini",
+    }
     if conv_dev and conv_dev not in ("auto", "ask_only", "all"):
-        if cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
+        if conv_dev in historical_aliases:
+            dev_name_val = historical_aliases[conv_dev]
+        elif cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
             dev_name_val = cfg["device_name"]
         elif conv_dev.startswith("memento-"):
             clipped = conv_dev.replace("memento-", "")[:8]
             if clipped and clipped not in ("memento-", "memento"):
                 dev_name_val = clipped
-        else:
+        elif not re.match(r"^[0-9a-fA-F-]{36}$", conv_dev):
             dev_name_val = conv_dev
+
+    eff_cwd = str(conv_cwd or cfg.get("cwd") or "").strip()
+    if not dev_name_val and eff_cwd:
+        cwd_lower = eff_cwd.lower()
+        if re.match(r"^[a-zA-Z]:", cwd_lower) or "users/admin" in cwd_lower or "users\\admin" in cwd_lower:
+            dev_name_val = "DESKTOP-KR9IPP4"
+        elif "/users/donghaixing" in cwd_lower:
+            dev_name_val = "donghaixingdeMacBook-Pro"
+        elif "/users/haixingdong" in cwd_lower:
+            dev_name_val = "haixingdeMac-mini"
+
     if dev_name_val in ("memento-", "memento", ""):
         dev_name_val = None
 

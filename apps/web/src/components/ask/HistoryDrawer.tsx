@@ -187,14 +187,15 @@ const ConversationItem = memo(function ConversationItem({
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const safeProjectTitle = useMemo(() => {
-    if (c.project_title && c.project_title.trim()) {
+    if (c.project_title && c.project_title.trim() && !/^[0-9a-fA-F-]{36}$/.test(c.project_title.trim())) {
       return c.project_title.trim();
     }
+    const effectiveCwd = c.cwd || c.config?.cwd;
     const resolved = resolveSafeProjectName({
       projectId: c.project_id || c.config?.project_id,
       projectTitle: c.project_title || undefined,
       projects,
-      cwd: c.cwd || c.config?.cwd,
+      cwd: effectiveCwd,
       isZh,
     });
     if (resolved === (isZh ? "项目代码库" : "Project")) {
@@ -203,25 +204,102 @@ const ConversationItem = memo(function ConversationItem({
     return resolved;
   }, [c.project_title, c.project_id, c.config, c.cwd, projects, isZh]);
 
-  const resolvedDevName = useMemo(() => {
-    if (c.device_name && c.device_name.trim()) {
-      return c.device_name
-        .replace(/\.local$/i, "")
-        .replace(/ \(\w+\)$/, "")
-        .trim();
+  const devMeta = useMemo(() => {
+    const isRawUuid = (str?: string) => Boolean(str && /^[0-9a-fA-F-]{36}$/.test(str));
+    const rawDev = c.device_id?.trim();
+    const rawName = c.device_name?.trim();
+    const effectiveCwd = (c.cwd || c.config?.cwd || "").trim();
+
+    // 1. 如果属于自动调度 / 全局执事 / 无物理绑定
+    if (!rawDev || rawDev === "auto" || rawDev === "ask_only" || rawDev === "all") {
+      if (effectiveCwd) {
+        if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
+          const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
+          };
+        }
+        if (/\/users\/donghaixing/i.test(effectiveCwd)) {
+          const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
+          };
+        }
+        if (/\/users\/haixingdong/i.test(effectiveCwd)) {
+          const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
+          return {
+            type: "device" as const,
+            name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
+          };
+        }
+      }
+      return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
     }
-    if (!c.device_id) return "";
+
+    // 2. 如果后端已经给出清洗好的设备名称（非 UUID 且非 auto 且非 memento-）
+    if (rawName && !isRawUuid(rawName) && rawName !== "auto" && rawName !== "ask_only" && !rawName.startsWith("memento-")) {
+      return {
+        type: "device" as const,
+        name: rawName.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+      };
+    }
+
+    // 3. 匹配在线设备列表
     const found = devices?.find(
-      (d) => d.device_id === c.device_id || d.id === c.device_id || d.name === c.device_id
+      (d) => d.device_id === rawDev || d.id === rawDev || d.name === rawDev
     );
     if (found?.name) {
-      return found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
+      return {
+        type: "device" as const,
+        name: found.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+      };
     }
-    if (c.device_id.startsWith("memento-")) {
-      return "";
+
+    // 4. 匹配历史设备别名
+    if (rawDev === "d233b11b-cc85-4492-b4da-40fed6c954b7" || rawDev === "memento-65d4db33c1c70-18f46486") {
+      const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
+      };
     }
-    return c.device_id;
-  }, [c.device_name, c.device_id, devices]);
+    if (rawDev === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || rawDev === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") {
+      const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
+      };
+    }
+    if (rawDev === "b0d4cab2-9cee-465d-a12c-dec705e460b2" || rawDev === "memento-65b88d53c382f-8eb4ed13") {
+      const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
+      return {
+        type: "device" as const,
+        name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
+      };
+    }
+
+    // 5. 路径指纹推导物理设备
+    if (effectiveCwd) {
+      if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
+        return { type: "device" as const, name: "DESKTOP-KR9IPP4" };
+      }
+      if (/\/users\/donghaixing/i.test(effectiveCwd)) {
+        return { type: "device" as const, name: "donghaixingdeMacBook-Pro" };
+      }
+      if (/\/users\/haixingdong/i.test(effectiveCwd)) {
+        return { type: "device" as const, name: "haixingdeMac-mini" };
+      }
+    }
+
+    // 6. 杜绝暴露原始 UUID 或 memento- 裸串
+    if (isRawUuid(rawDev) || rawDev.startsWith("memento-")) {
+      return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
+    }
+
+    return { type: "device" as const, name: rawDev };
+  }, [c.device_name, c.device_id, c.cwd, c.config, devices, isZh]);
 
   const dateStr = useMemo(() => {
     const rawTime = c.updated_at || c.created_at;
@@ -584,9 +662,9 @@ const ConversationItem = memo(function ConversationItem({
                 </span>
               ) : null}
 
-              {resolvedDevName ? (
+              {devMeta.type === "device" ? (
                 <span
-                  title={isZh ? `来源设备: ${resolvedDevName}` : `Device: ${resolvedDevName}`}
+                  title={isZh ? `来源设备: ${devMeta.name}` : `Device: ${devMeta.name}`}
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -606,11 +684,34 @@ const ConversationItem = memo(function ConversationItem({
                   }}
                 >
                   <Icon name="devices" size={9.5} style={{ flexShrink: 0 }} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{resolvedDevName}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{devMeta.name}</span>
+                </span>
+              ) : !safeProjectTitle ? (
+                <span
+                  title={isZh ? "全局执事 (云端问答)" : "Global Agent"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    padding: "1px 5px",
+                    borderRadius: 4,
+                    background: "var(--aurora-chip)",
+                    border: "1px solid var(--aurora-border)",
+                    fontSize: 10,
+                    color: "var(--aurora-fg4)",
+                    maxWidth: 100,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="sparkles" size={9.5} style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{devMeta.name}</span>
                 </span>
               ) : null}
 
-              {(safeProjectTitle || resolvedDevName) && (
+              {(safeProjectTitle || devMeta.name) && (
                 <span style={{ color: "var(--aurora-fg4)", fontSize: 10, flexShrink: 0 }}>·</span>
               )}
 
@@ -940,15 +1041,31 @@ export const HistoryDrawer = memo(function HistoryDrawer({
       const targetDev = devices?.find(
         (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
       );
+      const targetName = (targetDev?.name || selectedDevice).toLowerCase();
+      const isWin = targetName.includes("desktop") || targetName.includes("windows");
+      const isMbp = targetName.includes("macbook");
+      const isMini = targetName.includes("mac-mini");
+
       list = list.filter((c) => {
-        if (!c.device_id) return false;
-        if (c.device_id === selectedDevice) return true;
-        if (targetDev) {
-          return (
-            c.device_id === targetDev.device_id ||
-            c.device_id === targetDev.id ||
-            c.device_id === targetDev.name
-          );
+        const rawDev = c.device_id || "";
+        const rawName = (c.device_name || "").toLowerCase();
+        const effCwd = (c.cwd || c.config?.cwd || "").toLowerCase();
+
+        if (rawDev === selectedDevice || rawName === targetName) return true;
+        if (targetDev && (rawDev === targetDev.device_id || rawDev === targetDev.id || rawDev === targetDev.name)) return true;
+
+        if (isWin) {
+          if (rawDev === "d233b11b-cc85-4492-b4da-40fed6c954b7" || rawDev === "memento-65d4db33c1c70-18f46486") return true;
+          if (rawName.includes("desktop") || rawName.includes("windows")) return true;
+          if (/^[a-zA-Z]:/.test(effCwd) || effCwd.includes("users/admin") || effCwd.includes("users\\admin")) return true;
+        } else if (isMbp) {
+          if (rawDev === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || rawDev === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") return true;
+          if (rawName.includes("macbook")) return true;
+          if (effCwd.includes("/users/donghaixing")) return true;
+        } else if (isMini) {
+          if (rawDev === "b0d4cab2-9cee-465d-a12c-dec705e460b2" || rawDev === "memento-65b88d53c382f-8eb4ed13") return true;
+          if (rawName.includes("mac-mini")) return true;
+          if (effCwd.includes("/users/haixingdong")) return true;
         }
         return false;
       });
@@ -1164,7 +1281,7 @@ export const HistoryDrawer = memo(function HistoryDrawer({
                     color: "var(--aurora-fg3)",
                   }}
                 >
-                  {searchQuery ? `${filteredConversations.length}/${conversations.length}` : conversations.length}
+                  {filterDevice || searchQuery ? `${filteredConversations.length}/${conversations.length}` : conversations.length}
                 </span>
               )}
               {liveRunningIds.size > 0 && (

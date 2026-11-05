@@ -890,11 +890,11 @@ function AskPageContent() {
       }
       // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
       const devToQuery = filterDev !== undefined ? filterDev : "all";
-      const list = await api.listAskConversations(devToQuery);
+      const list = await api.listAskConversations(devToQuery, 500);
       const safeList = list || [];
       setConversations(safeList);
       try {
-        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 100)));
+        localStorage.setItem(CONVERSATIONS_CACHE_KEY, JSON.stringify(safeList.slice(0, 500)));
       } catch {}
 
       // Idle prefetch: warm top recent conversations in background for true 0ms clicks
@@ -921,12 +921,7 @@ function AskPageContent() {
 
   const handleHistoryFilterDeviceChange = useCallback((filterCurrent: boolean) => {
     setHistoryFilterDevice(filterCurrent);
-    if (!filterCurrent) {
-      void loadConversations("all");
-    } else if (selectedDeviceRef.current) {
-      void loadConversations(selectedDeviceRef.current);
-    }
-  }, [loadConversations]);
+  }, []);
 
   // Declared further down; loadConversation reaches it through this ref.
   const attachRunRef = useRef<((convId: string, question: string, baseTurns: Turn[], runImages?: string[]) => Promise<void>) | null>(null);
@@ -1768,9 +1763,8 @@ function AskPageContent() {
     const cameBack = awayFromAskRef.current;
     awayFromAskRef.current = false;
 
-    if (conversations.length === 0) {
-      loadConversationsRef.current();
-    }
+    // 无论本地是否有缓存，挂载时始终在后台发起全量最新会话 SWR 刷新，保证增量/多端会话实时同步
+    loadConversationsRef.current("all");
 
     const checkAndRestore = async () => {
       // 若处于明确的新建对话模式且无显式 URL 参数，彻底阻断任何自动恢复！
@@ -4104,11 +4098,8 @@ function AskPageContent() {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
-    if (historyFilterDevice && isConcreteDevice(newDev)) {
-      void loadConversations(newDev);
-    } else {
-      void loadConversations("all");
-    }
+    // 桌面/网页端加载全量历史会话，单设备过滤在抽屉组件内部瞬时完成
+    void loadConversations("all");
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {

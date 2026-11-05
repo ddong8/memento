@@ -4091,9 +4091,9 @@ function AskPageContent() {
       localStorage.setItem("memento_last_device", newDev);
     } catch {}
     const isMobileViewport = typeof window !== "undefined" && window.innerWidth < 768;
+    const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     setProjects([]);
     projectsRef.current = [];
-    const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     ++sessionsReqRef.current;
     setSelectedProjectId("");
     selectedProjectIdRef.current = "";
@@ -5902,7 +5902,7 @@ function AskPageContent() {
                     <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                       {projects.length === 0 ? (isZh ? "暂无项目" : "No projects") : (isZh ? "选择项目 (可选)..." : "Select project (optional)...")}
                     </option>
-                    {selectedProjectId && !projects.some((p) => p.id === selectedProjectId) && (() => {
+                    {selectedProjectId && !projects.some((p) => p.id === selectedProjectId) && !isConcreteDevice(selectedDevice) && (() => {
                       const fallbackTitle = resolveSafeProjectName({
                         projectId: selectedProjectId,
                         projectTitle: selectedProjectTitle,

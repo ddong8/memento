@@ -1043,25 +1043,24 @@ export const HistoryDrawer = memo(function HistoryDrawer({
         (d) => d.device_id === selectedDevice || d.id === selectedDevice || d.name === selectedDevice
       );
       const targetName = (targetDev?.name || selectedDevice).toLowerCase();
-      const isWin = targetName.includes("desktop") || targetName.includes("windows");
-      const isMbp = targetName.includes("macbook");
-      const isMini = targetName.includes("mac-mini");
+      const targetCleanName = targetName.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
+      const isWinTarget = targetName.includes("desktop") || targetName.includes("windows");
 
       list = list.filter((c) => {
         const rawDev = c.device_id || "";
         const rawName = (c.device_name || "").toLowerCase();
+        const rawCleanName = rawName.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim();
         const effCwd = (c.cwd || c.config?.cwd || "").toLowerCase();
 
         if (rawDev === selectedDevice || rawName === targetName) return true;
+        if (targetCleanName && rawCleanName && rawCleanName === targetCleanName) return true;
         if (targetDev && (rawDev === targetDev.device_id || rawDev === targetDev.id || rawDev === targetDev.name)) return true;
 
-        if (isWin) {
-          if (rawName.includes("desktop") || rawName.includes("windows")) return true;
-          if (/^[a-zA-Z]:/.test(effCwd) || effCwd.includes("\\")) return true;
-        } else if (isMbp) {
-          if (rawName.includes("macbook")) return true;
-        } else if (isMini) {
-          if (rawName.includes("mac-mini") || rawName.includes("mini")) return true;
+        // 若历史会话缺失 device_id，根据工作路径区分 Windows 与 Unix 设备
+        if (!rawDev && effCwd) {
+          const isWinPath = /^[a-zA-Z]:/.test(effCwd) || effCwd.includes("\\");
+          if (isWinTarget && isWinPath) return true;
+          if (!isWinTarget && !isWinPath) return true;
         }
         return false;
       });

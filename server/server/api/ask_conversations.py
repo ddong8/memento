@@ -36,7 +36,7 @@ router = APIRouter()
 @router.get("/conversations")
 async def list_conversations(
     device_id: str | None = None,
-    limit: int = Query(500, ge=1, le=1000),
+    limit: int = Query(500, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),

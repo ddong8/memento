@@ -1,5 +1,4 @@
 """Tests for standalone DDL migration runner and skip_ddl environment configuration."""
-import os
 import unittest
 from unittest.mock import AsyncMock, patch
 from server.migrate import run_migrations

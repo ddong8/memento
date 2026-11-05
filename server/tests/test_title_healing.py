@@ -14,6 +14,7 @@ from server.services.ingest_service import (
     _is_junk_or_uuid_title,
     _parent_session_id_from_content,
     _title_from_user_messages,
+    safe_decode_pbtxt_string,
 )
 
 
@@ -46,6 +47,18 @@ class JunkTitleTests(unittest.TestCase):
 
     def test_regex_artifact_titles_are_junk(self):
         for t in (r're.search(r"\d+", text)', r"match \d{4}", r"grab \w+ here"):
+            self.assertTrue(_is_junk_or_uuid_title(t), t)
+
+    def test_mojibake_and_replacement_character_titles_are_junk(self):
+        for t in (
+            "\\n\ufffdj\ufffdĶh\ufffdʷ\ufffd\\n\ufffdû: Ż䷹hj\"-û6\\n\\n...",
+            "\ufffdǰ\ufffdĶ\ufffdԻ\ufffdʷ",
+            "\\n用户: 还能优化吗",
+            "\n用户: 还能优化吗",
+            "【前文对话历史】",
+            "【前序会话核心记忆快照（原会话 ID: 52792607...）】\n### 核心",
+            "\\343\\200\\220\\345\\211\\215\\346\\226\\207",
+        ):
             self.assertTrue(_is_junk_or_uuid_title(t), t)
 
     def test_real_titles_are_kept(self):
@@ -91,6 +104,25 @@ class TitleFromUserMessagesTests(unittest.TestCase):
     def test_truncates_to_60_chars(self):
         long = "x" * 200
         self.assertEqual(len(_title_from_user_messages([long])), 60)
+
+    def test_strips_conversation_history_preamble_without_command_marker(self):
+        msg = (
+            "【前文对话历史】\n"
+            "用户: 还能优化吗，检查一下前后端的日志，看看有没有报错\n\n"
+            "助手: 对前后端日志进行了排查..."
+        )
+        self.assertEqual(
+            _title_from_user_messages([msg]),
+            "还能优化吗，检查一下前后端的日志，看看有没有报错",
+        )
+
+
+class PbtxtDecodeTests(unittest.TestCase):
+    def test_decodes_octal_escaped_utf8_in_pbtxt(self):
+        # Protobuf text format octal escapes: \343\200\220 = 【, \345\211\215 = 前
+        raw = r"\343\200\220\345\211\215\346\226\207\345\257\271\350\257\235\345\216\206\345\217\262\343\200\221\n\347\224\250\346\210\267: \350\277\231\344\270\252\351\241\271\347\233\256"
+        decoded = safe_decode_pbtxt_string(raw)
+        self.assertEqual(decoded, "【前文对话历史】 用户: 这个项目")
 
 
 class ParentSessionExtractionTests(unittest.TestCase):

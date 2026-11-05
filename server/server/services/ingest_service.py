@@ -63,8 +63,13 @@ _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F
 def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> bool:
     if not title:
         return True
-    t = str(title).strip()
+    raw_s = str(title)
+    if raw_s.startswith(("\n", "\r", "\\n", "\\r", "\\\\n", "\\\\r")):
+        return True
+    t = raw_s.strip()
     if not t:
+        return True
+    if t.startswith(("用户: ", "用户：", "助手: ", "助手：", "user: ", "assistant: ")):
         return True
     t_lower = t.lower()
     if t_lower in ("transcript", "transcript.jsonl", "conversation", "untitled", "unknown", "start", "starting the conversation", "starting conversation"):
@@ -102,7 +107,13 @@ def _is_junk_or_uuid_title(title: str | None, session_id: str | None = None) -> 
     # (d:\dev\…) and format strings ("{{.Service}}\t{{.Status}}").
     if re.search(r"\\[dswDSWbB]", t) or "(.*?)" in t or "<" in t or t.startswith("re.search"):
         return True
-    if t.startswith(("\\n", "\\r", "\n", "\r")) or re.match(r"^\s*(?:\\n)?\d+:", t):
+    # Corrupted / mojibake titles with replacement characters or raw control characters
+    if "\ufffd" in t or bool(re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", t)):
+        return True
+    # Unescaped or malformed raw protobuf octal escapes
+    if bool(re.search(r"(?:\\[0-7]{3}){2,}", t)):
+        return True
+    if t.startswith(("\\\\n", "\\\\r", "\\n", "\\r", "\n", "\r")) or re.match(r"^\s*(?:\\n)?\d+:", t):
         return True
     if t_lower.endswith((".jsonl", ".json", ".pbtxt", ".sqlite", ".md")):
         return True
@@ -117,16 +128,49 @@ _INJECTED_CONTEXT_RES = (
     re.compile(r"^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*"),
     re.compile(r"^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*"),
     re.compile(r"^【前文对话历史】[\s\S]*?【当前用户指令】\s*"),
+    re.compile(r"^【前文对话历史】[\s\S]*?\n\s*用户[：:]\s*"),
+    re.compile(r"^【前序会话核心记忆快照[\s\S]*?\n\s*用户[：:]\s*"),
+    re.compile(r"^【前文对话历史】\s*"),
+    re.compile(r"^【前序会话核心记忆快照[\s\S]*?】\s*"),
 )
+
+
+def safe_decode_pbtxt_string(s: str) -> str:
+    """Safely decode protobuf text format string escape sequences into UTF-8."""
+    if not s:
+        return ""
+
+    def replace_octal(match):
+        octal_bytes = []
+        for part in re.findall(r"\\([0-7]{1,3})", match.group(0)):
+            octal_bytes.append(int(part, 8))
+        try:
+            return bytes(octal_bytes).decode("utf-8")
+        except UnicodeDecodeError:
+            return "".join(chr(b) for b in octal_bytes)
+
+    decoded = re.sub(r"(?:\\[0-7]{1,3})+", replace_octal, s)
+    decoded = (
+        decoded.replace(r"\\", "\\")
+        .replace(r"\"", "\"")
+        .replace(r"\n", " ")
+        .replace(r"\r", "")
+        .replace(r"\t", " ")
+    )
+    return decoded.strip()
 
 
 def _strip_injected_context(content: str) -> str:
     """What the user typed, without the context Memento put in front of it when continuing a session."""
+    res = content
     for pattern in _INJECTED_CONTEXT_RES:
-        stripped = pattern.sub("", content, count=1)
-        if stripped != content:
-            return stripped
-    return content
+        stripped = pattern.sub("", res, count=1)
+        if stripped != res:
+            res = stripped
+            break
+    if res.startswith("用户: ") or res.startswith("用户："):
+        res = res[4:]
+    return res
 
 
 def _title_from_user_messages(contents: list[str | None], session_id: str | None = None) -> str | None:
@@ -798,10 +842,7 @@ async def ingest_file(
                         cand_ann = m.group(1).strip()
                         if cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
                             if "\\" in cand_ann:
-                                try:
-                                    cand_ann = cand_ann.encode("raw_unicode_escape").decode("unicode_escape")
-                                except Exception:
-                                    pass
+                                cand_ann = safe_decode_pbtxt_string(cand_ann)
                             if not _is_junk_or_uuid_title(cand_ann, ann_sid):
                                 ann_title = cand_ann
                 if ann_sid and ann_title:
@@ -1017,10 +1058,7 @@ async def ingest_file(
                             cand_ann = m.group(1).strip()
                     if cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
                         if "\\" in cand_ann:
-                            try:
-                                cand_ann = cand_ann.encode("raw_unicode_escape").decode("unicode_escape")
-                            except Exception:
-                                pass
+                            cand_ann = safe_decode_pbtxt_string(cand_ann)
                         if not _is_junk_or_uuid_title(cand_ann, sid):
                             title = cand_ann
                             is_title_junk = False

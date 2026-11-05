@@ -15,6 +15,21 @@ export interface ConversationAgentInfo {
   brandId?: "claude_code" | "antigravity" | "codex" | "workbuddy";
 }
 
+export function sanitizeConversationTitle(raw?: string | null, fallback?: string): string {
+  if (!raw) return fallback || "";
+  let t = raw.trim();
+  if (t.includes("\ufffd") || t.startsWith("\\n") || t.startsWith("\n") || /(?:\\[0-7]{3}){2,}/.test(t)) {
+    return fallback || "";
+  }
+  t = t.replace(/^【前序会话核心记忆快照[\s\S]*?(?:当前用户指令|用户)[：:]\s*/i, "");
+  t = t.replace(/^【前文对话历史】[\s\S]*?(?:【当前用户指令】|用户[：:])\s*/i, "");
+  t = t.replace(/^【前文对话历史】\s*/i, "");
+  t = t.replace(/^【前序会话核心记忆快照[\s\S]*?】\s*/i, "");
+  t = t.replace(/^用户[：:]\s*/i, "").trim();
+  const firstLine = t.split("\n")[0]?.trim();
+  return firstLine || fallback || "";
+}
+
 export function resolveConversationAgent(c: AskConversationSummary): ConversationAgentInfo {
   const cfg = c.config || {};
   const rawMode = String(
@@ -183,7 +198,7 @@ const ConversationItem = memo(function ConversationItem({
   t: any;
 }) {
   const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(c.title || "");
+  const [editTitle, setEditTitle] = useState(sanitizeConversationTitle(c.title, ""));
   const agent = useMemo(() => resolveConversationAgent(c), [c]);
 
   const safeProjectTitle = useMemo(() => {
@@ -564,7 +579,7 @@ const ConversationItem = memo(function ConversationItem({
                   lineHeight: 1.35,
                 }}
               >
-                <HighlightMatch text={c.title || t.ask.title} query={searchQuery} />
+                <HighlightMatch text={sanitizeConversationTitle(c.title, t.ask.title)} query={searchQuery} />
               </span>
             </div>
 
@@ -794,7 +809,7 @@ const ConversationItem = memo(function ConversationItem({
                 onClick={(e) => {
                   e.stopPropagation();
                   setEditing(true);
-                  setEditTitle(c.title || "");
+                  setEditTitle(sanitizeConversationTitle(c.title, ""));
                 }}
                 title={isZh ? "重命名会话" : "Rename"}
                 style={{

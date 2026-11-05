@@ -14,6 +14,11 @@ from ..db.models import ConversationMessage, Document, User
 from ..db.session import get_db
 from ..middleware.auth import get_current_user
 from ..services.conversation_parser import parse_conversation, count_conversation_messages
+from ..services.ingest_service import (
+    _extract_custom_title,
+    _is_junk_or_uuid_title,
+    _title_from_user_messages,
+)
 from ..services.user_filter import user_machine_ids
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -42,6 +47,37 @@ async def get_conversation(
         raise HTTPException(status_code=404)
     if mids is not None and doc.machine_id not in mids:
         raise HTTPException(status_code=404)
+
+    # Dynamic title healing for junk/garbled titles (e.g. mojibake or raw continuation preambles)
+    sid = doc.metadata_.get("session_id") if isinstance(doc.metadata_, dict) else None
+    if _is_junk_or_uuid_title(doc.title, sid):
+        msgs_res = await db.execute(
+            select(ConversationMessage.content)
+            .where(
+                ConversationMessage.document_id == doc_id,
+                ConversationMessage.role == "user",
+            )
+            .order_by(ConversationMessage.ordinal.asc())
+            .limit(25)
+        )
+        user_msgs = msgs_res.scalars().all()
+        cand = _title_from_user_messages(list(user_msgs), sid)
+        if not cand:
+            content_res = await db.execute(
+                select(Document.content).where(Document.id == doc_id)
+            )
+            raw_c = content_res.scalar_one_or_none()
+            if raw_c:
+                cand = _extract_custom_title(raw_c, sid)
+                if not cand:
+                    import re
+                    m_req = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", raw_c[:15000], re.DOTALL)
+                    if m_req:
+                        cand = _title_from_user_messages([m_req.group(1)], sid)
+        if cand and cand != doc.title:
+            doc.title = cand
+            await db.execute(update(Document).where(Document.id == doc_id).values(title=cand))
+            await db.commit()
 
     # Count messages efficiently: check pre-indexed ConversationMessage first (0.04 ms)
     count_result = await db.execute(

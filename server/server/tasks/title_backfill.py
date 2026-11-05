@@ -26,6 +26,7 @@ from ..services.ingest_service import (
     _is_junk_or_uuid_title,
     _parent_session_id_from_content,
     _title_from_user_messages,
+    safe_decode_pbtxt_string,
 )
 from .celery_app import celery_app
 
@@ -142,10 +143,7 @@ async def _run() -> dict:
                                     cand_ann = m.group(1).strip()
                             if cand_ann and "(.*?)" not in cand_ann and not cand_ann.endswith(".pbtxt"):
                                 if "\\" in cand_ann:
-                                    try:
-                                        cand_ann = cand_ann.encode("raw_unicode_escape").decode("unicode_escape")
-                                    except Exception:
-                                        pass
+                                    cand_ann = safe_decode_pbtxt_string(cand_ann)
                                 if not _is_junk_or_uuid_title(cand_ann, sid):
                                     cand = cand_ann
 

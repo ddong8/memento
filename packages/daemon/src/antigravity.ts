@@ -36,16 +36,36 @@ function loadSummariesMap(home = homeDir()): Map<string, AntigravitySessionInfo>
       );
     } catch {
       const pyBin = process.platform === "win32" ? "python" : "python3";
-      const script = "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); [print(f\"{r[0]}|{r[1]}|{r[2]}\") for r in conn.execute(\"SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'\")]";
-      output = execFileSync(pyBin, ["-c", script, dbPath], { encoding: "utf8", timeout: 3000, windowsHide: true });
+      const script = "import sqlite3, sys, json; conn = sqlite3.connect(sys.argv[1]); [print(json.dumps([r[0], (r[1] or '').replace('\\n', ' '), r[2]])) for r in conn.execute(\"SELECT conversation_id, title, workspace_uris FROM conversation_summaries WHERE status != 'deleted'\")]";
+      output = execFileSync(pyBin, ["-c", script, dbPath], {
+        encoding: "utf8",
+        timeout: 3000,
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+      });
     }
 
     for (const line of output.split("\n")) {
-      const parts = line.split("|");
-      if (parts.length < 3) continue;
-      const cid = parts[0]?.trim();
-      const title = parts[1]?.trim();
-      const wsUrisRaw = parts.slice(2).join("|").trim();
+      let cid: string | undefined;
+      let title: string | undefined;
+      let wsUrisRaw = "";
+      if (line.trim().startsWith("[")) {
+        try {
+          const arr = JSON.parse(line.trim()) as string[];
+          cid = arr[0]?.trim();
+          title = arr[1]?.trim();
+          wsUrisRaw = arr[2]?.trim() || "";
+        } catch {
+          // fallback to pipe parsing
+        }
+      }
+      if (!cid) {
+        const parts = line.split("|");
+        if (parts.length < 3) continue;
+        cid = parts[0]?.trim();
+        title = parts[1]?.trim();
+        wsUrisRaw = parts.slice(2).join("|").trim();
+      }
       if (!cid) continue;
 
       let wsPath: string | undefined;
@@ -142,6 +162,11 @@ export function isJunkAntigravityTitle(title?: string | null, sessionId?: string
   if (!title) return true;
   const t = title.trim();
   if (!t) return true;
+  // Corrupted / mojibake titles with replacement characters or raw control characters
+  if (t.includes("\ufffd") || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(t)) return true;
+  if (t.startsWith("\\n") || t.startsWith("\n") || t.startsWith("\\r") || t.startsWith("\r")) return true;
+  if (t.startsWith("【前文对话历史】") || t.startsWith("【前序会话核心记忆快照") || t.startsWith("Memento: 【前序会话核心记忆快照")) return true;
+  if (/(?:\\[0-7]{3}){2,}/.test(t)) return true;
   const lower = t.toLowerCase();
   if (JUNK_TITLE_SET.has(lower)) return true;
   for (const p of JUNK_PREFIXES) {
@@ -167,6 +192,15 @@ export function extractUserTitleFromText(text: string): string | undefined {
     cleaned = reqMatch[1];
   }
   cleaned = cleaned.replace(/\\n/g, "\n").replace(/\\r/g, "").trim();
+  // Strip multi-turn continuation preambles
+  cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?【执行规则】[\s\S]*?当前用户指令[：:]\s*/i, "");
+  cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?当前用户指令[：:]\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史】[\s\S]*?【当前用户指令】\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史】[\s\S]*?\n\s*用户[：:]\s*/i, "");
+  cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?\n\s*用户[：:]\s*/i, "");
+  cleaned = cleaned.replace(/^【前文对话历史】\s*/i, "");
+  cleaned = cleaned.replace(/^【前序会话核心记忆快照[\s\S]*?】\s*/i, "");
+  cleaned = cleaned.replace(/^用户[：:]\s*/i, "").trim();
   const firstLine = cleaned.split("\n")[0]?.trim();
   if (!firstLine) return undefined;
   const cand = firstLine.slice(0, 60).trim();

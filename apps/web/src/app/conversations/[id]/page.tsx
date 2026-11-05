@@ -29,6 +29,23 @@ interface ConversationMetaWithPlans extends ConversationMeta {
   related_plans?: RelatedPlan[];
 }
 
+function cleanConversationDisplayTitle(rawTitle?: string | null, fallback?: string): string {
+  if (!rawTitle) return fallback || "Conversation";
+  let t = rawTitle.trim();
+  // Strip mojibake / corrupted sequences
+  if (t.includes("\ufffd") || t.startsWith("\\n") || t.startsWith("\n") || /(?:\\[0-7]{3}){2,}/.test(t)) {
+    return fallback || "Conversation";
+  }
+  // Strip injected multi-turn preambles
+  t = t.replace(/^【前序会话核心记忆快照[\s\S]*?(?:当前用户指令|用户)[：:]\s*/i, "");
+  t = t.replace(/^【前文对话历史】[\s\S]*?(?:【当前用户指令】|用户[：:])\s*/i, "");
+  t = t.replace(/^【前文对话历史】\s*/i, "");
+  t = t.replace(/^【前序会话核心记忆快照[\s\S]*?】\s*/i, "");
+  t = t.replace(/^用户[：:]\s*/i, "").trim();
+  const firstLine = t.split("\n")[0]?.trim();
+  return firstLine || fallback || "Conversation";
+}
+
 export default function ConversationPage() {
   const params = useParams();
   const docId = params.id as string;
@@ -51,7 +68,7 @@ export default function ConversationPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             <ToolGlyph id={meta.tool_id} size={32} />
             <h2 style={{ margin: 0, fontSize: "clamp(20px, 3vw, 26px)", fontWeight: 600, color: "var(--aurora-fg1)", letterSpacing: "-0.02em" }} className="truncate">
-              {meta.title || meta.relative_path}
+              {cleanConversationDisplayTitle(meta.title, meta.relative_path)}
             </h2>
           </div>
           <Btn

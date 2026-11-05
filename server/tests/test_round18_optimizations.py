@@ -55,6 +55,12 @@ class TestRound18Optimizations(unittest.IsolatedAsyncioTestCase):
         }
 
         fake_db = AsyncMock()
+        mock_exec_res = unittest.mock.MagicMock()
+        mock_exec_res.scalars.return_value.all.return_value = []
+        mock_exec_res.scalar_one_or_none.return_value = None
+        mock_exec_res.scalars.return_value.first.return_value = None
+        mock_exec_res.first.return_value = None
+        fake_db.execute.return_value = mock_exec_res
         cm = unittest.mock.MagicMock()
         cm.__aenter__.return_value = fake_db
 

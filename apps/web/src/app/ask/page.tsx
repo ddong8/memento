@@ -205,7 +205,10 @@ function AskPageContent() {
     () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
   );
   const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
-  const [projects, setProjects] = useState<ProjectSummary[]>(() => askCache?.projects || []);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) return [];
+    return askCache?.projects || [];
+  });
   const [selectedProjectId, setSelectedProjectId] = useState<string>(() => askCache?.selectedProjectId || initSnap?.selectedProjectId || "");
   const [selectedProjectTitle, setSelectedProjectTitle] = useState<string>(
     () => askCache?.projectTitle || initSnap?.selectedProjectTitle || ""
@@ -226,7 +229,10 @@ function AskPageContent() {
   const [loadingMoreTurns, setLoadingMoreTurns] = useState<boolean>(false);
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSessionContext, setShowSessionContext] = useState<boolean>(true);
-  const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(false);
+  const [isConfigCollapsed, setIsConfigCollapsed] = useState<boolean>(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) return true;
+    return false;
+  });
   const [isReadingMode, setIsReadingMode] = useState<boolean>(false);
   const [attachedImages, setAttachedImages] = useState<
     Array<{ id: string; name: string; dataUrl: string; size: number }>
@@ -4084,6 +4090,9 @@ function AskPageContent() {
     try {
       localStorage.setItem("memento_last_device", newDev);
     } catch {}
+    const isMobileViewport = typeof window !== "undefined" && window.innerWidth < 768;
+    setProjects([]);
+    projectsRef.current = [];
     const prevTitle = projectsRef.current.find((p) => p.id === selectedProjectIdRef.current)?.title;
     ++sessionsReqRef.current;
     setSelectedProjectId("");
@@ -4098,8 +4107,8 @@ function AskPageContent() {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
-    // 桌面/网页端加载全量历史会话，单设备过滤在抽屉组件内部瞬时完成
-    void loadConversations("all");
+    // 手机端切换设备只拉该设备的项目和对话，桌面端加载全量历史会话
+    void loadConversations(isMobileViewport && isConcreteDevice(newDev) ? newDev : "all");
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
@@ -5907,7 +5916,14 @@ function AskPageContent() {
                         </option>
                       );
                     })()}
-                    {projects.map((p) => {
+                    {projects
+                      .filter((p) => {
+                        if (!isConcreteDevice(selectedDevice)) return true;
+                        const hasPathOnDev = projectPathOn(p, selectedDevice);
+                        if (hasPathOnDev !== undefined) return Boolean(hasPathOnDev);
+                        return true;
+                      })
+                      .map((p) => {
                       const safeOptionTitle = resolveSafeProjectName({
                         projectId: p.id,
                         projectTitle: p.title || p.slug,

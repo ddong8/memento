@@ -213,26 +213,23 @@ const ConversationItem = memo(function ConversationItem({
     // 1. 如果属于自动调度 / 全局执事 / 无物理绑定
     if (!rawDev || rawDev === "auto" || rawDev === "ask_only" || rawDev === "all") {
       if (effectiveCwd) {
-        if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
-          const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
-          return {
-            type: "device" as const,
-            name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
-          };
-        }
-        if (/\/users\/donghaixing/i.test(effectiveCwd)) {
-          const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
-          return {
-            type: "device" as const,
-            name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
-          };
-        }
-        if (/\/users\/haixingdong/i.test(effectiveCwd)) {
-          const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
-          return {
-            type: "device" as const,
-            name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
-          };
+        const isWinPath = /^[a-zA-Z]:/i.test(effectiveCwd) || effectiveCwd.includes("\\");
+        if (isWinPath) {
+          const winDev = devices?.find((d) => /desktop|windows/i.test(d.name));
+          if (winDev?.name) {
+            return {
+              type: "device" as const,
+              name: winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+            };
+          }
+        } else {
+          const unixDev = devices?.find((d) => /mac|darwin|linux/i.test(d.name));
+          if (unixDev?.name) {
+            return {
+              type: "device" as const,
+              name: unixDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+            };
+          }
         }
       }
       return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
@@ -257,48 +254,37 @@ const ConversationItem = memo(function ConversationItem({
       };
     }
 
-    // 4. 匹配历史设备别名
-    if (rawDev === "d233b11b-cc85-4492-b4da-40fed6c954b7" || rawDev === "memento-65d4db33c1c70-18f46486") {
-      const winDev = devices?.find((d) => /desktop-|windows/i.test(d.name));
-      return {
-        type: "device" as const,
-        name: winDev?.name ? winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "DESKTOP-KR9IPP4",
-      };
-    }
-    if (rawDev === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || rawDev === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") {
-      const mbpDev = devices?.find((d) => /macbook/i.test(d.name));
-      return {
-        type: "device" as const,
-        name: mbpDev?.name ? mbpDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "donghaixingdeMacBook-Pro",
-      };
-    }
-    if (rawDev === "b0d4cab2-9cee-465d-a12c-dec705e460b2" || rawDev === "memento-65b88d53c382f-8eb4ed13") {
-      const miniDev = devices?.find((d) => /mac-mini/i.test(d.name));
-      return {
-        type: "device" as const,
-        name: miniDev?.name ? miniDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim() : "haixingdeMac-mini",
-      };
-    }
-
-    // 5. 路径指纹推导物理设备
+    // 4. 路径指纹推导物理设备
     if (effectiveCwd) {
-      if (/^[a-zA-Z]:/i.test(effectiveCwd) || /users[\\/]admin/i.test(effectiveCwd)) {
-        return { type: "device" as const, name: "DESKTOP-KR9IPP4" };
-      }
-      if (/\/users\/donghaixing/i.test(effectiveCwd)) {
-        return { type: "device" as const, name: "donghaixingdeMacBook-Pro" };
-      }
-      if (/\/users\/haixingdong/i.test(effectiveCwd)) {
-        return { type: "device" as const, name: "haixingdeMac-mini" };
+      const isWinPath = /^[a-zA-Z]:/i.test(effectiveCwd) || effectiveCwd.includes("\\");
+      if (isWinPath) {
+        const winDev = devices?.find((d) => /desktop|windows/i.test(d.name));
+        if (winDev?.name) {
+          return {
+            type: "device" as const,
+            name: winDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+          };
+        }
+      } else {
+        const unixDev = devices?.find((d) => /mac|darwin|linux/i.test(d.name));
+        if (unixDev?.name) {
+          return {
+            type: "device" as const,
+            name: unixDev.name.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+          };
+        }
       }
     }
 
-    // 6. 杜绝暴露原始 UUID 或 memento- 裸串
-    if (isRawUuid(rawDev) || rawDev.startsWith("memento-")) {
-      return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
+    // 5. 非 UUID 别名兜底
+    if (rawDev && !isRawUuid(rawDev) && !rawDev.startsWith("memento-")) {
+      return {
+        type: "device" as const,
+        name: rawDev.replace(/\.local$/i, "").replace(/ \(\w+\)$/, "").trim(),
+      };
     }
 
-    return { type: "device" as const, name: rawDev };
+    return { type: "global" as const, name: isZh ? "全局执事" : "Global Agent" };
   }, [c.device_name, c.device_id, c.cwd, c.config, devices, isZh]);
 
   const dateStr = useMemo(() => {
@@ -1055,17 +1041,12 @@ export const HistoryDrawer = memo(function HistoryDrawer({
         if (targetDev && (rawDev === targetDev.device_id || rawDev === targetDev.id || rawDev === targetDev.name)) return true;
 
         if (isWin) {
-          if (rawDev === "d233b11b-cc85-4492-b4da-40fed6c954b7" || rawDev === "memento-65d4db33c1c70-18f46486") return true;
           if (rawName.includes("desktop") || rawName.includes("windows")) return true;
-          if (/^[a-zA-Z]:/.test(effCwd) || effCwd.includes("users/admin") || effCwd.includes("users\\admin")) return true;
+          if (/^[a-zA-Z]:/.test(effCwd) || effCwd.includes("\\")) return true;
         } else if (isMbp) {
-          if (rawDev === "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630" || rawDev === "07f55f05-59ed-4b27-bf62-79f4f6de64cd") return true;
           if (rawName.includes("macbook")) return true;
-          if (effCwd.includes("/users/donghaixing")) return true;
         } else if (isMini) {
-          if (rawDev === "b0d4cab2-9cee-465d-a12c-dec705e460b2" || rawDev === "memento-65b88d53c382f-8eb4ed13") return true;
-          if (rawName.includes("mac-mini")) return true;
-          if (effCwd.includes("/users/haixingdong")) return true;
+          if (rawName.includes("mac-mini") || rawName.includes("mini")) return true;
         }
         return false;
       });

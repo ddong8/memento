@@ -77,6 +77,7 @@ interface DigitalTwinAvatar3DProps {
   isPaused?: boolean;
   avatarSettings?: AvatarSettings | null;
   onOpenAvatarCustomizer?: () => void;
+  onToggle3D?: () => void;
   className?: string;
 }
 
@@ -206,6 +207,7 @@ export default function DigitalTwinAvatar3D({
   isPaused = false,
   avatarSettings,
   onOpenAvatarCustomizer,
+  onToggle3D,
   className = "",
 }: DigitalTwinAvatar3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1535,6 +1537,18 @@ export default function DigitalTwinAvatar3D({
             <span>{viewMode === "full" ? "🧍" : "👤"}</span>
             <span className="hidden sm:inline">{viewMode === "full" ? "全身" : "特写"}</span>
           </button>
+
+          {/* 3D / 2D 极速渲染模式切换开关 */}
+          {onToggle3D && (
+            <button
+              onClick={onToggle3D}
+              className="px-2 sm:px-2.5 py-1 rounded-xl text-[11px] font-semibold transition-all backdrop-blur-md border bg-white/10 hover:bg-white/20 text-white/90 border-white/20 flex items-center gap-1 shadow-md active:scale-95"
+              title="切换为 2D 极速轻量立绘（省电、低发热）"
+            >
+              <span>🎨</span>
+              <span className="hidden sm:inline">2D 立绘</span>
+            </button>
+          )}
 
           {onToggleCollapse && (
             <button

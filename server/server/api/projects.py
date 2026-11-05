@@ -235,10 +235,10 @@ async def _consolidate_projects_if_needed(db: AsyncSession, force: bool = False)
                 .where(
                     Document.machine_id.is_(None),
                     or_(
-                        Document.relative_path.ilike("%users-admin%"),
-                        Document.metadata_["project_path"].astext.ilike("%users/admin%"),
                         Document.metadata_["project_path"].astext.ilike("%d:/%"),
                         Document.metadata_["project_path"].astext.ilike("%c:/%"),
+                        Document.metadata_["project_path"].astext.ilike("%d:\\%"),
+                        Document.metadata_["project_path"].astext.ilike("%c:\\%"),
                     ),
                 )
                 .values(machine_id=win_m.id)

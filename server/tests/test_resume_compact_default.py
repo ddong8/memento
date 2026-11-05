@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.db.models import User
 from server.services import ask_stream
@@ -15,13 +15,20 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None):
     """The args direct_agent_stream hands to the device, for a resume of session "sess-1"."""
     sent: dict = {}
 
+    mock_db = AsyncMock()
+    mock_res = MagicMock()
+    mock_res.scalars.return_value.all.return_value = []
+    mock_res.scalars.return_value.first.return_value = None
+    mock_res.scalar_one_or_none.return_value = None
+    mock_db.execute.return_value = mock_res
+
     async def fake_run(db, user, args):
         sent.update(args)
         yield {"type": "tool_result", "result": {"status": "succeeded", "stdout": "ok", "exit_code": 0}}
 
     async def collect():
         gen = ask_stream.direct_agent_stream(
-            db=AsyncMock(), user=USER, question="继续", conv_id=uuid.uuid4(), conv_title="t",
+            db=mock_db, user=USER, question="继续", conv_id=uuid.uuid4(), conv_title="t",
             execution_mode=execution_mode, device_id="mini", cwd="/w", session_id="sess-1",
             compact_mode=compact_mode, fork=fork,
         )

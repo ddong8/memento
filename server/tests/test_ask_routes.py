@@ -60,6 +60,12 @@ class RecentActiveRouteTests(unittest.TestCase):
 
         user = User(id=uuid.uuid4(), email="test@test.com")
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+        mock_res = MagicMock()
+        mock_res.scalars.return_value.all.return_value = []
+        mock_res.scalars.return_value.first.return_value = None
+        mock_res.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_res
         cm = MagicMock()
         cm.__aenter__.return_value = mock_session
 

@@ -844,24 +844,25 @@ async def resolve_concrete_device_for_conv(
         except Exception:
             pass
 
-    # 2. If still no concrete device, infer from cwd path signature
+    # 2. If still no concrete device, infer from OS / platform path characteristic
     cwd_val = str(conv.cwd or cfg.get("cwd") or inferred.get("cwd") or "").strip().lower()
     if not candidate and cwd_val:
         try:
-            if "/users/haixingdong" in cwd_val:
+            is_win = bool(re.match(r"^[a-zA-Z]:", cwd_val) or "\\" in cwd_val)
+            if is_win:
                 mach = (await db.execute(
                     select(Machine).where(
                         Machine.merged_into.is_(None),
-                        Machine.name.ilike("%mac-mini%"),
+                        (Machine.name.ilike("%windows%") | Machine.name.ilike("%desktop%")),
                     ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
                 )).scalars().first()
                 if mach:
                     candidate = mach.collector_token_hash or mach.name
-            elif "/users/donghaixing" in cwd_val:
+            else:
                 mach = (await db.execute(
                     select(Machine).where(
                         Machine.merged_into.is_(None),
-                        Machine.name.ilike("%macbook%"),
+                        (Machine.name.ilike("%mac%") | Machine.name.ilike("%darwin%") | Machine.name.ilike("%linux%")),
                     ).order_by(Machine.last_heartbeat.desc().nulls_last()).limit(1)
                 )).scalars().first()
                 if mach:

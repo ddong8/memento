@@ -33,6 +33,74 @@ logger = logging.getLogger("server.ask")
 
 router = APIRouter()
 
+
+async def _get_project_and_machine_maps(db: AsyncSession, user_id: uuid.UUID | None):
+    """Retrieve Project and Machine mapping dictionaries with 2-tier cache to prevent repetitive full table scans."""
+    from ..services.ingest_service import _clean_source_path
+
+    cache_key = f"maps:proj_mach:{user_id or 'all'}"
+    cached = await cache_get(cache_key, l1_ttl_seconds=5.0)
+    if cached and isinstance(cached, dict):
+        return (
+            cached.get("proj_id_map", {}),
+            cached.get("proj_slug_map", {}),
+            cached.get("proj_slug_to_id", {}),
+            cached.get("proj_path_map", {}),
+            cached.get("mach_map", {}),
+            cached.get("mach_rows_summary", []),
+        )
+
+    proj_rows = (await db.execute(select(Project))).scalars().all()
+    proj_id_map: dict[str, str] = {}
+    proj_slug_map: dict[str, str] = {}
+    proj_slug_to_id: dict[str, str] = {}
+    proj_path_map: dict[str, tuple[str, str]] = {}
+    for p in proj_rows:
+        pid_str = str(p.id)
+        title = p.title or p.slug or ""
+        proj_id_map[pid_str] = title
+        if p.slug:
+            slug_lower = p.slug.lower()
+            proj_slug_map[slug_lower] = title
+            proj_slug_to_id[slug_lower] = pid_str
+        if p.source_path:
+            cleaned_p = _clean_source_path(p.source_path)
+            if cleaned_p:
+                proj_path_map[cleaned_p.lower()] = (pid_str, title)
+
+    mach_rows = (await db.execute(select(Machine))).scalars().all()
+    mach_by_id = {m.id: m for m in mach_rows}
+    mach_map: dict[str, str] = {}
+    mach_rows_summary: list[dict] = []
+    for m in mach_rows:
+        target = m
+        seen_merge = set()
+        while target.merged_into and target.merged_into in mach_by_id and target.id not in seen_merge:
+            seen_merge.add(target.id)
+            target = mach_by_id[target.merged_into]
+        clean_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target.name or ""), flags=re.IGNORECASE).strip()
+        disp_name = clean_name or target.name or ""
+        mach_rows_summary.append({"id": str(m.id), "name": m.name or "", "clean_name": disp_name})
+        if disp_name:
+            if m.collector_token_hash:
+                mach_map[m.collector_token_hash] = disp_name
+            mach_map[str(m.id)] = disp_name
+            if m.name:
+                mach_map[m.name] = disp_name
+                mach_map[clean_name] = disp_name
+
+    payload = {
+        "proj_id_map": proj_id_map,
+        "proj_slug_map": proj_slug_map,
+        "proj_slug_to_id": proj_slug_to_id,
+        "proj_path_map": proj_path_map,
+        "mach_map": mach_map,
+        "mach_rows_summary": mach_rows_summary,
+    }
+    await cache_set(cache_key, payload, ttl_seconds=30)
+    return proj_id_map, proj_slug_map, proj_slug_to_id, proj_path_map, mach_map, mach_rows_summary
+
+
 @router.get("/conversations")
 async def list_conversations(
     device_id: str | None = None,
@@ -53,13 +121,15 @@ async def list_conversations(
         match_vals = [device_id]
         if target_machine:
             match_vals.extend([str(target_machine.id), target_machine.collector_token_hash, target_machine.name])
-            clean_mach_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target_machine.name or "")).strip().lower()
-            if "desktop" in clean_mach_name or "windows" in clean_mach_name:
-                match_vals.append("d233b11b-cc85-4492-b4da-40fed6c954b7")
-            elif "macbook" in clean_mach_name:
-                match_vals.extend(["1d0cd5b4-42d5-41bd-8d6d-212fdfc66630", "07f55f05-59ed-4b27-bf62-79f4f6de64cd"])
-            elif "mac-mini" in clean_mach_name:
-                match_vals.append("b0d4cab2-9cee-465d-a12c-dec705e460b2")
+            clean_mach_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target_machine.name or "")).strip()
+            if clean_mach_name:
+                match_vals.append(clean_mach_name)
+            # 动态包含所有合并到 target_machine 的机器标识，杜绝硬编码 UUID
+            merged_rows = (await db.execute(
+                select(Machine).where(Machine.merged_into == target_machine.id)
+            )).scalars().all()
+            for mm in merged_rows:
+                match_vals.extend([str(mm.id), mm.collector_token_hash, mm.name])
         match_vals = list(set(filter(None, match_vals)))
         cond = cond & AskConversation.device_id.in_(match_vals)
 
@@ -109,48 +179,15 @@ async def list_conversations(
         for obj in batch_res.scalars().all():
             conv_obj_map[obj.id] = obj
 
-    # 2. 批量预查项目与设备元数据，构建 O(1) 内存字典映射，消除 N+1 查询
-    proj_rows = (await db.execute(select(Project))).scalars().all()
-    proj_id_map: dict[str, str] = {}
-    proj_slug_map: dict[str, str] = {}
-    proj_slug_to_id: dict[str, str] = {}
-    proj_path_map: dict[str, tuple[str, str]] = {}
-    for p in proj_rows:
-        pid_str = str(p.id)
-        title = p.title or p.slug or ""
-        proj_id_map[pid_str] = title
-        if p.slug:
-            slug_lower = p.slug.lower()
-            proj_slug_map[slug_lower] = title
-            proj_slug_to_id[slug_lower] = pid_str
-        if p.source_path:
-            cleaned_p = _clean_source_path(p.source_path)
-            if cleaned_p:
-                proj_path_map[cleaned_p.lower()] = (pid_str, title)
-
-    mach_rows = (await db.execute(select(Machine))).scalars().all()
-    mach_by_id = {m.id: m for m in mach_rows}
-    mach_map: dict[str, str] = {
-        "d233b11b-cc85-4492-b4da-40fed6c954b7": "DESKTOP-KR9IPP4",
-        "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630": "donghaixingdeMacBook-Pro",
-        "07f55f05-59ed-4b27-bf62-79f4f6de64cd": "donghaixingdeMacBook-Pro",
-        "b0d4cab2-9cee-465d-a12c-dec705e460b2": "haixingdeMac-mini",
-    }
-    for m in mach_rows:
-        target = m
-        seen_merge = set()
-        while target.merged_into and target.merged_into in mach_by_id and target.id not in seen_merge:
-            seen_merge.add(target.id)
-            target = mach_by_id[target.merged_into]
-        clean_name = re.sub(r"\.local$", "", re.sub(r"\s*\([^)]*\)\s*$", "", target.name or ""), flags=re.IGNORECASE).strip()
-        disp_name = clean_name or target.name or ""
-        if disp_name:
-            if m.collector_token_hash:
-                mach_map[m.collector_token_hash] = disp_name
-            mach_map[str(m.id)] = disp_name
-            if m.name:
-                mach_map[m.name] = disp_name
-                mach_map[clean_name] = disp_name
+    # 2. 批量预查项目与设备元数据，采用 2-Tier 缓存与 O(1) 字典消除 N+1 全表扫描
+    (
+        proj_id_map,
+        proj_slug_map,
+        proj_slug_to_id,
+        proj_path_map,
+        mach_map,
+        mach_rows_summary,
+    ) = await _get_project_and_machine_maps(db, _user.id)
 
     out_items = []
     dirty_repaired = False
@@ -257,15 +294,19 @@ async def list_conversations(
             elif not re.match(r"^[0-9a-fA-F-]{36}$", raw_dev):
                 dev_friendly_name = raw_dev
 
-        # 路径指纹兜底：若仍未匹配有效设备名，但存在工作目录特征，精准推断物理设备归属
+        # 路径特征动态归属：根据操作系统路径特征匹配在线机器，彻底消除个人信息硬编码
         if not dev_friendly_name and effective_cwd:
             cwd_lower = effective_cwd.lower()
-            if re.match(r"^[a-zA-Z]:", cwd_lower) or "users/admin" in cwd_lower or "users\\admin" in cwd_lower:
-                dev_friendly_name = "DESKTOP-KR9IPP4"
-            elif "/users/donghaixing" in cwd_lower:
-                dev_friendly_name = "donghaixingdeMacBook-Pro"
-            elif "/users/haixingdong" in cwd_lower:
-                dev_friendly_name = "haixingdeMac-mini"
+            is_win_path = bool(re.match(r"^[a-zA-Z]:", cwd_lower) or "\\" in effective_cwd)
+            for m_info in mach_rows_summary:
+                m_n = (m_info.get("name") or "").lower()
+                c_n = m_info.get("clean_name") or ""
+                if is_win_path and ("windows" in m_n or "desktop" in m_n):
+                    dev_friendly_name = c_n
+                    break
+                elif not is_win_path and ("mac" in m_n or "darwin" in m_n or "linux" in m_n):
+                    dev_friendly_name = c_n
+                    break
 
         if dev_friendly_name in ("memento-", "memento", ""):
             dev_friendly_name = None
@@ -554,16 +595,8 @@ async def get_conversation(
     proj_title_val = await lookup_project_title(db, proj_id_val)
 
     dev_name_val = None
-    historical_aliases = {
-        "d233b11b-cc85-4492-b4da-40fed6c954b7": "DESKTOP-KR9IPP4",
-        "1d0cd5b4-42d5-41bd-8d6d-212fdfc66630": "donghaixingdeMacBook-Pro",
-        "07f55f05-59ed-4b27-bf62-79f4f6de64cd": "donghaixingdeMacBook-Pro",
-        "b0d4cab2-9cee-465d-a12c-dec705e460b2": "haixingdeMac-mini",
-    }
     if conv_dev and conv_dev not in ("auto", "ask_only", "all"):
-        if conv_dev in historical_aliases:
-            dev_name_val = historical_aliases[conv_dev]
-        elif cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
+        if cfg.get("device_name") and cfg.get("device_name") not in ("memento-", "memento"):
             dev_name_val = cfg["device_name"]
         elif conv_dev.startswith("memento-"):
             clipped = conv_dev.replace("memento-", "")[:8]
@@ -573,14 +606,25 @@ async def get_conversation(
             dev_name_val = conv_dev
 
     eff_cwd = str(conv_cwd or cfg.get("cwd") or "").strip()
-    if not dev_name_val and eff_cwd:
-        cwd_lower = eff_cwd.lower()
-        if re.match(r"^[a-zA-Z]:", cwd_lower) or "users/admin" in cwd_lower or "users\\admin" in cwd_lower:
-            dev_name_val = "DESKTOP-KR9IPP4"
-        elif "/users/donghaixing" in cwd_lower:
-            dev_name_val = "donghaixingdeMacBook-Pro"
-        elif "/users/haixingdong" in cwd_lower:
-            dev_name_val = "haixingdeMac-mini"
+    if not dev_name_val and (conv_dev or eff_cwd):
+        try:
+            _, _, _, _, mach_map, mach_rows_summary = await _get_project_and_machine_maps(db, _user.id if _user else None)
+            if conv_dev and conv_dev in mach_map:
+                dev_name_val = mach_map[conv_dev]
+            elif eff_cwd:
+                cwd_lower = eff_cwd.lower()
+                is_win_path = bool(re.match(r"^[a-zA-Z]:", cwd_lower) or "\\" in eff_cwd)
+                for m_info in mach_rows_summary:
+                    m_n = (m_info.get("name") or "").lower()
+                    c_n = m_info.get("clean_name") or ""
+                    if is_win_path and ("windows" in m_n or "desktop" in m_n):
+                        dev_name_val = c_n
+                        break
+                    elif not is_win_path and ("mac" in m_n or "darwin" in m_n or "linux" in m_n):
+                        dev_name_val = c_n
+                        break
+        except Exception:
+            pass
 
     if dev_name_val in ("memento-", "memento", ""):
         dev_name_val = None

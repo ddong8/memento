@@ -13,6 +13,7 @@ import LearnedCorrections from "@/components/persona/LearnedCorrections";
 import CompletionGuard from "@/components/persona/CompletionGuard";
 import CognitiveCompass from "@/components/memory/CognitiveCompass";
 import AvatarOnboardingModal from "@/components/persona/AvatarOnboardingModal";
+import CartoonPersonaStage from "@/components/persona/CartoonPersonaStage";
 import type { PersonaDimension, SynapsePulse } from "@/components/persona/DigitalTwinAvatar3D";
 
 const DigitalTwinAvatar3D = dynamic(
@@ -417,8 +418,10 @@ export default function PersonaPage() {
     prompt: string;
   } | null>(null);
 
-  // Fullscreen Theater & Panel Collapse State (Default: True for 100% full-screen 3D Digital Twin Avatar animation)
+  // Fullscreen Theater & Panel Collapse State (Default: True for 100% full-screen Avatar animation)
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(true);
+  // 3D 舞台默认不选中，首选极速轻量 2D 卡通立绘动画，避免手机发热与掉帧
+  const [is3DMode, setIs3DMode] = useState<boolean>(false);
   const cockpitRef = useRef<HTMLDivElement>(null);
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
@@ -904,26 +907,50 @@ export default function PersonaPage() {
         <div className={`flex flex-col min-h-0 transition-all duration-300 relative ${
           isPanelCollapsed ? "lg:col-span-12 w-full h-full" : "lg:col-span-5 max-lg:h-[280px] sm:max-lg:h-[340px] max-lg:shrink-0 h-full"
         }`}>
-          <DigitalTwinAvatar3D
-            activeDimension={activeDimension}
-            onSelectDimension={handleSelectDimension}
-            activeSynapse={activeSynapse}
-            evolutionLevel={evolutionData.level}
-            evolutionExp={evolutionData.exp}
-            evolutionStage={evolutionData.stage}
-            onSparkEvolution={handleSparkEvolution}
-            ruleStats={ruleStats}
-            isPanelCollapsed={isPanelCollapsed}
-            onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
-            onToggleFullscreen={togglePhysicalFullscreen}
-            isPaused={!isRouteActive}
-            avatarSettings={avatarSettings}
-            onOpenAvatarCustomizer={() => {
-              setIsAvatarFirstTime(false);
-              setIsAvatarModalOpen(true);
-            }}
-            className="w-full h-full"
-          />
+          {is3DMode ? (
+            <DigitalTwinAvatar3D
+              activeDimension={activeDimension}
+              onSelectDimension={handleSelectDimension}
+              activeSynapse={activeSynapse}
+              evolutionLevel={evolutionData.level}
+              evolutionExp={evolutionData.exp}
+              evolutionStage={evolutionData.stage}
+              onSparkEvolution={handleSparkEvolution}
+              ruleStats={ruleStats}
+              isPanelCollapsed={isPanelCollapsed}
+              onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
+              onToggleFullscreen={togglePhysicalFullscreen}
+              isPaused={!isRouteActive}
+              avatarSettings={avatarSettings}
+              onOpenAvatarCustomizer={() => {
+                setIsAvatarFirstTime(false);
+                setIsAvatarModalOpen(true);
+              }}
+              onToggle3D={() => setIs3DMode(false)}
+              className="w-full h-full"
+            />
+          ) : (
+            <CartoonPersonaStage
+              activeDimension={activeDimension}
+              onSelectDimension={(dim) => handleSelectDimension(dim as PersonaDimension)}
+              activeSynapse={activeSynapse?.dimension || null}
+              evolutionLevel={evolutionData.level}
+              evolutionExp={evolutionData.exp}
+              evolutionStage={evolutionData.stage}
+              onSparkEvolution={handleSparkEvolution}
+              ruleStats={ruleStats}
+              isPanelCollapsed={isPanelCollapsed}
+              onToggleCollapse={() => setIsPanelCollapsed(!isPanelCollapsed)}
+              onToggleFullscreen={togglePhysicalFullscreen}
+              avatarSettings={avatarSettings}
+              onOpenAvatarCustomizer={() => {
+                setIsAvatarFirstTime(false);
+                setIsAvatarModalOpen(true);
+              }}
+              onToggle3D={() => setIs3DMode(true)}
+              className="w-full h-full"
+            />
+          )}
 
           {/* 3D 场景内心智特征全息视窗 (In-Scene Holographic Persona Trait Inspector) */}
           {activeDimension !== "all" && (

@@ -173,11 +173,15 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
     setSuccessMediaId(null);
 
     try {
-      // 1. 样式转换与微信特化内联
+      // 1. 样式转换与微信特化内联，规范追加 Memento 官方落款与官网链接
       setStepStatus("正在进行微信专属排版与内联样式编译...");
-      const normalizedMarkdown = markdown
+      let normalizedMarkdown = markdown
         .replace(/\((?:https?:\/\/[^/]+)?(?:\.\/|\.\.\/)?assets\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)")
         .replace(/\(\/article\/([^)]+)\)/g, "(https://mem.ihasy.com/article/$1)");
+
+      if (!normalizedMarkdown.includes("https://mem.ihasy.com") && !normalizedMarkdown.includes("mem.ihasy.com")) {
+        normalizedMarkdown = `${normalizedMarkdown.trimEnd()}\n\n---\n\n> 🌐 **官方网址**：[https://mem.ihasy.com](https://mem.ihasy.com)\n> 🧠 **关于 Memento**：具备跨设备生命节律与持续进化的个人 AI 数字心智体，让技术思考与业务智慧终身沉淀。`;
+      }
 
       const convertRes = await fetch(`${WX_API_BASE}/api/convert`, {
         method: "POST",
@@ -235,7 +239,10 @@ export const WeChatPublishModal = memo(function WeChatPublishModal({
 
   const handleCopyZhihu = async () => {
     const header = title ? `## ${title}\n\n` : "";
-    const zhihuText = `${header}${markdown}\n\n---\n*本文由 Memento 数字心智体深度推演创作*`;
+    let zhihuText = `${header}${markdown}\n\n---\n*本文由 Memento 数字心智体深度推演创作*`;
+    if (!zhihuText.includes("mem.ihasy.com")) {
+      zhihuText += "\n官网体验：https://mem.ihasy.com";
+    }
     await navigator.clipboard.writeText(zhihuText);
     setCopiedPlatform("zhihu");
     setTimeout(() => setCopiedPlatform(null), 2000);

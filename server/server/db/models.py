@@ -710,6 +710,7 @@ class AskConversation(Base):
 
     __table_args__ = (
         Index("idx_ask_conv_user_updated", "user_id", "updated_at"),
+        Index("idx_ask_conv_user_device", "user_id", "device_id", "updated_at"),
     )
 
 

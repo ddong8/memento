@@ -65,7 +65,7 @@ export function AskTopBar({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   return (
-    <header className="px-2 sm:px-4 py-0.5 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1.5 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[38px] sm:min-h-[46px]">
+    <header className="px-2 sm:px-4 py-0 sm:py-2.5 border-b border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/75 sm:backdrop-blur-md flex items-center justify-between gap-1 sm:gap-2.5 shrink-0 select-none relative z-20 min-h-[34px] sm:min-h-[46px]">
       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 mr-1 sm:mr-2 overflow-hidden">
         {/* 移动端侧边菜单开关 (在移动端下充当主侧边栏汉堡按钮) */}
         <button

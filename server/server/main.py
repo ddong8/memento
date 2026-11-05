@@ -578,14 +578,24 @@ _MIGRATION_LOCK_ID = 0x6D656D656E746F  # "memento"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     import asyncio
+    import os
     from sqlalchemy import text
     from .services.ask_runs import ask_runs
     from .services.cluster import cluster
     settings.validate_production()
-    async with engine.begin() as conn:
-        await conn.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
-        await conn.run_sync(_run_migrations)
-        await conn.run_sync(Base.metadata.create_all)
+    skip_ddl = os.getenv("MEMENTO_SKIP_DDL_MIGRATIONS", "").lower() in ("1", "true", "yes")
+    if not skip_ddl:
+        async with engine.begin() as conn:
+            try:
+                await conn.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": _MIGRATION_LOCK_ID})
+            except Exception:
+                pass
+            await conn.run_sync(_run_migrations)
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        # Schema compatibility probe for multi-replica Kubernetes rolling updates
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1 FROM machines LIMIT 1"))
     # Coordination with the other api replicas (device connections, runs, locks)
     await cluster.start()
     # One computer, one device record: fold in records left behind by a changed device id.

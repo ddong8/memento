@@ -537,6 +537,7 @@ class TestDocumentFallbackAdversarial(unittest.TestCase):
             return res
 
         db = AsyncMock()
+        db.add = MagicMock()
         db.execute.side_effect = mock_execute
         db.commit.side_effect = RuntimeError("DB write lock conflict")
         request = MagicMock()

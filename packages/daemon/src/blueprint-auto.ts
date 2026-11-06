@@ -141,7 +141,7 @@ export async function ensureProjectBlueprint(
   }
 
   // Locate python executable (python3 or python)
-  const pythonExe = (await findExecutable("python3")) || (await findExecutable("python")) || "python3";
+  const pythonExe = (await findExecutable(["python3", "python"])) || "python3";
 
   return new Promise<boolean>((resolveDone) => {
     try {

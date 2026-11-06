@@ -34,7 +34,7 @@ export function findGitRoot(startPath: string): string | null {
   return null;
 }
 
-/** Check if PROJECT_BLUEPRINT.md and the post-commit git hook are properly in place */
+/** Check if PROJECT_BLUEPRINT.md and the git hooks (post-commit, post-merge, post-checkout) are properly in place */
 export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
   try {
     const bpPath = join(gitRoot, "PROJECT_BLUEPRINT.md");
@@ -42,12 +42,14 @@ export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
     const bpStat = await stat(bpPath);
     if (bpStat.size < 50) return false;
 
-    // Check post-commit hook
-    const hookPath = join(gitRoot, ".git", "hooks", "post-commit");
-    if (!existsSync(hookPath)) return false;
-    const hookContent = await readFile(hookPath, "utf8");
-    if (!hookContent.includes("project_blueprint.py") && !hookContent.includes("Memento Blueprint Hook")) {
-      return false;
+    // Check git hooks
+    for (const hname of ["post-commit", "post-merge", "post-checkout"]) {
+      const hookPath = join(gitRoot, ".git", "hooks", hname);
+      if (!existsSync(hookPath)) return false;
+      const hookContent = await readFile(hookPath, "utf8");
+      if (!hookContent.includes("project_blueprint.py") && !hookContent.includes("Memento Blueprint Hook")) {
+        return false;
+      }
     }
 
     return true;

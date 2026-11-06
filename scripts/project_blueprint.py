@@ -231,9 +231,29 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
     return subsystems
 
 
-def scan_api_routes(root: Path) -> list[str]:
-    """Scan server for registered FastAPI routers."""
+def scan_frontend_routes(root: Path) -> list[str]:
+    """Scan Next.js App Router for web page routes."""
     routes: list[str] = []
+    candidates = [
+        root / "apps" / "web" / "src" / "app",
+        root / "web" / "src" / "app",
+        root / "src" / "app",
+        root / "app",
+    ]
+    app_dir = next((c for c in candidates if c.is_dir()), None)
+    if app_dir:
+        for page_file in sorted(app_dir.glob("**/page.tsx")):
+            rel = page_file.parent.relative_to(app_dir)
+            route_path = "/" if str(rel) == "." else f"/{rel}"
+            # Clean route groups like (auth) or (main)
+            route_path = re.sub(r'/\([^)]+\)', '', route_path) or "/"
+            routes.append(route_path)
+    return sorted(list(dict.fromkeys(routes)))
+
+
+def scan_api_routes(root: Path) -> list[dict[str, Any]]:
+    """Scan server for registered FastAPI routers and their core endpoints."""
+    routes: list[dict[str, Any]] = []
     api_dir = root / "server" / "server" / "api"
     if not api_dir.is_dir():
         api_dir = root / "api"
@@ -243,14 +263,31 @@ def scan_api_routes(root: Path) -> list[str]:
             if py_file.name.startswith("_"):
                 continue
             name = py_file.stem
-            # Inspect route prefixes
             try:
                 content = py_file.read_text(encoding="utf-8", errors="ignore")
                 m = re.search(r'router\s*=\s*APIRouter\([^)]*prefix=["\']([^"\']+)["\']', content)
                 prefix = m.group(1) if m else f"/{name}"
-                routes.append(f"`{prefix}` ({name}.py)")
+
+                endpoints: list[str] = []
+                for em in re.finditer(r'@router\.(get|post|put|delete|patch)\(\s*["\']([^"\']*)["\']', content):
+                    method = em.group(1).upper()
+                    subpath = em.group(2)
+                    full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
+                    endpoints.append(f"`{method} {full_p}`")
+
+                routes.append({
+                    "name": name,
+                    "prefix": prefix,
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
             except Exception:
-                routes.append(f"`/{name}` ({name}.py)")
+                routes.append({
+                    "name": name,
+                    "prefix": f"/{name}",
+                    "endpoints": [],
+                    "total": 0,
+                })
 
     return routes
 
@@ -448,6 +485,7 @@ def build_blueprint_content(root: Path) -> str:
 
     stack = detect_tech_stack(root)
     subsystems = scan_subsystems(root)
+    frontend_routes = scan_frontend_routes(root)
     routes = scan_api_routes(root)
     models = scan_data_models(root)
     mermaid_diagram = generate_mermaid_diagram(subsystems, stack)
@@ -487,12 +525,25 @@ def build_blueprint_content(root: Path) -> str:
         "",
     ])
 
+    if frontend_routes:
+        doc.append("### Frontend Pages & App Router")
+        doc.append("")
+        for f in frontend_routes:
+            doc.append(f"- `{f}`")
+        doc.append("")
+
     if routes:
-        doc.append("### Registered FastAPI API Routers")
+        doc.append("### Registered FastAPI API Routers & Endpoints")
         doc.append("")
         for r in routes:
-            doc.append(f"- {r}")
-        doc.append("")
+            doc.append(f"#### `{r['prefix']}` ({r['name']}.py)")
+            if r["endpoints"]:
+                doc.append("")
+                for ep in r["endpoints"]:
+                    doc.append(f"- {ep}")
+                if r["total"] > len(r["endpoints"]):
+                    doc.append(f"- _... ({r['total'] - len(r['endpoints'])} more endpoints)_")
+            doc.append("")
 
     if models:
         doc.append("### Core Database Models (`models.py`)")
@@ -519,7 +570,7 @@ def build_blueprint_content(root: Path) -> str:
     doc.extend([
         "",
         "---",
-        "_Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/post-commit`. Updates automatically on code modifications._",
+        "_Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._",
         "",
     ])
 
@@ -573,8 +624,11 @@ def _clean_hook_content(content: str) -> str:
     return "\n".join(clean_lines).strip()
 
 
+MANAGED_GIT_HOOKS = ["post-commit", "post-merge", "post-checkout"]
+
+
 def install_git_hook(root: Path) -> bool:
-    """Install a post-commit Git hook to keep PROJECT_BLUEPRINT.md in sync across all projects."""
+    """Install post-commit, post-merge, and post-checkout Git hooks to keep PROJECT_BLUEPRINT.md in sync across all projects."""
     git_dir = root / ".git"
     if not git_dir.exists():
         print(f"Error: {git_dir} does not exist. Is this a git repository?", file=sys.stderr)
@@ -604,37 +658,45 @@ def install_git_hook(root: Path) -> bool:
     except Exception:
         pass
 
-    hook_file = hooks_dir / "post-commit"
-    existing = hook_file.read_text(encoding="utf-8", errors="ignore") if hook_file.exists() else ""
-    cleaned = _clean_hook_content(existing)
+    all_ok = True
+    for hname in MANAGED_GIT_HOOKS:
+        hook_file = hooks_dir / hname
+        existing = hook_file.read_text(encoding="utf-8", errors="ignore") if hook_file.exists() else ""
+        cleaned = _clean_hook_content(existing)
 
-    if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
-        new_content = f"#!/bin/sh\n\n{HOOK_TEMPLATE}\n"
-    else:
-        new_content = f"{cleaned.rstrip()}\n\n{HOOK_TEMPLATE}\n"
+        if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
+            new_content = f"#!/bin/sh\n\n{HOOK_TEMPLATE}\n"
+        else:
+            new_content = f"{cleaned.rstrip()}\n\n{HOOK_TEMPLATE}\n"
 
-    hook_file.write_text(new_content, encoding="utf-8")
-    try:
-        hook_file.chmod(0o755)
-    except Exception:
-        pass
+        try:
+            hook_file.write_text(new_content, encoding="utf-8")
+            hook_file.chmod(0o755)
+        except Exception:
+            all_ok = False
 
-    return True
+    return all_ok
 
 
 def uninstall_git_hook(root: Path) -> bool:
-    """Remove post-commit Git hook entry."""
-    hook_file = root / ".git" / "hooks" / "post-commit"
-    if not hook_file.exists():
+    """Remove Memento blueprint Git hook entries across all managed hooks."""
+    git_dir = root / ".git"
+    hooks_dir = git_dir / "hooks" if git_dir.exists() else None
+    if not hooks_dir or not hooks_dir.is_dir():
         return True
 
-    existing = hook_file.read_text(encoding="utf-8", errors="ignore")
-    cleaned = _clean_hook_content(existing)
+    for hname in MANAGED_GIT_HOOKS:
+        hook_file = hooks_dir / hname
+        if not hook_file.exists():
+            continue
+        existing = hook_file.read_text(encoding="utf-8", errors="ignore")
+        cleaned = _clean_hook_content(existing)
 
-    if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
-        hook_file.write_text("", encoding="utf-8")
-    else:
-        hook_file.write_text(cleaned.strip() + "\n", encoding="utf-8")
+        if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
+            hook_file.write_text("", encoding="utf-8")
+        else:
+            hook_file.write_text(cleaned.strip() + "\n", encoding="utf-8")
+
     return True
 
 

@@ -88,13 +88,16 @@ class TestProjectBlueprint(unittest.TestCase):
 
         installed = project_blueprint.install_git_hook(self.root)
         self.assertTrue(installed)
-        hook_path = git_dir / "post-commit"
-        self.assertTrue(hook_path.exists())
-        self.assertIn("project_blueprint.py", hook_path.read_text())
+        for hname in ["post-commit", "post-merge", "post-checkout"]:
+            hook_path = git_dir / hname
+            self.assertTrue(hook_path.exists())
+            self.assertIn("project_blueprint.py", hook_path.read_text())
 
         uninstalled = project_blueprint.uninstall_git_hook(self.root)
         self.assertTrue(uninstalled)
-        self.assertNotIn("project_blueprint.py", hook_path.read_text())
+        for hname in ["post-commit", "post-merge", "post-checkout"]:
+            hook_path = git_dir / hname
+            self.assertNotIn("project_blueprint.py", hook_path.read_text())
 
 
     def test_detect_verification_commands_python_and_node(self):

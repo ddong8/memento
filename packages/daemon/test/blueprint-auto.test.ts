@@ -55,8 +55,10 @@ describe("blueprint-auto", () => {
     writeFileSync(hookPath, "#!/bin/sh\necho test\n");
     expect(await isBlueprintReady(tmpDir)).toBe(false);
 
-    // Add valid hook signature
-    writeFileSync(hookPath, "#!/bin/sh\n# Auto-update PROJECT_BLUEPRINT.md upon commit\npython3 scripts/project_blueprint.py\n");
+    // Add valid hook signatures for all 3 hooks
+    for (const hname of ["post-commit", "post-merge", "post-checkout"]) {
+      writeFileSync(join(gitDir, hname), "#!/bin/sh\n# Auto-update PROJECT_BLUEPRINT.md upon commit\npython3 scripts/project_blueprint.py\n");
+    }
     expect(await isBlueprintReady(tmpDir)).toBe(true);
   });
 

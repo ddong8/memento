@@ -292,9 +292,10 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
     return routes
 
 
-def scan_data_models(root: Path) -> list[str]:
-    """Scan server for SQLAlchemy / Pydantic models."""
+def scan_data_models(root: Path) -> dict[str, Any]:
+    """Scan server for SQLAlchemy / Pydantic models and their key foreign key relations."""
     models: list[str] = []
+    relations: list[str] = []
     models_file = root / "server" / "server" / "db" / "models.py"
     if not models_file.exists():
         for cand in root.glob("**/models.py"):
@@ -305,17 +306,108 @@ def scan_data_models(root: Path) -> list[str]:
     if models_file.exists():
         try:
             content = models_file.read_text(encoding="utf-8", errors="ignore")
-            # Match class ClassName(Base): or class ClassName(BaseModel):
-            matches = re.finditer(r'class\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*:', content)
-            for m in matches:
-                cname = m.group(1)
-                bases = m.group(2)
-                if any(b in bases for b in ("Base", "Model", "BaseModel", "Table")):
-                    models.append(cname)
+            current_class = None
+            for line in content.splitlines():
+                cm = re.match(r'^class\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*:', line)
+                if cm:
+                    cname = cm.group(1)
+                    bases = cm.group(2)
+                    if any(b in bases for b in ("Base", "Model", "BaseModel", "Table")):
+                        models.append(cname)
+                        current_class = cname
+                    else:
+                        current_class = None
+                    continue
+
+                if current_class and "ForeignKey(" in line:
+                    fkm = re.search(r'([a-zA-Z0-9_]+)\s*[:=][^;]*ForeignKey\(["\']([^"\']+)["\']', line)
+                    if fkm:
+                        field_name = fkm.group(1)
+                        target_ref = fkm.group(2)
+                        relations.append(f"`{current_class}.{field_name}` ➔ `{target_ref}`")
         except Exception:
             pass
 
-    return models
+    return {
+        "models": models,
+        "relations": relations[:15],
+    }
+
+
+def _sanitize_blueprint_text(text: str) -> str:
+    """Mask private network IP ranges or sensitive internal addresses."""
+    text = re.sub(r'192\.168\.\d{1,3}\.[a-zA-Z0-9_.-]+', '<internal-ip>', text)
+    text = re.sub(r'10\.\d{1,3}\.\d{1,3}\.[a-zA-Z0-9_.-]+', '<internal-ip>', text)
+    text = re.sub(r'172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.[a-zA-Z0-9_.-]+', '<internal-ip>', text)
+    return text
+
+
+def scan_env_variables(root: Path) -> list[dict[str, str]]:
+    """Scan .env.example or deployment configs for declared environment variables."""
+    vars_list: list[dict[str, str]] = []
+    env_example = root / ".env.example"
+    if not env_example.exists():
+        env_example = root / ".env.sample"
+
+    if env_example.exists():
+        try:
+            content = env_example.read_text(encoding="utf-8", errors="ignore")
+            current_comment = ""
+            for line in content.splitlines():
+                sline = line.strip()
+                if not sline:
+                    current_comment = ""
+                    continue
+                if sline.startswith("#"):
+                    if not sline.startswith("# ───"):
+                        current_comment = _sanitize_blueprint_text(sline.lstrip("#").strip())
+                    continue
+                if "=" in sline:
+                    k, v = sline.split("=", 1)
+                    k = k.strip()
+                    if k and not k.startswith("#"):
+                        clean_val = _sanitize_blueprint_text(v.strip())
+                        vars_list.append({
+                            "name": k,
+                            "default": clean_val or "(required secret)",
+                            "description": current_comment or "Environment configuration",
+                        })
+                        current_comment = ""
+        except Exception:
+            pass
+
+    return vars_list
+
+
+def ensure_agent_guidance_anchor(root: Path) -> bool:
+    """Ensure CLAUDE.md / AGENTS.md in the project root has a blueprint reading hint for AI coding agents."""
+    guidance_files = [root / "CLAUDE.md", root / "AGENTS.md"]
+    anchor_marker = "<!-- memento:blueprint-anchor -->"
+    anchor_snippet = (
+        f"{anchor_marker}\n"
+        "> [!TIP]\n"
+        "> **架构心智指引**：新会话或全局重构前，请优先阅读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 快速建立全局架构全景，避免昂贵的重复 grep 扫描。\n"
+        f"{anchor_marker}\n\n"
+    )
+
+    modified = False
+    for gf in guidance_files:
+        if not gf.exists():
+            continue
+        try:
+            text = gf.read_text(encoding="utf-8", errors="ignore")
+            if "PROJECT_BLUEPRINT.md" in text:
+                continue
+            lines = text.splitlines(keepends=True)
+            if lines and lines[0].startswith("#"):
+                new_text = lines[0] + "\n" + anchor_snippet + "".join(lines[1:])
+            else:
+                new_text = anchor_snippet + text
+            gf.write_text(new_text, encoding="utf-8")
+            modified = True
+        except Exception:
+            pass
+    return modified
 
 
 def generate_mermaid_diagram(subsystems: list[dict[str, Any]], stack: dict[str, Any]) -> str:
@@ -487,7 +579,10 @@ def build_blueprint_content(root: Path) -> str:
     subsystems = scan_subsystems(root)
     frontend_routes = scan_frontend_routes(root)
     routes = scan_api_routes(root)
-    models = scan_data_models(root)
+    models_data = scan_data_models(root)
+    models = models_data.get("models", [])
+    relations = models_data.get("relations", [])
+    env_vars = scan_env_variables(root)
     mermaid_diagram = generate_mermaid_diagram(subsystems, stack)
     evolution_list = get_git_evolution(root, limit=6)
 
@@ -551,6 +646,13 @@ def build_blueprint_content(root: Path) -> str:
         doc.append(", ".join(f"`{m}`" for m in models))
         doc.append("")
 
+    if relations:
+        doc.append("#### Key Entity Relationships (Foreign Keys)")
+        doc.append("")
+        for rel in relations:
+            doc.append(f"- {rel}")
+        doc.append("")
+
     doc.extend([
         "## 5. Development & Verification Commands",
         "",
@@ -567,6 +669,17 @@ def build_blueprint_content(root: Path) -> str:
     else:
         doc.append("- Initial project baseline established.")
 
+    if env_vars:
+        doc.extend([
+            "",
+            "## 7. Key Environment Variables & Configuration",
+            "",
+            "| Variable | Default / Status | Description |",
+            "| :--- | :--- | :--- |",
+        ])
+        for ev in env_vars[:20]:
+            doc.append(f"| `{ev['name']}` | `{ev['default']}` | {ev['description']} |")
+
     doc.extend([
         "",
         "---",
@@ -581,7 +694,16 @@ HOOK_MARKER_START = "# <<< Memento Blueprint Hook Start >>>"
 HOOK_MARKER_END = "# <<< Memento Blueprint Hook End >>>"
 
 HOOK_TEMPLATE = f"""{HOOK_MARKER_START}
-# Auto-update PROJECT_BLUEPRINT.md upon commit (managed by Memento)
+# Auto-update PROJECT_BLUEPRINT.md upon commit, merge, or branch checkout (managed by Memento)
+if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+    exit 0
+fi
+
+# If invoked as post-checkout, only run on actual branch switch ($3 == 1)
+if [ -n "$3" ] && [ "$3" != "1" ]; then
+    exit 0
+fi
+
 BP_SCRIPT=""
 if [ -f "scripts/project_blueprint.py" ]; then
     BP_SCRIPT="scripts/project_blueprint.py"
@@ -715,6 +837,7 @@ def main() -> int:
     if args.install_hook:
         ok = install_git_hook(root)
         try:
+            ensure_agent_guidance_anchor(root)
             out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
             content = build_blueprint_content(root)
             out_path.write_text(content, encoding="utf-8")
@@ -733,6 +856,7 @@ def main() -> int:
 
     out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
     content = build_blueprint_content(root)
+    ensure_agent_guidance_anchor(root)
 
     if args.check:
         if not out_path.exists():

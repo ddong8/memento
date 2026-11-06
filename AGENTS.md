@@ -1,5 +1,11 @@
 # Memento Project - Agent Guidelines & Architecture Rules
 
+<!-- memento:blueprint-anchor -->
+> [!TIP]
+> **架构心智指引**：新会话或全局重构前，请优先阅读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 快速建立全局架构全景，避免昂贵的重复 grep 扫描。
+<!-- memento:blueprint-anchor -->
+
+
 ## 桌面端发布与自动更新（铁律）
 
 ### 1. 两条更新通道

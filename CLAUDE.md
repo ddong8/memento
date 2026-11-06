@@ -1,5 +1,11 @@
 # memento — 项目须知(给 AI)
 
+<!-- memento:blueprint-anchor -->
+> [!TIP]
+> **架构心智指引**：新会话或全局重构前，请优先阅读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 快速建立全局架构全景，避免昂贵的重复 grep 扫描。
+<!-- memento:blueprint-anchor -->
+
+
 ## 部署 / CI-CD 铁律(GitOps,勿手动操作集群)
 
 本项目通过 **GitOps** 自动部署到 NAS 上的 k3s 集群(命名空间 `memento`),由 Rancher Fleet 拉取式部署,对外 mem.ihasy.com。

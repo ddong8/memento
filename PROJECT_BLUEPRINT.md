@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d1b7b2a9` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1f50bc3c` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -354,6 +354,24 @@ flowchart TD
 
 `Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `UserLifeRhythm`
 
+#### Key Entity Relationships (Foreign Keys)
+
+- `Machine.user_id` ➔ `users.id`
+- `Machine.merged_into` ➔ `machines.id`
+- `MachineMerge.from_machine_id` ➔ `machines.id`
+- `MachineMerge.into_machine_id` ➔ `machines.id`
+- `Project.tool_id` ➔ `tools.id`
+- `Document.tool_id` ➔ `tools.id`
+- `Document.project_id` ➔ `projects.id`
+- `Document.machine_id` ➔ `machines.id`
+- `ConversationMessage.document_id` ➔ `documents.id`
+- `DailySummary.user_id` ➔ `users.id`
+- `DailySummary.tool_id` ➔ `tools.id`
+- `DocumentVersion.document_id` ➔ `documents.id`
+- `MessageAudit.document_id` ➔ `documents.id`
+- `DocumentPendingDelta.document_id` ➔ `documents.id`
+- `InviteCode.created_by` ➔ `users.id`
+
 ## 5. Development & Verification Commands
 
 ```bash
@@ -375,12 +393,27 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 6. Recent Architectural Evolutions
 
+- `1f50bc3c` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
+- `c7ed3f39` (2026-11-06): feat(blueprint): 升级多钩子生命周期自同步、前端AppRouter路由扫描与详细API契约提取
 - `c30c9a69` (2026-11-06): fix(daemon): 修复 blueprint-auto 中 findExecutable 入参类型签名
 - `15ffeb07` (2026-11-06): docs(blueprint): 更新活体蓝图快照与多项目全自动部署能力
 - `fe076aa5` (2026-11-06): feat(blueprint): 实现多项目会话与任务执行全自动就地配置蓝图及Git钩子
 - `5bd93213` (2026-11-06): feat(blueprint): 实现活体代码蓝图自动生成系统与MCP跨Agent协同
-- `6a874737` (2026-11-06): perf(web): 优化媒体预览渲染性能并清理页面死状态与升级超时熔断
-- `2b5c2dd5` (2026-11-06): refactor(ask): 优化设备过滤匹配逻辑并修复跨设备切换残留与项目引用时序
+
+## 7. Key Environment Variables & Configuration
+
+| Variable | Default / Status | Description |
+| :--- | :--- | :--- |
+| `MEMENTO_SECRET_KEY` | `(required secret)` | Signs JWTs. Must be >= 32 chars, high entropy. |
+| `MEMENTO_COLLECTOR_TOKEN` | `(required secret)` | Token used by collectors to register themselves. |
+| `POSTGRES_PASSWORD` | `(required secret)` | Postgres superuser password (keep in sync with MEMENTO_DATABASE_URL). |
+| `MINIO_ROOT_USER` | `(required secret)` | MinIO / S3 credentials. |
+| `MINIO_ROOT_PASSWORD` | `(required secret)` | Environment configuration |
+| `ANTHROPIC_API_KEY` | `(required secret)` | Anthropic Claude (for `/api/daily/*/generate-summary`). Leave blank to disable. |
+| `MEMENTO_AI_API_KEY` | `(required secret)` | Leave blank to disable the alt backend. |
+| `MEMENTO_AI_BASE_URL` | `https://coding.dashscope.aliyuncs.com/v1` | Environment configuration |
+| `MEMENTO_AI_MODEL` | `kimi-k2.5` | Environment configuration |
+| `MEMENTO_EMBEDDING_SERVER_URL` | `http://host.docker.internal:8002` | MEMENTO_EMBEDDING_SERVER_URL=http://<internal-ip>:8002 |
 
 ---
 _Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

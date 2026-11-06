@@ -181,7 +181,7 @@ export class WsTaskClient {
           this.commandsPending?.();
           break;
         case "get_agent_capabilities":
-          void this.reportCapabilities();
+          void this.reportCapabilities(true);
           void this.reportQuotas();
           break;
         case "get_agent_quotas":
@@ -314,13 +314,16 @@ export class WsTaskClient {
     this.pingTimer = setInterval(() => {
       if (!this.connected) return;
       this.sendJson({ type: "ping" });
-      if (++count % QUOTA_EVERY_PINGS === 0) void this.reportQuotas();
+      if (++count % QUOTA_EVERY_PINGS === 0) {
+        void this.reportCapabilities();
+        void this.reportQuotas();
+      }
     }, PING_MS);
   }
 
-  private async reportCapabilities(): Promise<void> {
+  private async reportCapabilities(force = false): Promise<void> {
     try {
-      const capabilities = await probeCapabilities();
+      const capabilities = await probeCapabilities(undefined, { force });
       this.sendJson({ type: "agent_capabilities", capabilities });
       this.log(`Reported agent capabilities: ${Object.keys(capabilities).join(", ")}`);
     } catch (e) {

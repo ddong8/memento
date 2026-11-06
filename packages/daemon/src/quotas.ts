@@ -134,9 +134,18 @@ export async function probeAntigravityQuota(
       }
     }
 
-    // 确定主力模型的真实剩余配额：优先选择推荐模型或最常用的 Flash/Pro 模型
-    let primary = models.find((m) => m.label.includes("3.8 Flash") || m.label.includes("Flash (Medium)"));
-    if (!primary) primary = models[0];
+    // 确定当前客户端选中的默认模型与主力配额：优先匹配 defaultOverrideModelConfig
+    const defaultOverride = us.cascadeModelConfigData?.defaultOverrideModelConfig?.modelOrAlias?.model;
+    const defaultRaw = defaultOverride
+      ? rawModels.find((m) => m.modelOrAlias?.model === defaultOverride || m.modelId === defaultOverride)
+      : rawModels[0];
+    const defaultModelId = defaultRaw?.modelId || models[0]?.model_id || "";
+    const defaultModelLabel = defaultRaw?.label || models[0]?.label || "";
+
+    let primary = defaultModelId ? models.find((m) => m.model_id === defaultModelId) : undefined;
+    if (!primary || primary.remaining_percent === null || primary.remaining_percent === undefined) {
+      primary = models.find((m) => typeof m.remaining_percent === "number") || models[0];
+    }
 
     const planStatus = us.planStatus || {};
     const planInfo = planStatus.planInfo || {};
@@ -157,6 +166,8 @@ export async function probeAntigravityQuota(
       reset_time: primary?.reset_time ?? null,
       models,
       details: {
+        default_model_id: defaultModelId,
+        default_model_label: defaultModelLabel,
         available_prompt_credits: planStatus.availablePromptCredits,
         monthly_prompt_credits: planInfo.monthlyPromptCredits,
         available_flow_credits: planStatus.availableFlowCredits,

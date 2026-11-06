@@ -252,7 +252,7 @@ def scan_frontend_routes(root: Path) -> list[str]:
 
 
 def scan_api_routes(root: Path) -> list[dict[str, Any]]:
-    """Scan server for registered FastAPI routers and their core endpoints."""
+    """Scan backend routers across Python (FastAPI/Flask), Next.js Route Handlers, Node (Express/Hono), and Go (Gin/Echo)."""
     routes: list[dict[str, Any]] = []
     api_dir = root / "server" / "server" / "api"
     if not api_dir.is_dir():
@@ -269,7 +269,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                 prefix = m.group(1) if m else f"/{name}"
 
                 endpoints: list[str] = []
-                for em in re.finditer(r'@router\.(get|post|put|delete|patch)\(\s*["\']([^"\']*)["\']', content):
+                for em in re.finditer(r'@(?:router|app|bp)\.(get|post|put|delete|patch)\(\s*["\']([^"\']*)["\']', content):
                     method = em.group(1).upper()
                     subpath = em.group(2)
                     full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
@@ -289,48 +289,272 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     "total": 0,
                 })
 
+    # Next.js App Router API Route Handlers (app/api/**/route.ts)
+    for app_cand in (root / "apps" / "web" / "src" / "app" / "api", root / "src" / "app" / "api", root / "app" / "api"):
+        if app_cand.is_dir():
+            for route_file in sorted(app_cand.glob("**/route.[tj]s*")):
+                try:
+                    rel = route_file.parent.relative_to(app_cand.parent)
+                    prefix = f"/{rel}"
+                    content = route_file.read_text(encoding="utf-8", errors="ignore")
+                    methods = re.findall(r'export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b', content)
+                    endpoints = [f"`{m} {prefix}`" for m in dict.fromkeys(methods)]
+                    routes.append({
+                        "name": route_file.parent.name,
+                        "prefix": prefix,
+                        "endpoints": endpoints[:5],
+                        "total": len(endpoints),
+                    })
+                except Exception:
+                    pass
+
     return routes
 
 
 def scan_data_models(root: Path) -> dict[str, Any]:
-    """Scan server for SQLAlchemy / Pydantic models and their key foreign key relations."""
+    """Scan multi-language ORM / schema models and foreign key relations:
+    - Python: SQLAlchemy (ForeignKey), Django (models.ForeignKey / OneToOneField / ManyToManyField), SQLModel
+    - Prisma: schema.prisma (model + @relation)
+    - TypeScript / JS: Drizzle ORM (pgTable/mysqlTable/sqliteTable + .references), TypeORM (@Entity + @ManyToOne/@JoinColumn)
+    - Go: GORM / db structs (gorm:"foreignKey:...")
+    - Rust: SeaORM (DeriveEntityModel + #[sea_orm(belongs_to = ...)]) / Diesel (#[diesel(belongs_to(...))])
+    - Java / Kotlin: JPA / Hibernate (@Entity + @ManyToOne / @JoinColumn)
+    - SQL DDL: CREATE TABLE + FOREIGN KEY / REFERENCES
+    """
     models: list[str] = []
     relations: list[str] = []
-    models_file = root / "server" / "server" / "db" / "models.py"
-    if not models_file.exists():
-        for cand in root.glob("**/models.py"):
-            if not any(ign in cand.parts for ign in IGNORED_DIRS):
-                models_file = cand
-                break
 
-    if models_file.exists():
+    def _add_model(name: str) -> None:
+        if name and name not in models:
+            models.append(name)
+
+    def _add_rel(rel: str) -> None:
+        if rel and rel not in relations:
+            relations.append(rel)
+
+    def _iter_project_files(pattern: str, limit: int = 80) -> list[Path]:
+        out: list[Path] = []
+        for p in root.glob(pattern):
+            if any(ign in p.parts for ign in IGNORED_DIRS):
+                continue
+            out.append(p)
+            if len(out) >= limit:
+                break
+        return sorted(out)
+
+    # 1. Python (SQLAlchemy / Django / SQLModel / Pydantic)
+    py_candidates: list[Path] = []
+    default_py = root / "server" / "server" / "db" / "models.py"
+    if default_py.exists():
+        py_candidates.append(default_py)
+    for cand in _iter_project_files("**/models.py", limit=30) + _iter_project_files("**/models/*.py", limit=30):
+        if cand not in py_candidates and not cand.name.startswith("_"):
+            py_candidates.append(cand)
+
+    for models_file in py_candidates:
         try:
             content = models_file.read_text(encoding="utf-8", errors="ignore")
             current_class = None
             for line in content.splitlines():
                 cm = re.match(r'^class\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*:', line)
                 if cm:
-                    cname = cm.group(1)
-                    bases = cm.group(2)
-                    if any(b in bases for b in ("Base", "Model", "BaseModel", "Table")):
-                        models.append(cname)
+                    cname, bases = cm.group(1), cm.group(2)
+                    if any(b in bases for b in ("Base", "Model", "BaseModel", "SQLModel", "Table", "Document")):
+                        _add_model(cname)
                         current_class = cname
                     else:
                         current_class = None
                     continue
+                if current_class:
+                    # SQLAlchemy / SQLModel ForeignKey("table.col")
+                    if "ForeignKey(" in line:
+                        fkm = re.search(r'([a-zA-Z0-9_]+)\s*[:=][^;]*ForeignKey\(\s*["\']([^"\']+)["\']', line)
+                        if fkm:
+                            _add_rel(f"`{current_class}.{fkm.group(1)}` ➔ `{fkm.group(2)}`")
+                    # Django models.ForeignKey / OneToOneField / ManyToManyField("Target" or Target)
+                    dj = re.search(
+                        r'([a-zA-Z0-9_]+)\s*=\s*(?:models\.)?(?:ForeignKey|OneToOneField|ManyToManyField)\(\s*["\']?([A-Za-z0-9_.]+)["\']?',
+                        line,
+                    )
+                    if dj and dj.group(2) not in ("self", "settings"):
+                        _add_rel(f"`{current_class}.{dj.group(1)}` ➔ `{dj.group(2)}`")
+        except Exception:
+            pass
 
-                if current_class and "ForeignKey(" in line:
-                    fkm = re.search(r'([a-zA-Z0-9_]+)\s*[:=][^;]*ForeignKey\(["\']([^"\']+)["\']', line)
+    # 2. Prisma (schema.prisma)
+    for prisma_file in _iter_project_files("**/*.prisma", limit=20):
+        try:
+            content = prisma_file.read_text(encoding="utf-8", errors="ignore")
+            current_model = None
+            for line in content.splitlines():
+                mm = re.match(r'^\s*model\s+([A-Za-z0-9_]+)\s*\{', line)
+                if mm:
+                    current_model = mm.group(1)
+                    _add_model(current_model)
+                    continue
+                if current_model and re.match(r'^\s*\}', line):
+                    current_model = None
+                    continue
+                if current_model and "@relation" in line:
+                    rm = re.search(
+                        r'^\s*([A-Za-z0-9_]+)\s+([A-Za-z0-9_]+)\??\s+.*@relation\([^)]*fields:\s*\[([^\]]+)\][^)]*references:\s*\[([^\]]+)\]',
+                        line,
+                    )
+                    if rm:
+                        target_model = rm.group(2)
+                        fk_field = rm.group(3).strip()
+                        ref_field = rm.group(4).strip()
+                        _add_rel(f"`{current_model}.{fk_field}` ➔ `{target_model}.{ref_field}`")
+        except Exception:
+            pass
+
+    # 3. TypeScript / JS (Drizzle ORM & TypeORM)
+    ts_schema_files = (
+        _iter_project_files("**/schema.ts", limit=30)
+        + _iter_project_files("**/schema/*.ts", limit=30)
+        + _iter_project_files("**/entities/*.ts", limit=30)
+        + _iter_project_files("**/*.entity.ts", limit=30)
+    )
+    for ts_file in dict.fromkeys(ts_schema_files):
+        try:
+            content = ts_file.read_text(encoding="utf-8", errors="ignore")
+            # Drizzle ORM: export const users = pgTable("users", { ... })
+            for dm in re.finditer(r'(?:pgTable|mysqlTable|sqliteTable)\(\s*["\']([a-zA-Z0-9_]+)["\']\s*,\s*\{([\s\S]*?)\}\s*[,)]', content):
+                tname = dm.group(1)
+                tbody = dm.group(2)
+                _add_model(tname)
+                for rfm in re.finditer(r'([a-zA-Z0-9_]+)\s*:[^\n,]*?\.references\(\s*\(\)\s*=>\s*([a-zA-Z0-9_.]+)', tbody):
+                    _add_rel(f"`{tname}.{rfm.group(1)}` ➔ `{rfm.group(2)}`")
+            # TypeORM: @Entity() export class User
+            if "@Entity" in content:
+                current_entity = None
+                pending_target = None
+                for line in content.splitlines():
+                    em = re.search(r'class\s+([A-Za-z0-9_]+)', line)
+                    if em:
+                        current_entity = em.group(1)
+                        _add_model(current_entity)
+                        continue
+                    rel_dec = re.search(r'@(?:ManyToOne|OneToOne|ManyToMany)\(\s*\(\)\s*=>\s*([A-Za-z0-9_]+)', line)
+                    if rel_dec:
+                        pending_target = rel_dec.group(1)
+                        continue
+                    if current_entity and pending_target:
+                        prop = re.match(r'^\s*([a-zA-Z0-9_]+)\??\s*:', line)
+                        if prop and not line.strip().startswith("@"):
+                            _add_rel(f"`{current_entity}.{prop.group(1)}` ➔ `{pending_target}`")
+                            pending_target = None
+        except Exception:
+            pass
+
+    # 4. Go (GORM structs)
+    for go_file in _iter_project_files("**/*.go", limit=40):
+        if go_file.name.endswith("_test.go"):
+            continue
+        try:
+            content = go_file.read_text(encoding="utf-8", errors="ignore")
+            if "gorm:" not in content and "db:" not in content:
+                continue
+            for sm in re.finditer(r'type\s+([A-Za-z0-9_]+)\s+struct\s*\{([\s\S]*?)\}', content):
+                sname, sbody = sm.group(1), sm.group(2)
+                if "gorm:" not in sbody and "db:" not in sbody:
+                    continue
+                _add_model(sname)
+                for line in sbody.splitlines():
+                    fkm = re.search(r'^\s*([A-Za-z0-9_]+)\s+\*?([A-Za-z0-9_]+)\s+`[^`]*gorm:"[^"]*foreignKey:([A-Za-z0-9_]+)', line)
                     if fkm:
-                        field_name = fkm.group(1)
-                        target_ref = fkm.group(2)
-                        relations.append(f"`{current_class}.{field_name}` ➔ `{target_ref}`")
+                        _add_rel(f"`{sname}.{fkm.group(3)}` ➔ `{fkm.group(2)}`")
+                    elif re.search(r'^\s*([A-Za-z0-9_]+)ID\s+(?:uint|int|string|uuid\.UUID)\b', line):
+                        idm = re.search(r'^\s*([A-Za-z0-9_]+)ID\s+', line)
+                        if idm and idm.group(1) != sname:
+                            _add_rel(f"`{sname}.{idm.group(1)}ID` ➔ `{idm.group(1)}.ID`")
+        except Exception:
+            pass
+
+    # 5. Rust (SeaORM / Diesel)
+    for rs_file in _iter_project_files("**/*.rs", limit=40):
+        try:
+            content = rs_file.read_text(encoding="utf-8", errors="ignore")
+            if "sea_orm" in content:
+                tm = re.search(r'#\[sea_orm\(\s*table_name\s*=\s*"([^"]+)"', content)
+                tname = tm.group(1) if tm else rs_file.stem
+                _add_model(tname)
+                for bm in re.finditer(
+                    r'#\[sea_orm\([^\]]*belongs_to\s*=\s*"([^"]+)"[^\]]*from\s*=\s*"([^"]+)"[^\]]*to\s*=\s*"([^"]+)"',
+                    content,
+                ):
+                    target = bm.group(1).split("::")[-2] if "::" in bm.group(1) else bm.group(1)
+                    from_col = bm.group(2).split("::")[-1]
+                    to_col = bm.group(3).split("::")[-1]
+                    _add_rel(f"`{tname}.{from_col}` ➔ `{target}.{to_col}`")
+            if "#[diesel(" in content:
+                for dm in re.finditer(r'#\[diesel\(table_name\s*=\s*([a-zA-Z0-9_]+)\)\]', content):
+                    tname = dm.group(1)
+                    _add_model(tname)
+                    for bm in re.finditer(r'#\[diesel\(belongs_to\(([A-Za-z0-9_]+)\)\)\]', content):
+                        _add_rel(f"`{tname}` ➔ `{bm.group(1)}`")
+        except Exception:
+            pass
+
+    # 6. Java / Kotlin (JPA / Hibernate @Entity)
+    for jvm_file in _iter_project_files("**/*.java", limit=30) + _iter_project_files("**/*.kt", limit=30):
+        try:
+            content = jvm_file.read_text(encoding="utf-8", errors="ignore")
+            if "@Entity" not in content and "@Table" not in content:
+                continue
+            cm = re.search(r'\bclass\s+([A-Za-z0-9_]+)', content)
+            if not cm:
+                continue
+            cname = cm.group(1)
+            _add_model(cname)
+            pending_rel = False
+            for line in content.splitlines():
+                if re.search(r'@(?:ManyToOne|OneToOne|ManyToMany|JoinColumn)\b', line):
+                    pending_rel = True
+                    continue
+                if pending_rel and not line.strip().startswith("@"):
+                    # Java: private User user; or Kotlin: val user: User
+                    jm = re.search(r'(?:private|protected|public)\s+([A-Za-z0-9_]+)\s+([a-zA-Z0-9_]+)\s*[;=]', line)
+                    km = re.search(r'(?:val|var)\s+([a-zA-Z0-9_]+)\s*:\s*([A-Za-z0-9_]+)', line)
+                    if jm:
+                        _add_rel(f"`{cname}.{jm.group(2)}` ➔ `{jm.group(1)}`")
+                        pending_rel = False
+                    elif km:
+                        _add_rel(f"`{cname}.{km.group(1)}` ➔ `{km.group(2)}`")
+                        pending_rel = False
+        except Exception:
+            pass
+
+    # 7. SQL DDL / Migrations (*.sql)
+    for sql_file in _iter_project_files("**/*.sql", limit=30):
+        try:
+            content = sql_file.read_text(encoding="utf-8", errors="ignore")
+            for ctm in re.finditer(
+                r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?([a-zA-Z0-9_.]+)["`]?\s*\(([\s\S]*?)\);',
+                content,
+                re.IGNORECASE,
+            ):
+                tname, tbody = ctm.group(1), ctm.group(2)
+                _add_model(tname)
+                for fkm in re.finditer(
+                    r'FOREIGN\s+KEY\s*\(\s*["`]?([a-zA-Z0-9_]+)["`]?\s*\)\s*REFERENCES\s+["`]?([a-zA-Z0-9_.]+)["`]?\s*\(\s*["`]?([a-zA-Z0-9_]+)["`]?\s*\)',
+                    tbody,
+                    re.IGNORECASE,
+                ):
+                    _add_rel(f"`{tname}.{fkm.group(1)}` ➔ `{fkm.group(2)}.{fkm.group(3)}`")
+                for inm in re.finditer(
+                    r'^\s*["`]?([a-zA-Z0-9_]+)["`]?\s+[A-Za-z0-9_()]+[^,\n]*?\bREFERENCES\s+["`]?([a-zA-Z0-9_.]+)["`]?\s*\(\s*["`]?([a-zA-Z0-9_]+)["`]?\s*\)',
+                    tbody,
+                    re.IGNORECASE | re.MULTILINE,
+                ):
+                    if inm.group(1).upper() != "FOREIGN":
+                        _add_rel(f"`{tname}.{inm.group(1)}` ➔ `{inm.group(2)}.{inm.group(3)}`")
         except Exception:
             pass
 
     return {
         "models": models,
-        "relations": relations[:15],
+        "relations": relations[:20],
     }
 
 
@@ -418,8 +642,21 @@ def generate_mermaid_diagram(subsystems: list[dict[str, Any]], stack: dict[str, 
     has_desktop = any("apps/desktop" in s["name"] for s in subsystems)
     has_daemon = any("packages/daemon" in s["name"] for s in subsystems)
     has_mcp = any("packages/mcp" in s["name"] for s in subsystems)
-    has_server = any("server" in s["name"] for s in subsystems)
+    has_server = any(s["name"] == "server" or "server/" in s["name"] for s in subsystems)
     has_emb = any("embedding" in s["name"] for s in subsystems)
+
+    if not (has_web or has_desktop or has_daemon or has_mcp or has_server):
+        # Dynamic architecture graph for general non-Memento repositories
+        lines.append('    subgraph Modules["项目核心模块与子系统"]')
+        for idx, sub in enumerate(subsystems[:10]):
+            safe_label = sub["name"].replace('"', "'")
+            lines.append(f'        M{idx}["{safe_label} ({sub["type"]})"]')
+        lines.append("    end")
+        if len(subsystems) >= 2:
+            for idx in range(1, min(len(subsystems), 10)):
+                lines.append(f"    M0 --> M{idx}")
+        lines.append("```")
+        return "\n".join(lines)
 
     lines.append('    subgraph Clients["终端与接入层"]')
     if has_web:

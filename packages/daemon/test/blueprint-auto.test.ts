@@ -101,4 +101,34 @@ describe("blueprint-auto", () => {
     const ok2 = await ensureProjectBlueprint(tmpDir);
     expect(ok2).toBe(true);
   });
+
+  it("extracts models and foreign key relations across Prisma, Drizzle, Go GORM, Rust SeaORM, Java JPA, and SQL", async () => {
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    mkdirSync(join(tmpDir, "prisma"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "prisma", "schema.prisma"),
+      `model Account {\n  id String @id\n}\nmodel Post {\n  id String @id\n  authorId String\n  author Account @relation(fields: [authorId], references: [id])\n}\n`,
+    );
+    mkdirSync(join(tmpDir, "src", "db"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "src", "db", "schema.ts"),
+      `export const comments = pgTable("comments", {\n  id: text("id"),\n  postId: text("post_id").references(() => posts.id),\n});\n`,
+    );
+    writeFileSync(
+      join(tmpDir, "models.go"),
+      `package main\ntype Invoice struct {\n  ID uint \`gorm:"primaryKey"\`\n  CustomerID uint \`gorm:"index"\`\n}\n`,
+    );
+    writeFileSync(
+      join(tmpDir, "migrations.sql"),
+      `CREATE TABLE audit_logs (\n  id INT PRIMARY KEY,\n  user_id INT REFERENCES users(id)\n);\n`,
+    );
+
+    const ok = await ensureProjectBlueprint(tmpDir, { force: true });
+    expect(ok).toBe(true);
+    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    expect(bpContent).toContain("`Post.authorId` ➔ `Account.id`");
+    expect(bpContent).toContain("`comments.postId` ➔ `posts.id`");
+    expect(bpContent).toContain("`Invoice.CustomerID` ➔ `Customer.ID`");
+    expect(bpContent).toContain("`audit_logs.user_id` ➔ `users.id`");
+  });
 });

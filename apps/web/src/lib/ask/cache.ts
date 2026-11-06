@@ -43,17 +43,23 @@ export const FALLBACK_AGENT_MODELS: Record<string, Array<{ id: string; name: str
     { id: "claude-3-5-haiku-20241022", name: "claude-3-5-haiku-20241022 (Claude 3.5 Haiku)", desc: "极速轻量日常模型" },
   ],
   antigravity: [
-    { id: "", name: "⚡ 默认模型 (系统配置: Gemini 3.8 Flash)", desc: "使用当前 Antigravity 默认模型" },
-    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash (High, Fast)", desc: "最新高智能极速响应模型 (Antigravity 默认推荐)" },
-    { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash (Medium, Fast)", desc: "极速日常编码与高吞吐分析" },
-    { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Fast)", desc: "轻量超低延迟模型" },
-    { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (深度推理)", desc: "高复杂度架构攻坚与深度逻辑推演" },
-    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)", desc: "原生嵌入 Antigravity 的高阶思维模型" },
-    { id: "claude-opus-4-6", name: "Claude Opus 4.6 (Thinking)", desc: "顶级架构分析与复杂逻辑推演" },
-    { id: "gpt-oss-120b", name: "GPT-OSS 120B (Medium)", desc: "开源高性价比大模型" },
-    { id: "flash", name: "Gemini Flash (快速推荐)", desc: "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)" },
-    { id: "pro", name: "Gemini Pro (强力推理)", desc: "标准 Pro 阶梯 (自动映射最新 Gemini 3.1 Pro / Claude)" },
-    { id: "flash_lite", name: "Gemini Flash-Lite (超轻量)", desc: "超轻量阶梯 (自动映射 Gemini 3.6 Flash)" },
+    { id: "", name: "⚡ 默认模型 (跟随客户端配置: Gemini 4 Argon)", desc: "使用当前 Antigravity 客户端配置的默认模型" },
+    { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium) · New", desc: "最新 Gemini 4 Argon 主力模型 (Antigravity 默认推荐)" },
+    { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High) · New", desc: "Gemini 4 Argon 高思考量深度推理模型" },
+    { id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low) · New", desc: "Gemini 4 Argon 轻量极速响应模型" },
+    { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", desc: "高智能极速响应模型 (无配额限制)" },
+    { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", desc: "极速日常编码与高吞吐分析 (无配额限制)" },
+    { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", desc: "轻量超低延迟模型 (无配额限制)" },
+    { id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High) · New", desc: "原生嵌入 Antigravity 的顶级旗舰推理模型" },
+    { id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium) · New", desc: "Claude Opus 5.5 均衡深度思维模型" },
+    { id: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low) · New", desc: "Claude Opus 5.5 快速推理模型" },
+    { id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High) · New", desc: "原生嵌入 Antigravity 的最新高阶编码模型" },
+    { id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium) · New", desc: "Claude Sonnet 5.5 日常主力编码模型" },
+    { id: "claude-sonnet-5-5-low", name: "Claude Sonnet 5.5 (Low) · New", desc: "Claude Sonnet 5.5 极速响应模型" },
+    { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)", desc: "开源高性价比大模型" },
+    { id: "pro", name: "pro (官方动态 Pro 旗舰阶梯)", desc: "标准 Pro 阶梯 (自动映射最新 Gemini 4 Argon / Claude Opus 5.5)" },
+    { id: "flash", name: "flash (官方动态 Flash 极速阶梯)", desc: "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)" },
+    { id: "flash_lite", name: "flash_lite (官方动态超轻量阶梯)", desc: "超轻量阶梯" },
   ],
   // Only until the device reports its own list (read from WorkBuddy's cached product config); WorkBuddy 5.8.3, 2026-10
   workbuddy: [
@@ -620,7 +626,7 @@ export function getImmediateCapabilities(mode: ExecutionMode, deviceId?: string)
   if (typeof window !== "undefined") {
     try {
       // Models and defaults are per device: another device's list is never borrowed
-      const raw = localStorage.getItem(`memento_caps_${cacheKey}`);
+      const raw = localStorage.getItem(`memento_caps_v2_${cacheKey}`);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.models) && parsed.models.length > 0) {
@@ -650,7 +656,7 @@ export function saveCapabilitiesCache(mode: ExecutionMode, deviceId: string | un
   capabilitiesMemoryCache.set(cacheKey, caps);
   if (typeof window !== "undefined") {
     try {
-      localStorage.setItem(`memento_caps_${cacheKey}`, JSON.stringify(caps));
+      localStorage.setItem(`memento_caps_v2_${cacheKey}`, JSON.stringify(caps));
     } catch {}
   }
 }

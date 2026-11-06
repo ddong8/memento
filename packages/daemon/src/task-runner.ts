@@ -900,7 +900,7 @@ export class TaskRunner {
     let workDir = resolveWorkingDir(text("cwd"), this.log);
 
     // Auto-ensure living blueprint and post-commit hook for any project running through Memento
-    if (workDir) {
+    if (workDir && !payload.worktree) {
       void ensureProjectBlueprint(workDir, { log: this.log }).catch(() => {});
     }
 

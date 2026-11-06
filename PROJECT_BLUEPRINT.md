@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1f50bc3c` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `37ab27b0` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -371,6 +371,11 @@ flowchart TD
 - `MessageAudit.document_id` ➔ `documents.id`
 - `DocumentPendingDelta.document_id` ➔ `documents.id`
 - `InviteCode.created_by` ➔ `users.id`
+- `Permission.user_id` ➔ `users.id`
+- `Permission.project_id` ➔ `projects.id`
+- `Permission.tool_id` ➔ `tools.id`
+- `Permission.granted_by` ➔ `users.id`
+- `AccessLog.user_id` ➔ `users.id`
 
 ## 5. Development & Verification Commands
 
@@ -393,12 +398,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 6. Recent Architectural Evolutions
 
-- `1f50bc3c` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
+- `37ab27b0` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
+- `b15a4962` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
 - `c7ed3f39` (2026-11-06): feat(blueprint): 升级多钩子生命周期自同步、前端AppRouter路由扫描与详细API契约提取
 - `c30c9a69` (2026-11-06): fix(daemon): 修复 blueprint-auto 中 findExecutable 入参类型签名
 - `15ffeb07` (2026-11-06): docs(blueprint): 更新活体蓝图快照与多项目全自动部署能力
 - `fe076aa5` (2026-11-06): feat(blueprint): 实现多项目会话与任务执行全自动就地配置蓝图及Git钩子
-- `5bd93213` (2026-11-06): feat(blueprint): 实现活体代码蓝图自动生成系统与MCP跨Agent协同
 
 ## 7. Key Environment Variables & Configuration
 

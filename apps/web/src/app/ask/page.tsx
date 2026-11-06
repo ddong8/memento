@@ -1162,7 +1162,14 @@ function AskPageContent() {
       setExecutionMode(targetMode);
       executionModeRef.current = targetMode;
       setSelectedModel(targetModel);
-      setIsCustomModel(Boolean(targetModel && !FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)));
+      const immCaps = getImmediateCapabilities(targetMode, targetDev);
+      const isKnown = Boolean(
+        !targetModel
+        || immCaps?.models?.some((m) => m.id === targetModel)
+        || FALLBACK_AGENT_MODELS[targetMode]?.some((m) => m.id === targetModel)
+        || /^(gemini-|claude-|gpt-|o[134]|pro$|flash|opus|sonnet|haiku|fable)/i.test(targetModel)
+      );
+      setIsCustomModel(!isKnown);
       setSelectedEffort(targetEffort);
 
       const isWorktree = Boolean(data.worktree ?? cfg.worktree ?? false);
@@ -5729,10 +5736,39 @@ function AskPageContent() {
                         minWidth: 0,
                       }}
                     >
-                      {((capabilities?.models && capabilities.models.length > 0)
-                        ? capabilities.models
-                        : (FALLBACK_AGENT_MODELS[executionMode] || [])
-                      ).map((m) => (
+                      {(() => {
+                        const baseList = (capabilities?.models && capabilities.models.length > 0)
+                          ? capabilities.models
+                          : (FALLBACK_AGENT_MODELS[executionMode] || []);
+                        const liveQuotaModels = executionMode === "antigravity"
+                          ? (quotasData?.tools?.antigravity?.models || [])
+                          : [];
+                        if (liveQuotaModels.length === 0) return baseList;
+                        const merged: Array<{ id: string; name: string; desc?: string }> = [];
+                        const seen = new Set<string>();
+                        const defItem = baseList.find((m) => m.id === "") || {
+                          id: "",
+                          name: `⚡ 默认模型 (跟随客户端配置: ${liveQuotaModels[0]?.label || "Antigravity"})`,
+                          desc: "使用当前 Antigravity 客户端默认模型",
+                        };
+                        merged.push(defItem);
+                        seen.add("");
+                        for (const qm of liveQuotaModels) {
+                          if (!qm.model_id || seen.has(qm.model_id)) continue;
+                          seen.add(qm.model_id);
+                          merged.push({
+                            id: qm.model_id,
+                            name: qm.label || qm.model_id,
+                            desc: qm.status_text ? `${qm.status_text} (实时同步)` : "Antigravity 实时同步",
+                          });
+                        }
+                        for (const bm of baseList) {
+                          if (!bm.id || seen.has(bm.id)) continue;
+                          seen.add(bm.id);
+                          merged.push(bm);
+                        }
+                        return merged;
+                      })().map((m) => (
                         <option key={m.id} value={m.id} title={m.desc} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
                           {m.name}
                         </option>

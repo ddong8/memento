@@ -780,19 +780,25 @@ FALLBACK_AGENT_CAPABILITIES = {
     "antigravity": {
         "tool": "antigravity",
         "models": [
-            {"id": "", "name": "⚡ 默认模型 (系统配置: Gemini 3.8 Flash)", "desc": "使用当前 Antigravity 默认模型配置", "is_default": True},
-            {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash (High, Fast)", "desc": "最新高智能极速响应模型 (Antigravity 默认推荐)"},
-            {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash (Medium, Fast)", "desc": "极速日常编码与高吞吐分析"},
-            {"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash (Fast)", "desc": "轻量超低延迟模型"},
-            {"id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro (深度推理)", "desc": "高复杂度架构攻坚与深度逻辑推演"},
-            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)", "desc": "原生嵌入 Antigravity 的高阶思维模型"},
-            {"id": "claude-opus-4-6", "name": "Claude Opus 4.6 (Thinking)", "desc": "顶级架构分析与复杂逻辑推演"},
-            {"id": "gpt-oss-120b", "name": "GPT-OSS 120B (Medium)", "desc": "开源高性价比大模型"},
-            {"id": "flash", "name": "Gemini Flash (快速推荐)", "desc": "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)"},
-            {"id": "pro", "name": "Gemini Pro (强力推理)", "desc": "标准 Pro 阶梯 (自动映射最新 Gemini 3.1 Pro / Claude)"},
-            {"id": "flash_lite", "name": "Gemini Flash-Lite (超轻量)", "desc": "超轻量阶梯 (自动映射 Gemini 3.6 Flash)"},
+            {"id": "", "name": "⚡ 默认模型 (跟随客户端配置: Gemini 4 Argon)", "desc": "使用当前 Antigravity 客户端配置的默认模型", "is_default": True},
+            {"id": "gemini-4-argon-medium", "name": "Gemini 4 Argon (Medium) · New", "desc": "最新 Gemini 4 Argon 主力模型 (Antigravity 默认推荐)"},
+            {"id": "gemini-4-argon-high", "name": "Gemini 4 Argon (High) · New", "desc": "Gemini 4 Argon 高思考量深度推理模型"},
+            {"id": "gemini-4-argon-low", "name": "Gemini 4 Argon (Low) · New", "desc": "Gemini 4 Argon 轻量极速响应模型"},
+            {"id": "gemini-3.8-flash-high", "name": "Gemini 3.8 Flash (High)", "desc": "高智能极速响应模型 (无配额限制)"},
+            {"id": "gemini-3.8-flash-medium", "name": "Gemini 3.8 Flash (Medium)", "desc": "极速日常编码与高吞吐分析 (无配额限制)"},
+            {"id": "gemini-3.8-flash-low", "name": "Gemini 3.8 Flash (Low)", "desc": "轻量超低延迟模型 (无配额限制)"},
+            {"id": "claude-opus-5-5-high", "name": "Claude Opus 5.5 (High) · New", "desc": "原生嵌入 Antigravity 的顶级旗舰推理模型"},
+            {"id": "claude-opus-5-5-medium", "name": "Claude Opus 5.5 (Medium) · New", "desc": "Claude Opus 5.5 均衡深度思维模型"},
+            {"id": "claude-opus-5-5-low", "name": "Claude Opus 5.5 (Low) · New", "desc": "Claude Opus 5.5 快速推理模型"},
+            {"id": "claude-sonnet-5-5-high", "name": "Claude Sonnet 5.5 (High) · New", "desc": "原生嵌入 Antigravity 的最新高阶编码模型"},
+            {"id": "claude-sonnet-5-5-medium", "name": "Claude Sonnet 5.5 (Medium) · New", "desc": "Claude Sonnet 5.5 日常主力编码模型"},
+            {"id": "claude-sonnet-5-5-low", "name": "Claude Sonnet 5.5 (Low) · New", "desc": "Claude Sonnet 5.5 极速响应模型"},
+            {"id": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)", "desc": "开源高性价比大模型"},
+            {"id": "pro", "name": "pro (官方动态 Pro 旗舰阶梯)", "desc": "标准 Pro 阶梯 (自动映射最新 Gemini 4 Argon / Claude Opus 5.5)"},
+            {"id": "flash", "name": "flash (官方动态 Flash 极速阶梯)", "desc": "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)"},
+            {"id": "flash_lite", "name": "flash_lite (官方动态超轻量阶梯)", "desc": "超轻量阶梯"},
         ],
-        "default_model": "gemini-3.8-flash",
+        "default_model": "gemini-4-argon-medium",
         "supports_effort": False,
         "default_effort": "",
         "effort_options": [],
@@ -845,23 +851,93 @@ FALLBACK_AGENT_CAPABILITIES = {
 async def get_agent_capabilities(
     tool: str = "codex",
     device_id: str | None = None,
+    fresh: str | None = None,
     user: User = Depends(get_current_user),
 ):
     """Retrieve dynamic models, default configs, and reasoning effort options for a specified agent tool."""
-    from ..services.device_reports import get_cached_device_capabilities
+    from ..services.device_reports import get_cached_device_capabilities, get_cached_device_quotas
+    from ..services.ws_manager import ws_manager
 
     tool_key = tool.lower().strip()
+    if fresh in ("1", "true", "yes") and ws_manager.has_online_devices():
+        try:
+            await ws_manager.broadcast({"type": "get_agent_capabilities"})
+            await asyncio.sleep(0.35)
+        except Exception:
+            pass
+
     live = get_cached_device_capabilities(device_id, tool_key, user)
-    if live and isinstance(live, dict) and live.get("models"):
-        # Ensure models is a list of structured dicts
+    quotas_report = get_cached_device_quotas(device_id, user)
+    quota_tool_key = "claude_code" if tool_key in ("claude", "claude_code") else tool_key
+    quota_tool = ((quotas_report or {}).get("tools") or {}).get(quota_tool_key) or {}
+    quota_models = quota_tool.get("models") if isinstance(quota_tool, dict) else None
+
+    base_caps = live if (live and isinstance(live, dict) and live.get("models")) else None
+    if base_caps is None and tool_key == "antigravity" and isinstance(quota_models, list) and quota_models:
+        base_caps = dict(FALLBACK_AGENT_CAPABILITIES["antigravity"])
+
+    if base_caps:
         norm_models = []
-        for m in live.get("models", []):
+        for m in base_caps.get("models", []):
             if isinstance(m, dict):
-                norm_models.append(m)
+                norm_models.append(dict(m))
             elif isinstance(m, str):
                 norm_models.append({"id": m, "name": m, "desc": ""})
-        live_copy = dict(live)
+
+        # Merge live models reported by the device's Language Server / quota probe (e.g. Gemini 4 Argon)
+        if tool_key == "antigravity" and isinstance(quota_models, list) and quota_models:
+            default_label = (
+                (quota_tool.get("details") or {}).get("default_model_label")
+                or quota_models[0].get("label")
+                or ""
+            )
+            default_id = (
+                (quota_tool.get("details") or {}).get("default_model_id")
+                or quota_models[0].get("model_id")
+                or ""
+            )
+            merged: list[dict] = [
+                {
+                    "id": "",
+                    "name": f"⚡ 默认模型 (跟随客户端配置: {default_label})" if default_label else "⚡ 默认模型 (跟随 Antigravity 客户端配置)",
+                    "desc": f"当前 Antigravity 客户端默认配置: {default_label} ({default_id})" if default_id else "使用当前 Antigravity 客户端默认模型",
+                    "is_default": True,
+                }
+            ]
+            seen_ids = {""}
+            for qm in quota_models:
+                if not isinstance(qm, dict):
+                    continue
+                mid = str(qm.get("model_id") or "").strip()
+                label = str(qm.get("label") or mid).strip()
+                if not mid or mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                status_txt = str(qm.get("status_text") or "实时可用").strip()
+                merged.append({
+                    "id": mid,
+                    "name": f"{label} (当前客户端配置)" if mid == default_id else label,
+                    "desc": f"{status_txt} (Antigravity 实时同步)",
+                })
+            for existing in norm_models:
+                eid = str(existing.get("id") or "").strip()
+                if not eid or eid in seen_ids:
+                    continue
+                # Skip stale legacy non-suffixed IDs when live clientModelConfigs are present
+                if eid in ("gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-pro", "claude-sonnet-4-6", "claude-opus-4-6", "gpt-oss-120b"):
+                    continue
+                seen_ids.add(eid)
+                merged.append(existing)
+            norm_models = merged
+
+        live_copy = dict(base_caps)
         live_copy["models"] = norm_models
+        if tool_key == "antigravity" and quota_models:
+            live_copy["default_model"] = (
+                (quota_tool.get("details") or {}).get("default_model_id")
+                or quota_models[0].get("model_id")
+                or live_copy.get("default_model", "")
+            )
         return live_copy
 
     return FALLBACK_AGENT_CAPABILITIES.get(

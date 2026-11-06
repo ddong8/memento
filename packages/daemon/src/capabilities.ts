@@ -1,9 +1,9 @@
 import { createReadStream, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 
-import { antigravityExecutable } from "./antigravity.js";
+import { antigravityExecutable, findAntigravityLanguageServer, type AntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
 import { findExecutable, findPython } from "./exec-env.js";
 import { ensureWorkbuddyCliInstalled, isWorkbuddyInstalled } from "./workbuddy.js";
@@ -387,19 +387,175 @@ async function codexCapabilities(codexPath: string, home: string): Promise<Recor
   };
 }
 
-const ANTIGRAVITY_MODELS: ModelOption[] = [
-  { id: "", name: "⚡ 默认模型 (系统配置: Gemini 3.8 Flash)", desc: "使用当前 Antigravity 默认模型配置", is_default: true },
-  { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash (High, Fast)", desc: "最新高智能极速响应模型 (Antigravity 默认推荐)" },
-  { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash (Medium, Fast)", desc: "极速日常编码与高吞吐分析" },
-  { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash (Fast)", desc: "轻量超低延迟模型" },
-  { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro (深度推理)", desc: "高复杂度架构攻坚与深度逻辑推演" },
-  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)", desc: "原生嵌入 Antigravity 的高阶思维模型" },
-  { id: "claude-opus-4-6", name: "Claude Opus 4.6 (Thinking)", desc: "顶级架构分析与复杂逻辑推演" },
-  { id: "gpt-oss-120b", name: "GPT-OSS 120B (Medium)", desc: "开源高性价比大模型" },
-  { id: "flash", name: "Gemini Flash (快速推荐)", desc: "标准 Flash 阶梯 (自动映射最新 Gemini 3.8 Flash)" },
-  { id: "pro", name: "Gemini Pro (强力推理)", desc: "标准 Pro 阶梯 (自动映射最新 Gemini 3.1 Pro / Claude)" },
-  { id: "flash_lite", name: "Gemini Flash-Lite (超轻量)", desc: "超轻量阶梯 (自动映射 Gemini 3.6 Flash)" },
+const FALLBACK_ANTIGRAVITY_MODELS: ModelOption[] = [
+  { id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", desc: "最新 Gemini 4 Argon 主力模型 (官方推荐)" },
+  { id: "gemini-4-argon-high", name: "Gemini 4 Argon (High)", desc: "Gemini 4 Argon 高思考量深度推理模型" },
+  { id: "gemini-4-argon-low", name: "Gemini 4 Argon (Low)", desc: "Gemini 4 Argon 轻量极速响应模型" },
+  { id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", desc: "高智能极速响应模型 (无配额限制)" },
+  { id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", desc: "日常高速编码与分析 (无配额限制)" },
+  { id: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)", desc: "轻量超低延迟模型 (无配额限制)" },
+  { id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (High)", desc: "原生嵌入 Antigravity 的顶级旗舰推理模型" },
+  { id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", desc: "Claude Opus 5.5 均衡深度思维模型" },
+  { id: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)", desc: "Claude Opus 5.5 快速推理模型" },
+  { id: "claude-sonnet-5-5-high", name: "Claude Sonnet 5.5 (High)", desc: "原生嵌入 Antigravity 的最新高阶编码模型" },
+  { id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", desc: "Claude Sonnet 5.5 日常主力编码模型" },
+  { id: "claude-sonnet-5-5-low", name: "Claude Sonnet 5.5 (Low)", desc: "Claude Sonnet 5.5 极速响应模型" },
+  { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)", desc: "开源高性价比大模型" },
 ];
+
+const ANTIGRAVITY_TIER_ALIASES: ModelOption[] = [
+  { id: "pro", name: "pro (官方动态 Pro 旗舰阶梯)", desc: "自动映射当前最新旗舰推理模型 (如 Gemini 4 Argon / Claude Opus 5.5)" },
+  { id: "flash", name: "flash (官方动态 Flash 极速阶梯)", desc: "自动映射当前最新极速主力模型 (如 Gemini 3.8 Flash)" },
+  { id: "flash_lite", name: "flash_lite (官方动态 Flash-Lite 阶梯)", desc: "自动映射超低延迟轻量阶梯" },
+];
+
+async function fetchAntigravityLiveUserStatus(ls: AntigravityLanguageServer): Promise<Record<string, any> | undefined> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${ls.port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(ls.csrf ? { "x-codeium-csrf-token": ls.csrf } : {}) },
+      body: "{}",
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!res.ok) return undefined;
+    return ((await res.json()) as { userStatus?: Record<string, any> }).userStatus || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function antigravityCapabilities(
+  agyPath: string,
+  home: string,
+  locate: typeof findAntigravityLanguageServer = findAntigravityLanguageServer,
+): Promise<Record<string, unknown>> {
+  const cacheDir = join(home, ".gemini", "antigravity");
+  const cachePath = join(cacheDir, "memento_models_cache.json");
+
+  let defaultModelId = "";
+  let defaultModelLabel = "";
+  let discoveredOptions: ModelOption[] = [];
+
+  // 1. 优先通过运行中的 Antigravity Language Server Connect RPC 动态拉取实时模型列表与当前选中模型
+  try {
+    let ls = await locate();
+    let us = ls ? await fetchAntigravityLiveUserStatus(ls) : undefined;
+    if (!us && ls) {
+      ls = await locate({ forceRefresh: true });
+      us = ls ? await fetchAntigravityLiveUserStatus(ls) : undefined;
+    }
+    const rawModels: any[] = us?.cascadeModelConfigData?.clientModelConfigs || [];
+    if (rawModels.length > 0) {
+      const defaultOverride = us?.cascadeModelConfigData?.defaultOverrideModelConfig?.modelOrAlias?.model;
+      const defaultRaw = defaultOverride
+        ? rawModels.find((m) => m.modelOrAlias?.model === defaultOverride || m.modelId === defaultOverride)
+        : rawModels[0];
+      defaultModelId = String(defaultRaw?.modelId || rawModels[0]?.modelId || "").trim();
+      defaultModelLabel = String(defaultRaw?.label || rawModels[0]?.label || defaultModelId).trim();
+
+      const seenIds = new Set<string>();
+      for (const m of rawModels) {
+        const mid = String(m?.modelId || "").trim();
+        if (!mid || seenIds.has(mid)) continue;
+        seenIds.add(mid);
+        const label = String(m?.label || mid).trim();
+        const qi = m?.quotaInfo;
+        let quotaDesc = "无配额限制";
+        if (qi && typeof qi.remainingFraction === "number") {
+          const pct = Math.round(Math.max(0, Math.min(1, qi.remainingFraction)) * 1000) / 10;
+          quotaDesc = pct === 100 ? "满额 (100%)" : `剩余 ${pct}%`;
+        }
+        const tag = m?.tagTitle ? ` · ${String(m.tagTitle)}` : "";
+        const tagDesc = m?.tagDescription ? ` · ${String(m.tagDescription)}` : "";
+        const isCurrentDefault = mid === defaultModelId;
+        discoveredOptions.push({
+          id: mid,
+          name: isCurrentDefault ? `${label} (当前客户端配置)` : `${label}${tag}`,
+          desc: `${quotaDesc}${tagDesc} (Antigravity 实时同步)`,
+        });
+      }
+
+      if (discoveredOptions.length > 0) {
+        try {
+          await mkdir(cacheDir, { recursive: true });
+          await writeFile(
+            cachePath,
+            JSON.stringify(
+              {
+                updated_at: new Date().toISOString(),
+                default_model_id: defaultModelId,
+                default_model_label: defaultModelLabel,
+                models: discoveredOptions,
+              },
+              null,
+              2,
+            ),
+            "utf8",
+          );
+        } catch {
+          // 忽略缓存写入异常
+        }
+      }
+    }
+  } catch {
+    // 忽略实时 RPC 异常，降级读取本地缓存
+  }
+
+  // 2. 若 Antigravity 客户端未启动，读取上次同步缓存在本地的真实模型列表
+  if (discoveredOptions.length === 0) {
+    const cached = await readJson(cachePath);
+    if (cached && Array.isArray(cached.models) && cached.models.length > 0) {
+      defaultModelId = String(cached.default_model_id || "").trim();
+      defaultModelLabel = String(cached.default_model_label || defaultModelId).trim();
+      for (const item of cached.models) {
+        if (item && typeof item === "object" && (item as any).id) {
+          discoveredOptions.push({
+            id: String((item as any).id),
+            name: String((item as any).name || (item as any).id),
+            desc: String((item as any).desc || "本地缓存模型"),
+          });
+        }
+      }
+    }
+  }
+
+  // 3. 若既无实时服务也无历史缓存，使用包含 Gemini 4 Argon / Claude 5.5 的最新内置列表
+  const baseModels = discoveredOptions.length > 0 ? discoveredOptions : FALLBACK_ANTIGRAVITY_MODELS;
+  if (!defaultModelId && baseModels.length > 0) {
+    defaultModelId = baseModels[0]!.id;
+    defaultModelLabel = baseModels[0]!.name;
+  }
+
+  const models: ModelOption[] = [
+    {
+      id: "",
+      name: defaultModelLabel
+        ? `⚡ 默认模型 (跟随客户端配置: ${defaultModelLabel})`
+        : "⚡ 默认模型 (跟随 Antigravity 客户端配置)",
+      desc: defaultModelId
+        ? `当前 Antigravity 客户端默认配置: ${defaultModelLabel} (${defaultModelId})`
+        : "使用当前 Antigravity 客户端选中的默认模型",
+      is_default: true,
+    },
+  ];
+  const seen = new Set<string>([""]);
+  for (const m of [...baseModels, ...ANTIGRAVITY_TIER_ALIASES]) {
+    if (!m.id || seen.has(m.id)) continue;
+    seen.add(m.id);
+    models.push(m);
+  }
+
+  return {
+    tool: "antigravity",
+    available: true,
+    path: agyPath,
+    models,
+    default_model: defaultModelId,
+    supports_effort: false,
+    default_effort: "",
+    effort_options: [],
+  };
+}
 
 /** Only when WorkBuddy's cached product config can't be read: its CLI agent's models as of WorkBuddy 5.8.3 (2026-10). */
 const WORKBUDDY_BUILTIN_MODELS: ModelOption[] = [
@@ -537,16 +693,7 @@ export async function probeCapabilities(home = homeDir(), options?: { force?: bo
   if (codex) caps.codex = await codexCapabilities(codex, home);
   const agy = await antigravityExecutable(home);
   if (agy) {
-    caps.antigravity = {
-      tool: "antigravity",
-      available: true,
-      path: agy,
-      models: ANTIGRAVITY_MODELS,
-      default_model: "gemini-3.8-flash",
-      supports_effort: false,
-      default_effort: "",
-      effort_options: [],
-    };
+    caps.antigravity = await antigravityCapabilities(agy, home);
   }
   if (isWorkbuddyInstalled(home)) {
     await ensureWorkbuddyCliInstalled(home);

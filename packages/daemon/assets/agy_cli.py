@@ -277,15 +277,44 @@ def thinking_heartbeat(elapsed_sec: int, running_cmds: list) -> str:
     return f"⏳ [模型思考推理中（已用时 {elapsed_sec}s），请稍候...]"
 
 
+def _resolve_active_antigravity_model_id() -> str:
+    """Query the local Antigravity Language Server for the user's currently active default model ID."""
+    try:
+        resp = _ls_rpc("GetUserStatus", {}, timeout=2.5)
+        us = (resp or {}).get("userStatus") or {}
+        cfg = us.get("cascadeModelConfigData") or {}
+        raw_models = cfg.get("clientModelConfigs") or []
+        default_override = ((cfg.get("defaultOverrideModelConfig") or {}).get("modelOrAlias") or {}).get("model")
+        if default_override and raw_models:
+            for m in raw_models:
+                alias_model = (m.get("modelOrAlias") or {}).get("model")
+                if alias_model == default_override or m.get("modelId") == default_override:
+                    mid = str(m.get("modelId") or "").strip()
+                    if mid:
+                        return mid
+        if raw_models:
+            return str(raw_models[0].get("modelId") or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 def get_model_candidates(requested_model: str) -> list:
-    """Return ordered list of Antigravity model tiers (flash, pro, flash_lite) to attempt."""
+    """Return ordered list of Antigravity model IDs / tiers (flash, pro, flash_lite) to attempt."""
     m = (requested_model or "").lower().strip()
+    if not m or m in ("flash", "gemini-3.8-flash", "gemini-3.7-flash"):
+        return ["flash", "pro", "flash_lite"]
     if m in ("flash_lite", "flash-lite", "gemini-3.6-flash", "gemini-2.5-flash-lite"):
         return ["flash_lite", "flash", "pro"]
-    elif m in ("pro", "gemini-3.1-pro", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-7-sonnet"):
+    if m in ("pro", "gemini-3.1-pro", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-6", "claude-3-7-sonnet"):
         return ["pro", "flash", "flash_lite"]
+    if any(k in m for k in ("argon", "pro", "ultra", "opus", "sonnet", "gpt")):
+        tiers = ["pro", "flash", "flash_lite"]
+    elif "lite" in m:
+        tiers = ["flash_lite", "flash", "pro"]
     else:
-        return ["flash", "pro", "flash_lite"]
+        tiers = ["flash", "pro", "flash_lite"]
+    return [m] + [t for t in tiers if t != m]
 
 
 def is_transient_error(err_msg: str) -> bool:
@@ -388,7 +417,10 @@ def main():
     ):
         os.environ.pop(k, None)
 
-    candidate_models = get_model_candidates(args.model)
+    effective_model = (args.model or "").strip()
+    if not effective_model:
+        effective_model = _resolve_active_antigravity_model_id()
+    candidate_models = get_model_candidates(effective_model)
     model = candidate_models[0]
 
     title = args.title or prompt[:40]

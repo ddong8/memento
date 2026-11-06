@@ -97,5 +97,23 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertNotIn("project_blueprint.py", hook_path.read_text())
 
 
+    def test_detect_verification_commands_python_and_node(self):
+        # Python project with pytest
+        py_root = self.root / "sub_py"
+        py_root.mkdir()
+        (py_root / "pyproject.toml").write_text("[project]\nname='app'\n[tool.pytest]\n")
+        (py_root / "pytest.ini").write_text("[pytest]\n")
+        py_cmds = project_blueprint.detect_verification_commands(py_root)
+        self.assertIn("pytest", py_cmds)
+
+        # Node project with npm test
+        node_root = self.root / "sub_node"
+        node_root.mkdir()
+        (node_root / "package.json").write_text('{"scripts": {"test": "jest", "lint": "eslint"}}')
+        node_cmds = project_blueprint.detect_verification_commands(node_root)
+        self.assertIn("npm test", node_cmds)
+        self.assertIn("npm run lint", node_cmds)
+
+
 if __name__ == "__main__":
     unittest.main()

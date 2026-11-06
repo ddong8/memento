@@ -366,9 +366,82 @@ def get_git_evolution(root: Path, limit: int = 5) -> list[str]:
     return evos
 
 
+def detect_verification_commands(root: Path) -> list[str]:
+    """Detect project-specific verification, test, and typecheck commands."""
+    commands: list[str] = []
+
+    # 1. Specialized detection for Memento Monorepo
+    if (root / "packages" / "daemon").is_dir() and (root / "server" / "server").is_dir():
+        commands.extend([
+            "# Backend Tests (Python)",
+            "cd server && uv run pytest -W error::RuntimeWarning",
+            "",
+            "# Backend Lint",
+            "uvx ruff check --isolated --select F server/server",
+            "",
+            "# Frontend Tests & Typecheck (Next.js)",
+            "cd apps/web && npx tsc --noEmit && npm test",
+            "",
+            "# Daemon Tests",
+            "cd packages/daemon && npm test",
+            "",
+            "# Desktop Tests & Typecheck (Electron)",
+            "npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test",
+        ])
+        return commands
+
+    # 2. General Python project
+    pyproject = root / "pyproject.toml"
+    has_python = pyproject.exists() or (root / "requirements.txt").exists() or (root / "setup.py").exists() or any(root.glob("*.py"))
+    if has_python:
+        if (root / "pytest.ini").exists() or (root / "tests").is_dir() or (root / "test").is_dir():
+            commands.extend(["# Python Tests", "pytest"])
+        if (root / "ruff.toml").exists() or (pyproject.exists() and "ruff" in pyproject.read_text(encoding="utf-8", errors="ignore")):
+            commands.extend(["# Python Lint", "ruff check ."])
+
+    # 3. General Node / TypeScript project
+    pjson_path = root / "package.json"
+    if pjson_path.exists():
+        try:
+            pdata = json.loads(pjson_path.read_text(encoding="utf-8", errors="ignore"))
+            scripts = pdata.get("scripts", {})
+            if "test" in scripts:
+                commands.extend(["# Unit Tests", "npm test"])
+            if "typecheck" in scripts or (root / "tsconfig.json").exists():
+                commands.extend(["# Typecheck", "npx tsc --noEmit"])
+            if "lint" in scripts:
+                commands.extend(["# Code Lint", "npm run lint"])
+            if "build" in scripts:
+                commands.extend(["# Build Package", "npm run build"])
+        except Exception:
+            pass
+
+    # 4. Rust project
+    if (root / "Cargo.toml").exists():
+        commands.extend(["# Cargo Tests", "cargo test", "", "# Cargo Clippy", "cargo clippy"])
+
+    # 5. Go project
+    if (root / "go.mod").exists():
+        commands.extend(["# Go Tests", "go test ./..."])
+
+    # Fallback default
+    if not commands:
+        commands.extend(["# Project Status & Integrity Check", "git status -s"])
+
+    return commands
+
+
 def build_blueprint_content(root: Path) -> str:
     """Assemble the complete PROJECT_BLUEPRINT.md document."""
     repo_name = root.resolve().name
+    pjson = root / "package.json"
+    if pjson.exists():
+        try:
+            data = json.loads(pjson.read_text(encoding="utf-8", errors="ignore"))
+            if data.get("name") and isinstance(data["name"], str):
+                repo_name = data["name"].split("/")[-1]
+        except Exception:
+            pass
     git_branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"], root) or "main"
     git_commit = run_git_cmd(["rev-parse", "--short", "HEAD"], root) or "unknown"
     git_date = run_git_cmd(["log", "-1", "--format=%as"], root) or "recent"
@@ -431,20 +504,7 @@ def build_blueprint_content(root: Path) -> str:
         "## 5. Development & Verification Commands",
         "",
         "```bash",
-        "# Backend Tests (Python)",
-        "cd server && uv run pytest -W error::RuntimeWarning",
-        "",
-        "# Backend Lint",
-        "uvx ruff check --isolated --select F server/server",
-        "",
-        "# Frontend Tests & Typecheck (Next.js)",
-        "cd apps/web && npx tsc --noEmit && npm test",
-        "",
-        "# Daemon Tests",
-        "cd packages/daemon && npm test",
-        "",
-        "# Desktop Tests & Typecheck (Electron)",
-        "npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test",
+        *detect_verification_commands(root),
         "```",
         "",
         "## 6. Recent Architectural Evolutions",
@@ -466,30 +526,94 @@ def build_blueprint_content(root: Path) -> str:
     return "\n".join(doc)
 
 
+HOOK_MARKER_START = "# <<< Memento Blueprint Hook Start >>>"
+HOOK_MARKER_END = "# <<< Memento Blueprint Hook End >>>"
+
+HOOK_TEMPLATE = f"""{HOOK_MARKER_START}
+# Auto-update PROJECT_BLUEPRINT.md upon commit (managed by Memento)
+BP_SCRIPT=""
+if [ -f "scripts/project_blueprint.py" ]; then
+    BP_SCRIPT="scripts/project_blueprint.py"
+elif [ -f "$HOME/.memento/scripts/project_blueprint.py" ]; then
+    BP_SCRIPT="$HOME/.memento/scripts/project_blueprint.py"
+fi
+
+if [ -n "$BP_SCRIPT" ]; then
+    python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
+fi
+{HOOK_MARKER_END}"""
+
+
+def _clean_hook_content(content: str) -> str:
+    """Safely strip any Memento blueprint hook block or legacy artifacts."""
+    # Strip tagged blocks
+    cleaned = re.sub(
+        rf"{re.escape(HOOK_MARKER_START)}[\s\S]*?{re.escape(HOOK_MARKER_END)}\n?",
+        "",
+        content,
+    )
+    # Strip legacy untagged artifacts
+    cleaned = re.sub(
+        r"# Auto-update PROJECT_BLUEPRINT\.md[^\n]*\n(?:[^\n]*\n)*?python3[^\n]*project_blueprint\.py[^\n]*\n(?:fi\n)?",
+        "",
+        cleaned,
+    )
+    # Filter orphan lines matching blueprint patterns
+    clean_lines = []
+    for line in cleaned.splitlines():
+        trimmed = line.strip()
+        if any(token in trimmed for token in ("project_blueprint.py", "PROJECT_BLUEPRINT.md", "BP_SCRIPT")):
+            continue
+        clean_lines.append(line)
+
+    # If remaining lines contain no actual user logic (only repeated shebangs or dangling fi's)
+    non_trivial = [l for l in clean_lines if l.strip() and not l.strip().startswith("#!") and l.strip() != "fi"]
+    if not non_trivial:
+        return ""
+    return "\n".join(clean_lines).strip()
+
+
 def install_git_hook(root: Path) -> bool:
-    """Install a post-commit Git hook to keep PROJECT_BLUEPRINT.md in sync."""
-    hooks_dir = root / ".git" / "hooks"
+    """Install a post-commit Git hook to keep PROJECT_BLUEPRINT.md in sync across all projects."""
+    git_dir = root / ".git"
+    if not git_dir.exists():
+        print(f"Error: {git_dir} does not exist. Is this a git repository?", file=sys.stderr)
+        return False
+
+    hooks_dir = git_dir / "hooks"
+    try:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
     if not hooks_dir.is_dir():
         print(f"Error: {hooks_dir} does not exist. Is this a git repository?", file=sys.stderr)
         return False
 
+    # Ensure generator script is synced to global ~/.memento/scripts for external repos
+    try:
+        global_memento_dir = Path.home() / ".memento" / "scripts"
+        global_memento_dir.mkdir(parents=True, exist_ok=True)
+        global_script = global_memento_dir / "project_blueprint.py"
+        current_script = Path(__file__).resolve()
+        if current_script.is_file():
+            cur_content = current_script.read_text(encoding="utf-8")
+            if not global_script.exists() or global_script.read_text(encoding="utf-8") != cur_content:
+                global_script.write_text(cur_content, encoding="utf-8")
+                global_script.chmod(0o755)
+    except Exception:
+        pass
+
     hook_file = hooks_dir / "post-commit"
-    hook_script = """#!/bin/sh
-# Auto-update PROJECT_BLUEPRINT.md upon commit
-if [ -f "scripts/project_blueprint.py" ]; then
-    python3 scripts/project_blueprint.py --root . --quiet >/dev/null 2>&1 || true
-fi
-"""
+    existing = hook_file.read_text(encoding="utf-8", errors="ignore") if hook_file.exists() else ""
+    cleaned = _clean_hook_content(existing)
 
-    if hook_file.exists():
-        existing = hook_file.read_text(encoding="utf-8", errors="ignore")
-        if "project_blueprint.py" in existing:
-            # Already installed
-            return True
-        hook_file.write_text(existing + "\n" + hook_script, encoding="utf-8")
+    if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
+        new_content = f"#!/bin/sh\n\n{HOOK_TEMPLATE}\n"
     else:
-        hook_file.write_text(hook_script, encoding="utf-8")
+        new_content = f"{cleaned.rstrip()}\n\n{HOOK_TEMPLATE}\n"
 
+    hook_file.write_text(new_content, encoding="utf-8")
     try:
         hook_file.chmod(0o755)
     except Exception:
@@ -505,8 +629,12 @@ def uninstall_git_hook(root: Path) -> bool:
         return True
 
     existing = hook_file.read_text(encoding="utf-8", errors="ignore")
-    lines = [line for line in existing.splitlines() if "project_blueprint.py" not in line and "PROJECT_BLUEPRINT.md" not in line]
-    hook_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    cleaned = _clean_hook_content(existing)
+
+    if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
+        hook_file.write_text("", encoding="utf-8")
+    else:
+        hook_file.write_text(cleaned.strip() + "\n", encoding="utf-8")
     return True
 
 
@@ -524,6 +652,13 @@ def main() -> int:
 
     if args.install_hook:
         ok = install_git_hook(root)
+        try:
+            out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
+            content = build_blueprint_content(root)
+            out_path.write_text(content, encoding="utf-8")
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: Failed to generate blueprint file during hook install: {e}", file=sys.stderr)
         if not args.quiet:
             print("Git post-commit hook installed successfully." if ok else "Failed to install git hook.")
         return 0 if ok else 1

@@ -1,6 +1,7 @@
 export * from "./agent-stream.js";
 export * from "./antigravity.js";
 export * from "./autostart.js";
+export * from "./blueprint-auto.js";
 export * from "./capabilities.js";
 export * from "./config.js";
 export { Daemon, type DaemonStatus } from "./daemon.js";

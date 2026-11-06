@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { hostname } from "node:os";
 
+import { ensureProjectBlueprint } from "./blueprint-auto.js";
 import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
@@ -109,6 +110,7 @@ export class Daemon extends EventEmitter {
     this.log(`Discovering installed AI tools on ${config.deviceName}...`);
     this.tools = await discoverAll();
     this.log(`Discovered ${Object.keys(this.tools).length} tools: ${Object.keys(this.tools).join(", ")}`);
+    this.ensureDiscoveredBlueprints(this.tools);
 
     this.log(`Connecting to server ${config.serverUrl}...`);
     const key = await ingest.sendHeartbeat();
@@ -194,8 +196,21 @@ export class Daemon extends EventEmitter {
   /** Discover tools again and tell the server (after installing a tool, say). */
   async rediscover(): Promise<void> {
     this.tools = await discoverAll();
+    this.ensureDiscoveredBlueprints(this.tools);
     await this.ingest?.reportDiscovery(this.tools);
     this.notify();
+  }
+
+  /** Asynchronously ensure living blueprints and post-commit hooks for all discovered projects */
+  private ensureDiscoveredBlueprints(tools: Record<string, DiscoveredTool>): void {
+    const seen = new Set<string>();
+    for (const tool of Object.values(tools)) {
+      for (const proj of tool.projects || []) {
+        if (!proj.path || seen.has(proj.path)) continue;
+        seen.add(proj.path);
+        void ensureProjectBlueprint(proj.path, { log: this.log }).catch(() => {});
+      }
+    }
   }
 
   async resync(): Promise<void> {

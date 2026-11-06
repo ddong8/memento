@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
 import { antigravityExecutable, discoverAntigravityEnv } from "./antigravity.js";
+import { ensureProjectBlueprint } from "./blueprint-auto.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
@@ -897,6 +898,11 @@ export class TaskRunner {
     const { action, payload } = task;
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));
     let workDir = resolveWorkingDir(text("cwd"), this.log);
+
+    // Auto-ensure living blueprint and post-commit hook for any project running through Memento
+    if (workDir) {
+      void ensureProjectBlueprint(workDir, { log: this.log }).catch(() => {});
+    }
 
     let exe = "";
     let args: string[] = [];

@@ -1236,8 +1236,16 @@ def scan_env_variables(root: Path) -> list[dict[str, str]]:
 
 
 def ensure_agent_guidance_anchor(root: Path) -> bool:
-    """Ensure CLAUDE.md / AGENTS.md in the project root has a blueprint reading hint for AI coding agents."""
-    guidance_files = [root / "CLAUDE.md", root / "AGENTS.md"]
+    """Ensure agent instruction files in the project root have a blueprint reading hint for AI coding agents."""
+    guidance_files = [
+        root / "CLAUDE.md",
+        root / "AGENTS.md",
+        root / "GEMINI.md",
+        root / ".cursorrules",
+        root / ".windsurfrules",
+        root / ".clinerules",
+        root / ".github" / "copilot-instructions.md",
+    ]
     anchor_marker = "<!-- memento:blueprint-anchor -->"
     anchor_snippet = (
         f"{anchor_marker}\n"
@@ -1741,7 +1749,7 @@ HOOK_MARKER_START = "# <<< Memento Blueprint Hook Start >>>"
 HOOK_MARKER_END = "# <<< Memento Blueprint Hook End >>>"
 
 HOOK_TEMPLATE = f"""{HOOK_MARKER_START}
-# Auto-update PROJECT_BLUEPRINT.md upon commit, merge, or branch checkout (managed by Memento)
+# Auto-update PROJECT_BLUEPRINT.md upon commit, merge, rebase, or branch checkout (managed by Memento)
 if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
     exit 0
 fi
@@ -1759,9 +1767,31 @@ elif [ -f "$HOME/.memento/scripts/project_blueprint.py" ]; then
 fi
 
 if [ -n "$BP_SCRIPT" ]; then
-    python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
+    HOOK_NAME=$(basename "$0")
+    if [ "$HOOK_NAME" = "pre-commit" ]; then
+        if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
+            python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 || true
+        fi
+    elif git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
+        git rev-parse --short HEAD > .git/.memento_blueprint_head 2>/dev/null || true
+    else
+        python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
+    fi
 fi
 {HOOK_MARKER_END}"""
+
+
+def _record_blueprint_head(root: Path) -> None:
+    """Record current git HEAD short SHA into .git/.memento_blueprint_head for staleness detection."""
+    git_dir = root / ".git"
+    if not git_dir.is_dir():
+        return
+    try:
+        sha = run_git_cmd(["rev-parse", "--short", "HEAD"], root)
+        if sha:
+            (git_dir / ".memento_blueprint_head").write_text(sha.strip() + "\n", encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _clean_hook_content(content: str) -> str:
@@ -1793,7 +1823,7 @@ def _clean_hook_content(content: str) -> str:
     return "\n".join(clean_lines).strip()
 
 
-MANAGED_GIT_HOOKS = ["post-commit", "post-merge", "post-checkout"]
+MANAGED_GIT_HOOKS = ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]
 
 
 def install_git_hook(root: Path) -> bool:
@@ -1888,6 +1918,7 @@ def main() -> int:
             out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
             content = build_blueprint_content(root)
             out_path.write_text(content, encoding="utf-8")
+            _record_blueprint_head(root)
         except Exception as e:
             if not args.quiet:
                 print(f"Warning: Failed to generate blueprint file during hook install: {e}", file=sys.stderr)
@@ -1920,6 +1951,7 @@ def main() -> int:
         return 0
 
     out_path.write_text(content, encoding="utf-8")
+    _record_blueprint_head(root)
     if not args.quiet:
         print(f"Generated living blueprint at: {out_path} ({len(content)} bytes)")
 

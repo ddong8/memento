@@ -211,4 +211,34 @@ describe("blueprint-auto", () => {
     // CLI entrypoint
     expect(bpContent).toContain("`ep-cli`");
   });
+
+  it("detects HEAD commit advances (even with --no-verify) and injects anchors into multi-agent instruction files", async () => {
+    mkdirSync(join(tmpDir, ".git", "refs", "heads"), { recursive: true });
+    writeFileSync(join(tmpDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(tmpDir, ".git", "refs", "heads", "main"), "1111111abcdef000000000000000000000000000\n");
+    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "1111111\n");
+    writeFileSync(join(tmpDir, "GEMINI.md"), "# Gemini Rules\n");
+    writeFileSync(join(tmpDir, ".cursorrules"), "# Cursor Rules\n");
+
+    const ok1 = await ensureProjectBlueprint(tmpDir, { force: true });
+    expect(ok1).toBe(true);
+    expect(readFileSync(join(tmpDir, "GEMINI.md"), "utf8")).toContain("PROJECT_BLUEPRINT.md");
+    expect(readFileSync(join(tmpDir, ".cursorrules"), "utf8")).toContain("PROJECT_BLUEPRINT.md");
+
+    // Simulate a new commit advancing refs/heads/main while .memento_blueprint_head has old SHA
+    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "1111111\n");
+    writeFileSync(join(tmpDir, ".git", "refs", "heads", "main"), "2222222abcdef000000000000000000000000000\n");
+    expect(await isBlueprintReady(tmpDir)).toBe(false);
+
+    // Add a new route and call ensureProjectBlueprint WITHOUT force — it must detect HEAD change and regenerate
+    mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "src", "controllers", "live.controller.ts"),
+      `@Controller('live')\nexport class LiveController {\n  @Get('ping')\n  ping() {}\n}\n`,
+    );
+    const ok2 = await ensureProjectBlueprint(tmpDir);
+    expect(ok2).toBe(true);
+    const bpAfter = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    expect(bpAfter).toContain("`GET /live/ping`");
+  });
 });

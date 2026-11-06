@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 
 import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
 import { antigravityExecutable, discoverAntigravityEnv } from "./antigravity.js";
-import { ensureProjectBlueprint } from "./blueprint-auto.js";
+import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
@@ -899,9 +899,9 @@ export class TaskRunner {
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));
     let workDir = resolveWorkingDir(text("cwd"), this.log);
 
-    // Auto-ensure living blueprint and post-commit hook for any project running through Memento
+    // Auto-ensure living blueprint and git hooks before agent session starts
     if (workDir && !payload.worktree) {
-      void ensureProjectBlueprint(workDir, { log: this.log }).catch(() => {});
+      await ensureProjectBlueprint(workDir, { log: this.log }).catch(() => false);
     }
 
     let exe = "";
@@ -926,7 +926,15 @@ export class TaskRunner {
     const effort = text("effort");
     const rawSysAppend = text("system_prompt_append");
     const offlineMind = !rawSysAppend ? await getOfflineMindSnapshot() : null;
-    const sysAppend = rawSysAppend || offlineMind || "";
+    let sysAppend = rawSysAppend || offlineMind || "";
+    if (workDir) {
+      const bpRoot = findGitRoot(workDir) || workDir;
+      const bpFile = join(bpRoot, "PROJECT_BLUEPRINT.md");
+      if (existsSync(bpFile) && !sysAppend.includes("PROJECT_BLUEPRINT.md")) {
+        const bpHint = `[架构心智指引] 当前项目根目录存在实时随 commit 同步的活体代码蓝图 (${bpFile})，新会话或跨模块排查前请优先读取该文件以快速掌握全局模块、数据表关系、API 路由与 AST 调用链。`;
+        sysAppend = sysAppend ? `${sysAppend}\n\n${bpHint}` : bpHint;
+      }
+    }
 
     // Materialize uploaded base64 images on the local device so local Agent CLI can view them
     if (Array.isArray(payload.images) && payload.images.length > 0) {

@@ -13,6 +13,7 @@ const VERIFIED_TTL_MS = 10 * 60 * 1000;
 interface CacheEntry {
   ready: boolean;
   timestamp: number;
+  headSha: string | null;
 }
 
 const verifiedCache = new Map<string, CacheEntry>();
@@ -34,7 +35,39 @@ export function findGitRoot(startPath: string): string | null {
   return null;
 }
 
-/** Check if PROJECT_BLUEPRINT.md and the git hooks (post-commit, post-merge, post-checkout) are properly in place */
+/** Fast zero-subprocess resolution of current Git HEAD short SHA (7 chars) */
+export async function readGitHeadShort(gitRoot: string): Promise<string | null> {
+  try {
+    const headFile = join(gitRoot, ".git", "HEAD");
+    if (!existsSync(headFile)) return null;
+    const raw = (await readFile(headFile, "utf8")).trim();
+    if (!raw) return null;
+    if (!raw.startsWith("ref:")) {
+      return raw.slice(0, 7);
+    }
+    const refRel = raw.replace(/^ref:\s*/, "").trim();
+    const refPath = join(gitRoot, ".git", refRel);
+    if (existsSync(refPath)) {
+      const sha = (await readFile(refPath, "utf8")).trim();
+      return sha ? sha.slice(0, 7) : null;
+    }
+    const packedPath = join(gitRoot, ".git", "packed-refs");
+    if (existsSync(packedPath)) {
+      const packed = await readFile(packedPath, "utf8");
+      for (const line of packed.split("\n")) {
+        const s = line.trim();
+        if (!s || s.startsWith("#") || s.startsWith("^")) continue;
+        const [sha, rname] = s.split(/\s+/);
+        if (rname === refRel && sha) return sha.slice(0, 7);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Check if PROJECT_BLUEPRINT.md and the git hooks (post-commit, post-merge, post-checkout) are properly in place and up-to-date with HEAD */
 export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
   try {
     const bpPath = join(gitRoot, "PROJECT_BLUEPRINT.md");
@@ -49,6 +82,18 @@ export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
       const hookContent = await readFile(hookPath, "utf8");
       if (!hookContent.includes("project_blueprint.py") && !hookContent.includes("Memento Blueprint Hook")) {
         return false;
+      }
+    }
+
+    // Verify blueprint is not stale relative to current Git HEAD (catches --no-verify or GUI commits)
+    const currentHead = await readGitHeadShort(gitRoot);
+    if (currentHead) {
+      const recordedHeadPath = join(gitRoot, ".git", ".memento_blueprint_head");
+      if (existsSync(recordedHeadPath)) {
+        const recorded = (await readFile(recordedHeadPath, "utf8")).trim();
+        if (recorded && !recorded.startsWith(currentHead) && !currentHead.startsWith(recorded)) {
+          return false;
+        }
       }
     }
 
@@ -123,14 +168,21 @@ export async function ensureProjectBlueprint(
   }
 
   const now = Date.now();
+  const currentHead = await readGitHeadShort(gitRoot);
   const cached = verifiedCache.get(gitRoot);
-  if (!options.force && cached && cached.ready && now - cached.timestamp < VERIFIED_TTL_MS) {
+  if (
+    !options.force &&
+    cached &&
+    cached.ready &&
+    cached.headSha === currentHead &&
+    now - cached.timestamp < VERIFIED_TTL_MS
+  ) {
     return true;
   }
 
   const alreadyReady = await isBlueprintReady(gitRoot);
   if (!options.force && alreadyReady) {
-    verifiedCache.set(gitRoot, { ready: true, timestamp: now });
+    verifiedCache.set(gitRoot, { ready: true, timestamp: now, headSha: currentHead });
     return true;
   }
 
@@ -166,7 +218,7 @@ export async function ensureProjectBlueprint(
       proc.once("exit", (code) => {
         if (code === 0) {
           log(`[blueprint-auto] Successfully configured living blueprint & hook for ${gitRoot}`);
-          verifiedCache.set(gitRoot, { ready: true, timestamp: Date.now() });
+          verifiedCache.set(gitRoot, { ready: true, timestamp: Date.now(), headSha: currentHead });
           resolveDone(true);
         } else {
           log(`[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${code}): ${errOut}`);

@@ -116,7 +116,22 @@ def _sync_ensure_blueprint(cwd_str: str) -> None:
 
         bp_file = git_root / "PROJECT_BLUEPRINT.md"
         hook_file = git_root / ".git" / "hooks" / "post-commit"
-        if bp_file.exists() and bp_file.stat().st_size > 50 and hook_file.exists():
+        head_marker = git_root / ".git" / ".memento_blueprint_head"
+        is_fresh = True
+        if head_marker.exists():
+            try:
+                recorded = head_marker.read_text(encoding="utf-8", errors="ignore").strip()
+                head_raw = (git_root / ".git" / "HEAD").read_text(encoding="utf-8", errors="ignore").strip()
+                cur_sha = head_raw[:7] if not head_raw.startswith("ref:") else ""
+                if head_raw.startswith("ref:"):
+                    ref_file = git_root / ".git" / head_raw.split(":", 1)[1].strip()
+                    if ref_file.exists():
+                        cur_sha = ref_file.read_text(encoding="utf-8", errors="ignore").strip()[:7]
+                if cur_sha and recorded and not recorded.startswith(cur_sha) and not cur_sha.startswith(recorded):
+                    is_fresh = False
+            except Exception:
+                pass
+        if bp_file.exists() and bp_file.stat().st_size > 50 and hook_file.exists() and is_fresh:
             _ensured_git_roots[git_root_str] = now
             return
 

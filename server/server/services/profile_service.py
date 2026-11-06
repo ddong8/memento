@@ -225,7 +225,8 @@ def render_profile_block(version: int, content: str) -> str:
         f"{PROFILE_BEGIN} v{version} · 由 Memento 生成，请在 Memento 中修改，手改此段会被覆盖 -->\n"
         "## 关于我（Memento 长期记忆）\n\n"
         f"{content.strip()}\n\n"
-        "需要更多上下文时，用 memento-memory MCP 的 memory_search / memory_core 查询。\n"
+        "进入项目或排查架构问题时，若项目根目录存在 PROJECT_BLUEPRINT.md（活体代码蓝图），优先先读它以快速掌握全局模块、数据表关系、API 路由与调用链，避免盲目全库 grep。\n"
+        "需要更多上下文时，用 memento-memory MCP 的 memory_search / memory_core / memory_blueprint 查询。\n"
         f"{PROFILE_END}\n"
     )
 

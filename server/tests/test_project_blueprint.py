@@ -79,8 +79,8 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertIn("## 1. Project Overview & Tech Stack", content)
         self.assertIn("## 2. High-Level Architecture Topology", content)
         self.assertIn("## 3. Subsystem Breakdown & Responsibilities", content)
-        self.assertIn("## 5. Development & Verification Commands", content)
-        self.assertIn("## 6. Recent Architectural Evolutions", content)
+        self.assertIn("## 8. Development & Verification Commands", content)
+        self.assertIn("## 9. Recent Architectural Evolutions", content)
 
     def test_git_hook_lifecycle(self):
         git_dir = self.root / ".git" / "hooks"
@@ -88,14 +88,14 @@ class TestProjectBlueprint(unittest.TestCase):
 
         installed = project_blueprint.install_git_hook(self.root)
         self.assertTrue(installed)
-        for hname in ["post-commit", "post-merge", "post-checkout"]:
+        for hname in ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]:
             hook_path = git_dir / hname
             self.assertTrue(hook_path.exists())
             self.assertIn("project_blueprint.py", hook_path.read_text())
 
         uninstalled = project_blueprint.uninstall_git_hook(self.root)
         self.assertTrue(uninstalled)
-        for hname in ["post-commit", "post-merge", "post-checkout"]:
+        for hname in ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]:
             hook_path = git_dir / hname
             self.assertNotIn("project_blueprint.py", hook_path.read_text())
 

@@ -1,13 +1,17 @@
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { hostname } from "node:os";
+import { join } from "node:path";
 
-import { ensureProjectBlueprint } from "./blueprint-auto.js";
+import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
 import { applyGuards } from "./guard-inject.js";
 import { IngestClient } from "./ingest.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
+import { contentHash } from "./sanitizer.js";
 import { ServerRoute } from "./server-route.js";
 import { applySkillInjection } from "./skill-inject.js";
 import { FileWatcher, type CollectStats } from "./watcher.js";
@@ -61,6 +65,7 @@ export class Daemon extends EventEmitter {
   private guardTools = new Set<GuardTool>();
   private syncing = false;
   private commandPollTimer: NodeJS.Timeout | null = null;
+  private blueprintHashes = new Map<string, string>();
 
   get status(): DaemonStatus {
     return {
@@ -208,7 +213,31 @@ export class Daemon extends EventEmitter {
       for (const proj of tool.projects || []) {
         if (!proj.path || seen.has(proj.path)) continue;
         seen.add(proj.path);
-        void ensureProjectBlueprint(proj.path, { log: this.log }).catch(() => {});
+        void ensureProjectBlueprint(proj.path, { log: this.log })
+          .then(async (ok) => {
+            if (!ok || !this.ingest) return;
+            const gitRoot = findGitRoot(proj.path) || proj.path;
+            const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
+            if (!existsSync(bpFile)) return;
+            const content = await readFile(bpFile, "utf8");
+            const hash = contentHash(content);
+            if (this.blueprintHashes.get(bpFile) === hash) return;
+            const st = await stat(bpFile);
+            const res = await this.ingest.ingestDocument({
+              toolId: tool.id,
+              category: "identity",
+              contentType: "md",
+              relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
+              content,
+              contentHash: hash,
+              fileSize: st.size,
+              mode: "full",
+              offset: 0,
+              metadata: { project_path: gitRoot, project_name: proj.name },
+            });
+            if (res.ok) this.blueprintHashes.set(bpFile, hash);
+          })
+          .catch(() => {});
       }
     }
   }

@@ -130,5 +130,30 @@ describe("blueprint-auto", () => {
     expect(bpContent).toContain("`comments.postId` ➔ `posts.id`");
     expect(bpContent).toContain("`Invoice.CustomerID` ➔ `Customer.ID`");
     expect(bpContent).toContain("`audit_logs.user_id` ➔ `users.id`");
+    expect(bpContent).toContain("erDiagram");
+  });
+
+  it("universally extracts routes, schedules, gRPC/GraphQL contracts, and test suites for any non-Memento project", async () => {
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "src", "controllers", "orders.controller.ts"),
+      `@Controller('orders')\nexport class OrdersController {\n  @Get(':id')\n  findOne() {}\n  @Cron('0 3 * * *')\n  syncNightlyOrders() {}\n}\n`,
+    );
+    mkdirSync(join(tmpDir, "proto"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "proto", "payment.proto"),
+      `service PaymentService {\n  rpc ChargeCard (ChargeRequest) returns (ChargeReply);\n}\n`,
+    );
+    mkdirSync(join(tmpDir, "tests"), { recursive: true });
+    writeFileSync(join(tmpDir, "tests", "orders.spec.ts"), "it('works', () => {});\n");
+
+    const ok = await ensureProjectBlueprint(tmpDir, { force: true });
+    expect(ok).toBe(true);
+    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    expect(bpContent).toContain("`GET /orders/:id`");
+    expect(bpContent).toContain("syncNightlyOrders");
+    expect(bpContent).toContain("gRPC `PaymentService.ChargeCard(ChargeRequest) ➔ ChargeReply`");
+    expect(bpContent).toContain("`orders.spec.ts`");
   });
 });

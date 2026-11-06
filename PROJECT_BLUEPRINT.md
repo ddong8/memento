@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `377feb1f` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4eacfcc0` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -422,30 +422,6 @@ erDiagram
 
 ## 5. Core Domain Services & Background Schedules
 
-### Scheduled Background Jobs (Celery Beat / Cron)
-
-| Job Name | Target Task | Schedule |
-| :--- | :--- | :--- |
-| `daily-digest` | `server.tasks.daily_digest.generate_daily_digest` | `crontab(hour=23, minute=30),  # Run at 23:30 every day` |
-| `daily-digest-late` | `server.tasks.daily_digest.generate_daily_digest` | `crontab(hour=3, minute=30)` |
-| `nightly-dreaming` | `server.tasks.dreaming_tasks.run_nightly_dreaming` | `crontab(hour=3, minute=0)` |
-| `embedding-retry` | `server.tasks.embedding_retry.retry_failed_embeddings` | `crontab(minute="*")` |
-| `merge-staged-deltas` | `server.tasks.content_merge.merge_staged_deltas` | `crontab(minute="*")` |
-| `message-audit` | `server.tasks.message_audit.audit_messages` | `crontab(minute="3-58/5")` |
-| `knowledge-retry` | `server.tasks.knowledge_retry.retry_failed_knowledge` | `crontab(minute="2,17,32,47")` |
-| `weekly-db-backup` | `server.tasks.db_backup.run_weekly_backup` | `crontab(hour=3, minute=30, day_of_week="sun")` |
-| `title-backfill` | `server.tasks.title_backfill.backfill_titles` | `crontab(minute=7)` |
-| `health-check` | `server.tasks.health_check.check_health` | `crontab(minute="5,35")` |
-| `close-stale-tasks` | `server.tasks.task_reaper.close_stale_tasks` | `crontab(minute="9,19,29,39,49,59")` |
-| `learn-corrections` | `server.tasks.learning_tasks.learn_corrections` | `crontab(minute="*/10")` |
-| `learn-todos` | `server.tasks.learning_tasks.learn_todos` | `crontab(minute="4,14,24,34,44,54")` |
-| `review-sessions` | `server.tasks.learning_tasks.review_sessions` | `crontab(hour=2, minute=20)` |
-| `memory-lifecycle` | `server.tasks.learning_tasks.memory_lifecycle` | `crontab(hour=4, minute=10)` |
-| `remind-todos` | `server.tasks.learning_tasks.remind_todos` | `crontab(hour=9, minute=5)` |
-| `tsvector-backfill` | `server.tasks.tsvector_backfill.backfill_content_tsv` | `crontab(hour=4, minute=25)` |
-| `evaluate-retrieval` | `server.tasks.learning_tasks.evaluate_retrieval` | `crontab(hour=4, minute=40, day_of_week=1)` |
-| `evaluate-learning` | `server.tasks.learning_tasks.evaluate_learning` | `crontab(hour=4, minute=50, day_of_week=1)` |
-
 ### Core Service Layer Modules
 
 | Service Module | Path | Responsibility |
@@ -486,35 +462,6 @@ erDiagram
 | `life_service` | [`server/server/services/life_service.py`](server/server/services/life_service.py) | 24/7 Life Rhythm, Screen Time & AI Lifestyle Decision Service. |
 | `memory_compaction` | [`server/server/services/memory_compaction.py`](server/server/services/memory_compaction.py) | Memory compaction — periodically compress old observations into summaries. |
 
-## 6. MCP Tools & Real-Time WebSocket Protocols
-
-### Registered MCP Server Tools
-
-| Tool Name | Purpose |
-| :--- | :--- |
-| `memory_search` | Search your personal AI memory using semantic + full-text hybrid search. Use this to find past conve |
-| `memory_recall` | Recall recent memories by category, project, and optional date. |
-| `memory_context` | Get project context — meta + the FULL CONTENT of curated docs (identity / memory / plan / learning / |
-| `memory_blueprint` | One-shot project blueprint — project meta + FULL content of identity / memory / plan / learning file |
-| `memory_store` | Store a new observation or fact in your personal memory. Use this to save important decisions, learn |
-| `daily_summary` | Get daily activity summary for a specific date. |
-| `memory_open` | Fetch the full content of a document by its ID. Pair this with memory_search / memory_recall — those |
-| `memory_conversation` | Read the message-by-message contents of a conversation document, to quote, summarize, or pick up whe |
-| `memory_graph` | Explore the knowledge graph around an entity by name: its summary, recent observations, and incoming |
-| `memory_core` | Get the user |
-| `memory_project_map` | Get a global map of all projects tracked in Memento: title, primary tool and document counts. Use fo |
-| `mind_resonance` | 心领神会 (Mind Resonance): Achieve instant mental alignment and heart-to-heart understanding with the us |
-| `memory_check_rule` | Pre-flight check against the user |
-| `memory_pitfall` | Record a pitfall after you hit a failure, found its cause, and fixed it. Memento warns about it next |
-| `memory_skill` | Skills the user approved: procedures that worked in their own environment. With a query (e.g. |
-| `todo_list` | The user |
-| `todo_add` | Record something the user wants done later (\ |
-| `todo_update` | Close or edit a todo. status: done | dropped | open. todo_id: the id (or its first 8 chars) from tod |
-
-### WebSocket Control & Data Plane Events
-
-`connected`, `pong`, `commands_pending`, `get_agent_capabilities`, `get_agent_quotas`, `task_dispatch`, `task_cancel`, `task_input`, `p2p_offer`, `file_stat_req`, `file_chunk_req`, `task_log_resync`
-
 ## 7. CI/CD Pipelines, Code Hotspots & Test Suites
 
 ### CI/CD Workflows & Deployment Manifests
@@ -536,19 +483,21 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| Backend (pytest) | [`server/tests`](server/tests) | 89 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
-| Daemon (vitest) | [`packages/daemon/test`](packages/daemon/test) | 32 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
-| Web (vitest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
-| Desktop (vitest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
-| MCP (vitest) | [`packages/mcp/test`](packages/mcp/test) | 1 | `server.test.ts` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 89 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 32 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
+| apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
+| apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 1 | `deeplink.test.ts` |
+| packages/mcp/test (vitest / jest) | [`packages/mcp/test`](packages/mcp/test) | 1 | `server.test.ts` |
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (13 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
+- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (5 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (6 commits)
 - [`server/tests/test_message_store.py`](server/tests/test_message_store.py) (5 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (4 commits)
 - [`apps/web/src/components/viewers/MediaPreview.tsx`](apps/web/src/components/viewers/MediaPreview.tsx) (4 commits)
@@ -576,12 +525,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `4eacfcc0` (2026-11-06): feat(blueprint): 丰富单项目蓝图ER图、唯一约束、定时任务、服务层、MCP协议与热点测试矩阵
 - `377feb1f` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
 - `b15a4962` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
 - `c7ed3f39` (2026-11-06): feat(blueprint): 升级多钩子生命周期自同步、前端AppRouter路由扫描与详细API契约提取
 - `c30c9a69` (2026-11-06): fix(daemon): 修复 blueprint-auto 中 findExecutable 入参类型签名
 - `15ffeb07` (2026-11-06): docs(blueprint): 更新活体蓝图快照与多项目全自动部署能力
-- `fe076aa5` (2026-11-06): feat(blueprint): 实现多项目会话与任务执行全自动就地配置蓝图及Git钩子
 
 ## 10. Key Environment Variables & Configuration
 

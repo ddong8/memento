@@ -231,9 +231,22 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
     return subsystems
 
 
+def _iter_repo_files(root: Path, pattern: str, limit: int = 80) -> list[Path]:
+    """Safely iterate matching files in root, skipping ignored directories."""
+    out: list[Path] = []
+    for p in root.glob(pattern):
+        if any(ign in p.parts for ign in IGNORED_DIRS):
+            continue
+        out.append(p)
+        if len(out) >= limit:
+            break
+    return sorted(out)
+
+
 def scan_frontend_routes(root: Path) -> list[str]:
-    """Scan Next.js App Router for web page routes."""
+    """Scan web page routes across Next.js (App & Pages Router), Nuxt/Vue Router, React Router, SvelteKit, and Remix."""
     routes: list[str] = []
+    # 1. Next.js App Router
     candidates = [
         root / "apps" / "web" / "src" / "app",
         root / "web" / "src" / "app",
@@ -242,54 +255,78 @@ def scan_frontend_routes(root: Path) -> list[str]:
     ]
     app_dir = next((c for c in candidates if c.is_dir()), None)
     if app_dir:
-        for page_file in sorted(app_dir.glob("**/page.tsx")):
+        for page_file in sorted(app_dir.glob("**/page.[tj]s*")):
             rel = page_file.parent.relative_to(app_dir)
             route_path = "/" if str(rel) == "." else f"/{rel}"
-            # Clean route groups like (auth) or (main)
             route_path = re.sub(r'/\([^)]+\)', '', route_path) or "/"
             routes.append(route_path)
+
+    # 2. Next.js Pages Router / Nuxt Pages (`pages/**/*.{tsx,vue}`)
+    for pages_cand in (root / "apps" / "web" / "src" / "pages", root / "src" / "pages", root / "pages"):
+        if pages_cand.is_dir():
+            for pf in sorted(pages_cand.glob("**/*.[tvj]s*")) + sorted(pages_cand.glob("**/*.vue")):
+                if pf.stem.startswith("_") or pf.parent.name == "api":
+                    continue
+                rel = pf.relative_to(pages_cand).with_suffix("")
+                rpath = "/" + str(rel).replace("/index", "").lstrip("/")
+                routes.append(rpath or "/")
+
+    # 3. Vue Router / React Router explicit path declarations
+    if not routes:
+        for rf in _iter_repo_files(root, "**/*router*.[tj]s*", limit=15) + _iter_repo_files(root, "**/*routes*.[tj]s*", limit=15):
+            try:
+                content = rf.read_text(encoding="utf-8", errors="ignore")
+                for pm in re.finditer(r'\bpath\s*:\s*["\'](/[^"\']*)["\']', content):
+                    routes.append(pm.group(1))
+            except Exception:
+                pass
+
     return sorted(list(dict.fromkeys(routes)))
 
 
 def scan_api_routes(root: Path) -> list[dict[str, Any]]:
-    """Scan backend routers across Python (FastAPI/Flask), Next.js Route Handlers, Node (Express/Hono), and Go (Gin/Echo)."""
+    """Scan backend HTTP routers across Python (FastAPI/Flask/Django), Next.js, Node (Express/NestJS/Hono), Go (Gin/Echo/Chi), Rust (Axum/Actix), and Java/Kotlin (Spring Boot)."""
     routes: list[dict[str, Any]] = []
-    api_dir = root / "server" / "server" / "api"
-    if not api_dir.is_dir():
-        api_dir = root / "api"
+    seen_files: set[Path] = set()
 
-    if api_dir.is_dir():
-        for py_file in sorted(api_dir.glob("*.py")):
-            if py_file.name.startswith("_"):
+    # 1. Python FastAPI / Flask / Django Ninja
+    py_api_files: list[Path] = []
+    for d in (root / "server" / "server" / "api", root / "api", root / "app" / "api", root / "src" / "api"):
+        if d.is_dir():
+            py_api_files.extend(sorted(d.glob("*.py")))
+    for pf in _iter_repo_files(root, "**/api/**/*.py", limit=40) + _iter_repo_files(root, "**/routers/**/*.py", limit=40) + _iter_repo_files(root, "**/views*.py", limit=25):
+        if pf not in py_api_files:
+            py_api_files.append(pf)
+
+    for py_file in py_api_files:
+        if py_file.name.startswith("_") or py_file in seen_files:
+            continue
+        seen_files.add(py_file)
+        name = py_file.stem
+        try:
+            content = py_file.read_text(encoding="utf-8", errors="ignore")
+            if not re.search(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route)\b', content) and "APIRouter" not in content:
                 continue
-            name = py_file.stem
-            try:
-                content = py_file.read_text(encoding="utf-8", errors="ignore")
-                m = re.search(r'router\s*=\s*APIRouter\([^)]*prefix=["\']([^"\']+)["\']', content)
-                prefix = m.group(1) if m else f"/{name}"
+            m = re.search(r'(?:router|bp)\s*=\s*(?:APIRouter|Blueprint)\([^)]*(?:prefix|url_prefix)=["\']([^"\']+)["\']', content)
+            prefix = m.group(1) if m else f"/{name}"
 
-                endpoints: list[str] = []
-                for em in re.finditer(r'@(?:router|app|bp)\.(get|post|put|delete|patch)\(\s*["\']([^"\']*)["\']', content):
-                    method = em.group(1).upper()
-                    subpath = em.group(2)
-                    full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
-                    endpoints.append(f"`{method} {full_p}`")
+            endpoints: list[str] = []
+            for em in re.finditer(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route)\(\s*["\']([^"\']*)["\']', content):
+                method = em.group(1).upper()
+                subpath = em.group(2)
+                full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
+                endpoints.append(f"`{method} {full_p}`")
 
-                routes.append({
-                    "name": name,
-                    "prefix": prefix,
-                    "endpoints": endpoints[:5],
-                    "total": len(endpoints),
-                })
-            except Exception:
-                routes.append({
-                    "name": name,
-                    "prefix": f"/{name}",
-                    "endpoints": [],
-                    "total": 0,
-                })
+            routes.append({
+                "name": name,
+                "prefix": prefix,
+                "endpoints": endpoints[:5],
+                "total": len(endpoints),
+            })
+        except Exception:
+            pass
 
-    # Next.js App Router API Route Handlers (app/api/**/route.ts)
+    # 2. Next.js App Router API Route Handlers (app/api/**/route.ts)
     for app_cand in (root / "apps" / "web" / "src" / "app" / "api", root / "src" / "app" / "api", root / "app" / "api"):
         if app_cand.is_dir():
             for route_file in sorted(app_cand.glob("**/route.[tj]s*")):
@@ -307,6 +344,69 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     })
                 except Exception:
                     pass
+
+    # 3. Node/TS Express, Fastify, Hono & NestJS Controllers
+    for ts_file in _iter_repo_files(root, "**/*.controller.ts", limit=30) + _iter_repo_files(root, "**/routes/**/*.[tj]s", limit=30):
+        try:
+            content = ts_file.read_text(encoding="utf-8", errors="ignore")
+            endpoints: list[str] = []
+            ctrl_m = re.search(r'@Controller\(\s*["\']?([^"\')\s]*)["\']?\s*\)', content)
+            prefix = "/" + ctrl_m.group(1).strip("/") if ctrl_m and ctrl_m.group(1) else f"/{ts_file.stem.replace('.controller', '')}"
+            for nm in re.finditer(r'@(Get|Post|Put|Delete|Patch)\(\s*["\']?([^"\')\s]*)["\']?\s*\)', content):
+                full_p = f"{prefix.rstrip('/')}/{nm.group(2).lstrip('/')}".rstrip("/") or "/"
+                endpoints.append(f"`{nm.group(1).upper()} {full_p}`")
+            for exm in re.finditer(r'\b(?:app|router|server)\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']', content):
+                endpoints.append(f"`{exm.group(1).upper()} {exm.group(2)}`")
+            if endpoints:
+                routes.append({
+                    "name": ts_file.stem,
+                    "prefix": prefix,
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
+        except Exception:
+            pass
+
+    # 4. Go (Gin / Echo / Chi / Fiber / net/http)
+    for go_file in _iter_repo_files(root, "**/*.go", limit=40):
+        if go_file.name.endswith("_test.go"):
+            continue
+        try:
+            content = go_file.read_text(encoding="utf-8", errors="ignore")
+            endpoints = []
+            for gm in re.finditer(r'\.\s*(GET|POST|PUT|DELETE|PATCH|HandleFunc)\(\s*"([^"]+)"', content):
+                m_str = "ANY" if gm.group(1) == "HandleFunc" else gm.group(1)
+                endpoints.append(f"`{m_str} {gm.group(2)}`")
+            if endpoints:
+                routes.append({
+                    "name": go_file.stem,
+                    "prefix": f"/{go_file.stem}",
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
+        except Exception:
+            pass
+
+    # 5. Java / Kotlin Spring Boot (@RestController) & Rust (Axum / Actix)
+    for jk_file in _iter_repo_files(root, "**/*Controller.java", limit=25) + _iter_repo_files(root, "**/*Controller.kt", limit=25):
+        try:
+            content = jk_file.read_text(encoding="utf-8", errors="ignore")
+            req_m = re.search(r'@RequestMapping\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']', content)
+            prefix = req_m.group(1) if req_m else f"/{jk_file.stem.replace('Controller', '').lower()}"
+            endpoints = []
+            for sm in re.finditer(r'@(Get|Post|Put|Delete|Patch)Mapping(?:\(\s*(?:value\s*=\s*)?["\']([^"\']*)["\'])?', content):
+                sub = sm.group(2) or ""
+                full_p = f"{prefix.rstrip('/')}/{sub.lstrip('/')}".rstrip("/") or "/"
+                endpoints.append(f"`{sm.group(1).upper()} {full_p}`")
+            if endpoints:
+                routes.append({
+                    "name": jk_file.stem,
+                    "prefix": prefix,
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
+        except Exception:
+            pass
 
     return routes
 
@@ -598,59 +698,80 @@ def generate_er_diagram(relations: list[str]) -> str:
 
 
 def scan_services_and_schedules(root: Path) -> dict[str, Any]:
-    """Scan core domain service modules and background/scheduled tasks (Celery beat, Cron, etc.)."""
+    """Universally scan core domain service modules and background/scheduled tasks (Celery, APScheduler, node-cron, NestJS @Cron, Go cron, K8s CronJob)."""
     services: list[dict[str, str]] = []
     schedules: list[dict[str, str]] = []
 
-    # 1. Core service modules
-    svc_dirs = [
-        root / "server" / "server" / "services",
-        root / "src" / "services",
-        root / "services",
-    ]
-    for sdir in svc_dirs:
-        if not sdir.is_dir():
-            continue
-        for f in sorted(sdir.glob("*.py")) + sorted(sdir.glob("*.ts")):
-            if f.name.startswith("_") or f.name.endswith(".test.ts"):
-                continue
-            try:
-                text = f.read_text(encoding="utf-8", errors="ignore")
-                doc = ""
-                dm = re.match(r'^\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', text)
-                if dm:
-                    doc = dm.group(1).strip().splitlines()[0].strip()
-                else:
-                    cm = re.match(r'^\s*(?://+|#+|\*+)\s*(.+)', text)
-                    if cm:
-                        doc = cm.group(1).strip()
-                services.append({
-                    "name": f.stem,
-                    "path": str(f.relative_to(root)),
-                    "summary": _sanitize_blueprint_text(doc[:110]) if doc else "Core domain service module",
-                })
-            except Exception:
-                pass
+    # 1. Core service / domain modules across any directory layout
+    svc_files: list[Path] = []
+    for sdir in (root / "server" / "server" / "services", root / "src" / "services", root / "services", root / "app" / "services"):
+        if sdir.is_dir():
+            svc_files.extend(sorted(sdir.glob("*.py")) + sorted(sdir.glob("*.ts")) + sorted(sdir.glob("*.go")))
+    for cand in _iter_repo_files(root, "**/services/*.[ptg]*", limit=40) + _iter_repo_files(root, "**/*service*.[ptg]*", limit=30):
+        if cand not in svc_files:
+            svc_files.append(cand)
 
-    # 2. Scheduled background jobs (Celery beat_schedule)
-    celery_candidates = [
-        root / "server" / "server" / "tasks" / "celery_app.py",
-        root / "server" / "tasks" / "celery_app.py",
-    ]
-    for cfile in celery_candidates:
-        if not cfile.exists():
+    seen_svc: set[Path] = set()
+    for f in svc_files:
+        if f in seen_svc or f.name.startswith("_") or ".test." in f.name or ".spec." in f.name or f.name.endswith("_test.go"):
             continue
+        seen_svc.add(f)
         try:
-            content = cfile.read_text(encoding="utf-8", errors="ignore")
-            for bm in re.finditer(
-                r'"([a-zA-Z0-9_-]+)"\s*:\s*\{\s*"task"\s*:\s*"([^"]+)"\s*,\s*"schedule"\s*:\s*([^\n]+)',
-                content,
-            ):
-                sched_raw = bm.group(3).rstrip(",").strip()
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            doc = ""
+            dm = re.match(r'^\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', text)
+            if dm:
+                doc = dm.group(1).strip().splitlines()[0].strip()
+            else:
+                cm = re.match(r'^\s*(?://+|#+|/\*\*?)\s*([^\n*]+)', text)
+                if cm:
+                    doc = cm.group(1).strip()
+            services.append({
+                "name": f.stem,
+                "path": str(f.relative_to(root)),
+                "summary": _sanitize_blueprint_text(doc[:110]) if doc else "Core domain service module",
+            })
+        except Exception:
+            pass
+
+    # 2. Scheduled background jobs across Python (Celery / APScheduler), TS (node-cron / @Cron), Go (cron)
+    for py_f in _iter_repo_files(root, "**/*.py", limit=60):
+        try:
+            content = py_f.read_text(encoding="utf-8", errors="ignore")
+            if "beat_schedule" in content:
+                for bm in re.finditer(
+                    r'"([a-zA-Z0-9_-]+)"\s*:\s*\{\s*"task"\s*:\s*"([^"]+)"\s*,\s*"schedule"\s*:\s*([^\n]+)',
+                    content,
+                ):
+                    schedules.append({
+                        "name": bm.group(1),
+                        "task": bm.group(2),
+                        "schedule": bm.group(3).rstrip(",").strip(),
+                    })
+            if "add_job(" in content or "scheduled_job(" in content:
+                for aj in re.finditer(r'(?:add_job|scheduled_job)\(\s*([a-zA-Z0-9_.]+)\s*,\s*["\']([^"\']+)["\']', content):
+                    schedules.append({
+                        "name": aj.group(1),
+                        "task": f"{py_f.stem}.{aj.group(1)}",
+                        "schedule": aj.group(2),
+                    })
+        except Exception:
+            pass
+
+    for ts_f in _iter_repo_files(root, "**/*.[tj]s", limit=50):
+        try:
+            content = ts_f.read_text(encoding="utf-8", errors="ignore")
+            for cm in re.finditer(r'cron\.schedule\(\s*["\']([^"\']+)["\']', content):
                 schedules.append({
-                    "name": bm.group(1),
-                    "task": bm.group(2),
-                    "schedule": sched_raw,
+                    "name": ts_f.stem,
+                    "task": str(ts_f.relative_to(root)),
+                    "schedule": f"cron({cm.group(1)})",
+                })
+            for nm in re.finditer(r'@Cron\(\s*["\']([^"\']+)["\']\s*\)[\s\S]{1,120}?\b([a-zA-Z0-9_]+)\s*\(', content):
+                schedules.append({
+                    "name": nm.group(2),
+                    "task": f"{ts_f.stem}.{nm.group(2)}",
+                    "schedule": f"@Cron({nm.group(1)})",
                 })
         except Exception:
             pass
@@ -662,53 +783,65 @@ def scan_services_and_schedules(root: Path) -> dict[str, Any]:
 
 
 def scan_mcp_and_ws_protocols(root: Path) -> dict[str, Any]:
-    """Scan MCP Server registered tools and WebSocket message event types."""
+    """Universally scan MCP tools (TS & Python FastMCP), WebSocket events, gRPC Protobuf services, and GraphQL operations."""
     mcp_tools: list[dict[str, str]] = []
     ws_events: list[str] = []
+    rpc_contracts: list[str] = []
 
-    mcp_files = [
-        root / "packages" / "mcp" / "src" / "server.ts",
-        root / "src" / "mcp" / "server.ts",
-    ]
-    for mf in mcp_files:
-        if not mf.exists():
-            continue
+    for mf in _iter_repo_files(root, "**/*.[tp][sy]", limit=60):
         try:
             content = mf.read_text(encoding="utf-8", errors="ignore")
-            for tm in re.finditer(
-                r'registerTool\(\s*["\']([a-zA-Z0-9_-]+)["\']\s*,\s*\{[\s\S]*?description:\s*\n?\s*["\']([^"\']+)["\']',
-                content,
-            ):
-                mcp_tools.append({
-                    "name": tm.group(1),
-                    "description": tm.group(2).strip()[:100],
-                })
+            if "registerTool" in content or "@mcp.tool" in content:
+                for tm in re.finditer(
+                    r'registerTool\(\s*["\']([a-zA-Z0-9_-]+)["\']\s*,\s*\{[\s\S]*?description:\s*\n?\s*["\']([^"\']+)["\']',
+                    content,
+                ):
+                    mcp_tools.append({
+                        "name": tm.group(1),
+                        "description": tm.group(2).strip()[:100],
+                    })
+                for pm in re.finditer(r'@mcp\.tool\([^)]*\)\s*(?:async\s+)?def\s+([a-zA-Z0-9_]+)\s*\([^)]*\)\s*(?:->[^:]+)?:\s*(?:"""([^"]+)""")?', content):
+                    mcp_tools.append({
+                        "name": pm.group(1),
+                        "description": (pm.group(2) or "Python MCP tool").strip().splitlines()[0][:100],
+                    })
+            if "WebSocket" in content or "ws" in mf.stem.lower() or "socket.on(" in content:
+                for cm in re.finditer(r'(?:case|socket\.on\()\s*["\']([a-zA-Z0-9_:-]+)["\']', content):
+                    ev = cm.group(1)
+                    if ev not in ws_events and len(ev) > 2:
+                        ws_events.append(ev)
+                for pm in re.finditer(r'msg_type\s*==\s*["\']([a-zA-Z0-9_:-]+)["\']', content):
+                    ev = pm.group(1)
+                    if ev not in ws_events:
+                        ws_events.append(ev)
         except Exception:
             pass
 
-    ws_files = [
-        root / "packages" / "daemon" / "src" / "ws-client.ts",
-        root / "server" / "server" / "api" / "ws.py",
-    ]
-    for wf in ws_files:
-        if not wf.exists():
-            continue
+    # gRPC .proto & GraphQL .graphql/.gql contracts
+    for pf in _iter_repo_files(root, "**/*.proto", limit=20):
         try:
-            content = wf.read_text(encoding="utf-8", errors="ignore")
-            for cm in re.finditer(r'case\s+["\']([a-zA-Z0-9_]+)["\']\s*:', content):
-                ev = cm.group(1)
-                if ev not in ws_events:
-                    ws_events.append(ev)
-            for pm in re.finditer(r'msg_type\s*==\s*["\']([a-zA-Z0-9_]+)["\']', content):
-                ev = pm.group(1)
-                if ev not in ws_events:
-                    ws_events.append(ev)
+            content = pf.read_text(encoding="utf-8", errors="ignore")
+            for sm in re.finditer(r'service\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}', content):
+                sname = sm.group(1)
+                for rm in re.finditer(r'rpc\s+([A-Za-z0-9_]+)\s*\(\s*(?:stream\s+)?([A-Za-z0-9_.]+)\s*\)\s*returns\s*\(\s*(?:stream\s+)?([A-Za-z0-9_.]+)\s*\)', sm.group(2)):
+                    rpc_contracts.append(f"gRPC `{sname}.{rm.group(1)}({rm.group(2)}) ➔ {rm.group(3)}`")
+        except Exception:
+            pass
+
+    for gf in _iter_repo_files(root, "**/*.graphql", limit=20) + _iter_repo_files(root, "**/*.gql", limit=20):
+        try:
+            content = gf.read_text(encoding="utf-8", errors="ignore")
+            for tm in re.finditer(r'type\s+(Query|Mutation|Subscription)\s*\{([\s\S]*?)\}', content):
+                kind = tm.group(1)
+                for fm in re.finditer(r'^\s*([a-zA-Z0-9_]+)\s*(?:\([^)]*\))?\s*:\s*([A-Za-z0-9_\[\]!]+)', tm.group(2), re.MULTILINE):
+                    rpc_contracts.append(f"GraphQL `{kind}.{fm.group(1)} ➔ {fm.group(2)}`")
         except Exception:
             pass
 
     return {
         "mcp_tools": mcp_tools[:25],
         "ws_events": ws_events[:25],
+        "rpc_contracts": rpc_contracts[:20],
     }
 
 
@@ -765,23 +898,33 @@ def scan_hotspots_and_tests(root: Path) -> dict[str, Any]:
             hotspots.append({"path": path_str, "commits": cnt})
 
     test_suites: list[dict[str, Any]] = []
-    suite_dirs = [
-        ("Backend (pytest)", root / "server" / "tests", "test_*.py"),
-        ("Daemon (vitest)", root / "packages" / "daemon" / "test", "*.test.ts"),
-        ("Web (vitest)", root / "apps" / "web" / "test", "*.test.ts*"),
-        ("Desktop (vitest)", root / "apps" / "desktop" / "test", "*.test.ts*"),
-        ("MCP (vitest)", root / "packages" / "mcp" / "test", "*.test.ts"),
-    ]
-    for label, tdir, pat in suite_dirs:
-        if tdir.is_dir():
-            files = sorted(f.name for f in tdir.glob(pat))
-            if files:
-                test_suites.append({
-                    "suite": label,
-                    "dir": str(tdir.relative_to(root)),
-                    "count": len(files),
-                    "samples": ", ".join(f"`{n}`" for n in files[:5]),
-                })
+    all_test_files = (
+        _iter_repo_files(root, "**/test_*.py", limit=150)
+        + _iter_repo_files(root, "**/*_test.py", limit=100)
+        + _iter_repo_files(root, "**/*.test.[tj]s*", limit=150)
+        + _iter_repo_files(root, "**/*.spec.[tj]s*", limit=100)
+        + _iter_repo_files(root, "**/*_test.go", limit=100)
+        + _iter_repo_files(root, "**/*Test.java", limit=100)
+        + _iter_repo_files(root, "**/*Test.kt", limit=100)
+    )
+    grouped_tests: dict[str, list[str]] = {}
+    for tf in dict.fromkeys(all_test_files):
+        rel_dir = str(tf.parent.relative_to(root))
+        grouped_tests.setdefault(rel_dir, []).append(tf.name)
+
+    for rel_dir, tfiles in sorted(grouped_tests.items(), key=lambda x: (-len(x[1]), x[0]))[:10]:
+        sfiles = sorted(set(tfiles))
+        runner = "pytest" if any(n.endswith(".py") for n in sfiles) else (
+            "go test" if any(n.endswith(".go") for n in sfiles) else (
+                "JUnit" if any(n.endswith((".java", ".kt")) for n in sfiles) else "vitest / jest"
+            )
+        )
+        test_suites.append({
+            "suite": f"{rel_dir} ({runner})",
+            "dir": rel_dir,
+            "count": len(sfiles),
+            "samples": ", ".join(f"`{n}`" for n in sfiles[:5]),
+        })
     return {
         "hotspots": hotspots,
         "test_suites": test_suites,
@@ -1057,6 +1200,7 @@ def build_blueprint_content(root: Path) -> str:
     protocols = scan_mcp_and_ws_protocols(root)
     mcp_tools = protocols.get("mcp_tools", [])
     ws_events = protocols.get("ws_events", [])
+    rpc_contracts = protocols.get("rpc_contracts", [])
     cicd_items = scan_cicd_and_deploy(root)
     hot_tests = scan_hotspots_and_tests(root)
     hotspots = hot_tests.get("hotspots", [])
@@ -1168,9 +1312,9 @@ def build_blueprint_content(root: Path) -> str:
                 doc.append(f"| `{svc['name']}` | [`{svc['path']}`]({svc['path']}) | {svc['summary']} |")
             doc.append("")
 
-    if mcp_tools or ws_events:
+    if mcp_tools or ws_events or rpc_contracts:
         doc.extend([
-            "## 6. MCP Tools & Real-Time WebSocket Protocols",
+            "## 6. MCP Tools, RPC Contracts & Real-Time WebSocket Protocols",
             "",
         ])
         if mcp_tools:
@@ -1182,6 +1326,12 @@ def build_blueprint_content(root: Path) -> str:
             ])
             for mt in mcp_tools:
                 doc.append(f"| `{mt['name']}` | {mt['description']} |")
+            doc.append("")
+        if rpc_contracts:
+            doc.append("### gRPC & GraphQL Service Contracts")
+            doc.append("")
+            for rc in rpc_contracts:
+                doc.append(f"- {rc}")
             doc.append("")
         if ws_events:
             doc.append("### WebSocket Control & Data Plane Events")

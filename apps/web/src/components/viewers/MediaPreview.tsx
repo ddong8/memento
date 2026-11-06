@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   FiPlay,
@@ -2960,12 +2960,12 @@ export interface ImagePreviewProps {
 export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<boolean>(false);
-  const [resolved, setResolved] = useState<ResolvedMedia>(() => resolveMediaUrl(src));
-
-  useEffect(() => {
-    setResolved(resolveMediaUrl(src));
+  const [prevSrc, setPrevSrc] = useState(src);
+  if (prevSrc !== src) {
+    setPrevSrc(src);
     setLoadError(false);
-  }, [src]);
+  }
+  const resolved = useMemo(() => resolveMediaUrl(src), [src]);
 
   const { playUrl, filename: resolvedFilename } = resolved;
   const displayTitle = alt || resolvedFilename || "image-preview";

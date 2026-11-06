@@ -178,6 +178,7 @@ async def _run() -> dict:
                     healed += 1
 
             await db.commit()
+            db.expunge_all()
             logger.info("title backfill: scanned %d junk-titled, healed %d", scanned, healed)
 
     return {"scanned": scanned, "healed": healed}

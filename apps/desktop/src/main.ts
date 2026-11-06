@@ -1048,7 +1048,18 @@ sleep 1
 if [ -n "$SRC_APP" ] && [ -d "$SRC_APP" ] && [ -n "$TARGET_APP" ]; then
     PARENT_DIR=$(dirname "$TARGET_APP")
     if [ ! -w "$PARENT_DIR" ] || ( [ -e "$TARGET_APP" ] && [ ! -w "$TARGET_APP" ] ); then
-        osascript -e "do shell script \\"rm -rf \\\\\\"$TARGET_APP\\\\\\" && cp -R \\\\\\"$SRC_APP\\\\\\" \\\\\\"$TARGET_APP\\\\\\" && xattr -cr \\\\\\"$TARGET_APP\\\\\\"\\" with administrator privileges" 2>/dev/null || true
+        # 增加 45 秒超时防护，避免提权弹窗被第三方安全软件拦截时挂起
+        osascript -e "do shell script \\"rm -rf \\\\\\"$TARGET_APP\\\\\\" && cp -R \\\\\\"$SRC_APP\\\\\\" \\\\\\"$TARGET_APP\\\\\\" && xattr -cr \\\\\\"$TARGET_APP\\\\\\"\\" with administrator privileges" 2>/dev/null &
+        OSA_PID=$!
+        WAIT_COUNT=0
+        while kill -0 "$OSA_PID" 2>/dev/null; do
+            sleep 1
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+            if [ "$WAIT_COUNT" -ge 45 ]; then
+                kill -9 "$OSA_PID" 2>/dev/null
+                break
+            fi
+        done
     else
         rm -rf "$TARGET_APP"
         cp -R "$SRC_APP" "$TARGET_APP"

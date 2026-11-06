@@ -524,7 +524,6 @@ function AskPageContent() {
   const promptDraftRef = useRef<string>("");
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
   const showScrollBottomRef = useRef<boolean>(false);
-  const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
   const [quotaOpen, setQuotaOpen] = useState<boolean>(false);
   const [quotasData, setQuotasData] = useState<AgentQuotasResponse | null>(() => askCache?.quotasData || getLocalCachedQuotas(initSnap?.selectedDevice || selectedDevice));
   const [shareModalOpen, setShareModalOpen] = useState<boolean>(false);
@@ -532,7 +531,6 @@ function AskPageContent() {
   const [shareTitle, setShareTitle] = useState<string>("");
   const [shareContent, setShareContent] = useState<string>("");
   const [shareInitialTab, setShareInitialTab] = useState<"link" | "publish">("link");
-  const [batchSelectMode, setBatchSelectMode] = useState<boolean>(false);
   const [selectTurnsMode, setSelectTurnsMode] = useState<boolean>(false);
   const [selectedTurnIndices, setSelectedTurnIndices] = useState<number[]>([]);
 
@@ -891,9 +889,6 @@ function AskPageContent() {
   // Load conversation list
   const loadConversations = useCallback(async (filterDev?: string) => {
     try {
-      if (conversations.length === 0) {
-        setLoadingHistory(true);
-      }
       // 桌面/网页端默认加载全量历史会话 ("all")，由抽屉内置的高性能 filter 进行设备级瞬时切换
       const devToQuery = filterDev !== undefined ? filterDev : "all";
       const list = await api.listAskConversations(devToQuery, 500);
@@ -920,8 +915,6 @@ function AskPageContent() {
       }
     } catch (e) {
       console.error("Failed to load ask conversations:", e);
-    } finally {
-      setLoadingHistory(false);
     }
   }, [conversations.length]);
 

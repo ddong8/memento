@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { DeviceSummary, ProjectSummary } from "@/lib/api-client";
+import type { ProjectSummary } from "@/lib/api-client";
 import type { ExecutionMode } from "@/lib/ask/turns";
 import type { AgentSessionItem } from "@/lib/ask/sessions";
 import { isConcreteDevice, projectPathOn } from "@/lib/ask/devices";

@@ -259,6 +259,15 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
         `_curated=${s(counts.curated_docs ?? 0)} · recent_convs=${s(counts.recent_conversations ?? 0)} · entities=${s(counts.entities ?? 0)} · observations=${s(counts.total_observations ?? 0)}_`,
         "",
       ];
+      const codebaseBp = s(bp.codebase_blueprint);
+      if (codebaseBp) {
+        out.push(
+          "## Living Codebase Architecture Blueprint",
+          "",
+          codebaseBp,
+          "",
+        );
+      }
       const curated = arr(bp.curated_docs);
       if (curated.length) {
         out.push("## Curated documents");

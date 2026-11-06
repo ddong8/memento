@@ -6,6 +6,7 @@ import re
 import time
 import uuid
 import traceback
+from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1995,6 +1996,24 @@ async def get_project_blueprint(
                 "target_type": target.entity_type,
             })
 
+    # Codebase Living Architecture Blueprint (PROJECT_BLUEPRINT.md)
+    codebase_blueprint = None
+    clean_path = _clean_source_path(project.source_path)
+    if clean_path:
+        try:
+            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
+            if bp_file.is_file():
+                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+
+    if not codebase_blueprint:
+        # Fallback to curated_docs if already ingested
+        for cd in curated_docs:
+            if (cd.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
+                codebase_blueprint = cd.content
+                break
+
     payload = {
         "project": {
             "id": str(project.id),
@@ -2003,6 +2022,7 @@ async def get_project_blueprint(
             "tool_id": project.tool_id,
             "source_path": _clean_source_path(project.source_path),
         },
+        "codebase_blueprint": codebase_blueprint,
         "curated_docs": [
             {
                 "id": str(d.id),

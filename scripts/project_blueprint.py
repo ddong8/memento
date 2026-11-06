@@ -13,6 +13,7 @@ without expensive, repetitive grep/find reconnaissance.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -931,6 +932,264 @@ def scan_hotspots_and_tests(root: Path) -> dict[str, Any]:
     }
 
 
+def scan_ast_call_graph_and_deps(root: Path) -> dict[str, list[str]]:
+    """Build cross-module dependency and call graph using Python AST and TS/Go/Rust static import resolution."""
+    pkg_edges: list[str] = []
+    call_edges: list[str] = []
+
+    # 1. Monorepo workspace package dependencies (package.json / Cargo.toml)
+    workspace_pkgs: dict[str, str] = {}
+    for pj in _iter_repo_files(root, "**/package.json", limit=40):
+        if pj == root / "package.json":
+            continue
+        try:
+            data = json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
+            pname = data.get("name")
+            rel_dir = str(pj.parent.relative_to(root))
+            if isinstance(pname, str) and pname:
+                workspace_pkgs[pname] = rel_dir
+        except Exception:
+            pass
+
+    for pj in _iter_repo_files(root, "**/package.json", limit=40):
+        if pj == root / "package.json":
+            continue
+        try:
+            data = json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
+            src_dir = str(pj.parent.relative_to(root))
+            deps = {**(data.get("dependencies") or {}), **(data.get("devDependencies") or {})}
+            for dep_name in deps:
+                if dep_name in workspace_pkgs and workspace_pkgs[dep_name] != src_dir:
+                    edge = f"`{src_dir}` ➔ `{workspace_pkgs[dep_name]}` (`{dep_name}`)"
+                    if edge not in pkg_edges:
+                        pkg_edges.append(edge)
+        except Exception:
+            pass
+
+    # 2. Python AST cross-layer call & dependency graph (API / Tasks ➔ Services / DB)
+    py_files = (
+        _iter_repo_files(root, "**/api/*.py", limit=35)
+        + _iter_repo_files(root, "**/tasks/*.py", limit=25)
+        + _iter_repo_files(root, "**/routers/*.py", limit=25)
+        + _iter_repo_files(root, "**/*.py", limit=40)
+    )
+    seen_py: set[Path] = set()
+    for pf in py_files:
+        if pf in seen_py or pf.name.startswith("_") or "test" in pf.parts:
+            continue
+        seen_py.add(pf)
+        try:
+            source = pf.read_text(encoding="utf-8", errors="ignore")
+            tree = ast.parse(source)
+            src_label = f"{pf.parent.name}/{pf.stem}" if pf.parent != root else pf.stem
+            imported_services: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    mod = node.module
+                    if "services" in mod or "db" in mod or "tasks" in mod:
+                        parts = mod.split(".")
+                        if parts[-1] in ("services", "db", "tasks", "models", "core"):
+                            for alias in node.names:
+                                target_mod = f"{parts[-1]}/{alias.name}"
+                                edge = f"`{src_label}` ➔ `{target_mod}`"
+                                if edge not in call_edges and src_label != target_mod:
+                                    call_edges.append(edge)
+                        else:
+                            target_mod = "/".join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+                            for alias in node.names:
+                                imported_services.add(f"{target_mod}.{alias.name}")
+                            edge = f"`{src_label}` ➔ `{target_mod}`"
+                            if edge not in call_edges and src_label != target_mod:
+                                call_edges.append(edge)
+        except Exception:
+            pass
+
+    # 3. TypeScript / Go internal module imports when Python edges are absent
+    if len(call_edges) < 10:
+        for tf in _iter_repo_files(root, "**/*.[tg][so]*", limit=45):
+            if ".test." in tf.name or ".spec." in tf.name or tf.name.endswith("_test.go"):
+                continue
+            try:
+                content = tf.read_text(encoding="utf-8", errors="ignore")
+                src_label = f"{tf.parent.name}/{tf.stem}"
+                for im in re.finditer(r'from\s+["\'](?:\.\.?/|@/)([a-zA-Z0-9_/-]+)["\']', content):
+                    target = im.group(1).rstrip("/")
+                    edge = f"`{src_label}` ➔ `{target}`"
+                    if edge not in call_edges and len(call_edges) < 25:
+                        call_edges.append(edge)
+            except Exception:
+                pass
+
+    return {
+        "package_edges": pkg_edges[:15],
+        "call_edges": call_edges[:20],
+    }
+
+
+def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
+    """Scan OpenAPI/Swagger specs as well as Pydantic BaseModel / TypeScript interface / Zod DTO schemas."""
+    schemas: list[dict[str, str]] = []
+
+    # 1. OpenAPI / Swagger JSON files
+    for oa_file in _iter_repo_files(root, "**/*openapi*.json", limit=5) + _iter_repo_files(root, "**/*swagger*.json", limit=5):
+        try:
+            data = json.loads(oa_file.read_text(encoding="utf-8", errors="ignore"))
+            comp_schemas = (data.get("components") or {}).get("schemas") or data.get("definitions") or {}
+            for sname, sdef in list(comp_schemas.items())[:15]:
+                if isinstance(sdef, dict):
+                    props = list((sdef.get("properties") or {}).keys())[:6]
+                    schemas.append({
+                        "name": sname,
+                        "kind": "OpenAPI Schema",
+                        "source": str(oa_file.relative_to(root)),
+                        "fields": ", ".join(f"`{p}`" for p in props) if props else "object",
+                    })
+        except Exception:
+            pass
+
+    # 2. Python Pydantic Request/Response DTOs ( via AST )
+    for py_file in _iter_repo_files(root, "**/api/*.py", limit=30) + _iter_repo_files(root, "**/schemas*.py", limit=20):
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8", errors="ignore"))
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    bases = [ast.unparse(b) if hasattr(ast, "unparse") else getattr(b, "id", "") for b in node.bases]
+                    if any("BaseModel" in b or "Schema" in b for b in bases):
+                        fields = []
+                        for stmt in node.body:
+                            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and not stmt.target.id.startswith("_"):
+                                ftype = ast.unparse(stmt.annotation).replace("|", "\\|") if hasattr(ast, "unparse") and stmt.annotation else ""
+                                fields.append(f"{stmt.target.id}: {ftype}" if ftype else stmt.target.id)
+                        if fields:
+                            schemas.append({
+                                "name": node.name,
+                                "kind": "Pydantic DTO",
+                                "source": str(py_file.relative_to(root)),
+                                "fields": ", ".join(f"`{f}`" for f in fields[:6]),
+                            })
+        except Exception:
+            pass
+
+    # 3. TypeScript exported interfaces / Zod schemas
+    if len(schemas) < 20:
+        for ts_file in _iter_repo_files(root, "**/types*.ts", limit=15) + _iter_repo_files(root, "**/*dto*.ts", limit=15):
+            try:
+                content = ts_file.read_text(encoding="utf-8", errors="ignore")
+                for im in re.finditer(r'export\s+interface\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}', content):
+                    iname = im.group(1)
+                    props = re.findall(r'^\s*([a-zA-Z0-9_]+)\??\s*:', im.group(2), re.MULTILINE)
+                    if props:
+                        schemas.append({
+                            "name": iname,
+                            "kind": "TS Interface",
+                            "source": str(ts_file.relative_to(root)),
+                            "fields": ", ".join(f"`{p}`" for p in props[:6]),
+                        })
+            except Exception:
+                pass
+
+    return schemas[:25]
+
+
+def scan_cli_and_entrypoints(root: Path) -> list[dict[str, str]]:
+    """Scan CLI binaries, pyproject scripts, Go cmd/*, Rust src/bin/*, and repository utility scripts."""
+    entries: list[dict[str, str]] = []
+
+    # 1. package.json bin entries
+    for pj in _iter_repo_files(root, "**/package.json", limit=30):
+        try:
+            data = json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
+            bins = data.get("bin")
+            if isinstance(bins, dict):
+                for bname, bpath in bins.items():
+                    entries.append({
+                        "name": bname,
+                        "kind": "Node CLI Binary",
+                        "path": str((pj.parent / str(bpath)).relative_to(root)),
+                    })
+            elif isinstance(bins, str) and data.get("name"):
+                entries.append({
+                    "name": str(data["name"]),
+                    "kind": "Node CLI Binary",
+                    "path": str((pj.parent / bins).relative_to(root)),
+                })
+        except Exception:
+            pass
+
+    # 2. pyproject.toml [project.scripts]
+    for pp in _iter_repo_files(root, "**/pyproject.toml", limit=15):
+        try:
+            content = pp.read_text(encoding="utf-8", errors="ignore")
+            sm = re.search(r'\[project\.scripts\]([\s\S]*?)(?:\n\[|\Z)', content)
+            if sm:
+                for line in sm.group(1).splitlines():
+                    if "=" in line and not line.strip().startswith("#"):
+                        k, v = line.split("=", 1)
+                        entries.append({
+                            "name": k.strip(),
+                            "kind": "Python CLI Script",
+                            "path": v.strip().strip("\"'"),
+                        })
+        except Exception:
+            pass
+
+    # 3. Go cmd/*/main.go & Rust src/bin/*.rs
+    for gm in _iter_repo_files(root, "cmd/*/main.go", limit=15):
+        entries.append({"name": gm.parent.name, "kind": "Go Command", "path": str(gm.relative_to(root))})
+    for rb in _iter_repo_files(root, "**/src/bin/*.rs", limit=15):
+        entries.append({"name": rb.stem, "kind": "Rust Binary", "path": str(rb.relative_to(root))})
+
+    # 4. Repository scripts/ directory
+    scripts_dir = root / "scripts"
+    if scripts_dir.is_dir():
+        for sf in sorted(scripts_dir.iterdir()):
+            if sf.is_file() and sf.suffix in (".py", ".sh", ".mjs", ".ts", ".js"):
+                entries.append({
+                    "name": sf.name,
+                    "kind": "Automation Script",
+                    "path": str(sf.relative_to(root)),
+                })
+
+    return entries[:20]
+
+
+def scan_external_infra(root: Path) -> list[str]:
+    """Detect external databases, caches, queues, and object storage used by the project."""
+    detected: list[str] = []
+    manifest_texts = []
+    for fname in ("docker-compose.yml", "docker-compose.yaml", ".env.example", "pyproject.toml", "package.json", "go.mod", "Cargo.toml"):
+        p = root / fname
+        if p.exists():
+            try:
+                manifest_texts.append(p.read_text(encoding="utf-8", errors="ignore").lower())
+            except Exception:
+                pass
+    for sub_m in _iter_repo_files(root, "**/pyproject.toml", limit=10) + _iter_repo_files(root, "**/package.json", limit=15):
+        try:
+            manifest_texts.append(sub_m.read_text(encoding="utf-8", errors="ignore").lower())
+        except Exception:
+            pass
+
+    blob = "\n".join(manifest_texts)
+    infra_rules = [
+        ("PostgreSQL", ("postgres", "asyncpg", "psycopg", "pgvector", '"pg"', "pgx")),
+        ("pgvector (Vector DB)", ("pgvector",)),
+        ("Redis", ("redis", "ioredis", "bullmq")),
+        ("MySQL / MariaDB", ("mysql", "pymysql", "mariadb")),
+        ("SQLite", ("sqlite", "aiosqlite", "better-sqlite3")),
+        ("MongoDB", ("mongodb", "mongoose", "pymongo", "motor")),
+        ("MinIO / S3 Object Storage", ("minio", "s3", "boto3", "@aws-sdk/client-s3")),
+        ("Celery Task Queue", ("celery",)),
+        ("Kafka", ("kafka", "confluent-kafka", "kafkajs")),
+        ("RabbitMQ", ("rabbitmq", "amqp", "pika")),
+        ("Elasticsearch / OpenSearch", ("elasticsearch", "opensearch")),
+    ]
+    for label, keywords in infra_rules:
+        if any(kw in blob for kw in keywords):
+            detected.append(label)
+    return detected
+
+
 def _sanitize_blueprint_text(text: str) -> str:
     """Mask private network IP ranges or sensitive internal addresses."""
     text = re.sub(r'192\.168\.\d{1,3}\.[a-zA-Z0-9_.-]+', '<internal-ip>', text)
@@ -1007,7 +1266,12 @@ def ensure_agent_guidance_anchor(root: Path) -> bool:
     return modified
 
 
-def generate_mermaid_diagram(subsystems: list[dict[str, Any]], stack: dict[str, Any]) -> str:
+def generate_mermaid_diagram(
+    subsystems: list[dict[str, Any]],
+    stack: dict[str, Any],
+    infra: list[str] | None = None,
+    pkg_edges: list[str] | None = None,
+) -> str:
     """Generate a high-level architectural data flow diagram in Mermaid format."""
     lines = ["```mermaid", "flowchart TD"]
 
@@ -1019,15 +1283,33 @@ def generate_mermaid_diagram(subsystems: list[dict[str, Any]], stack: dict[str, 
     has_emb = any("embedding" in s["name"] for s in subsystems)
 
     if not (has_web or has_desktop or has_daemon or has_mcp or has_server):
-        # Dynamic architecture graph for general non-Memento repositories
+        # Dynamic architecture graph for general non-Memento repositories using real dependencies & infra
         lines.append('    subgraph Modules["项目核心模块与子系统"]')
+        node_map: dict[str, str] = {}
         for idx, sub in enumerate(subsystems[:10]):
+            nid = f"M{idx}"
+            node_map[sub["path"]] = nid
+            node_map[sub["name"]] = nid
             safe_label = sub["name"].replace('"', "'")
-            lines.append(f'        M{idx}["{safe_label} ({sub["type"]})"]')
+            lines.append(f'        {nid}["{safe_label} ({sub["type"]})"]')
         lines.append("    end")
-        if len(subsystems) >= 2:
+        if infra:
+            lines.append('    subgraph Infra["外部存储与中间件"]')
+            for i_idx, inf in enumerate(infra[:6]):
+                lines.append(f'        INF{i_idx}[("{inf}")]')
+            lines.append("    end")
+        added_real_edge = False
+        for pe in (pkg_edges or []):
+            m = re.match(r'`([^`]+)`\s*➔\s*`([^`]+)`', pe)
+            if m and m.group(1) in node_map and m.group(2) in node_map:
+                lines.append(f"    {node_map[m.group(1)]} --> {node_map[m.group(2)]}")
+                added_real_edge = True
+        if not added_real_edge and len(subsystems) >= 2:
             for idx in range(1, min(len(subsystems), 10)):
                 lines.append(f"    M0 --> M{idx}")
+        if infra and subsystems:
+            for i_idx in range(min(len(infra), 6)):
+                lines.append(f"    M0 -.-> INF{i_idx}")
         lines.append("```")
         return "\n".join(lines)
 
@@ -1205,8 +1487,14 @@ def build_blueprint_content(root: Path) -> str:
     hot_tests = scan_hotspots_and_tests(root)
     hotspots = hot_tests.get("hotspots", [])
     test_suites = hot_tests.get("test_suites", [])
+    ast_deps = scan_ast_call_graph_and_deps(root)
+    pkg_edges = ast_deps.get("package_edges", [])
+    call_edges = ast_deps.get("call_edges", [])
+    dto_schemas = scan_openapi_and_dto_schemas(root)
+    cli_entries = scan_cli_and_entrypoints(root)
+    infra_list = scan_external_infra(root)
     env_vars = scan_env_variables(root)
-    mermaid_diagram = generate_mermaid_diagram(subsystems, stack)
+    mermaid_diagram = generate_mermaid_diagram(subsystems, stack, infra=infra_list, pkg_edges=pkg_edges)
     evolution_list = get_git_evolution(root, limit=6)
 
     doc = [
@@ -1223,6 +1511,7 @@ def build_blueprint_content(root: Path) -> str:
         f"- **Project Type**: {stack['project_type']}",
         f"- **Core Languages**: {', '.join(stack['languages']) if stack['languages'] else 'Generic'}",
         f"- **Key Frameworks**: {', '.join(stack['frameworks']) if stack['frameworks'] else 'None detected'}",
+        f"- **Infrastructure & Middleware**: {', '.join(infra_list) if infra_list else 'Standard local runtime'}",
         "",
         "## 2. High-Level Architecture Topology",
         "",
@@ -1337,6 +1626,44 @@ def build_blueprint_content(root: Path) -> str:
             doc.append("### WebSocket Control & Data Plane Events")
             doc.append("")
             doc.append(", ".join(f"`{ev}`" for ev in ws_events))
+            doc.append("")
+
+    if pkg_edges or call_edges or dto_schemas or cli_entries:
+        doc.extend([
+            "## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints",
+            "",
+        ])
+        if pkg_edges:
+            doc.append("### Workspace Package Dependency Graph")
+            doc.append("")
+            for pe in pkg_edges:
+                doc.append(f"- {pe}")
+            doc.append("")
+        if call_edges:
+            doc.append("### AST Cross-Layer Call & Import Graph (Entry ➔ Service / Store)")
+            doc.append("")
+            for ce in call_edges:
+                doc.append(f"- {ce}")
+            doc.append("")
+        if dto_schemas:
+            doc.extend([
+                "### Key Request / Response DTO & OpenAPI Schemas",
+                "",
+                "| Schema Name | Type | Source File | Core Fields |",
+                "| :--- | :--- | :--- | :--- |",
+            ])
+            for ds in dto_schemas:
+                doc.append(f"| `{ds['name']}` | {ds['kind']} | [`{ds['source']}`]({ds['source']}) | {ds['fields']} |")
+            doc.append("")
+        if cli_entries:
+            doc.extend([
+                "### CLI Binaries & Automation Entrypoints",
+                "",
+                "| Command / Script | Category | Path / Target |",
+                "| :--- | :--- | :--- |",
+            ])
+            for ce in cli_entries:
+                doc.append(f"| `{ce['name']}` | {ce['kind']} | `{ce['path']}` |")
             doc.append("")
 
     if cicd_items or hotspots or test_suites:

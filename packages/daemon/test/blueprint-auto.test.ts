@@ -156,4 +156,59 @@ describe("blueprint-auto", () => {
     expect(bpContent).toContain("gRPC `PaymentService.ChargeCard(ChargeRequest) ➔ ChargeReply`");
     expect(bpContent).toContain("`orders.spec.ts`");
   });
+
+  it("extracts AST cross-layer call graphs, OpenAPI/Pydantic/TS DTO schemas, CLI entrypoints, and external infra nodes", async () => {
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({
+        name: "enterprise-platform",
+        bin: { "ep-cli": "./bin/ep.js" },
+        dependencies: { ioredis: "^5.0.0", pg: "^8.11.0" },
+      }),
+    );
+
+    // Python AST call graph + Pydantic DTO
+    mkdirSync(join(tmpDir, "app", "api"), { recursive: true });
+    mkdirSync(join(tmpDir, "app", "services"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "app", "services", "billing.py"),
+      `def calculate_invoice(amount: int) -> int:\n    return amount\n`,
+    );
+    writeFileSync(
+      join(tmpDir, "app", "api", "checkout.py"),
+      `from pydantic import BaseModel\nfrom app.services import billing\n\nclass CheckoutPayload(BaseModel):\n    order_id: str\n    total_cents: int\n\ndef handle_checkout():\n    return billing.calculate_invoice(100)\n`,
+    );
+
+    // OpenAPI spec
+    writeFileSync(
+      join(tmpDir, "openapi.json"),
+      JSON.stringify({
+        openapi: "3.0.0",
+        components: {
+          schemas: {
+            CustomerProfile: {
+              type: "object",
+              properties: { id: { type: "string" }, email: { type: "string" } },
+            },
+          },
+        },
+      }),
+    );
+
+    const ok = await ensureProjectBlueprint(tmpDir, { force: true });
+    expect(ok).toBe(true);
+    const bpContent = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    // External infra detected in Mermaid architecture diagram
+    expect(bpContent).toContain("PostgreSQL");
+    expect(bpContent).toContain("Redis");
+    // AST cross-layer dependency edge
+    expect(bpContent).toContain("`api/checkout` ➔ `services/billing`");
+    // OpenAPI & Pydantic DTO schemas
+    expect(bpContent).toContain("`CustomerProfile`");
+    expect(bpContent).toContain("`CheckoutPayload`");
+    expect(bpContent).toContain("order_id: str");
+    // CLI entrypoint
+    expect(bpContent).toContain("`ep-cli`");
+  });
 });

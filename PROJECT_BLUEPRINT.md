@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4eacfcc0` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c0a89884` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -11,6 +11,7 @@
 - **Project Type**: Monorepo (Workspaces)
 - **Core Languages**: TypeScript/JavaScript, Python
 - **Key Frameworks**: React, FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
+- **Infrastructure & Middleware**: PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 
 ## 2. High-Level Architecture Topology
 
@@ -462,6 +463,83 @@ erDiagram
 | `life_service` | [`server/server/services/life_service.py`](server/server/services/life_service.py) | 24/7 Life Rhythm, Screen Time & AI Lifestyle Decision Service. |
 | `memory_compaction` | [`server/server/services/memory_compaction.py`](server/server/services/memory_compaction.py) | Memory compaction — periodically compress old observations into summaries. |
 
+## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
+
+### Workspace Package Dependency Graph
+
+- `apps/desktop` ➔ `packages/daemon` (`@memento/daemon`)
+- `apps/desktop` ➔ `packages/mcp` (`@memento/mcp`)
+- `apps/web` ➔ `packages/core` (`@memento/core`)
+
+### AST Cross-Layer Call & Import Graph (Entry ➔ Service / Store)
+
+- `api/admin` ➔ `models/AccessLog`
+- `api/admin` ➔ `models/ConversationMessage`
+- `api/admin` ➔ `models/Document`
+- `api/admin` ➔ `models/DocumentEmbedding`
+- `api/admin` ➔ `models/DocumentVersion`
+- `api/admin` ➔ `models/InviteCode`
+- `api/admin` ➔ `models/KnowledgeEntity`
+- `api/admin` ➔ `models/KnowledgeObservation`
+- `api/admin` ➔ `models/KnowledgeRelation`
+- `api/admin` ➔ `models/Machine`
+- `api/admin` ➔ `models/Permission`
+- `api/admin` ➔ `models/Project`
+- `api/admin` ➔ `models/SyncState`
+- `api/admin` ➔ `models/Tool`
+- `api/admin` ➔ `models/User`
+- `api/admin` ➔ `db/session`
+- `api/ask` ➔ `models/Machine`
+- `api/ask` ➔ `models/User`
+- `api/ask` ➔ `db/session`
+- `api/ask` ➔ `services/ai_provider`
+
+### Key Request / Response DTO & OpenAPI Schemas
+
+| Schema Name | Type | Source File | Core Fields |
+| :--- | :--- | :--- | :--- |
+| `AcceptBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `statement`, `general` |
+| `AgentSettingsBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `claude_auto_compact_window`, `claude_memento_client` |
+| `ApproveMissionBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `token` |
+| `AskRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `question`, `conversation_id`, `request_id`, `history`, `tool`, `days` |
+| `AvatarGenerateRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `photo_data`, `gender`, `style_preference` |
+| `AvatarSettingsPayload` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `is_initialized`, `gender`, `style`, `preset_id`, `nickname`, `avatar_url` |
+| `Body_import_data_api_data_import_post` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `file` |
+| `Body_upload_avatar_api_auth_me_avatar_post` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `file` |
+| `CompactRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `recent_turns`, `new_prompt` |
+| `ConversationUpdate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `title` |
+| `CoreMemoryCreate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `category`, `key`, `content`, `confidence`, `parent_id`, `tree_path` |
+| `CoreMemoryUpdate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `category`, `key`, `content`, `confidence`, `parent_id`, `tree_path` |
+| `CreateMissionBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `title`, `goal`, `risk_level`, `context` |
+| `CreateShareBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `kind`, `target_id`, `title`, `expires_in_days`, `target_user_id` |
+| `CreateTask` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `action`, `payload`, `timeout_seconds` |
+| `UserUpdateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `role: str \| None`, `status: str \| None` |
+| `InviteCreateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `max_uses: int`, `expires_days: int \| None`, `role_on_accept: str`, `note: str \| None` |
+| `GrantPermissionRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `user_id: str`, `project_id: str \| None`, `tool_id: str \| None`, `permission: str` |
+| `AskRequest` | Pydantic DTO | [`server/server/api/ask.py`](server/server/api/ask.py) | `question: str`, `conversation_id: str \| None`, `request_id: str \| None`, `history: list[dict] \| None`, `tool: str \| None`, `days: int \| None` |
+| `EnsureConversationBySessionRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `session_id: str`, `project_id: str \| None`, `execution_mode: str \| None`, `device_id: str \| None`, `cwd: str \| None` |
+| `UpdateConversationRequest` | Pydantic DTO | [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) | `title: str \| None`, `device_id: str \| None`, `cwd: str \| None`, `execution_mode: str \| None`, `model: str \| None`, `effort: str \| None` |
+| `RegisterRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str`, `name: str \| None`, `invite_code: str \| None` |
+| `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool` |
+| `LoginRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str` |
+| `TokenResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `access_token: str`, `token_type: str`, `user_id: str`, `role: str` |
+
+### CLI Binaries & Automation Entrypoints
+
+| Command / Script | Category | Path / Target |
+| :--- | :--- | :--- |
+| `memento-daemon` | Node CLI Binary | `packages/daemon/dist/cli.js` |
+| `memento-mcp` | Node CLI Binary | `packages/mcp/dist/cli.js` |
+| `auto_punch_upnp.py` | Automation Script | `scripts/auto_punch_upnp.py` |
+| `brand-icons.mjs` | Automation Script | `scripts/brand-icons.mjs` |
+| `check-web-routes.mjs` | Automation Script | `scripts/check-web-routes.mjs` |
+| `check_ipv6.sh` | Automation Script | `scripts/check_ipv6.sh` |
+| `ddns_ipv6.sh` | Automation Script | `scripts/ddns_ipv6.sh` |
+| `fetch_geoip.py` | Automation Script | `scripts/fetch_geoip.py` |
+| `install.py` | Automation Script | `scripts/install.py` |
+| `project_blueprint.py` | Automation Script | `scripts/project_blueprint.py` |
+| `verify_release_metadata.py` | Automation Script | `scripts/verify_release_metadata.py` |
+
 ## 7. CI/CD Pipelines, Code Hotspots & Test Suites
 
 ### CI/CD Workflows & Deployment Manifests
@@ -496,13 +574,13 @@ erDiagram
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (7 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (6 commits)
 - [`server/tests/test_message_store.py`](server/tests/test_message_store.py) (5 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (4 commits)
 - [`apps/web/src/components/viewers/MediaPreview.tsx`](apps/web/src/components/viewers/MediaPreview.tsx) (4 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (4 commits)
-- [`server/server/db/models.py`](server/server/db/models.py) (4 commits)
+- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -525,12 +603,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `c0a89884` (2026-11-06): feat(blueprint): 实现跨任意项目架构与协议的通用扫描引擎及单测验证
 - `4eacfcc0` (2026-11-06): feat(blueprint): 丰富单项目蓝图ER图、唯一约束、定时任务、服务层、MCP协议与热点测试矩阵
 - `377feb1f` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
 - `b15a4962` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
 - `c7ed3f39` (2026-11-06): feat(blueprint): 升级多钩子生命周期自同步、前端AppRouter路由扫描与详细API契约提取
 - `c30c9a69` (2026-11-06): fix(daemon): 修复 blueprint-auto 中 findExecutable 入参类型签名
-- `15ffeb07` (2026-11-06): docs(blueprint): 更新活体蓝图快照与多项目全自动部署能力
 
 ## 10. Key Environment Variables & Configuration
 

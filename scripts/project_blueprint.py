@@ -323,6 +323,7 @@ def scan_data_models(root: Path) -> dict[str, Any]:
     """
     models: list[str] = []
     relations: list[str] = []
+    unique_constraints: list[str] = []
 
     def _add_model(name: str) -> None:
         if name and name not in models:
@@ -331,6 +332,10 @@ def scan_data_models(root: Path) -> dict[str, Any]:
     def _add_rel(rel: str) -> None:
         if rel and rel not in relations:
             relations.append(rel)
+
+    def _add_unique(uq: str) -> None:
+        if uq and uq not in unique_constraints:
+            unique_constraints.append(uq)
 
     def _iter_project_files(pattern: str, limit: int = 80) -> list[Path]:
         out: list[Path] = []
@@ -371,6 +376,16 @@ def scan_data_models(root: Path) -> dict[str, Any]:
                         fkm = re.search(r'([a-zA-Z0-9_]+)\s*[:=][^;]*ForeignKey\(\s*["\']([^"\']+)["\']', line)
                         if fkm:
                             _add_rel(f"`{current_class}.{fkm.group(1)}` ➔ `{fkm.group(2)}`")
+                    if "UniqueConstraint(" in line:
+                        uqm = re.search(r'UniqueConstraint\(([^)]+)\)', line)
+                        if uqm:
+                            cols = [c.strip().strip("\"'") for c in uqm.group(1).split(",") if "name=" not in c and c.strip()]
+                            if cols:
+                                _add_unique(f"`{current_class}`: unique({', '.join(cols)})")
+                    elif "unique=True" in line:
+                        ufm = re.search(r'^\s*([a-zA-Z0-9_]+)\s*[:=]', line)
+                        if ufm:
+                            _add_unique(f"`{current_class}.{ufm.group(1)}` (unique)")
                     # Django models.ForeignKey / OneToOneField / ManyToManyField("Target" or Target)
                     dj = re.search(
                         r'([a-zA-Z0-9_]+)\s*=\s*(?:models\.)?(?:ForeignKey|OneToOneField|ManyToManyField)\(\s*["\']?([A-Za-z0-9_.]+)["\']?',
@@ -554,7 +569,222 @@ def scan_data_models(root: Path) -> dict[str, Any]:
 
     return {
         "models": models,
-        "relations": relations[:20],
+        "relations": relations[:25],
+        "unique_constraints": unique_constraints[:20],
+    }
+
+
+def generate_er_diagram(relations: list[str]) -> str:
+    """Build a compact Mermaid erDiagram from extracted foreign-key relations."""
+    if not relations:
+        return ""
+    edges: list[str] = []
+    seen_edges: set[str] = set()
+    for rel in relations[:18]:
+        m = re.match(r'`([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)`\s*➔\s*`([A-Za-z0-9_]+)(?:\.([A-Za-z0-9_]+))?`', rel)
+        if not m:
+            continue
+        src_entity, src_field, dst_raw, _ = m.group(1), m.group(2), m.group(3), m.group(4)
+        dst_entity = dst_raw.upper() if dst_raw.islower() else dst_raw
+        src_node = re.sub(r'[^A-Za-z0-9_]', '_', src_entity)
+        dst_node = re.sub(r'[^A-Za-z0-9_]', '_', dst_entity)
+        edge_key = f"{dst_node}->{src_node}:{src_field}"
+        if edge_key not in seen_edges:
+            seen_edges.add(edge_key)
+            edges.append(f'    {dst_node} ||--o{{ {src_node} : "{src_field}"')
+    if not edges:
+        return ""
+    return "\n".join(["```mermaid", "erDiagram", *edges, "```"])
+
+
+def scan_services_and_schedules(root: Path) -> dict[str, Any]:
+    """Scan core domain service modules and background/scheduled tasks (Celery beat, Cron, etc.)."""
+    services: list[dict[str, str]] = []
+    schedules: list[dict[str, str]] = []
+
+    # 1. Core service modules
+    svc_dirs = [
+        root / "server" / "server" / "services",
+        root / "src" / "services",
+        root / "services",
+    ]
+    for sdir in svc_dirs:
+        if not sdir.is_dir():
+            continue
+        for f in sorted(sdir.glob("*.py")) + sorted(sdir.glob("*.ts")):
+            if f.name.startswith("_") or f.name.endswith(".test.ts"):
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="ignore")
+                doc = ""
+                dm = re.match(r'^\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', text)
+                if dm:
+                    doc = dm.group(1).strip().splitlines()[0].strip()
+                else:
+                    cm = re.match(r'^\s*(?://+|#+|\*+)\s*(.+)', text)
+                    if cm:
+                        doc = cm.group(1).strip()
+                services.append({
+                    "name": f.stem,
+                    "path": str(f.relative_to(root)),
+                    "summary": _sanitize_blueprint_text(doc[:110]) if doc else "Core domain service module",
+                })
+            except Exception:
+                pass
+
+    # 2. Scheduled background jobs (Celery beat_schedule)
+    celery_candidates = [
+        root / "server" / "server" / "tasks" / "celery_app.py",
+        root / "server" / "tasks" / "celery_app.py",
+    ]
+    for cfile in celery_candidates:
+        if not cfile.exists():
+            continue
+        try:
+            content = cfile.read_text(encoding="utf-8", errors="ignore")
+            for bm in re.finditer(
+                r'"([a-zA-Z0-9_-]+)"\s*:\s*\{\s*"task"\s*:\s*"([^"]+)"\s*,\s*"schedule"\s*:\s*([^\n]+)',
+                content,
+            ):
+                sched_raw = bm.group(3).rstrip(",").strip()
+                schedules.append({
+                    "name": bm.group(1),
+                    "task": bm.group(2),
+                    "schedule": sched_raw,
+                })
+        except Exception:
+            pass
+
+    return {
+        "services": services[:35],
+        "schedules": schedules[:25],
+    }
+
+
+def scan_mcp_and_ws_protocols(root: Path) -> dict[str, Any]:
+    """Scan MCP Server registered tools and WebSocket message event types."""
+    mcp_tools: list[dict[str, str]] = []
+    ws_events: list[str] = []
+
+    mcp_files = [
+        root / "packages" / "mcp" / "src" / "server.ts",
+        root / "src" / "mcp" / "server.ts",
+    ]
+    for mf in mcp_files:
+        if not mf.exists():
+            continue
+        try:
+            content = mf.read_text(encoding="utf-8", errors="ignore")
+            for tm in re.finditer(
+                r'registerTool\(\s*["\']([a-zA-Z0-9_-]+)["\']\s*,\s*\{[\s\S]*?description:\s*\n?\s*["\']([^"\']+)["\']',
+                content,
+            ):
+                mcp_tools.append({
+                    "name": tm.group(1),
+                    "description": tm.group(2).strip()[:100],
+                })
+        except Exception:
+            pass
+
+    ws_files = [
+        root / "packages" / "daemon" / "src" / "ws-client.ts",
+        root / "server" / "server" / "api" / "ws.py",
+    ]
+    for wf in ws_files:
+        if not wf.exists():
+            continue
+        try:
+            content = wf.read_text(encoding="utf-8", errors="ignore")
+            for cm in re.finditer(r'case\s+["\']([a-zA-Z0-9_]+)["\']\s*:', content):
+                ev = cm.group(1)
+                if ev not in ws_events:
+                    ws_events.append(ev)
+            for pm in re.finditer(r'msg_type\s*==\s*["\']([a-zA-Z0-9_]+)["\']', content):
+                ev = pm.group(1)
+                if ev not in ws_events:
+                    ws_events.append(ev)
+        except Exception:
+            pass
+
+    return {
+        "mcp_tools": mcp_tools[:25],
+        "ws_events": ws_events[:25],
+    }
+
+
+def scan_cicd_and_deploy(root: Path) -> list[dict[str, str]]:
+    """Scan GitHub Actions workflows and Kubernetes / Docker deployment manifests."""
+    items: list[dict[str, str]] = []
+    wf_dir = root / ".github" / "workflows"
+    if wf_dir.is_dir():
+        for wf in sorted(wf_dir.glob("*.y*ml")):
+            try:
+                content = wf.read_text(encoding="utf-8", errors="ignore")
+                nm = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
+                wname = nm.group(1).strip().strip("\"'") if nm else wf.stem
+                jobs = re.findall(r'^  ([a-zA-Z0-9_-]+):\s*$', content, re.MULTILINE)
+                items.append({
+                    "kind": "GitHub Actions",
+                    "name": wname,
+                    "path": str(wf.relative_to(root)),
+                    "details": f"Jobs: {', '.join(jobs[:6])}" if jobs else "CI/CD pipeline",
+                })
+            except Exception:
+                pass
+
+    deploy_dir = root / "deploy"
+    if deploy_dir.is_dir():
+        for ym in sorted(deploy_dir.glob("**/*.y*ml"))[:12]:
+            try:
+                content = ym.read_text(encoding="utf-8", errors="ignore")
+                kinds = list(dict.fromkeys(re.findall(r'^kind:\s*([A-Za-z0-9]+)', content, re.MULTILINE)))
+                if kinds:
+                    items.append({
+                        "kind": "K8s / GitOps",
+                        "name": ym.name,
+                        "path": str(ym.relative_to(root)),
+                        "details": f"Resources: {', '.join(kinds[:5])}",
+                    })
+            except Exception:
+                pass
+    return items
+
+
+def scan_hotspots_and_tests(root: Path) -> dict[str, Any]:
+    """Identify high-frequency changed source files from git log and map test suites."""
+    hotspots: list[dict[str, Any]] = []
+    out = run_git_cmd(["log", "-n", "60", "--grep=\\[skip ci\\]", "--invert-grep", "--pretty=format:", "--name-only"], root)
+    if out:
+        counts: dict[str, int] = {}
+        for line in out.splitlines():
+            p = line.strip()
+            if not p or p in ("PROJECT_BLUEPRINT.md", "deploy/k8s/kustomization.yaml") or p.endswith(".lock") or p.endswith(".json"):
+                continue
+            counts[p] = counts.get(p, 0) + 1
+        for path_str, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:10]:
+            hotspots.append({"path": path_str, "commits": cnt})
+
+    test_suites: list[dict[str, Any]] = []
+    suite_dirs = [
+        ("Backend (pytest)", root / "server" / "tests", "test_*.py"),
+        ("Daemon (vitest)", root / "packages" / "daemon" / "test", "*.test.ts"),
+        ("Web (vitest)", root / "apps" / "web" / "test", "*.test.ts*"),
+        ("Desktop (vitest)", root / "apps" / "desktop" / "test", "*.test.ts*"),
+        ("MCP (vitest)", root / "packages" / "mcp" / "test", "*.test.ts"),
+    ]
+    for label, tdir, pat in suite_dirs:
+        if tdir.is_dir():
+            files = sorted(f.name for f in tdir.glob(pat))
+            if files:
+                test_suites.append({
+                    "suite": label,
+                    "dir": str(tdir.relative_to(root)),
+                    "count": len(files),
+                    "samples": ", ".join(f"`{n}`" for n in files[:5]),
+                })
+    return {
+        "hotspots": hotspots,
+        "test_suites": test_suites,
     }
 
 
@@ -819,6 +1049,18 @@ def build_blueprint_content(root: Path) -> str:
     models_data = scan_data_models(root)
     models = models_data.get("models", [])
     relations = models_data.get("relations", [])
+    unique_constraints = models_data.get("unique_constraints", [])
+    er_diagram = generate_er_diagram(relations)
+    svc_sched = scan_services_and_schedules(root)
+    services = svc_sched.get("services", [])
+    schedules = svc_sched.get("schedules", [])
+    protocols = scan_mcp_and_ws_protocols(root)
+    mcp_tools = protocols.get("mcp_tools", [])
+    ws_events = protocols.get("ws_events", [])
+    cicd_items = scan_cicd_and_deploy(root)
+    hot_tests = scan_hotspots_and_tests(root)
+    hotspots = hot_tests.get("hotspots", [])
+    test_suites = hot_tests.get("test_suites", [])
     env_vars = scan_env_variables(root)
     mermaid_diagram = generate_mermaid_diagram(subsystems, stack)
     evolution_list = get_git_evolution(root, limit=6)
@@ -886,18 +1128,109 @@ def build_blueprint_content(root: Path) -> str:
     if relations:
         doc.append("#### Key Entity Relationships (Foreign Keys)")
         doc.append("")
+        if er_diagram:
+            doc.append(er_diagram)
+            doc.append("")
         for rel in relations:
             doc.append(f"- {rel}")
         doc.append("")
 
+    if unique_constraints:
+        doc.append("#### Deduplication & Uniqueness Constraints")
+        doc.append("")
+        for uq in unique_constraints:
+            doc.append(f"- {uq}")
+        doc.append("")
+
+    if services or schedules:
+        doc.extend([
+            "## 5. Core Domain Services & Background Schedules",
+            "",
+        ])
+        if schedules:
+            doc.extend([
+                "### Scheduled Background Jobs (Celery Beat / Cron)",
+                "",
+                "| Job Name | Target Task | Schedule |",
+                "| :--- | :--- | :--- |",
+            ])
+            for sch in schedules:
+                doc.append(f"| `{sch['name']}` | `{sch['task']}` | `{sch['schedule']}` |")
+            doc.append("")
+        if services:
+            doc.extend([
+                "### Core Service Layer Modules",
+                "",
+                "| Service Module | Path | Responsibility |",
+                "| :--- | :--- | :--- |",
+            ])
+            for svc in services:
+                doc.append(f"| `{svc['name']}` | [`{svc['path']}`]({svc['path']}) | {svc['summary']} |")
+            doc.append("")
+
+    if mcp_tools or ws_events:
+        doc.extend([
+            "## 6. MCP Tools & Real-Time WebSocket Protocols",
+            "",
+        ])
+        if mcp_tools:
+            doc.extend([
+                "### Registered MCP Server Tools",
+                "",
+                "| Tool Name | Purpose |",
+                "| :--- | :--- |",
+            ])
+            for mt in mcp_tools:
+                doc.append(f"| `{mt['name']}` | {mt['description']} |")
+            doc.append("")
+        if ws_events:
+            doc.append("### WebSocket Control & Data Plane Events")
+            doc.append("")
+            doc.append(", ".join(f"`{ev}`" for ev in ws_events))
+            doc.append("")
+
+    if cicd_items or hotspots or test_suites:
+        doc.extend([
+            "## 7. CI/CD Pipelines, Code Hotspots & Test Suites",
+            "",
+        ])
+        if cicd_items:
+            doc.extend([
+                "### CI/CD Workflows & Deployment Manifests",
+                "",
+                "| Category | Name | Path | Details |",
+                "| :--- | :--- | :--- | :--- |",
+            ])
+            for ci in cicd_items:
+                doc.append(f"| {ci['kind']} | `{ci['name']}` | [`{ci['path']}`]({ci['path']}) | {ci['details']} |")
+            doc.append("")
+        if test_suites:
+            doc.extend([
+                "### Automated Test Suite Matrix",
+                "",
+                "| Suite | Directory | Files | Sample Tests |",
+                "| :--- | :--- | :--- | :--- |",
+            ])
+            for ts in test_suites:
+                doc.append(f"| {ts['suite']} | [`{ts['dir']}`]({ts['dir']}) | {ts['count']} | {ts['samples']} |")
+            doc.append("")
+        if hotspots:
+            doc.extend([
+                "### Architectural Hotspots (Top Modified Files in Recent 40 Commits)",
+                "",
+            ])
+            for hs in hotspots:
+                doc.append(f"- [`{hs['path']}`]({hs['path']}) ({hs['commits']} commits)")
+            doc.append("")
+
     doc.extend([
-        "## 5. Development & Verification Commands",
+        "## 8. Development & Verification Commands",
         "",
         "```bash",
         *detect_verification_commands(root),
         "```",
         "",
-        "## 6. Recent Architectural Evolutions",
+        "## 9. Recent Architectural Evolutions",
         "",
     ])
 
@@ -909,7 +1242,7 @@ def build_blueprint_content(root: Path) -> str:
     if env_vars:
         doc.extend([
             "",
-            "## 7. Key Environment Variables & Configuration",
+            "## 10. Key Environment Variables & Configuration",
             "",
             "| Variable | Default / Status | Description |",
             "| :--- | :--- | :--- |",

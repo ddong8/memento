@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `49635ecd` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5bd93213` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -127,12 +127,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 6. Recent Architectural Evolutions
 
+- `5bd93213` (2026-11-06): feat(blueprint): 实现活体代码蓝图自动生成系统与MCP跨Agent协同
 - `6a874737` (2026-11-06): perf(web): 优化媒体预览渲染性能并清理页面死状态与升级超时熔断
 - `2b5c2dd5` (2026-11-06): refactor(ask): 优化设备过滤匹配逻辑并修复跨设备切换残留与项目引用时序
 - `a39349b9` (2026-11-06): fix(title): 修复会话标题Protobuf八进制转义与多轮上下文残留
 - `4a0b0c88` (2026-11-06): fix(test): 移除 test_migrate_standalone 中未使用的 os 导入
 - `0c656511` (2026-11-06): perf: 优化全栈性能架构并根除代码硬编码指纹
-- `42e1d598` (2026-11-05): fix(ask): 严格对齐limit校验上限至500保证测试与全量加载兼备
 
 ---
 _Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/post-commit`. Updates automatically on code modifications._

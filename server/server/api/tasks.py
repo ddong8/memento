@@ -1,12 +1,10 @@
-"""Remote task execution — dispatch work to collectors running on devices.
+"""Remote task execution — dispatch work to the daemons running on devices.
 
-The collector already polls the server every 10s for control commands
-(resync / update). This extends that same pull-based channel into a general
-work queue: the server enqueues a parameterized task, the device picks it up
-on its next poll, runs it, and posts the result back.
-
-Pull-based matters here — devices sit behind NAT with no inbound ports open,
-which is why the existing collector design works from a home network at all.
+Each device keeps a WebSocket open to the server (devices sit behind NAT with no inbound ports,
+so the device dials out). A task is a device_tasks row: the server writes it, sends it down that
+socket (services/device_dispatch.py), the device runs it, streams progress and sends task_finished,
+which is saved here. A device that is offline gets nothing: its task fails at once with the reason.
+Control commands (resync and the like) are not tasks; they go through POST /api/devices/{id}/command.
 
 Security model
 --------------
@@ -47,6 +45,7 @@ from ..middleware.auth import get_current_user
 from ..services import device_reports, notify_service, task_alerts
 from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
+from ..services.device_dispatch import deliver_task
 from ..services.device_service import HEARTBEAT_WRITE_EVERY
 
 logger = logging.getLogger("server.tasks_api")
@@ -84,10 +83,9 @@ def normalize_device_name(name: str | None) -> str:
     return name
 
 
-# Actions that run arbitrary code and therefore require the exec switch.
+# Actions that run arbitrary code and therefore require the exec switch. The device runs nothing
+# else as a task (any other action would be started as an agent), so nothing else is accepted.
 EXEC_ACTIONS = {"shell", "agent"}
-# Legacy control actions — these predate this module and stay ungated.
-CONTROL_ACTIONS = {"resync", "update"}
 
 # Cap stored output. The collector truncates before upload too; this is the
 # server-side backstop so one runaway task cannot bloat the table.
@@ -181,8 +179,8 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
-    """Queue a task for a device. Picked up on the collector's next poll."""
-    if body.action not in EXEC_ACTIONS | CONTROL_ACTIONS:
+    """Send a task to a device. It comes back running, or failed with the reason when the device is offline."""
+    if body.action not in EXEC_ACTIONS:
         raise HTTPException(status_code=400, detail=f"unknown action: {body.action}")
     _require_exec_enabled(body.action)
     machine = await _authorize_device(db, device_id, _user)
@@ -214,9 +212,10 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    await deliver_task(db, task, machine)
     logger.info(
-        "task %s queued: action=%s device=%s by=%s",
-        task.id, task.action, device_id, _user.email,
+        "task %s %s: action=%s device=%s by=%s",
+        task.id, task.status, task.action, device_id, _user.email,
     )
     return _serialize(task)
 

@@ -1,10 +1,19 @@
-"""24/7 Always-On Proactive Agent Pulse Service.
+"""The proactive pulse: a once-a-minute pass over every active user, on one api replica at a time.
 
-Continuously runs in the background. Coordinates:
-- Morning briefings (todos, active devices, focus tasks)
-- Evening reflections (what the day added; the 03:00 dreaming task consolidates it)
-- Device heartbeat & infrastructure health monitoring
-- Autonomous background mission progression
+Each pass, per user (settings in users.proactive_settings over DEFAULT_PROACTIVE_SETTINGS; times
+are the user's local time from timezone_offset_hours):
+
+1) Missions: up to 3 running missions take a step (mission_service), quiet hours or not.
+2) Nothing below is pushed during quiet hours (default 23:30 to 07:30).
+3) Morning brief, once a day between morning_brief_time (08:30) and 11:30: the model writes a short
+   brief from the open todos and how many devices are online.
+4) Evening recap, once a day between evening_reflection_time (22:30) and 23:59: counts of the day's
+   chats, new memories, corrections and todos (no model call). Consolidating the day is the
+   03:00 dreaming task's job.
+5) Device offline alert: a device whose heartbeat stopped 5 to 15 minutes ago and that is not
+   connected gets one push per outage. Archived and merged devices are left out.
+
+"Once" is kept in Redis (ai_health keys), so a restart or a switch of replica does not resend.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ from ..db.session import async_session_factory
 from . import ai_health, mission_service
 from .cluster import cluster
 from .ai_provider import call_plain_chat
+from .device_dispatch import ws_alias
 from .notify_service import notify_user
 
 logger = logging.getLogger("server.pulse")
@@ -117,60 +127,55 @@ async def _pulse_loop() -> None:
 
 
 async def _execute_pulse_cycle(db: AsyncSession) -> None:
-    """Run one heartbeat check across all registered users."""
+    """One pass over every active user; one user's error does not stop the others."""
     users = (await db.execute(select(User).where(User.status.in_(["active", "pending"])))).scalars().all()
     now_utc = datetime.now(timezone.utc)
 
     for user in users:
-        prefs = get_user_settings(user)
-        if not prefs.get("enabled", True):
-            continue
-
-        offset = prefs.get("timezone_offset_hours", 8)
-        user_now = now_utc + timedelta(hours=offset)
-        user_date_str = user_now.strftime("%Y-%m-%d")
-        user_time_str = user_now.strftime("%H:%M")
-        in_quiet = is_in_quiet_hours(
-            user_now, prefs.get("quiet_hours_start", "23:30"), prefs.get("quiet_hours_end", "07:30")
-        )
-
-        # 1. Autonomous Missions progression (runs 24/7 even during quiet hours)
         try:
-            await _advance_user_missions(db, user)
+            await _pulse_user(db, user, now_utc)
         except Exception as e:
-            logger.warning("Error advancing missions for user %s: %s", user.id, e)
+            await db.rollback()
+            logger.warning("Pulse failed for user %s: %s", user.id, e)
 
-        # Skip notifications during quiet hours
-        if in_quiet:
-            continue
 
-        # 2. Morning Briefing
-        if prefs.get("morning_brief_enabled", True):
-            target_time = prefs.get("morning_brief_time", "08:30")
-            if user_time_str >= target_time and user_time_str <= "11:30":
-                key = f"proactive:morning:{user.id}:{user_date_str}"
-                already_sent = await ai_health.get_json(key)
-                if not already_sent:
-                    await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
-                    await _send_morning_brief(db, user, user_now)
+async def _pulse_user(db: AsyncSession, user: User, now_utc: datetime) -> None:
+    prefs = get_user_settings(user)
+    if not prefs.get("enabled", True):
+        return
+    user_now = now_utc + timedelta(hours=prefs.get("timezone_offset_hours", 8))
+    user_date_str = user_now.strftime("%Y-%m-%d")
+    user_time_str = user_now.strftime("%H:%M")
 
-        # 3. Evening Reflection & Self-evolution (Memory Dreaming)
-        if prefs.get("evening_reflection_enabled", True):
-            target_time = prefs.get("evening_reflection_time", "22:30")
-            if user_time_str >= target_time and user_time_str <= "23:59":
-                key = f"proactive:evening:{user.id}:{user_date_str}"
-                already_sent = await ai_health.get_json(key)
-                if not already_sent:
-                    await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
-                    await _send_evening_reflection(db, user, user_now)
+    # Missions go on during quiet hours too: nothing is pushed for them unless they finish or need approval.
+    await _advance_user_missions(db, user)
 
-        # 4. Device Status Monitoring
-        if prefs.get("device_alert_enabled", True):
-            await _check_device_alerts(db, user, now_utc)
+    if is_in_quiet_hours(user_now, prefs.get("quiet_hours_start", "23:30"), prefs.get("quiet_hours_end", "07:30")):
+        return
+
+    if prefs.get("morning_brief_enabled", True):
+        target_time = prefs.get("morning_brief_time", "08:30")
+        if target_time <= user_time_str <= "11:30":
+            key = f"proactive:morning:{user.id}:{user_date_str}"
+            if not await ai_health.get_json(key):
+                # Marked before sending: a failing model is not asked again every minute until 11:30.
+                await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
+                await _send_morning_brief(db, user, user_now)
+
+    if prefs.get("evening_reflection_enabled", True):
+        target_time = prefs.get("evening_reflection_time", "22:30")
+        if target_time <= user_time_str <= "23:59":
+            key = f"proactive:evening:{user.id}:{user_date_str}"
+            if not await ai_health.get_json(key):
+                await ai_health.put_json(key, {"sent_at": now_utc.isoformat()})
+                await _send_evening_reflection(db, user, user_now)
+
+    if prefs.get("device_alert_enabled", True):
+        await _check_device_alerts(db, user, now_utc)
 
 
 async def _advance_user_missions(db: AsyncSession, user: User) -> None:
-    """Step active background missions for a user."""
+    """Step up to 3 running missions, the longest-untouched first."""
     missions = (await db.execute(
         select(AgentMission)
         .where(AgentMission.user_id == user.id, AgentMission.status == "running")
@@ -182,6 +187,7 @@ async def _advance_user_missions(db: AsyncSession, user: User) -> None:
         try:
             await mission_service.step_mission(db, m)
         except Exception as e:
+            await db.rollback()
             logger.warning("Failed to step mission %s: %s", m.id, e)
 
 
@@ -195,14 +201,9 @@ async def _send_morning_brief(db: AsyncSession, user: User, user_now: datetime) 
         .limit(5)
     )).scalars().all()
 
-    # Gather machines
-    machines = (await db.execute(
-        select(Machine).where(Machine.user_id == user.id)
-    )).scalars().all()
-    online_count = sum(
-        1 for m in machines
-        if m.last_heartbeat and (datetime.now(timezone.utc) - m.last_heartbeat).total_seconds() < 180
-    )
+    machines = await _active_machines(db, user)
+    now = datetime.now(timezone.utc)
+    online_count = sum(1 for m in machines if _is_online(m, now))
 
     todo_lines = [
         f"- {t.title}" + (f" (截止: {t.due_at.strftime('%m/%d %H:%M')})" if t.due_at else "")
@@ -222,13 +223,16 @@ async def _send_morning_brief(db: AsyncSession, user: User, user_now: datetime) 
 请直接输出晨报正文，适合手机推送阅读："""
 
     try:
-        body = await call_plain_chat([{"role": "user", "content": prompt}], background=True, user=user)
+        body = (await call_plain_chat([{"role": "user", "content": prompt}], background=True, user=user) or "").strip()
+        if not body:
+            logger.info("No morning brief for user %s: the model returned nothing", user.id)
+            return
         title = f"🌅 早上好！今日晨间简报 · {user_now.strftime('%m/%d')}"
         await notify_user(
             user.id,
             kind="todo",
             title=title,
-            body=body.strip(),
+            body=body,
             url=f"{settings.public_url.rstrip('/')}/daily" if settings.public_url else "/daily",
         )
         logger.info("Sent morning brief to user %s", user.id)
@@ -325,26 +329,48 @@ async def _send_evening_reflection(db: AsyncSession, user: User, user_now: datet
         return None
 
 
-async def _check_device_alerts(db: AsyncSession, user: User, now_utc: datetime) -> None:
-    """Check for devices that unexpectedly dropped offline."""
-    machines = (await db.execute(
-        select(Machine).where(Machine.user_id == user.id)
-    )).scalars().all()
+async def _active_machines(db: AsyncSession, user: User) -> list[Machine]:
+    """The user's devices, without archived ones and ones merged into another."""
+    return list((await db.execute(
+        select(Machine).where(
+            Machine.user_id == user.id,
+            Machine.merged_into.is_(None),
+            Machine.is_archived.is_not(True),
+        )
+    )).scalars().all())
 
-    for m in machines:
-        if not m.last_heartbeat:
+
+def _heartbeat(m: Machine) -> datetime | None:
+    hb = m.last_heartbeat
+    return hb.replace(tzinfo=timezone.utc) if hb and hb.tzinfo is None else hb
+
+
+def _is_online(m: Machine, now_utc: datetime) -> bool:
+    """Connected now, or heard from in the last 3 minutes (the device list's rule)."""
+    hb = _heartbeat(m)
+    return bool(ws_alias(m.collector_token_hash, m)) or bool(hb and (now_utc - hb).total_seconds() < 180)
+
+
+async def _check_device_alerts(db: AsyncSession, user: User, now_utc: datetime) -> None:
+    """Push once per outage for a device whose heartbeat stopped 5 to 15 minutes ago.
+
+    The key is the heartbeat the outage began after, so an outage is alerted once however the
+    hours fall, and the next outage (a newer heartbeat) is alerted again.
+    """
+    for m in await _active_machines(db, user):
+        hb = _heartbeat(m)
+        if not hb or not 300 < (now_utc - hb).total_seconds() < 900:
             continue
-        offline_sec = (now_utc - m.last_heartbeat).total_seconds()
-        # If offline between 5 and 15 minutes, send an alert once
-        if 300 < offline_sec < 900:
-            key = f"alert:device_offline:{m.id}:{now_utc.strftime('%Y%m%d%H')}"
-            already_alerted = await ai_health.get_json(key)
-            if not already_alerted:
-                await notify_user(
-                    user.id,
-                    kind="health",
-                    title="⚠️ 设备离线提醒",
-                    body=f"终端设备「{m.name}」已超过 5 分钟未上报心跳，部分后台任务可能挂起。",
-                    url=f"{settings.public_url.rstrip('/')}/profile?tab=devices" if settings.public_url else "/profile?tab=devices",
-                )
-                await ai_health.put_json(key, {"alerted_at": now_utc.isoformat()})
+        if ws_alias(m.collector_token_hash, m):
+            continue  # still connected; the heartbeat write is only late
+        key = f"alert:device_offline:{m.id}:{int(hb.timestamp())}"
+        if await ai_health.get_json(key):
+            continue
+        await ai_health.put_json(key, {"alerted_at": now_utc.isoformat()}, ttl_seconds=24 * 3600)
+        await notify_user(
+            user.id,
+            kind="health",
+            title="⚠️ 设备离线提醒",
+            body=f"终端设备「{m.name}」已超过 5 分钟未上报心跳，部分后台任务可能挂起。",
+            url=f"{settings.public_url.rstrip('/')}/profile?tab=devices" if settings.public_url else "/profile?tab=devices",
+        )

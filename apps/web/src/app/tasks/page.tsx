@@ -9,8 +9,8 @@ import { Btn, Chip, Glass, GhostInput, TopBar } from "@/components/aurora/primit
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 
 const TERMINAL = new Set(["succeeded", "failed", "timeout", "cancelled"]);
-// Poll while anything is still in flight. Device polls the server every 10s,
-// so a faster cadence here would just spin without new information.
+// Poll while anything is still in flight. The device reports back over its
+// WebSocket and the result lands in the task row; every 4s is quick enough.
 const POLL_MS = 4000;
 
 function statusTone(s: string): "neutral" | "accent" | "success" | "warn" | "danger" {

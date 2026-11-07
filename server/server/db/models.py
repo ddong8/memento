@@ -663,7 +663,7 @@ class DeviceTask(Base):
     # Who dispatched it — retained for audit even if the user is deleted.
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
-    # "resync"/"update" (legacy control actions), or "shell"/"agent".
+    # "shell" or "agent". Control commands (resync, rediscover) are not tasks: see devices.send_command.
     action: Mapped[str] = mapped_column(String(40), nullable=False)
     # Action parameters, e.g. {"command": ..., "cwd": ...} or
     # {"prompt": ..., "cwd": ...}. The old queue carried only an action

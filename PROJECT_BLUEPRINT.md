@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f652defb` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `32f23d57` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -444,6 +444,7 @@ erDiagram
 | `conversation_parser` | [`server/server/services/conversation_parser.py`](server/server/services/conversation_parser.py) | Unified conversation parser — normalizes different JSONL formats into a common structure. |
 | `correction_service` | [`server/server/services/correction_service.py`](server/server/services/correction_service.py) | Learn from corrections as they happen, and measure whether the learning sticks. |
 | `device_commands` | [`server/server/services/device_commands.py`](server/server/services/device_commands.py) | Commands for a collector, picked up on its next poll (GET /api/devices/commands). |
+| `device_dispatch` | [`server/server/services/device_dispatch.py`](server/server/services/device_dispatch.py) | Handing a device_tasks row to its device. |
 | `device_merge` | [`server/server/services/device_merge.py`](server/server/services/device_merge.py) | One computer, one device record. |
 | `device_reports` | [`server/server/services/device_reports.py`](server/server/services/device_reports.py) | What connected devices report about themselves: agent capabilities (tools, |
 | `device_service` | [`server/server/services/device_service.py`](server/server/services/device_service.py) | Device service — registers and updates collector devices. |
@@ -461,8 +462,7 @@ erDiagram
 | `ingest_service` | [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) | Ingest service — processes incoming files from the collector. |
 | `jobs` | [`server/server/services/jobs.py`](server/server/services/jobs.py) | Manually triggered long jobs (review now, run the evaluation) with a status the app can poll. |
 | `learning_eval_service` | [`server/server/services/learning_eval_service.py`](server/server/services/learning_eval_service.py) | Weekly learning eval: does the user have to correct the AI less over time? |
-| `life_service` | [`server/server/services/life_service.py`](server/server/services/life_service.py) | 24/7 Life Rhythm, Screen Time & AI Lifestyle Decision Service. |
-| `memory_compaction` | [`server/server/services/memory_compaction.py`](server/server/services/memory_compaction.py) | Memory compaction — periodically compress old observations into summaries. |
+| `life_service` | [`server/server/services/life_service.py`](server/server/services/life_service.py) | Daily rhythm: when the user started and stopped working, roughly how long they slept, and where |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -562,7 +562,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 89 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 92 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 32 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -578,10 +578,10 @@ erDiagram
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
 - [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
-- [`server/server/main.py`](server/server/main.py) (8 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (7 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (7 commits)
+- [`server/server/main.py`](server/server/main.py) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8b24195e` (2026-11-08): test(db): 旧列删除用例按 to_tsvector 的实际输出（带位置）断言
 - `f652defb` (2026-11-08): perf(db): 删掉 documents 上不再使用的 content_tsv 旧列
 - `c92762c8` (2026-11-08): docs(claude): 记下 documents 表不要加大索引、全文条件写成 IN 子查询的原因
 - `d9d6a553` (2026-11-08): perf(search): 全文条件写成 IN 子查询，让全文索引真正起作用
 - `0cba3288` (2026-11-08): perf(db): 全文索引拆到单独的 document_search 表，同步一次不再重写整个 GIN 索引
 - `1c5b4996` (2026-11-07): refactor(ask): 移除对话界面无用的沉浸阅读模式入口与状态
-- `84603848` (2026-11-07): fix(test): 修复CI无状态Runner环境下个人蓝图与梦境缓存清理单测断言
 
 ## 10. Key Environment Variables & Configuration
 
@@ -617,14 +617,13 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 | :--- | :--- | :--- |
 | `MEMENTO_SECRET_KEY` | `(required secret)` | Signs JWTs. Must be >= 32 chars, high entropy. |
 | `MEMENTO_COLLECTOR_TOKEN` | `(required secret)` | Token used by collectors to register themselves. |
-| `POSTGRES_PASSWORD` | `(required secret)` | Postgres superuser password (keep in sync with MEMENTO_DATABASE_URL). |
+| `POSTGRES_PASSWORD` | `(required secret)` | database URL from it, so it is the only place to set it. |
 | `MINIO_ROOT_USER` | `(required secret)` | MinIO / S3 credentials. |
 | `MINIO_ROOT_PASSWORD` | `(required secret)` | Environment configuration |
-| `ANTHROPIC_API_KEY` | `(required secret)` | Anthropic Claude (for `/api/daily/*/generate-summary`). Leave blank to disable. |
+| `ANTHROPIC_API_KEY` | `(required secret)` | Anthropic Claude (reaches the api as MEMENTO_ANTHROPIC_API_KEY). Leave blank to disable. |
 | `MEMENTO_AI_API_KEY` | `(required secret)` | Leave blank to disable the alt backend. |
 | `MEMENTO_AI_BASE_URL` | `https://coding.dashscope.aliyuncs.com/v1` | Environment configuration |
 | `MEMENTO_AI_MODEL` | `kimi-k2.5` | Environment configuration |
-| `MEMENTO_EMBEDDING_SERVER_URL` | `http://host.docker.internal:8002` | MEMENTO_EMBEDDING_SERVER_URL=http://<internal-ip>:8002 |
 
 ---
 _Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

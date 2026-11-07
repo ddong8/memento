@@ -706,6 +706,70 @@ async def _fetch_project_blueprint_summary(
     return ""
 
 
+def _summarize_user_blueprint_markdown(raw: str, max_chars: int = 650) -> str:
+    """Extract a high-signal cross-disciplinary & domain digest from USER_BLUEPRINT.md."""
+    if not raw or "# User Cognitive & Domain Blueprint" not in raw:
+        return ""
+    keep_lines: list[str] = []
+    in_mermaid = False
+    current_sec = ""
+    for line in raw.splitlines():
+        sline = line.strip()
+        if sline.startswith("```mermaid"):
+            in_mermaid = True
+            continue
+        if in_mermaid:
+            if sline.startswith("```"):
+                in_mermaid = False
+            continue
+        if sline.startswith("## 2."):
+            current_sec = "disc"
+            continue
+        elif sline.startswith("## 3."):
+            current_sec = "dom"
+            continue
+        elif sline.startswith("## 4."):
+            current_sec = "proj"
+            continue
+        elif sline.startswith("## "):
+            current_sec = ""
+            continue
+
+        if current_sec in ("disc", "dom", "proj") and sline.startswith("| **"):
+            parts = [p.strip() for p in sline.strip("|").split("|")]
+            if len(parts) >= 3:
+                col0 = re.sub(r"<br/>\*[^*]+\*", "", parts[0]).replace("**", "").strip()
+                col1 = parts[1].replace("**", "").strip()
+                col2 = parts[2].replace("**", "").strip()
+                keep_lines.append(f"- [{current_sec.upper()}] {col0}: {col1} ({col2})")
+        if sum(len(x) + 1 for x in keep_lines) >= max_chars:
+            break
+    return "\n".join(keep_lines)[:max_chars]
+
+
+async def _fetch_user_blueprint_summary(db: AsyncSession, user: User) -> str:
+    """Read local ~/.memento/USER_BLUEPRINT.md or cached user blueprint and summarize it."""
+    local_ubp = Path.home() / ".memento" / "USER_BLUEPRINT.md"
+    try:
+        if local_ubp.is_file():
+            summary = _summarize_user_blueprint_markdown(
+                local_ubp.read_text(encoding="utf-8", errors="ignore")
+            )
+            if summary:
+                return summary
+    except Exception:
+        pass
+    try:
+        from .cache import cache_get
+
+        cached = await cache_get(f"user:blueprint:v1:{user.id}")
+        if isinstance(cached, dict) and isinstance(cached.get("markdown"), str):
+            return _summarize_user_blueprint_markdown(cached["markdown"])
+    except Exception:
+        pass
+    return ""
+
+
 async def sense_resonance(
     db: AsyncSession,
     user: User,
@@ -752,6 +816,7 @@ async def sense_resonance(
             db, user, pitfall_terms(q_text, topic_action), limit_pitfalls, target_project=project,
         )
         blueprint_summary = await _fetch_project_blueprint_summary(db, effective_project, raw_project_arg)
+        user_blueprint_summary = await _fetch_user_blueprint_summary(db, user)
     finally:
         durable_corrections = await durable_task
 
@@ -764,6 +829,7 @@ async def sense_resonance(
         "pitfalls": pitfalls_data,
         "durable_corrections": durable_corrections,
         "blueprint_summary": blueprint_summary,
+        "user_blueprint_summary": user_blueprint_summary,
     }
 
 
@@ -834,6 +900,11 @@ def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | 
     if bp_summary:
         lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
         lines.append(bp_summary)
+
+    ubp_summary = (res.get("user_blueprint_summary") or "").strip()
+    if ubp_summary and not bp_summary:
+        lines.append("\n【用户个人全域认知与项目矩阵蓝图 (USER_BLUEPRINT.md)】：")
+        lines.append(ubp_summary)
 
     lines.append("\n心领神会行动要求：严格基于上述心智模型与图谱关联展开工作，不反问用户，直达终局。")
     return "\n".join(lines)
@@ -1249,6 +1320,11 @@ def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> st
     if bp_summary:
         mind_lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
         mind_lines.append(bp_summary)
+
+    ubp_summary = (resonance.get("user_blueprint_summary") or "").strip()
+    if ubp_summary:
+        mind_lines.append("\n【用户个人全域认知与项目矩阵蓝图 (USER_BLUEPRINT.md)】：")
+        mind_lines.append(ubp_summary)
 
     sections.append("\n".join(mind_lines))
     return "\n\n".join(s for s in sections if s.strip())

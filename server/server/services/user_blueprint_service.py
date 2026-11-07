@@ -47,6 +47,10 @@ DISCIPLINE_RULES: list[dict[str, Any]] = [
             "kubernetes", "k8s", "docker", "websocket", "webrtc", "ast", "compiler", "daemon",
             "microservice", "celery", "sqlalchemy", "并发", "流式", "缓存", "容器化", "零停机",
         ],
+        "project_keywords": [
+            "fastapi", "typescript", "electron", "react", "next.js", "postgresql", "redis",
+            "docker", "k8s", "daemon", "server", "web", "desktop", "workspaces", "kasmvnc",
+        ],
         "description": "全栈系统工程、高并发流式架构、AST 静态代码分析、分布式状态同步与云原生容器编排",
     },
     {
@@ -57,6 +61,10 @@ DISCIPLINE_RULES: list[dict[str, Any]] = [
             "llm", "agent", "mcp", "claude", "codex", "antigravity", "gemini", "openai",
             "embedding", "bge-m3", "pgvector", "rag", "knowledge graph", "知识图谱", "向量检索",
             "大模型", "智能体", "数字孪生", "心领神会", "orchestrator", "modelscope", "oneapi",
+        ],
+        "project_keywords": [
+            "memento", "workbuddy", "openclaw", "mcp", "agent", "llm", "ai", "claude", "codex",
+            "embedding", "pgvector",
         ],
         "description": "多智能体协同编排（MCP/A2A）、长期记忆与知识图谱构建、神经符号护栏与个人数字孪生自进化",
     },
@@ -69,6 +77,10 @@ DISCIPLINE_RULES: list[dict[str, Any]] = [
             "逆合成", "化合物", "分子", "化学", "反应式", "格式试剂", "原料", "单步复核",
             "路线标注", "有机合成", "rdkit", "aiphacas",
         ],
+        "project_keywords": [
+            "pubchem", "reaxys", "smiles", "cas", "rxn", "retrosynthesis", "chem", "rdkit",
+            "逆合成", "化学", "化合物",
+        ],
         "description": "分子表征（SMILES/CAS）、计算机辅助逆合成路线规划（CASP）、化学反应分类与实验条件标准化",
     },
     {
@@ -80,6 +92,9 @@ DISCIPLINE_RULES: list[dict[str, Any]] = [
             "strategy", "portfolio", "market-data", "tick", "kline", "ctp", "期货",
             "量化", "策略", "回测", "实盘", "风控", "持仓", "行情",
         ],
+        "project_keywords": [
+            "quant", "quant_future", "tqsdk", "trading", "backtest", "ctp", "期货", "量化", "行情",
+        ],
         "description": "期货与衍生品算法交易、高频行情接入、量化策略研发回测、组合持仓管理与实时风险控制",
     },
     {
@@ -89,6 +104,10 @@ DISCIPLINE_RULES: list[dict[str, Any]] = [
         "keywords": [
             "scraper", "crawler", "etl", "pipeline", "dataset", "annotation", "dedup",
             "清洗", "去重", "唯一性口径", "统计口径", "数据抓取", "数据集", "标注", "溯源",
+        ],
+        "project_keywords": [
+            "pubchem", "memento", "workbuddy", "wechat", "publisher", "iptv", "favorite_chat",
+            "scraper", "crawler", "dataset", "数据", "抓取",
         ],
         "description": "大规模多源异构数据采集、实体对齐与去重归一化、可溯源数据资产治理与高质量语料构建",
     },
@@ -199,6 +218,44 @@ TECH_RADAR_CATEGORIES: dict[str, tuple[str, list[tuple[str, list[str]]]]] = {
 }
 
 
+_NOISE_TECH_TOKENS = {
+    "none",
+    "none detected",
+    "generic",
+    "standard local runtime",
+    "unknown",
+    "-",
+}
+
+_DANGLING_STOPWORDS = {
+    "a", "an", "the", "and", "or", "with", "for", "of", "in", "to", "on", "by", "from", "at", "as",
+}
+
+
+def _kw_matches_text(kw: str, text_lower: str) -> bool:
+    """Match keyword against lowercase text, enforcing word boundaries for short ASCII tokens."""
+    k = kw.lower().strip()
+    if not k:
+        return False
+    if k.isascii() and len(k) <= 5 and k.replace("-", "").replace("_", "").isalnum():
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(k)}(?![a-z0-9])", text_lower))
+    return k in text_lower
+
+
+def _truncate_clean(text: str, max_len: int = 56) -> str:
+    """Truncate text cleanly at word/punctuation boundaries without cutting words in half."""
+    clean = " ".join(text.strip().split())
+    if len(clean) <= max_len:
+        return clean.rstrip(" ,;:-(")
+    cut = clean[:max_len]
+    if " " in cut and cut.isascii():
+        cut = cut.rsplit(" ", 1)[0]
+    words = cut.split()
+    while len(words) > 2 and words[-1].lower().strip(".,;:-(/") in _DANGLING_STOPWORDS | {""}:
+        words.pop()
+    return " ".join(words).rstrip(" ,;:-(/")
+
+
 def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
     """Extract structured summary metrics from a PROJECT_BLUEPRINT.md document."""
     info: dict[str, Any] = {
@@ -228,7 +285,11 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
             val = s.split(":", 1)[-1].strip()
             for token in val.split(","):
                 clean = token.strip().strip("`")
-                if clean and clean.lower() != "none" and clean not in info["tech_stack"]:
+                if (
+                    clean
+                    and clean.lower() not in _NOISE_TECH_TOKENS
+                    and clean not in info["tech_stack"]
+                ):
                     info["tech_stack"].append(clean)
         elif "Branch:" in s or "**Active Branch**:" in s:
             m = re.search(r"Branch\*?\*?:\s*`([^`]+)`", s)
@@ -261,7 +322,7 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
                 m_mod = re.search(r"`([^`]+)`", parts[0])
                 mod_name = m_mod.group(1) if m_mod else parts[0]
                 resp = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", parts[2]).strip("` ")
-                info["subsystems_preview"].append(f"{mod_name} ({resp[:42]})")
+                info["subsystems_preview"].append(f"{mod_name} ({_truncate_clean(resp, 54)})")
         elif current_sec == "models" and s.startswith("| `"):
             info["models_count"] += 1
         elif current_sec == "routes" and s.startswith("| `"):
@@ -366,7 +427,7 @@ def _build_user_mermaid_topology(
         linked_projects: set[str] = set()
         for b in domains[:5]:
             bid = _sanitize_mermaid_id(b["id"], "B")
-            for pname in b.get("projects", [])[:4]:
+            for pname in b.get("projects", []):
                 pid = _sanitize_mermaid_id(pname, "P")
                 if any(_sanitize_mermaid_id(p["name"], "P") == pid for p in projects[:8]):
                     lines.append(f"    {bid} --> {pid}")
@@ -706,15 +767,24 @@ async def build_user_blueprint(
     # 3. Infer Academic & Scientific Disciplines
     disciplines: list[dict[str, Any]] = []
     for rule in DISCIPLINE_RULES:
-        matched_kw = [kw for kw in rule["keywords"] if kw.lower() in full_corpus_lower]
+        matched_kw = [kw for kw in rule["keywords"] if _kw_matches_text(kw, full_corpus_lower)]
         if matched_kw:
+            p_kws = rule.get("project_keywords", rule["keywords"])
             matched_projs = [
                 p["name"]
                 for p in projects_list
                 if any(
-                    kw.lower()
-                    in (p["name"] + " " + " ".join(p.get("tech_stack", [])) + " " + p.get("raw_excerpt", "")).lower()
-                    for kw in rule["keywords"]
+                    _kw_matches_text(
+                        kw,
+                        (
+                            p["name"]
+                            + " "
+                            + " ".join(p.get("tech_stack", []))
+                            + " "
+                            + " ".join(p.get("subsystems_preview", []))
+                        ).lower(),
+                    )
+                    for kw in p_kws
                 )
             ]
             disciplines.append({
@@ -731,15 +801,17 @@ async def build_user_blueprint(
     # 4. Infer Business Domains
     domains: list[dict[str, Any]] = []
     for b_rule in BUSINESS_DOMAIN_RULES:
-        matched_kw = [kw for kw in b_rule["keywords"] if kw.lower() in full_corpus_lower]
+        matched_kw = [kw for kw in b_rule["keywords"] if _kw_matches_text(kw, full_corpus_lower)]
         if matched_kw:
             p_kws = b_rule.get("project_keywords", b_rule["keywords"])
             matched_projs = [
                 p["name"]
                 for p in projects_list
                 if any(
-                    kw.lower()
-                    in (p["name"] + " " + " ".join(p.get("subsystems_preview", []))).lower()
+                    _kw_matches_text(
+                        kw,
+                        (p["name"] + " " + " ".join(p.get("subsystems_preview", []))).lower(),
+                    )
                     for kw in p_kws
                 )
             ]
@@ -754,16 +826,38 @@ async def build_user_blueprint(
             })
     domains.sort(key=lambda b: b["score"], reverse=True)
 
-    # 5. Build Technology & Infrastructure Radar
+    # 5. Build Technology & Infrastructure Radar (static rules + dynamic Knowledge Graph entities)
     tech_radar: dict[str, dict[str, Any]] = {}
+    known_radar_tokens: set[str] = set()
     for cat_id, (cat_label, tech_defs) in TECH_RADAR_CATEGORIES.items():
         matched_items: list[str] = []
         for tech_name, tokens in tech_defs:
+            known_radar_tokens.update(t.lower().strip() for t in tokens)
+            known_radar_tokens.add(tech_name.lower())
             if any(tok.lower() in full_corpus_lower for tok in tokens):
                 matched_items.append(tech_name)
         tech_radar[cat_id] = {
             "label": cat_label,
             "items": matched_items,
+        }
+
+    dynamic_entities: list[str] = []
+    for e in entities:
+        ename = getattr(e, "name", None)
+        etype = getattr(e, "entity_type", None)
+        if (
+            isinstance(ename, str)
+            and 2 <= len(ename.strip()) <= 32
+            and isinstance(etype, str)
+            and etype.lower() in {"technology", "tool", "framework", "library", "concept", "domain"}
+        ):
+            clean_en = ename.strip()
+            if clean_en.lower() not in known_radar_tokens and clean_en not in dynamic_entities:
+                dynamic_entities.append(clean_en)
+    if dynamic_entities:
+        tech_radar["knowledge_graph_emerging"] = {
+            "label": "知识图谱高频实体 (Knowledge Graph Entities)",
+            "items": dynamic_entities[:10],
         }
 
     # 6. Extract Engineering Philosophy from Resident Profile

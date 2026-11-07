@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `55234b59` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `30914155` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -55,8 +55,8 @@ flowchart TD
 | Subsystem / Path | Category | Role & Purpose |
 | :--- | :--- | :--- |
 | [`apps/desktop`](apps/desktop) | Application | Memento: the web app in a window, with the local daemon, tray and auto-update |
-| [`apps/mobile`](apps/mobile) | Application | mobile application |
-| [`apps/web`](apps/web) | Application | This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-re |
+| [`apps/mobile`](apps/mobile) | Application | Cross-platform mobile client application |
+| [`apps/web`](apps/web) | Application | Browser web interface, interactive views, and client assets |
 | [`packages/core`](packages/core) | Package / Service | Types, API client and ask stream shared by Memento's web, desktop and mobile clients |
 | [`packages/daemon`](packages/daemon) | Package / Service | Memento's local daemon: collects AI tool sessions, runs dispatched agent tasks, keeps the profile and skills in each too |
 | [`packages/mcp`](packages/mcp) | Package / Service | Memento memory over MCP (stdio): search, recall, project context, rules, pitfalls, skills and todos |
@@ -604,7 +604,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `55234b59` (2026-11-07): feat(blueprint): 完善记忆变更、梦境归纳与项目蓝图上报时的个人蓝图自动联动刷新
+- `30914155` (2026-11-07): feat(blueprint): 完善记忆变更、梦境归纳与项目蓝图上报时的个人蓝图自动联动刷新
 - `176a7a3f` (2026-11-07): feat(blueprint): 新增个人全域认知与能力蓝图(USER_BLUEPRINT.md)提炼与多端同步可视化
 - `9361571a` (2026-11-07): fix(blueprint): 统一服务端多端点与跨工具项目的蓝图数据库兜底查询
 - `80c782b7` (2026-11-07): feat(blueprint): 支持跨设备守护进程蓝图生成器内置与服务端OTA全自动同步

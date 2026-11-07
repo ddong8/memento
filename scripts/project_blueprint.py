@@ -60,7 +60,7 @@ IGNORED_DIRS = {
 MAX_TREE_DEPTH = 3
 
 # Monotonically increasing generator version for cross-device OTA synchronization
-BLUEPRINT_SCRIPT_VERSION = 20261107
+BLUEPRINT_SCRIPT_VERSION = 20261108
 
 
 def run_git_cmd(args: list[str], cwd: Path) -> str:
@@ -311,7 +311,8 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         "api": ("API Layer", "REST / RPC API routers and request handlers"),
         "src": ("Core Source Package", "Primary application source code, API handlers, and domain engines"),
         "frontend": ("Frontend Web App", "Web frontend user interface, state management, and components"),
-        "web": ("Frontend Web App", "Browser web interface and client assets"),
+        "web": ("Frontend Web App", "Browser web interface, interactive views, and client assets"),
+        "mobile": ("Mobile Application", "Cross-platform mobile client application"),
         "client": ("Frontend Client", "Client-side application views and API integration"),
         "desktop": ("Desktop Application", "Cross-platform desktop client application (Electron / Tauri)"),
         "src-tauri": ("Rust Native Core", "Tauri Rust native backend, system tray, and OS integration"),
@@ -345,12 +346,13 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         if m and m.group(1).strip():
             return role, m.group(1).strip()[:120]
 
-    boilerplate_prefixes = (
+    boilerplate_substrings = (
         "this template should help get you started",
         "getting started with create react app",
         "a new flutter project",
         "welcome to your new",
-        "this project was bootstrapped with",
+        "bootstrapped with",
+        "create-next-app",
         "react + typescript + vite",
         "vue 3 + typescript + vite",
         "recommended ide setup",
@@ -361,7 +363,7 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
             for line in _read_code(rm, 4_000).splitlines():
                 sline = line.strip()
                 if sline and not sline.startswith(("#", "!", "[", ">", "`", "-")):
-                    if any(sline.lower().startswith(bp) for bp in boilerplate_prefixes):
+                    if any(bp in sline.lower() for bp in boilerplate_substrings):
                         break
                     return role, sline[:120]
 

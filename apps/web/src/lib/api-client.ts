@@ -828,7 +828,9 @@ export const api = {
 
   getProfile: () => apiFetch<ProfileState>("/api/profile"),
   getUserBlueprint: (refresh = false) =>
-    apiFetch<UserBlueprintData>(`/api/profile/blueprint${refresh ? "?refresh=true" : ""}`, { noCache: refresh }),
+    refresh
+      ? fresh<UserBlueprintData>("/api/profile/blueprint?refresh=true")
+      : apiFetch<UserBlueprintData>("/api/profile/blueprint"),
   regenerateProfileDraft: () =>
     apiFetch<{ status: ProfileDraftStatus; draft: ProfileVersion | null }>(
       "/api/profile/draft/regenerate", { method: "POST" },

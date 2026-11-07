@@ -172,6 +172,47 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("## 4. 跨项目架构蓝图矩阵", res["markdown"])
         self.assertIn("## 5. 全域技术栈与基础设施雷达", res["markdown"])
 
+    def test_clean_truncation_word_boundaries_and_noise_filtering(self):
+        from server.services.mind_resonance_service import _summarize_user_blueprint_markdown
+        from server.services.user_blueprint_service import (
+            _kw_matches_text,
+            _parse_project_blueprint_markdown,
+            _truncate_clean,
+        )
+
+        # Short ASCII token must respect word boundaries (no false match of "cas" in "broadcast" or "ai" in "tailwind")
+        self.assertFalse(_kw_matches_text("cas", "websocket broadcast service"))
+        self.assertTrue(_kw_matches_text("cas", "cas number lookup and smiles"))
+        self.assertFalse(_kw_matches_text("ai", "tailwindcss and main container"))
+        self.assertTrue(_kw_matches_text("ai", "multi-agent ai platform"))
+
+        # Clean word-boundary truncation removes trailing stopwords and never slices words in half
+        truncated = _truncate_clean("Memento: the web app in a window, with the local daemon", max_len=42)
+        self.assertFalse(truncated.endswith("with"))
+        self.assertFalse(truncated.endswith("the"))
+        self.assertIn("window", truncated)
+
+        # Noise tech stack tokens are filtered out
+        sample_bp = (
+            "# Project Blueprint: iptv\n"
+            "- **Languages**: `Generic`\n"
+            "- **Frameworks & Libraries**: `None detected`\n"
+            "- **Infrastructure & Tooling**: `Standard local runtime`\n"
+        )
+        parsed = _parse_project_blueprint_markdown(sample_bp)
+        self.assertEqual(parsed["tech_stack"], [])
+
+        # Mind resonance user blueprint summary extraction
+        sample_ubp = (
+            "# User Cognitive & Domain Blueprint: Haixing Dong\n"
+            "## 2. 学科交叉与专业领域\n"
+            "| 学科 | 方向 | 项目 | 特征 |\n"
+            "| :--- | :--- | :--- | :--- |\n"
+            "| **计算机科学与分布式系统**<br/>*CS* | 全栈系统工程 | `memento` | `fastapi` |\n"
+        )
+        ubp_digest = _summarize_user_blueprint_markdown(sample_ubp)
+        self.assertIn("[DISC] 计算机科学与分布式系统: 全栈系统工程 (`memento`)", ubp_digest)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -217,7 +217,7 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
         async with self.Session() as db:
             tsv = dict((await db.execute(select(DocumentSearch.document_id, DocumentSearch.content_tsv))).all())
         self.assertIn("词汇", str(tsv[kept.id]))
-        self.assertEqual(str(tsv[lost.id]), "'stale'")
+        self.assertEqual(str(tsv[lost.id]), "'stale':1")
 
 class HeartbeatTests(unittest.TestCase):
     def test_written_at_most_once_a_minute(self) -> None:

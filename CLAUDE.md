@@ -37,6 +37,10 @@
 - **新代码不要把需要跨请求共享的状态放进模块级 dict / `asyncio.Lock` / 进程内后台循环**:会在副本间各自为政。共享状态用 Redis(`cluster.redis`、`SharedDict`),互斥用 `cluster.mutex` / `try_lock`,只该跑一份的后台任务包在 `cluster.leased(...)` 里。纯缓存(丢了能重算)可以留在进程内。
 - 发版时旧 pod 会先等进行中的回答跑完(最多 `MEMENTO_SHUTDOWN_DRAIN_SECONDS`,默认 600 秒)再退出,期间客户端自动改连新 pod 继续看。所以旧 pod 停在 `Terminating` 几分钟是正常的;改这个时长要同步改 api.yaml 的 `terminationGracePeriodSeconds`。
 
+### 数据库写入(documents 表)
+- documents 每次同步都改 synced_at(在 4 个索引里),这种更新做不了 HOT,新行版本要插进它的每个索引。所以 **不要往 documents 上加大的 GIN / 表达式索引**:全文索引原来就在这里,一篇文档 1300 多个词条,每次同步写约 240KB WAL;2026-11-08 拆到 `document_search` 表(0cba3288、d9d6a553),同步更新的 WAL 少了约 17 倍。要索引文档内容就放到单独的表里。
+- 和标题/路径条件 OR 在一起的全文条件写成 `Document.id.in_(select(DocumentSearch.document_id).where(...))`,别直接 OR 在左连接上:那样用不上 GIN,每篇的词向量都要解出来比(搜索 125ms vs 4.6ms)。
+
 ### 查状态 / 排障
 - 构建:`gh run list --workflow=deploy.yml`
 - 集群:`kubectl -n fleet-local get gitrepo memento`、`kubectl -n memento get pods`

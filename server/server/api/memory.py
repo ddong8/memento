@@ -646,6 +646,7 @@ async def _bust_user_memory_cache(user_id: uuid.UUID) -> None:
         await cache.cache_delete_prefix(f"memory:markdown:{user_id}:")
         await cache.cache_delete_prefix(f"learning:check:{user_id}:")
         await cache.cache_delete_prefix(f"project:blueprint:{user_id}:")
+        await cache.cache_delete_prefix(f"user:blueprint:v1:{user_id}")
     except Exception:
         pass
 

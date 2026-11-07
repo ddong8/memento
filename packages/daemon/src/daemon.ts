@@ -261,7 +261,11 @@ export class Daemon extends EventEmitter {
             offset: 0,
             metadata: { project_path: gitRoot, project_name: proj.name, project_hash: proj.name },
           });
-          if (res.ok) this.blueprintHashes.set(bpFile, hash);
+          if (res.ok) {
+            this.blueprintHashes.set(bpFile, hash);
+            const ubp = await this.ingest.fetchUserBlueprint();
+            await syncLocalUserBlueprint(ubp?.markdown);
+          }
         })
         .catch(() => {});
     }

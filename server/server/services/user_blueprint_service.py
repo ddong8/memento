@@ -315,6 +315,8 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
                 info["branch"] = m.group(1)
 
     current_sec = ""
+    raw_subsystems: list[tuple[int, str]] = []
+    support_mods = {"docs", "doc", "scripts", "script", "tests", "test", "docker", "deploy", "k8s", "ci-scripts", "ci"}
     for line in md.splitlines():
         s = line.strip()
         if "Subsystem Breakdown" in s or s.startswith("## 3."):
@@ -345,11 +347,28 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
                 continue
             info["subsystems_count"] += 1
             parts = [p.strip() for p in s.strip("|").split("|")]
-            if len(parts) >= 3 and len(info["subsystems_preview"]) < 4:
+            if len(parts) >= 3:
                 m_mod = re.search(r"`([^`]+)`", parts[0])
                 mod_name = m_mod.group(1) if m_mod else parts[0]
+                cat_name = parts[1]
                 resp = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", parts[2]).strip("` ")
-                info["subsystems_preview"].append(f"{mod_name} ({_truncate_clean(resp, 68)})")
+                prio = (
+                    2
+                    if (
+                        mod_name.lower() in support_mods
+                        or "Docs" in cat_name
+                        or "Test" in cat_name
+                        or "Automation" in cat_name
+                        or "Infrastructure" in cat_name
+                        or "Container" in cat_name
+                    )
+                    else (
+                        1
+                        if (mod_name.lower() == "research" or resp.startswith("Root-level ") or resp.startswith("@"))
+                        else 0
+                    )
+                )
+                raw_subsystems.append((prio, f"{mod_name} ({_truncate_clean(resp, 68)})"))
         elif current_sec == "core_models" and s.startswith("`"):
             model_tokens = [
                 m.strip()
@@ -369,6 +388,8 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
         elif current_sec == "legacy_routes" and s.startswith("| `"):
             info["routes_count"] += 1
 
+    raw_subsystems.sort(key=lambda item: item[0])
+    info["subsystems_preview"] = [text for _, text in raw_subsystems[:4]]
     return info
 
 

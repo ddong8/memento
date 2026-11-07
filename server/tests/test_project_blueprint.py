@@ -145,6 +145,22 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertIn('ACCOUNT ||--o{ TRANSACTION : "account_id"', er)
         self.assertNotIn("ACCOUNTS", er)
 
+    def test_subsystem_priority_sorting_and_tauri_electron_ipc_routes(self):
+        (self.root / "docs").mkdir()
+        (self.root / "scripts").mkdir()
+        (self.root / "src").mkdir()
+        (self.root / "app.py").write_text('"""\n@Time : 2024/08/06\nDo have a faith in what you\'re doing.\n"""\n')
+        subs = project_blueprint.scan_subsystems(self.root)
+        self.assertEqual(subs[0]["name"], "src")
+        app_sub = next(s for s in subs if s["name"] == "app.py")
+        self.assertTrue(app_sub["description"].startswith("Root-level "))
+
+        tauri_dir = self.root / "src-tauri" / "src"
+        tauri_dir.mkdir(parents=True)
+        (tauri_dir / "lib.rs").write_text('#[tauri::command]\npub async fn launch_gateway() {}\n')
+        routes = project_blueprint.scan_api_routes(self.root)
+        self.assertTrue(any("`IPC tauri:launch_gateway`" in r["endpoints"] for r in routes))
+
 
 class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
     async def test_build_user_blueprint_synthesizes_disciplines_domains_and_projects(self):

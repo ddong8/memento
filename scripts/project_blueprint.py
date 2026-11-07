@@ -60,7 +60,7 @@ IGNORED_DIRS = {
 MAX_TREE_DEPTH = 3
 
 # Monotonically increasing generator version for cross-device OTA synchronization
-BLUEPRINT_SCRIPT_VERSION = 20261108
+BLUEPRINT_SCRIPT_VERSION = 20261109
 
 
 def run_git_cmd(args: list[str], cwd: Path) -> str:
@@ -467,17 +467,42 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
         if f.is_file() and f.suffix in (".py", ".ts", ".js") and not f.name.startswith(("_", "test_")) and f.name not in ("setup.py", "conftest.py") and not f.name.endswith((".config.js", ".config.ts")):
             txt = _read_code(f, 3_000)
             doc = ""
+            ide_tags = (
+                "@time", "@author", "@file", "@software", "@project", "@date", "@version",
+                "@contact", "@license", "copyright", "coding:", "-*-", "do have a faith", "all rights reserved",
+            )
             dm = re.match(r'^(?:#![^\n]*\n)?\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', txt)
             if dm and dm.group(1).strip():
-                doc = dm.group(1).strip().splitlines()[0].strip()
-            else:
-                for cline in txt.splitlines()[:10]:
-                    scline = cline.strip()
-                    if scline.startswith("#!") or "coding:" in scline:
+                raw_block = dm.group(1).strip()
+                is_ide_header = any(t in raw_block.lower() for t in ("@time", "@author", "@file", "@software"))
+                for dline in raw_block.splitlines():
+                    sd = dline.strip().lstrip("*#- ")
+                    if not sd or sd.lower().startswith(ide_tags):
                         continue
-                    if scline.startswith(("#", "//")) and len(scline.lstrip("#/ ").strip()) > 4:
-                        doc = scline.lstrip("#/ ").strip()
+                    if sd.lower().startswith(("@description", "@desc")):
+                        sd = re.sub(r"^@[a-zA-Z]+\s*[:：]?\s*", "", sd).strip()
+                        if len(sd) > 4:
+                            doc = sd
                         break
+                    if not is_ide_header and len(sd) > 4:
+                        doc = sd
+                        break
+            if not doc:
+                has_ide_comments = any(t in txt[:600].lower() for t in ("@time", "@author", "@file", "@software"))
+                for cline in txt.splitlines()[:12]:
+                    scline = cline.strip()
+                    if scline.startswith("#!") or any(tag in scline.lower() for tag in ide_tags):
+                        continue
+                    if scline.startswith(("#", "//")):
+                        cand = scline.lstrip("#/ ").strip()
+                        if cand.lower().startswith(("@description", "@desc")):
+                            cand = re.sub(r"^@[a-zA-Z]+\s*[:：]?\s*", "", cand).strip()
+                            if len(cand) > 4:
+                                doc = cand
+                            break
+                        if not has_ide_comments and len(cand) > 4 and not cand.lower().startswith(ide_tags):
+                            doc = cand
+                            break
             role = "Backend / Web Entrypoint" if f.stem in ("server", "app", "main", "api") else "Core Engine Module"
             subsystems.append({
                 "name": f.name,
@@ -498,6 +523,33 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
                     "description": f"Repository {role.lower()} ({f.name})",
                 })
 
+    support_names = {"docs", "doc", "scripts", "script", "tests", "test", "docker", "deploy", "k8s", "ci-scripts", "ci"}
+    support_types = {
+        "Architecture & Docs",
+        "Automation & CLI Scripts",
+        "Test Suites",
+        "Container Infrastructure",
+        "Infrastructure & Deployment",
+        "CI/CD & Build Scripts",
+        "Documentation",
+        "Data / Config Asset",
+    }
+
+    def _sub_priority(s: dict[str, Any]) -> tuple[int, str]:
+        sname = str(s.get("name", "")).lower()
+        stype = str(s.get("type", ""))
+        sdesc = str(s.get("description", ""))
+        if sname in support_names or stype in support_types:
+            return (2, sname)
+        if (
+            sname in {"research", "notebooks", "examples", "benchmarks"}
+            or "Research" in stype
+            or sdesc.startswith("Root-level ")
+        ):
+            return (1, sname)
+        return (0, sname)
+
+    subsystems.sort(key=_sub_priority)
     return subsystems
 
 
@@ -698,7 +750,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
         except Exception:
             pass
 
-    # 5. Java / Kotlin Spring Boot (@RestController) & Rust (Axum / Actix)
+    # 5. Java / Kotlin Spring Boot (@RestController) & Rust (Axum / Actix / Tauri) & Electron IPC
     for jk_file in _iter_repo_files(root, "**/*Controller.java", limit=25) + _iter_repo_files(root, "**/*Controller.kt", limit=25):
         try:
             content = _read_code(jk_file)
@@ -714,6 +766,45 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     "name": jk_file.stem,
                     "file": jk_file.name,
                     "prefix": prefix,
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
+        except Exception:
+            pass
+
+    for rs_file in _iter_repo_files(root, "**/*.rs", limit=30):
+        try:
+            content = _read_code(rs_file)
+            endpoints = []
+            for tm in re.finditer(r'#\[tauri::command[^\]]*\]\s*(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z0-9_]+)', content):
+                endpoints.append(f"`IPC tauri:{tm.group(1)}`")
+            for am in re.finditer(r'#\[(get|post|put|delete|patch)\(\s*"([^"]+)"', content):
+                endpoints.append(f"`{am.group(1).upper()} {am.group(2)}`")
+            if endpoints:
+                routes.append({
+                    "name": rs_file.stem,
+                    "file": rs_file.name,
+                    "prefix": f"ipc://{rs_file.stem}",
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
+        except Exception:
+            pass
+
+    for el_file in _iter_repo_files(root, "**/main.ts", limit=15) + _iter_repo_files(root, "**/ipc*.ts", limit=15):
+        try:
+            content = _read_code(el_file)
+            if "ipcMain.handle" not in content:
+                continue
+            endpoints = [
+                f"`IPC {im.group(1)}`"
+                for im in re.finditer(r'ipcMain\.handle\(\s*["\']([^"\']+)["\']', content)
+            ]
+            if endpoints:
+                routes.append({
+                    "name": el_file.stem,
+                    "file": el_file.name,
+                    "prefix": "ipc://electron",
                     "endpoints": endpoints[:5],
                     "total": len(endpoints),
                 })

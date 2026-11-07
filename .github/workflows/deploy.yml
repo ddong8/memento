@@ -31,6 +31,7 @@ on:
       - "server/requirements.lock"
       - "server/server/**"
       - "scripts/fetch_geoip.py"
+      - "scripts/project_blueprint.py"
       - "deploy/bootstrap/**"
       - "data/updates/**"
       - "apps/web/**"
@@ -72,7 +73,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
+          SERVER_PATHS="server/Dockerfile server/pyproject.toml server/requirements.lock server/server scripts/fetch_geoip.py scripts/project_blueprint.py deploy/bootstrap data/updates .dockerignore .github/workflows/deploy.yml"
           WEB_PATHS="apps/web packages/core package.json package-lock.json .dockerignore .github/workflows/deploy.yml"
           deployed_tag() {
             awk -v n="${REGISTRY}/${OWNER}/$1" '$1=="-" && $2=="name:" {cur=$3} $1=="newTag:" && cur==n {gsub(/"/,"",$2); print $2; exit}' deploy/k8s/kustomization.yaml

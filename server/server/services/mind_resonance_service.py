@@ -14,12 +14,13 @@ import logging
 import math
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 
-from sqlalchemy import case, literal_column, select
+from sqlalchemy import case, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory
+from ..db.models import Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -613,6 +614,96 @@ async def _project_name(db: AsyncSession, project: str | None) -> str | None:
         return None
 
 
+def _summarize_blueprint_markdown(raw: str, max_chars: int = 1200) -> str:
+    """Extract a high-signal architectural digest from PROJECT_BLUEPRINT.md."""
+    if not raw or "# Project Blueprint" not in raw:
+        return ""
+    keep_lines: list[str] = []
+    in_mermaid = False
+    for line in raw.splitlines():
+        sline = line.strip()
+        if sline.startswith("```mermaid"):
+            in_mermaid = True
+            continue
+        if in_mermaid:
+            if sline.startswith("```"):
+                in_mermaid = False
+            continue
+        if sline.startswith((">", "| :---", "## 2.", "## 6.", "## 7.", "## 9.")):
+            continue
+        if any(
+            sline.startswith(p)
+            for p in (
+                "# Project Blueprint:",
+                "- **Project Type**:",
+                "- **Core Languages**:",
+                "- **Key Frameworks**:",
+                "- **Infrastructure & Middleware**:",
+                "| [`",
+                "#### `/",
+                "### Core Database Models",
+            )
+        ):
+            keep_lines.append(sline.replace("**", ""))
+        elif keep_lines and keep_lines[-1].startswith("### Core Database Models") and sline.startswith("`"):
+            keep_lines.append(sline[:240])
+        if sum(len(x) + 1 for x in keep_lines) >= max_chars:
+            break
+    return "\n".join(keep_lines)[:max_chars]
+
+
+async def _fetch_project_blueprint_summary(
+    db: AsyncSession,
+    project_name: str | None,
+    raw_project_arg: str | None = None,
+) -> str:
+    """Locate PROJECT_BLUEPRINT.md from local disk or synced Document rows and summarize it."""
+    candidates: list[Path] = []
+    for raw_cand in (raw_project_arg, project_name):
+        if not raw_cand:
+            continue
+        clean_c = raw_cand.strip()
+        if "/" in clean_c or "\\" in clean_c:
+            p = Path(clean_c)
+            candidates.append(p / "PROJECT_BLUEPRINT.md")
+    if project_name:
+        home = Path.home()
+        for base in (home / "dev", home / "Desktop" / "dev" / "python", home):
+            candidates.append(base / project_name / "PROJECT_BLUEPRINT.md")
+
+    for bp_file in candidates:
+        try:
+            if bp_file.is_file():
+                summary = _summarize_blueprint_markdown(bp_file.read_text(encoding="utf-8", errors="ignore"))
+                if summary:
+                    return summary
+        except Exception:
+            pass
+
+    if not project_name:
+        return ""
+    try:
+        doc_q = (
+            select(Document.content)
+            .join(Project, Document.project_id == Project.id)
+            .where(
+                or_(
+                    Project.title.ilike(project_name),
+                    Project.slug.ilike(f"%/{project_name}"),
+                ),
+                Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+            )
+            .order_by(Document.synced_at.desc())
+            .limit(1)
+        )
+        content = (await db.execute(doc_q)).scalar_one_or_none()
+        if isinstance(content, str) and content:
+            return _summarize_blueprint_markdown(content)
+    except Exception as e:
+        logger.debug("Could not fetch blueprint summary for %s: %s", project_name, e)
+    return ""
+
+
 async def sense_resonance(
     db: AsyncSession,
     user: User,
@@ -631,6 +722,7 @@ async def sense_resonance(
 
     from .session_compactor import clean_text
 
+    raw_project_arg = project
     # What the user asked, not the context a continuation put in front of it
     q_text = clean_text(query or "")
     project = await _project_name(db, project)
@@ -645,6 +737,8 @@ async def sense_resonance(
     if scenario["id"] == "general_engineering" and project:
         scenario = detect_scenario(terms, f"{q_text} {project} {topic_action or ''}")
 
+    effective_project = project or scen_target_project(scenario)
+
     # Redis lookup alongside; the database queries share one session, which can't run them concurrently
     durable_task = asyncio.ensure_future(get_user_durable_corrections(user.id))
     try:
@@ -655,6 +749,7 @@ async def sense_resonance(
         pitfalls_data = await _fetch_pitfalls(
             db, user, pitfall_terms(q_text, topic_action), limit_pitfalls, target_project=project,
         )
+        blueprint_summary = await _fetch_project_blueprint_summary(db, effective_project, raw_project_arg)
     finally:
         durable_corrections = await durable_task
 
@@ -666,7 +761,13 @@ async def sense_resonance(
         "entities": entities_data,
         "pitfalls": pitfalls_data,
         "durable_corrections": durable_corrections,
+        "blueprint_summary": blueprint_summary,
     }
+
+
+def scen_target_project(scenario: dict[str, Any]) -> str | None:
+    tp = scenario.get("target_project")
+    return str(tp) if tp else None
 
 
 def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | None = None) -> str:
@@ -725,6 +826,12 @@ def render_mind_resonance_markdown(res: dict[str, Any], live_rules: list[str] | 
         lines.append("\n历史避坑与防御性预警（历史上类似场景踩过的深坑，绝不能重复出现）：")
         for p in pitfalls:
             lines.append(f"- 避坑提醒 [{p['key']}]：{p['content']}")
+
+    # Living Codebase Blueprint Digest
+    bp_summary = (res.get("blueprint_summary") or "").strip()
+    if bp_summary:
+        lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
+        lines.append(bp_summary)
 
     lines.append("\n心领神会行动要求：严格基于上述心智模型与图谱关联展开工作，不反问用户，直达终局。")
     return "\n".join(lines)
@@ -1135,6 +1242,11 @@ def enrich_check_rules_result(guidance_md: str, resonance: dict[str, Any]) -> st
         mind_lines.append("\n【必须坚决规避的历史踩坑】：")
         for p in pitfalls[:3]:
             mind_lines.append(f"- {p['key']}：{p['content'][:120]}")
+
+    bp_summary = (resonance.get("blueprint_summary") or "").strip()
+    if bp_summary:
+        mind_lines.append("\n【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】：")
+        mind_lines.append(bp_summary)
 
     sections.append("\n".join(mind_lines))
     return "\n\n".join(s for s in sections if s.strip())

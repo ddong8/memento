@@ -1668,6 +1668,16 @@ async def get_project_conversations(
     else:
         source_path = _clean_source_path(project.source_path) or ""
 
+    # Also expose codebase_blueprint on project conversations response if available locally
+    codebase_blueprint = None
+    if source_path:
+        try:
+            bp_file = Path(source_path) / "PROJECT_BLUEPRINT.md"
+            if bp_file.is_file():
+                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+
     payload = {
         "project": {
             "id": str(project.id),
@@ -1675,6 +1685,7 @@ async def get_project_conversations(
             "title": project.title,
             "source_path": source_path,
         },
+        "codebase_blueprint": codebase_blueprint,
         "total_sessions": total_sessions,
         "session_offset": session_offset,
         "session_limit": session_limit,

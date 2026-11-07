@@ -342,12 +342,24 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         if m and m.group(1).strip():
             return role, m.group(1).strip()[:120]
 
+    boilerplate_prefixes = (
+        "this template should help get you started",
+        "getting started with create react app",
+        "a new flutter project",
+        "welcome to your new",
+        "this project was bootstrapped with",
+        "react + typescript + vite",
+        "vue 3 + typescript + vite",
+        "recommended ide setup",
+    )
     for rm_name in ("README.md", "readme.md"):
         rm = d / rm_name
         if rm.exists():
             for line in _read_code(rm, 4_000).splitlines():
                 sline = line.strip()
                 if sline and not sline.startswith(("#", "!", "[", ">", "`", "-")):
+                    if any(sline.lower().startswith(bp) for bp in boilerplate_prefixes):
+                        break
                     return role, sline[:120]
 
     entry_candidates = [
@@ -1165,7 +1177,11 @@ def scan_hotspots_and_tests(root: Path) -> dict[str, Any]:
         counts: dict[str, int] = {}
         for line in out.splitlines():
             p = line.strip()
-            if not p or p in ("PROJECT_BLUEPRINT.md", "deploy/k8s/kustomization.yaml") or p.endswith((".lock", ".json", ".min.js", ".map")):
+            if (
+                not p
+                or p in ("PROJECT_BLUEPRINT.md", "deploy/k8s/kustomization.yaml")
+                or p.endswith((".lock", ".json", ".min.js", ".map", "pnpm-lock.yaml", "package-lock.json", "Cargo.lock", "uv.lock", "poetry.lock"))
+            ):
                 continue
             if any(part in IGNORED_DIRS for part in Path(p).parts):
                 continue
@@ -1873,7 +1889,7 @@ def build_blueprint_content(root: Path) -> str:
         doc.append("")
 
     if routes:
-        doc.append("### Registered FastAPI API Routers & Endpoints")
+        doc.append("### Registered API Routers & Endpoints")
         doc.append("")
         for r in routes:
             rfile = r.get("file") or f"{r['name']}.py"

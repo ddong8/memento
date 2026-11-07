@@ -354,7 +354,8 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
 
 设备命令执行安全与性能军规（务必遵守，防止进程挂死或机器卡顿）：
 - 严禁全盘递归扫描：绝对禁止在根目录 `/` 或整个用户家目录 `$HOME` 下执行无限制深度的 `find`、`grep -r` 等全盘扫描！在 macOS 上扫描 `$HOME` 会遍历 `~/Library` 下的庞大沙盒容器和 iCloud 云盘，会触发系统 I/O 挂起或权限死锁，极易超时。
-- 文件查找首选极速索引：
+- 文件查找与项目架构全景首选极速索引：
+  * 进入任何 Git 项目目录排查架构、接口或数据表时，若目录存在 `PROJECT_BLUEPRINT.md`（活体代码架构蓝图），优先先读 `cat PROJECT_BLUEPRINT.md`，1 次命令即可掌握全局子系统、API 路由、ORM 模型关系与自测命令，无需多次 grep 扫描；
   * macOS 下定位文件：优先使用 Spotlight 索引 `mdfind -name "文件名"`（毫秒级瞬时返回）；
   * 若使用 `find`，必须限定具体的浅层目录（如 `~/Documents`、`~/Desktop`、`~/dev`）并加上 `-maxdepth 3`；
 - 端口与进程探查规范：

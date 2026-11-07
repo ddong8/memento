@@ -679,3 +679,35 @@ class TestLiveRulesAcrossReplicas(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(extract_live_correction_rules("以后特别注意性能"), [])
         self.assertEqual(extract_live_correction_rules("以后别用 sudo"), ["以后别用 sudo"])
 
+    def test_summarize_blueprint_markdown_and_render(self):
+        from server.services.mind_resonance_service import (
+            _summarize_blueprint_markdown,
+            render_mind_resonance_markdown,
+        )
+
+        sample_bp = (
+            "# Project Blueprint: demo-app\n\n"
+            "## 1. Project Overview & Tech Stack\n"
+            "- **Project Type**: Monorepo\n"
+            "- **Core Languages**: Python, TypeScript\n"
+            "- **Key Frameworks**: FastAPI, Next.js\n"
+            "## 3. Subsystem Breakdown & Responsibilities\n"
+            "| [`server`](server) | Backend | FastAPI service |\n"
+            "#### `/api/orders` (orders.py)\n"
+            "### Core Database Models (`models.py`)\n"
+            "`Order`, `Customer`\n"
+        )
+        summary = _summarize_blueprint_markdown(sample_bp)
+        self.assertIn("Project Blueprint: demo-app", summary)
+        self.assertIn("FastAPI, Next.js", summary)
+        self.assertIn("`Order`, `Customer`", summary)
+
+        rendered = render_mind_resonance_markdown({
+            "scenario": {"name": "工程研发"},
+            "mindset": "一次做到位",
+            "blueprint_summary": summary,
+        })
+        self.assertIn("【目标项目活体代码架构快照 (PROJECT_BLUEPRINT.md)】", rendered)
+        self.assertIn("FastAPI, Next.js", rendered)
+
+

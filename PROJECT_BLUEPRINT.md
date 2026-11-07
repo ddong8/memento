@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `84603848` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4c5306f2` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.

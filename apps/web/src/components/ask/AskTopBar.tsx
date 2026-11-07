@@ -9,7 +9,6 @@ import { useMediaInspector } from "@/components/viewers/MediaInspectorContext";
 import { resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme-context";
-import { triggerHapticFeedback } from "@/lib/native-notify";
 import type { ExecutionMode } from "@/lib/ask/turns";
 
 /**
@@ -26,12 +25,10 @@ export function AskTopBar({
   executionMode,
   selectedDevice,
   quotasData,
-  isReadingMode,
   selecting,
   onOpenHistory,
   onOpenQuota,
   onNewChat,
-  onToggleReadingMode,
   onToggleSelectTurns,
   onExportMarkdown,
   onShare,
@@ -46,13 +43,11 @@ export function AskTopBar({
   executionMode: ExecutionMode;
   selectedDevice: string;
   quotasData: AgentQuotasResponse | null;
-  isReadingMode: boolean;
   /** Picking turns to share or export */
   selecting: boolean;
   onOpenHistory: () => void;
   onOpenQuota: () => void;
   onNewChat: () => void;
-  onToggleReadingMode: () => void;
   onToggleSelectTurns: () => void;
   onExportMarkdown: () => void;
   onShare: () => void;
@@ -201,24 +196,6 @@ export function AskTopBar({
           </Btn>
         </div>
 
-        {/* 沉浸式阅读视界开关 (桌面端展示；移动端收拢至更多菜单) */}
-        {turnCount > 0 && (
-          <div className="hidden sm:inline-flex shrink-0">
-            <Btn
-              variant={isReadingMode ? "primary" : "glass"}
-              size="sm"
-              icon={isReadingMode ? "edit" : "book"}
-              onClick={() => {
-                triggerHapticFeedback(10);
-                onToggleReadingMode();
-              }}
-              title={isReadingMode ? (isZh ? "退出沉浸阅读，恢复输入栏" : "Exit reading mode") : (isZh ? "沉浸阅读视界（收起输入控制台）" : "Reading mode")}
-            >
-              <span className="hidden lg:inline">{isReadingMode ? (isZh ? "编写" : "Write") : (isZh ? "沉浸" : "Read")}</span>
-            </Btn>
-          </div>
-        )}
-
         {/* 历史对话按钮 (全端统一常驻展示于新增会话旁) */}
         <Btn
           variant="glass"
@@ -347,25 +324,6 @@ export function AskTopBar({
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-mono font-bold">
                       {inspector.mediaList.length}
                     </span>
-                  </button>
-                )}
-
-                {/* 移动端专属：沉浸阅读视界开关 */}
-                {turnCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      triggerHapticFeedback(10);
-                      onToggleReadingMode();
-                    }}
-                    className="px-3 py-2 text-xs flex items-center justify-between hover:bg-[var(--aurora-chip)] transition-colors text-left text-[var(--aurora-fg1)] sm:hidden"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icon name={isReadingMode ? "edit" : "book"} size={14} className="text-indigo-400" />
-                      <span>{isReadingMode ? (isZh ? "恢复输入栏" : "Show Input") : (isZh ? "沉浸阅读视界" : "Reading Mode")}</span>
-                    </span>
-                    <span className="text-[10px] text-[var(--aurora-fg3)]">{isReadingMode ? (isZh ? "开启中" : "Active") : (isZh ? "未开启" : "Off")}</span>
                   </button>
                 )}
 

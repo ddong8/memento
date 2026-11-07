@@ -233,7 +233,6 @@ function AskPageContent() {
     if (typeof window !== "undefined" && window.innerWidth < 768) return true;
     return false;
   });
-  const [isReadingMode, setIsReadingMode] = useState<boolean>(false);
   const [attachedImages, setAttachedImages] = useState<
     Array<{ id: string; name: string; dataUrl: string; size: number }>
   >([]);
@@ -4716,7 +4715,6 @@ function AskPageContent() {
           executionMode={executionMode}
           selectedDevice={selectedDevice}
           quotasData={quotasData}
-          isReadingMode={isReadingMode}
           selecting={selectTurnsMode}
           onOpenHistory={() => {
             setHistoryOpen(true);
@@ -4724,7 +4722,6 @@ function AskPageContent() {
           }}
           onOpenQuota={() => setQuotaOpen(true)}
           onNewChat={startNewChat}
-          onToggleReadingMode={() => setIsReadingMode(!isReadingMode)}
           onToggleSelectTurns={() => {
             setSelectTurnsMode(!selectTurnsMode);
             setSelectedTurnIndices([]);
@@ -4930,7 +4927,6 @@ function AskPageContent() {
     )}
 
   {/* 中栏底部交互控制台 (作为 flex footer，全面屏安全区适配) */}
-  {!isReadingMode ? (
     <footer
       data-ask-footer="true"
       className="shrink-0 px-1 pt-0.5 sm:px-3.5 sm:pt-2 lg:p-3.5 border-t border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)]/95 sm:bg-[var(--aurora-surface-solid)]/90 sm:backdrop-blur-xl"
@@ -6514,24 +6510,6 @@ function AskPageContent() {
           </div>
         </div>
       </footer>
-    ) : (
-      /* 沉浸式阅读视界浮动唤起胶囊 */
-      <div className="fixed bottom-16 sm:bottom-6 right-4 sm:right-8 z-30 animate-in fade-in slide-in-from-bottom-2 duration-200">
-        <button
-          type="button"
-          onClick={() => {
-            triggerHapticFeedback(12);
-            setIsReadingMode(false);
-            setTimeout(() => inputElRef.current?.focus(), 120);
-          }}
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full bg-[var(--aurora-surface-solid)]/95 backdrop-blur-xl border border-[var(--aurora-accent)] text-[var(--aurora-accent)] shadow-xl text-xs font-semibold active:scale-95 transition-transform cursor-pointer"
-          title={isZh ? "退出沉浸模式并输入吩咐" : "Exit reading mode & compose"}
-        >
-          <Icon name="edit" size={13} />
-          <span>{isZh ? "退出沉浸 · 吩咐" : "Compose"}</span>
-        </button>
-      </div>
-    )}
     </div>
 
       {/* AI Subscription Quotas Popover */}

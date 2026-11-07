@@ -192,15 +192,26 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(truncated.endswith("the"))
         self.assertIn("window", truncated)
 
-        # Noise tech stack tokens are filtered out
+        # Noise tech stack tokens are filtered out and models/routes are accurately counted
         sample_bp = (
             "# Project Blueprint: iptv\n"
             "- **Languages**: `Generic`\n"
             "- **Frameworks & Libraries**: `None detected`\n"
             "- **Infrastructure & Tooling**: `Standard local runtime`\n"
+            "## 4. Key Entry Points & API Endpoints\n"
+            "### Registered API Routers & Endpoints\n"
+            "#### `/api/admin` (admin.py)\n"
+            "- `GET /api/admin/users`\n"
+            "- _... (9 more endpoints)_\n"
+            "### Core Database Models (`models.py`)\n"
+            "`Base`, `User`, `Project`, `Document`\n"
+            "## 5. Core Domain Services & Background Schedules\n"
+            "| `svc1` | path | desc |\n"
         )
         parsed = _parse_project_blueprint_markdown(sample_bp)
         self.assertEqual(parsed["tech_stack"], [])
+        self.assertEqual(parsed["models_count"], 3)
+        self.assertEqual(parsed["routes_count"], 10)
 
         # Mind resonance user blueprint summary extraction
         sample_ubp = (

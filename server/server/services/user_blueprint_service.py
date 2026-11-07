@@ -229,7 +229,9 @@ _NOISE_TECH_TOKENS = {
 
 _DANGLING_STOPWORDS = {
     "a", "an", "the", "and", "or", "with", "for", "of", "in", "to", "on", "by", "from", "at", "as",
+    "over", "local", "1", "2",
 }
+_DANGLING_CN_SUFFIXES = ("的", "和", "与", "及", "或", "在", "从", "对", "把", "将", "并")
 
 
 def _kw_matches_text(kw: str, text_lower: str) -> bool:
@@ -242,18 +244,34 @@ def _kw_matches_text(kw: str, text_lower: str) -> bool:
     return k in text_lower
 
 
-def _truncate_clean(text: str, max_len: int = 56) -> str:
-    """Truncate text cleanly at word/punctuation boundaries without cutting words in half."""
-    clean = " ".join(text.strip().split())
+def _truncate_clean(text: str, max_len: int = 68) -> str:
+    """Truncate text cleanly at word/punctuation boundaries without cutting words or parentheses in half."""
+    clean = " ".join(text.strip().split()).rstrip(".")
+    if "。" in clean:
+        clean = clean.split("。", 1)[0].strip()
     if len(clean) <= max_len:
         return clean.rstrip(" ,;:-(")
     cut = clean[:max_len]
-    if " " in cut and cut.isascii():
+    # Strip any unclosed parenthesis segment at the tail
+    if cut.count("(") > cut.count(")"):
+        cut = cut.rsplit("(", 1)[0].strip()
+    if cut.count("（") > cut.count("）"):
+        cut = cut.rsplit("（", 1)[0].strip()
+    if not cut.isascii():
+        # Prefer cutting at last Chinese comma/semicolon if reasonably long
+        for sep in ("，", "；", "、"):
+            if sep in cut and cut.rfind(sep) >= max_len // 2:
+                cut = cut[: cut.rfind(sep)]
+                break
+        while len(cut) > 4 and cut.endswith(_DANGLING_CN_SUFFIXES):
+            cut = cut[:-1].rstrip(" ，；、,;-")
+        return cut.rstrip(" ，；、,;:-(")
+    if " " in cut:
         cut = cut.rsplit(" ", 1)[0]
     words = cut.split()
     while len(words) > 2 and words[-1].lower().strip(".,;:-(/") in _DANGLING_STOPWORDS | {""}:
         words.pop()
-    return " ".join(words).rstrip(" ,;:-(/")
+    return " ".join(words).rstrip(" ,;:-(/.")
 
 
 def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
@@ -296,21 +314,30 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
             if m:
                 info["branch"] = m.group(1)
 
-    # Count table rows in Subsystems (## 3.), Data Models (## 5.), and API Surface (## 6.)
     current_sec = ""
     for line in md.splitlines():
         s = line.strip()
         if "Subsystem Breakdown" in s or s.startswith("## 3."):
             current_sec = "subsystems"
             continue
-        elif "Data Models" in s or s.startswith("## 5."):
-            current_sec = "models"
+        elif s.startswith("### Core Database Models"):
+            current_sec = "core_models"
             continue
-        elif "API Surface" in s or s.startswith("## 6."):
-            current_sec = "routes"
+        elif s.startswith("### Registered API Routers") or s.startswith("### Frontend Web Routes"):
+            current_sec = "api_routes"
             continue
-        elif s.startswith("## "):
+        elif "Data Models" in s and "Core Domain Services" not in s:
+            current_sec = "legacy_models"
+            continue
+        elif "API Surface" in s:
+            current_sec = "legacy_routes"
+            continue
+        elif s.startswith("## ") or (s.startswith("### ") and current_sec in ("core_models", "api_routes")):
             current_sec = ""
+            continue
+        elif s.startswith("#### Key Entity") or s.startswith("#### Deduplication"):
+            if current_sec == "core_models":
+                current_sec = ""
             continue
 
         if current_sec == "subsystems" and s.startswith("|") and ("`" in s):
@@ -322,10 +349,24 @@ def _parse_project_blueprint_markdown(md: str) -> dict[str, Any]:
                 m_mod = re.search(r"`([^`]+)`", parts[0])
                 mod_name = m_mod.group(1) if m_mod else parts[0]
                 resp = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", parts[2]).strip("` ")
-                info["subsystems_preview"].append(f"{mod_name} ({_truncate_clean(resp, 54)})")
-        elif current_sec == "models" and s.startswith("| `"):
+                info["subsystems_preview"].append(f"{mod_name} ({_truncate_clean(resp, 68)})")
+        elif current_sec == "core_models" and s.startswith("`"):
+            model_tokens = [
+                m.strip()
+                for m in re.findall(r"`([^`]+)`", s)
+                if m.strip() and m.strip() not in {"Base", "Model", "DeclarativeBase"}
+            ]
+            info["models_count"] += len(model_tokens)
+        elif current_sec == "api_routes":
+            if s.startswith("- `"):
+                info["routes_count"] += 1
+            else:
+                m_more = re.search(r"\((\d+)\s+more\s+(?:endpoints|routes)\)", s)
+                if m_more:
+                    info["routes_count"] += int(m_more.group(1))
+        elif current_sec == "legacy_models" and s.startswith("| `"):
             info["models_count"] += 1
-        elif current_sec == "routes" and s.startswith("| `"):
+        elif current_sec == "legacy_routes" and s.startswith("| `"):
             info["routes_count"] += 1
 
     return info

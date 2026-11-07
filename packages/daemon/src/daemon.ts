@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   applyRemoteBlueprintScript,
+  discoverLocalGitRepositories,
   ensureProjectBlueprint,
   findGitRoot,
   needsRemoteBlueprintSync,
@@ -121,7 +122,7 @@ export class Daemon extends EventEmitter {
     this.log(`Discovering installed AI tools on ${config.deviceName}...`);
     this.tools = await discoverAll();
     this.log(`Discovered ${Object.keys(this.tools).length} tools: ${Object.keys(this.tools).join(", ")}`);
-    this.ensureDiscoveredBlueprints(this.tools);
+    void this.ensureDiscoveredBlueprints(this.tools);
 
     this.log(`Connecting to server ${config.serverUrl}...`);
     const key = await ingest.sendHeartbeat();
@@ -207,24 +208,31 @@ export class Daemon extends EventEmitter {
   /** Discover tools again and tell the server (after installing a tool, say). */
   async rediscover(): Promise<void> {
     this.tools = await discoverAll();
-    this.ensureDiscoveredBlueprints(this.tools);
+    void this.ensureDiscoveredBlueprints(this.tools);
     await this.ingest?.reportDiscovery(this.tools);
     this.notify();
   }
 
   /** Asynchronously ensure living blueprints and post-commit hooks for all discovered projects */
-  private ensureDiscoveredBlueprints(
+  private async ensureDiscoveredBlueprints(
     tools: Record<string, DiscoveredTool>,
     profileBlock?: string | null,
     force = false,
-  ): void {
+  ): Promise<boolean> {
     const seen = new Set<string>();
     const candidates: { toolId: string; name: string; path: string }[] = [];
+    const addCandidate = (toolId: string, name: string, rawPath: string) => {
+      if (!rawPath) return;
+      const gitRoot = findGitRoot(rawPath) || rawPath;
+      if (seen.has(gitRoot)) return;
+      seen.add(gitRoot);
+      candidates.push({ toolId, name, path: gitRoot });
+    };
+
     for (const tool of Object.values(tools)) {
       for (const proj of tool.projects || []) {
-        if (proj.path && !seen.has(proj.path)) {
-          seen.add(proj.path);
-          candidates.push({ toolId: tool.id, name: proj.name, path: proj.path });
+        if (proj.path) {
+          addCandidate(tool.id, proj.name, proj.path);
         }
       }
     }
@@ -232,43 +240,51 @@ export class Daemon extends EventEmitter {
       for (const m of profileBlock.matchAll(/^####\s+([^\s（(]+)[（(]`([^`]+)`[）)]/gm)) {
         const pname = m[1]?.trim();
         const ppath = m[2]?.trim();
-        if (pname && ppath && !seen.has(ppath)) {
-          seen.add(ppath);
-          candidates.push({ toolId: "claude_code", name: pname, path: ppath });
+        if (pname && ppath) {
+          addCandidate("claude_code", pname, ppath);
         }
       }
     }
-    for (const proj of candidates) {
-      void ensureProjectBlueprint(proj.path, { force, log: this.log })
-        .then(async (ok) => {
-          if (!ok || !this.ingest) return;
-          const gitRoot = findGitRoot(proj.path) || proj.path;
-          const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
-          if (!existsSync(bpFile)) return;
-          const content = await readFile(bpFile, "utf8");
-          const hash = contentHash(content);
-          if (this.blueprintHashes.get(bpFile) === hash) return;
-          const st = await stat(bpFile);
-          const res = await this.ingest.ingestDocument({
-            toolId: proj.toolId,
-            category: "identity",
-            contentType: "md",
-            relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
-            content,
-            contentHash: hash,
-            fileSize: st.size,
-            mode: "full",
-            offset: 0,
-            metadata: { project_path: gitRoot, project_name: proj.name, project_hash: proj.name },
-          });
-          if (res.ok) {
-            this.blueprintHashes.set(bpFile, hash);
-            const ubp = await this.ingest.fetchUserBlueprint();
-            await syncLocalUserBlueprint(ubp?.markdown);
-          }
-        })
-        .catch(() => {});
+    const localGitRepos = await discoverLocalGitRepositories();
+    for (const repo of localGitRepos) {
+      addCandidate("claude_code", repo.name, repo.path);
     }
+
+    let anyUpdated = false;
+    await Promise.allSettled(
+      candidates.map(async (proj) => {
+        const ok = await ensureProjectBlueprint(proj.path, { force, log: this.log });
+        if (!ok || !this.ingest) return;
+        const gitRoot = findGitRoot(proj.path) || proj.path;
+        const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
+        if (!existsSync(bpFile)) return;
+        const content = await readFile(bpFile, "utf8");
+        const hash = contentHash(content);
+        if (this.blueprintHashes.get(bpFile) === hash) return;
+        const st = await stat(bpFile);
+        const res = await this.ingest.ingestDocument({
+          toolId: proj.toolId,
+          category: "identity",
+          contentType: "md",
+          relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
+          content,
+          contentHash: hash,
+          fileSize: st.size,
+          mode: "full",
+          offset: 0,
+          metadata: { project_path: gitRoot, project_name: proj.name, project_hash: proj.name },
+        });
+        if (res.ok) {
+          this.blueprintHashes.set(bpFile, hash);
+          anyUpdated = true;
+        }
+      }),
+    );
+    if (anyUpdated && this.ingest) {
+      const ubp = await this.ingest.fetchUserBlueprint();
+      await syncLocalUserBlueprint(ubp?.markdown);
+    }
+    return anyUpdated;
   }
 
   async resync(): Promise<void> {
@@ -368,7 +384,7 @@ export class Daemon extends EventEmitter {
             this.log(`Blueprint generator synced from server (v${remoteBp?.version ?? 1}, ${remoteBp?.hash ?? ""})`);
           }
         }
-        this.ensureDiscoveredBlueprints(this.tools, profile.block, forceBlueprintRefresh);
+        await this.ensureDiscoveredBlueprints(this.tools, profile.block, forceBlueprintRefresh);
         const userBp = await ingest.fetchUserBlueprint();
         if (await syncLocalUserBlueprint(userBp?.markdown)) {
           this.log("User cognitive & domain blueprint synced to ~/.memento/USER_BLUEPRINT.md");

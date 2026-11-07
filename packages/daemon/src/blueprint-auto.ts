@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir, mementoDir } from "./config.js";
@@ -34,6 +34,61 @@ export function findGitRoot(startPath: string): string | null {
     current = parent;
   }
   return null;
+}
+
+/** Discover local Git repositories across standard workspace directories on any OS */
+export async function discoverLocalGitRepositories(): Promise<{ name: string; path: string }[]> {
+  const home = homeDir();
+  const searchBases = [
+    join(home, "dev"),
+    join(home, "Desktop", "dev"),
+    join(home, "WorkBuddy"),
+    join(home, "projects"),
+    join(home, "workspace"),
+    join(home, "code"),
+    join(home, "repos"),
+  ];
+  const found: { name: string; path: string }[] = [];
+  const seen = new Set<string>();
+
+  const checkDir = async (dirPath: string, depth: number) => {
+    if (depth > 2 || seen.has(dirPath)) return;
+    const name = basename(dirPath);
+    if (name.startsWith(".") || name === "node_modules" || name === "venv" || name.toLowerCase().includes("worktree")) {
+      return;
+    }
+    if (existsSync(join(dirPath, ".git"))) {
+      seen.add(dirPath);
+      found.push({ name, path: dirPath });
+      return;
+    }
+    if (depth === 2) return;
+    try {
+      const entries = await readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          await checkDir(join(dirPath, entry.name), depth + 1);
+        }
+      }
+    } catch {
+      // ignore permission or missing dir errors
+    }
+  };
+
+  for (const base of searchBases) {
+    if (!existsSync(base)) continue;
+    try {
+      const entries = await readdir(base, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          await checkDir(join(base, entry.name), 1);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return found;
 }
 
 /** Fast zero-subprocess resolution of current Git HEAD short SHA (7 chars) */

@@ -465,6 +465,14 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
             dm = re.match(r'^(?:#![^\n]*\n)?\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', txt)
             if dm and dm.group(1).strip():
                 doc = dm.group(1).strip().splitlines()[0].strip()
+            else:
+                for cline in txt.splitlines()[:10]:
+                    scline = cline.strip()
+                    if scline.startswith("#!") or "coding:" in scline:
+                        continue
+                    if scline.startswith(("#", "//")) and len(scline.lstrip("#/ ").strip()) > 4:
+                        doc = scline.lstrip("#/ ").strip()
+                        break
             role = "Backend / Web Entrypoint" if f.stem in ("server", "app", "main", "api") else "Core Engine Module"
             subsystems.append({
                 "name": f.name,
@@ -534,6 +542,27 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
     routes: list[dict[str, Any]] = []
     seen_files: set[Path] = set()
 
+    # 0. Collect include_router(xxx_router, prefix="/...") mount prefixes from aggregator files
+    mounted_prefixes: dict[str, str] = {}
+    for init_cand in _iter_repo_files(root, "**/api/**/*.py", limit=40) + _iter_repo_files(root, "**/routers/**/*.py", limit=40):
+        try:
+            init_txt = _read_code(init_cand, 30_000)
+            if "include_router(" not in init_txt:
+                continue
+            var_to_mod: dict[str, str] = {}
+            for im in re.finditer(r'from\s+\.?([a-zA-Z0-9_.]+)\s+import\s+router\s+as\s+([a-zA-Z0-9_]+)', init_txt):
+                var_to_mod[im.group(2)] = im.group(1).split(".")[-1]
+            for im2 in re.finditer(r'from\s+\.?([a-zA-Z0-9_.]+)\s+import\s+([a-zA-Z0-9_]+)', init_txt):
+                if im2.group(2) not in var_to_mod:
+                    var_to_mod[im2.group(2)] = im2.group(1).split(".")[-1]
+            for inc in re.finditer(r'include_router\(\s*([a-zA-Z0-9_.]+)\s*[^)]*?prefix\s*=\s*["\']([^"\']+)["\']', init_txt):
+                rvar, pfx = inc.group(1), inc.group(2)
+                mod_name = rvar.split(".")[0] if "." in rvar else var_to_mod.get(rvar, rvar.replace("_router", ""))
+                if mod_name and pfx:
+                    mounted_prefixes[mod_name] = pfx
+        except Exception:
+            pass
+
     # 1. Python FastAPI / Flask / Django Ninja
     py_api_files: list[Path] = []
     for root_py in ("server.py", "app.py", "main.py", "api.py"):
@@ -562,7 +591,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
             if not re.search(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route|websocket)\b', content) and "APIRouter" not in content:
                 continue
             m = re.search(r'(?:router|bp)\s*=\s*(?:APIRouter|Blueprint)\([^)]*(?:prefix|url_prefix)=["\']([^"\']+)["\']', content)
-            explicit_prefix = m.group(1) if m else ""
+            explicit_prefix = m.group(1) if m else mounted_prefixes.get(name, "")
             display_prefix = explicit_prefix or ("/" if name in ("server", "app", "main") else f"/{name}")
 
             endpoints: list[str] = []
@@ -577,7 +606,10 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                         full_p = f"{explicit_prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
                 else:
                     if subpath.startswith("/") and len(subpath) > 1:
-                        full_p = subpath.rstrip("/")
+                        if name not in ("server", "app", "main") and not subpath.startswith(f"/{name}"):
+                            full_p = f"{display_prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
+                        else:
+                            full_p = subpath.rstrip("/")
                     else:
                         full_p = f"{display_prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
                 endpoints.append(f"`{method} {full_p}`")
@@ -953,9 +985,16 @@ def generate_er_diagram(relations: list[str]) -> str:
         if not m:
             continue
         src_entity, src_field, dst_raw, _ = m.group(1), m.group(2), m.group(3), m.group(4)
-        dst_entity = dst_raw.upper() if dst_raw.islower() else dst_raw
-        src_node = re.sub(r'[^A-Za-z0-9_]', '_', src_entity)
-        dst_node = re.sub(r'[^A-Za-z0-9_]', '_', dst_entity)
+        src_node = re.sub(r'[^A-Za-z0-9_]', '_', src_entity).upper()
+        dst_node = re.sub(r'[^A-Za-z0-9_]', '_', dst_raw).upper()
+        if dst_node.endswith("IES") and not src_node.endswith("IES"):
+            dst_node = dst_node[:-3] + "Y"
+        elif dst_node.endswith("ES") and any(dst_node.endswith(s) for s in ("SES", "XES", "ZES", "CHES", "SHES")):
+            dst_node = dst_node[:-2]
+        elif dst_node.endswith("S") and not dst_node.endswith("SS") and len(dst_node) > 3:
+            dst_node = dst_node[:-1]
+        if src_node.endswith("S") and not src_node.endswith("SS") and len(src_node) > 3 and src_entity.islower():
+            src_node = src_node[:-1]
         edge_key = f"{dst_node}->{src_node}:{src_field}"
         if edge_key not in seen_edges:
             seen_edges.add(edge_key)
@@ -1446,7 +1485,7 @@ def scan_cli_and_entrypoints(root: Path) -> list[dict[str, str]]:
     scripts_dir = root / "scripts"
     if scripts_dir.is_dir():
         for sf in sorted(scripts_dir.iterdir()):
-            if sf.is_file() and sf.suffix in (".py", ".sh", ".mjs", ".ts", ".js"):
+            if sf.is_file() and not sf.name.startswith("_") and sf.suffix in (".py", ".sh", ".mjs", ".ts", ".js"):
                 entries.append({
                     "name": sf.name,
                     "kind": "Automation Script",
@@ -1518,8 +1557,9 @@ def scan_env_variables(root: Path) -> list[dict[str, str]]:
                     current_comment = ""
                     continue
                 if sline.startswith("#"):
-                    if not sline.startswith("# ───"):
-                        current_comment = _sanitize_blueprint_text(sline.lstrip("#").strip())
+                    cleaned_c = _sanitize_blueprint_text(sline.lstrip("#").strip())
+                    if cleaned_c and not re.match(r'^[-=_─*#\s]+$', cleaned_c):
+                        current_comment = cleaned_c
                     continue
                 if "=" in sline:
                     k, v = sline.split("=", 1)
@@ -1812,6 +1852,11 @@ def build_blueprint_content(root: Path) -> str:
         except Exception:
             pass
     git_branch = run_git_cmd(["rev-parse", "--abbrev-ref", "HEAD"], root) or "main"
+    if git_branch == "HEAD":
+        tag_name = run_git_cmd(["describe", "--tags", "--exact-match"], root)
+        contains_out = run_git_cmd(["branch", "--contains", "HEAD", "--format=%(refname:short)"], root)
+        branch_lines = [b.strip() for b in contains_out.splitlines() if b.strip() and not b.strip().startswith("(")]
+        git_branch = tag_name or (branch_lines[0] if branch_lines else "detached-HEAD")
     git_commit = run_git_cmd(["rev-parse", "--short", "HEAD"], root) or "unknown"
     git_date = run_git_cmd(["log", "-1", "--format=%as"], root) or "recent"
 

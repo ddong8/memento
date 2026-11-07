@@ -249,7 +249,7 @@ export class Daemon extends EventEmitter {
             fileSize: st.size,
             mode: "full",
             offset: 0,
-            metadata: { project_path: gitRoot, project_name: proj.name },
+            metadata: { project_path: gitRoot, project_name: proj.name, project_hash: proj.name },
           });
           if (res.ok) this.blueprintHashes.set(bpFile, hash);
         })

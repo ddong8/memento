@@ -117,6 +117,35 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertIn("npm test", node_cmds)
         self.assertIn("npm run lint", node_cmds)
 
+    def test_include_router_prefix_and_er_singularization(self):
+        api_dir = self.root / "app" / "api" / "v1"
+        api_dir.mkdir(parents=True)
+        (api_dir / "__init__.py").write_text(
+            'from fastapi import APIRouter\n'
+            'from .algo_trading import router as algo_trading_router\n'
+            'api_router = APIRouter()\n'
+            'api_router.include_router(algo_trading_router, prefix="/algo-trading")\n'
+        )
+        (api_dir / "algo_trading.py").write_text(
+            'from fastapi import APIRouter\n'
+            'router = APIRouter()\n'
+            '@router.get("/status")\n'
+            'def get_status(): pass\n'
+        )
+        routes = project_blueprint.scan_api_routes(self.root)
+        self.assertEqual(len(routes), 1)
+        self.assertEqual(routes[0]["prefix"], "/algo-trading")
+        self.assertIn("`GET /algo-trading/status`", routes[0]["endpoints"])
+
+        er = project_blueprint.generate_er_diagram([
+            "`Account.user_id` ➔ `users.id`",
+            "`Transaction.account_id` ➔ `accounts.id`",
+        ])
+        self.assertIn('USER ||--o{ ACCOUNT : "user_id"', er)
+        self.assertIn('ACCOUNT ||--o{ TRANSACTION : "account_id"', er)
+        self.assertNotIn("ACCOUNTS", er)
+
+
 
 if __name__ == "__main__":
     unittest.main()

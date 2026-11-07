@@ -131,7 +131,7 @@ async def extract_knowledge_from_document(
         doc.knowledge_status = "skipped"
         return 0
 
-    if doc.category not in ("conversation", "memory", "learning", "plan"):
+    if doc.category not in ("conversation", "memory", "learning", "plan", "identity"):
         doc.knowledge_status = "skipped"
         return 0
 

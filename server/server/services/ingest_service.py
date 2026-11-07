@@ -756,7 +756,7 @@ async def ingest_file(
             if mach_uuid and not existing_doc.machine_id:
                 existing_doc.machine_id = mach_uuid
                 await db.flush()
-            incoming_hash = metadata.get("project_hash")
+            incoming_hash = metadata.get("project_hash") or metadata.get("project_name")
             if is_junk_project(incoming_hash, metadata.get("project_path")) or (
                 mode == "delta" and await _has_real_project(db, existing_doc)
             ):
@@ -874,7 +874,7 @@ async def ingest_file(
 
     # Extract project if present in metadata
     project_id = None
-    project_hash = metadata.get("project_hash")
+    project_hash = metadata.get("project_hash") or metadata.get("project_name")
     meta_project_path: str | None = metadata.get("project_path")
     # Older collectors filed Antigravity sessions under files of its own brain (…/steps/2/output.txt)
     if is_junk_project(project_hash, meta_project_path):
@@ -1293,6 +1293,9 @@ async def ingest_file(
             if doc.project_id:
                 await cache_delete_prefix(f"project:conv:{user_id}:{doc.project_id}:")
                 await cache_delete_prefix(f"project:conv:v2:{user_id}:{doc.project_id}:")
+                await cache_delete_prefix(f"project:conv:v3:{user_id}:{doc.project_id}:")
+                await cache_delete_prefix(f"project:blueprint:{user_id}:{doc.project_id}:")
+                await cache_delete_prefix(f"project:detail:{user_id}:{doc.project_id}:")
                 await cache_delete_prefix(f"project:timeline:{user_id}:{doc.project_id}:")
             await cache_delete_prefix(f"projects:list:{user_id}:")
             await cache_delete_prefix(f"projects:list:v2:{user_id}:")

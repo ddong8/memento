@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d41c03d7` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `24dec4aa` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -126,11 +126,11 @@ flowchart TD
 
 #### `/ask_conversations` (ask_conversations.py)
 
-- `GET /conversations`
-- `GET /conversations/recent-active`
-- `GET /conversations/{conv_id}`
-- `POST /conversations/ensure-by-session`
-- `PATCH /conversations/{conv_id}`
+- `GET /ask_conversations/conversations`
+- `GET /ask_conversations/conversations/recent-active`
+- `GET /ask_conversations/conversations/{conv_id}`
+- `POST /ask_conversations/conversations/ensure-by-session`
+- `PATCH /ask_conversations/conversations/{conv_id}`
 - _... (1 more endpoints)_
 
 #### `/api/auth` (auth.py)
@@ -208,11 +208,11 @@ flowchart TD
 
 #### `/install_bootstrap` (install_bootstrap.py)
 
-- `GET /install.sh`
-- `GET /install.ps1`
-- `GET /install`
-- `GET /install`
-- `GET /install/latest.tar.gz`
+- `GET /install_bootstrap/install.sh`
+- `GET /install_bootstrap/install.ps1`
+- `GET /install_bootstrap/install`
+- `GET /install_bootstrap/install`
+- `GET /install_bootstrap/install/latest.tar.gz`
 
 #### `/api/learning` (learning.py)
 
@@ -360,24 +360,24 @@ flowchart TD
 
 ```mermaid
 erDiagram
-    USERS ||--o{ Machine : "user_id"
-    MACHINES ||--o{ Machine : "merged_into"
-    MACHINES ||--o{ MachineMerge : "from_machine_id"
-    MACHINES ||--o{ MachineMerge : "into_machine_id"
-    TOOLS ||--o{ Project : "tool_id"
-    TOOLS ||--o{ Document : "tool_id"
-    PROJECTS ||--o{ Document : "project_id"
-    MACHINES ||--o{ Document : "machine_id"
-    DOCUMENTS ||--o{ ConversationMessage : "document_id"
-    USERS ||--o{ DailySummary : "user_id"
-    TOOLS ||--o{ DailySummary : "tool_id"
-    DOCUMENTS ||--o{ DocumentVersion : "document_id"
-    DOCUMENTS ||--o{ MessageAudit : "document_id"
-    DOCUMENTS ||--o{ DocumentPendingDelta : "document_id"
-    USERS ||--o{ InviteCode : "created_by"
-    USERS ||--o{ Permission : "user_id"
-    PROJECTS ||--o{ Permission : "project_id"
-    TOOLS ||--o{ Permission : "tool_id"
+    USER ||--o{ MACHINE : "user_id"
+    MACHINE ||--o{ MACHINE : "merged_into"
+    MACHINE ||--o{ MACHINEMERGE : "from_machine_id"
+    MACHINE ||--o{ MACHINEMERGE : "into_machine_id"
+    TOOL ||--o{ PROJECT : "tool_id"
+    TOOL ||--o{ DOCUMENT : "tool_id"
+    PROJECT ||--o{ DOCUMENT : "project_id"
+    MACHINE ||--o{ DOCUMENT : "machine_id"
+    DOCUMENT ||--o{ CONVERSATIONMESSAGE : "document_id"
+    USER ||--o{ DAILYSUMMARY : "user_id"
+    TOOL ||--o{ DAILYSUMMARY : "tool_id"
+    DOCUMENT ||--o{ DOCUMENTVERSION : "document_id"
+    DOCUMENT ||--o{ MESSAGEAUDIT : "document_id"
+    DOCUMENT ||--o{ DOCUMENTPENDINGDELTA : "document_id"
+    USER ||--o{ INVITECODE : "created_by"
+    USER ||--o{ PERMISSION : "user_id"
+    PROJECT ||--o{ PERMISSION : "project_id"
+    TOOL ||--o{ PERMISSION : "tool_id"
 ```
 
 - `Machine.user_id` ➔ `users.id`
@@ -572,16 +572,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (13 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (14 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (6 commits)
+- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (5 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (5 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (5 commits)
 - [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (5 commits)
-- [`server/tests/test_message_store.py`](server/tests/test_message_store.py) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `d41c03d7` (2026-11-07): feat(blueprint): 打通心领神会前置架构快照自动注入与远程调度蓝图直达
+- `24dec4aa` (2026-11-07): feat(blueprint): 修复蓝图入库项目绑定与图谱提取并增强聚合路由与ER图归一化
+- `ada8b874` (2026-11-07): feat(blueprint): 打通心领神会前置架构快照自动注入与远程调度蓝图直达
 - `afb44331` (2026-11-07): fix(blueprint): 修复DTO重复扫描、无前缀路由重复拼接与历史构建产物热点过滤
 - `e55c1383` (2026-11-07): feat(blueprint): 增强多层级子系统职责推断、全栈框架路由探测与项目详情页蓝图可视化
 - `1af32afb` (2026-11-07): perf(blueprint): 优化大仓库单次目录剪枝遍历与守护进程周期性全项目蓝图同步
 - `7fc852e2` (2026-11-06): feat(blueprint): 实现全Agent提示词自动注入、5钩子闭环与HEAD过期检测
-- `1a4fd3e5` (2026-11-06): feat(blueprint): 新增AST跨层调用图、OpenAPI/DTO Schema、CLI入口与外部中间件探测
 
 ## 10. Key Environment Variables & Configuration
 

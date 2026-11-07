@@ -233,7 +233,7 @@ def detect_tech_stack(root: Path) -> dict[str, Any]:
         + _iter_repo_files(root, "**/requirements*.txt", limit=15)
     )
     py_files = _iter_repo_files(root, "**/*.py", limit=20)
-    if py_manifests or py_files or (root / "server").is_dir() or (root / "backend").is_dir():
+    if py_manifests or py_files:
         stack.append("Python")
         py_blob = "\n".join(_read_code(m, 50_000).lower() for m in dict.fromkeys(py_manifests))
         if len(py_blob) < 200 and py_files:
@@ -276,8 +276,8 @@ def detect_tech_stack(root: Path) -> dict[str, Any]:
 
     if not stack and _iter_repo_files(root, "**/*.[tj]s*", limit=5):
         stack.append("TypeScript/JavaScript")
-    if not stack and (_iter_repo_files(root, "**/*.sh", limit=5) or _iter_repo_files(root, "**/Dockerfile*", limit=5)):
-        stack.append("Shell / Container Scripts")
+    if _iter_repo_files(root, "**/*.sh", limit=5):
+        stack.append("Shell / Bash")
 
     # 4. Docker / K8s
     if (
@@ -285,6 +285,7 @@ def detect_tech_stack(root: Path) -> dict[str, Any]:
         or (root / "docker-compose.yml").exists()
         or (root / "docker-compose.yaml").exists()
         or _iter_repo_files(root, "**/Dockerfile*", limit=10)
+        or _iter_repo_files(root, "**/dockerfile*", limit=10)
     ):
         frameworks.append("Docker")
     if (root / "deploy" / "k8s").is_dir() or (root / "k8s").is_dir() or _iter_repo_files(root, "**/k8s/*.y*ml", limit=5):
@@ -305,6 +306,7 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         "backend": ("Backend API Service", "Backend API server, domain business logic, and data access layer"),
         "server": ("Backend API Service", "Backend service, HTTP/WebSocket handlers, and persistence"),
         "api": ("API Layer", "REST / RPC API routers and request handlers"),
+        "src": ("Core Source Package", "Primary application source code, API handlers, and domain engines"),
         "frontend": ("Frontend Web App", "Web frontend user interface, state management, and components"),
         "web": ("Frontend Web App", "Browser web interface and client assets"),
         "client": ("Frontend Client", "Client-side application views and API integration"),
@@ -315,6 +317,7 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         "market_data": ("Market Data Pipeline", "Historical and real-time market quote ingestion and storage"),
         "engineio": ("Real-Time Transport", "Socket.IO / Engine.IO bidirectional real-time event transport"),
         "scripts": ("Automation & CLI Scripts", "Data loading, maintenance, operational CLI, and automation utilities"),
+        "ci-scripts": ("CI/CD Automation", "Continuous integration build, packaging, and verification scripts"),
         "docker": ("Container Infrastructure", "Dockerfiles, container entrypoints, and environment build configs"),
         "deploy": ("Infrastructure & Deployment", "Kubernetes manifests, GitOps configs, and service deployment definitions"),
         "k8s": ("Kubernetes Manifests", "Kubernetes Deployments, Services, Ingresses, and ConfigMaps"),
@@ -347,8 +350,21 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
                 if sline and not sline.startswith(("#", "!", "[", ">", "`", "-")):
                     return role, sline[:120]
 
-    for entry in ("main.py", "app.py", "server.py", "__init__.py", "app/main.py", "src/index.ts", "src/main.ts"):
-        ep = d / entry
+    entry_candidates = [
+        d / "main.py",
+        d / "app.py",
+        d / "server.py",
+        d / "__init__.py",
+        d / "app" / "main.py",
+        d / "src" / "index.ts",
+        d / "src" / "main.ts",
+    ]
+    if name_low == "src":
+        for child in sorted(d.iterdir()):
+            if child.is_dir() and not child.name.startswith(("_", ".")):
+                entry_candidates.extend([child / "__init__.py", child / "main.py", child / "cli.py", child / "api" / "app.py"])
+
+    for ep in entry_candidates:
         if ep.is_file():
             txt = _read_code(ep, 3_000)
             dm = re.match(r'^(?:#![^\n]*\n)?\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', txt)
@@ -411,7 +427,7 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
                 })
         return subsystems
 
-    skip_dirs = IGNORED_DIRS | {"backups", "uploads", "templates", "assets", "public", "static"}
+    skip_dirs = IGNORED_DIRS | {"backups", "uploads", "templates", "assets", "public", "static", "results", "output", "outputs", "artifacts"}
     for d in sorted(root.iterdir()):
         if d.is_dir() and d.name not in skip_dirs and not d.name.startswith("."):
             role, desc = _infer_dir_role_and_desc(d)
@@ -421,6 +437,14 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
                 "type": role,
                 "description": desc,
             })
+            if (d / "src-tauri").is_dir():
+                t_role, t_desc = _infer_dir_role_and_desc(d / "src-tauri")
+                subsystems.append({
+                    "name": f"{d.name}/src-tauri",
+                    "path": f"{d.name}/src-tauri",
+                    "type": t_role,
+                    "description": t_desc,
+                })
 
     for f in sorted(root.iterdir()):
         if f.is_file() and f.suffix in (".py", ".ts", ".js") and not f.name.startswith(("_", "test_")) and f.name not in ("setup.py", "conftest.py") and not f.name.endswith((".config.js", ".config.ts")):
@@ -436,6 +460,18 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
                 "type": role,
                 "description": doc[:110] if doc else f"Root-level {role.lower()} ({f.name})",
             })
+
+    # Fallback for data/playlist/configuration repositories with no subdirectories or code scripts
+    if not subsystems:
+        for f in sorted(root.iterdir()):
+            if f.is_file() and not f.name.startswith(".") and f.name not in ("PROJECT_BLUEPRINT.md", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"):
+                role = "Documentation" if f.name.lower().startswith("readme") else "Data / Config Asset"
+                subsystems.append({
+                    "name": f.name,
+                    "path": f.name,
+                    "type": role,
+                    "description": f"Repository {role.lower()} ({f.name})",
+                })
 
     return subsystems
 
@@ -514,20 +550,31 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
             if not re.search(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route|websocket)\b', content) and "APIRouter" not in content:
                 continue
             m = re.search(r'(?:router|bp)\s*=\s*(?:APIRouter|Blueprint)\([^)]*(?:prefix|url_prefix)=["\']([^"\']+)["\']', content)
-            prefix = m.group(1) if m else ("/" if name in ("server", "app", "main") else f"/{name}")
+            explicit_prefix = m.group(1) if m else ""
+            display_prefix = explicit_prefix or ("/" if name in ("server", "app", "main") else f"/{name}")
 
             endpoints: list[str] = []
             for em in re.finditer(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route|websocket)\(\s*["\']([^"\']*)["\']', content):
                 raw_m = em.group(1).upper()
                 method = "WS" if raw_m == "WEBSOCKET" else raw_m
                 subpath = em.group(2)
-                full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
+                if explicit_prefix:
+                    if subpath == explicit_prefix or subpath.startswith(explicit_prefix.rstrip("/") + "/"):
+                        full_p = subpath
+                    else:
+                        full_p = f"{explicit_prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
+                else:
+                    if subpath.startswith("/") and len(subpath) > 1:
+                        full_p = subpath.rstrip("/")
+                    else:
+                        full_p = f"{display_prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
                 endpoints.append(f"`{method} {full_p}`")
 
             if endpoints:
                 routes.append({
                     "name": name,
-                    "prefix": prefix,
+                    "file": py_file.name,
+                    "prefix": display_prefix,
                     "endpoints": endpoints[:5],
                     "total": len(endpoints),
                 })
@@ -546,6 +593,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     endpoints = [f"`{m} {prefix}`" for m in dict.fromkeys(methods)]
                     routes.append({
                         "name": route_file.parent.name,
+                        "file": route_file.name,
                         "prefix": prefix,
                         "endpoints": endpoints[:5],
                         "total": len(endpoints),
@@ -554,7 +602,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     pass
 
     # 3. Node/TS Express, Fastify, Hono & NestJS Controllers
-    for ts_file in (
+    for ts_file in dict.fromkeys(
         _iter_repo_files(root, "**/*.controller.ts", limit=30)
         + _iter_repo_files(root, "**/routes/**/*.[tj]s", limit=30)
         + _iter_repo_files(root, "server/src/**/*.[tj]s", limit=20)
@@ -572,6 +620,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
             if endpoints:
                 routes.append({
                     "name": ts_file.stem,
+                    "file": ts_file.name,
                     "prefix": prefix,
                     "endpoints": endpoints[:5],
                     "total": len(endpoints),
@@ -584,7 +633,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
         if go_file.name.endswith("_test.go"):
             continue
         try:
-            content = go_file.read_text(encoding="utf-8", errors="ignore")
+            content = _read_code(go_file)
             endpoints = []
             for gm in re.finditer(r'\.\s*(GET|POST|PUT|DELETE|PATCH|HandleFunc)\(\s*"([^"]+)"', content):
                 m_str = "ANY" if gm.group(1) == "HandleFunc" else gm.group(1)
@@ -592,6 +641,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
             if endpoints:
                 routes.append({
                     "name": go_file.stem,
+                    "file": go_file.name,
                     "prefix": f"/{go_file.stem}",
                     "endpoints": endpoints[:5],
                     "total": len(endpoints),
@@ -602,7 +652,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
     # 5. Java / Kotlin Spring Boot (@RestController) & Rust (Axum / Actix)
     for jk_file in _iter_repo_files(root, "**/*Controller.java", limit=25) + _iter_repo_files(root, "**/*Controller.kt", limit=25):
         try:
-            content = jk_file.read_text(encoding="utf-8", errors="ignore")
+            content = _read_code(jk_file)
             req_m = re.search(r'@RequestMapping\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']', content)
             prefix = req_m.group(1) if req_m else f"/{jk_file.stem.replace('Controller', '').lower()}"
             endpoints = []
@@ -613,6 +663,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
             if endpoints:
                 routes.append({
                     "name": jk_file.stem,
+                    "file": jk_file.name,
                     "prefix": prefix,
                     "endpoints": endpoints[:5],
                     "total": len(endpoints),
@@ -1059,10 +1110,11 @@ def scan_cicd_and_deploy(root: Path) -> list[dict[str, str]]:
     if wf_dir.is_dir():
         for wf in sorted(wf_dir.glob("*.y*ml")):
             try:
-                content = wf.read_text(encoding="utf-8", errors="ignore")
+                content = _read_code(wf, 50_000)
                 nm = re.search(r'^name:\s*(.+)$', content, re.MULTILINE)
                 wname = nm.group(1).strip().strip("\"'") if nm else wf.stem
-                jobs = re.findall(r'^  ([a-zA-Z0-9_-]+):\s*$', content, re.MULTILINE)
+                jm = re.search(r'^jobs:\s*\n([\s\S]*)', content, re.MULTILINE)
+                jobs = re.findall(r'^  ([a-zA-Z0-9_-]+):\s*(?:#.*)?$', jm.group(1), re.MULTILINE) if jm else []
                 items.append({
                     "kind": "GitHub Actions",
                     "name": wname,
@@ -1072,21 +1124,36 @@ def scan_cicd_and_deploy(root: Path) -> list[dict[str, str]]:
             except Exception:
                 pass
 
-    deploy_dir = root / "deploy"
-    if deploy_dir.is_dir():
-        for ym in sorted(deploy_dir.glob("**/*.y*ml"))[:12]:
-            try:
-                content = ym.read_text(encoding="utf-8", errors="ignore")
-                kinds = list(dict.fromkeys(re.findall(r'^kind:\s*([A-Za-z0-9]+)', content, re.MULTILINE)))
-                if kinds:
-                    items.append({
-                        "kind": "K8s / GitOps",
-                        "name": ym.name,
-                        "path": str(ym.relative_to(root)),
-                        "details": f"Resources: {', '.join(kinds[:5])}",
-                    })
-            except Exception:
-                pass
+    gitlab_ci = root / ".gitlab-ci.yml"
+    if gitlab_ci.is_file():
+        try:
+            content = _read_code(gitlab_ci, 50_000)
+            stages_m = re.search(r'^stages:\s*\n((?:\s*-\s*[^\n]+\n)+)', content, re.MULTILINE)
+            stages = [s.strip().lstrip("-").strip() for s in stages_m.group(1).splitlines() if s.strip()] if stages_m else []
+            items.append({
+                "kind": "GitLab CI",
+                "name": ".gitlab-ci.yml",
+                "path": ".gitlab-ci.yml",
+                "details": f"Stages: {', '.join(stages[:6])}" if stages else "GitLab CI/CD pipeline",
+            })
+        except Exception:
+            pass
+
+    for deploy_dir in (root / "deploy", root / "k8s"):
+        if deploy_dir.is_dir():
+            for ym in sorted(deploy_dir.glob("**/*.y*ml"))[:12]:
+                try:
+                    content = _read_code(ym, 30_000)
+                    kinds = list(dict.fromkeys(re.findall(r'^kind:\s*([A-Za-z0-9]+)', content, re.MULTILINE)))
+                    if kinds:
+                        items.append({
+                            "kind": "K8s / GitOps",
+                            "name": ym.name,
+                            "path": str(ym.relative_to(root)),
+                            "details": f"Resources: {', '.join(kinds[:5])}",
+                        })
+                except Exception:
+                    pass
     return items
 
 
@@ -1098,7 +1165,11 @@ def scan_hotspots_and_tests(root: Path) -> dict[str, Any]:
         counts: dict[str, int] = {}
         for line in out.splitlines():
             p = line.strip()
-            if not p or p in ("PROJECT_BLUEPRINT.md", "deploy/k8s/kustomization.yaml") or p.endswith(".lock") or p.endswith(".json"):
+            if not p or p in ("PROJECT_BLUEPRINT.md", "deploy/k8s/kustomization.yaml") or p.endswith((".lock", ".json", ".min.js", ".map")):
+                continue
+            if any(part in IGNORED_DIRS for part in Path(p).parts):
+                continue
+            if not (root / p).is_file():
                 continue
             counts[p] = counts.get(p, 0) + 1
         for path_str, cnt in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:10]:
@@ -1235,30 +1306,34 @@ def scan_ast_call_graph_and_deps(root: Path) -> dict[str, list[str]]:
 def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
     """Scan OpenAPI/Swagger specs as well as Pydantic BaseModel / TypeScript interface / Zod DTO schemas."""
     schemas: list[dict[str, str]] = []
+    seen_schemas: set[tuple[str, str]] = set()
 
     # 1. OpenAPI / Swagger JSON files
-    for oa_file in _iter_repo_files(root, "**/*openapi*.json", limit=5) + _iter_repo_files(root, "**/*swagger*.json", limit=5):
+    for oa_file in dict.fromkeys(_iter_repo_files(root, "**/*openapi*.json", limit=5) + _iter_repo_files(root, "**/*swagger*.json", limit=5)):
         try:
-            data = json.loads(oa_file.read_text(encoding="utf-8", errors="ignore"))
+            data = json.loads(_read_code(oa_file, 100_000))
             comp_schemas = (data.get("components") or {}).get("schemas") or data.get("definitions") or {}
+            src_rel = str(oa_file.relative_to(root))
             for sname, sdef in list(comp_schemas.items())[:15]:
-                if isinstance(sdef, dict):
+                if isinstance(sdef, dict) and (sname, src_rel) not in seen_schemas:
+                    seen_schemas.add((sname, src_rel))
                     props = list((sdef.get("properties") or {}).keys())[:6]
                     schemas.append({
                         "name": sname,
                         "kind": "OpenAPI Schema",
-                        "source": str(oa_file.relative_to(root)),
+                        "source": src_rel,
                         "fields": ", ".join(f"`{p}`" for p in props) if props else "object",
                     })
         except Exception:
             pass
 
     # 2. Python Pydantic Request/Response DTOs ( via AST )
-    for py_file in _iter_repo_files(root, "**/api/*.py", limit=30) + _iter_repo_files(root, "**/schemas*.py", limit=20):
+    for py_file in dict.fromkeys(_iter_repo_files(root, "**/api/*.py", limit=30) + _iter_repo_files(root, "**/schemas*.py", limit=20)):
         try:
             tree = ast.parse(_read_code(py_file))
+            src_rel = str(py_file.relative_to(root))
             for node in tree.body:
-                if isinstance(node, ast.ClassDef):
+                if isinstance(node, ast.ClassDef) and (node.name, src_rel) not in seen_schemas:
                     bases = [ast.unparse(b) if hasattr(ast, "unparse") else getattr(b, "id", "") for b in node.bases]
                     if any("BaseModel" in b or "Schema" in b for b in bases):
                         fields = []
@@ -1267,10 +1342,11 @@ def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
                                 ftype = ast.unparse(stmt.annotation).replace("|", "\\|") if hasattr(ast, "unparse") and stmt.annotation else ""
                                 fields.append(f"{stmt.target.id}: {ftype}" if ftype else stmt.target.id)
                         if fields:
+                            seen_schemas.add((node.name, src_rel))
                             schemas.append({
                                 "name": node.name,
                                 "kind": "Pydantic DTO",
-                                "source": str(py_file.relative_to(root)),
+                                "source": src_rel,
                                 "fields": ", ".join(f"`{f}`" for f in fields[:6]),
                             })
         except Exception:
@@ -1278,18 +1354,22 @@ def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
 
     # 3. TypeScript exported interfaces / Zod schemas
     if len(schemas) < 20:
-        for ts_file in _iter_repo_files(root, "**/types*.ts", limit=15) + _iter_repo_files(root, "**/*dto*.ts", limit=15):
+        for ts_file in dict.fromkeys(_iter_repo_files(root, "**/types*.ts", limit=15) + _iter_repo_files(root, "**/*dto*.ts", limit=15)):
             try:
                 content = _read_code(ts_file)
+                src_rel = str(ts_file.relative_to(root))
                 if "interface " in content:
                     for im in re.finditer(r'export\s+interface\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}', content):
                         iname = im.group(1)
+                        if (iname, src_rel) in seen_schemas:
+                            continue
                         props = re.findall(r'^\s*([a-zA-Z0-9_]+)\??\s*:', im.group(2), re.MULTILINE)
                         if props:
+                            seen_schemas.add((iname, src_rel))
                             schemas.append({
                                 "name": iname,
                                 "kind": "TS Interface",
-                                "source": str(ts_file.relative_to(root)),
+                                "source": src_rel,
                                 "fields": ", ".join(f"`{p}`" for p in props[:6]),
                             })
             except Exception:
@@ -1796,7 +1876,8 @@ def build_blueprint_content(root: Path) -> str:
         doc.append("### Registered FastAPI API Routers & Endpoints")
         doc.append("")
         for r in routes:
-            doc.append(f"#### `{r['prefix']}` ({r['name']}.py)")
+            rfile = r.get("file") or f"{r['name']}.py"
+            doc.append(f"#### `{r['prefix']}` ({rfile})")
             if r["endpoints"]:
                 doc.append("")
                 for ep in r["endpoints"]:

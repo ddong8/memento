@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1af32afb` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e55c1383` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -9,7 +9,7 @@
 ## 1. Project Overview & Tech Stack
 
 - **Project Type**: Monorepo (Workspaces)
-- **Core Languages**: TypeScript/JavaScript, Python
+- **Core Languages**: TypeScript/JavaScript, Python, Shell / Bash
 - **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
 - **Infrastructure & Middleware**: PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 
@@ -126,11 +126,11 @@ flowchart TD
 
 #### `/ask_conversations` (ask_conversations.py)
 
-- `GET /ask_conversations/conversations`
-- `GET /ask_conversations/conversations/recent-active`
-- `GET /ask_conversations/conversations/{conv_id}`
-- `POST /ask_conversations/conversations/ensure-by-session`
-- `PATCH /ask_conversations/conversations/{conv_id}`
+- `GET /conversations`
+- `GET /conversations/recent-active`
+- `GET /conversations/{conv_id}`
+- `POST /conversations/ensure-by-session`
+- `PATCH /conversations/{conv_id}`
 - _... (1 more endpoints)_
 
 #### `/api/auth` (auth.py)
@@ -208,11 +208,11 @@ flowchart TD
 
 #### `/install_bootstrap` (install_bootstrap.py)
 
-- `GET /install_bootstrap/install.sh`
-- `GET /install_bootstrap/install.ps1`
-- `GET /install_bootstrap/install`
-- `GET /install_bootstrap/install`
-- `GET /install_bootstrap/install/latest.tar.gz`
+- `GET /install.sh`
+- `GET /install.ps1`
+- `GET /install`
+- `GET /install`
+- `GET /install/latest.tar.gz`
 
 #### `/api/learning` (learning.py)
 
@@ -499,21 +499,6 @@ erDiagram
 
 | Schema Name | Type | Source File | Core Fields |
 | :--- | :--- | :--- | :--- |
-| `AcceptBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `statement`, `general` |
-| `AgentSettingsBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `claude_auto_compact_window`, `claude_memento_client` |
-| `ApproveMissionBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `token` |
-| `AskRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `question`, `conversation_id`, `request_id`, `history`, `tool`, `days` |
-| `AvatarGenerateRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `photo_data`, `gender`, `style_preference` |
-| `AvatarSettingsPayload` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `is_initialized`, `gender`, `style`, `preset_id`, `nickname`, `avatar_url` |
-| `Body_import_data_api_data_import_post` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `file` |
-| `Body_upload_avatar_api_auth_me_avatar_post` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `file` |
-| `CompactRequest` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `recent_turns`, `new_prompt` |
-| `ConversationUpdate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `title` |
-| `CoreMemoryCreate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `category`, `key`, `content`, `confidence`, `parent_id`, `tree_path` |
-| `CoreMemoryUpdate` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `category`, `key`, `content`, `confidence`, `parent_id`, `tree_path` |
-| `CreateMissionBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `title`, `goal`, `risk_level`, `context` |
-| `CreateShareBody` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `kind`, `target_id`, `title`, `expires_in_days`, `target_user_id` |
-| `CreateTask` | OpenAPI Schema | [`packages/core/openapi.json`](packages/core/openapi.json) | `action`, `payload`, `timeout_seconds` |
 | `UserUpdateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `role: str \| None`, `status: str \| None` |
 | `InviteCreateRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `max_uses: int`, `expires_days: int \| None`, `role_on_accept: str`, `note: str \| None` |
 | `GrantPermissionRequest` | Pydantic DTO | [`server/server/api/admin.py`](server/server/api/admin.py) | `user_id: str`, `project_id: str \| None`, `tool_id: str \| None`, `permission: str` |
@@ -524,6 +509,21 @@ erDiagram
 | `RegistrationModeResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `mode: str`, `has_any_user: bool`, `github_enabled: bool`, `wechat_enabled: bool` |
 | `LoginRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `email: str`, `password: str` |
 | `TokenResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `access_token: str`, `token_type: str`, `user_id: str`, `role: str` |
+| `UserResponse` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `id: str`, `email: str`, `name: str \| None`, `role: str`, `status: str`, `collector_token: str \| None` |
+| `UpdateProfileRequest` | Pydantic DTO | [`server/server/api/auth.py`](server/server/api/auth.py) | `name: str \| None`, `avatar_url: str \| None` |
+| `ConversationUpdate` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `title: str` |
+| `CompactRequest` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `recent_turns: int`, `new_prompt: str` |
+| `P2POffer` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `sdp: str` |
+| `IngestFileRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `tool: str`, `category: str`, `content_type: str`, `relative_path: str`, `hash: str`, `mode: str` |
+| `IngestResponse` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `status: str`, `document_id: str`, `message: str`, `next_offset: int \| None` |
+| `IngestFilesRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `files: list[IngestFileRequest]` |
+| `ReconcileFile` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `tool: str`, `relative_path: str`, `offset: int` |
+| `ReconcileRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `files: list[ReconcileFile]` |
+| `AcceptBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `statement: str \| None`, `general: bool` |
+| `PitfallBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `title: str`, `symptom: str`, `fix: str`, `cause: str \| None`, `project: str \| None` |
+| `GuardBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `enabled: bool` |
+| `GuardEventsBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `events: list[dict]` |
+| `GuardStatusBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `results: dict[str, str]` |
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -547,10 +547,10 @@ erDiagram
 
 | Category | Name | Path | Details |
 | :--- | :--- | :--- | :--- |
-| GitHub Actions | `Android APK` | [`.github/workflows/android.yml`](.github/workflows/android.yml) | Jobs: workflow_call, workflow_dispatch, push, schedule, apk |
-| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: push, pull_request, python, ts-client, ts-mobile, ts-web |
-| GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: push, workflow_dispatch, changes, wait-ci, build, bump |
-| GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: push, workflow_dispatch, build-electron, android, publish-release, attach-apk |
+| GitHub Actions | `Android APK` | [`.github/workflows/android.yml`](.github/workflows/android.yml) | Jobs: apk |
+| GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-client, ts-mobile, ts-web |
+| GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
+| GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
 | K8s / GitOps | `gitrepo.yaml` | [`deploy/fleet/gitrepo.yaml`](deploy/fleet/gitrepo.yaml) | Resources: GitRepo |
 | K8s / GitOps | `api.yaml` | [`deploy/k8s/api.yaml`](deploy/k8s/api.yaml) | Resources: Deployment, Service |
 | K8s / GitOps | `celery.yaml` | [`deploy/k8s/celery.yaml`](deploy/k8s/celery.yaml) | Resources: Deployment |
@@ -574,7 +574,7 @@ erDiagram
 
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (10 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (6 commits)
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e55c1383` (2026-11-07): feat(blueprint): 增强多层级子系统职责推断、全栈框架路由探测与项目详情页蓝图可视化
 - `1af32afb` (2026-11-07): perf(blueprint): 优化大仓库单次目录剪枝遍历与守护进程周期性全项目蓝图同步
 - `7fc852e2` (2026-11-06): feat(blueprint): 实现全Agent提示词自动注入、5钩子闭环与HEAD过期检测
 - `1a4fd3e5` (2026-11-06): feat(blueprint): 新增AST跨层调用图、OpenAPI/DTO Schema、CLI入口与外部中间件探测
 - `c0a89884` (2026-11-06): feat(blueprint): 实现跨任意项目架构与协议的通用扫描引擎及单测验证
 - `4eacfcc0` (2026-11-06): feat(blueprint): 丰富单项目蓝图ER图、唯一约束、定时任务、服务层、MCP协议与热点测试矩阵
-- `377feb1f` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
 
 ## 10. Key Environment Variables & Configuration
 

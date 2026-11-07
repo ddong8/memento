@@ -711,3 +711,45 @@ class TestLiveRulesAcrossReplicas(unittest.IsolatedAsyncioTestCase):
         self.assertIn("FastAPI, Next.js", rendered)
 
 
+
+
+class TestLearnedScenarioReload(unittest.IsolatedAsyncioTestCase):
+    def tearDown(self):
+        from server.services import mind_resonance_service as mr
+
+        mr._DB_SCENARIO_IDS.clear()
+        mr.reset_scenarios_to_default()
+
+    @staticmethod
+    def _db(*scenario_ids):
+        import json
+
+        rows = MagicMock()
+        rows.scalars.return_value.all.return_value = [
+            UserMemory(content=json.dumps({"id": sid, "name": sid, "keywords": [sid]})) for sid in scenario_ids
+        ]
+        db = AsyncMock()
+        db.execute.return_value = rows
+        return db
+
+    async def test_a_full_reload_drops_scenarios_no_longer_saved(self):
+        from server.services import mind_resonance_service as mr
+
+        await mr.load_dynamic_scenarios_from_db(self._db("proj_a", "proj_b"))
+        ids = {s["id"] for s in mr.get_all_scenarios()}
+        self.assertTrue({"proj_a", "proj_b"} <= ids)
+
+        await mr.load_dynamic_scenarios_from_db(self._db("proj_b"))
+        ids = {s["id"] for s in mr.get_all_scenarios()}
+        self.assertNotIn("proj_a", ids)
+        self.assertIn("proj_b", ids)
+        # Built-in scenarios are never dropped.
+        self.assertIn("devops_release", ids)
+
+    async def test_one_users_load_drops_nothing(self):
+        from server.services import mind_resonance_service as mr
+
+        await mr.load_dynamic_scenarios_from_db(self._db("proj_a"))
+        await mr.load_dynamic_scenarios_from_db(self._db("proj_b"), uuid.uuid4())
+        ids = {s["id"] for s in mr.get_all_scenarios()}
+        self.assertTrue({"proj_a", "proj_b"} <= ids)

@@ -1,14 +1,34 @@
-"""Mind Resonance Service — 前置心领神会与默契共鸣引擎.
+"""Mind resonance: the block of user context put in front of a request before an agent works on it.
 
-让 AI 在生成任何回复或执行任何操作之前，先主动与用户完成「心智同频」：
-1. 意图与领域场景智能推断（Intent & Domain Deduction）
-2. 知识图谱核心实体与前序决策主动激活（Knowledge Graph Entity Resonance）
-3. 历史踩坑与防御性避雷前置预警（Defensive Pitfalls & Failure Patterns）
-4. 深度契合用户底层心智模型与隐式偏好（User Mental Model & Iron Rules）
+sense_resonance(query, project, action) gathers, without calling a model:
+
+1) The scenario: keyword scoring over DEFAULT_DOMAIN_SCENARIOS plus the scenarios nightly dreaming
+   learned (user_memories with category resonance_scenario). Each scenario carries a mindset line,
+   defense rules and an optional target project; with no match (score below 2) it is
+   general_engineering. The request decides first; the project name only when the request matches nothing.
+2) Rules from the published profile: the ones scoped to this project and the general ones, ranked
+   by overlap with the request's terms.
+3) Knowledge-graph entities matching the terms, with their observations and 1 and 2 hop relations;
+   entities of the project rank first.
+4) Pitfall memories matching the request's specific words (common words carry little weight, and a
+   weak match is dropped).
+5) Durable corrections (Redis), the project's blueprint summary and the user's own blueprint summary.
+
+render_mind_resonance_markdown turns that into the markdown injected into agent and ask prompts
+(api/tasks.py, orchestrator, ask_prompt) and returned by the mind_resonance MCP tool.
+
+Live correction rules: extract_live_correction_rules picks directives ("不要…", "必须…") out of a
+user message; save_session_live_rules keeps them for the conversation and makes one durable when it
+is said to be lasting or comes up again within 7 days.
+
+Scenarios live in this process (detect_scenario is synchronous). Dreaming runs in a Celery worker,
+so every api process reloads them from the database every SCENARIO_RELOAD_SECONDS
+(keep_dynamic_scenarios_fresh); they can be rebuilt from there at any time.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import logging
 import math
@@ -119,6 +139,9 @@ DEFAULT_DOMAIN_SCENARIOS: list[dict[str, Any]] = [
 
 # Dynamic registry supporting custom & self-evolved scenarios from Dreaming sweeps
 _DYNAMIC_SCENARIOS: dict[str, dict[str, Any]] = {}
+# Ids the last full load took from the database: one gone from there since is dropped on the next load.
+_DB_SCENARIO_IDS: set[str] = set()
+SCENARIO_RELOAD_SECONDS = 600
 _ACTIVE_SCENARIOS: list[dict[str, Any]] = [dict(s) for s in DEFAULT_DOMAIN_SCENARIOS]
 DOMAIN_SCENARIOS = _ACTIVE_SCENARIOS
 
@@ -189,7 +212,8 @@ def get_all_scenarios() -> list[dict[str, Any]]:
 
 
 async def load_dynamic_scenarios_from_db(db: AsyncSession, user_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
-    """Dynamically load and register domain scenarios distilled by dreaming_service into active resonance."""
+    """Register the active scenarios dreaming saved (one user's, or everyone's when user_id is None).
+    A full load also drops scenarios an earlier full load brought in that are no longer active."""
     loaded: list[dict[str, Any]] = []
     try:
         q = select(UserMemory).where(
@@ -208,9 +232,28 @@ async def load_dynamic_scenarios_from_db(db: AsyncSession, user_id: uuid.UUID | 
                     loaded.append(data)
             except Exception:
                 pass
+        if user_id is None:
+            now_ids = {str(d["id"]).strip() for d in loaded}
+            for gone in _DB_SCENARIO_IDS - now_ids:
+                unregister_scenario(gone)
+            _DB_SCENARIO_IDS.clear()
+            _DB_SCENARIO_IDS.update(now_ids)
     except Exception as e:
         logger.debug("load_dynamic_scenarios_from_db skipped or failed: %s", e)
     return loaded
+
+
+async def keep_dynamic_scenarios_fresh() -> None:
+    """Reload the learned scenarios now and every SCENARIO_RELOAD_SECONDS, for this process's lifetime."""
+    from ..db.session import async_session_factory
+
+    while True:
+        try:
+            async with async_session_factory() as db:
+                await load_dynamic_scenarios_from_db(db)
+        except Exception as e:
+            logger.warning("Reloading resonance scenarios failed: %s", e)
+        await asyncio.sleep(SCENARIO_RELOAD_SECONDS)
 
 
 def detect_scenario(
@@ -784,7 +827,6 @@ async def sense_resonance(
     project may be a name, a project id or a working directory. action "agent" / "ask" only says how the
     request runs, so it isn't matched against memories.
     """
-    import asyncio
 
     from .session_compactor import clean_text
 

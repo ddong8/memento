@@ -644,21 +644,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start 24/7 Always-on Proactive Agent Pulse service
     from .services.pulse_service import start_proactive_pulse, stop_proactive_pulse
     await start_proactive_pulse()
-    # Dynamic mind resonance scenarios learned by dreaming
-    try:
-        from .db.session import async_session_factory
-        from .services.mind_resonance_service import load_dynamic_scenarios_from_db
-        async with async_session_factory() as db:
-            await load_dynamic_scenarios_from_db(db)
-    except Exception as e:
-        import logging
-        logging.getLogger("memento.scenarios").warning("loading dynamic resonance scenarios skipped: %s", e)
+    # Mind resonance scenarios learned by dreaming (in the Celery worker): loaded now and every 10 minutes
+    from .services.mind_resonance_service import keep_dynamic_scenarios_fresh
+    scenarios_task = asyncio.create_task(keep_dynamic_scenarios_fresh())
     yield
     # Out of the load balancer by now: let ask runs finish while their readers
     # reattach through the other replicas, then leave.
     await ask_runs.drain(settings.shutdown_drain_seconds)
     await stop_proactive_pulse()
     compaction_task.cancel()
+    scenarios_task.cancel()
     warmup_task.cancel()
     jieba_task.cancel()
     merge_task.cancel()

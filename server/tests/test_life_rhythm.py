@@ -82,3 +82,25 @@ class TestLifeRhythmService(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(len(synced) >= 1)
         self.assertEqual(synced[0].wakeup_time, "09:00")
         self.assertEqual(synced[0].bedtime, "11:00")
+
+
+class _At(datetime):
+    """datetime whose now() is 2026-11-08 18:00 UTC: already 11-09 02:00 at UTC+8."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 11, 8, 18, 0, tzinfo=timezone.utc)
+
+
+class TestRecentRhythmsWindow(unittest.IsolatedAsyncioTestCase):
+    async def test_the_window_counts_back_from_the_users_today(self):
+        db = AsyncMock()
+        rows = MagicMock()
+        rows.scalars.return_value.all.return_value = []
+        db.execute.return_value = rows
+        with patch.object(life_service, "datetime", _At), \
+                patch("server.services.cache.cache_get", AsyncMock(return_value=None)), \
+                patch("server.services.cache.cache_set", AsyncMock()):
+            await life_service.get_recent_rhythms(db, User(id=uuid.uuid4()), days=7, tz_offset=-480, sync_collector=False)
+        params = db.execute.await_args.args[0].compile().params
+        self.assertEqual(params["log_date_1"], date(2026, 11, 2))

@@ -363,6 +363,7 @@ class TestManualMemoryProtection(unittest.IsolatedAsyncioTestCase):
             result(), result(), result(),            # daily, ask, user voice
             result(), result(all_items=[("t", "session", "s")]),  # docs, entities
             result(),                                # existing core memories
+            result(),                                # scenarios saved by earlier nights
             result(one_item=None),                   # lookup for existing scenario in UserMemory
         ]
         with patch("server.services.dreaming_service.get_ai_providers", return_value=[{"provider": "t"}]), \

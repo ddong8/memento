@@ -1,7 +1,22 @@
-"""24/7 Life Rhythm, Screen Time & AI Lifestyle Decision Service.
+"""Daily rhythm: when the user started and stopped working, roughly how long they slept, and where
+their screen time went. One user_life_rhythms row per user and day.
 
-Tracks daily sleep/wake schedules, app usage allocation (work vs distraction),
-computes life regularity metrics, and delivers AI-driven lifestyle & scheduling decisions.
+Where the numbers come from:
+
+* sync_rhythms_from_collector derives them from what the collector already uploads: conversation
+  message timestamps, plus documents' synced_at. A day runs from 04:00 to 04:00 local time, so work
+  past midnight counts for the evening before. The first event is the wake-up time, the last the
+  bedtime, and sleep is the gap since the previous day's last event (only when 3 to 16 hours, else
+  unknown). Events less than 20 minutes apart form a session, at least 3 minutes long, credited to
+  the tool of its first event; all of it counts as work.
+* record_daily_rhythm takes manual entries and parsed screenshots (parse_screen_time_screenshot reads
+  an iOS/Android screen-time screenshot with the vision model). Apps merge by name, keeping the larger
+  minutes, so phone and computer do not overwrite each other; classify_app sorts an app into work,
+  social, entertainment, reading or general by name. Productive is work plus reading, distraction is
+  entertainment plus social.
+
+get_recent_rhythms re-derives from the collector at most every 5 minutes and caches the answer for a
+minute. generate_life_decision_advice has the model write advice from the last 7 days' rows.
 """
 
 from __future__ import annotations
@@ -241,14 +256,11 @@ async def sync_rhythms_from_collector(
     days: int = 7,
     tz_offset: int = 0,
 ) -> list[UserLifeRhythm]:
-    """Analyze real collector activity (conversation messages & document events) to compute authentic sleep/wake rhythms.
+    """Derive and save the last `days` days from collector activity (see the module docstring for the rules).
 
-    Logic:
-    - Working days cut off at 04:00 AM local time (night owl developer working past midnight belongs to previous day).
-    - Wakeup Time: First interaction event of the day.
-    - Bedtime: Last interaction event of the day before sleep.
-    - Sleep Hours: Rest duration between previous day's end and current day's start.
-    - Productive Minutes & Tool Allocation: Active session slicing of interactions per tool.
+    tz_offset is in minutes, JS getTimezoneOffset style (UTC+8 is -480). Two extra days before the
+    window are read so the first day has a previous evening to measure sleep from; they are saved too.
+    Re-running is harmless: each tool keeps the larger of the old and new minutes.
     """
     from ..services.user_filter import user_machine_ids
 
@@ -419,7 +431,8 @@ async def get_recent_rhythms(
             except Exception as e:
                 logger.warning("Collector rhythm auto-sync skipped: %s", e)
 
-    start_date = date.today() - timedelta(days=days)
+    # The user's today, not the server's: tz_offset follows JS getTimezoneOffset (UTC+8 is -480).
+    start_date = (datetime.now(timezone.utc) + timedelta(minutes=-tz_offset)).date() - timedelta(days=days)
     records = (await db.execute(
         select(UserLifeRhythm)
         .where(UserLifeRhythm.user_id == user.id, UserLifeRhythm.log_date >= start_date)

@@ -1361,9 +1361,13 @@ async def run_dreaming_pipeline(
     # Stage 3.2: Evolving Domain Scenario Learning & Closed-Loop Resonance
     learned_scenarios_count = 0
     try:
-        from .mind_resonance_service import get_all_scenarios, register_domain_scenario
+        from .mind_resonance_service import get_all_scenarios, load_dynamic_scenarios_from_db, register_domain_scenario
 
         discovered_scenarios = list(llm_output.get("discovered_scenarios") or [])
+        # This worker process starts with only the built-in scenarios: without the saved ones every
+        # project looked new and its scenario was written again each night.
+        if discovered_scenarios or canonical_projects:
+            await load_dynamic_scenarios_from_db(db, user.id)
         active_scenarios_list = get_all_scenarios()
         active_scenario_ids = {s.get("id") for s in active_scenarios_list if s.get("id")}
         active_target_projects = {s.get("target_project", "").lower() for s in active_scenarios_list if s.get("target_project")}

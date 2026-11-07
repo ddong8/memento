@@ -4,7 +4,7 @@ import { join, sep } from "node:path";
 
 import { readLocalApiInfo, runningCollectorPid, type LocalApiInfo } from "@memento/daemon";
 
-export type DaemonMode = "starting" | "running" | "external" | "flutter" | "stopped" | "no-token" | "crashed";
+export type DaemonMode = "starting" | "running" | "external" | "stopped" | "no-token" | "crashed";
 
 /**
  * Runs the daemon in a utility process and talks to it over its loopback API.

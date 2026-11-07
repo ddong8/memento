@@ -40,8 +40,8 @@ it("sanitizes JSON recursively", () => {
   expect(clean.nested).toEqual({ password: "[REDACTED]", normal: "safe-text" });
 });
 
-it("content hash matches the Flutter collector's", () => {
-  // Same 31-multiplier string hash as the Dart side, so offsets and dedupe line up.
+it("content hash stays stable for already-synced content", () => {
+  // The server stores these hashes; a different formula would re-upload everything.
   expect(contentHash("hello")).toBe("5e918d2");
   expect(contentHash("")).toBe("0");
 });

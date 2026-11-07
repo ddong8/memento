@@ -91,7 +91,10 @@ export function sanitizeJson(data: unknown): unknown {
   return data;
 }
 
-/** The Flutter collector's 32-bit content hash (UTF-16 code units), kept identical so hashes match across clients. */
+/**
+ * 32-bit content hash (UTF-16 code units). Its output is stored with every upload
+ * on the server, so changing the formula would make already-synced content look new.
+ */
 export function contentHash(s: string): string {
   let hash = 0;
   for (let i = 0; i < s.length; i++) hash = (Math.imul(31, hash) + s.charCodeAt(i)) >>> 0;

@@ -1110,7 +1110,6 @@ const zhCN = {
     offline: "未连上服务",
     device: "设备：{name}",
     runningTasks: "正在执行 {n} 个任务",
-    flutterHint: "这台电脑上旧版 Memento（Flutter）正在采集，为避免重复上传没有再启动一份。退出旧版后重新打开桌面端即可切换。",
     noTokenHint: "登录后会自动开始采集。",
     rediscover: "重新发现工具",
     rediscovered: "已重新发现并上报工具。",

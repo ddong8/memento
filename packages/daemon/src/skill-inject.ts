@@ -13,8 +13,8 @@ import { homeDir, mementoDir } from "./config.js";
  * It owns only what it wrote: a skill directory is ours while the state file
  * records it and its SKILL.md still hashes to what we wrote. A same-named skill
  * the user made is never touched; one we wrote that the user then edited is left
- * alone and handed over to them. State (~/.memento/skill_inject.json) is shared
- * with the Flutter collector.
+ * alone and handed over to them. State lives in ~/.memento/skill_inject.json, so
+ * the desktop app's embedded daemon and the standalone daemon see the same ownership.
  */
 export const SKILL_SYNC_MS = 5 * 60_000;
 

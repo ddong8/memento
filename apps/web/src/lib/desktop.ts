@@ -31,7 +31,7 @@ interface DaemonStatus {
 }
 
 export interface DaemonState {
-  mode: "starting" | "running" | "external" | "flutter" | "stopped" | "no-token" | "crashed";
+  mode: "starting" | "running" | "external" | "stopped" | "no-token" | "crashed";
   label: string;
   status: DaemonStatus | null;
 }

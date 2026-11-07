@@ -1096,7 +1096,6 @@ const enUS: Translations = {
     offline: "Not connected",
     device: "Device: {name}",
     runningTasks: "{n} tasks running",
-    flutterHint: "The older Memento app (Flutter) is collecting on this computer, so a second collector wasn't started. Quit it and reopen the desktop app to switch.",
     noTokenHint: "Collection starts once you sign in.",
     rediscover: "Rediscover tools",
     rediscovered: "Tools rediscovered and reported.",

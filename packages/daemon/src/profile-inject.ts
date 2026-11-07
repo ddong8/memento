@@ -14,7 +14,7 @@ import { homeDir, mementoDir } from "./config.js";
  * damaged marker pair is reported rather than guessed at.
  *
  * Markers must match server/server/services/profile_service.py. The state file
- * (~/.memento/profile_inject.json) is shared with the Flutter collector.
+ * (~/.memento/profile_inject.json) is shared by every daemon on the machine.
  */
 export const PROFILE_BEGIN = "<!-- memento:begin";
 export const PROFILE_END = "<!-- memento:end -->";

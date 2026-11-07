@@ -55,8 +55,6 @@ function modeLabel(mode: DaemonMode): string {
       return "采集运行中";
     case "external":
       return "采集运行中（独立守护进程）";
-    case "flutter":
-      return "采集由旧版 Memento 负责";
     case "starting":
       return "采集启动中…";
     case "no-token":

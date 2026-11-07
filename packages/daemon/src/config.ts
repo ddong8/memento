@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
 /**
- * The daemon's settings. Stored in the same files the Flutter collector used
- * (~/.memento/collector.json, device_id, remote_exec_key), so switching clients
- * keeps the device's identity, token and remote-exec enrollment.
+ * The daemon's settings, in ~/.memento (collector.json, device_id, remote_exec_key).
+ * The desktop app's embedded daemon and the standalone daemon read the same files,
+ * so switching between them keeps the device's identity, token and remote-exec enrollment.
  */
 export interface CollectorConfig {
   serverUrl: string;
@@ -66,14 +66,14 @@ async function readText(path: string): Promise<string | undefined> {
 }
 
 function newDeviceId(): string {
-  // Same shape as the Flutter collector's ids, so the server treats both alike.
+  // Existing devices already carry ids of this shape; new ones match them.
   const now = BigInt(Date.now()) * 1000n;
   return `memento-${now.toString(16)}-${randomBytes(4).toString("hex")}`;
 }
 
 const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
-/** Load from disk, environment, then defaults — in that order of precedence, as the Flutter collector did. */
+/** Load from disk, environment, then defaults — in that order of precedence. */
 export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<CollectorConfig> {
   const env = options.env ?? process.env;
   const paths = configPaths(options.home ?? homeDir(env));

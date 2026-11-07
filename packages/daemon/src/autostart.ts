@@ -6,9 +6,9 @@ import { dirname, join } from "node:path";
 import { homeDir, mementoDir } from "./config.js";
 
 /**
- * One collector per device. The daemon records its pid in ~/.memento/collector.pid,
- * the same file the Flutter app checks before starting its in-process collector,
- * so running both never uploads everything twice.
+ * One collector per device. Whoever runs the collector (the desktop app's embedded
+ * daemon or the standalone `memento-daemon run`) records its pid in
+ * ~/.memento/collector.pid and the other one stays out, so nothing is uploaded twice.
  */
 export const pidFile = (home = homeDir()) => join(mementoDir(home), "collector.pid");
 
@@ -46,62 +46,6 @@ export async function runningCollectorPid(home = homeDir()): Promise<number | un
   } catch {
     return undefined;
   }
-}
-
-/** Process list lines that are the Flutter Memento app (whose built-in collector writes no pid file). */
-export function flutterAppPids(
-  psOutput: string,
-  platform: NodeJS.Platform = process.platform,
-  excludePids: number[] = [],
-): number[] {
-  const exclude = new Set(excludePids);
-  const electronBundles = new Set<string>();
-
-  if (platform === "darwin") {
-    for (const raw of psOutput.split("\n")) {
-      const line = raw.trim();
-      const m = /^(\d+)\s+(.*)$/.exec(line);
-      if (!m) continue;
-      const cmd = m[2]!;
-      const helperMatch = /(^.*\.app)\/Contents\/Frameworks\/.*Helper.*\.app/i.exec(cmd);
-      if (helperMatch) {
-        electronBundles.add(helperMatch[1]!);
-      }
-    }
-  }
-
-  const pids: number[] = [];
-  for (const raw of psOutput.split("\n")) {
-    const line = raw.trim();
-    const m = /^(\d+)\s+(.*)$/.exec(line);
-    if (!m) continue;
-    const pid = Number(m[1]);
-    if (exclude.has(pid)) continue;
-    const cmd = m[2]!;
-    if (platform === "darwin") {
-      const appMatch = /(^.*\.app)\/Contents\/MacOS\/Memento$/.exec(cmd);
-      if (appMatch && !electronBundles.has(appMatch[1]!)) {
-        pids.push(pid);
-      }
-    } else if (platform === "win32") {
-      if (/(^|\\)memento\.exe$/i.test(cmd)) {
-        pids.push(pid);
-      }
-    } else {
-      if (/(^|\/)memento$/.test(cmd)) {
-        pids.push(pid);
-      }
-    }
-  }
-  return pids;
-}
-
-/**
- * Whether the Flutter desktop app is running.
- * @deprecated Legacy Flutter desktop app is retired; always returns false.
- */
-export async function flutterAppRunning(_excludePids: number[] = []): Promise<boolean> {
-  return false;
 }
 
 /** Claims the pid file; false when another live collector holds it. Released on exit. */

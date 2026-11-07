@@ -45,7 +45,7 @@ Electron 桌面端：
 - [x] 主进程在 utilityProcess 里跑守护进程、托盘、预加载桥（`window.mementoDesktop`）
 - [x] 登录互通：设备已有 collector token 时窗口自动登录（token-exchange → /auth/handoff）；在窗口里登录后自动取 collector token 启动采集
 - [x] 自动更新（electron-updater，GitHub Releases）、CI 打包 macOS（dmg/zip，ad-hoc 签名固定 designated requirement）/ Windows（NSIS）/ Linux（AppImage），与 Flutter 版同一个 tag 发布
-- [x] 与 Flutter 桌面版共存：检测到旧版在运行就不启动第二份采集（`MEMENTO_DAEMON_FORCE=1` 可强制）；应用名统一为「Memento」
+- [x] 与 Flutter 桌面版共存：检测到旧版在运行就不启动第二份采集（`MEMENTO_DAEMON_FORCE=1` 可强制）；应用名统一为「Memento」。2026-11-08 起旧版已全部下线，这段检测连同 `run --force`、`MEMENTO_DAEMON_FORCE` 一起删掉，同一台机器只靠 `~/.memento/collector.pid` 保证一份采集
 
 ### 阶段 3：MCP 服务改 TS
 - [x] 用官方 TS MCP SDK 移植 `mcp_server` 的远程模式：17 个工具、5 个资源全部对齐（`packages/mcp`，顺带修好了 Python 版里报错的 `memory_project_map`）
@@ -65,7 +65,7 @@ Electron 桌面端：
 - [x] 再次清理冗余（2026-10-17）：服务端删掉没有任何客户端调用的接口（分片/表格上传、HTTP 轮询派活、文档原文与历史、记忆压缩与重置、按采集器 id 发命令、微信 OAuth 登录等）和它们留下的辅助函数、未使用的导入与依赖（alembic、passlib）；P2P 媒体直连只有已下线的 Flutter 手机端用过，网页端一直走服务器中转，守护进程不再在公网 IPv6 上开媒体端口
 - [x] 删除 Python 版 MCP（2026-10-17 用户确认）：TS 版 `@memento/mcp` 的 17 个工具、5 个资源与它一一对应；同时删掉 PyPI 发布流程和 CI 里的 Python MCP 任务。PyPI 上已发布的 memento-brain-memory 旧版本保留，不再更新
 - [x] 修复自托管的本机原生向量服务：两份分叉的 embedding_server 合并为 `embedding/embedding_server.py`（保留 Mac 上避开 MPS、超长文本截断和双栈监听），launchd / systemd / Windows 计划任务模板都改为直接运行它
-- [ ] Flutter 版下线说明
+- [x] Flutter 版下线：2026-10-01 删除 Flutter 客户端源码与构建脚本（cd5cc1a0），2026-10-17 删除 Flutter 时代的发布脚本（e9f9175c）和只有 Flutter 手机端用过的 P2P 媒体直连；2026-11-08 删除守护进程里的旧版检测、桌面端与网页的「采集由旧版负责」状态和相关注释。设备 id、`~/.memento` 下的配置文件和内容哈希格式保持不变，老设备升级后身份和已同步内容不受影响
 
 ## 进度记录
 

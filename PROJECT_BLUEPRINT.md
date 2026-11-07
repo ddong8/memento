@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `44dcb335` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e345b2c2` · Updated: `2026-11-08`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -578,10 +578,10 @@ erDiagram
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
 - [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
+- [`server/server/main.py`](server/server/main.py) (8 commits)
+- [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (8 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (7 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (7 commits)
-- [`server/server/main.py`](server/server/main.py) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `e345b2c2` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
+- `a1f2cea6` (2026-11-08): fix(server): 作息按用户本地日期统计，夜间学到的场景各副本定时刷新
 - `44dcb335` (2026-11-08): fix(tasks): 派活任务创建后立即经 WebSocket 下发，主动执事的后台任务按步推进
 - `8b24195e` (2026-11-08): test(db): 旧列删除用例按 to_tsvector 的实际输出（带位置）断言
 - `f652defb` (2026-11-08): perf(db): 删掉 documents 上不再使用的 content_tsv 旧列
 - `c92762c8` (2026-11-08): docs(claude): 记下 documents 表不要加大索引、全文条件写成 IN 子查询的原因
-- `d9d6a553` (2026-11-08): perf(search): 全文条件写成 IN 子查询，让全文索引真正起作用
-- `0cba3288` (2026-11-08): perf(db): 全文索引拆到单独的 document_search 表，同步一次不再重写整个 GIN 索引
 
 ## 10. Key Environment Variables & Configuration
 

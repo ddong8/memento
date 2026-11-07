@@ -99,7 +99,6 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
             {status.runningTasks.length > 0 && <div>{fmt(c.runningTasks, { n: status.runningTasks.length })}</div>}
           </div>
         )}
-        {state?.mode === "flutter" && <p style={{ margin: "12px 0 0", fontSize: 12.5, color: "var(--aurora-fg3)", lineHeight: 1.55 }}>{c.flutterHint}</p>}
         {state?.mode === "no-token" && <p style={{ margin: "12px 0 0", fontSize: 12.5, color: "var(--aurora-fg3)" }}>{c.noTokenHint}</p>}
         <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           <Btn variant="glass" size="sm" icon="refresh" disabled={!active || busy !== null} onClick={() => act("rediscover", c.rediscovered)}>

@@ -126,11 +126,15 @@ async def search(
         Document.relative_path.ilike(search_term),
     ]
     if tsquery:
-        conds.append(DocumentSearch.content_tsv.op("@@")(func.to_tsquery("simple", tsquery)))
+        # As IN (…) so the GIN index answers it: OR-ed over a join, every row's vector was compared
+        conds.append(Document.id.in_(
+            select(DocumentSearch.document_id)
+            .where(DocumentSearch.content_tsv.op("@@")(func.to_tsquery("simple", tsquery)))
+            .correlate(None)
+        ))
 
     query = (
         select(Document)
-        .outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id)
         .options(
             defer(Document.content),
             defer(Document.metadata_),

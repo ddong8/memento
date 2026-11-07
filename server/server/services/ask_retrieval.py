@@ -115,7 +115,11 @@ async def hybrid_rank(
     rank = None
     if tsquery:
         ts = func.to_tsquery("simple", tsquery)
-        conds.append(DocumentSearch.content_tsv.op("@@")(ts))
+        # As IN (…) so the GIN index answers it (OR-ed over the join, every row's vector was compared);
+        # the join is only there to rank what matched
+        conds.append(Document.id.in_(
+            select(DocumentSearch.document_id).where(DocumentSearch.content_tsv.op("@@")(ts)).correlate(None)
+        ))
         rank = func.ts_rank(DocumentSearch.content_tsv, ts, 1)
 
     kw_q = select(Document).outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id).options(

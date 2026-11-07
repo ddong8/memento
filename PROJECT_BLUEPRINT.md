@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a7cfd109` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0cba3288` · Updated: `2026-11-08`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -575,13 +575,13 @@ erDiagram
 - [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (17 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
-- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
+- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
 - [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (7 commits)
-- [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (7 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (6 commits)
+- [`server/server/api/projects.py`](server/server/api/projects.py) (7 commits)
+- [`server/server/main.py`](server/server/main.py) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0cba3288` (2026-11-08): perf(db): 全文索引拆到单独的 document_search 表，同步一次不再重写整个 GIN 索引
 - `1c5b4996` (2026-11-07): refactor(ask): 移除对话界面无用的沉浸阅读模式入口与状态
 - `84603848` (2026-11-07): fix(test): 修复CI无状态Runner环境下个人蓝图与梦境缓存清理单测断言
 - `0c3845cb` (2026-11-07): feat(blueprint): 优化子系统架构优先级排序、IDE文件头过滤与Tauri/Electron IPC路由提取
 - `03aae1c9` (2026-11-07): fix(blueprint): 修正项目蓝图模型与路由统计口径并支持守护进程本地Git仓全量发现上报
 - `df7bfaf5` (2026-11-07): feat(blueprint): 优化蓝图词边界匹配与子系统摘要净化并接入心领神会前置注入
-- `30914155` (2026-11-07): feat(blueprint): 完善记忆变更、梦境归纳与项目蓝图上报时的个人蓝图自动联动刷新
 
 ## 10. Key Environment Variables & Configuration
 

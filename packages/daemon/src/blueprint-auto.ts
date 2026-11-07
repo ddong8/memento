@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -103,19 +104,27 @@ export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
   }
 }
 
-/**
- * Locate generator script:
- * 1. Target project's own scripts/project_blueprint.py
- * 2. Memento repository's scripts/project_blueprint.py
- * 3. Global ~/.memento/scripts/project_blueprint.py
- */
-export async function locateBlueprintGenerator(gitRoot?: string): Promise<string | null> {
-  if (gitRoot) {
-    const localScript = join(gitRoot, "scripts", "project_blueprint.py");
-    if (existsSync(localScript)) return localScript;
-  }
+export function parseBlueprintScriptMeta(content: string): { version: number; hash: string } {
+  const hash = createHash("sha256").update(content, "utf8").digest("hex").slice(0, 16);
+  const m = content.match(/^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)/m);
+  const version = m?.[1] ? Number.parseInt(m[1], 10) : 1;
+  return { version, hash };
+}
 
-  // Check if running within Memento codebase
+function hasRepoCheckoutScript(): boolean {
+  try {
+    const currentModulePath = fileURLToPath(import.meta.url);
+    const repoCandidate = resolve(currentModulePath, "../../../../scripts/project_blueprint.py");
+    return existsSync(repoCandidate);
+  } catch {
+    return false;
+  }
+}
+
+function locateBundledBlueprintGenerator(): string | null {
+  if (process.env.MEMENTO_BLUEPRINT_RUNNER && existsSync(process.env.MEMENTO_BLUEPRINT_RUNNER)) {
+    return process.env.MEMENTO_BLUEPRINT_RUNNER;
+  }
   try {
     const currentModulePath = fileURLToPath(import.meta.url);
     const repoCandidate = resolve(currentModulePath, "../../../../scripts/project_blueprint.py");
@@ -125,8 +134,49 @@ export async function locateBlueprintGenerator(gitRoot?: string): Promise<string
   } catch {
     // ignore
   }
+  try {
+    const assetCandidate = fileURLToPath(new URL("../assets/project_blueprint.py", import.meta.url));
+    if (existsSync(assetCandidate)) {
+      return assetCandidate;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Locate generator script:
+ * 1. Target project's own scripts/project_blueprint.py
+ * 2. Bundled / Memento repository's scripts/project_blueprint.py
+ * 3. Global ~/.memento/scripts/project_blueprint.py (synced from bundled asset or server OTA)
+ */
+export async function locateBlueprintGenerator(gitRoot?: string): Promise<string | null> {
+  if (gitRoot) {
+    const localScript = join(gitRoot, "scripts", "project_blueprint.py");
+    if (existsSync(localScript)) return localScript;
+  }
 
   const globalScript = join(mementoDir(homeDir()), "scripts", "project_blueprint.py");
+  const bundled = locateBundledBlueprintGenerator();
+  if (existsSync(globalScript) && bundled) {
+    try {
+      const [gContent, bContent] = await Promise.all([
+        readFile(globalScript, "utf8"),
+        readFile(bundled, "utf8"),
+      ]);
+      const gMeta = parseBlueprintScriptMeta(gContent);
+      const bMeta = parseBlueprintScriptMeta(bContent);
+      // Prefer globalScript if it was upgraded via OTA to a newer version than bundled asset
+      if (gMeta.version > bMeta.version || (!hasRepoCheckoutScript() && gMeta.version === bMeta.version)) {
+        return globalScript;
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  if (bundled) return bundled;
   if (existsSync(globalScript)) return globalScript;
 
   return null;
@@ -135,19 +185,79 @@ export async function locateBlueprintGenerator(gitRoot?: string): Promise<string
 /** Sync generator script to ~/.memento/scripts/project_blueprint.py for global accessibility */
 export async function syncGlobalBlueprintScript(): Promise<string | null> {
   try {
-    const generator = await locateBlueprintGenerator();
-    if (!generator) return null;
-
     const globalDir = join(mementoDir(homeDir()), "scripts");
     await mkdir(globalDir, { recursive: true });
     const target = join(globalDir, "project_blueprint.py");
 
-    if (generator !== target) {
-      await copyFile(generator, target);
+    const bundled = locateBundledBlueprintGenerator();
+    if (bundled && bundled !== target) {
+      const bundledContent = await readFile(bundled, "utf8");
+      const bundledMeta = parseBlueprintScriptMeta(bundledContent);
+      const existingContent = await readFile(target, "utf8").catch(() => "");
+      const existingMeta = existingContent ? parseBlueprintScriptMeta(existingContent) : { version: 0, hash: "" };
+
+      const shouldWrite =
+        !existingContent ||
+        bundledMeta.version > existingMeta.version ||
+        (bundledMeta.version === existingMeta.version &&
+          bundledMeta.hash !== existingMeta.hash &&
+          hasRepoCheckoutScript());
+
+      if (shouldWrite) {
+        const tmp = `${target}.tmp`;
+        await writeFile(tmp, bundledContent, "utf8");
+        if (process.platform !== "win32") await chmod(tmp, 0o755);
+        await rename(tmp, target);
+        verifiedCache.clear();
+      }
     }
-    return target;
+    return existsSync(target) ? target : bundled;
   } catch {
     return null;
+  }
+}
+
+/** Check if the server's blueprint generator script is newer than our local copy */
+export async function needsRemoteBlueprintSync(
+  remoteMeta?: { version?: number; hash?: string } | null,
+): Promise<boolean> {
+  if (!remoteMeta?.hash) return false;
+  try {
+    await syncGlobalBlueprintScript();
+    const target = join(mementoDir(homeDir()), "scripts", "project_blueprint.py");
+    if (!existsSync(target)) return true;
+    const localContent = await readFile(target, "utf8");
+    const localMeta = parseBlueprintScriptMeta(localContent);
+    const remoteVer = remoteMeta.version ?? 1;
+    if (remoteVer > localMeta.version) return true;
+    if (remoteVer === localMeta.version && remoteMeta.hash !== localMeta.hash && !hasRepoCheckoutScript()) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** Atomically install the OTA blueprint generator script downloaded from the server */
+export async function applyRemoteBlueprintScript(
+  remote?: { version?: number; hash?: string; content?: string } | null,
+): Promise<boolean> {
+  if (!remote?.content || !remote.content.includes("def build_blueprint_content")) {
+    return false;
+  }
+  try {
+    const globalDir = join(mementoDir(homeDir()), "scripts");
+    await mkdir(globalDir, { recursive: true });
+    const target = join(globalDir, "project_blueprint.py");
+    const tmp = `${target}.tmp`;
+    await writeFile(tmp, remote.content, "utf8");
+    if (process.platform !== "win32") await chmod(tmp, 0o755);
+    await rename(tmp, target);
+    verifiedCache.clear();
+    return true;
+  } catch {
+    return false;
   }
 }
 

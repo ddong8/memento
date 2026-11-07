@@ -4,10 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  applyRemoteBlueprintScript,
   ensureProjectBlueprint,
   findGitRoot,
   isBlueprintReady,
   locateBlueprintGenerator,
+  needsRemoteBlueprintSync,
+  parseBlueprintScriptMeta,
 } from "../src/blueprint-auto.js";
 
 let tmpDir: string;
@@ -240,5 +243,17 @@ describe("blueprint-auto", () => {
     expect(ok2).toBe(true);
     const bpAfter = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
     expect(bpAfter).toContain("`GET /live/ping`");
+  });
+
+  it("extracts blueprint generator script version/hash metadata and validates OTA updates", async () => {
+    const sample = "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 20261108\ndef build_blueprint_content():\n    pass\n";
+    const meta = parseBlueprintScriptMeta(sample);
+    expect(meta.version).toBe(20261108);
+    expect(meta.hash.length).toBe(16);
+
+    // Higher remote version triggers OTA sync
+    expect(await needsRemoteBlueprintSync({ version: 99999999, hash: "deadbeef12345678" })).toBe(true);
+    // Rejects invalid script content
+    expect(await applyRemoteBlueprintScript({ version: 99999999, hash: "bad", content: "invalid" })).toBe(false);
   });
 });

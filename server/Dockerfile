@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir --no-deps .
 # Bootstrap installer assets served at /install.sh, /install.ps1, /install
 COPY deploy/bootstrap/ /app/bootstrap/
 COPY data/updates/ /app/data/updates/
+COPY scripts/project_blueprint.py /app/scripts/project_blueprint.py
 
 # Embeddings come from an OpenAI-compatible API or the self-hosted BGE-M3
 # service in embedding/ (MEMENTO_EMBEDDING_PROVIDER), not from this image.

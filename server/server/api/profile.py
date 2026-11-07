@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+from pathlib import Path
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
@@ -527,6 +530,45 @@ async def delete_account(
 # Collector (X-Collector-Token + X-Device-Id)
 # ---------------------------------------------------------------------------
 
+_BP_SCRIPT_CACHE: dict[str, object] = {"mtime": 0.0, "bundle": None}
+
+
+def _get_blueprint_script_bundle() -> dict[str, object] | None:
+    candidates = [
+        Path(__file__).resolve().parents[3] / "scripts" / "project_blueprint.py",
+        Path("/app/scripts/project_blueprint.py"),
+        Path.home() / ".memento" / "scripts" / "project_blueprint.py",
+    ]
+    script_path = next((p for p in candidates if p.is_file()), None)
+    if not script_path:
+        return None
+    try:
+        st = script_path.stat()
+        if _BP_SCRIPT_CACHE["bundle"] is not None and _BP_SCRIPT_CACHE["mtime"] == st.st_mtime:
+            return _BP_SCRIPT_CACHE["bundle"]  # type: ignore[return-value]
+        content = script_path.read_text(encoding="utf-8")
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+        m = re.search(r"^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", content, re.MULTILINE)
+        version = int(m.group(1)) if m else 1
+        bundle: dict[str, object] = {"version": version, "hash": digest, "content": content}
+        _BP_SCRIPT_CACHE["mtime"] = st.st_mtime
+        _BP_SCRIPT_CACHE["bundle"] = bundle
+        return bundle
+    except Exception:
+        return None
+
+
+@router.get("/blueprint-script")
+async def get_blueprint_script(
+    _user: User = Depends(verify_collector_token),
+) -> dict:
+    """Return the canonical project_blueprint.py generator script for OTA sync to remote daemons."""
+    bundle = _get_blueprint_script_bundle()
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Blueprint generator script not found on server")
+    return bundle
+
+
 @router.get("/injection")
 async def get_injection(
     x_device_id: str = Header(..., alias="X-Device-Id"),
@@ -552,12 +594,18 @@ async def get_injection(
     if published:
         content = render_device_profile(published.content, machine.name, await device_projects(db, machine))
         block = render_profile_block(published.version, content)
+    bp_bundle = _get_blueprint_script_bundle()
     res = {
         "version": published.version if published else None,
         "block": block,
         "targets": machine.profile_targets or [],
         # Tools whose Stop hook checks "done / fixed / live" claims; [] removes it
         "guards": {"completion_evidence": guard_tools(user, machine)},
+        "blueprint_script": (
+            {"version": bp_bundle["version"], "hash": bp_bundle["hash"]}
+            if bp_bundle
+            else None
+        ),
     }
     try:
         await cache_set(cache_key, res, ttl_seconds=60)

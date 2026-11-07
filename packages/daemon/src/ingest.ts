@@ -289,8 +289,19 @@ export class IngestClient {
     targets?: string[];
     /** Tools the completion check (guard.ts) is on for. */
     guards?: { completion_evidence?: string[] };
+    /** Server-hosted living blueprint generator script metadata for OTA sync. */
+    blueprint_script?: { version?: number; hash?: string } | null;
   } | null> {
     return this.getJson("/api/profile/injection");
+  }
+
+  /** Fetch the full project_blueprint.py script from the server when OTA update is needed. */
+  async fetchBlueprintScript(): Promise<{
+    version?: number;
+    hash?: string;
+    content?: string;
+  } | null> {
+    return this.getJson("/api/profile/blueprint-script");
   }
 
   async reportProfileInjection(version: number | null | undefined, results: Record<string, string>): Promise<void> {

@@ -4,7 +4,12 @@ import { readFile, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
+import {
+  applyRemoteBlueprintScript,
+  ensureProjectBlueprint,
+  findGitRoot,
+  needsRemoteBlueprintSync,
+} from "./blueprint-auto.js";
 import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
@@ -207,7 +212,11 @@ export class Daemon extends EventEmitter {
   }
 
   /** Asynchronously ensure living blueprints and post-commit hooks for all discovered projects */
-  private ensureDiscoveredBlueprints(tools: Record<string, DiscoveredTool>, profileBlock?: string | null): void {
+  private ensureDiscoveredBlueprints(
+    tools: Record<string, DiscoveredTool>,
+    profileBlock?: string | null,
+    force = false,
+  ): void {
     const seen = new Set<string>();
     const candidates: { toolId: string; name: string; path: string }[] = [];
     for (const tool of Object.values(tools)) {
@@ -229,7 +238,7 @@ export class Daemon extends EventEmitter {
       }
     }
     for (const proj of candidates) {
-      void ensureProjectBlueprint(proj.path, { log: this.log })
+      void ensureProjectBlueprint(proj.path, { force, log: this.log })
         .then(async (ok) => {
           if (!ok || !this.ingest) return;
           const gitRoot = findGitRoot(proj.path) || proj.path;
@@ -346,7 +355,15 @@ export class Daemon extends EventEmitter {
           await ingest.reportGuardStatus(guards);
           this.lastGuardReport = guards;
         }
-        this.ensureDiscoveredBlueprints(this.tools, profile.block);
+        let forceBlueprintRefresh = false;
+        if (await needsRemoteBlueprintSync(profile.blueprint_script)) {
+          const remoteBp = await ingest.fetchBlueprintScript();
+          if (await applyRemoteBlueprintScript(remoteBp)) {
+            forceBlueprintRefresh = true;
+            this.log(`Blueprint generator synced from server (v${remoteBp?.version ?? 1}, ${remoteBp?.hash ?? ""})`);
+          }
+        }
+        this.ensureDiscoveredBlueprints(this.tools, profile.block, forceBlueprintRefresh);
       }
       const skills = await ingest.fetchSkillInjection();
       if (skills) {

@@ -59,6 +59,9 @@ IGNORED_DIRS = {
 # Max depth for directory tree rendering in blueprint
 MAX_TREE_DEPTH = 3
 
+# Monotonically increasing generator version for cross-device OTA synchronization
+BLUEPRINT_SCRIPT_VERSION = 20261107
+
 
 def run_git_cmd(args: list[str], cwd: Path) -> str:
     """Run a git command safely and return trimmed stdout."""
@@ -2149,20 +2152,25 @@ fi
 BP_SCRIPT=""
 if [ -f "scripts/project_blueprint.py" ]; then
     BP_SCRIPT="scripts/project_blueprint.py"
+elif [ -n "$MEMENTO_HOME" ] && [ -f "$MEMENTO_HOME/scripts/project_blueprint.py" ]; then
+    BP_SCRIPT="$MEMENTO_HOME/scripts/project_blueprint.py"
 elif [ -f "$HOME/.memento/scripts/project_blueprint.py" ]; then
     BP_SCRIPT="$HOME/.memento/scripts/project_blueprint.py"
+elif [ -n "$USERPROFILE" ] && [ -f "$USERPROFILE/.memento/scripts/project_blueprint.py" ]; then
+    BP_SCRIPT="$USERPROFILE/.memento/scripts/project_blueprint.py"
 fi
 
 if [ -n "$BP_SCRIPT" ]; then
+    PYTHON_BIN=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo "python3")
     HOOK_NAME=$(basename "$0")
     if [ "$HOOK_NAME" = "pre-commit" ]; then
         if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
-            python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 || true
+            "$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 || true
         fi
     elif git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
         git rev-parse --short HEAD > .git/.memento_blueprint_head 2>/dev/null || true
     else
-        python3 "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
+        "$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
     fi
 fi
 {HOOK_MARKER_END}"""

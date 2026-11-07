@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -27,9 +28,12 @@ IGNORED_DIRS = {
     "node_modules",
     ".venv",
     "venv",
+    "env",
     "__pycache__",
     ".pytest_cache",
     ".ruff_cache",
+    ".mypy_cache",
+    ".tox",
     "dist",
     "build",
     ".next",
@@ -37,10 +41,19 @@ IGNORED_DIRS = {
     "out",
     "target",
     "coverage",
+    "htmlcov",
     ".idea",
     ".vscode",
     ".gemini",
     "data",
+    "datasets",
+    "logs",
+    "tmp",
+    "temp",
+    "checkpoints",
+    "weights",
+    "site-packages",
+    "vendor",
 }
 
 # Max depth for directory tree rendering in blueprint
@@ -232,15 +245,98 @@ def scan_subsystems(root: Path) -> list[dict[str, Any]]:
     return subsystems
 
 
-def _iter_repo_files(root: Path, pattern: str, limit: int = 80) -> list[Path]:
-    """Safely iterate matching files in root, skipping ignored directories."""
-    out: list[Path] = []
-    for p in root.glob(pattern):
-        if any(ign in p.parts for ign in IGNORED_DIRS):
-            continue
-        out.append(p)
-        if len(out) >= limit:
+_REPO_FILE_CACHE: dict[Path, list[tuple[Path, str]]] = {}
+_GLOB_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _compile_glob_pattern(pattern: str) -> re.Pattern[str]:
+    if pattern in _GLOB_REGEX_CACHE:
+        return _GLOB_REGEX_CACHE[pattern]
+    p = pattern
+    out: list[str] = ["^"]
+    i = 0
+    n = len(p)
+    while i < n:
+        if p.startswith("/**/", i):
+            out.append("(?:/.+)?/")
+            i += 4
+        elif i == 0 and p.startswith("**/", i):
+            out.append("(?:.+/)?")
+            i += 3
+        elif p[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif p[i] == "?":
+            out.append("[^/]")
+            i += 1
+        elif p[i] == "[":
+            j = p.find("]", i + 1)
+            if j != -1:
+                out.append(p[i : j + 1])
+                i = j + 1
+            else:
+                out.append(r"\[")
+                i += 1
+        else:
+            out.append(re.escape(p[i]))
+            i += 1
+    out.append("$")
+    rx = re.compile("".join(out))
+    _GLOB_REGEX_CACHE[pattern] = rx
+    return rx
+
+
+def _read_code(path: Path, max_chars: int = 200_000) -> str:
+    """Safely read up to max_chars of a source file to prevent hanging on giant bundles or dumps."""
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as fh:
+            return fh.read(max_chars)
+    except Exception:
+        return ""
+
+
+def _get_repo_files(root: Path) -> list[tuple[Path, str]]:
+    resolved = root.resolve()
+    if resolved in _REPO_FILE_CACHE:
+        return _REPO_FILE_CACHE[resolved]
+    files: list[tuple[Path, str]] = []
+    root_str = str(resolved)
+    for cur_dir, dirs, filenames in os.walk(root_str):
+        rel_dir = os.path.relpath(cur_dir, root_str)
+        depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
+        if depth >= 6:
+            dirs[:] = []
+        else:
+            dirs[:] = sorted(
+                d
+                for d in dirs
+                if d not in IGNORED_DIRS and not d.startswith(".git") and (d == ".github" or not d.startswith("."))
+            )
+        for fn in sorted(filenames):
+            if fn.startswith(".") and fn not in (".env.example", ".env.sample"):
+                continue
+            if fn.endswith((".min.js", ".bundle.js", ".chunk.js", ".map")):
+                continue
+            full_p = Path(cur_dir) / fn
+            rel_posix = fn if rel_dir == "." else f"{rel_dir.replace(os.sep, '/')}/{fn}"
+            files.append((full_p, rel_posix))
+            if len(files) >= 6000:
+                break
+        if len(files) >= 6000:
             break
+    _REPO_FILE_CACHE[resolved] = files
+    return files
+
+
+def _iter_repo_files(root: Path, pattern: str, limit: int = 80) -> list[Path]:
+    """Safely iterate matching files in root using single-pass pruned directory walk."""
+    rx = _compile_glob_pattern(pattern)
+    out: list[Path] = []
+    for full_p, rel_posix in _get_repo_files(root):
+        if rx.match(rel_posix):
+            out.append(full_p)
+            if len(out) >= limit:
+                break
     return sorted(out)
 
 
@@ -439,14 +535,7 @@ def scan_data_models(root: Path) -> dict[str, Any]:
             unique_constraints.append(uq)
 
     def _iter_project_files(pattern: str, limit: int = 80) -> list[Path]:
-        out: list[Path] = []
-        for p in root.glob(pattern):
-            if any(ign in p.parts for ign in IGNORED_DIRS):
-                continue
-            out.append(p)
-            if len(out) >= limit:
-                break
-        return sorted(out)
+        return _iter_repo_files(root, pattern, limit=limit)
 
     # 1. Python (SQLAlchemy / Django / SQLModel / Pydantic)
     py_candidates: list[Path] = []
@@ -718,7 +807,7 @@ def scan_services_and_schedules(root: Path) -> dict[str, Any]:
             continue
         seen_svc.add(f)
         try:
-            text = f.read_text(encoding="utf-8", errors="ignore")
+            text = _read_code(f, max_chars=4000)
             doc = ""
             dm = re.match(r'^\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', text)
             if dm:
@@ -738,7 +827,7 @@ def scan_services_and_schedules(root: Path) -> dict[str, Any]:
     # 2. Scheduled background jobs across Python (Celery / APScheduler), TS (node-cron / @Cron), Go (cron)
     for py_f in _iter_repo_files(root, "**/*.py", limit=60):
         try:
-            content = py_f.read_text(encoding="utf-8", errors="ignore")
+            content = _read_code(py_f)
             if "beat_schedule" in content:
                 for bm in re.finditer(
                     r'"([a-zA-Z0-9_-]+)"\s*:\s*\{\s*"task"\s*:\s*"([^"]+)"\s*,\s*"schedule"\s*:\s*([^\n]+)',
@@ -761,19 +850,21 @@ def scan_services_and_schedules(root: Path) -> dict[str, Any]:
 
     for ts_f in _iter_repo_files(root, "**/*.[tj]s", limit=50):
         try:
-            content = ts_f.read_text(encoding="utf-8", errors="ignore")
-            for cm in re.finditer(r'cron\.schedule\(\s*["\']([^"\']+)["\']', content):
-                schedules.append({
-                    "name": ts_f.stem,
-                    "task": str(ts_f.relative_to(root)),
-                    "schedule": f"cron({cm.group(1)})",
-                })
-            for nm in re.finditer(r'@Cron\(\s*["\']([^"\']+)["\']\s*\)[\s\S]{1,120}?\b([a-zA-Z0-9_]+)\s*\(', content):
-                schedules.append({
-                    "name": nm.group(2),
-                    "task": f"{ts_f.stem}.{nm.group(2)}",
-                    "schedule": f"@Cron({nm.group(1)})",
-                })
+            content = _read_code(ts_f)
+            if "cron.schedule" in content:
+                for cm in re.finditer(r'cron\.schedule\(\s*["\']([^"\']+)["\']', content):
+                    schedules.append({
+                        "name": ts_f.stem,
+                        "task": str(ts_f.relative_to(root)),
+                        "schedule": f"cron({cm.group(1)})",
+                    })
+            if "@Cron" in content:
+                for nm in re.finditer(r'@Cron\(\s*["\']([^"\']+)["\']\s*\)[\s\S]{1,120}?\b([a-zA-Z0-9_]+)\s*\(', content):
+                    schedules.append({
+                        "name": nm.group(2),
+                        "task": f"{ts_f.stem}.{nm.group(2)}",
+                        "schedule": f"@Cron({nm.group(1)})",
+                    })
         except Exception:
             pass
 
@@ -791,7 +882,7 @@ def scan_mcp_and_ws_protocols(root: Path) -> dict[str, Any]:
 
     for mf in _iter_repo_files(root, "**/*.[tp][sy]", limit=60):
         try:
-            content = mf.read_text(encoding="utf-8", errors="ignore")
+            content = _read_code(mf)
             if "registerTool" in content or "@mcp.tool" in content:
                 for tm in re.finditer(
                     r'registerTool\(\s*["\']([a-zA-Z0-9_-]+)["\']\s*,\s*\{[\s\S]*?description:\s*\n?\s*["\']([^"\']+)["\']',
@@ -979,7 +1070,7 @@ def scan_ast_call_graph_and_deps(root: Path) -> dict[str, list[str]]:
             continue
         seen_py.add(pf)
         try:
-            source = pf.read_text(encoding="utf-8", errors="ignore")
+            source = _read_code(pf)
             tree = ast.parse(source)
             src_label = f"{pf.parent.name}/{pf.stem}" if pf.parent != root else pf.stem
             imported_services: set[str] = set()
@@ -1010,7 +1101,7 @@ def scan_ast_call_graph_and_deps(root: Path) -> dict[str, list[str]]:
             if ".test." in tf.name or ".spec." in tf.name or tf.name.endswith("_test.go"):
                 continue
             try:
-                content = tf.read_text(encoding="utf-8", errors="ignore")
+                content = _read_code(tf)
                 src_label = f"{tf.parent.name}/{tf.stem}"
                 for im in re.finditer(r'from\s+["\'](?:\.\.?/|@/)([a-zA-Z0-9_/-]+)["\']', content):
                     target = im.group(1).rstrip("/")
@@ -1050,7 +1141,7 @@ def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
     # 2. Python Pydantic Request/Response DTOs ( via AST )
     for py_file in _iter_repo_files(root, "**/api/*.py", limit=30) + _iter_repo_files(root, "**/schemas*.py", limit=20):
         try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8", errors="ignore"))
+            tree = ast.parse(_read_code(py_file))
             for node in tree.body:
                 if isinstance(node, ast.ClassDef):
                     bases = [ast.unparse(b) if hasattr(ast, "unparse") else getattr(b, "id", "") for b in node.bases]
@@ -1074,17 +1165,18 @@ def scan_openapi_and_dto_schemas(root: Path) -> list[dict[str, str]]:
     if len(schemas) < 20:
         for ts_file in _iter_repo_files(root, "**/types*.ts", limit=15) + _iter_repo_files(root, "**/*dto*.ts", limit=15):
             try:
-                content = ts_file.read_text(encoding="utf-8", errors="ignore")
-                for im in re.finditer(r'export\s+interface\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}', content):
-                    iname = im.group(1)
-                    props = re.findall(r'^\s*([a-zA-Z0-9_]+)\??\s*:', im.group(2), re.MULTILINE)
-                    if props:
-                        schemas.append({
-                            "name": iname,
-                            "kind": "TS Interface",
-                            "source": str(ts_file.relative_to(root)),
-                            "fields": ", ".join(f"`{p}`" for p in props[:6]),
-                        })
+                content = _read_code(ts_file)
+                if "interface " in content:
+                    for im in re.finditer(r'export\s+interface\s+([A-Za-z0-9_]+)\s*\{([\s\S]*?)\}', content):
+                        iname = im.group(1)
+                        props = re.findall(r'^\s*([a-zA-Z0-9_]+)\??\s*:', im.group(2), re.MULTILINE)
+                        if props:
+                            schemas.append({
+                                "name": iname,
+                                "kind": "TS Interface",
+                                "source": str(ts_file.relative_to(root)),
+                                "fields": ", ".join(f"`{p}`" for p in props[:6]),
+                            })
             except Exception:
                 pass
 
@@ -1462,6 +1554,7 @@ def detect_verification_commands(root: Path) -> list[str]:
 
 def build_blueprint_content(root: Path) -> str:
     """Assemble the complete PROJECT_BLUEPRINT.md document."""
+    _REPO_FILE_CACHE.pop(root.resolve(), None)
     repo_name = root.resolve().name
     pjson = root / "package.json"
     if pjson.exists():
@@ -1899,16 +1992,70 @@ def uninstall_git_hook(root: Path) -> bool:
     return True
 
 
+def bootstrap_discovered_projects(quiet: bool = False) -> int:
+    """Scan local AI instruction files and common dev workspaces to deploy living blueprints & hooks."""
+    home = Path.home()
+    roots: set[Path] = set()
+
+    # 1. Extract scoped project directories from Memento resident profile files
+    for pf in (
+        home / ".claude" / "CLAUDE.md",
+        home / ".codex" / "AGENTS.md",
+        home / ".gemini" / "GEMINI.md",
+        home / ".memento" / "mind_snapshot.json",
+    ):
+        if pf.exists():
+            try:
+                text = pf.read_text(encoding="utf-8", errors="ignore")
+                for m in re.finditer(r'####\s+[^\s（(]+[（(]`([^`]+)`[）)]', text):
+                    cand = Path(m.group(1).strip())
+                    if (cand / ".git").exists():
+                        roots.add(cand.resolve())
+            except Exception:
+                pass
+
+    # 2. Scan top-level git repos under ~/dev and ~/Desktop/dev
+    for dev_dir in (home / "dev", home / "Desktop" / "dev"):
+        if dev_dir.is_dir():
+            for child in dev_dir.iterdir():
+                if child.is_dir():
+                    if (child / ".git").exists():
+                        roots.add(child.resolve())
+                    else:
+                        for sub in child.iterdir():
+                            if sub.is_dir() and (sub / ".git").exists():
+                                roots.add(sub.resolve())
+
+    count = 0
+    for r in sorted(roots):
+        try:
+            install_git_hook(r)
+            ensure_agent_guidance_anchor(r)
+            content = build_blueprint_content(r)
+            (r / "PROJECT_BLUEPRINT.md").write_text(content, encoding="utf-8")
+            _record_blueprint_head(r)
+            count += 1
+            if not quiet:
+                print(f"Bootstrapped living blueprint & hooks for: {r}")
+        except Exception as e:
+            if not quiet:
+                print(f"Skipped {r}: {e}", file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.")
     parser.add_argument("--root", type=str, default=".", help="Project root directory (default: current directory)")
     parser.add_argument("--output", type=str, default="", help="Output markdown path (default: <root>/PROJECT_BLUEPRINT.md)")
     parser.add_argument("--install-hook", action="store_true", help="Install git post-commit hook for auto-syncing")
     parser.add_argument("--uninstall-hook", action="store_true", help="Uninstall git post-commit hook")
+    parser.add_argument("--bootstrap-discovered", action="store_true", help="Discover and install blueprint & hooks across all local git projects")
     parser.add_argument("--check", action="store_true", help="Check if current PROJECT_BLUEPRINT.md is up-to-date")
     parser.add_argument("--quiet", action="store_true", help="Suppress stdout messages")
 
     args = parser.parse_args()
+    if args.bootstrap_discovered:
+        return bootstrap_discovered_projects(quiet=args.quiet)
     root = Path(args.root).resolve()
 
     if args.install_hook:

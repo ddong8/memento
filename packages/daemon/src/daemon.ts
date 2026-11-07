@@ -207,38 +207,53 @@ export class Daemon extends EventEmitter {
   }
 
   /** Asynchronously ensure living blueprints and post-commit hooks for all discovered projects */
-  private ensureDiscoveredBlueprints(tools: Record<string, DiscoveredTool>): void {
+  private ensureDiscoveredBlueprints(tools: Record<string, DiscoveredTool>, profileBlock?: string | null): void {
     const seen = new Set<string>();
+    const candidates: { toolId: string; name: string; path: string }[] = [];
     for (const tool of Object.values(tools)) {
       for (const proj of tool.projects || []) {
-        if (!proj.path || seen.has(proj.path)) continue;
-        seen.add(proj.path);
-        void ensureProjectBlueprint(proj.path, { log: this.log })
-          .then(async (ok) => {
-            if (!ok || !this.ingest) return;
-            const gitRoot = findGitRoot(proj.path) || proj.path;
-            const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
-            if (!existsSync(bpFile)) return;
-            const content = await readFile(bpFile, "utf8");
-            const hash = contentHash(content);
-            if (this.blueprintHashes.get(bpFile) === hash) return;
-            const st = await stat(bpFile);
-            const res = await this.ingest.ingestDocument({
-              toolId: tool.id,
-              category: "identity",
-              contentType: "md",
-              relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
-              content,
-              contentHash: hash,
-              fileSize: st.size,
-              mode: "full",
-              offset: 0,
-              metadata: { project_path: gitRoot, project_name: proj.name },
-            });
-            if (res.ok) this.blueprintHashes.set(bpFile, hash);
-          })
-          .catch(() => {});
+        if (proj.path && !seen.has(proj.path)) {
+          seen.add(proj.path);
+          candidates.push({ toolId: tool.id, name: proj.name, path: proj.path });
+        }
       }
+    }
+    if (profileBlock) {
+      for (const m of profileBlock.matchAll(/^####\s+([^\s（(]+)[（(]`([^`]+)`[）)]/gm)) {
+        const pname = m[1]?.trim();
+        const ppath = m[2]?.trim();
+        if (pname && ppath && !seen.has(ppath)) {
+          seen.add(ppath);
+          candidates.push({ toolId: "claude_code", name: pname, path: ppath });
+        }
+      }
+    }
+    for (const proj of candidates) {
+      void ensureProjectBlueprint(proj.path, { log: this.log })
+        .then(async (ok) => {
+          if (!ok || !this.ingest) return;
+          const gitRoot = findGitRoot(proj.path) || proj.path;
+          const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
+          if (!existsSync(bpFile)) return;
+          const content = await readFile(bpFile, "utf8");
+          const hash = contentHash(content);
+          if (this.blueprintHashes.get(bpFile) === hash) return;
+          const st = await stat(bpFile);
+          const res = await this.ingest.ingestDocument({
+            toolId: proj.toolId,
+            category: "identity",
+            contentType: "md",
+            relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
+            content,
+            contentHash: hash,
+            fileSize: st.size,
+            mode: "full",
+            offset: 0,
+            metadata: { project_path: gitRoot, project_name: proj.name },
+          });
+          if (res.ok) this.blueprintHashes.set(bpFile, hash);
+        })
+        .catch(() => {});
     }
   }
 
@@ -331,6 +346,7 @@ export class Daemon extends EventEmitter {
           await ingest.reportGuardStatus(guards);
           this.lastGuardReport = guards;
         }
+        this.ensureDiscoveredBlueprints(this.tools, profile.block);
       }
       const skills = await ingest.fetchSkillInjection();
       if (skills) {

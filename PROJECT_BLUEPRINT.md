@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1a4fd3e5` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7fc852e2` · Updated: `2026-11-06`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -574,13 +574,13 @@ erDiagram
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (8 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (9 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
-- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (5 commits)
+- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (6 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (5 commits)
 - [`server/tests/test_message_store.py`](server/tests/test_message_store.py) (5 commits)
 - [`apps/web/src/components/ask/bubbles.tsx`](apps/web/src/components/ask/bubbles.tsx) (4 commits)
 - [`apps/web/src/components/viewers/MediaPreview.tsx`](apps/web/src/components/viewers/MediaPreview.tsx) (4 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -603,12 +603,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7fc852e2` (2026-11-06): feat(blueprint): 实现全Agent提示词自动注入、5钩子闭环与HEAD过期检测
 - `1a4fd3e5` (2026-11-06): feat(blueprint): 新增AST跨层调用图、OpenAPI/DTO Schema、CLI入口与外部中间件探测
 - `c0a89884` (2026-11-06): feat(blueprint): 实现跨任意项目架构与协议的通用扫描引擎及单测验证
 - `4eacfcc0` (2026-11-06): feat(blueprint): 丰富单项目蓝图ER图、唯一约束、定时任务、服务层、MCP协议与热点测试矩阵
 - `377feb1f` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
 - `b15a4962` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
-- `c7ed3f39` (2026-11-06): feat(blueprint): 升级多钩子生命周期自同步、前端AppRouter路由扫描与详细API契约提取
 
 ## 10. Key Environment Variables & Configuration
 

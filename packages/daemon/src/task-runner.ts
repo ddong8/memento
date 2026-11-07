@@ -1341,6 +1341,9 @@ export class TaskRunner {
       this.taskSessions.delete(taskId);
       // Its idle time starts now.
       if (gatewayFile) void touchWorkbuddyGateway(gatewayFile).catch(() => {});
+      if (workDir && !payload.worktree && action === "agent") {
+        void ensureProjectBlueprint(workDir, { log: this.log }).catch(() => {});
+      }
       setTimeout(() => {
         this.cancelledTasks.delete(taskId);
         this.taskLogBuffer.delete(taskId);

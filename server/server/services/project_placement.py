@@ -146,7 +146,7 @@ async def discovered_projects(
     """Projects each machine reported in its latest discovery document."""
     q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+        .options(defer(Document.rendered_html), defer(Document.metadata_))
         .where(Document.tool_id == "system", Document.category == "discovery")
         .order_by(Document.synced_at.desc())
     )

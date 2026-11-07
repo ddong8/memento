@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4c5306f2` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a7cfd109` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -354,7 +354,7 @@ flowchart TD
 
 ### Core Database Models (`models.py`)
 
-`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `UserLifeRhythm`
+`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `UserLifeRhythm`
 
 #### Key Entity Relationships (Foreign Keys)
 
@@ -368,6 +368,7 @@ erDiagram
     TOOL ||--o{ DOCUMENT : "tool_id"
     PROJECT ||--o{ DOCUMENT : "project_id"
     MACHINE ||--o{ DOCUMENT : "machine_id"
+    DOCUMENT ||--o{ DOCUMENTSEARCH : "as_uuid"
     DOCUMENT ||--o{ CONVERSATIONMESSAGE : "document_id"
     USER ||--o{ DAILYSUMMARY : "user_id"
     TOOL ||--o{ DAILYSUMMARY : "tool_id"
@@ -377,7 +378,6 @@ erDiagram
     USER ||--o{ INVITECODE : "created_by"
     USER ||--o{ PERMISSION : "user_id"
     PROJECT ||--o{ PERMISSION : "project_id"
-    TOOL ||--o{ PERMISSION : "tool_id"
 ```
 
 - `Machine.user_id` ➔ `users.id`
@@ -388,6 +388,7 @@ erDiagram
 - `Document.tool_id` ➔ `tools.id`
 - `Document.project_id` ➔ `projects.id`
 - `Document.machine_id` ➔ `machines.id`
+- `DocumentSearch.as_uuid` ➔ `documents.id`
 - `ConversationMessage.document_id` ➔ `documents.id`
 - `DailySummary.user_id` ➔ `users.id`
 - `DailySummary.tool_id` ➔ `tools.id`
@@ -404,7 +405,6 @@ erDiagram
 - `SyncState.machine_id` ➔ `machines.id`
 - `SyncState.tool_id` ➔ `tools.id`
 - `DocumentEmbedding.document_id` ➔ `documents.id`
-- `KnowledgeEntity.user_id` ➔ `users.id`
 
 #### Deduplication & Uniqueness Constraints
 
@@ -573,8 +573,8 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (17 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
 - [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `1c5b4996` (2026-11-07): refactor(ask): 移除对话界面无用的沉浸阅读模式入口与状态
 - `84603848` (2026-11-07): fix(test): 修复CI无状态Runner环境下个人蓝图与梦境缓存清理单测断言
 - `0c3845cb` (2026-11-07): feat(blueprint): 优化子系统架构优先级排序、IDE文件头过滤与Tauri/Electron IPC路由提取
 - `03aae1c9` (2026-11-07): fix(blueprint): 修正项目蓝图模型与路由统计口径并支持守护进程本地Git仓全量发现上报
 - `df7bfaf5` (2026-11-07): feat(blueprint): 优化蓝图词边界匹配与子系统摘要净化并接入心领神会前置注入
 - `30914155` (2026-11-07): feat(blueprint): 完善记忆变更、梦境归纳与项目蓝图上报时的个人蓝图自动联动刷新
-- `176a7a3f` (2026-11-07): feat(blueprint): 新增个人全域认知与能力蓝图(USER_BLUEPRINT.md)提炼与多端同步可视化
 
 ## 10. Key Environment Variables & Configuration
 

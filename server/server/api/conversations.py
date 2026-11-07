@@ -37,7 +37,6 @@ async def get_conversation(
         select(Document)
         .options(
             defer(Document.content),
-            defer(Document.content_tsv),
             defer(Document.rendered_html),
         )
         .where(Document.id == doc_id)
@@ -101,7 +100,6 @@ async def get_conversation(
         plans_q = (
             select(Document)
             .options(
-                defer(Document.content_tsv),
                 defer(Document.metadata_),
                 defer(Document.rendered_html),
             )
@@ -159,7 +157,6 @@ async def get_conversation_messages(
         select(Document)
         .options(
             defer(Document.content),
-            defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
         )
@@ -263,7 +260,6 @@ async def update_conversation(
         select(Document)
         .options(
             defer(Document.content),
-            defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
         )

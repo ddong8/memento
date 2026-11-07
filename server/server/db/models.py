@@ -144,10 +144,7 @@ class Document(Base):
     content_s3_key: Mapped[str | None] = mapped_column(String(500))  # for files > 1MB
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # Full-text search index: space-joined jieba tokens of title + content,
-    # fed through to_tsvector('simple', ...). Populated in ingest_service.
-    # Deferred: only SQL uses it, and every select(Document) used to fetch it (up to 50k tokens a row).
-    content_tsv: Mapped[object | None] = mapped_column(TSVECTOR, nullable=True, deferred=True)
+    # Full-text index: DocumentSearch (its own table)
 
     # Parsed metadata (tool-specific)
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
@@ -210,6 +207,25 @@ class Document(Base):
 # ---------------------------------------------------------------------------
 # Conversation messages (extracted from JSONL)
 # ---------------------------------------------------------------------------
+class DocumentSearch(Base):
+    """A document's full-text index: jieba tokens of its title + content, to_tsvector('simple', …).
+
+    In its own table on purpose. On documents, a sync (which changes the indexed synced_at, so the
+    update can't be HOT) re-inserted all of a document's lexemes into the GIN index, ~1300 on average:
+    240 KB of WAL to change a hash and a timestamp. Written by ingest_service, the import and the
+    tsvector backfill; rows without one are matched by title / path only.
+    """
+
+    __tablename__ = "document_search"
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_tsv: Mapped[object] = mapped_column(TSVECTOR, nullable=False)
+
+    __table_args__ = (Index("idx_document_search_tsv", "content_tsv", postgresql_using="gin"),)
+
+
 class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
 

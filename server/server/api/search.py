@@ -8,7 +8,7 @@ from sqlalchemy import or_, select, func
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, Machine, User
+from ..db.models import Document, DocumentSearch, Machine, User
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
@@ -82,7 +82,7 @@ async def search(
     Keyword branch — three index-backed conditions in one OR:
     1. ``title.ilike`` + ``relative_path.ilike`` — trigram GIN, fast for
        path / filename lookups.
-    2. ``content_tsv @@ to_tsquery('simple', ...)`` — jieba-tokenized
+    2. ``document_search.content_tsv @@ to_tsquery('simple', ...)`` — jieba-tokenized
        full-text, fast for keyword-in-body matches (even Chinese) and
        avoids the TOAST-heap scan that raw ``content.ilike`` triggers.
 
@@ -126,13 +126,13 @@ async def search(
         Document.relative_path.ilike(search_term),
     ]
     if tsquery:
-        conds.append(Document.content_tsv.op("@@")(func.to_tsquery("simple", tsquery)))
+        conds.append(DocumentSearch.content_tsv.op("@@")(func.to_tsquery("simple", tsquery)))
 
     query = (
         select(Document)
+        .outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id)
         .options(
             defer(Document.content),
-            defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
         )
@@ -191,7 +191,6 @@ async def search(
                 select(Document)
                 .options(
                     defer(Document.content),
-                    defer(Document.content_tsv),
                     defer(Document.metadata_),
                     defer(Document.rendered_html),
                 )

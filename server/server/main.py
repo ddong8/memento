@@ -212,22 +212,26 @@ def _run_migrations(conn) -> None:
             "NOT NULL DEFAULT 0"
         ))
 
-    # Document.content_tsv: tsvector of jieba-tokenized content+title for
-    # full-text search fallback when the embedding server is slow/down. We
-    # populate it from Python (jieba) on ingest; Postgres just stores +
-    # indexes. Backfill is done by a one-shot script, not here, to avoid
-    # blocking startup on large tables.
-    if "content_tsv" not in doc_cols:
-        conn.execute(text("ALTER TABLE documents ADD COLUMN content_tsv tsvector"))
-    sp3 = conn.begin_nested()
-    try:
+    # The full-text index (jieba tokens of title + content) lives in document_search, not on documents.
+    # There, every sync re-inserted the row's lexemes into the GIN index: a sync changes synced_at, which
+    # is indexed, so the update can't be HOT and every index gets the new row version. ~1300 lexemes a
+    # document made changing a hash and a timestamp write 240 KB of WAL (7.3 GB in 12 days). On copies of
+    # production rows, 300 such updates wrote 51 MB of WAL in 950 ms with the index, 1.2 MB in 15 ms
+    # without (2026-11-08). Moving the existing vectors over takes ~15 s, once; the column on documents
+    # stays until no replica of the release before writes it, then a later release drops it.
+    if "document_search" not in tables:
         conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_documents_content_tsv "
-            "ON documents USING gin (content_tsv)"
+            "CREATE TABLE document_search ("
+            " document_id UUID PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,"
+            " content_tsv tsvector COMPRESSION lz4 NOT NULL)"
         ))
-        sp3.commit()
-    except Exception:
-        sp3.rollback()
+        if "content_tsv" in doc_cols:
+            conn.execute(text(
+                "INSERT INTO document_search (document_id, content_tsv) "
+                "SELECT id, content_tsv FROM documents WHERE content_tsv IS NOT NULL"
+            ))
+        conn.execute(text("SET LOCAL maintenance_work_mem = '256MB'"))
+        conn.execute(text("CREATE INDEX idx_document_search_tsv ON document_search USING gin (content_tsv)"))
 
     # DocumentEmbedding.embedding HNSW 向量索引：消除全表暴力余弦扫描，实现毫秒级 ANN 图检索。
     # 建在半精度上（models.embedding_half）：全精度索引 787 MB 装不进 512 MB 共享缓冲，冷查询要读盘。
@@ -467,7 +471,7 @@ def _run_migrations(conn) -> None:
     # Compressing one such value took pglz ~120 ms and lz4 ~22 ms, a third smaller too (measured on
     # production data, 2026-10-25). Only values written from now on use lz4; nothing is rewritten here.
     for table, column in (
-        ("documents", "content"), ("documents", "content_tsv"), ("documents", "rendered_html"),
+        ("documents", "content"), ("document_search", "content_tsv"), ("documents", "rendered_html"),
         ("ask_conversations", "turns"), ("conversation_messages", "content"),
     ):
         sp = conn.begin_nested()
@@ -482,6 +486,18 @@ def _run_migrations(conn) -> None:
             sp.commit()
         except Exception:
             sp.rollback()
+
+    # The GIN index on documents.content_tsv is replaced by document_search's (see above). Dropping it takes
+    # an exclusive lock on documents until this transaction commits, so it comes last, and gives up rather
+    # than queue behind busy writers for long (the next start tries again).
+    sp = conn.begin_nested()
+    try:
+        conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+        conn.execute(text("DROP INDEX IF EXISTS idx_documents_content_tsv"))
+        conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
+        sp.commit()
+    except Exception:
+        sp.rollback()
 
 
 async def _schedule_daily_compaction():

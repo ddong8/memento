@@ -18,7 +18,7 @@ from sqlalchemy import or_, select, func, case
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, User, UserMemory, Project
+from ..db.models import Document, DocumentSearch, User, UserMemory, Project
 from ..db.session import async_session_factory
 from ..services.user_filter import user_machine_ids, apply_user_filter
 from ..services.memory_lifecycle import touch_recalled
@@ -94,7 +94,6 @@ async def hybrid_rank(
             if doc_ids:
                 reloaded_docs = (await db.execute(
                     select(Document).options(
-                        defer(Document.content_tsv),
                         defer(Document.rendered_html),
                     ).where(Document.id.in_(doc_ids))
                 )).scalars().all()
@@ -116,11 +115,10 @@ async def hybrid_rank(
     rank = None
     if tsquery:
         ts = func.to_tsquery("simple", tsquery)
-        conds.append(Document.content_tsv.op("@@")(ts))
-        rank = func.ts_rank(Document.content_tsv, ts, 1)
+        conds.append(DocumentSearch.content_tsv.op("@@")(ts))
+        rank = func.ts_rank(DocumentSearch.content_tsv, ts, 1)
 
-    kw_q = select(Document).options(
-        defer(Document.content_tsv),
+    kw_q = select(Document).outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id).options(
         defer(Document.rendered_html),
     ).where(or_(*conds))
     if tool:
@@ -151,7 +149,6 @@ async def hybrid_rank(
     missing = [doc_id for doc_id in sem_order if doc_id not in kw_ids]
     if missing:
         extra_q = select(Document).options(
-            defer(Document.content_tsv),
             defer(Document.rendered_html),
         ).where(Document.id.in_(missing))
         extra_q = apply_user_filter(extra_q, mids, Document.machine_id)

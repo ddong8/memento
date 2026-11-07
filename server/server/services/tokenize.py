@@ -7,7 +7,7 @@ database a whitespace-joined token string. The server stores it under the
 
 Contract:
 - ``tokenize_for_index(text)`` → space-joined tokens to feed
-  ``to_tsvector('simple', ...)`` when writing ``documents.content_tsv``.
+  ``to_tsvector('simple', ...)`` when writing ``document_search.content_tsv``.
 - ``tokenize_for_query(text)`` → ``"tok1 & tok2 & tok3"`` for
   ``to_tsquery('simple', ...)``. Empty / single-char tokens dropped.
 

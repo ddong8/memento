@@ -245,7 +245,6 @@ async def get_or_create_conversation(
                         select(Document)
                         .options(
                             defer(Document.content),
-                            defer(Document.content_tsv),
                             defer(Document.rendered_html),
                         )
                         .where(Document.id == doc_cid)
@@ -391,7 +390,6 @@ async def get_or_create_conversation(
                     select(Document)
                     .options(
                         defer(Document.content),
-                        defer(Document.content_tsv),
                         defer(Document.rendered_html),
                     )
                     .where(

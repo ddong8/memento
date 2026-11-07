@@ -28,7 +28,6 @@ async def _get_doc_with_permission(
     include_content: bool = True,
 ) -> Document:
     query = select(Document).where(Document.id == doc_id).options(
-        defer(Document.content_tsv),
         defer(Document.rendered_html),
     )
     if not include_content:

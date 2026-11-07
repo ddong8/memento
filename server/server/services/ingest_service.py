@@ -42,7 +42,7 @@ from . import content_staging
 from .profile_service import strip_profile_block
 from .tokenize import _MAX_INPUT_CHARS as _MAX_INDEX_INPUT_CHARS
 from ..db.models import (
-    ConversationMessage, Document, DocumentVersion, Project, SyncState, Tool,
+    ConversationMessage, Document, DocumentSearch, DocumentVersion, Project, SyncState, Tool,
 )
 
 # Known tool display names
@@ -736,7 +736,6 @@ async def ingest_file(
             select(Document)
             .options(
                 defer(Document.content),
-                defer(Document.content_tsv),
                 defer(Document.rendered_html),
             )
             .where(
@@ -966,7 +965,6 @@ async def ingest_file(
     doc_lookup_query = (
         select(Document)
         .options(
-            defer(Document.content_tsv),
             defer(Document.rendered_html),
         )
         .where(
@@ -1211,29 +1209,31 @@ async def ingest_file(
     # leaving every once-synced document out of full-text search.
     await db.flush()
 
-    # Refresh the content_tsv full-text index from the current (possibly
+    # Refresh the full-text index (document_search) from the current (possibly
     # delta-appended) content + title. Runs inside the ingest transaction
     # via a bound SQL expression so the tokenized string is passed as a
     # parameter, not compiled into SQL. Skipped when its input is the same
     # as before (a long conversation growing past the indexed start); the
     # tokenizing (100+ ms of jieba) runs in a thread, not on the event loop
-    # every request and stream of this replica shares.
+    # every request and stream of this replica shares. Its own table, so
+    # the document row itself is updated once per sync and never drags the
+    # GIN index along.
     from sqlalchemy import func as _func, update as _update  # also used further down
     if not (index_unchanged and doc.title == prev_title):
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
         from .tokenize import tokenize_for_index as _tok
         if index_body is None:  # a staged conversation's start, all the index reads
             index_body = await db.scalar(
                 select(_func.substr(Document.content, 1, _MAX_INDEX_INPUT_CHARS)).where(Document.id == doc.id)
             )
         tsv_input = await asyncio.to_thread(_tok, f"{doc.title or ''} {index_body or ''}")
-        await db.execute(
-            _update(Document)
-            .where(Document.id == doc.id)
-            .values(content_tsv=_func.to_tsvector("simple", tsv_input))
-            .execution_options(synchronize_session=False)
+        upsert = _pg_insert(DocumentSearch).values(
+            document_id=doc.id, content_tsv=_func.to_tsvector("simple", tsv_input)
         )
-
-        await db.flush()
+        await db.execute(upsert.on_conflict_do_update(
+            index_elements=[DocumentSearch.document_id],
+            set_={"content_tsv": upsert.excluded.content_tsv},
+        ))
 
     # If this is an Antigravity annotation file, update the parent conversation doc title
     if tool_id == "antigravity" and "annotations" in relative_path:

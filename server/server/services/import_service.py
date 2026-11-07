@@ -31,7 +31,7 @@ Security posture (informed by the adversarial review):
 * **tools.ensure_tool** for every distinct tool_id observed — the
   destination instance may be on an older build that's missing rows for
   tools the source had.
-* **Inline content_tsv compute** during the document INSERT pass so FTS
+* **Inline full-text index rows** (document_search) during the document INSERT pass so FTS
   works immediately, not "whenever beat runs the backfill task that
   isn't actually scheduled".
 * **target_user_id NULLed** on every imported share_link — directed
@@ -66,7 +66,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import (
-    AccessLog, ConversationMessage, DailySummary, Document, DocumentVersion,
+    AccessLog, ConversationMessage, DailySummary, Document, DocumentSearch, DocumentVersion,
     KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine,
     Project, ShareLink, Tool, User,
 )
@@ -398,8 +398,8 @@ async def run_import(
         project_id_map[old_id] = new_proj.id
     counts["projects"] = len(project_id_map)
 
-    # === 5. Documents — compute content_tsv inline so FTS works
-    # immediately (the backfill task isn't in beat_schedule today).
+    # === 5. Documents — and their full-text index rows (document_search),
+    # computed inline so FTS works immediately.
     from .tokenize import tokenize_for_index
 
     document_id_map: dict[str, uuid.UUID] = {}
@@ -431,7 +431,6 @@ async def run_import(
                 content=content,
                 content_hash=(r.get("content_hash") or hashlib.sha256(content.encode()).hexdigest()),
                 file_size_bytes=int(r.get("file_size_bytes") or len(content)),
-                content_tsv=func.to_tsvector("simple", tsv_input) if tsv_input else None,
                 # Whitelist what we trust; reset everything user-mutable.
                 metadata_={},
                 rendered_html=None,
@@ -445,6 +444,10 @@ async def run_import(
                 synced_at=_parse_dt(r.get("synced_at")) or datetime.now(timezone.utc),
             )
         )
+        if tsv_input:
+            await db.execute(
+                pg_insert(DocumentSearch).values(document_id=new_id, content_tsv=func.to_tsvector("simple", tsv_input))
+            )
         inserted_docs += 1
     counts["documents"] = inserted_docs
 

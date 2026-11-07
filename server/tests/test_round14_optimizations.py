@@ -139,7 +139,6 @@ class TestRound14Optimizations(unittest.IsolatedAsyncioTestCase):
             self.assertIn("documents.category !=", query_str)
             # Check defer options
             options_repr = [str(opt.context[0].path) for opt in docs_query._with_options if opt.context]
-            self.assertTrue(any("content_tsv" in repr_str for repr_str in options_repr))
             self.assertTrue(any("rendered_html" in repr_str for repr_str in options_repr))
 
     async def test_project_blueprint_cache_invalidation(self):

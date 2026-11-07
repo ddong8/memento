@@ -193,7 +193,6 @@ async def list_device_tool_files(
         select(Document)
         .options(
             defer(Document.content),
-            defer(Document.content_tsv),
             defer(Document.metadata_),
             defer(Document.rendered_html),
         )

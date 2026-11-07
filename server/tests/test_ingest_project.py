@@ -129,8 +129,15 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_index_is_left_alone_when_a_delta_cannot_change_it(self) -> None:
         from sqlalchemy import select
 
-        from server.db.models import Document
+        from server.db.models import Document, DocumentSearch
         from server.services import tokenize
+
+        def tsv_of(path: str):
+            return (
+                select(DocumentSearch.content_tsv)
+                .join(Document, Document.id == DocumentSearch.document_id)
+                .where(Document.relative_path == path)
+            )
 
         calls: list[int] = []
         real = tokenize.tokenize_for_index
@@ -146,11 +153,12 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
             await self.ingest("claude_code", rel, start, "full", 0, dict(meta))
             self.assertEqual(len(calls), 1)
             async with self.Session() as db:
-                before = (await db.execute(select(Document.content_tsv).where(Document.relative_path == rel))).scalar()
+                before = (await db.execute(tsv_of(rel))).scalar()
+            self.assertIsNotNone(before)
             await self.ingest("claude_code", rel, '{"type":"user","message":{"content":"后来的话"}}', "delta", len(start), dict(meta))
             self.assertEqual(len(calls), 1)  # not tokenized again
             async with self.Session() as db:
-                after = (await db.execute(select(Document.content_tsv).where(Document.relative_path == rel))).scalar()
+                after = (await db.execute(tsv_of(rel))).scalar()
             self.assertEqual(before, after)
 
             # A short document still gets every delta indexed
@@ -158,7 +166,31 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
             await self.ingest("claude_code", short, '{"type":"user"}', "full", 0, {**meta, "session_id": "short"})
             await self.ingest("claude_code", short, '{"type":"user","message":{"content":"新词汇"}}', "delta", 16, {**meta, "session_id": "short"})
             self.assertEqual(len(calls), 3)
+            async with self.Session() as db:
+                short_tsv = (await db.execute(tsv_of(short))).scalar()
+            self.assertIn("词汇", str(short_tsv))
 
+
+    async def test_keyword_retrieval_finds_words_of_the_content(self) -> None:
+        # The full-text index sits in document_search: hybrid_rank's keyword channel must still match
+        # a word that is only in a document's content, and rank it; a title match without a row still counts
+        from server.db.models import User
+        from server.services import ask_retrieval
+
+        meta = {"session_id": "fts", "project_path": "/Users/me/dev/memento", "project_hash": "memento"}
+        hit = await self.ingest("claude_code", "projects/-Users-me-dev-memento/fts.jsonl",
+                                '{"type":"user","message":{"content":"排查氪星石接口超时"}}', "full", 0, dict(meta))
+        await self.ingest("claude_code", "projects/-Users-me-dev-memento/other.jsonl",
+                          '{"type":"user","message":{"content":"别的话题"}}', "full", 0, {**meta, "session_id": "other"})
+        async with self.Session() as db:
+            user = await db.get(User, uuid.UUID(self.user_id))
+            with patch.object(ask_retrieval, "_semantic_doc_ranks", AsyncMock(return_value=([], {}, {}))), \
+                 patch.object(ask_retrieval, "async_session_factory", self.Session), \
+                 patch("server.services.cache.cache_get", AsyncMock(return_value=None)), \
+                 patch("server.services.cache.cache_set", AsyncMock()):
+                docs, kw_order, _, _ = await ask_retrieval.hybrid_rank(db, user, "氪星石", None, None, k=5)
+        self.assertEqual(kw_order, [hit.id])
+        self.assertEqual([d.id for d in docs], [hit.id])
 
 class HeartbeatTests(unittest.TestCase):
     def test_written_at_most_once_a_minute(self) -> None:

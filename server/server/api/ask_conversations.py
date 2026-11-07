@@ -413,7 +413,6 @@ async def get_conversation(
                 select(Document)
                 .options(
                     defer(Document.content),
-                    defer(Document.content_tsv),
                     defer(Document.rendered_html),
                 )
                 .where(Document.id == cid, Document.category == "conversation")

@@ -1,8 +1,9 @@
-"""Celery task: backfill content_tsv on documents created before the FTS
-index landed, and refresh any rows where it's NULL.
+"""Celery task: give every document a full-text index row (document_search).
 
-Idempotent — only touches rows whose content_tsv is NULL. Batches to keep
-memory flat and commit frequency high.
+Ingest writes it as documents sync; this fills in documents that have none
+(created before the index existed, or whose ingest failed half way).
+Idempotent — only touches documents without a row. Batches to keep memory
+flat and commit frequency high.
 """
 
 from __future__ import annotations
@@ -10,9 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from ..db.models import Document
+from ..db.models import Document, DocumentSearch
 from ..db.session import async_session_factory
 from ..services.tokenize import tokenize_for_index
 from .celery_app import celery_app
@@ -28,19 +30,20 @@ async def _run() -> dict:
     async with async_session_factory() as db:
         while True:
             rows = (await db.execute(
-                select(Document.id, Document.title, Document.content)
-                .where(Document.content_tsv.is_(None))
+                select(Document.id, Document.title, func.substr(Document.content, 1, 200_000))
+                .outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id)
+                .where(DocumentSearch.document_id.is_(None))
                 .limit(BATCH_SIZE)
             )).all()
             if not rows:
                 break
             for did, title, content in rows:
                 total += 1
-                tsv_input = tokenize_for_index(f"{title or ''} {content or ''}")
+                tsv_input = await asyncio.to_thread(tokenize_for_index, f"{title or ''} {content or ''}")
                 await db.execute(
-                    update(Document)
-                    .where(Document.id == did)
-                    .values(content_tsv=func.to_tsvector("simple", tsv_input))
+                    pg_insert(DocumentSearch)
+                    .values(document_id=did, content_tsv=func.to_tsvector("simple", tsv_input))
+                    .on_conflict_do_nothing(index_elements=[DocumentSearch.document_id])
                 )
                 touched += 1
             await db.commit()

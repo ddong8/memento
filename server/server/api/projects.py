@@ -522,7 +522,7 @@ async def get_project(
 
     docs_q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_), defer(Document.rendered_html))
+        .options(defer(Document.metadata_), defer(Document.rendered_html))
         .where(Document.project_id == project_id)
         .order_by(Document.synced_at.desc())
         .limit(50)
@@ -961,7 +961,6 @@ async def _reconcile_project_documents(
             select(Document)
             .options(
                 defer(Document.content),
-                defer(Document.content_tsv),
                 defer(Document.rendered_html),
             )
             .where(
@@ -1000,7 +999,6 @@ async def _reconcile_project_documents(
                     select(Document)
                     .options(
                         defer(Document.content),
-                        defer(Document.content_tsv),
                         defer(Document.rendered_html),
                     )
                     .where(
@@ -1022,7 +1020,6 @@ async def _reconcile_project_documents(
             select(Document)
             .options(
                 defer(Document.content),
-                defer(Document.content_tsv),
                 defer(Document.rendered_html),
             )
             .where(
@@ -1582,7 +1579,7 @@ async def get_project_conversations(
             if is_title_junk or ("<USER_REQUEST>" in conv_title or conv_title.startswith("💬") or "\n" in conv_title or len(conv_title) > 35):
                 ann_doc = (await db.execute(
                     select(Document)
-                    .options(defer(Document.content_tsv), defer(Document.rendered_html), defer(Document.metadata_))
+                    .options(defer(Document.rendered_html), defer(Document.metadata_))
                     .where(
                         Document.tool_id == "antigravity",
                         Document.category == "state",
@@ -1783,7 +1780,7 @@ async def export_project_markdown(
     # Pull all docs for this project (no 50-row cap; this is an export).
     docs_q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.rendered_html))
+        .options(defer(Document.rendered_html))
         .where(Document.project_id == project_id)
         .order_by(Document.synced_at.desc())
     )
@@ -1991,7 +1988,7 @@ async def get_project_blueprint(
     CURATED = ("identity", "memory", "plan", "learning")
     curated_q = (
         select(Document)
-        .options(defer(Document.content_tsv), defer(Document.metadata_), defer(Document.rendered_html))
+        .options(defer(Document.metadata_), defer(Document.rendered_html))
         .where(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
@@ -2011,7 +2008,6 @@ async def get_project_blueprint(
             select(Document)
             .options(
                 defer(Document.content),
-                defer(Document.content_tsv),
                 defer(Document.metadata_),
                 defer(Document.rendered_html),
             )

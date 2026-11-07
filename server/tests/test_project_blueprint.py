@@ -165,7 +165,8 @@ class TestProjectBlueprint(unittest.TestCase):
 class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
     async def test_build_user_blueprint_synthesizes_disciplines_domains_and_projects(self):
         import uuid
-        from unittest.mock import AsyncMock, MagicMock
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock, patch
         from server.db.models import User
         from server.services.user_blueprint_service import build_user_blueprint
 
@@ -175,12 +176,41 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         mock_res.scalars.return_value.all.return_value = []
         mock_res.scalar_one_or_none.return_value = None
         mock_db.execute.return_value = mock_res
-        res = await build_user_blueprint(mock_db, user, force_refresh=True)
+
+        sample_bps = {
+            "memento": (
+                "/workspace/memento",
+                "# Project Blueprint: memento\n"
+                "- **Core Languages**: `TypeScript/JavaScript`, `Python`\n"
+                "- **Key Frameworks**: `FastAPI`, `React`, `Electron`, `Next.js`\n"
+                "- **Infrastructure & Middleware**: `PostgreSQL`, `Redis`, `Docker`, `Kubernetes`\n"
+                "## 3. Subsystem Breakdown & Responsibilities\n"
+                "| Subsystem / Path | Category | Role & Purpose |\n"
+                "| :--- | :--- | :--- |\n"
+                "| [`server`](server) | Backend | FastAPI + MCP multi-agent memory server |\n",
+            ),
+            "pubchem": (
+                "/workspace/pubchem",
+                "# Project Blueprint: pubchem\n"
+                "- **Core Languages**: `Python`, `TypeScript/JavaScript`\n"
+                "- **Key Frameworks**: `FastAPI`, `SQLAlchemy`, `RDKit (Cheminformatics)`\n"
+                "## 3. Subsystem Breakdown & Responsibilities\n"
+                "| Subsystem / Path | Category | Role & Purpose |\n"
+                "| :--- | :--- | :--- |\n"
+                "| [`backend`](backend) | Backend | Retrosynthesis CAS SMILES and reaxys reaction search |\n",
+            ),
+        }
+        sample_profile = SimpleNamespace(
+            content="### 铁律\n- 仔细深入调查问题\n### 技术偏好\n- 偏好容器化 + k8s 部署\n#### pubchem（`/workspace/pubchem`）\n- 逆合成路线重排与 CAS 号检索\n"
+        )
+        with patch("server.services.user_blueprint_service._scan_local_blueprints", return_value=sample_bps), \
+             patch("server.services.user_blueprint_service.get_published_profile", AsyncMock(return_value=sample_profile)):
+            res = await build_user_blueprint(mock_db, user, force_refresh=True)
 
         self.assertEqual(res["user_name"], "Haixing Dong")
         self.assertTrue(len(res["disciplines"]) >= 2)
         self.assertTrue(len(res["business_domains"]) >= 2)
-        self.assertTrue(len(res["projects"]) >= 1)
+        self.assertTrue(len(res["projects"]) >= 2)
         self.assertIn("flowchart LR", res["mermaid_topology"])
         self.assertIn("# User Cognitive & Domain Blueprint: Haixing Dong", res["markdown"])
         self.assertIn("## 2. 学科交叉与专业领域", res["markdown"])

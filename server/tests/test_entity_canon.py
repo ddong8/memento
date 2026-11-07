@@ -345,7 +345,10 @@ class DreamingTests(unittest.IsolatedAsyncioTestCase):
              patch("server.services.cache.cache_delete_prefix", AsyncMock()) as bust:
             stats = await dreaming_service.deduplicate_and_merge_entities(db, "u1")
         self.assertEqual((stats["merged_entities"], stats["stale_entities"]), (4, 1))
-        self.assertEqual({c.args[0] for c in bust.await_args_list}, {"memory:resonance:u1", "profile_injection:u1"})
+        self.assertEqual(
+            {c.args[0] for c in bust.await_args_list},
+            {"memory:resonance:u1", "profile_injection:u1", "user:blueprint:v1:u1"},
+        )
         self.assertIn("pg_try_advisory_xact_lock", locks[0][0])
         self.assertEqual(locks[0][1], {"k": "graph-tidy:u1"})
 

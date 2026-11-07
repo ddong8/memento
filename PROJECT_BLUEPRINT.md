@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d9d6a553` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c92762c8` · Updated: `2026-11-08`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `c92762c8` (2026-11-08): docs(claude): 记下 documents 表不要加大索引、全文条件写成 IN 子查询的原因
 - `d9d6a553` (2026-11-08): perf(search): 全文条件写成 IN 子查询，让全文索引真正起作用
 - `0cba3288` (2026-11-08): perf(db): 全文索引拆到单独的 document_search 表，同步一次不再重写整个 GIN 索引
 - `1c5b4996` (2026-11-07): refactor(ask): 移除对话界面无用的沉浸阅读模式入口与状态
 - `84603848` (2026-11-07): fix(test): 修复CI无状态Runner环境下个人蓝图与梦境缓存清理单测断言
 - `0c3845cb` (2026-11-07): feat(blueprint): 优化子系统架构优先级排序、IDE文件头过滤与Tauri/Electron IPC路由提取
-- `03aae1c9` (2026-11-07): fix(blueprint): 修正项目蓝图模型与路由统计口径并支持守护进程本地Git仓全量发现上报
 
 ## 10. Key Environment Variables & Configuration
 

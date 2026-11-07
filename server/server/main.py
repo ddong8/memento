@@ -218,7 +218,7 @@ def _run_migrations(conn) -> None:
     # document made changing a hash and a timestamp write 240 KB of WAL (7.3 GB in 12 days). On copies of
     # production rows, 300 such updates wrote 51 MB of WAL in 950 ms with the index, 1.2 MB in 15 ms
     # without (2026-11-08). Moving the existing vectors over takes ~15 s, once; the column on documents
-    # stays until no replica of the release before writes it, then a later release drops it.
+    # stayed while replicas of the release before could still write it, and is dropped at the end.
     if "document_search" not in tables:
         conn.execute(text(
             "CREATE TABLE document_search ("
@@ -498,6 +498,26 @@ def _run_migrations(conn) -> None:
         sp.commit()
     except Exception:
         sp.rollback()
+
+    # Then the column itself (191 MB on 2026-11-08), unused since the release that moved it. A vector only
+    # it has is copied over first, never the other way round: nothing has written it since, so where both
+    # have one the new table's is the current one. Dropping a column only changes the catalog but takes
+    # the same exclusive lock, so it gives up the same way; the space comes back as syncs rewrite the rows.
+    if "content_tsv" in doc_cols:
+        sp = conn.begin_nested()
+        try:
+            conn.execute(text(
+                "INSERT INTO document_search (document_id, content_tsv) "
+                "SELECT d.id, d.content_tsv FROM documents d WHERE d.content_tsv IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM document_search s WHERE s.document_id = d.id) "
+                "ON CONFLICT (document_id) DO NOTHING"
+            ))
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(text("ALTER TABLE documents DROP COLUMN content_tsv"))
+            conn.execute(text("SET LOCAL lock_timeout TO DEFAULT"))
+            sp.commit()
+        except Exception:
+            sp.rollback()
 
 
 async def _schedule_daily_compaction():

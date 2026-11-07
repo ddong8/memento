@@ -192,6 +192,33 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kw_order, [hit.id])
         self.assertEqual([d.id for d in docs], [hit.id])
 
+    async def test_the_old_column_is_dropped_keeping_the_newer_vectors(self) -> None:
+        # documents.content_tsv as the releases before document_search left it: a start copies over the
+        # vectors only it has, keeps the table's where both have one and drops it; the next has nothing to do
+        from sqlalchemy import inspect, select, text
+
+        from server.db.models import DocumentSearch
+        from server.main import _run_migrations
+
+        meta = {"session_id": "new", "project_path": "/Users/me/dev/memento", "project_hash": "memento"}
+        kept = await self.ingest("claude_code", "projects/-Users-me-dev-memento/new.jsonl",
+                                 '{"type":"user","message":{"content":"新词汇"}}', "full", 0, dict(meta))
+        lost = await self.ingest("claude_code", "projects/-Users-me-dev-memento/old.jsonl",
+                                 '{"type":"user","message":{"content":"别的话题"}}', "full", 0, {**meta, "session_id": "old"})
+        async with self.engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE documents ADD COLUMN content_tsv tsvector"))
+            await conn.execute(text("UPDATE documents SET content_tsv = to_tsvector('simple', 'stale')"))
+            await conn.execute(text("DELETE FROM document_search WHERE document_id = :d"), {"d": lost.id})
+            await conn.run_sync(_run_migrations)
+        async with self.engine.begin() as conn:
+            await conn.run_sync(_run_migrations)
+            cols = await conn.run_sync(lambda c: {col["name"] for col in inspect(c).get_columns("documents")})
+        self.assertNotIn("content_tsv", cols)
+        async with self.Session() as db:
+            tsv = dict((await db.execute(select(DocumentSearch.document_id, DocumentSearch.content_tsv))).all())
+        self.assertIn("词汇", str(tsv[kept.id]))
+        self.assertEqual(str(tsv[lost.id]), "'stale'")
+
 class HeartbeatTests(unittest.TestCase):
     def test_written_at_most_once_a_minute(self) -> None:
         from datetime import datetime, timedelta, timezone

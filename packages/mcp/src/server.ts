@@ -88,8 +88,25 @@ export async function projectContext(remote: RemoteClient, projectName: string):
   if (!match) return `No project found matching '${projectName}'.`;
   const project = await remote.get<Json>(`/api/projects/${s(match.id)}`, { include_content: "true" });
   const parts = [`# Project: ${s(project.title) || projectName}`, `**Tool**: ${s(project.tool_id)}`];
-  if (project.source_path) parts.push(`**Path**: \`${s(project.source_path)}\``);
-  const docs = arr(project.documents).filter((d) => !isNoise(d.relative_path));
+  const localSourcePath = s(project.source_path);
+  if (localSourcePath) parts.push(`**Path**: \`${localSourcePath}\``);
+
+  let codebaseBp = s(project.codebase_blueprint);
+  if (localSourcePath) {
+    try {
+      const localBpFile = join(localSourcePath, "PROJECT_BLUEPRINT.md");
+      if (existsSync(localBpFile)) {
+        codebaseBp = readFileSync(localBpFile, "utf8");
+      }
+    } catch {
+      // fallback to remote codebase_blueprint
+    }
+  }
+  if (codebaseBp) {
+    parts.push("\n## Living Codebase Architecture Blueprint\n", codebaseBp);
+  }
+
+  const docs = arr(project.documents).filter((d) => !isNoise(d.relative_path) && !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")));
   const inlined = docs.filter((d) => d.content);
   const listed = docs.filter((d) => !d.content);
   if (inlined.length) {

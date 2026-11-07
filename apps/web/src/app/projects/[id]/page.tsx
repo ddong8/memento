@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { Icon, ToolGlyph, CategoryIcon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar, SectionLabel } from "@/components/aurora/primitives";
+import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 
 interface ProjectDetail {
   id: string;
@@ -15,6 +16,7 @@ interface ProjectDetail {
   tool_id: string;
   source_path: string;
   visibility: string;
+  codebase_blueprint?: string | null;
   documents: { id: string; relative_path: string; category: string; title: string; file_size_bytes: number; synced_at: string }[];
 }
 
@@ -22,11 +24,13 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const projectId = params.id as string;
   const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [blueprintExpanded, setBlueprintExpanded] = useState(false);
   const { t, locale } = useI18n();
   const dateFmt = locale === "zh-CN" ? "zh-CN" : "en-US";
+  const isZh = locale === "zh-CN";
 
   useEffect(() => {
-    authFetch(`${getApiBase()}/api/projects/${projectId}`).then((r) => r.json()).then(setProject).catch(console.error);
+    authFetch(`${getApiBase()}/api/projects/${projectId}?include_content=true`).then((r) => r.json()).then(setProject).catch(console.error);
   }, [projectId]);
 
   // Hit the server's per-project markdown export endpoint and trigger
@@ -94,6 +98,60 @@ export default function ProjectDetailPage() {
           </>
         }
       />
+
+      {project.codebase_blueprint && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "8px 4px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Icon name="sparkles" size={16} style={{ color: "var(--aurora-accent)" }} />
+              <SectionLabel style={{ margin: 0 }}>
+                {isZh ? "活体代码架构蓝图 (PROJECT_BLUEPRINT.md)" : "Living Codebase Blueprint (PROJECT_BLUEPRINT.md)"}
+              </SectionLabel>
+            </div>
+            <Btn
+              variant="ghost"
+              size="sm"
+              onClick={() => setBlueprintExpanded((v) => !v)}
+            >
+              {blueprintExpanded ? (isZh ? "收起蓝图" : "Collapse") : (isZh ? "展开完整蓝图" : "Expand Blueprint")}
+            </Btn>
+          </div>
+          <Glass padding={18} radius={18}>
+            <div
+              style={{
+                maxHeight: blueprintExpanded ? "none" : 320,
+                overflow: blueprintExpanded ? "visible" : "hidden",
+                position: "relative",
+              }}
+            >
+              <MarkdownViewer content={project.codebase_blueprint} />
+              {!blueprintExpanded && (
+                <div
+                  onClick={() => setBlueprintExpanded(true)}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 72,
+                    background: "linear-gradient(to bottom, transparent, var(--aurora-surface-solid))",
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    paddingBottom: 6,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    color: "var(--aurora-accent)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {isZh ? "点击展开完整架构蓝图 ▾" : "Click to expand full blueprint ▾"}
+                </div>
+              )}
+            </div>
+          </Glass>
+        </div>
+      )}
 
       {Object.entries(byCategory).map(([cat, docs]) => (
         <div key={cat} style={{ marginBottom: 24 }}>

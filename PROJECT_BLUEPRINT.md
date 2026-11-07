@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7fc852e2` · Updated: `2026-11-06`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1af32afb` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -10,7 +10,7 @@
 
 - **Project Type**: Monorepo (Workspaces)
 - **Core Languages**: TypeScript/JavaScript, Python
-- **Key Frameworks**: React, FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
+- **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
 - **Infrastructure & Middleware**: PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
 
 ## 2. High-Level Architecture Topology
@@ -56,9 +56,9 @@ flowchart TD
 | :--- | :--- | :--- |
 | [`apps/desktop`](apps/desktop) | Application | Memento: the web app in a window, with the local daemon, tray and auto-update |
 | [`apps/mobile`](apps/mobile) | Application | mobile application |
-| [`apps/web`](apps/web) | Application | web application |
+| [`apps/web`](apps/web) | Application | This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-re |
 | [`packages/core`](packages/core) | Package / Service | Types, API client and ask stream shared by Memento's web, desktop and mobile clients |
-| [`packages/daemon`](packages/daemon) | Package / Service | Memento's local daemon: collects AI tool sessions, runs dispatched agent tasks, keeps the profile and skills in each tool |
+| [`packages/daemon`](packages/daemon) | Package / Service | Memento's local daemon: collects AI tool sessions, runs dispatched agent tasks, keeps the profile and skills in each too |
 | [`packages/mcp`](packages/mcp) | Package / Service | Memento memory over MCP (stdio): search, recall, project context, rules, pitfalls, skills and todos |
 | [`server`](server) | Backend API Service | FastAPI backend services, database models, background Celery workers |
 | [`embedding`](embedding) | Embedding Microservice | Vector embedding & semantic indexing service |
@@ -334,6 +334,7 @@ flowchart TD
 - `GET /api/tasks/{task_id}`
 - `POST /api/tasks/{task_id}/cancel`
 - `POST /api/tasks/{task_id}/input`
+- _... (1 more endpoints)_
 
 #### `/api/todos` (todos.py)
 
@@ -573,8 +574,8 @@ erDiagram
 
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (10 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (9 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (6 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (5 commits)
@@ -603,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `1af32afb` (2026-11-07): perf(blueprint): 优化大仓库单次目录剪枝遍历与守护进程周期性全项目蓝图同步
 - `7fc852e2` (2026-11-06): feat(blueprint): 实现全Agent提示词自动注入、5钩子闭环与HEAD过期检测
 - `1a4fd3e5` (2026-11-06): feat(blueprint): 新增AST跨层调用图、OpenAPI/DTO Schema、CLI入口与外部中间件探测
 - `c0a89884` (2026-11-06): feat(blueprint): 实现跨任意项目架构与协议的通用扫描引擎及单测验证
 - `4eacfcc0` (2026-11-06): feat(blueprint): 丰富单项目蓝图ER图、唯一约束、定时任务、服务层、MCP协议与热点测试矩阵
 - `377feb1f` (2026-11-06): feat(ask): 实现 Antigravity 模型实时动态拉取与多语言蓝图实体关系扫描
-- `b15a4962` (2026-11-06): feat(blueprint): 增加核心外键实体链路提取、环境变量字典扫描与Agent指引自锚定
 
 ## 10. Key Environment Variables & Configuration
 

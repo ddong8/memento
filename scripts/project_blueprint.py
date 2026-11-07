@@ -77,174 +77,6 @@ def run_git_cmd(args: list[str], cwd: Path) -> str:
         return ""
 
 
-def detect_tech_stack(root: Path) -> dict[str, Any]:
-    """Detect technologies, package managers, and architectural styles."""
-    stack: list[str] = []
-    frameworks: list[str] = []
-    project_type = "Standard Repository"
-
-    # Monorepo indicators
-    p_json = root / "package.json"
-    pnpm_ws = root / "pnpm-workspace.yaml"
-    is_monorepo = False
-
-    if p_json.exists():
-        try:
-            data = json.loads(p_json.read_text(encoding="utf-8", errors="ignore"))
-            if data.get("workspaces") or pnpm_ws.exists():
-                is_monorepo = True
-                project_type = "Monorepo (Workspaces)"
-            deps = {**data.get("dependencies", {}), **data.get("devDependencies", {})}
-            if "next" in deps:
-                frameworks.append("Next.js")
-            if "react" in deps:
-                frameworks.append("React")
-            if "electron" in deps:
-                frameworks.append("Electron")
-            if "vite" in deps:
-                frameworks.append("Vite")
-            if "tailwindcss" in deps:
-                frameworks.append("TailwindCSS")
-            if "@modelcontextprotocol/sdk" in deps:
-                frameworks.append("Model Context Protocol (MCP)")
-            stack.append("TypeScript/JavaScript")
-        except Exception:
-            pass
-
-    # Python
-    pyproject = root / "server" / "pyproject.toml"
-    if not pyproject.exists():
-        pyproject = root / "pyproject.toml"
-    reqs = root / "requirements.txt"
-
-    if pyproject.exists() or reqs.exists() or (root / "server").is_dir():
-        stack.append("Python")
-        content = ""
-        if pyproject.exists():
-            content += pyproject.read_text(encoding="utf-8", errors="ignore")
-        if reqs.exists():
-            content += reqs.read_text(encoding="utf-8", errors="ignore")
-        if "fastapi" in content.lower():
-            frameworks.append("FastAPI")
-        if "sqlalchemy" in content.lower():
-            frameworks.append("SQLAlchemy")
-        if "celery" in content.lower():
-            frameworks.append("Celery")
-        if "pydantic" in content.lower():
-            frameworks.append("Pydantic")
-        if "alembic" in content.lower():
-            frameworks.append("Alembic")
-
-    # Rust
-    if (root / "Cargo.toml").exists():
-        stack.append("Rust")
-
-    # Go
-    if (root / "go.mod").exists():
-        stack.append("Go")
-
-    # Docker / K8s
-    if (root / "Dockerfile").exists() or (root / "server" / "Dockerfile").exists():
-        frameworks.append("Docker")
-    if (root / "deploy" / "k8s").is_dir() or (root / "k8s").is_dir():
-        frameworks.append("Kubernetes / Fleet")
-
-    return {
-        "project_type": project_type,
-        "is_monorepo": is_monorepo,
-        "languages": list(dict.fromkeys(stack)),
-        "frameworks": list(dict.fromkeys(frameworks)),
-    }
-
-
-def scan_subsystems(root: Path) -> list[dict[str, Any]]:
-    """Scan top-level apps, packages, and core directories."""
-    subsystems = []
-
-    # Check for apps/
-    apps_dir = root / "apps"
-    if apps_dir.is_dir():
-        for d in sorted(apps_dir.iterdir()):
-            if d.is_dir() and d.name not in IGNORED_DIRS and not d.name.startswith("."):
-                desc = "Application package"
-                pj = d / "package.json"
-                if pj.exists():
-                    try:
-                        pdata = json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
-                        desc = pdata.get("description") or f"{d.name} application"
-                    except Exception:
-                        pass
-                subsystems.append({
-                    "name": f"apps/{d.name}",
-                    "path": str(d.relative_to(root)),
-                    "type": "Application",
-                    "description": desc,
-                })
-
-    # Check for packages/
-    pkgs_dir = root / "packages"
-    if pkgs_dir.is_dir():
-        for d in sorted(pkgs_dir.iterdir()):
-            if d.is_dir() and d.name not in IGNORED_DIRS and not d.name.startswith("."):
-                desc = "Shared library package"
-                pj = d / "package.json"
-                if pj.exists():
-                    try:
-                        pdata = json.loads(pj.read_text(encoding="utf-8", errors="ignore"))
-                        desc = pdata.get("description") or f"{d.name} package"
-                    except Exception:
-                        pass
-                subsystems.append({
-                    "name": f"packages/{d.name}",
-                    "path": str(d.relative_to(root)),
-                    "type": "Package / Service",
-                    "description": desc,
-                })
-
-    # Check for server/
-    server_dir = root / "server"
-    if server_dir.is_dir():
-        subsystems.append({
-            "name": "server",
-            "path": "server",
-            "type": "Backend API Service",
-            "description": "FastAPI backend services, database models, background Celery workers",
-        })
-
-    # Check for embedding/
-    emb_dir = root / "embedding"
-    if emb_dir.is_dir():
-        subsystems.append({
-            "name": "embedding",
-            "path": "embedding",
-            "type": "Embedding Microservice",
-            "description": "Vector embedding & semantic indexing service",
-        })
-
-    # Check for deploy/
-    deploy_dir = root / "deploy"
-    if deploy_dir.is_dir():
-        subsystems.append({
-            "name": "deploy",
-            "path": "deploy",
-            "type": "Infrastructure & Deployment",
-            "description": "Kubernetes kustomization manifests, Fleet GitOps configs, systemd services",
-        })
-
-    # Fallback if no monorepo structure
-    if not subsystems:
-        for d in sorted(root.iterdir()):
-            if d.is_dir() and d.name not in IGNORED_DIRS and not d.name.startswith("."):
-                subsystems.append({
-                    "name": d.name,
-                    "path": d.name,
-                    "type": "Module",
-                    "description": f"{d.name} module directory",
-                })
-
-    return subsystems
-
-
 _REPO_FILE_CACHE: dict[Path, list[tuple[Path, str]]] = {}
 _GLOB_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
 
@@ -340,6 +172,274 @@ def _iter_repo_files(root: Path, pattern: str, limit: int = 80) -> list[Path]:
     return sorted(out)
 
 
+def detect_tech_stack(root: Path) -> dict[str, Any]:
+    """Detect technologies, package managers, and architectural styles across root and all subdirectories."""
+    stack: list[str] = []
+    frameworks: list[str] = []
+    project_type = "Standard Repository"
+
+    p_json = root / "package.json"
+    pnpm_ws = root / "pnpm-workspace.yaml"
+    is_monorepo = False
+
+    # 1. Node / TypeScript / Frontend / Desktop manifests (root + subdirectories)
+    pkg_files = [p_json] if p_json.exists() else []
+    for sub_pj in _iter_repo_files(root, "**/package.json", limit=25):
+        if sub_pj not in pkg_files:
+            pkg_files.append(sub_pj)
+
+    if len(pkg_files) > 1 or pnpm_ws.exists() or ((root / "backend").is_dir() and (root / "frontend").is_dir()):
+        project_type = "Multi-Service / Full-Stack Repository"
+
+    for pj in pkg_files:
+        try:
+            data = json.loads(_read_code(pj))
+            if pj == p_json and (data.get("workspaces") or pnpm_ws.exists()):
+                is_monorepo = True
+                project_type = "Monorepo (Workspaces)"
+            deps = {**(data.get("dependencies") or {}), **(data.get("devDependencies") or {})}
+            dep_keys = {k.lower() for k in deps}
+            if "next" in dep_keys:
+                frameworks.append("Next.js")
+            if "react" in dep_keys or "react-dom" in dep_keys:
+                frameworks.append("React")
+            if "vue" in dep_keys or "nuxt" in dep_keys:
+                frameworks.append("Vue / Nuxt")
+            if "electron" in dep_keys:
+                frameworks.append("Electron")
+            if "@tauri-apps/api" in dep_keys or "@tauri-apps/cli" in dep_keys:
+                frameworks.append("Tauri")
+            if "vite" in dep_keys:
+                frameworks.append("Vite")
+            if "tailwindcss" in dep_keys:
+                frameworks.append("TailwindCSS")
+            if "express" in dep_keys:
+                frameworks.append("Express")
+            if "fastify" in dep_keys:
+                frameworks.append("Fastify")
+            if "socket.io" in dep_keys or "socket.io-client" in dep_keys:
+                frameworks.append("Socket.IO")
+            if "@modelcontextprotocol/sdk" in dep_keys:
+                frameworks.append("Model Context Protocol (MCP)")
+            stack.append("TypeScript/JavaScript")
+        except Exception:
+            pass
+
+    # 2. Python manifests & source files (root + subdirectories)
+    py_manifests = (
+        ([root / "pyproject.toml"] if (root / "pyproject.toml").exists() else [])
+        + ([root / "requirements.txt"] if (root / "requirements.txt").exists() else [])
+        + _iter_repo_files(root, "**/pyproject.toml", limit=15)
+        + _iter_repo_files(root, "**/requirements*.txt", limit=15)
+    )
+    py_files = _iter_repo_files(root, "**/*.py", limit=20)
+    if py_manifests or py_files or (root / "server").is_dir() or (root / "backend").is_dir():
+        stack.append("Python")
+        py_blob = "\n".join(_read_code(m, 50_000).lower() for m in dict.fromkeys(py_manifests))
+        if len(py_blob) < 200 and py_files:
+            py_blob += "\n" + "\n".join(_read_code(pf, 8_000).lower() for pf in py_files[:8])
+        if "fastapi" in py_blob:
+            frameworks.append("FastAPI")
+        if "flask" in py_blob:
+            frameworks.append("Flask")
+        if "django" in py_blob:
+            frameworks.append("Django")
+        if "sqlalchemy" in py_blob or "sqlmodel" in py_blob:
+            frameworks.append("SQLAlchemy")
+        if "celery" in py_blob:
+            frameworks.append("Celery")
+        if "pydantic" in py_blob:
+            frameworks.append("Pydantic")
+        if "alembic" in py_blob:
+            frameworks.append("Alembic")
+        if "tqsdk" in py_blob:
+            frameworks.append("TqSdk (Futures Quant)")
+        if "rdkit" in py_blob:
+            frameworks.append("RDKit (Cheminformatics)")
+        if "socketio" in py_blob or "engineio" in py_blob:
+            frameworks.append("Socket.IO")
+
+    # 3. Rust / Tauri / Go / JVM / Shell
+    cargo_files = ([root / "Cargo.toml"] if (root / "Cargo.toml").exists() else []) + _iter_repo_files(root, "**/Cargo.toml", limit=10)
+    if cargo_files or _iter_repo_files(root, "**/*.rs", limit=5):
+        stack.append("Rust")
+        cargo_blob = "\n".join(_read_code(cf, 30_000).lower() for cf in cargo_files)
+        if "tauri" in cargo_blob:
+            frameworks.append("Tauri")
+        if "axum" in cargo_blob:
+            frameworks.append("Axum")
+        if "actix-web" in cargo_blob:
+            frameworks.append("Actix Web")
+
+    if (root / "go.mod").exists() or _iter_repo_files(root, "**/go.mod", limit=5) or _iter_repo_files(root, "**/*.go", limit=5):
+        stack.append("Go")
+
+    if not stack and _iter_repo_files(root, "**/*.[tj]s*", limit=5):
+        stack.append("TypeScript/JavaScript")
+    if not stack and (_iter_repo_files(root, "**/*.sh", limit=5) or _iter_repo_files(root, "**/Dockerfile*", limit=5)):
+        stack.append("Shell / Container Scripts")
+
+    # 4. Docker / K8s
+    if (
+        (root / "Dockerfile").exists()
+        or (root / "docker-compose.yml").exists()
+        or (root / "docker-compose.yaml").exists()
+        or _iter_repo_files(root, "**/Dockerfile*", limit=10)
+    ):
+        frameworks.append("Docker")
+    if (root / "deploy" / "k8s").is_dir() or (root / "k8s").is_dir() or _iter_repo_files(root, "**/k8s/*.y*ml", limit=5):
+        frameworks.append("Kubernetes / Fleet")
+
+    return {
+        "project_type": project_type,
+        "is_monorepo": is_monorepo,
+        "languages": list(dict.fromkeys(stack)),
+        "frameworks": list(dict.fromkeys(frameworks)),
+    }
+
+
+def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
+    """Infer semantic category and human-readable description for a project subdirectory."""
+    name_low = d.name.lower()
+    role_map = {
+        "backend": ("Backend API Service", "Backend API server, domain business logic, and data access layer"),
+        "server": ("Backend API Service", "Backend service, HTTP/WebSocket handlers, and persistence"),
+        "api": ("API Layer", "REST / RPC API routers and request handlers"),
+        "frontend": ("Frontend Web App", "Web frontend user interface, state management, and components"),
+        "web": ("Frontend Web App", "Browser web interface and client assets"),
+        "client": ("Frontend Client", "Client-side application views and API integration"),
+        "desktop": ("Desktop Application", "Cross-platform desktop client application (Electron / Tauri)"),
+        "src-tauri": ("Rust Native Core", "Tauri Rust native backend, system tray, and OS integration"),
+        "quant": ("Quant Trading Core", "Quantitative strategy execution, market data feed, and order routing"),
+        "research": ("Quant Research & Alpha", "Factor mining, backtesting experiments, and quantitative research scripts"),
+        "market_data": ("Market Data Pipeline", "Historical and real-time market quote ingestion and storage"),
+        "engineio": ("Real-Time Transport", "Socket.IO / Engine.IO bidirectional real-time event transport"),
+        "scripts": ("Automation & CLI Scripts", "Data loading, maintenance, operational CLI, and automation utilities"),
+        "docker": ("Container Infrastructure", "Dockerfiles, container entrypoints, and environment build configs"),
+        "deploy": ("Infrastructure & Deployment", "Kubernetes manifests, GitOps configs, and service deployment definitions"),
+        "k8s": ("Kubernetes Manifests", "Kubernetes Deployments, Services, Ingresses, and ConfigMaps"),
+        "docs": ("Architecture & Docs", "Technical specifications, runbooks, and design documentation"),
+        "tests": ("Test Suites", "Automated unit, integration, and end-to-end verification suites"),
+        "test": ("Test Suites", "Automated unit and integration verification suites"),
+    }
+    role, default_desc = role_map.get(name_low, ("Core Module", f"{d.name} domain module"))
+
+    pj = d / "package.json"
+    if pj.exists():
+        try:
+            pdata = json.loads(_read_code(pj, 20_000))
+            if isinstance(pdata.get("description"), str) and pdata["description"].strip():
+                return role, pdata["description"].strip()[:120]
+        except Exception:
+            pass
+
+    pp = d / "pyproject.toml"
+    if pp.exists():
+        m = re.search(r'^description\s*=\s*["\']([^"\']+)["\']', _read_code(pp, 20_000), re.MULTILINE)
+        if m and m.group(1).strip():
+            return role, m.group(1).strip()[:120]
+
+    for rm_name in ("README.md", "readme.md"):
+        rm = d / rm_name
+        if rm.exists():
+            for line in _read_code(rm, 4_000).splitlines():
+                sline = line.strip()
+                if sline and not sline.startswith(("#", "!", "[", ">", "`", "-")):
+                    return role, sline[:120]
+
+    for entry in ("main.py", "app.py", "server.py", "__init__.py", "app/main.py", "src/index.ts", "src/main.ts"):
+        ep = d / entry
+        if ep.is_file():
+            txt = _read_code(ep, 3_000)
+            dm = re.match(r'^(?:#![^\n]*\n)?\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', txt)
+            if dm and dm.group(1).strip():
+                first_line = dm.group(1).strip().splitlines()[0].strip()
+                if first_line:
+                    return role, first_line[:120]
+
+    return role, default_desc
+
+
+def scan_subsystems(root: Path) -> list[dict[str, Any]]:
+    """Scan top-level apps, packages, core directories, and root-level primary modules."""
+    subsystems: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+
+    apps_dir = root / "apps"
+    pkgs_dir = root / "packages"
+    is_workspace_monorepo = apps_dir.is_dir() or pkgs_dir.is_dir()
+
+    if is_workspace_monorepo:
+        if apps_dir.is_dir():
+            for d in sorted(apps_dir.iterdir()):
+                if d.is_dir() and d.name not in IGNORED_DIRS and not d.name.startswith("."):
+                    _, desc = _infer_dir_role_and_desc(d)
+                    rel = str(d.relative_to(root))
+                    seen_paths.add(rel)
+                    subsystems.append({
+                        "name": f"apps/{d.name}",
+                        "path": rel,
+                        "type": "Application",
+                        "description": desc if desc != f"{d.name} domain module" else f"{d.name} application",
+                    })
+
+        if pkgs_dir.is_dir():
+            for d in sorted(pkgs_dir.iterdir()):
+                if d.is_dir() and d.name not in IGNORED_DIRS and not d.name.startswith("."):
+                    _, desc = _infer_dir_role_and_desc(d)
+                    rel = str(d.relative_to(root))
+                    seen_paths.add(rel)
+                    subsystems.append({
+                        "name": f"packages/{d.name}",
+                        "path": rel,
+                        "type": "Package / Service",
+                        "description": desc if desc != f"{d.name} domain module" else f"{d.name} package",
+                    })
+
+        for fixed_name, fixed_type, fixed_desc in (
+            ("server", "Backend API Service", "FastAPI backend services, database models, background Celery workers"),
+            ("embedding", "Embedding Microservice", "Vector embedding & semantic indexing service"),
+            ("deploy", "Infrastructure & Deployment", "Kubernetes kustomization manifests, Fleet GitOps configs, systemd services"),
+        ):
+            if (root / fixed_name).is_dir() and fixed_name not in seen_paths:
+                seen_paths.add(fixed_name)
+                subsystems.append({
+                    "name": fixed_name,
+                    "path": fixed_name,
+                    "type": fixed_type,
+                    "description": fixed_desc,
+                })
+        return subsystems
+
+    skip_dirs = IGNORED_DIRS | {"backups", "uploads", "templates", "assets", "public", "static"}
+    for d in sorted(root.iterdir()):
+        if d.is_dir() and d.name not in skip_dirs and not d.name.startswith("."):
+            role, desc = _infer_dir_role_and_desc(d)
+            subsystems.append({
+                "name": d.name,
+                "path": d.name,
+                "type": role,
+                "description": desc,
+            })
+
+    for f in sorted(root.iterdir()):
+        if f.is_file() and f.suffix in (".py", ".ts", ".js") and not f.name.startswith(("_", "test_")) and f.name not in ("setup.py", "conftest.py") and not f.name.endswith((".config.js", ".config.ts")):
+            txt = _read_code(f, 3_000)
+            doc = ""
+            dm = re.match(r'^(?:#![^\n]*\n)?\s*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')', txt)
+            if dm and dm.group(1).strip():
+                doc = dm.group(1).strip().splitlines()[0].strip()
+            role = "Backend / Web Entrypoint" if f.stem in ("server", "app", "main", "api") else "Core Engine Module"
+            subsystems.append({
+                "name": f.name,
+                "path": f.name,
+                "type": role,
+                "description": doc[:110] if doc else f"Root-level {role.lower()} ({f.name})",
+            })
+
+    return subsystems
+
+
 def scan_frontend_routes(root: Path) -> list[str]:
     """Scan web page routes across Next.js (App & Pages Router), Nuxt/Vue Router, React Router, SvelteKit, and Remix."""
     routes: list[str] = []
@@ -388,10 +488,19 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
 
     # 1. Python FastAPI / Flask / Django Ninja
     py_api_files: list[Path] = []
-    for d in (root / "server" / "server" / "api", root / "api", root / "app" / "api", root / "src" / "api"):
+    for root_py in ("server.py", "app.py", "main.py", "api.py"):
+        rp = root / root_py
+        if rp.is_file():
+            py_api_files.append(rp)
+    for d in (root / "server" / "server" / "api", root / "api", root / "app" / "api", root / "src" / "api", root / "backend" / "app" / "api"):
         if d.is_dir():
             py_api_files.extend(sorted(d.glob("*.py")))
-    for pf in _iter_repo_files(root, "**/api/**/*.py", limit=40) + _iter_repo_files(root, "**/routers/**/*.py", limit=40) + _iter_repo_files(root, "**/views*.py", limit=25):
+    for pf in (
+        _iter_repo_files(root, "**/api/**/*.py", limit=40)
+        + _iter_repo_files(root, "**/routers/**/*.py", limit=40)
+        + _iter_repo_files(root, "**/*route*.py", limit=30)
+        + _iter_repo_files(root, "**/views*.py", limit=25)
+    ):
         if pf not in py_api_files:
             py_api_files.append(pf)
 
@@ -401,25 +510,27 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
         seen_files.add(py_file)
         name = py_file.stem
         try:
-            content = py_file.read_text(encoding="utf-8", errors="ignore")
-            if not re.search(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route)\b', content) and "APIRouter" not in content:
+            content = _read_code(py_file)
+            if not re.search(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route|websocket)\b', content) and "APIRouter" not in content:
                 continue
             m = re.search(r'(?:router|bp)\s*=\s*(?:APIRouter|Blueprint)\([^)]*(?:prefix|url_prefix)=["\']([^"\']+)["\']', content)
-            prefix = m.group(1) if m else f"/{name}"
+            prefix = m.group(1) if m else ("/" if name in ("server", "app", "main") else f"/{name}")
 
             endpoints: list[str] = []
-            for em in re.finditer(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route)\(\s*["\']([^"\']*)["\']', content):
-                method = em.group(1).upper()
+            for em in re.finditer(r'@(?:router|app|bp|api)\.(get|post|put|delete|patch|route|websocket)\(\s*["\']([^"\']*)["\']', content):
+                raw_m = em.group(1).upper()
+                method = "WS" if raw_m == "WEBSOCKET" else raw_m
                 subpath = em.group(2)
                 full_p = f"{prefix.rstrip('/')}/{subpath.lstrip('/')}".rstrip('/') or "/"
                 endpoints.append(f"`{method} {full_p}`")
 
-            routes.append({
-                "name": name,
-                "prefix": prefix,
-                "endpoints": endpoints[:5],
-                "total": len(endpoints),
-            })
+            if endpoints:
+                routes.append({
+                    "name": name,
+                    "prefix": prefix,
+                    "endpoints": endpoints[:5],
+                    "total": len(endpoints),
+                })
         except Exception:
             pass
 
@@ -430,7 +541,7 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                 try:
                     rel = route_file.parent.relative_to(app_cand.parent)
                     prefix = f"/{rel}"
-                    content = route_file.read_text(encoding="utf-8", errors="ignore")
+                    content = _read_code(route_file)
                     methods = re.findall(r'export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b', content)
                     endpoints = [f"`{m} {prefix}`" for m in dict.fromkeys(methods)]
                     routes.append({
@@ -443,9 +554,13 @@ def scan_api_routes(root: Path) -> list[dict[str, Any]]:
                     pass
 
     # 3. Node/TS Express, Fastify, Hono & NestJS Controllers
-    for ts_file in _iter_repo_files(root, "**/*.controller.ts", limit=30) + _iter_repo_files(root, "**/routes/**/*.[tj]s", limit=30):
+    for ts_file in (
+        _iter_repo_files(root, "**/*.controller.ts", limit=30)
+        + _iter_repo_files(root, "**/routes/**/*.[tj]s", limit=30)
+        + _iter_repo_files(root, "server/src/**/*.[tj]s", limit=20)
+    ):
         try:
-            content = ts_file.read_text(encoding="utf-8", errors="ignore")
+            content = _read_code(ts_file)
             endpoints: list[str] = []
             ctrl_m = re.search(r'@Controller\(\s*["\']?([^"\')\s]*)["\']?\s*\)', content)
             prefix = "/" + ctrl_m.group(1).strip("/") if ctrl_m and ctrl_m.group(1) else f"/{ts_file.stem.replace('.controller', '')}"
@@ -897,8 +1012,8 @@ def scan_mcp_and_ws_protocols(root: Path) -> dict[str, Any]:
                         "name": pm.group(1),
                         "description": (pm.group(2) or "Python MCP tool").strip().splitlines()[0][:100],
                     })
-            if "WebSocket" in content or "ws" in mf.stem.lower() or "socket.on(" in content:
-                for cm in re.finditer(r'(?:case|socket\.on\()\s*["\']([a-zA-Z0-9_:-]+)["\']', content):
+            if "WebSocket" in content or "ws" in mf.stem.lower() or "socket.on(" in content or "@sio.on(" in content:
+                for cm in re.finditer(r'(?:case|socket\.on\(|@sio\.on\()\s*["\']([a-zA-Z0-9_:-]+)["\']', content):
                     ev = cm.group(1)
                     if ev not in ws_events and len(ev) > 2:
                         ws_events.append(ev)
@@ -1382,16 +1497,26 @@ def generate_mermaid_diagram(
     has_server = any(s["name"] == "server" or "server/" in s["name"] for s in subsystems)
     has_emb = any("embedding" in s["name"] for s in subsystems)
 
-    if not (has_web or has_desktop or has_daemon or has_mcp or has_server):
-        # Dynamic architecture graph for general non-Memento repositories using real dependencies & infra
+    if not (has_web or has_desktop or has_daemon or has_mcp):
+        # Dynamic layered architecture graph for general repositories using real roles, dependencies & infra
         lines.append('    subgraph Modules["项目核心模块与子系统"]')
         node_map: dict[str, str] = {}
+        client_nodes: list[str] = []
+        service_nodes: list[str] = []
+        other_nodes: list[str] = []
         for idx, sub in enumerate(subsystems[:10]):
             nid = f"M{idx}"
             node_map[sub["path"]] = nid
             node_map[sub["name"]] = nid
             safe_label = sub["name"].replace('"', "'")
             lines.append(f'        {nid}["{safe_label} ({sub["type"]})"]')
+            role_low = sub["type"].lower()
+            if any(k in role_low for k in ("frontend", "client", "desktop", "web")):
+                client_nodes.append(nid)
+            elif any(k in role_low for k in ("backend", "api", "engine", "quant", "core", "transport")):
+                service_nodes.append(nid)
+            elif not any(k in role_low for k in ("doc", "test", "container", "kubernetes", "infrastructure")):
+                other_nodes.append(nid)
         lines.append("    end")
         if infra:
             lines.append('    subgraph Infra["外部存储与中间件"]')
@@ -1404,12 +1529,22 @@ def generate_mermaid_diagram(
             if m and m.group(1) in node_map and m.group(2) in node_map:
                 lines.append(f"    {node_map[m.group(1)]} --> {node_map[m.group(2)]}")
                 added_real_edge = True
-        if not added_real_edge and len(subsystems) >= 2:
-            for idx in range(1, min(len(subsystems), 10)):
-                lines.append(f"    M0 --> M{idx}")
-        if infra and subsystems:
+        if not added_real_edge:
+            if client_nodes and service_nodes:
+                for cn in client_nodes:
+                    lines.append(f"    {cn} --> {service_nodes[0]}")
+                for sn in service_nodes[1:]:
+                    lines.append(f"    {service_nodes[0]} --> {sn}")
+            elif len(service_nodes) >= 2:
+                for sn in service_nodes[1:]:
+                    lines.append(f"    {service_nodes[0]} --> {sn}")
+            elif service_nodes and other_nodes:
+                for on in other_nodes[:3]:
+                    lines.append(f"    {service_nodes[0]} --> {on}")
+        primary_service = service_nodes[0] if service_nodes else (client_nodes[0] if client_nodes else ("M0" if subsystems else ""))
+        if infra and primary_service:
             for i_idx in range(min(len(infra), 6)):
-                lines.append(f"    M0 -.-> INF{i_idx}")
+                lines.append(f"    {primary_service} -.-> INF{i_idx}")
         lines.append("```")
         return "\n".join(lines)
 
@@ -1511,20 +1646,23 @@ def detect_verification_commands(root: Path) -> list[str]:
         ])
         return commands
 
-    # 2. General Python project
+    # 2. General Python project (root or backend/)
     pyproject = root / "pyproject.toml"
     has_python = pyproject.exists() or (root / "requirements.txt").exists() or (root / "setup.py").exists() or any(root.glob("*.py"))
     if has_python:
         if (root / "pytest.ini").exists() or (root / "tests").is_dir() or (root / "test").is_dir():
             commands.extend(["# Python Tests", "pytest"])
-        if (root / "ruff.toml").exists() or (pyproject.exists() and "ruff" in pyproject.read_text(encoding="utf-8", errors="ignore")):
+        if (root / "ruff.toml").exists() or (pyproject.exists() and "ruff" in _read_code(pyproject, 20_000)):
             commands.extend(["# Python Lint", "ruff check ."])
+    elif (root / "backend").is_dir() and ((root / "backend" / "requirements.txt").exists() or (root / "backend" / "pyproject.toml").exists()):
+        if (root / "backend" / "tests").is_dir() or (root / "backend" / "pytest.ini").exists():
+            commands.extend(["# Backend Python Tests", "cd backend && pytest"])
 
-    # 3. General Node / TypeScript project
+    # 3. General Node / TypeScript project (root or frontend/ / desktop/ / client/)
     pjson_path = root / "package.json"
     if pjson_path.exists():
         try:
-            pdata = json.loads(pjson_path.read_text(encoding="utf-8", errors="ignore"))
+            pdata = json.loads(_read_code(pjson_path, 20_000))
             scripts = pdata.get("scripts", {})
             if "test" in scripts:
                 commands.extend(["# Unit Tests", "npm test"])
@@ -1536,6 +1674,19 @@ def detect_verification_commands(root: Path) -> list[str]:
                 commands.extend(["# Build Package", "npm run build"])
         except Exception:
             pass
+    else:
+        for sub_node in ("frontend", "desktop", "client", "web"):
+            sub_pj = root / sub_node / "package.json"
+            if sub_pj.exists():
+                try:
+                    pdata = json.loads(_read_code(sub_pj, 20_000))
+                    scripts = pdata.get("scripts", {})
+                    if "test" in scripts:
+                        commands.extend([f"# {sub_node.capitalize()} Tests", f"cd {sub_node} && npm test"])
+                    if "build" in scripts:
+                        commands.extend([f"# {sub_node.capitalize()} Build", f"cd {sub_node} && npm run build"])
+                except Exception:
+                    pass
 
     # 4. Rust project
     if (root / "Cargo.toml").exists():
@@ -1626,12 +1777,13 @@ def build_blueprint_content(root: Path) -> str:
 
     for s in subsystems:
         doc.append(f"| [`{s['name']}`]({s['path']}) | {s['type']} | {s['description']} |")
+    doc.append("")
 
-    doc.extend([
-        "",
-        "## 4. Key Entry Points & API Endpoints",
-        "",
-    ])
+    if frontend_routes or routes or models or relations or unique_constraints:
+        doc.extend([
+            "## 4. Key Entry Points & API Endpoints",
+            "",
+        ])
 
     if frontend_routes:
         doc.append("### Frontend Pages & App Router")

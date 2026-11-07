@@ -503,13 +503,29 @@ async def get_project(
                 row["ai_summary"] = d.ai_summary
         return row
 
+    clean_path = _clean_source_path(project.source_path)
+    codebase_blueprint = None
+    if clean_path:
+        try:
+            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
+            if bp_file.is_file():
+                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+    if not codebase_blueprint:
+        for d in docs:
+            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md") and getattr(d, "content", None):
+                codebase_blueprint = d.content
+                break
+
     return {
         "id": str(project.id),
         "slug": project.slug,
         "title": project.title,
         "tool_id": project.tool_id,
-        "source_path": _clean_source_path(project.source_path),
+        "source_path": clean_path,
         "visibility": project.visibility,
+        "codebase_blueprint": codebase_blueprint,
         "documents": [_doc_row(d) for d in docs],
     }
 
@@ -1767,6 +1783,29 @@ async def export_project_markdown(
     lines.append("")
     lines.append("---")
     lines.append("")
+
+    # Prepend Living Codebase Architecture Blueprint if present on disk or in synced docs
+    clean_export_path = _clean_source_path(project.source_path)
+    export_bp = None
+    if clean_export_path:
+        try:
+            bp_file = Path(clean_export_path) / "PROJECT_BLUEPRINT.md"
+            if bp_file.is_file():
+                export_bp = bp_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+    if not export_bp:
+        for d in docs:
+            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md") and d.content:
+                export_bp = d.content
+                break
+    if export_bp:
+        lines.append("## Living Codebase Architecture Blueprint / 活体代码蓝图")
+        lines.append("")
+        lines.append(export_bp)
+        lines.append("")
+        lines.append("---")
+        lines.append("")
 
     # Group docs by category.
     by_cat: dict[str, list[Document]] = {}

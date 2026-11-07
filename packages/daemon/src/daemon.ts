@@ -9,6 +9,7 @@ import {
   ensureProjectBlueprint,
   findGitRoot,
   needsRemoteBlueprintSync,
+  syncLocalUserBlueprint,
 } from "./blueprint-auto.js";
 import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
@@ -364,6 +365,10 @@ export class Daemon extends EventEmitter {
           }
         }
         this.ensureDiscoveredBlueprints(this.tools, profile.block, forceBlueprintRefresh);
+        const userBp = await ingest.fetchUserBlueprint();
+        if (await syncLocalUserBlueprint(userBp?.markdown)) {
+          this.log("User cognitive & domain blueprint synced to ~/.memento/USER_BLUEPRINT.md");
+        }
       }
       const skills = await ingest.fetchSkillInjection();
       if (skills) {

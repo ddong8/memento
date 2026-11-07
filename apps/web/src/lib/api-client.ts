@@ -554,12 +554,51 @@ export interface ProfileDevice {
   status: { version?: number | null; results?: Record<string, string>; reported_at?: string };
 }
 
+export interface UserBlueprintData {
+  user_name: string;
+  hash: string;
+  generated_at: string;
+  disciplines: {
+    id: string;
+    name: string;
+    en_name: string;
+    description: string;
+    evidence: string[];
+    projects: string[];
+    score: number;
+  }[];
+  business_domains: {
+    id: string;
+    name: string;
+    scenarios: string;
+    projects: string[];
+    evidence: string[];
+    score: number;
+  }[];
+  projects: {
+    name: string;
+    path: string;
+    tech_stack: string[];
+    subsystems_count: number;
+    models_count: number;
+    routes_count: number;
+    subsystems_preview: string[];
+    branch: string;
+  }[];
+  tech_radar: Record<string, { label: string; items: string[] }>;
+  philosophy: Record<string, string[]>;
+  devices: { name: string; platform: string; online: boolean }[];
+  mermaid_topology: string;
+  markdown: string;
+}
+
 export interface ProfileState {
   published: ProfileVersion | null;
   draft: ProfileVersion | null;
   history: { version: number; published_at: string | null }[];
   targets: string[];
   devices: ProfileDevice[];
+  user_blueprint?: UserBlueprintData | null;
 }
 
 export interface AvatarSettings {
@@ -788,6 +827,8 @@ export const api = {
   getCoreMemories: () => fresh<Json[]>("/api/memory/core"),
 
   getProfile: () => apiFetch<ProfileState>("/api/profile"),
+  getUserBlueprint: (refresh = false) =>
+    apiFetch<UserBlueprintData>(`/api/profile/blueprint${refresh ? "?refresh=true" : ""}`, { noCache: refresh }),
   regenerateProfileDraft: () =>
     apiFetch<{ status: ProfileDraftStatus; draft: ProfileVersion | null }>(
       "/api/profile/draft/regenerate", { method: "POST" },

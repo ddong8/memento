@@ -304,6 +304,14 @@ export class IngestClient {
     return this.getJson("/api/profile/blueprint-script");
   }
 
+  /** Fetch the synthesized User Cognitive & Domain Blueprint (USER_BLUEPRINT.md) from the server. */
+  async fetchUserBlueprint(): Promise<{
+    hash?: string;
+    markdown?: string;
+  } | null> {
+    return this.getJson("/api/profile/blueprint");
+  }
+
   async reportProfileInjection(version: number | null | undefined, results: Record<string, string>): Promise<void> {
     await this.request("/api/profile/injection/status", { method: "POST", body: { version, results } }).catch(() => {});
   }

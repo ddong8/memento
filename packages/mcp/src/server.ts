@@ -7,7 +7,7 @@ import type { Json, RemoteClient } from "./remote.js";
 
 export const INSTRUCTIONS =
   "Personal AI memory — search conversations, recall knowledge, explore project context from your Memento data. " +
-  "At the start of a session or before architectural changes, read PROJECT_BLUEPRINT.md in the project root (or call memory_blueprint) for instant full-stack orientation. " +
+  "At the start of a session or before architectural changes, read PROJECT_BLUEPRINT.md in the project root (or call memory_blueprint) for instant full-stack orientation; pass project_name='me' (or read ~/.memento/USER_BLUEPRINT.md) for the user's cross-project, technical, business, and disciplinary blueprint. " +
   "For instant mental alignment (心领神会) with the user's implicit intent, domain mindset, scenario iron rules, active graph entities, and pitfalls, call mind_resonance. " +
   "Before deploying, releasing, migrating a database, deleting or changing data, pushing, or changing config, " +
   "call memory_check_rule: it returns the user's iron rules, pitfalls hit before on similar work, and skills to follow. " +
@@ -251,13 +251,22 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
     "memory_blueprint",
     {
       description:
-        "One-shot project blueprint — project meta + FULL content of identity / memory / plan / learning files + recent conversations' AI summaries + related knowledge-graph entities with observations and relations. Use at the START of a new session for maximum context with one call.",
+        "One-shot project or user blueprint — pass a project name for project meta + living codebase architecture blueprint + curated docs + recent conversations + knowledge-graph entities, or pass 'me' / 'user' for the user's cross-project, technical, business domain, and academic discipline blueprint (USER_BLUEPRINT.md).",
       inputSchema: {
-        project_name: z.string().describe("Project name (fuzzy match)"),
+        project_name: z.string().describe("Project name (fuzzy match), or 'me' / 'user' for the User Blueprint"),
         recent_conversations: z.number().int().optional().describe("How many recent conversation summaries to include (default 10; 0 to omit)"),
       },
     },
     async ({ project_name, recent_conversations = 10 }) => {
+      if (["me", "user", "global", "个人", "用户", "user_blueprint"].includes(project_name.trim().toLowerCase())) {
+        try {
+          const ubp = await remote.get<Json>("/api/profile/blueprint");
+          const md = s(ubp.markdown);
+          if (md) return text(md);
+        } catch (e) {
+          return failed("User blueprint fetch failed", e);
+        }
+      }
       let match: Json | undefined;
       try {
         match = await findProject(remote, project_name);

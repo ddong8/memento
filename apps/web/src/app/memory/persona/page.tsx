@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, AvatarSettings, DailyDate, ProfileDevice, ProfileState } from "@/lib/api-client";
+import { api, AvatarSettings, DailyDate, ProfileDevice, ProfileState, UserBlueprintData } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
@@ -26,6 +26,7 @@ interface CachedPersonaData {
   pending: Record<string, unknown>[];
   dailyHistory: DailyDate[];
   avatarSettings: AvatarSettings | null;
+  userBlueprint?: UserBlueprintData | null;
 }
 
 let cachedPersonaData: CachedPersonaData | null = null;
@@ -372,6 +373,7 @@ export const SANDBOX_PRESETS: SandboxPreset[] = [
 
 type ChapterTab =
   | "all"
+  | "blueprint"
   | "sandbox"
   | "brain"
   | "communication"
@@ -426,6 +428,9 @@ export default function PersonaPage() {
 
   // Digital Twin Cartoon Avatar Onboarding & Customization State
   const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(() => cachedPersonaData?.avatarSettings ?? null);
+  const [userBlueprint, setUserBlueprint] = useState<UserBlueprintData | null>(() => cachedPersonaData?.userBlueprint ?? null);
+  const [blueprintRefreshing, setBlueprintRefreshing] = useState(false);
+  const [showFullUserBlueprintMd, setShowFullUserBlueprintMd] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
   const hasCheckedAvatarOnboardingRef = useRef(false);
@@ -440,12 +445,16 @@ export default function PersonaPage() {
 
   const load = useCallback(async () => {
     try {
-      const [profile, corrections, daily, avatar] = await Promise.all([
+      const [profile, corrections, daily, avatar, uBlueprint] = await Promise.all([
         api.getProfile(),
         api.getCorrections().catch(() => ({}) as Record<string, unknown>),
         api.getDailyDates(30).catch(() => [] as DailyDate[]),
         api.getAvatarSettings().catch(() => null),
+        api.getUserBlueprint(false).catch(() => null),
       ]);
+      if (uBlueprint) {
+        setUserBlueprint(uBlueprint);
+      }
       const nextPending = Array.isArray(corrections.pending)
         ? (corrections.pending as Record<string, unknown>[])
         : [];
@@ -502,6 +511,7 @@ export default function PersonaPage() {
         pending: nextPending,
         dailyHistory: nextDaily,
         avatarSettings: avatar || cachedPersonaData?.avatarSettings || null,
+        userBlueprint: uBlueprint || cachedPersonaData?.userBlueprint || null,
       };
 
       setError(null);
@@ -793,6 +803,7 @@ export default function PersonaPage() {
   }, [structuredSections, activeTab, priorityFilter, searchQuery]);
 
   const CHAPTER_TABS: Array<{ id: ChapterTab; label: string; count?: number; color: string }> = [
+    { id: "blueprint", label: "🗺️ 个人蓝图", count: userBlueprint?.projects?.length || undefined, color: "#6366F1" },
     { id: "brain", label: "🧠 绝对铁律", count: ruleStats.ironLaws, color: "#EF4444" },
     { id: "communication", label: "💬 沟通风格", count: ruleStats.communication, color: "#06B6D4" },
     { id: "tech", label: "⚡ 架构偏好", count: ruleStats.tech, color: "#F59E0B" },
@@ -2004,6 +2015,245 @@ export default function PersonaPage() {
                   load();
                 }}
               />
+            )}
+
+            {/* ─────────────────────────────────────────────────────────────
+                CHAPTER VIEW: 🗺️ 个人全域认知与能力蓝图 (User Living Blueprint)
+                ───────────────────────────────────────────────────────────── */}
+            {activeTab === "blueprint" && (
+              <div className="space-y-3 animate-in fade-in">
+                <div className="p-3.5 rounded-2xl border border-[#6366F1]/40 bg-gradient-to-r from-[#6366F1]/12 via-[var(--aurora-surface-solid)] to-transparent flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">🗺️</span>
+                      <h3 className="text-xs sm:text-sm font-bold text-[var(--aurora-fg1)]">
+                        个人全域认知与能力蓝图 · USER_BLUEPRINT.md
+                      </h3>
+                      <span className="text-[9px] font-mono px-2 py-0.2 rounded-full font-bold bg-[#6366F1]/15 text-[#6366F1] border border-[#6366F1]/30">
+                        项目 · 技术 · 业务 · 学科
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[var(--aurora-fg3)] mt-1 leading-relaxed">
+                      自动聚合全设备项目的 PROJECT_BLUEPRINT.md、长期记忆、知识图谱与常驻准则，提炼您的跨学科背景、业务版图、技术雷达与项目架构矩阵，并实时同步至各终端 ~/.memento/USER_BLUEPRINT.md。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Btn
+                      variant="glass"
+                      size="sm"
+                      icon="refresh"
+                      disabled={blueprintRefreshing}
+                      onClick={async () => {
+                        setBlueprintRefreshing(true);
+                        try {
+                          const freshBp = await api.getUserBlueprint(true);
+                          setUserBlueprint(freshBp);
+                          setNotice("个人全域蓝图 (USER_BLUEPRINT.md) 已重新提炼并更新");
+                        } catch (e) {
+                          setError((e as Error).message);
+                        } finally {
+                          setBlueprintRefreshing(false);
+                        }
+                      }}
+                    >
+                      {blueprintRefreshing ? "提炼中..." : "刷新蓝图"}
+                    </Btn>
+                    {userBlueprint?.markdown && (
+                      <Btn
+                        size="sm"
+                        icon="arrow_down"
+                        onClick={() => {
+                          const blob = new Blob([userBlueprint.markdown], { type: "text/markdown;charset=utf-8" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = "USER_BLUEPRINT.md";
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          setTimeout(() => URL.revokeObjectURL(url), 0);
+                        }}
+                      >
+                        下载 USER_BLUEPRINT.md
+                      </Btn>
+                    )}
+                  </div>
+                </div>
+
+                {userBlueprint ? (
+                  <>
+                    {/* 1. 学科交叉与专业背景 */}
+                    <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--aurora-fg1)]">
+                          🎓 学科交叉与专业领域 ({userBlueprint.disciplines.length})
+                        </span>
+                        <span className="text-[10px] font-mono text-[var(--aurora-fg4)]">
+                          基于代码库 AST、图谱实体与领域规则自动推断
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {userBlueprint.disciplines.map((d) => (
+                          <div
+                            key={d.id}
+                            onClick={() => triggerSynapse(`🎓 学科维度：${d.name}`, "brain")}
+                            className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:border-[#6366F1] transition-all cursor-pointer space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-[var(--aurora-fg1)]">{d.name}</span>
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-[#6366F1]/15 text-[#6366F1]">
+                                关联 {d.projects.length} 项目
+                              </span>
+                            </div>
+                            <div className="text-[10px] font-mono text-[var(--aurora-fg4)]">{d.en_name}</div>
+                            <p className="text-[11px] text-[var(--aurora-fg2)] leading-relaxed">{d.description}</p>
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {d.evidence.slice(0, 6).map((kw) => (
+                                <span
+                                  key={kw}
+                                  className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-[var(--aurora-chip)] text-[var(--aurora-fg3)] border border-[var(--aurora-border)]"
+                                >
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 2. 核心业务版图 */}
+                    <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[var(--aurora-fg1)]">
+                          💼 核心业务版图与应用场景 ({userBlueprint.business_domains.length})
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {userBlueprint.business_domains.map((b) => (
+                          <div
+                            key={b.id}
+                            onClick={() => triggerSynapse(`💼 业务板块：${b.name}`, "project")}
+                            className="p-3 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] hover:border-[#10B981] transition-all cursor-pointer space-y-1.5"
+                          >
+                            <div className="text-xs font-bold text-[var(--aurora-fg1)]">{b.name}</div>
+                            <p className="text-[11px] text-[var(--aurora-fg2)] leading-relaxed">{b.scenarios}</p>
+                            {b.projects.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {b.projects.map((p) => (
+                                  <span
+                                    key={p}
+                                    className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-[#10B981]/12 text-[#10B981] border border-[#10B981]/30"
+                                  >
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 3. 全域技术栈雷达 */}
+                    <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
+                      <span className="text-xs font-bold text-[var(--aurora-fg1)] block">
+                        ⚡ 全域技术栈与工程底座雷达
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {Object.entries(userBlueprint.tech_radar).map(([key, cat]) =>
+                          cat.items.length > 0 ? (
+                            <div
+                              key={key}
+                              className="p-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] space-y-1.5"
+                            >
+                              <div className="text-[11px] font-bold text-[var(--aurora-fg2)]">{cat.label}</div>
+                              <div className="flex flex-wrap gap-1">
+                                {cat.items.map((it) => (
+                                  <span
+                                    key={it}
+                                    className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#F59E0B]/12 text-[#D97706] border border-[#F59E0B]/30 font-medium"
+                                  >
+                                    {it}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 4. 跨项目架构蓝图矩阵 */}
+                    <div className="p-3.5 rounded-2xl border border-[var(--aurora-border)] bg-[var(--aurora-surface-solid)] space-y-2.5">
+                      <span className="text-xs font-bold text-[var(--aurora-fg1)] block">
+                        🏗️ 跨项目架构蓝图矩阵 ({userBlueprint.projects.length})
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {userBlueprint.projects.map((p) => (
+                          <div
+                            key={p.name}
+                            className="p-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold font-mono text-[var(--aurora-fg1)]">{p.name}</span>
+                              <span className="text-[9px] font-mono text-[var(--aurora-fg4)]">
+                                {p.subsystems_count} 模块 · {p.models_count} 表 · {p.routes_count} 路由
+                              </span>
+                            </div>
+                            {p.tech_stack.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {p.tech_stack.slice(0, 5).map((t) => (
+                                  <span
+                                    key={t}
+                                    className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-[var(--aurora-chip)] text-[var(--aurora-fg3)]"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {p.subsystems_preview.length > 0 && (
+                              <div className="text-[10px] text-[var(--aurora-fg3)] truncate pt-0.5">
+                                {p.subsystems_preview.slice(0, 2).join(" · ")}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 5. 完整 USER_BLUEPRINT.md 渲染（含 Mermaid 拓扑图） */}
+                    <Glass padding={14} radius={16}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-[var(--aurora-fg1)]">
+                          📄 完整个人蓝图文档 (USER_BLUEPRINT.md)
+                        </span>
+                        <Btn
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowFullUserBlueprintMd(!showFullUserBlueprintMd)}
+                        >
+                          {showFullUserBlueprintMd ? "收起完整文档" : "展开完整 Markdown 蓝图"}
+                        </Btn>
+                      </div>
+                      <div
+                        style={{
+                          maxHeight: showFullUserBlueprintMd ? "none" : 360,
+                          overflow: showFullUserBlueprintMd ? "visible" : "hidden",
+                        }}
+                        className="prose prose-sm max-w-none text-xs p-3 rounded-xl bg-[var(--aurora-surface-solid)] border border-[var(--aurora-border)]"
+                      >
+                        <MarkdownViewer content={userBlueprint.markdown} />
+                      </div>
+                    </Glass>
+                  </>
+                ) : (
+                  <Glass padding={20} radius={16} className="text-center text-xs text-[var(--aurora-fg3)]">
+                    正在提炼您的跨项目、技术、业务与学科蓝图...
+                  </Glass>
+                )}
+              </div>
             )}
 
             {/* ─────────────────────────────────────────────────────────────

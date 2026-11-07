@@ -29,7 +29,7 @@ from ..db.models import (
     UserProfile,
 )
 from ..db.session import get_db
-from ..middleware.auth import get_current_user, verify_collector_token
+from ..middleware.auth import get_current_user, get_current_user_or_collector, verify_collector_token
 from ..services import ai_health
 from ..services.cache import cache_delete_prefix, cache_get, cache_set
 from ..services.guard_service import guard_tools
@@ -97,8 +97,20 @@ async def _bust_user_profile_cache(user_id) -> None:
         await cache_delete_prefix(f"profile:summary:{user_id}")
         await cache_delete_prefix(f"profile_injection:{user_id}")
         await cache_delete_prefix(f"skills_injection:{user_id}")
+        await cache_delete_prefix(f"user:blueprint:v1:{user_id}")
     except Exception:
         pass
+
+
+@router.get("/blueprint")
+async def get_user_blueprint(
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_collector),
+) -> dict:
+    """Return the synthesized User Cognitive & Domain Blueprint (`USER_BLUEPRINT.md`)."""
+    from ..services.user_blueprint_service import build_user_blueprint
+    return await build_user_blueprint(db, user, force_refresh=refresh)
 
 
 # ---------------------------------------------------------------------------

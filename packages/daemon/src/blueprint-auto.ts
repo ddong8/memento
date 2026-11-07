@@ -261,6 +261,24 @@ export async function applyRemoteBlueprintScript(
   }
 }
 
+/** Sync USER_BLUEPRINT.md to ~/.memento/USER_BLUEPRINT.md for instant local agent access */
+export async function syncLocalUserBlueprint(markdown?: string | null): Promise<boolean> {
+  if (!markdown || markdown.length < 50) return false;
+  try {
+    const dir = mementoDir(homeDir());
+    await mkdir(dir, { recursive: true });
+    const target = join(dir, "USER_BLUEPRINT.md");
+    const existing = await readFile(target, "utf8").catch(() => "");
+    if (existing === markdown) return false;
+    const tmp = `${target}.tmp`;
+    await writeFile(tmp, markdown, "utf8");
+    await rename(tmp, target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ensure PROJECT_BLUEPRINT.md and post-commit hook are deployed for a given project directory.
  * Guaranteed to be non-blocking, safe, idempotent, and fault-tolerant.

@@ -146,6 +146,32 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertNotIn("ACCOUNTS", er)
 
 
+class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
+    async def test_build_user_blueprint_synthesizes_disciplines_domains_and_projects(self):
+        import uuid
+        from unittest.mock import AsyncMock, MagicMock
+        from server.db.models import User
+        from server.services.user_blueprint_service import build_user_blueprint
+
+        user = User(id=uuid.uuid4(), email="haixing@example.com", name="Haixing Dong", role="owner")
+        mock_db = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.scalars.return_value.all.return_value = []
+        mock_res.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_res
+        res = await build_user_blueprint(mock_db, user, force_refresh=True)
+
+        self.assertEqual(res["user_name"], "Haixing Dong")
+        self.assertTrue(len(res["disciplines"]) >= 2)
+        self.assertTrue(len(res["business_domains"]) >= 2)
+        self.assertTrue(len(res["projects"]) >= 1)
+        self.assertIn("flowchart LR", res["mermaid_topology"])
+        self.assertIn("# User Cognitive & Domain Blueprint: Haixing Dong", res["markdown"])
+        self.assertIn("## 2. 学科交叉与专业领域", res["markdown"])
+        self.assertIn("## 3. 核心业务版图与应用场景", res["markdown"])
+        self.assertIn("## 4. 跨项目架构蓝图矩阵", res["markdown"])
+        self.assertIn("## 5. 全域技术栈与基础设施雷达", res["markdown"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9b6304d6` · Updated: `2026-11-07`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `167b0f20` · Updated: `2026-11-07`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -579,9 +579,9 @@ erDiagram
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (7 commits)
 - [`server/server/main.py`](server/server/main.py) (7 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (6 commits)
+- [`server/server/api/projects.py`](server/server/api/projects.py) (6 commits)
+- [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (6 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (5 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (5 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -604,12 +604,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `9b6304d6` (2026-11-07): feat(blueprint): 支持跨设备守护进程蓝图生成器内置与服务端OTA全自动同步
+- `167b0f20` (2026-11-07): fix(blueprint): 统一服务端多端点与跨工具项目的蓝图数据库兜底查询
+- `80c782b7` (2026-11-07): feat(blueprint): 支持跨设备守护进程蓝图生成器内置与服务端OTA全自动同步
 - `1f95aa64` (2026-11-07): feat(blueprint): 修复蓝图入库项目绑定与图谱提取并增强聚合路由与ER图归一化
 - `ada8b874` (2026-11-07): feat(blueprint): 打通心领神会前置架构快照自动注入与远程调度蓝图直达
 - `afb44331` (2026-11-07): fix(blueprint): 修复DTO重复扫描、无前缀路由重复拼接与历史构建产物热点过滤
 - `e55c1383` (2026-11-07): feat(blueprint): 增强多层级子系统职责推断、全栈框架路由探测与项目详情页蓝图可视化
-- `1af32afb` (2026-11-07): perf(blueprint): 优化大仓库单次目录剪枝遍历与守护进程周期性全项目蓝图同步
 
 ## 10. Key Environment Variables & Configuration
 

@@ -450,6 +450,57 @@ async def list_projects(
     return items
 
 
+async def _resolve_codebase_blueprint(
+    db: AsyncSession,
+    project: Project,
+    mids: list[uuid.UUID] | None,
+    preloaded_docs: list[Document] | None = None,
+    explicit_path: str | None = None,
+) -> str | None:
+    """Resolve PROJECT_BLUEPRINT.md from local disk, preloaded docs, or cross-tool DB fallback."""
+    clean_path = explicit_path if explicit_path is not None else _clean_source_path(project.source_path)
+    if clean_path:
+        try:
+            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
+            if bp_file.is_file():
+                return bp_file.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            pass
+
+    if preloaded_docs:
+        for d in preloaded_docs:
+            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
+                try:
+                    content = getattr(d, "content", None)
+                    if isinstance(content, str) and content:
+                        return content
+                except Exception:
+                    pass
+
+    try:
+        conds = [Document.project_id == project.id]
+        for key in (project.title, project.slug):
+            if key:
+                leaf = key.rsplit("/", 1)[-1]
+                conds.append(Document.relative_path.ilike(f"{leaf}/PROJECT_BLUEPRINT.md"))
+        bp_q = (
+            select(Document.content)
+            .where(
+                Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
+                or_(*conds),
+            )
+            .order_by(Document.synced_at.desc())
+            .limit(1)
+        )
+        bp_q = apply_user_filter(bp_q, mids, Document.machine_id)
+        val = (await db.execute(bp_q)).scalar_one_or_none()
+        if isinstance(val, str) and val:
+            return val
+    except (Exception, StopIteration):
+        pass
+    return None
+
+
 @router.get("/{project_id}")
 async def get_project(
     project_id: uuid.UUID,
@@ -504,19 +555,9 @@ async def get_project(
         return row
 
     clean_path = _clean_source_path(project.source_path)
-    codebase_blueprint = None
-    if clean_path:
-        try:
-            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
-            if bp_file.is_file():
-                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            pass
-    if not codebase_blueprint:
-        for d in docs:
-            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md") and getattr(d, "content", None):
-                codebase_blueprint = d.content
-                break
+    codebase_blueprint = await _resolve_codebase_blueprint(
+        db, project, mids, preloaded_docs=list(docs) if include_content else None, explicit_path=clean_path
+    )
 
     return {
         "id": str(project.id),
@@ -1668,15 +1709,10 @@ async def get_project_conversations(
     else:
         source_path = _clean_source_path(project.source_path) or ""
 
-    # Also expose codebase_blueprint on project conversations response if available locally
-    codebase_blueprint = None
-    if source_path:
-        try:
-            bp_file = Path(source_path) / "PROJECT_BLUEPRINT.md"
-            if bp_file.is_file():
-                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            pass
+    # Also expose codebase_blueprint on project conversations response
+    codebase_blueprint = await _resolve_codebase_blueprint(
+        db, project, mids, explicit_path=source_path
+    )
 
     payload = {
         "project": {
@@ -1796,20 +1832,9 @@ async def export_project_markdown(
     lines.append("")
 
     # Prepend Living Codebase Architecture Blueprint if present on disk or in synced docs
-    clean_export_path = _clean_source_path(project.source_path)
-    export_bp = None
-    if clean_export_path:
-        try:
-            bp_file = Path(clean_export_path) / "PROJECT_BLUEPRINT.md"
-            if bp_file.is_file():
-                export_bp = bp_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            pass
-    if not export_bp:
-        for d in docs:
-            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md") and d.content:
-                export_bp = d.content
-                break
+    export_bp = await _resolve_codebase_blueprint(
+        db, project, mids, preloaded_docs=docs
+    )
     if export_bp:
         lines.append("## Living Codebase Architecture Blueprint / 活体代码蓝图")
         lines.append("")
@@ -2047,22 +2072,9 @@ async def get_project_blueprint(
             })
 
     # Codebase Living Architecture Blueprint (PROJECT_BLUEPRINT.md)
-    codebase_blueprint = None
-    clean_path = _clean_source_path(project.source_path)
-    if clean_path:
-        try:
-            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
-            if bp_file.is_file():
-                codebase_blueprint = bp_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            pass
-
-    if not codebase_blueprint:
-        # Fallback to curated_docs if already ingested
-        for cd in curated_docs:
-            if (cd.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
-                codebase_blueprint = cd.content
-                break
+    codebase_blueprint = await _resolve_codebase_blueprint(
+        db, project, mids, preloaded_docs=curated_docs
+    )
 
     payload = {
         "project": {

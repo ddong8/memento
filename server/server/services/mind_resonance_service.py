@@ -685,11 +685,13 @@ async def _fetch_project_blueprint_summary(
     try:
         doc_q = (
             select(Document.content)
-            .join(Project, Document.project_id == Project.id)
+            .outerjoin(Project, Document.project_id == Project.id)
             .where(
                 or_(
                     Project.title.ilike(project_name),
+                    Project.slug.ilike(project_name),
                     Project.slug.ilike(f"%/{project_name}"),
+                    Document.relative_path.ilike(f"{project_name}/PROJECT_BLUEPRINT.md"),
                 ),
                 Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
             )

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `353cecd0` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `16142443` · Updated: `2026-11-08`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 152 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `353cecd0` (2026-11-08): refactor(release): 发版元数据脚本改写为 TypeScript
+- 最近改动 (Latest): `16142443` (2026-11-08): refactor(scripts): UPnP 端口映射脚本改写为 TypeScript
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -599,7 +599,7 @@ erDiagram
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (8 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
 - [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `16142443` (2026-11-08): refactor(scripts): UPnP 端口映射脚本改写为 TypeScript
 - `353cecd0` (2026-11-08): refactor(release): 发版元数据脚本改写为 TypeScript
 - `9bc62c41` (2026-11-08): refactor(install): 自建安装器改写为 TypeScript，不再需要 Python
 - `ff6cad90` (2026-11-08): refactor(antigravity): Antigravity 运行脚本改写为 TypeScript，设备不再需要 Python
 - `b3bd4cdc` (2026-11-08): refactor(blueprint): 项目蓝图生成器改写为 TypeScript，设备不再需要 Python
 - `88006d14` (2026-11-08): chore(release): 升级客户端版本至 v1.0.98，设备页显示客户端版本与项目蓝图状态，蓝图写入项目简介
-- `368b3eb7` (2026-11-08): feat(blueprint): 项目蓝图写入项目简介、上报生成状态，设备页显示客户端版本
 
 ## 10. Key Environment Variables & Configuration
 

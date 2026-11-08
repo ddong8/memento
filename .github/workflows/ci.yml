@@ -120,6 +120,12 @@ jobs:
           npm run test -w @memento/desktop
           node apps/desktop/scripts/build.mjs
 
+      # The installer and the release tools run straight from .mts (Node 22.18+ strips the types)
+      - name: scripts · typecheck & test
+        run: |
+          npx tsc -p scripts
+          node --test scripts/test/*.test.mts
+
   ts-mobile:
     name: ts · mobile
     runs-on: ubuntu-latest

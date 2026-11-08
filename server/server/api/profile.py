@@ -97,7 +97,7 @@ async def _bust_user_profile_cache(user_id) -> None:
         await cache_delete_prefix(f"profile:summary:{user_id}")
         await cache_delete_prefix(f"profile_injection:{user_id}")
         await cache_delete_prefix(f"skills_injection:{user_id}")
-        await cache_delete_prefix(f"user:blueprint:v2:{user_id}")
+        await cache_delete_prefix(f"user:blueprint:v3:{user_id}")
     except Exception:
         pass
 

@@ -2127,7 +2127,7 @@ async def deduplicate_and_merge_entities(
             from .cache import cache_delete_prefix
             await cache_delete_prefix(f"memory:resonance:{user_id}")
             await cache_delete_prefix(f"profile_injection:{user_id}")
-            await cache_delete_prefix(f"user:blueprint:v2:{user_id}")
+            await cache_delete_prefix(f"user:blueprint:v3:{user_id}")
         except Exception:
             pass
     return stats

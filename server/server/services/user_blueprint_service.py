@@ -50,7 +50,7 @@ logger = logging.getLogger("server.user_blueprint_service")
 
 # Busted where profile, memories, entities or blueprint documents change (profile.py, memory.py,
 # dreaming_service.py, ingest_service.py, projects.py); the TTL only bounds staleness otherwise.
-CACHE_PREFIX = "user:blueprint:v2:"
+CACHE_PREFIX = "user:blueprint:v3:"
 # Busted when a blueprint, the profile, memories or the graph change; the TTL only bounds count drift
 CACHE_TTL_SECONDS = 3600
 
@@ -101,7 +101,8 @@ FIELDS: list[dict[str, Any]] = [
             "llm", "llms", "gpt", "openai", "anthropic", "claude", "gemini", "mcp", "agent", "agents",
             "rag", "embedding", "embeddings", "pgvector", "langchain", "llamaindex", "transformers",
             "pytorch", "tensorflow", "ollama", "vllm", "huggingface", "modelscope", "fine-tune",
-            "大模型", "智能体", "向量检索", "知识图谱", "提示词", "微调", "模型训练", "推理服务",
+            "fastmcp", "大模型", "智能体", "向量检索", "知识图谱", "提示词", "微调", "模型训练", "推理服务",
+            "ai 记忆", "ai记忆", "长期记忆", "记忆系统",
         ],
     },
     {
@@ -225,7 +226,7 @@ FIELDS: list[dict[str, Any]] = [
         "domain": "效率工具与自动化",
         "keywords": [
             "obsidian", "notion", "raycast", "launchd", "cron", "crontab", "n8n", "zapier", "automation",
-            "workflow", "copilot", "自动化", "定时任务", "工作流", "日报", "笔记", "待办", "办公",
+            "workflow", "copilot", "自动化", "定时任务", "工作流", "日报", "笔记", "待办", "办公", "知识管理",
         ],
     },
     {
@@ -1133,12 +1134,15 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
         # The profile's lines for a project are rules about working on it, not what it is
         description = _sanitize_summary(ent_summary)
         tech_stack = [t for t in bp.get("tech_stack", []) if t.lower() not in _NOISE_TECH_TOKENS] or ent_tech[:6]
-        about = " ".join([p["name"], description, _sanitize_summary(ent_summary, 400), " ".join(p["scoped"])]).lower()
+        about = " ".join([p["name"], description, _sanitize_summary(ent_summary, 400)]).lower()
         stack = " ".join([" ".join(tech_stack), " ".join(ent_tech), " ".join(bp.get("subsystems_preview", [])), " ".join(bp.get("quick", []))]).lower()
-        hits_about, hits_stack = _field_hits(about), _field_hits(stack)
+        # Working rules ("polish drafts before pushing to WeChat") only break ties: they say how the
+        # user works on a project, not what it is
+        rules = " ".join(p["scoped"]).lower()
+        hits_about, hits_stack, hits_rules = _field_hits(about), _field_hits(stack), _field_hits(rules)
         weights: dict[str, float] = {}
-        for fid in set(hits_about) | set(hits_stack):
-            w = 2 * len(hits_about.get(fid, [])) + len(hits_stack.get(fid, []))
+        for fid in set(hits_about) | set(hits_stack) | set(hits_rules):
+            w = 2 * len(hits_about.get(fid, [])) + len(hits_stack.get(fid, [])) + 0.5 * len(hits_rules.get(fid, []))
             weights[fid] = w * (0.5 if fid in _GENERIC_FIELDS else 1.0)
         primary = max(weights, key=lambda f: (weights[f], -list(_FIELD_BY_ID).index(f))) if weights else ""
         last = p["last"]

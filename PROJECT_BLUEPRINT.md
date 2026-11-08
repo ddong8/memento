@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0bd095ae` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1ea50dc0` · Updated: `2026-11-08`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -15,7 +15,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 218 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `0bd095ae` (2026-11-08): feat(blueprint): 项目蓝图与个人蓝图全面优化
+- 最近改动 (Latest): `1ea50dc0` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `1ea50dc0` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
 - `0bd095ae` (2026-11-08): feat(blueprint): 项目蓝图与个人蓝图全面优化
 - `9ed308a1` (2026-11-08): docs: README 中英文按代码现状更新
 - `4b2a0d13` (2026-11-08): fix(install): 卸载时撤回写进 AI 工具的内容，.env 里的设置真正传进容器
 - `df5c8b83` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
 - `a1f2cea6` (2026-11-08): fix(server): 作息按用户本地日期统计，夜间学到的场景各副本定时刷新
-- `44dcb335` (2026-11-08): fix(tasks): 派活任务创建后立即经 WebSocket 下发，主动执事的后台任务按步推进
 
 ## 10. Key Environment Variables & Configuration
 

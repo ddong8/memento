@@ -394,6 +394,20 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("偏好容器化 + k8s 部署", md)
         self.assertEqual({d["platform"] for d in res["devices"]}, {"macOS"})
 
+    def test_working_rules_do_not_decide_what_a_project_is(self):
+        from server.services.user_blueprint_service import synthesize_user_blueprint
+
+        src = _sources(
+            blueprint_docs=[],
+            project_entities={"memento": ("多端 AI 记忆/知识管理项目，采用 Monorepo 架构", ["K3s", "Electron", "Redis", "FastMCP"])},
+            profile_text=(
+                "### 只在对应项目里适用\n#### memento（`/Users/u/dev/memento`）\n"
+                "- 工作台文本支持多次编辑润色，确认无误后再推送到公众号草稿；文章带上官网链接\n"
+            ),
+        )
+        by_name = {p["name"]: p for p in synthesize_user_blueprint("u", src)["projects"]}
+        self.assertEqual(by_name["memento"]["primary_field"], "ai_ml")
+
     def test_rules_and_noise_are_not_project_summaries(self):
         from server.services.user_blueprint_service import _is_noise_project, _sanitize_summary
 
@@ -436,7 +450,7 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(res["user_name"], "Haixing Dong")
         cache_set.assert_awaited_once()
-        self.assertEqual(cache_set.await_args.args[0], f"user:blueprint:v2:{user.id}")
+        self.assertEqual(cache_set.await_args.args[0], f"user:blueprint:v3:{user.id}")
         # Even an owner gets their own devices only: the machines query is filtered by user id
         self.assertIn("machines.user_id", statements[0])
 

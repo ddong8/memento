@@ -66,6 +66,11 @@ Electron 桌面端：
   - git hook 先找 `~/.memento/scripts/runtime`（守护进程写的，指向 Memento 自带的 Node），没有再用 PATH 上的 `node`；旧版写的调用 Python 的 hook 由新守护进程自动换掉
   - 服务端改为下发 `.mjs`（`/api/profile/blueprint-generator`，注入响应里是 `blueprint_generator`）；v1.0.98 及更早的客户端读的是 `blueprint_script`，服务端不再给，它们继续用自带的 Python 版，升级后自动换成 TS 版
   - 设备页的蓝图状态报的是运行环境（`runtime`），只有旧客户端才会提示缺 Python
+- [x] Antigravity 运行脚本：`agy_cli.py` 改写为 `packages/daemon/src/agy-runner`，打包成 `assets/agy_cli.mjs`，和 Codex 运行脚本一样在桌面端自带的运行时上执行；`~/.local/bin/agy` 与 Windows 的 `agy.cmd` 自动换成调用 .mjs 的版本（用户自己或 Google 的同名命令不动）；读写 `conversation_summaries.db` 的 Python 兜底换成 `sqlite.ts`（优先 `node:sqlite`，没有时用 sqlite3 命令行）
+- [x] 仓库里的工具脚本：自建安装器 `scripts/install.py` + `scripts/install_lib/*` 改写为 `scripts/install.mts` + `scripts/install/*.mts`；发版元数据（`verify_release_metadata.py` 和 desktop-release.yml 里内联的两段 Python）合并为 `scripts/release-metadata.mts`（notes / update / verify）；`auto_punch_upnp.py` 改写为 `scripts/upnp-map.mts`。都只用 Node 内置模块，不经编译直接以 `.mts` 运行（Node.js 22.18 起默认去掉类型注解），`install.sh` / `install.ps1` 找不到合适的 Node 时借用桌面端自带的运行时；`scripts/tsconfig.json` 只做类型检查，测试在 `scripts/test`（node:test），CI 两样都跑
+  - 安装器在桌面端运行时上只写设备配置、由桌面端接管采集（守护进程注册的服务要用真正的 Node 启动）；宿主向量服务（`embedding --native`）仍要 Python 3.11+，因为模型服务本身是 Python
+  - 输出、退出码与原版一致：`doctor` 的状态表、`verify` 对 v1.0.98 的校验输出逐字相同，`update` 生成的 version.json 与原内联 Python 逐字节相同
+- 继续用 Python 的：`server/`（FastAPI 服务端）、`embedding/`（向量模型只能跑在 Python 里），以及 `scripts/fetch_geoip.py`（只在服务端镜像构建时运行，镜像本身是 Python）
 
 ### 收尾
 - [x] 清理不再使用的代码（2026-09-29 用户确认）：删除旧 Python 采集器 `collector/`、打包壳 `memento_brain/` 和它的架构文档；Python MCP 去掉直连数据库模式（远程模式保留，现有 `memento-memory` 配置照常可用）；服务端删掉从未生效的 `/mcp` 挂载和 PyPI 采集器版本接口，镜像不再安装 mcp_server；管理页去掉「更新采集器」按钮（新旧采集都不处理这个命令）；CI 和 PyPI 发布只保留 memento-brain-memory；自建安装脚本改为从仓库构建 Node 守护进程（没有 Node 就提示装桌面端）
@@ -91,3 +96,5 @@ Electron 桌面端：
 | 2026-09-29 | 2 | 网页端补齐 Flutter 独有功能：健康、技能、纠正、待办、推送、做梦、任务时间线/插话/独立分支 |
 | 2026-09-29 | 2 | @memento/daemon：采集端全部移植（42 个测试，含假 Claude 端到端：结构化步骤、中途插话、worktree）；对本地模拟服务器冒烟通过 |
 | 2026-11-08 | 5 | 项目蓝图生成器改写为 TS（`packages/daemon/src/blueprint` → `scripts/project_blueprint.mjs`）：与 Python 版在 21 个仓库上输出一致；生成器测试移到 vitest（18 个），守护进程蓝图测试 23 个；服务端改为下发 .mjs |
+| 2026-11-08 | 5 | Antigravity 运行脚本改写为 TS（`agy_cli.mjs`），设备上不再需要 Python；单元测试与经守护进程任务通道的端到端测试（假 language server + 假 agentapi） |
+| 2026-11-08 | 5 | 安装器、发版元数据、UPnP 脚本改写为 TS（`scripts/*.mts`）：仓库里除服务端镜像构建用的 `fetch_geoip.py` 外不再有 Python 工具脚本；`scripts/test` 39 个测试（Node 22 与 25 都通过） |

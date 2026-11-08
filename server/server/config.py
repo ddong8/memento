@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     cors_allow_origin_regex: str = r".*"
 
     # Registration control:
-    #   open        — anyone can self-register (pending, needs admin approval)
+    #   open        — anyone can self-register and is active right away (viewer)
     #   invite_only — must provide a valid invite_code at registration
     #   closed      — registration endpoint refuses everyone
     registration_mode: str = "open"

@@ -24,7 +24,7 @@ async def _summarize_conversation(tool_id: str, title: str, digest: str, sem: as
     async with sem:
         # For short conversations, no need to call AI
         if len(digest) < 200:
-            return {"tool_id": tool_id, "title": title, "summary": digest}
+            return {"tool_id": tool_id, "title": title, "summary": digest, "ok": True}
 
         # Truncate very long digests to fit in context
         if len(digest) > 8000:
@@ -47,12 +47,15 @@ async def _summarize_conversation(tool_id: str, title: str, digest: str, sem: as
             "tool_id": tool_id,
             "title": title,
             "summary": result or digest[:300],
+            "ok": bool(result),
         }
 
 
 async def generate_daily_summary_from_digests(
     summary_date: date,
     conversations: list[dict],
+    *,
+    require_complete: bool = False,
 ) -> str | None:
     """Two-pass daily summary generation.
 
@@ -61,6 +64,8 @@ async def generate_daily_summary_from_digests(
 
     Args:
         conversations: [{tool_id, title, digest}, ...]
+        require_complete: None when any conversation's summary failed, instead of merging its first
+            300 characters (for re-baking a day that already has a report)
     """
     if not get_ai_providers():
         logger.warning("No AI providers configured")
@@ -80,6 +85,11 @@ async def generate_daily_summary_from_digests(
         for c in valid_convs
     ]
     conv_summaries = await asyncio.gather(*tasks)
+    failed = sum(1 for cs in conv_summaries if not cs["ok"])
+    if failed and require_complete:
+        logger.warning("Daily summary for %s not regenerated: %d of %d conversation summaries failed",
+                       summary_date, failed, len(conv_summaries))
+        return None
 
     # --- Pass 2: Merge into daily report ---
     logger.info("Pass 2: merging %d conversation summaries into daily report", len(conv_summaries))

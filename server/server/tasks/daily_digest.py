@@ -69,10 +69,6 @@ async def _generate_digest(target_date: date) -> None:
                     "digest": "\n".join(parts),
                 })
 
-            summary_text = await generate_daily_summary_from_digests(target_date, conv_data)
-            if not summary_text:
-                continue
-
             existing = (await db.execute(
                 select(DailySummary).where(
                     DailySummary.summary_date == target_date,
@@ -80,6 +76,13 @@ async def _generate_digest(target_date: date) -> None:
                     DailySummary.user_id == user.id,
                 )
             )).scalar_one_or_none()
+            # Re-baking a day that has a report (03:30): if the model can't be reached for some conversations,
+            # they would go in as their first 300 characters over the 23:30 report. Keep that one instead.
+            summary_text = await generate_daily_summary_from_digests(
+                target_date, conv_data, require_complete=existing is not None
+            )
+            if not summary_text:
+                continue
             highlights = {"tool_counts": tool_counts}
             date_str = target_date.isoformat()
             if existing is not None:

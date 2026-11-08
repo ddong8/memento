@@ -66,6 +66,16 @@ export function blueprintSection(md: string, section = "summary"): string {
   return parts.length ? parts.join("\n\n") : `No section "${section}" in this blueprint. Sections:\n${sectionList.join("\n")}`;
 }
 
+const DOC_OPENING_CHARS = 400;
+
+/** The whole lines of `md` that fit in `max` characters (at least the first line, cut). */
+function opening(md: string, max: number): string {
+  if (md.length <= max) return md;
+  let end = md.lastIndexOf("\n", max);
+  if (end <= 0) end = max;
+  return md.slice(0, end).trimEnd();
+}
+
 export function todoLine(t: Json): string {
   const extra = [t.due ? `due ${s(t.due)}` : "", s(t.project)].filter(Boolean);
   return `- [${s(t.id).slice(0, 8)}] ${s(t.title)}${extra.length ? ` (${extra.join(", ")})` : ""}`;
@@ -347,14 +357,23 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       if (codebaseBp) {
         out.push("## Living Codebase Architecture Blueprint", "", blueprintSection(codebaseBp, section), "");
       }
-      const curated = arr(bp.curated_docs);
+      // The summary keeps within a tool result: whole documents only with section="all"
+      const brief = !["all", "full"].includes(section.trim().toLowerCase());
+      // Not each device's copy of PROJECT_BLUEPRINT.md: the newest one is above (three copies were 135K characters)
+      const curated = arr(bp.curated_docs).filter((d) => !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")));
       if (curated.length) {
         out.push("## Curated documents");
+        let cut = 0;
         for (const d of curated) {
-          out.push(`\n### [${s(d.category)}] ${s(d.title) || s(d.relative_path)}`, `*${s(d.relative_path)}*  ·  *${day(d.synced_at)}*`);
+          out.push(`\n### [${s(d.category)}] ${s(d.title) || s(d.relative_path)}`, `*${s(d.relative_path)}*  ·  *${day(d.synced_at)}*${d.id ? `  ·  doc id \`${s(d.id)}\`` : ""}`);
           if (d.ai_summary) out.push(`\n**AI summary**: ${s(d.ai_summary)}`);
-          out.push("", s(d.content) || "*(empty)*");
+          const body = s(d.content);
+          const head = brief ? opening(body, DOC_OPENING_CHARS) : body;
+          const more = head.length < body.length;
+          if (more) cut++;
+          out.push("", body ? `${head}${more ? "\n…" : ""}` : "*(empty)*");
         }
+        if (cut) out.push("", `_${cut} documents show their opening only: memory_open(doc_id) for one, or section="all" for all of them._`);
         out.push("");
       }
       const entities = arr(obj(bp.knowledge_graph).entities);
@@ -366,7 +385,9 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
           const rels = arr(e.relations);
           if (rels.length) out.push("\n**Relations:**", ...rels.map((r) => `- ${s(r.relation)} → **${s(r.target_name)}** (${s(r.target_type)})`));
           const obs = arr(e.observations);
-          if (obs.length) out.push("\n**Observations:**", ...obs.map((o) => `- ${o.observed_at ? `[${day(o.observed_at)}] ` : ""}${s(o.content)}`));
+          const shown = brief ? obs.slice(0, 5) : obs;
+          if (shown.length) out.push("\n**Observations:**", ...shown.map((o) => `- ${o.observed_at ? `[${day(o.observed_at)}] ` : ""}${s(o.content)}`));
+          if (shown.length < obs.length) out.push(`- _(${obs.length - shown.length} more: section="all")_`);
         }
         out.push("");
       }

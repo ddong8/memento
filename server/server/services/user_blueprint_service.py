@@ -43,6 +43,7 @@ from ..db.models import (
     User,
     UserMemory,
 )
+from .blueprint_pick import BlueprintCopy, blueprint_copy, is_fresher
 from .cache import cache_get, cache_set
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -922,9 +923,9 @@ def _render_user_blueprint_markdown(
 @dataclass
 class BlueprintSources:
     devices: list[dict[str, Any]] = field(default_factory=list)
-    # (project_id, title, source_path, document_count, last_synced_at)
+    # (project_id, title, source_path, document_count, last_synced_at), not counting PROJECT_BLUEPRINT.md
     project_rows: list[tuple[Any, str, str | None, int, datetime | None]] = field(default_factory=list)
-    # (project_id, relative_path, content, synced_at), newest first
+    # (project_id, relative_path, content, synced_at), newest first; one per device checkout
     blueprint_docs: list[tuple[Any, str, str | None, datetime | None]] = field(default_factory=list)
     memories: list[str] = field(default_factory=list)
     # (name, entity_type, observation_count), most observed first
@@ -967,8 +968,13 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
 
     if machine_ids:
         try:
+            # Devices re-upload their blueprints on every sync: that is neither work nor recent activity
+            work = ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md")
             src.project_rows = [tuple(r) for r in (await db.execute(
-                select(Project.id, Project.title, Project.source_path, func.count(Document.id), func.max(Document.synced_at))
+                select(
+                    Project.id, Project.title, Project.source_path,
+                    func.count(Document.id).filter(work), func.max(Document.synced_at).filter(work),
+                )
                 .join(Document, Document.project_id == Project.id)
                 .where(Document.machine_id.in_(machine_ids))
                 .group_by(Project.id)
@@ -983,7 +989,8 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
                     Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
                 )
                 .order_by(Document.synced_at.desc())
-                .limit(60)
+                # All of them: 60 kept only the device synced last (a laptop's 73 old clones, 2026-11-09)
+                .limit(1000)
             )).all()]
         except Exception as e:
             logger.warning("user blueprint: blueprint documents failed for %s: %s", user.id, e)
@@ -1084,6 +1091,13 @@ async def _load_sources(db: AsyncSession, user: User) -> BlueprintSources:
 _GENERIC_FIELDS = {"software_engineering", "databases", "distributed_cloud", "mobile_desktop"}
 
 
+def _code_day(date: str) -> datetime | None:
+    try:
+        return datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, Any]]:
     projects: dict[str, dict[str, Any]] = {}
     id_to_key: dict[Any, str] = {}
@@ -1115,6 +1129,9 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
         if paths and all(any(path.startswith(other + "/") for other in all_paths if other != path) for path in paths):
             del projects[key]
 
+    # Each device uploads its own checkout's copy: keep the one describing the newest code. Its commit
+    # date is how recent a project is that has nothing but its blueprint uploaded (none without commits).
+    chosen: dict[str, BlueprintCopy] = {}
     for pid, rel, content, _synced in src.blueprint_docs:
         if not isinstance(content, str) or "# Project Blueprint" not in content:
             continue
@@ -1126,13 +1143,17 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
             name = (m.group(1).strip() if m else rel.split("/", 1)[0]).strip()
             if _is_noise_project(name, ""):
                 continue
-            projects[key] = {"name": name, "docs": 0, "last": _synced, "paths": {}, "pinned": False, "blueprint": None, "scoped": []}
-        if projects[key]["blueprint"] is None:  # newest first
-            projects[key]["blueprint"] = {
-                **_parse_project_blueprint_markdown(content),
-                "quick": _blueprint_quick_summary(content),
-                "about": _blueprint_about(content),
-            }
+            projects[key] = {"name": name, "docs": 0, "last": None, "paths": {}, "pinned": False, "blueprint": None, "scoped": []}
+        copy = blueprint_copy(content, _synced)
+        if key in chosen and not is_fresher(copy, chosen[key]):
+            continue
+        chosen[key] = copy
+        projects[key]["code_last"] = _code_day(copy.date)
+        projects[key]["blueprint"] = {
+            **_parse_project_blueprint_markdown(content),
+            "quick": _blueprint_quick_summary(content),
+            "about": _blueprint_about(content),
+        }
 
     if src.profile_text:
         for scoped_name, scoped_lines in split_profile_scopes(src.profile_text).projects.items():
@@ -1149,7 +1170,11 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
     out: list[dict[str, Any]] = []
     for key, p in projects.items():
         bp = p["blueprint"] or {}
-        if not (p["docs"] >= 2 or bp or p["pinned"]):
+        # Latest work: its documents, or the last commit for a checkout no AI conversation touched
+        last = max((t for t in (p["last"], p.get("code_last")) if t), default=None)
+        recent = bool(last and (now - last) < timedelta(days=60))
+        # Devices keep a blueprint for every clone: alone it counts only while its last commit is recent
+        if not (p["docs"] >= 2 or p["pinned"] or (bp and recent)):
             continue
         ent_summary, ent_tech = src.project_entities.get(key, (None, []))
         # The project's own README says what it is; the knowledge-graph summary is what the AI made of
@@ -1169,8 +1194,6 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
             w = 2 * len(hits_about.get(fid, [])) + len(hits_stack.get(fid, [])) + 0.5 * len(hits_rules.get(fid, []))
             weights[fid] = w * (0.5 if fid in _GENERIC_FIELDS else 1.0)
         primary = max(weights, key=lambda f: (weights[f], -list(_FIELD_BY_ID).index(f))) if weights else ""
-        last = p["last"]
-        recent = bool(last and (now - last) < timedelta(days=60))
         rank = (p["docs"] + (400 if bp else 0) + (300 if p["pinned"] else 0)) * (1.0 if recent or not last else 0.5)
         display_path = max(p["paths"].values())[1] if p["paths"] else ""
         out.append({

@@ -106,7 +106,21 @@ describe("memento MCP", () => {
         fakeFetch({
           "GET /api/profile/blueprint": () => ({ body: { markdown: "# 个人全域蓝图\n\n## 0. 速览 (Quick Summary)\n- 主攻：AI\n\n## 1. 全域认知\n- 很长的内容" } }),
           "GET /api/projects": () => ({ body: [{ id: "p1", title: "demo" }] }),
-          "GET /api/projects/p1/blueprint": () => ({ body: { project: { title: "demo", tool_id: "claude_code" }, codebase_blueprint: bp, curated_docs: [{ title: "CLAUDE.md", content: "rules" }] } }),
+          "GET /api/projects/p1/blueprint": () => ({
+            body: {
+              project: { title: "demo", tool_id: "claude_code" },
+              codebase_blueprint: bp,
+              curated_docs: [
+                { title: "CLAUDE.md", content: "rules" },
+                { id: "d2", title: "notes.md", content: `${"opening line\n".repeat(40)}${"later detail\n".repeat(200)}` },
+                // Another device's copy of the blueprint: older servers send every copy
+                { title: "PROJECT_BLUEPRINT.md", relative_path: "demo/PROJECT_BLUEPRINT.md", content: "# Project Blueprint: demo (old checkout)" },
+              ],
+              knowledge_graph: {
+                entities: [{ name: "demo", entity_type: "project", observations: Array.from({ length: 9 }, (_, i) => ({ content: `obs ${i}` })) }],
+              },
+            },
+          }),
         }),
       ),
     );
@@ -117,6 +131,20 @@ describe("memento MCP", () => {
     expect(full).toContain("- 定位：demo service");
     expect(full).not.toContain("Python 3.12");
     expect(full).toContain("rules");
+    expect(full).not.toContain("old checkout");
+    // Long documents and observations show their opening; section="all" has them whole
+    expect(full).toContain("opening line");
+    expect(full).not.toContain("later detail");
+    expect(full).toContain("doc id `d2`");
+    expect(full).toContain("1 documents show their opening only");
+    expect(full).toContain("obs 4");
+    expect(full).not.toContain("obs 5");
+    expect(full.length).toBeLessThan(2000);
+    const all = textOf(await client.callTool({ name: "memory_blueprint", arguments: { project_name: "demo", section: "all" } }));
+    expect(all).toContain("Python 3.12");
+    expect(all.split("later detail").length - 1).toBe(200);
+    expect(all).toContain("obs 8");
+    expect(all).not.toContain("old checkout");
     const one = textOf(await client.callTool({ name: "memory_blueprint", arguments: { project_name: "demo", section: "7" } }));
     expect(one).toContain("deploy.yml");
     expect(one).not.toContain("rules");

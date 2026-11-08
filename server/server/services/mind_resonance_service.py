@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import (
     Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine, Project, User, UserMemory,
 )
+from .blueprint_pick import pick_freshest
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -739,18 +740,19 @@ async def _fetch_project_blueprint_summary(
                 Project.slug.ilike(f"%/{name}"),
                 Document.relative_path.ilike(f"{name}/PROJECT_BLUEPRINT.md"),
             ]
+        # One copy per device checkout: the newest code wins, not the device that synced last
         doc_q = (
-            select(Document.content)
+            select(Document.content, Document.synced_at)
             .outerjoin(Project, Document.project_id == Project.id)
             .where(or_(*conds), Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"))
             .order_by(Document.synced_at.desc())
-            .limit(1)
+            .limit(20)
         )
         # The user's own devices even for an owner, who could otherwise get another user's same-named project
         doc_q = doc_q.where(Document.machine_id.in_(select(Machine.id).where(Machine.user_id == user.id)))
-        content = (await db.execute(doc_q)).scalar_one_or_none()
-        if isinstance(content, str) and content:
-            return _summarize_blueprint_markdown(content)
+        best = pick_freshest((await db.execute(doc_q)).all(), lambda r: r[0], lambda r: r[1])
+        if best is not None:
+            return _summarize_blueprint_markdown(best[0])
     except Exception as e:
         logger.debug("Could not fetch blueprint summary for %s: %s", names, e)
     return ""

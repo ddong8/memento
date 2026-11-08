@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services import cache
 from ..services.cache import cache_get, cache_set
+from ..services.blueprint_pick import pick_freshest
 from ..services.cluster import cluster
 
 from ..db.models import (
@@ -453,20 +454,10 @@ async def _resolve_codebase_blueprint(
     db: AsyncSession,
     project: Project,
     mids: list[uuid.UUID] | None,
-    preloaded_docs: list[Document] | None = None,
 ) -> str | None:
-    """PROJECT_BLUEPRINT.md as the user's devices uploaded it: from preloaded docs, else the newest
-    synced copy. The project's source_path is a path on the user's device, never read on the server."""
-    if preloaded_docs:
-        for d in preloaded_docs:
-            if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
-                try:
-                    content = getattr(d, "content", None)
-                    if isinstance(content, str) and content:
-                        return content
-                except Exception:
-                    pass
-
+    """PROJECT_BLUEPRINT.md as the user's devices uploaded it: of the copies (one per device checkout)
+    the one describing the newest code, not the one synced last. The project's own copies come before
+    same-named ones. The project's source_path is a path on the user's device, never read on the server."""
     try:
         conds = [Document.project_id == project.id]
         for key in (project.title, project.slug):
@@ -474,18 +465,20 @@ async def _resolve_codebase_blueprint(
                 leaf = key.rsplit("/", 1)[-1]
                 conds.append(Document.relative_path.ilike(f"{leaf}/PROJECT_BLUEPRINT.md"))
         bp_q = (
-            select(Document.content)
+            select(Document.content, Document.synced_at, Document.project_id)
             .where(
                 Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
                 or_(*conds),
             )
             .order_by(Document.synced_at.desc())
-            .limit(1)
+            .limit(20)
         )
         bp_q = apply_user_filter(bp_q, mids, Document.machine_id)
-        val = (await db.execute(bp_q)).scalar_one_or_none()
-        if isinstance(val, str) and val:
-            return val
+        rows = (await db.execute(bp_q)).all()
+        own = [r for r in rows if r[2] == project.id]
+        best = pick_freshest(own, lambda r: r[0], lambda r: r[1]) or pick_freshest(rows, lambda r: r[0], lambda r: r[1])
+        if best is not None:
+            return best[0]
     except (Exception, StopIteration):
         pass
     return None
@@ -545,9 +538,7 @@ async def get_project(
         return row
 
     clean_path = _clean_source_path(project.source_path)
-    codebase_blueprint = await _resolve_codebase_blueprint(
-        db, project, mids, preloaded_docs=list(docs) if include_content else None
-    )
+    codebase_blueprint = await _resolve_codebase_blueprint(db, project, mids)
 
     return {
         "id": str(project.id),
@@ -1817,9 +1808,7 @@ async def export_project_markdown(
     lines.append("")
 
     # Prepend Living Codebase Architecture Blueprint if present on disk or in synced docs
-    export_bp = await _resolve_codebase_blueprint(
-        db, project, mids, preloaded_docs=docs
-    )
+    export_bp = await _resolve_codebase_blueprint(db, project, mids)
     if export_bp:
         lines.append("## Living Codebase Architecture Blueprint / 活体代码蓝图")
         lines.append("")
@@ -1828,9 +1817,11 @@ async def export_project_markdown(
         lines.append("---")
         lines.append("")
 
-    # Group docs by category.
+    # Group docs by category. The devices' copies of PROJECT_BLUEPRINT.md are in export_bp already
     by_cat: dict[str, list[Document]] = {}
     for d in docs:
+        if export_bp and (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
+            continue
         by_cat.setdefault(d.category or "other", []).append(d)
 
     ordered_cats = (
@@ -1972,7 +1963,8 @@ async def get_project_blueprint(
     if not project:
         raise HTTPException(status_code=404)
 
-    # 1. Curated docs full content (identity / memory / plan / learning)
+    # 1. Curated docs full content (identity / memory / plan / learning). Not the devices' copies of
+    # PROJECT_BLUEPRINT.md: codebase_blueprint below is the newest of them (three copies came to 135K characters)
     CURATED = ("identity", "memory", "plan", "learning")
     curated_q = (
         select(Document)
@@ -1980,6 +1972,7 @@ async def get_project_blueprint(
         .where(
             Document.project_id == project_id,
             Document.category.in_(CURATED),
+            ~Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
         )
         .order_by(Document.synced_at.desc())
         .limit(100)
@@ -2056,9 +2049,7 @@ async def get_project_blueprint(
             })
 
     # Codebase Living Architecture Blueprint (PROJECT_BLUEPRINT.md)
-    codebase_blueprint = await _resolve_codebase_blueprint(
-        db, project, mids, preloaded_docs=curated_docs
-    )
+    codebase_blueprint = await _resolve_codebase_blueprint(db, project, mids)
 
     payload = {
         "project": {

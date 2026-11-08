@@ -444,7 +444,7 @@ def parse_conversation_line(raw_line: str, tool_id: str) -> NormalizedMessage | 
                 if text.strip():
                     return NormalizedMessage(role="assistant", content=text.strip(), timestamp=timestamp, raw_type="agent_message")
                 return None
-            # Task complete — if last_agent_message is present, emit as assistant (dedup will drop if already seen)
+            # Task complete — if last_agent_message is present, emit as assistant (DialogueCopies drops it when it repeats the reply before it)
             if event_type == "task_complete":
                 last_msg = payload.get("last_agent_message", "")
                 if isinstance(last_msg, str) and last_msg.strip():
@@ -1005,19 +1005,15 @@ def parse_conversation(raw_content: str, tool_id: str, offset: int = 0, limit: i
     if tool_id == "hermes":
         return _parse_hermes_session(raw_content, offset, limit)
     messages = []
-    seen: set[str] = set()
+    copies = DialogueCopies()
     skipped = 0
     for line in _iter_json_objects(raw_content):
         if not line.strip():
             continue
         msg = parse_conversation_line(line.strip(), tool_id)
         if msg and msg.role in ("user", "assistant"):
-            # Deduplicate: same role + content + timestamp (within same second)
-            # Prevents event_msg/user_message and response_item/user duplicates
-            dedupe_key = dialogue_key(msg.role, msg.timestamp, msg.content)
-            if dedupe_key in seen:
+            if copies.repeat(msg.role, msg.raw_type, msg.timestamp, msg.content):
                 continue
-            seen.add(dedupe_key)
             if skipped < offset:
                 skipped += 1
                 continue
@@ -1039,16 +1035,14 @@ def count_conversation_messages(raw_content: str, tool_id: str) -> int:
     if tool_id == "hermes":
         return _count_hermes_messages(raw_content)
     count = 0
-    seen: set[str] = set()
+    copies = DialogueCopies()
     for line in _iter_json_objects(raw_content):
         if not line.strip():
             continue
         msg = parse_conversation_line(line.strip(), tool_id)
         if msg and msg.role in ("user", "assistant"):
-            dedupe_key = dialogue_key(msg.role, msg.timestamp, msg.content)
-            if dedupe_key in seen:
+            if copies.repeat(msg.role, msg.raw_type, msg.timestamp, msg.content):
                 continue
-            seen.add(dedupe_key)
             count += 1
         elif msg:
             count += 1
@@ -1086,6 +1080,39 @@ def dialogue_key(role: str, timestamp: str | None, content: str, ts: datetime | 
     return hashlib.md5(f"{role}:{_second(timestamp, ts)}:{content}".encode("utf-8", "surrogatepass")).hexdigest()
 
 
+_REPLY = "reply:"
+
+
+def reply_key(content: str) -> str:
+    """What Codex's task_complete shares with the reply it repeats, the turn's last: the text. It's written
+    up to a second later, so dialogue_key missed it whenever the second turned over in between (11-09:
+    72 replies stored twice in 30 Codex conversations)."""
+    return _REPLY + hashlib.md5(content.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+class DialogueCopies:
+    """Which user and assistant messages of a log are another copy of one before them: the same role,
+    text and second (dialogue_key), or a task_complete repeating the latest reply (reply_key). `seen`
+    carries the keys of the messages stored before a delta (message_store.recent_dialogue_keys)."""
+
+    def __init__(self, seen: set[str] | None = None):
+        self.seen = seen if seen is not None else set()
+        self.last_reply = next((k for k in self.seen if k.startswith(_REPLY)), None)
+
+    def repeat(self, role: str, raw_type: str | None, timestamp: str | None, content: str,
+               ts: datetime | None = None) -> bool:
+        dk = dialogue_key(role, timestamp, content, ts)
+        if dk in self.seen:
+            return True
+        if role == "assistant":
+            rk = reply_key(content)
+            if raw_type == "task_complete" and rk == self.last_reply:
+                return True
+            self.last_reply = rk
+        self.seen.add(dk)
+        return False
+
+
 @dataclass
 class StoredMessage:
     """One row conversation_messages gets for a message, before its line number."""
@@ -1117,11 +1144,11 @@ def messages_to_store(raw_content: str, tool_id: str, seen: set[str] | None = No
     """The messages of a JSONL conversation conversation_messages keeps, in order.
 
     A line that is there twice (a slice appended twice when an upload was retried) counts once.
-    User and assistant messages are also deduplicated by dialogue_key, as parse_conversation does;
+    User and assistant messages are also deduplicated as parse_conversation does (DialogueCopies);
     tool calls only as identical lines: deduplicating them by role, second and text ("[Bash]") dropped
     parallel calls of one tool (10-29: 33 calls missing from three days of one Mac's sessions).
     `seen` carries dialogue keys over from the messages already stored, for a delta."""
-    seen = seen if seen is not None else set()
+    copies = DialogueCopies(seen)
     lines_seen: set[str] = set()
     out: list[StoredMessage] = []
     for line in _iter_json_objects(raw_content):
@@ -1137,11 +1164,8 @@ def messages_to_store(raw_content: str, tool_id: str, seen: set[str] | None = No
         lines_seen.add(line_key)
         content = msg.content.replace("\x00", "")
         ts = parse_timestamp(msg.timestamp)
-        if msg.role in ("user", "assistant"):
-            dk = dialogue_key(msg.role, msg.timestamp, content, ts)
-            if dk in seen:
-                continue
-            seen.add(dk)
+        if msg.role in ("user", "assistant") and copies.repeat(msg.role, msg.raw_type, msg.timestamp, content, ts):
+            continue
         meta: dict = {}
         if msg.thinking:
             meta["thinking"] = msg.thinking.replace("\x00", "")

@@ -315,7 +315,8 @@ class DocumentVersion(Base):
 class ConversationMessageRemoved(Base):
     """Messages taken out of a conversation, as they were: for review, and to put back. reason "audit":
     another copy of one it holds (services/message_audit.py); "upload": its log sent again from the
-    start no longer holds it (services/message_store.py)."""
+    start no longer holds it (services/message_store.py); "reply_copy": a Codex task_complete repeating
+    the reply before it, stored before the parser knew it (conversation_parser.reply_key, cleared 11-09)."""
 
     __tablename__ = "conversation_messages_removed"
 

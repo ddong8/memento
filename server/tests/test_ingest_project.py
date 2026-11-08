@@ -192,6 +192,61 @@ class IngestProjectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kw_order, [hit.id])
         self.assertEqual([d.id for d in docs], [hit.id])
 
+    async def test_a_rare_word_picks_the_keyword_candidates(self) -> None:
+        # 接口/超时 are in every document here, 氪星石 in one: only it picks candidates (on the real
+        # query, through the index), and documents that just repeat the common words aren't returned
+        from server.db.models import User
+        from server.services import ask_retrieval, fulltext
+
+        fulltext._df_cache.clear()
+        fulltext._n_cache = None
+        meta = {"project_path": "/Users/me/dev/memento", "project_hash": "memento"}
+        hit = await self.ingest("claude_code", "projects/-Users-me-dev-memento/rare.jsonl",
+                                '{"type":"user","message":{"content":"排查氪星石接口超时"}}', "full", 0,
+                                {**meta, "session_id": "rare"})
+        for i in range(3):
+            await self.ingest("claude_code", f"projects/-Users-me-dev-memento/common{i}.jsonl",
+                              '{"type":"user","message":{"content":"接口超时，接口又超时，接口还是超时"}}', "full", 0,
+                              {**meta, "session_id": f"common{i}"})
+        async with self.Session() as db:
+            user = await db.get(User, uuid.UUID(self.user_id))
+            with patch.object(fulltext, "COMMON_TERM_SHARE", 0.5), \
+                 patch.object(ask_retrieval, "_semantic_doc_ranks", AsyncMock(return_value=([], {}, {}))), \
+                 patch.object(ask_retrieval, "async_session_factory", self.Session), \
+                 patch("server.services.cache.cache_get", AsyncMock(return_value=None)), \
+                 patch("server.services.cache.cache_set", AsyncMock()):
+                _, kw_order, _, _ = await ask_retrieval.hybrid_rank(db, user, "氪星石接口超时", None, None, k=5)
+        fulltext._df_cache.clear()
+        fulltext._n_cache = None
+        self.assertEqual(kw_order, [hit.id])
+
+    async def test_the_eval_finds_who_holds_a_quoted_answer(self) -> None:
+        from datetime import datetime, timezone
+
+        from server.db.models import ConversationMessage, Document
+        from server.services.eval_service import holders
+
+        meta = {"project_path": "/Users/me/dev/memento", "project_hash": "memento"}
+        talk = await self.ingest("claude_code", "projects/-Users-me-dev-memento/q.jsonl",
+                                 '{"type":"user","message":{"content":"别的话题"}}', "full", 0, {**meta, "session_id": "q"})
+        silent = await self.ingest("claude_code", "projects/-Users-me-dev-memento/s.jsonl",
+                                   '{"type":"user","message":{"content":"别的话题"}}', "full", 0, {**meta, "session_id": "s"})
+        async with self.Session() as db:
+            at = datetime(2026, 11, 9, tzinfo=timezone.utc)
+            db.add_all([
+                ConversationMessage(document_id=talk.id, line_number=900, role="assistant", content="把 DefaultIM\n改成 pinyin 即可", timestamp=at),
+                # tool output quoting the same words is not the conversation answering it
+                ConversationMessage(document_id=silent.id, line_number=900, role="user", content="[Result] 把 DefaultIM 改成 pinyin 即可", timestamp=at),
+            ])
+            note = Document(tool_id="claude_code", machine_id=uuid.UUID(self.machine_id), relative_path="notes/ime.md", category="note",
+                            content_type="markdown", content="输入法：把 defaultim 改成 PINYIN 即可。", content_hash="n", file_size_bytes=1)
+            other = Document(tool_id="claude_code", machine_id=uuid.UUID(self.machine_id), relative_path="notes/x.md", category="note",
+                             content_type="markdown", content="无关", content_hash="o", file_size_bytes=1)
+            db.add_all([note, other])
+            await db.commit()
+            found = await holders(db, {talk.id, silent.id, note.id, other.id}, "把 DefaultIM 改成 pinyin")
+        self.assertEqual(found, {talk.id, note.id})
+
     async def test_the_old_column_is_dropped_keeping_the_newer_vectors(self) -> None:
         # documents.content_tsv as the releases before document_search left it: a start copies over the
         # vectors only it has, keeps the table's where both have one and drops it; the next has nothing to do

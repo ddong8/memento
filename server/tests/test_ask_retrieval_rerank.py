@@ -54,6 +54,7 @@ async def test_hybrid_rank_synergy_boost():
 
     with patch("server.services.ask_retrieval.user_machine_ids", new=AsyncMock(return_value=["m1"])), \
          patch("server.services.ask_retrieval.async_session_factory") as mock_factory, \
+         patch("server.services.fulltext._doc_freq", new=AsyncMock(return_value=(0, {}))), \
          patch("server.services.ask_retrieval._semantic_doc_ranks") as mock_sem:
 
         mock_factory.return_value.__aenter__.return_value = FakeDb([doc_both, doc_kw_only])
@@ -98,6 +99,7 @@ async def test_subagent_transcripts_do_not_leapfrog_by_path():
 
     with patch("server.services.ask_retrieval.user_machine_ids", new=AsyncMock(return_value=["m1"])), \
          patch("server.services.ask_retrieval.async_session_factory") as mock_factory, \
+         patch("server.services.fulltext._doc_freq", new=AsyncMock(return_value=(0, {}))), \
          patch("server.services.ask_retrieval._semantic_doc_ranks") as mock_sem:
 
         mock_factory.return_value.__aenter__.return_value = FakeDb([doc_answer, doc_subagent])

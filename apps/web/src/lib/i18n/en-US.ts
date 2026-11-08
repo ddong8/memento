@@ -830,6 +830,7 @@ const enUS: Translations = {
     lastEval: "Last evaluated {at}",
     semanticDown: "{n} questions without embeddings",
     evalStaleCases: "{n} questions whose answer left its document, not scored",
+    evalCopies: "{n} found through another document quoting the same answer (e.g. a copy on another device)",
     missEvidence: "Answer in the source: {text}",
     evalStale: "not evaluated for 10+ days",
     misses: "Not found ({n})",

@@ -685,6 +685,7 @@ function Eval({
             {fmt(h.lastEval, { at: time(latest.created_at) })}
             {num(metrics.semantic_unavailable) > 0 && ` · ${fmt(h.semanticDown, { n: num(metrics.semantic_unavailable) })}`}
             {num(metrics.stale) > 0 && ` · ${fmt(h.evalStaleCases, { n: num(metrics.stale) })}`}
+            {num(metrics.answered_by_copy) > 0 && ` · ${fmt(h.evalCopies, { n: num(metrics.answered_by_copy) })}`}
             {evalData.stale === true && ` · ${h.evalStale}`}
           </Hint>
           {trend.length > 1 && <EvalTrend trend={trend} />}

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3e24b680` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7db9e7ba` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 155 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 156 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
+- 最近改动 (Latest): `7db9e7ba` (2026-11-09): fix(learning): 夜间整理拿到截断回答时自动加额度重问，检索评测只出有原文依据的题，日报重算失败稍后重试
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -480,6 +480,7 @@ erDiagram
 | `entity_canon` | [`server/server/services/entity_canon.py`](server/server/services/entity_canon.py) | One knowledge-graph entity per thing. |
 | `eval_service` | [`server/server/services/eval_service.py`](server/server/services/eval_service.py) | Retrieval evaluation: does Memento still find the right document? |
 | `export_service` | [`server/server/services/export_service.py`](server/server/services/export_service.py) | Account-level data export — builds a portable ZIP of the caller's own data. |
+| `fulltext` | [`server/server/services/fulltext.py`](server/server/services/fulltext.py) | Keyword matching over document_search: through its GIN index, with query terms weighted by rarity. |
 | `geoip` | [`server/server/services/geoip.py`](server/server/services/geoip.py) | Offline GeoIP lookup — reads a MaxMind/DB-IP .mmdb file from disk. |
 | `graph_service` | [`server/server/services/graph_service.py`](server/server/services/graph_service.py) | Knowledge graph auto-extraction — extracts entities and relations from conversations using LLM. |
 | `guard_service` | [`server/server/services/guard_service.py`](server/server/services/guard_service.py) | Completion check: the Stop hook the collector installs in Claude Code and Codex. |
@@ -488,7 +489,6 @@ erDiagram
 | `import_service` | [`server/server/services/import_service.py`](server/server/services/import_service.py) | Account-level data import — restore a memento-export ZIP into the |
 | `ingest_service` | [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) | Ingest service — processes incoming files from the collector. |
 | `jobs` | [`server/server/services/jobs.py`](server/server/services/jobs.py) | Manually triggered long jobs (review now, run the evaluation) with a status the app can poll. |
-| `learning_eval_service` | [`server/server/services/learning_eval_service.py`](server/server/services/learning_eval_service.py) | Weekly learning eval: does the user have to correct the AI less over time? |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -585,7 +585,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 95 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 96 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 34 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7db9e7ba` (2026-11-09): fix(learning): 夜间整理拿到截断回答时自动加额度重问，检索评测只出有原文依据的题，日报重算失败稍后重试
 - `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
 - `c6d9d3d6` (2026-11-09): chore(release): 升级客户端版本至 v1.0.101，AI 工具查项目蓝图默认只返回摘要与文档开头
 - `03a65218` (2026-11-09): fix(blueprint): 多设备蓝图按最新代码挑选，蓝图工具不再重复返回各设备副本，个人蓝图不再被旧克隆占满
 - `70cae1f7` (2026-11-09): chore(release): 升级客户端版本至 v1.0.100，旧版 agy 命令自动修复，卸载清理旧包装与链接
 - `31ea7d9d` (2026-11-09): fix(android): versionCode 改为 主×1000000+次×1000+修订，版本号到三位数后不与 1.1.0 撞号
-- `42e2eb50` (2026-11-09): fix(antigravity): 改写旧版留在 PATH 上的 agy 包装并清理 Python 缓存，卸载时一并清掉指向它的链接
 
 ## 10. Key Environment Variables & Configuration
 

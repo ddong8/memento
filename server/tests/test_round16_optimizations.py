@@ -89,7 +89,8 @@ class TestRound16Optimizations(unittest.IsolatedAsyncioTestCase):
             sem_called = True
             return [], {}, {}
 
-        with patch("server.services.ask_retrieval._semantic_doc_ranks", side_effect=fake_semantic_doc_ranks):
+        with patch("server.services.ask_retrieval._semantic_doc_ranks", side_effect=fake_semantic_doc_ranks), \
+             patch("server.services.fulltext._doc_freq", new=AsyncMock(return_value=(0, {}))):
             docs, kw_ids, sem_ids, snippets = await ask_retrieval.hybrid_rank(
                 mock_kw_session, user, "怎么使用", None, None
             )

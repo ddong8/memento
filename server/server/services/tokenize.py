@@ -101,11 +101,6 @@ def query_terms(text: str) -> list[str]:
     return seen
 
 
-def tokenize_for_query_any(text: str) -> str:
-    """``"tok1 | tok2"`` — any term may match; for ranked retrieval of natural-language questions."""
-    return " | ".join(query_terms(text))
-
-
 def tokenize_for_query(text: str) -> str:
     seen: list[str] = []
     # dedup while preserving order — repeated terms add no info to the

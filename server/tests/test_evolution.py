@@ -12,7 +12,7 @@ from server.services import memory_lifecycle as ml
 from server.services import retrospective_service as rs
 from server.services import skill_service as ss
 from server.services import todo_service as ts
-from server.services.tokenize import query_terms, tokenize_for_query, tokenize_for_query_any
+from server.services.tokenize import query_terms, tokenize_for_query
 
 T0 = datetime(2026, 9, 1, tzinfo=timezone.utc)
 
@@ -252,7 +252,6 @@ def test_query_terms_drop_punctuation_and_question_words():
     terms = query_terms(q)
     assert "？" not in terms and "怎么" not in terms and "的" not in terms
     assert {"回滚", "镜像", "tag"} <= set(terms)
-    assert tokenize_for_query_any(q) == " | ".join(terms)
     assert tokenize_for_query(q) == " & ".join(terms)
 
 

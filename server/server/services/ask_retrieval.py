@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, DocumentSearch, User, UserMemory, Project
 from ..db.session import async_session_factory
+from ..services.fulltext import keyword_match, use_fulltext_index
+from ..services.tokenize import query_terms
 from ..services.user_filter import user_machine_ids, apply_user_filter
 from ..services.memory_lifecycle import touch_recalled
 from ..api.search import _semantic_doc_ranks, RRF_K
@@ -79,7 +81,6 @@ async def hybrid_rank(
     and the semantically matched snippets. The retrieval evaluation scores exactly this."""
     import hashlib
     from .cache import cache_get, cache_set
-    from ..services.tokenize import tokenize_for_query_any
 
     clean_q = q.strip()
     # k is in the key: each channel fetches k rows, so Ask (6) and the evaluation (10) rank different pools.
@@ -107,24 +108,13 @@ async def hybrid_rank(
     mids = await user_machine_ids(db, user)
     # Questions are natural language: any content word may match, best matches first.
     # (All-words-must-match with newest-first order returned nothing useful for real
-    # questions; see the retrieval evaluation.)
-    tsquery = tokenize_for_query_any(q)
+    # questions; see the retrieval evaluation.) Which words and how they rank: keyword_match.
+    terms = query_terms(q)
     term = f"%{q}%"
-
-    conds = [Document.title.ilike(term), Document.relative_path.ilike(term)]
-    rank = None
-    if tsquery:
-        ts = func.to_tsquery("simple", tsquery)
-        # As IN (…) so the GIN index answers it (OR-ed over the join, every row's vector was compared);
-        # the join is only there to rank what matched
-        conds.append(Document.id.in_(
-            select(DocumentSearch.document_id).where(DocumentSearch.content_tsv.op("@@")(ts)).correlate(None)
-        ))
-        rank = func.ts_rank(DocumentSearch.content_tsv, ts, 1)
 
     kw_q = select(Document).outerjoin(DocumentSearch, DocumentSearch.document_id == Document.id).options(
         defer(Document.rendered_html),
-    ).where(or_(*conds))
+    )
     if tool:
         kw_q = kw_q.where(Document.tool_id == tool)
     if days:
@@ -134,11 +124,22 @@ async def hybrid_rank(
             Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days)
         )
     kw_q = apply_user_filter(kw_q, mids, Document.machine_id)
-    order = (rank.desc(), Document.synced_at.desc()) if rank is not None else (Document.synced_at.desc(),)
 
     async def _fetch_kw():
         async with async_session_factory() as kw_db:
-            return (await kw_db.execute(kw_q.order_by(*order).limit(k))).scalars().all()
+            conds = [Document.title.ilike(term), Document.relative_path.ilike(term)]
+            order = (Document.synced_at.desc(),)
+            if terms:
+                await use_fulltext_index(kw_db)
+                tsquery, rank = await keyword_match(kw_db, terms)
+                # As IN (…) so the GIN index answers it (OR-ed over the join, every row's vector was compared);
+                # the join is only there to rank what matched
+                conds.append(Document.id.in_(
+                    select(DocumentSearch.document_id)
+                    .where(DocumentSearch.content_tsv.op("@@")(func.to_tsquery("simple", tsquery))).correlate(None)
+                ))
+                order = (rank.desc(), Document.synced_at.desc())
+            return (await kw_db.execute(kw_q.where(or_(*conds)).order_by(*order).limit(k))).scalars().all()
 
     async def _fetch_sem():
         async with async_session_factory() as sem_db:

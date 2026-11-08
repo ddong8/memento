@@ -844,6 +844,7 @@ const zhCN = {
     lastEval: "上次评测 {at}",
     semanticDown: "{n} 题向量服务没响应",
     evalStaleCases: "{n} 题的答案已不在原文档里，未计分",
+    evalCopies: "{n} 题由含同一答案的其他文档命中（如另一台设备上的副本）",
     missEvidence: "答案原文：{text}",
     evalStale: "超过 10 天没评测",
     misses: "没找回来的问题（{n}）",

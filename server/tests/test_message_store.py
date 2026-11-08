@@ -22,7 +22,9 @@ from unittest.mock import AsyncMock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "server"))
 
-from server.services.conversation_parser import StoredMessage, messages_to_store, row_key  # noqa: E402
+from server.services.conversation_parser import (  # noqa: E402
+    StoredMessage, count_conversation_messages, messages_to_store, parse_conversation, reply_key, row_key,
+)
 from server.services.message_store import PARKED, plan_alignment  # noqa: E402
 
 DB_URL = os.environ.get("MEMENTO_TEST_DATABASE_URL")
@@ -51,6 +53,46 @@ def _bash(command: str, sec: int, call_id: str) -> str:
         "timestamp": ts,
         "message": {"role": "assistant", "content": [{"type": "tool_use", "id": call_id, "name": "Bash", "input": {"command": command}}]},
     })
+
+
+def _codex(kind: str, text: str, ms: int) -> str:
+    """A Codex rollout line `ms` milliseconds after T0: the user's turn ("user"), the reply ("reply"), its
+    event copy ("event") or the turn's end repeating it ("done")."""
+    ts = (T0 + timedelta(milliseconds=ms)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if kind == "user":
+        payload, typ = {"type": "user_message", "message": text}, "event_msg"
+    elif kind == "reply":
+        payload, typ = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}, "response_item"
+    elif kind == "event":
+        payload, typ = {"type": "agent_message", "message": text}, "event_msg"
+    else:
+        payload, typ = {"type": "task_complete", "last_agent_message": text}, "event_msg"
+    return json.dumps({"timestamp": ts, "type": typ, "payload": payload}, ensure_ascii=False)
+
+
+class CodexReplyCopiesTests(unittest.TestCase):
+    """11-09: task_complete repeats the turn's last reply up to a second later; in a later second the
+    dedup by role, text and second kept both (72 replies twice in 30 conversations)."""
+
+    def test_the_turns_end_repeating_the_reply_a_second_later_is_not_stored(self):
+        log = "\n".join([_codex("user", "Fcitx5 默认英文怎么改", 0), _codex("reply", "改 DefaultIM", 3449),
+                         _codex("event", "改 DefaultIM", 3449), _codex("done", "改 DefaultIM", 4575)])
+        self.assertEqual([m.content for m in messages_to_store(log, "codex")], ["Fcitx5 默认英文怎么改", "改 DefaultIM"])
+        self.assertEqual([m.content for m in parse_conversation(log, "codex")], ["Fcitx5 默认英文怎么改", "改 DefaultIM"])
+        self.assertEqual(count_conversation_messages(log, "codex"), 2)
+
+    def test_a_turns_end_with_a_reply_of_its_own_is_kept(self):
+        log = "\n".join([_codex("reply", "先看配置", 1000), _codex("done", "改好了", 9000)])
+        self.assertEqual([m.content for m in messages_to_store(log, "codex")], ["先看配置", "改好了"])
+
+    def test_only_the_latest_reply_is_taken_for_repeated(self):
+        log = "\n".join([_codex("reply", "好的", 1000), _codex("reply", "已改完", 5000), _codex("done", "好的", 9000)])
+        self.assertEqual([m.content for m in messages_to_store(log, "codex")], ["好的", "已改完", "好的"])
+
+    def test_a_delta_starting_with_the_turns_end_after_its_reply_went_up(self):
+        seen = {reply_key("改 DefaultIM")}
+        self.assertEqual(messages_to_store(_codex("done", "改 DefaultIM", 4575), "codex", seen), [])
+        self.assertEqual(len(messages_to_store(_codex("done", "改 DefaultIM", 4575), "codex", set())), 1)
 
 
 class MessagesToStoreTests(unittest.TestCase):
@@ -170,7 +212,7 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.Session() as db:
             user = User(email="owner@example.com", role="owner", status="active")
-            db.add_all([user, Tool(id="claude_code", display_name="Claude Code")])
+            db.add_all([user, Tool(id="claude_code", display_name="Claude Code"), Tool(id="codex", display_name="Codex")])
             await db.flush()
             machine = Machine(name="mac (Darwin)", collector_token_hash="dev-mac", user_id=user.id)
             db.add(machine)
@@ -187,12 +229,12 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
             await conn.run_sync(Base.metadata.drop_all)
         await self.engine.dispose()
 
-    async def _store(self, content: str, mode: str, offset: int, end: int | None, size: int) -> None:
+    async def _store(self, content: str, mode: str, offset: int, end: int | None, size: int, tool: str = "claude_code") -> None:
         from server.services.ingest_service import ingest_file
 
         async with self.Session() as db:
             await ingest_file(
-                db, "claude_code", "conversation", "jsonl", self.REL, content, f"h{offset}-{end}-{len(content)}", size,
+                db, tool, "conversation", "jsonl", self.REL, content, f"h{offset}-{end}-{len(content)}", size,
                 mode, offset, {"session_id": "s"}, machine_id=self.machine_id, user_id=self.user_id, end_offset=end,
             )
             await db.commit()
@@ -226,6 +268,14 @@ class MessageStoreDatabaseTests(unittest.IsolatedAsyncioTestCase):
                 f"SELECT {ROW_KEY_SQL}, {LOOSE_KEY_SQL} FROM conversation_messages ORDER BY line_number"
             ))).all()
         self.assertEqual([tuple(r) for r in got], [(m.key, m.loose) for m in expected])
+
+    async def test_a_delta_starting_with_the_turns_end_doesnt_store_the_reply_again(self):
+        first = "\n".join([_codex("user", "Fcitx5 默认英文怎么改", 0), _codex("reply", "改 DefaultIM", 3449)]) + "\n"
+        end = _codex("done", "改 DefaultIM", 4575) + "\n"
+        size = len((first + end).encode())
+        await self._store(first.rstrip("\n"), "full", 0, len(first.encode()), len(first.encode()), tool="codex")
+        await self._store(end.rstrip("\n"), "delta", len(first.encode()), size, size, tool="codex")
+        self.assertEqual([r[2] for r in await self._rows()], ["Fcitx5 默认英文怎么改", "改 DefaultIM"])
 
     async def test_a_full_upload_in_slices_keeps_the_ids(self):
         lines = [_user(f"消息{i}", i) for i in range(6)]

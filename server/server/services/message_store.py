@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage
-from .conversation_parser import StoredMessage, dialogue_key
+from .conversation_parser import StoredMessage, dialogue_key, reply_key
 
 # conversation_parser.row_key, computed by the database (the texts never leave it)
 ROW_KEY_SQL = (
@@ -242,17 +242,22 @@ async def apply_alignment(db: AsyncSession, doc_id: uuid.UUID, plan: Alignment, 
 
 
 async def recent_dialogue_keys(db: AsyncSession, doc_id: uuid.UUID, limit: int = 50) -> set[str]:
-    """dialogue_key of a conversation's latest user and assistant messages: a delta starting with the
-    second copy of a Codex message (its first went up with the previous delta) doesn't store it again."""
-    rows = await db.execute(
+    """dialogue_key of a conversation's latest user and assistant messages, and reply_key of the latest
+    reply: a delta starting with the second copy of a Codex message (its first went up with the previous
+    delta) doesn't store it again."""
+    rows = (await db.execute(
         text(
             "SELECT role, \"timestamp\", content FROM conversation_messages "
             "WHERE document_id = :d AND role IN ('user', 'assistant') AND line_number < :p "
             "ORDER BY line_number DESC LIMIT :n"
         ),
         {"d": doc_id, "p": PARKED, "n": limit},
-    )
-    return {dialogue_key(role, None, content, ts) for role, ts, content in rows.all()}
+    )).all()
+    keys = {dialogue_key(role, None, content, ts) for role, ts, content in rows}
+    last = next((content for role, _, content in rows if role == "assistant"), None)
+    if last is not None:
+        keys.add(reply_key(last))
+    return keys
 
 
 async def store_slice(

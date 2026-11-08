@@ -12,6 +12,7 @@ from ..db.models import Document, DocumentSearch, Machine, User
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
+from ..services.fulltext import use_fulltext_index
 from ..services.tokenize import tokenize_for_query
 from ..services.user_filter import user_machine_ids, apply_user_filter
 
@@ -168,6 +169,8 @@ async def search(
     )
     async def _fetch_paged():
         async with async_session_factory() as paged_db:
+            if tsquery:
+                await use_fulltext_index(paged_db)
             res = (await paged_db.execute(paged)).all()
             return [r[0] for r in res], (res[0][-1] if res else 0)
 

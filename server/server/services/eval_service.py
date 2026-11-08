@@ -7,9 +7,9 @@ so scores stay comparable. Each question comes with the sentence that answers
 it, quoted from the document and checked against it: set v1 had none, and of
 its 10 misses 5 asked about another document of the batch and 5 about the
 session header or system prompt every conversation shares. Each run asks every question through the exact
-ranking Ask uses and scores whether the source document comes back, for the
-fused result and for the keyword and semantic channels separately (so a drop
-can be traced to one of them).
+ranking Ask uses and scores whether a document holding the quoted answer comes back (the source or a
+copy of it on another device), for the fused result and for the keyword and semantic channels
+separately (so a drop can be traced to one of them).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from sqlalchemy.orm import defer
 
 from ..db.models import CHAT_MESSAGE, ConversationMessage, Document, EvalCase, EvalRun, Machine, User
 from .ai_provider import call_plain_chat
-from .dreaming_service import SUBAGENT_PATH_REGEX, _safe_json_loads
+from .dreaming_service import _EMBEDDED_CONTEXT_RE, SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 
 logger = logging.getLogger("server.eval")
 
@@ -67,6 +67,14 @@ def score_ranks(ranks: list[int | None]) -> dict[str, float]:
 def rank_of(expected: Any, ordered: list[Any]) -> int | None:
     for i, doc_id in enumerate(ordered[:K], 1):
         if doc_id == expected:
+            return i
+    return None
+
+
+def first_rank(accepted: set[Any], ordered: list[Any]) -> int | None:
+    """1-based rank of the first document in `accepted` among the top K, None if none is there."""
+    for i, doc_id in enumerate(ordered[:K], 1):
+        if doc_id in accepted:
             return i
     return None
 
@@ -121,6 +129,10 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
 
 
+# The writer sees conversation passages as "用户：…" / "AI：…" and sometimes quotes the label too
+_SPEAKER_RE = re.compile(r"^\s*(?:用户|AI)[：:]\s*")
+
+
 async def _passages(db: AsyncSession, doc: Document) -> list[str]:
     """What the question writer sees of a document. A conversation's content is the raw log, whose
     first 2500 characters are the session header and system prompt: use its dialogue instead."""
@@ -139,7 +151,15 @@ async def _passages(db: AsyncSession, doc: Document) -> list[str]:
         text = (content or "").strip()
         if not text or text.startswith("[AI 思考"):
             continue
+        # Set v2 asked about AGENTS.md and environment blocks a CLI sends as the user's turn (one sentence of
+        # a repo's AGENTS.md became three questions on three copies of it); nobody asks their notes about those
+        if role == "user":
+            if clean_user_voice(text) is None:
+                continue
+            text = _EMBEDDED_CONTEXT_RE.sub("", text).strip()
         text = f"{'用户' if role == 'user' else 'AI'}：{text[:EXCERPT_CHARS - used]}"
+        if out and out[-1] == text:  # a message said twice in a row (resent, or a copy stored before 11-09)
+            continue
         out.append(text)
         used += len(text)
         if used >= EXCERPT_CHARS:
@@ -174,7 +194,7 @@ async def _questions_for(docs: list[Document], passages: list[list[str]]) -> dic
         if not isinstance(item, dict):
             continue
         q = str(item.get("q") or "").strip()
-        e = str(item.get("e") or "").strip()
+        e = _SPEAKER_RE.sub("", str(item.get("e") or "")).strip()
         if not 6 <= len(q) <= 120 or q.lower() == "null":
             continue
         holders = [n for n, parts in enumerate(passages, 1) if _grounded(e, parts)]
@@ -195,6 +215,28 @@ async def answer_still_there(db: AsyncSession, doc_id: Any, category: str | None
     )))).scalar())
 
 
+async def holders(db: AsyncSession, doc_ids: set[Any], evidence: str) -> set[Any]:
+    """Which of `doc_ids` hold the quoted answer: notes in their content, conversations in their messages."""
+    e = _norm(evidence or "")
+    if not doc_ids or len(e) < MIN_EVIDENCE:
+        return set()
+
+    def has(column):
+        return func.strpos(func.lower(func.regexp_replace(column, r"\s+", "", "g")), e) > 0
+
+    notes = select(Document.id).where(Document.id.in_(doc_ids), Document.category != "conversation", has(Document.content))
+    talks = select(ConversationMessage.document_id).where(
+        ConversationMessage.document_id.in_(doc_ids), CHAT_MESSAGE, has(ConversationMessage.content),
+    )
+    return set((await db.execute(notes.union(talks))).scalars().all())
+
+
+def _ahead(expected: Any, ordered: list[Any]) -> list[Any]:
+    """What ranks above the expected document (everything shown, if it isn't there)."""
+    top = list(ordered[:K])
+    return top[:top.index(expected)] if expected in top else top
+
+
 async def current_version(db: AsyncSession, user: User) -> int | None:
     return (await db.execute(
         select(func.max(EvalCase.set_version)).where(EvalCase.user_id == user.id)
@@ -213,6 +255,7 @@ async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[
     docs, passages = [docs[i] for i in keep], [passages[i] for i in keep]
     await db.commit()
     created = 0
+    asked: set[str] = set()
     for start in range(0, len(docs), DOCS_PER_CALL):
         chunk = docs[start:start + DOCS_PER_CALL]
         try:
@@ -221,6 +264,10 @@ async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[
             logger.warning("eval question batch failed: %s", e)
             continue
         for n, (q, e) in questions.items():
+            # Copies of one file (a repo on two machines) would ask the same thing twice
+            if _norm(e) in asked:
+                continue
+            asked.add(_norm(e))
             db.add(EvalCase(user_id=user.id, set_version=version, query=q, expected_doc_id=chunk[n - 1].id, evidence=e))
             created += 1
         await db.commit()
@@ -233,6 +280,7 @@ async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[
 def _config() -> dict[str, Any]:
     from .ask_retrieval import TOP_K
     from .embedding_service import CHUNK_COUNT_PENALTY, POOL_MIN, POOL_PER_DOC
+    from .fulltext import COMMON_TERM_SHARE
     from ..api.search import RRF_K
 
     return {
@@ -241,6 +289,8 @@ def _config() -> dict[str, Any]:
         "k": K,
         "semantic_pool": {"min": POOL_MIN, "per_doc": POOL_PER_DOC},
         "chunk_count_penalty": CHUNK_COUNT_PENALTY,
+        "common_term_share": COMMON_TERM_SHARE,
+        "scoring": "any_holder",
         "embedding": os.environ.get("MEMENTO_EMBEDDING_MODEL", "bge-m3"),
         "build": os.environ.get("MEMENTO_BUILD_SHA", "")[:12],
     }
@@ -276,14 +326,21 @@ async def run_eval(db: AsyncSession, user: User, trigger: str = "scheduled", set
     keyword: list[int | None] = []
     semantic: list[int | None] = []
     semantic_empty = 0
+    copies = 0
     misses: list[dict[str, Any]] = []
     for case in cases:
         docs, kw_ids, sem_ids, _ = await hybrid_rank(db, user, case.query, None, None, k=K)
         order = [d.id for d in docs]
-        r = rank_of(case.expected_doc_id, order)
+        expected = case.expected_doc_id
+        # A document ranked above the source that quotes the same answer (the repo's copy on another
+        # device, a note written from that conversation) answers the question just as well
+        others = {d for ranked in (order, kw_ids, sem_ids) for d in _ahead(expected, ranked)} - {expected}
+        accepted = {expected} | (await holders(db, others, case.evidence) if case.evidence else set())
+        r = first_rank(accepted, order)
         fused.append(r)
-        keyword.append(rank_of(case.expected_doc_id, kw_ids))
-        semantic.append(rank_of(case.expected_doc_id, sem_ids))
+        copies += int(r is not None and r != rank_of(expected, order))
+        keyword.append(first_rank(accepted, kw_ids))
+        semantic.append(first_rank(accepted, sem_ids))
         semantic_empty += int(not sem_ids)
         if r is None and len(misses) < 10:
             misses.append({"query": case.query, "expected_doc_id": str(case.expected_doc_id), "evidence": case.evidence})
@@ -294,6 +351,7 @@ async def run_eval(db: AsyncSession, user: User, trigger: str = "scheduled", set
         "semantic": score_ranks(semantic),
         "semantic_unavailable": semantic_empty,
         "stale": stale,
+        "answered_by_copy": copies,
         "grounded": any(c.evidence for c in all_cases),
         "misses": misses,
     }

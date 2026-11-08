@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir } from "./config.js";
-import { findExecutable } from "./exec-env.js";
+import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { sqliteRows, sqliteRun } from "./sqlite.js";
 
 export interface AntigravitySessionInfo {
@@ -373,13 +373,44 @@ function agyWrapper(home: string, script: string, exe = process.execPath): { pat
   };
 }
 
+/** The execution PATH's directories, where an `agy` memento wrote may sit or be linked from. */
+async function executionPathDirs(): Promise<string[]> {
+  const env = await executionEnvironment();
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  return (env[key] ?? "").split(process.platform === "win32" ? ";" : ":").filter(Boolean);
+}
+
+/**
+ * Other `agy` wrappers memento wrote, resolved through links: older apps also put
+ * one in ~/.gemini/antigravity/bin (Homebrew's bin and the app's own bin link
+ * there), and it ran the Python runner, which is gone now.
+ */
+async function olderWrappers(home: string, dirs: string[]): Promise<string[]> {
+  const names = process.platform === "win32" ? ["agy.cmd", "agy.bat"] : ["agy"];
+  const found = new Set<string>();
+  for (const dir of [join(home, ".gemini", "antigravity", "bin"), ...dirs]) {
+    for (const name of names) {
+      try {
+        const file = await realpath(join(dir, name));
+        const info = await stat(file);
+        // Google's agy is a binary of many MB; ours is a few lines
+        if (info.isFile() && info.size < 64 * 1024 && OUR_WRAPPER.test(await readFile(file, "utf8"))) found.add(file);
+      } catch {
+        // none there, or unreadable
+      }
+    }
+  }
+  return [...found];
+}
+
 /**
  * Installs ~/.gemini/antigravity/bin/agy_cli.mjs (rewritten whenever it differs
  * from the shipped one, the Python runner it replaces removed) and an `agy`
- * wrapper on PATH, kept pointing at this app; the script's path, or undefined
- * when it couldn't be written.
+ * wrapper on PATH, kept pointing at this app, as is every other `agy` memento
+ * wrote (searched for in `pathDirs`, by default the execution PATH when `home`
+ * is this user's); the script's path, or undefined when it couldn't be written.
  */
-export async function ensureAgyCliInstalled(home = homeDir()): Promise<string | undefined> {
+export async function ensureAgyCliInstalled(home = homeDir(), pathDirs?: string[]): Promise<string | undefined> {
   const dir = join(home, ".gemini", "antigravity", "bin");
   const script = join(dir, "agy_cli.mjs");
   try {
@@ -389,12 +420,24 @@ export async function ensureAgyCliInstalled(home = homeDir()): Promise<string | 
     if (!existsSync(script)) return undefined;
   }
   await unlink(join(dir, "agy_cli.py")).catch(() => {});
+  // What Python left of the runner it compiled
+  const pycache = join(dir, "__pycache__");
+  for (const f of await readdir(pycache).catch(() => [])) {
+    if (/^agy_cli\..*\.pyc$/.test(f)) await unlink(join(pycache, f)).catch(() => {});
+  }
+  await rmdir(pycache).catch(() => {}); // only once empty
   try {
     const wrapper = agyWrapper(home, script);
     await mkdir(join(wrapper.path, ".."), { recursive: true });
     // Google's CLI may own `agy`: only a missing one or ours is (re)written
     const current = await readFile(wrapper.path, "utf8").catch(() => undefined);
     if (current === undefined || OUR_WRAPPER.test(current)) await writeIfChanged(wrapper.path, wrapper.text, 0o755);
+    const own = await realpath(wrapper.path).catch(() => wrapper.path);
+    const dirs = pathDirs ?? (home === homeDir() ? await executionPathDirs() : []);
+    for (const older of await olderWrappers(home, dirs)) {
+      // In place, so the links to it run the new runner too
+      if (older !== own) await writeIfChanged(older, wrapper.text, 0o755).catch(() => {});
+    }
   } catch {
     // only for running `agy` by hand; tasks run the script itself
   }

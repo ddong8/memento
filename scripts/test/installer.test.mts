@@ -1,7 +1,7 @@
 // The installer's pure pieces and its file edits, against temp dirs only (never the real home).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -244,6 +244,16 @@ describe("removeInjected (temp home)", () => {
     const wrapper = IS_WINDOWS ? join(home, "AppData", "Local", "agy", "bin", "agy.cmd") : join(home, ".local", "bin", "agy");
     const py = join(binDir, "agy_cli.py");
     write(wrapper, IS_WINDOWS ? `@echo off\r\npython "${py}" %*\r\n` : `#!/bin/sh\nexec python3 "${py}" "$@"\n`);
+    // older apps' wrapper beside the runner (as 1.0.100 rewrites it), the links to it, and what Python compiled
+    const legacy = join(binDir, IS_WINDOWS ? "agy.cmd" : "agy");
+    write(legacy, `#!/bin/sh\n# memento's Antigravity runner (rewritten by Memento)\nexec node '${join(binDir, "agy_cli.mjs")}' "$@"\n`);
+    write(join(binDir, "__pycache__", "agy_cli.cpython-314.pyc"), "");
+    const appBin = join(home, ".antigravity", "antigravity", "bin");
+    if (!IS_WINDOWS) {
+      mkdirSync(appBin, { recursive: true });
+      symlinkSync(legacy, join(appBin, "agy"));
+      symlinkSync(legacy, join(appBin, "antigravity"));
+    }
 
     removeInjected(home);
 
@@ -257,12 +267,20 @@ describe("removeInjected (temp home)", () => {
     assert.equal(read(skillB), "skill b, edited");
     assert.ok(!existsSync(wrapper));
     assert.ok(!existsSync(binDir));
+    if (!IS_WINDOWS) assert.deepEqual(readdirSync(appBin), []);
   });
 
   test("leaves an agy that isn't Memento's", () => {
     const wrapper = IS_WINDOWS ? join(home, "AppData", "Local", "agy", "bin", "agy.cmd") : join(home, ".local", "bin", "agy");
     write(wrapper, "#!/bin/sh\nexec /opt/google/agy \"$@\"\n");
+    // and a link to it, also not Memento's
+    const link = join(home, ".antigravity", "antigravity", "bin", "agy");
+    if (!IS_WINDOWS) {
+      mkdirSync(dirname(link), { recursive: true });
+      symlinkSync(wrapper, link);
+    }
     removeInjected(home);
     assert.equal(read(wrapper), "#!/bin/sh\nexec /opt/google/agy \"$@\"\n");
+    if (!IS_WINDOWS) assert.ok(lstatSync(link).isSymbolicLink());
   });
 });

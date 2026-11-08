@@ -11,9 +11,9 @@
 // and their git hooks), then ~/.memento, logs, and MCP server entries from ~/.claude.json, Cursor,
 // Codex, etc.
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { IS_LINUX, IS_MAC, IS_WINDOWS, REPO_ROOT, errorText, findPython, info, npmPath, ok, onNode, run, warn, which } from "./platform.mts";
 
 const DESKTOP_RELEASES = "https://github.com/ddong8/memento/releases/latest";
@@ -296,12 +296,33 @@ function removeAgyWrapper(home: string): void {
   const scripts = ["agy_cli.mjs", "agy_cli.py"].map((n) => join(binDir, n));
   const wrapper = IS_WINDOWS ? join(home, "AppData", "Local", "agy", "bin", "agy.cmd") : join(home, ".local", "bin", "agy");
   const older = IS_WINDOWS ? `@echo off\r\npython "${scripts[1]}" %*\r\n` : `#!/bin/sh\nexec python3 "${scripts[1]}" "$@"\n`;
-  if (exists(wrapper)) {
-    const text = readFileSync(wrapper, "utf8");
+  // Older apps also wrote one beside the runner, which links on PATH point at
+  const removed: string[] = [];
+  for (const w of [wrapper, join(binDir, IS_WINDOWS ? "agy.cmd" : "agy")]) {
+    if (!isFile(w)) continue;
+    const text = readFileSync(w, "utf8");
     // Ours: the Python runner's exact wrapper, or the one marked as Memento's (Google's CLI may own `agy`)
     if (text === older || (text.includes("rewritten by Memento") && text.includes(scripts[0]!))) {
-      unlinkSync(wrapper);
-      ok(`Removed ${wrapper}`);
+      unlinkSync(w);
+      removed.push(w);
+      ok(`Removed ${w}`);
+    }
+  }
+  // Links to them (agy, even antigravity) would be left dangling
+  if (!IS_WINDOWS && removed.length) {
+    const linkDirs = new Set([...(process.env.PATH ?? "").split(delimiter).filter(Boolean), join(home, ".antigravity", "antigravity", "bin"), "/opt/homebrew/bin", "/usr/local/bin"]);
+    for (const d of linkDirs) {
+      for (const name of ["agy", "antigravity"]) {
+        const link = join(d, name);
+        try {
+          if (lstatSync(link).isSymbolicLink() && removed.includes(resolve(d, readlinkSync(link)))) {
+            unlinkSync(link);
+            ok(`Removed ${link}`);
+          }
+        } catch {
+          // none there, or not ours to remove
+        }
+      }
     }
   }
   for (const f of scripts.flatMap((s) => [s, `${s}.tmp`])) {
@@ -310,7 +331,12 @@ function removeAgyWrapper(home: string): void {
       ok(`Removed ${f}`);
     }
   }
-  for (const d of IS_WINDOWS ? [binDir, dirname(wrapper), dirname(dirname(wrapper))] : [binDir]) {
+  // What Python left of the runner it compiled
+  const pycache = join(binDir, "__pycache__");
+  if (exists(pycache)) {
+    for (const f of readdirSync(pycache)) if (/^agy_cli\..*\.pyc$/.test(f)) unlinkSync(join(pycache, f));
+  }
+  for (const d of IS_WINDOWS ? [pycache, binDir, dirname(wrapper), dirname(dirname(wrapper))] : [pycache, binDir]) {
     if (isEmptyDir(d)) rmdirSync(d);
   }
 }

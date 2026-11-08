@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +91,41 @@ describe("Antigravity runner", () => {
     writeFileSync(wrapper, google);
     await ensureAgyCliInstalled(home);
     expect(readFileSync(wrapper, "utf8")).toBe(google);
+  });
+
+  it("rewrites every other `agy` memento wrote, so the links to them work again, and clears Python's leftovers", async () => {
+    const dir = join(home, ".gemini", "antigravity", "bin");
+    const name = posix ? "agy" : "agy.cmd";
+    const py = join(dir, "agy_cli.py");
+    const pyWrapper = posix ? `#!/bin/sh\nexec python3 "${py}" "$@"\n` : `@echo off\r\npython "${py}" %*\r\n`;
+    // Older apps' wrapper beside the runner, a copy elsewhere on PATH, and Google's CLI on PATH
+    const legacy = join(dir, name);
+    const elsewhere = join(home, "elsewhere", name);
+    const google = join(home, "google", name);
+    const googleText = posix ? "#!/bin/sh\nexec /opt/google/agy \"$@\"\n" : "@echo off\r\n\"C:\\Google\\agy.exe\" %*\r\n";
+    for (const [f, text] of [[legacy, pyWrapper], [elsewhere, pyWrapper], [google, googleText]] as const) {
+      mkdirSync(join(f, ".."), { recursive: true });
+      writeFileSync(f, text);
+      if (posix) chmodSync(f, 0o755);
+    }
+    mkdirSync(join(dir, "__pycache__"));
+    writeFileSync(join(dir, "__pycache__", "agy_cli.cpython-314.pyc"), "");
+    const links = join(home, "links");
+    mkdirSync(links);
+    if (posix) symlinkSync(legacy, join(links, "agy"));
+
+    await ensureAgyCliInstalled(home, [join(home, "elsewhere"), join(home, "google"), links]);
+    const wrapper = readFileSync(posix ? join(home, ".local", "bin", "agy") : join(home, "AppData", "Local", "agy", "bin", "agy.cmd"), "utf8");
+    expect(readFileSync(legacy, "utf8")).toBe(wrapper);
+    expect(readFileSync(elsewhere, "utf8")).toBe(wrapper);
+    expect(readFileSync(google, "utf8")).toBe(googleText);
+    expect(existsSync(join(dir, "__pycache__"))).toBe(false);
+    if (posix) {
+      expect(lstatSync(join(links, "agy")).isSymbolicLink()).toBe(true);
+      const res = spawnSync(join(links, "agy"), ["-p", "hi"], { encoding: "utf8" });
+      expect(res.status).toBe(0);
+      expect(JSON.parse(res.stdout)).toEqual({ args: ["-p", "hi"], electron: "1" });
+    }
   });
 
   it("runs a .py runner with Python on every OS", async () => {

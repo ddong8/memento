@@ -308,21 +308,26 @@ def _remove_synced_skills(home: Path) -> None:
 
 
 def _remove_agy_wrapper(home: Path) -> None:
-    script = home / ".gemini" / "antigravity" / "bin" / "agy_cli.py"
+    bin_dir = home / ".gemini" / "antigravity" / "bin"
+    # The runner: agy_cli.mjs since v1.0.99, agy_cli.py before
+    scripts = [bin_dir / name for name in ("agy_cli.mjs", "agy_cli.py")]
     if IS_WINDOWS:
         wrapper = home / "AppData" / "Local" / "agy" / "bin" / "agy.cmd"
-        ours = f'@echo off\r\npython "{script}" %*\r\n'
+        older = f'@echo off\r\npython "{scripts[1]}" %*\r\n'
     else:
         wrapper = home / ".local" / "bin" / "agy"
-        ours = f'#!/bin/sh\nexec python3 "{script}" "$@"\n'
-    if wrapper.exists() and wrapper.read_bytes().decode("utf-8", "replace") == ours:
-        wrapper.unlink()
-        ok(f"Removed {wrapper}")
-    for f in (script, script.with_name(script.name + ".tmp")):
+        older = f'#!/bin/sh\nexec python3 "{scripts[1]}" "$@"\n'
+    if wrapper.exists():
+        text = wrapper.read_bytes().decode("utf-8", "replace")
+        # Ours: the Python runner's exact wrapper, or the one marked as Memento's (Google's CLI may own `agy`)
+        if text == older or ("rewritten by Memento" in text and str(scripts[0]) in text):
+            wrapper.unlink()
+            ok(f"Removed {wrapper}")
+    for f in (f for s in scripts for f in (s, s.with_name(s.name + ".tmp"))):
         if f.exists():
             f.unlink()
             ok(f"Removed {f}")
-    for d in (script.parent, wrapper.parent, wrapper.parent.parent) if IS_WINDOWS else (script.parent,):
+    for d in (bin_dir, wrapper.parent, wrapper.parent.parent) if IS_WINDOWS else (bin_dir,):
         if d.exists() and not any(d.iterdir()):
             d.rmdir()
 

@@ -1,73 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const agyCliPath = fileURLToPath(new URL("../assets/agy_cli.py", import.meta.url));
+import { getModelCandidates, isTransientError, thinkingHeartbeat } from "../src/agy-runner/runner.js";
 
 describe("Antigravity Failover and Transient Retry Logic", () => {
-  it("verifies get_model_candidates ordering for default, flash, and pro tiers", () => {
-    const script = `
-import sys
-sys.path.insert(0, sys.argv[1])
-from agy_cli import get_model_candidates
-
-assert get_model_candidates("") == ["flash", "pro", "flash_lite"]
-assert get_model_candidates("gemini-3.8-flash") == ["flash", "pro", "flash_lite"]
-assert get_model_candidates("gemini-4-argon-medium") == ["gemini-4-argon-medium", "pro", "flash", "flash_lite"]
-assert get_model_candidates("gemini-4-argon-high") == ["gemini-4-argon-high", "pro", "flash", "flash_lite"]
-assert get_model_candidates("claude-opus-5-5-high") == ["claude-opus-5-5-high", "pro", "flash", "flash_lite"]
-assert get_model_candidates("gemini-3.8-flash-high") == ["gemini-3.8-flash-high", "flash", "pro", "flash_lite"]
-assert get_model_candidates("pro") == ["pro", "flash", "flash_lite"]
-assert get_model_candidates("flash_lite") == ["flash_lite", "flash", "pro"]
-print("CANDIDATES_OK")
-`;
-    const assetsDir = join(agyCliPath, "..");
-    const out = execFileSync("python3", ["-c", script, assetsDir], { encoding: "utf8" });
-    expect(out.trim()).toBe("CANDIDATES_OK");
+  it("verifies getModelCandidates ordering for default, flash, and pro tiers", () => {
+    expect(getModelCandidates("")).toEqual(["flash", "pro", "flash_lite"]);
+    expect(getModelCandidates("gemini-3.8-flash")).toEqual(["flash", "pro", "flash_lite"]);
+    expect(getModelCandidates("gemini-4-argon-medium")).toEqual(["gemini-4-argon-medium", "pro", "flash", "flash_lite"]);
+    expect(getModelCandidates("gemini-4-argon-high")).toEqual(["gemini-4-argon-high", "pro", "flash", "flash_lite"]);
+    expect(getModelCandidates("claude-opus-5-5-high")).toEqual(["claude-opus-5-5-high", "pro", "flash", "flash_lite"]);
+    expect(getModelCandidates("gemini-3.8-flash-high")).toEqual(["gemini-3.8-flash-high", "flash", "pro", "flash_lite"]);
+    expect(getModelCandidates("pro")).toEqual(["pro", "flash", "flash_lite"]);
+    expect(getModelCandidates("flash_lite")).toEqual(["flash_lite", "flash", "pro"]);
+    expect(getModelCandidates(" Gemini-2.5-Flash-Lite ")).toEqual(["flash_lite", "flash", "pro"]);
+    expect(getModelCandidates("some-lite-model")).toEqual(["some-lite-model", "flash_lite", "flash", "pro"]);
   });
 
-  it("verifies is_transient_error handles 503 capacity and all attempt numbers", () => {
-    const script = `
-import sys
-sys.path.insert(0, sys.argv[1])
-from agy_cli import is_transient_error
+  it("verifies isTransientError handles 503 capacity and all attempt numbers", () => {
+    // All attempt numbers must be considered transient
+    expect(isTransientError("API error (attempt 1): UNAVAILABLE")).toBe(true);
+    expect(isTransientError("API error (attempt 3): UNAVAILABLE")).toBe(true);
+    expect(
+      isTransientError("API error (attempt 7): UNAVAILABLE (code 503): No capacity available for model gemini-3.8-flash-tiered on the server"),
+    ).toBe(true);
+    expect(isTransientError("RESOURCE_EXHAUSTED (code 429): Individual quota reached")).toBe(true);
+    expect(isTransientError("Service Unavailable 503")).toBe(true);
 
-# All attempt numbers must be considered transient
-assert is_transient_error("API error (attempt 1): UNAVAILABLE") is True
-assert is_transient_error("API error (attempt 3): UNAVAILABLE") is True
-assert is_transient_error("API error (attempt 7): UNAVAILABLE (code 503): No capacity available for model gemini-3.8-flash-tiered on the server") is True
-assert is_transient_error("RESOURCE_EXHAUSTED (code 429): Individual quota reached") is True
-assert is_transient_error("Service Unavailable 503") is True
-
-# Permanent errors must return False
-assert is_transient_error("Invalid conversation ID: ead11d5b") is False
-assert is_transient_error("Authentication failed: invalid token") is False
-assert is_transient_error("") is False
-print("TRANSIENT_OK")
-`;
-    const assetsDir = join(agyCliPath, "..");
-    const out = execFileSync("python3", ["-c", script, assetsDir], { encoding: "utf8" });
-    expect(out.trim()).toBe("TRANSIENT_OK");
+    // Permanent errors must return false
+    expect(isTransientError("Invalid conversation ID: ead11d5b")).toBe(false);
+    expect(isTransientError("Authentication failed: invalid token")).toBe(false);
+    expect(isTransientError("")).toBe(false);
   });
 
   it("keeps a live run going however long the model takes, with an honest status line", () => {
-    const script = `
-import sys
-sys.path.insert(0, sys.argv[1])
-from agy_cli import thinking_heartbeat
-
-assert thinking_heartbeat(25, []) == "⏳ [模型思考推理中（已用时 25s），请稍候...]"
-assert "远端模型可能在排队重试" in thinking_heartbeat(625, [])
-line = thinking_heartbeat(130, ["zsh -c npm run build && npm test"])
-assert line == "⏳ [命令执行中（已用时 130s）：npm run build && npm test]", line
-src = open(sys.argv[1] + "/agy_cli.py", encoding="utf-8").read()
-assert "模型思考超过 600s" not in src  # no more cutting off a live run for thinking long
-print("HEARTBEAT_OK")
-`;
-    const assetsDir = join(agyCliPath, "..");
-    const out = execFileSync("python3", ["-c", script, assetsDir], { encoding: "utf8" });
-    expect(out.trim()).toBe("HEARTBEAT_OK");
+    expect(thinkingHeartbeat(25, [])).toBe("⏳ [模型思考推理中（已用时 25s），请稍候...]");
+    expect(thinkingHeartbeat(625, [])).toContain("远端模型可能在排队重试");
+    expect(thinkingHeartbeat(130, ["zsh -c npm run build && npm test"])).toBe("⏳ [命令执行中（已用时 130s）：npm run build && npm test]");
+    expect(thinkingHeartbeat(5, [`/bin/bash -c ${"很长的命令".repeat(20)}`])).toBe(`⏳ [命令执行中（已用时 5s）：${"很长的命令".repeat(12)}]`);
+    // no more cutting off a live run for thinking long
+    expect(readFileSync(fileURLToPath(new URL("../src/agy-runner/runner.ts", import.meta.url)), "utf8")).not.toContain("模型思考超过 600s");
   });
 
   it("dynamically discovers Gemini 4 Argon and active default model from Antigravity Language Server RPC and caches locally", async () => {

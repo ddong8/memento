@@ -31,6 +31,8 @@ const RUNNERS = [
 async function bundle(runner) {
   const res = await build({
     entryPoints: [join(pkg, runner.entry)],
+    // The source paths esbuild writes into the output are relative to this: the same file from any directory
+    absWorkingDir: repo,
     bundle: true,
     platform: "node",
     format: "esm",

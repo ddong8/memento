@@ -229,7 +229,7 @@ export function codexArgs(o: {
 }
 
 /**
- * Arguments for invoking the Antigravity CLI (`agy` / `agy.exe` or `agy_cli.py`).
+ * Arguments for invoking the Antigravity CLI (`agy` / `agy.exe` or memento's `agy_cli.mjs`).
  *
  * Official `agy` (Go CLI) parameter protocol:
  *   - `--conversation <id>`: Resume previous conversation by ID (does NOT support `--resume`)
@@ -908,6 +908,8 @@ export class TaskRunner {
     let exe = "";
     let args: string[] = [];
     let isAntigravity = false;
+    // memento's Antigravity runner (agy_cli.mjs), run on this process's own runtime like the Codex runner
+    let agyRunner: string | undefined;
     // Structured agents (Claude, Codex) report every step through the parser.
     let parser: AgentStreamParser | undefined;
     let stdinPrompt: string | undefined;
@@ -1000,9 +1002,7 @@ export class TaskRunner {
         let tip = "";
         if (isAntigravity) {
           tip =
-            process.platform === "win32"
-              ? "\n💡 运行 Antigravity 任务需要 Python 3（安装时勾选 Add python.exe to PATH），并保持 Antigravity 应用运行；装好后重启 Memento。"
-              : "\n💡 运行 Antigravity 任务需要 python3，并保持 Antigravity 应用运行；装好后重启 Memento。";
+            "\n💡 Antigravity 运行脚本没能写入 ~/.gemini/antigravity/bin（检查该目录的写权限和磁盘空间），并请保持 Antigravity 应用运行；处理后重启 Memento。";
         } else if (isWorkbuddy) {
           tip = "\n💡 未检测到 CodeBuddy/WorkBuddy 命令行工具。请运行 npm install -g @tencent-ai/codebuddy-code 进行安装，并确保腾讯 WorkBuddy 客户端保持启动。";
         } else if (binary.includes("claude")) {
@@ -1016,6 +1016,10 @@ export class TaskRunner {
         return;
       }
       exe = resolved;
+      if (isAntigravity && exe.toLowerCase().endsWith(".mjs")) {
+        agyRunner = exe;
+        exe = process.execPath;
+      }
       this.eventLogs.set(taskId, new AgentEventLog());
 
       // Its own worktree and branch, so parallel tasks on one repository don't collide.
@@ -1115,9 +1119,9 @@ export class TaskRunner {
     this.outputs.set(taskId, out);
 
     try {
-      // The Codex runner runs on this process's own runtime (Electron as Node in the desktop app)
-      const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? exe), ...env0 };
-      if (codex) env.ELECTRON_RUN_AS_NODE = "1";
+      // The Codex and Antigravity runners run on this process's own runtime (Electron as Node in the desktop app)
+      const env = { ...withExeDirOnPath(await executionEnvironment(), codex?.codex ?? agyRunner ?? exe), ...env0 };
+      if (codex || agyRunner) env.ELECTRON_RUN_AS_NODE = "1";
       if (isAntigravity) {
         const ag = await discoverAntigravityEnv();
         if (!ag) {
@@ -1135,7 +1139,11 @@ export class TaskRunner {
         Object.assign(env, ag);
       }
       const run = (spec: Omit<RunSpec, "exe" | "cwd" | "env">) =>
-        this.runOnce(taskId, { exe, cwd: workDir, env, ...spec }, task.timeoutSeconds);
+        this.runOnce(
+          taskId,
+          { exe, cwd: workDir, env, ...spec, args: agyRunner ? [agyRunner, ...spec.args] : spec.args },
+          task.timeoutSeconds,
+        );
 
       let exitCode = await run({ args, parser, stdinPrompt, consoleEncoding });
       if (this.cancelledTasks.has(taskId)) {

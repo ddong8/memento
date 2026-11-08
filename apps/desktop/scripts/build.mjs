@@ -52,6 +52,8 @@ await build({
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
 });
 
+// Copied fresh, so a runner the daemon no longer ships (agy_cli.py) doesn't stay in the package
+rmSync(join(root, "assets"), { recursive: true, force: true });
 cpSync(join(root, "../../packages/daemon/assets"), join(root, "assets"), { recursive: true });
 
 // node-datachannel with its one dependency and the prebuilt binary for the platform being built

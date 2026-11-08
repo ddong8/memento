@@ -1,25 +1,25 @@
 {
   "version": "1.0.100",
-  "title": "Memento v1.0.99",
+  "title": "Memento v1.0.100",
   "release_notes": "1. 旧版留下的 agy 命令（包括从 Homebrew 等目录链接过去的）自动改为运行新版脚本，不再因找不到旧的 Python 脚本而无法运行\n2. 清理旧版 Antigravity 运行脚本留下的 Python 缓存文件\n3. 卸载时一并清掉旧版的 agy 命令和指向它的链接，你自己或 Google 装的同名命令不受影响\n4. 版本号到三位数后，安卓安装包的内部版本号仍保持递增，后续升级不受影响\n5. 手机端版本号与客户端统一为 1.0.100",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.99-win-x64.zip",
-      "size": 158067668,
-      "sha256": "995bd9940541bd3d40fee014cd6254f7467cbae6f7f84dae83d9de8d3c586eb1",
-      "sha512": "Lfq6iXiZFS7EnCEEcf/MnHO345yEFY29NtagX/zjaZkDutyqsddDRsX30DwIRTfJIma4k5JQD/gLOzfgyg7xVA=="
+      "asset_name": "Memento-1.0.100-win-x64.zip",
+      "size": 158069039,
+      "sha256": "4ed12b017052aa12fd61473af68f11fac11f88a45bee6ab0e23ca5cc17b67833",
+      "sha512": "Sbq84kYMiC9OfHQ19RdrzlsRPHfDgP6pu+jue3eaCTix/4U87V1p4foKXjKo6JNkF0gXVm1w5DqdF6ybBb95Bw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.99-mac-arm64.zip",
-      "size": 132545890,
-      "sha256": "aa07cc2bac9c898146bbe48e51ea0c05d52a39fd0ba42d9f190a3d85c9a69210",
-      "sha512": "8JJtP7EHN5Oj+NXyn7xo4weUdw5hg+/VapapyklJGcusUPMO/ZDAGj1y1yf5B6IGDvp7iAFOkhURaS1ZoQr15Q=="
+      "asset_name": "Memento-1.0.100-mac-arm64.zip",
+      "size": 132547740,
+      "sha256": "bd3f18d37fab5489f7eff44e3787e5abd032d222767887c691155d74d2944d78",
+      "sha512": "fSmvQ2MLOsXQH6DTppr8YEibYxDP5OFxP6THtgHBQwwLuSQYKlRA5UiyDqGiEsc/4o0HtCjDud9HNsdbC84rRQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.99-linux-x64.tar.gz",
-      "size": 131833968,
-      "sha256": "9097ae2d5c3cf9aadfd3e19a9ca6ea68c1e17c5f9da89a35874a5f1c923d96f0",
-      "sha512": "neVKWicZcCOVCBWtBR9ZX12o4/1fjRDhW8fu+H8Oq7WDnAsIUxDj7/S4GakIKZx07LMA39cC/Gt81qMuLkIrXA=="
+      "asset_name": "Memento-1.0.100-linux-x64.tar.gz",
+      "size": 131835672,
+      "sha256": "9cef2e30cecd0b1837c1bb352e2c5c9a81d1ed71bdf202a2fab2febc8e2adaf9",
+      "sha512": "W22vICVoRBn30YYeDAFVhfhsbu4AIeyrDvSRW0e6wr6gb4BIraVnWUL3GxKwuTEybBpdJ69ATi9zDapHk3pTug=="
     }
   }
 }

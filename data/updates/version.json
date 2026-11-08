@@ -1,7 +1,7 @@
 {
-  "version": "1.0.99",
+  "version": "1.0.100",
   "title": "Memento v1.0.99",
-  "release_notes": "1. 项目蓝图生成和 Antigravity 任务改由客户端自带的运行环境执行，设备上不用再另装 Python\n2. Antigravity 任务的提问回传、模型自动降级、会话续接与原来一致；旧版留下的 agy 命令自动换成新版，你自己或 Google 装的同名命令不受影响\n3. 自建部署的一键安装脚本改用 Node.js 运行，没装 Node.js 时直接借用本机已安装的 Memento 客户端\n4. 卸载时能认出新旧两种 Antigravity 运行脚本并清理干净\n5. 手机端版本号与客户端统一为 1.0.99",
+  "release_notes": "1. 旧版留下的 agy 命令（包括从 Homebrew 等目录链接过去的）自动改为运行新版脚本，不再因找不到旧的 Python 脚本而无法运行\n2. 清理旧版 Antigravity 运行脚本留下的 Python 缓存文件\n3. 卸载时一并清掉旧版的 agy 命令和指向它的链接，你自己或 Google 装的同名命令不受影响\n4. 版本号到三位数后，安卓安装包的内部版本号仍保持递增，后续升级不受影响\n5. 手机端版本号与客户端统一为 1.0.100",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.99-win-x64.zip",

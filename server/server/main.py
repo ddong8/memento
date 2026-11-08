@@ -345,6 +345,10 @@ def _run_migrations(conn) -> None:
         conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_at TIMESTAMPTZ"))
         conn.execute(text("ALTER TABLE knowledge_entities ADD COLUMN IF NOT EXISTS stale_reason TEXT"))
 
+    # Retrieval eval: the quote that answers each question
+    if "eval_cases" in tables:
+        conn.execute(text("ALTER TABLE eval_cases ADD COLUMN IF NOT EXISTS evidence TEXT"))
+
     # Dream journals (DREAMS.md)
     if "dream_journals" not in tables:
         conn.execute(text("""

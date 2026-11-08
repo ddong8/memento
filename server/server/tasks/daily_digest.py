@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -14,15 +15,26 @@ from ..db.session import async_session_factory
 from ..services.ai_summary_service import generate_daily_summary_from_digests
 from ..services.user_filter import user_machine_ids
 
+# A day whose report couldn't be (re)written because the model didn't answer is tried again this
+# often: the model or the network can be out for a while at night, and the 03:30 re-bake is the
+# only pass that picks up the conversations synced after 23:30.
+RETRY_DELAY_S = 1800
+RETRIES = 3
 
-async def _generate_digest(target_date: date) -> None:
-    """(Re)generate the daily digest for ``target_date`` for every active user."""
+
+async def _generate_digest(target_date: date, user_ids: list[str] | None = None) -> list[str]:
+    """(Re)generate the daily digest for ``target_date`` for every active user (or those in user_ids).
+    Returns the users whose report wasn't written because a summary failed, to try again later."""
     tz_cst = timezone(timedelta(hours=8))
     day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=tz_cst)
     day_end = day_start + timedelta(days=1)
+    pending: list[str] = []
 
     async with async_session_factory() as db:
-        users = (await db.execute(select(User).where(User.status == "active"))).scalars().all()
+        users_q = select(User).where(User.status == "active")
+        if user_ids:
+            users_q = users_q.where(User.id.in_([uuid.UUID(u) for u in user_ids]))
+        users = (await db.execute(users_q)).scalars().all()
         for user in users:
             mids = await user_machine_ids(db, user)
             gen_q = (
@@ -82,6 +94,7 @@ async def _generate_digest(target_date: date) -> None:
                 target_date, conv_data, require_complete=existing is not None
             )
             if not summary_text:
+                pending.append(str(user.id))
                 continue
             highlights = {"tool_counts": tool_counts}
             date_str = target_date.isoformat()
@@ -101,6 +114,7 @@ async def _generate_digest(target_date: date) -> None:
                     source_document_ids=[d.id for d in doc_rows[:100]],
                 ))
             await db.commit()
+    return pending
 
 
 @celery_app.task(
@@ -111,12 +125,20 @@ async def _generate_digest(target_date: date) -> None:
     retry_backoff_max=600,
     acks_late=True,
 )
-def generate_daily_digest(date_str: str | None = None, offset_days: int = 0) -> str:
+def generate_daily_digest(
+    date_str: str | None = None, offset_days: int = 0, user_ids: list[str] | None = None, attempt: int = 0,
+) -> str:
     """Generate (or regenerate) the daily digest."""
     if date_str:
         target = date.fromisoformat(date_str)
     else:
         tz_cst = timezone(timedelta(hours=8))
         target = datetime.now(tz_cst).date() + timedelta(days=offset_days)
-    asyncio.run(_generate_digest(target))
+    pending = asyncio.run(_generate_digest(target, user_ids))
+    if pending and attempt < RETRIES:
+        generate_daily_digest.apply_async(
+            kwargs={"date_str": target.isoformat(), "user_ids": pending, "attempt": attempt + 1},
+            countdown=RETRY_DELAY_S,
+        )
+        return f"Daily digest for {target}: {len(pending)} user(s) to retry in {RETRY_DELAY_S}s"
     return f"Daily digest generated for {target}"

@@ -35,7 +35,7 @@ def ai_failing(last_hour: dict[str, Any]) -> bool:
 
 
 def top_reasons(stats: dict[str, Any], n: int = 2) -> str:
-    labels = [r["label"] for r in stats.get("reasons", []) if r["reason"] != "reasoning_retry"][:n]
+    labels = [r["label"] for r in stats.get("reasons", []) if r["reason"] not in ai_health.RETRY_REASONS][:n]
     return "、".join(labels)
 
 
@@ -74,6 +74,9 @@ def assess(
     latest_at = datetime.fromisoformat(latest[0]["created_at"]) if latest else None
     if latest_at is None or now - latest_at > DREAM_STALE:
         add("warn", "dreaming", "超过 30 小时没有新的做梦记录" if latest_at else "还没有做梦记录")
+    if latest and latest[0].get("llm") in ("failed", "unparsed"):
+        add("warn", "dreaming", "上次做梦没拿到模型的有效回答，当晚没有沉淀新记忆"
+                                + ("（模型没有回答）" if latest[0]["llm"] == "failed" else "（回答不是有效的 JSON）"))
     if last_run and last_run.get("profile_status") in ("llm_failed", "error"):
         add("warn", "profile", "夜间画像草稿生成失败")
 
@@ -137,6 +140,7 @@ async def _dreaming(db: AsyncSession, user: User) -> dict[str, Any]:
             "promoted": m.get("promoted_count", 0),
             "relations": m.get("relations_found", 0),
             "voice": voice.get("kept"),
+            "llm": m.get("llm"),  # ok | failed | unparsed | skipped; absent on journals before 11-09
         })
     return {"journals": rows, "last_run": await ai_health.get_json(f"dreaming:{user.id}")}
 

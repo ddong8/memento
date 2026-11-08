@@ -22,9 +22,9 @@ def _stats(ok=0, fallback=0, failed=0, reasons=()):
     }
 
 
-def _dreaming(hours_ago=5, last_run=None):
+def _dreaming(hours_ago=5, last_run=None, llm=None):
     created = (NOW - timedelta(hours=hours_ago)).isoformat()
-    return {"journals": [{"created_at": created}], "last_run": last_run}
+    return {"journals": [{"created_at": created, "llm": llm}], "last_run": last_run}
 
 
 PROFILE_OK = {"last_run": None, "devices": [{"name": "mac", "errors": []}]}
@@ -83,6 +83,13 @@ class AssessTests(unittest.TestCase):
         run = {"ok": False, "error": "TimeoutError", "profile_status": "llm_failed"}
         issues = assess(_stats(ok=5), _stats(), _dreaming(last_run=run), PROFILE_OK, PIPELINE_OK, NOW)
         self.assertEqual([i["level"] for i in issues], ["error", "warn"])
+
+    def test_dreaming_without_a_usable_answer_is_flagged(self) -> None:
+        issues = assess(_stats(ok=5), _stats(), _dreaming(llm="unparsed"), PROFILE_OK, PIPELINE_OK, NOW)
+        self.assertEqual([i["area"] for i in issues], ["dreaming"])
+        self.assertIn("回答不是有效的 JSON", issues[0]["text"])
+        for fine in ("ok", "skipped", None):
+            self.assertEqual(assess(_stats(ok=5), _stats(), _dreaming(llm=fine), PROFILE_OK, PIPELINE_OK, NOW), [])
 
     def test_profile_and_pipeline_problems(self) -> None:
         profile = {"last_run": {"status": "llm_failed"}, "devices": [{"name": "mac", "errors": ["codex"]}]}

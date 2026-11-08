@@ -28,9 +28,12 @@ _RECENT_KEY = f"{_PREFIX}:recent_errors"
 _RECENT_KEEP = 30
 
 # Why a provider attempt fell short. Kept small so the health page can label them.
+# Attempts that were asked again on the same provider: not errors on their own
+RETRY_REASONS = frozenset({"reasoning_retry", "cut_retry"})
 REASON_LABELS = {
     "reasoning_exhausted": "思考耗尽额度",
     "reasoning_retry": "思考超额后加额度重试",
+    "cut_retry": "回答被截断后加额度重试",
     "empty": "返回空内容",
     "timeout": "超时",
     "network": "网络错误",
@@ -97,7 +100,7 @@ async def record_call(
             for f in failures or []:
                 pipe.hincrby(key, f"model:{f['provider']}|{f['model']}:fail", 1)
                 pipe.hincrby(key, f"reason:{f['reason']}", 1)
-                if f["reason"] != "reasoning_retry":
+                if f["reason"] not in RETRY_REASONS:
                     pipe.lpush(_RECENT_KEY, json.dumps({
                         "at": now.isoformat(),
                         "kind": kind,

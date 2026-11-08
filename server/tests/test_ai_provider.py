@@ -189,6 +189,43 @@ class CallChatCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.recorded.await_args.kwargs["failures"][0]["reason"], "reasoning_retry")
         self.assertEqual(data["choices"][0]["message"]["content"], "### 沟通\n- 始终用中文回复")
 
+    async def test_background_answer_cut_at_the_cap_is_asked_again_with_room(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        responses = [_completion('{"notes": "半截', finish="length"), _completion('{"notes": "完整"}')]
+        providers = [AIProviderConfig("primary", "https://a.example/v1", "k1", "m1")]
+        with patch("server.services.ai_provider.get_ai_providers", return_value=providers), \
+                patch("server.services.ai_provider.httpx.AsyncClient", _fake_client(responses, calls)):
+            text = await call_plain_chat([{"role": "user", "content": "hi"}], max_tokens=2500)
+        self.assertEqual(text, '{"notes": "完整"}')
+        self.assertEqual([body["max_tokens"] for _, body in calls], [2500, 5000])
+        self.assertEqual(self.outcomes(), ["ok"])
+        self.assertEqual(self.recorded.await_args.kwargs["failures"][0]["reason"], "cut_retry")
+
+    async def test_cut_answer_is_kept_when_the_roomier_retry_fails(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        responses = [_completion("被截断的日报", finish="length"), ({"error": "max_tokens too large"}, 400)]
+        providers = [
+            AIProviderConfig("primary", "https://a.example/v1", "k1", "m1"),
+            AIProviderConfig("backup", "https://b.example/v1", "k2", "m2"),
+        ]
+        with patch("server.services.ai_provider.get_ai_providers", return_value=providers), \
+                patch("server.services.ai_provider.httpx.AsyncClient", _fake_client(responses, calls)):
+            text = await call_plain_chat([{"role": "user", "content": "hi"}], max_tokens=6000)
+        self.assertEqual(text, "被截断的日报")
+        self.assertEqual([body["max_tokens"] for _, body in calls], [6000, 8192])
+        self.assertTrue(all(url.startswith("https://a.example") for url, _ in calls))
+        self.assertEqual(self.outcomes(), ["ok"])
+
+    async def test_cut_answers_are_not_retried_for_interactive_calls_or_at_the_ceiling(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        responses = [_completion("被截断的回答", finish="length")]
+        providers = [AIProviderConfig("primary", "https://a.example/v1", "k1", "m1")]
+        with patch("server.services.ai_provider.get_ai_providers", return_value=providers), \
+                patch("server.services.ai_provider.httpx.AsyncClient", _fake_client(responses, calls)):
+            await call_chat_completion([{"role": "user", "content": "hi"}], max_tokens=1500)
+            await call_plain_chat([{"role": "user", "content": "hi"}], max_tokens=8192)
+        self.assertEqual([body["max_tokens"] for _, body in calls], [1500, 8192])
+
     async def test_empty_answer_falls_through_to_next_provider(self) -> None:
         calls: list[tuple[str, dict]] = []
         responses = [_completion(""), _completion("ok")]

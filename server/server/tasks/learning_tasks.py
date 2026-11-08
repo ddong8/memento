@@ -20,7 +20,7 @@ from ..db.models import User
 from ..db.session import async_session_factory
 from ..services import ai_health
 from ..services.correction_service import learn_from_corrections, summarize_new_topics
-from ..services.eval_service import regression, recent_runs, run_eval
+from ..services.eval_service import NoMaterial, build_set, needs_new_set, regression, recent_runs, run_eval
 from ..services import learning_eval_service as learning_eval
 from ..services.memory_lifecycle import reconcile, sweep_dormant
 from ..config import settings
@@ -240,6 +240,15 @@ async def _evaluate() -> dict:
         for user in await _users(db):
             try:
                 run = await run_eval(db, user, trigger="scheduled")
+                if needs_new_set(run):
+                    # The set predates quoted answers, or too many answers left their documents: score a
+                    # fresh one from now on (a new version, so trends never mix the two)
+                    version = (await build_set(db, user))["set_version"]
+                    run = await run_eval(db, user, trigger="scheduled", set_version=version)
+            except NoMaterial:
+                await db.rollback()
+                out[str(user.id)] = {"skipped": "no documents"}
+                continue
             except Exception as e:
                 await db.rollback()
                 logger.warning("Retrieval eval failed for user %s: %s", user.id, e)

@@ -62,7 +62,8 @@ class TestNightlyTask(unittest.IsolatedAsyncioTestCase):
         with patch.object(daily_digest, "async_session_factory", return_value=session), \
              patch.object(daily_digest, "user_machine_ids", new_callable=AsyncMock, return_value=None), \
              patch.object(daily_digest, "generate_daily_summary_from_digests", gen):
-            await daily_digest._generate_digest(DAY)
+            self.pending = await daily_digest._generate_digest(DAY)
+        self.user = user
         return gen, db
 
     async def test_rebake_over_an_existing_report_requires_every_summary(self):
@@ -71,10 +72,37 @@ class TestNightlyTask(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(gen.await_args.kwargs["require_complete"])
         self.assertEqual(existing.summary, "23:30 的日报")
         db.commit.assert_not_awaited()
+        self.assertEqual(self.pending, [str(self.user.id)])
 
     async def test_first_bake_takes_what_it_gets(self):
         gen, _ = await self.run_task(None)
         self.assertFalse(gen.await_args.kwargs["require_complete"])
+
+
+class TestRetryLater(unittest.TestCase):
+    def run_task(self, pending, **kw):
+        from server.tasks import daily_digest
+
+        with patch.object(daily_digest, "_generate_digest", new_callable=AsyncMock, return_value=pending) as gen, \
+             patch.object(daily_digest.generate_daily_digest, "apply_async") as later:
+            daily_digest.generate_daily_digest.run(**kw)
+        return gen, later
+
+    def test_users_whose_report_wasnt_written_are_tried_again(self):
+        gen, later = self.run_task(["u1"], date_str="2026-11-08")
+        self.assertEqual(gen.await_args.args, (DAY, None))
+        later.assert_called_once_with(
+            kwargs={"date_str": "2026-11-08", "user_ids": ["u1"], "attempt": 1}, countdown=1800,
+        )
+
+    def test_retries_only_the_given_users_and_gives_up_after_the_last(self):
+        gen, later = self.run_task(["u1"], date_str="2026-11-08", user_ids=["u1"], attempt=3)
+        self.assertEqual(gen.await_args.args, (DAY, ["u1"]))
+        later.assert_not_called()
+
+    def test_nothing_to_retry(self):
+        _, later = self.run_task([], date_str="2026-11-08")
+        later.assert_not_called()
 
 
 if __name__ == "__main__":

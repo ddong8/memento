@@ -1179,6 +1179,7 @@ async def run_dreaming_pipeline(
     # Phase 2 & 3: REM Sleep & Deep Sleep (via LLM Reflection)
     # -----------------------------------------------------------------------
     llm_output: dict[str, Any] = {}
+    llm_status = "skipped"  # ok | failed (no answer) | unparsed (answer that isn't the JSON asked for)
     if get_ai_providers() and scanned_count > 0:
         days_span = (until_date - since_date).days + 1
         prompt = _DREAM_PROMPT.format(
@@ -1195,11 +1196,20 @@ async def run_dreaming_pipeline(
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=2500,
+                # Three notes, the promoted memories, relations and scenarios: successful answers ran close
+                # to the old 2500, and longer ones were cut into JSON that doesn't parse
+                max_tokens=4096,
             )
             if raw_response:
                 llm_output = _safe_json_loads(raw_response)
+                llm_status = "ok" if llm_output else "unparsed"
+                if not llm_output:
+                    logger.warning("Dreaming answer for %s..%s isn't valid JSON (%d chars, ends %r)",
+                                   since_date, until_date, len(raw_response), raw_response[-80:])
+            else:
+                llm_status = "failed"
         except Exception as e:
+            llm_status = "failed"
             logger.warning("Dreaming LLM call failed, proceeding with heuristic fallback: %s", e)
 
     # Heuristic fallback if LLM output is empty
@@ -1208,8 +1218,13 @@ async def run_dreaming_pipeline(
             f"扫描了近 {days_back} 天的 {scanned_count} 条记录（含 {len(daily_summaries)} 篇日报、"
             f"{len(ask_convs)} 组问答、{voice_stats['kept']} 条用户原话）。完成临时垃圾过滤与去噪。"
         )
-        rem_notes = "REM 反思阶段：数据量稳定，未发现需要突破阈值的跨周期冲突。保持当前长时记忆稳固。"
-        deep_notes = "深睡阶段：常规巡检完成，暂无新增晋升条目。"
+        if llm_status in ("failed", "unparsed"):
+            reason = "模型没有回答" if llm_status == "failed" else "模型的回答不是有效的 JSON"
+            rem_notes = f"REM 反思阶段：{reason}，本次没有做反思。"
+            deep_notes = "深睡阶段：本次没有沉淀新的长期记忆。"
+        else:
+            rem_notes = "REM 反思阶段：数据量稳定，未发现需要突破阈值的跨周期冲突。保持当前长时记忆稳固。"
+            deep_notes = "深睡阶段：常规巡检完成，暂无新增晋升条目。"
         promoted = []
         relations = []
     else:
@@ -1505,6 +1520,7 @@ async def run_dreaming_pipeline(
         "promoted_count": promoted_count,
         "relations_found": len(relations),
         "discovered_scenarios": learned_scenarios_count,
+        "llm": llm_status,
         "user_voice": voice_stats,
         "days_back": (until_date - since_date).days + 1,
         "start_date": since_date.isoformat(),

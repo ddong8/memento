@@ -684,6 +684,7 @@ function Eval({
           <Hint>
             {fmt(h.lastEval, { at: time(latest.created_at) })}
             {num(metrics.semantic_unavailable) > 0 && ` · ${fmt(h.semanticDown, { n: num(metrics.semantic_unavailable) })}`}
+            {num(metrics.stale) > 0 && ` · ${fmt(h.evalStaleCases, { n: num(metrics.stale) })}`}
             {evalData.stale === true && ` · ${h.evalStale}`}
           </Hint>
           {trend.length > 1 && <EvalTrend trend={trend} />}
@@ -704,6 +705,11 @@ function Eval({
                 misses.map((m, i) => (
                   <div key={i} style={{ fontSize: 12.5, color: "var(--aurora-fg2)", padding: "3px 0" }}>
                     · {String(m.query)}
+                    {m.evidence != null && (
+                      <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", padding: "1px 0 0 10px" }}>
+                        {fmt(h.missEvidence, { text: String(m.evidence) })}
+                      </div>
+                    )}
                   </div>
                 ))}
             </>
@@ -832,19 +838,23 @@ function Dreaming({ dreaming }: { dreaming: Obj }) {
       ) : (
         <>
           <Subhead>{h.recentJournals}</Subhead>
-          {journals.map((j, i) => (
-            <Row
-              key={i}
-              left={String(j.date)}
-              right={[
-                fmt(h.scanned, { n: num(j.scanned) }),
-                fmt(h.promoted, { n: num(j.promoted) }),
-                ...(num(j.relations) > 0 ? [fmt(h.relations, { n: num(j.relations) })] : []),
-                ...(j.voice != null ? [fmt(h.voice, { n: num(j.voice) })] : []),
-              ].join(" · ")}
-              rightColor={num(j.promoted) > 0 ? "var(--aurora-fg1)" : "var(--aurora-fg3)"}
-            />
-          ))}
+          {journals.map((j, i) => {
+            const noAnswer = j.llm === "failed" ? h.journalLlmFailed : j.llm === "unparsed" ? h.journalLlmUnparsed : null;
+            return (
+              <Row
+                key={i}
+                left={String(j.date)}
+                right={[
+                  fmt(h.scanned, { n: num(j.scanned) }),
+                  fmt(h.promoted, { n: num(j.promoted) }),
+                  ...(num(j.relations) > 0 ? [fmt(h.relations, { n: num(j.relations) })] : []),
+                  ...(j.voice != null ? [fmt(h.voice, { n: num(j.voice) })] : []),
+                ].join(" · ")}
+                rightColor={noAnswer ? WARN : num(j.promoted) > 0 ? "var(--aurora-fg1)" : "var(--aurora-fg3)"}
+                sub={noAnswer ?? undefined}
+              />
+            );
+          })}
         </>
       )}
     </Section>

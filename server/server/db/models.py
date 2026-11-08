@@ -1013,6 +1013,9 @@ class EvalCase(Base):
     set_version: Mapped[int] = mapped_column(Integer, nullable=False)
     query: Mapped[str] = mapped_column(Text, nullable=False)
     expected_doc_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    # The sentence in the document that answers the question, quoted by the question writer and checked
+    # against the document; a run skips the case once the document no longer holds it. None on sets before 11-09.
+    evidence: Mapped[str | None] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(20), nullable=False, default="synthetic")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

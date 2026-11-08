@@ -224,6 +224,7 @@ async def call_chat_completion(
         widened = False
         retried_without_switch = False
         rate_limit_retries = 0
+        cut: dict | None = None  # an answer cut at max_tokens, kept while a roomier retry runs
         while True:
             req_body: dict = {
                 "model": p.model,
@@ -274,7 +275,8 @@ async def call_chat_completion(
                 fell_short(p, ai_health.reason_for_exception(e), f"{type(e).__name__}: {e}")
                 break
 
-            if resp.status_code in (400, 422) and switch_off_thinking:
+            if resp.status_code in (400, 422) and switch_off_thinking and cut is None:
+                # (After a cut answer the switch was already accepted; the bigger budget is what got rejected.)
                 switch_off_thinking = False
                 retried_without_switch = True
                 logger.warning(
@@ -306,6 +308,19 @@ async def call_chat_completion(
 
             data = resp.json()
             problem = completion_problem(data)
+            roomier = min(budget * 2, CUT_RETRY_MAX_TOKENS)
+            if problem is None and background and not widened and roomier > budget and _cut_at_cap(data):
+                # Background jobs mostly want JSON or a whole report: cut at the cap, the JSON doesn't
+                # parse (nightly dreaming fell back on 8 of 28 nights to 11-09 with 2500 tokens).
+                widened = True
+                cut = data
+                logger.warning(
+                    "Provider '%s' (%s) answer was cut at max_tokens=%d; retrying with %d",
+                    p.name, p.model, budget, roomier,
+                )
+                fell_short(p, "cut_retry", f"max_tokens={budget}")
+                budget = roomier
+                continue
             if problem is None:
                 await ai_health.record_call(
                     kind, "ok" if index == 0 else "fallback",
@@ -329,6 +344,13 @@ async def call_chat_completion(
             fell_short(p, problem, f"max_tokens={budget}")
             break
 
+        if cut is not None:
+            # The roomier retry failed (some providers cap max_tokens lower): the cut answer beats none
+            await ai_health.record_call(
+                kind, "ok" if index == 0 else "fallback", provider=p.name, model=p.model, failures=failures,
+            )
+            return cut, p
+
     await ai_health.record_call(kind, "failed", failures=failures)
     raise RuntimeError(f"All {len(providers)} AI providers failed: " + "; ".join(errors))
 
@@ -345,6 +367,13 @@ def _provider_key(p: AIProviderConfig) -> str:
 # against max_tokens. A budget sized for the answer can be spent entirely on
 # thinking, which comes back as HTTP 200 with empty or cut-off content.
 REASONING_RETRY_EXTRA_TOKENS = 8000
+# A background answer cut at max_tokens is asked again with twice the room, up to this
+CUT_RETRY_MAX_TOKENS = 8192
+
+
+def _cut_at_cap(data: dict) -> bool:
+    choices = data.get("choices") or []
+    return bool(choices) and choices[0].get("finish_reason") == "length"
 
 
 def completion_problem(data: dict) -> str | None:

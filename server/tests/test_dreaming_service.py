@@ -125,9 +125,37 @@ class TestDreamingService(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(journal.user_id, user.id)
             self.assertEqual(journal.stage_metrics["promoted_count"], 1)
+            self.assertEqual(journal.stage_metrics["llm"], "ok")
             self.assertIn("清洗了会话与工具日志", journal.light_sleep_notes)
             self.assertIn("Windows 更新必须使用 .zip 在位热替换", journal.report_markdown)
             self.assertTrue(mock_db.commit.called)
+
+    async def test_an_answer_cut_into_broken_json_is_reported_not_dressed_up(self):
+        user = User(id=uuid.uuid4(), email="dev@example.com")
+        mock_db = AsyncMock()
+        mock_db.add = MagicMock()
+        ds = MagicMock(summary_date=date.today(), title="今日工作小结", summary="完成了 Windows 自动更新修复")
+
+        def result(scalars=()):
+            m = MagicMock()
+            m.scalars.return_value.all.return_value = list(scalars)
+            m.all.return_value = []
+            m.scalar_one_or_none.return_value = None
+            return m
+
+        replies = iter([result(), result(), result([ds])])
+        mock_db.execute.side_effect = lambda *a, **k: next(replies, result())
+        cut = '{"light_sleep_notes": "清洗了会话", "promoted_memories": [{"category": "rule", "content": "Windows 更'
+        with patch("server.services.dreaming_service.get_ai_providers", return_value=[{"provider": "t"}]), \
+             patch("server.services.dreaming_service.deduplicate_and_merge_entities", AsyncMock(return_value={})), \
+             patch("server.services.dreaming_service.call_plain_chat", AsyncMock(return_value=cut)) as llm:
+            journal = await run_dreaming_pipeline(mock_db, user, days_back=1)
+
+        self.assertEqual(llm.await_args.kwargs["max_tokens"], 4096)
+        self.assertEqual(journal.stage_metrics["llm"], "unparsed")
+        self.assertEqual(journal.stage_metrics["promoted_count"], 0)
+        self.assertIn("不是有效的 JSON", journal.rem_reflections)
+        self.assertIn("没有沉淀新的长期记忆", journal.deep_consolidations)
 
     def test_is_suspicious_non_project(self):
         # Chemical compounds and IUPAC

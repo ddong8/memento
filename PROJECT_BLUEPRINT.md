@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c6d9d3d6` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3e24b680` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 154 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 155 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `c6d9d3d6` (2026-11-09): chore(release): 升级客户端版本至 v1.0.101，AI 工具查项目蓝图默认只返回摘要与文档开头
+- 最近改动 (Latest): `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -585,7 +585,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 94 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 95 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 34 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -598,7 +598,7 @@ erDiagram
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (11 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (9 commits)
+- [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
 - [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
 - `c6d9d3d6` (2026-11-09): chore(release): 升级客户端版本至 v1.0.101，AI 工具查项目蓝图默认只返回摘要与文档开头
 - `03a65218` (2026-11-09): fix(blueprint): 多设备蓝图按最新代码挑选，蓝图工具不再重复返回各设备副本，个人蓝图不再被旧克隆占满
 - `70cae1f7` (2026-11-09): chore(release): 升级客户端版本至 v1.0.100，旧版 agy 命令自动修复，卸载清理旧包装与链接
 - `31ea7d9d` (2026-11-09): fix(android): versionCode 改为 主×1000000+次×1000+修订，版本号到三位数后不与 1.1.0 撞号
 - `42e2eb50` (2026-11-09): fix(antigravity): 改写旧版留在 PATH 上的 agy 包装并清理 Python 缓存，卸载时一并清掉指向它的链接
-- `57c8a3da` (2026-11-08): fix(updates): 新版尚未发布时检查更新接口不再提前宣布新版本
 
 ## 10. Key Environment Variables & Configuration
 

@@ -29,7 +29,10 @@ export interface Device {
   /** The device's last project-blueprint pass (null before v1.0.98) */
   blueprint?: {
     enabled: boolean;
-    python: string | null;
+    /** What runs the generator: the client's own Node (v1.0.99+) */
+    runtime?: string | null;
+    /** The Python 3 the generator ran on (clients up to v1.0.98) */
+    python?: string | null;
     ok: number;
     no_hooks: number;
     failed: { name: string; reason: string }[];
@@ -45,6 +48,7 @@ function versionLabel(version: string | null | undefined, old: string): string |
 
 function blueprintReason(reason: string, t: ReturnType<typeof useI18n>["t"]): string {
   if (reason === "no_python") return t.devices.blueprintReasonNoPython;
+  if (reason === "no_runtime") return t.devices.blueprintReasonNoRuntime;
   if (reason === "timeout") return t.devices.blueprintReasonTimeout;
   if (reason === "no_generator") return t.devices.blueprintReasonNoGenerator;
   return reason;
@@ -555,7 +559,7 @@ node packages/daemon/dist/cli.js install-service`}
 function BlueprintStatusLine({ bp, t }: { bp: NonNullable<Device["blueprint"]>; t: ReturnType<typeof useI18n>["t"] }) {
   if (!bp.enabled) return <span>{t.devices.blueprintOff}</span>;
   const failedTotal = bp.failed_total ?? bp.failed.length;
-  if (!bp.python && failedTotal > 0) return <span style={{ color: "#EF4444" }}>{t.devices.blueprintNoPython}</span>;
+  if (!bp.runtime && !bp.python && failedTotal > 0) return <span style={{ color: "#EF4444" }}>{t.devices.blueprintNoPython}</span>;
   return (
     <>
       <span>

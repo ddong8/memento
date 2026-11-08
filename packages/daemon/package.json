@@ -24,7 +24,7 @@
     "assets"
   ],
   "scripts": {
-    "build": "node --input-type=commonjs -e \"const fs=require('fs'),p='../../scripts/project_blueprint.py';if(fs.existsSync(p))fs.copyFileSync(p,'assets/project_blueprint.py')\" && tsc -p tsconfig.build.json",
+    "build": "node scripts/build-runners.mjs && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/cli.js"
@@ -36,6 +36,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.0",
     "vitest": "^3.2.4"
   }

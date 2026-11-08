@@ -21,7 +21,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 from .platform_utils import (
@@ -330,7 +329,7 @@ def _remove_agy_wrapper(home: Path) -> None:
 
 def _blueprint_script_version(path: Path) -> int:
     try:
-        m = re.search(r"^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", path.read_text(encoding="utf-8"), re.M)
+        m = re.search(r"^(?:(?:export\s+)?(?:const|let|var)\s+)?BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", path.read_text(encoding="utf-8"), re.M)
     except OSError:
         return -1
     return int(m.group(1)) if m else 0
@@ -339,16 +338,24 @@ def _blueprint_script_version(path: Path) -> int:
 def _remove_blueprints(home: Path) -> None:
     """The git hooks, HEAD markers, exclude lines, anchors and untracked PROJECT_BLUEPRINT.md the
     daemon set up in local repos (recorded in ~/.memento/blueprint_repos): the generator's own
-    --uninstall-all, from whichever copy is newer (the daemon may have an OTA one)."""
-    candidates = [home / ".memento" / "scripts" / "project_blueprint.py", REPO_ROOT / "scripts" / "project_blueprint.py"]
+    --uninstall-all, from whichever copy is newer (the daemon may have an OTA one). The generator
+    is a Node script; the daemon leaves a `runtime` wrapper next to it that runs Memento's own Node."""
+    scripts = home / ".memento" / "scripts"
+    candidates = [scripts / "project_blueprint.mjs", REPO_ROOT / "scripts" / "project_blueprint.mjs"]
     script = max((c for c in candidates if c.is_file()), key=_blueprint_script_version, default=None)
-    if script is None or _blueprint_script_version(script) < 20261110:  # older copies have no --uninstall-all
-        script = candidates[1] if candidates[1].is_file() else None
     if script is None:
+        return
+    node = which("node")
+    if node:
+        cmd = [node, str(script)]
+    elif (scripts / "runtime").is_file() and which("sh"):
+        cmd = ["sh", str(scripts / "runtime"), str(script)]
+    else:
+        warn("Project blueprints not removed: no Node.js to run the generator's --uninstall-all")
         return
     env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
     res = subprocess.run(
-        [sys.executable, str(script), "--uninstall-all"],
+        [*cmd, "--uninstall-all"],
         env=env, cwd=str(home), capture_output=True, text=True, timeout=300, check=False,
     )
     for line in (res.stdout or "").splitlines():

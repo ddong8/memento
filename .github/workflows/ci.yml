@@ -104,6 +104,8 @@ jobs:
         run: |
           npm run typecheck -w @memento/daemon
           npm run test -w @memento/daemon
+          # scripts/project_blueprint.mjs is committed (the server serves it, git hooks run it)
+          node packages/daemon/scripts/build-runners.mjs --check
 
       - name: mcp · typecheck & test
         run: |

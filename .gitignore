@@ -50,6 +50,9 @@ data/updates/*.exe
 
 packages/core/openapi.json
 packages/*/dist/
+# Bundled from packages/daemon/src by packages/daemon/scripts/build-runners.mjs
+packages/daemon/assets/project_blueprint.mjs
+packages/daemon/assets/agy_cli.mjs
 node_modules/
 apps/desktop/dist/
 apps/desktop/release/

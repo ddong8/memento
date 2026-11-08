@@ -150,11 +150,12 @@ class BlueprintStatusTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(profile_api, "_owned_machine", AsyncMock(return_value=m)), \
              patch.object(profile_api, "_bust_user_profile_cache", AsyncMock()):
             await profile_api.report_blueprint_status(
-                body=profile_api.BlueprintStatusReport(python=None, generator_version=20261111, ok=3, no_hooks=1, failed=failed),
+                body=profile_api.BlueprintStatusReport(runtime="/Applications/Memento.app/x", generator_version=20261111, ok=3, no_hooks=1, failed=failed),
                 x_device_id="dev1", db=db, user=u,
             )
             bp = m.profile_status["blueprint"]
             self.assertEqual((bp["ok"], bp["no_hooks"], bp["failed_total"], bp["python"]), (3, 1, 25, None))
+            self.assertEqual(bp["runtime"], "/Applications/Memento.app/x")
             self.assertEqual(len(bp["failed"]), 20)
             self.assertEqual(len(bp["failed"][0]["reason"]), 200)
             self.assertEqual(m.profile_status["guards"], {"results": {"codex": "written"}})

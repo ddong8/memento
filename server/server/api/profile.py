@@ -140,7 +140,9 @@ class BlueprintFailure(BaseModel):
 
 class BlueprintStatusReport(BaseModel):
     enabled: bool = True
-    # The Python the generator runs with; None when the device has none (Windows without Python)
+    # What the generator runs on: Memento's own runtime (Electron as Node) since v1.0.99
+    runtime: str | None = None
+    # Before v1.0.99 the Python it ran with; None when the device had none (Windows without Python)
     python: str | None = None
     generator_version: int | None = None
     ok: int = 0
@@ -161,6 +163,7 @@ async def report_blueprint_status(
     status = dict(machine.profile_status or {})
     status["blueprint"] = {
         "enabled": body.enabled,
+        "runtime": body.runtime[:200] if body.runtime else None,
         "python": body.python[:200] if body.python else None,
         "generator_version": body.generator_version,
         "ok": max(0, body.ok),
@@ -615,42 +618,44 @@ async def delete_account(
 # Collector (X-Collector-Token + X-Device-Id)
 # ---------------------------------------------------------------------------
 
-_BP_SCRIPT_CACHE: dict[str, object] = {"mtime": 0.0, "bundle": None}
+_BP_GENERATOR_CACHE: dict[str, object] = {"mtime": 0.0, "bundle": None}
+_BP_GENERATOR_VERSION_RE = re.compile(r"^(?:(?:export\s+)?(?:const|let|var)\s+)?BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", re.MULTILINE)
 
 
-def _get_blueprint_script_bundle() -> dict[str, object] | None:
+def _get_blueprint_generator_bundle() -> dict[str, object] | None:
+    """scripts/project_blueprint.mjs (bundled from packages/daemon/src/blueprint), handed to devices whose copy is older."""
     candidates = [
-        Path(__file__).resolve().parents[3] / "scripts" / "project_blueprint.py",
-        Path("/app/scripts/project_blueprint.py"),
-        Path.home() / ".memento" / "scripts" / "project_blueprint.py",
+        Path(__file__).resolve().parents[3] / "scripts" / "project_blueprint.mjs",
+        Path("/app/scripts/project_blueprint.mjs"),
+        Path.home() / ".memento" / "scripts" / "project_blueprint.mjs",
     ]
     script_path = next((p for p in candidates if p.is_file()), None)
     if not script_path:
         return None
     try:
         st = script_path.stat()
-        if _BP_SCRIPT_CACHE["bundle"] is not None and _BP_SCRIPT_CACHE["mtime"] == st.st_mtime:
-            return _BP_SCRIPT_CACHE["bundle"]  # type: ignore[return-value]
+        if _BP_GENERATOR_CACHE["bundle"] is not None and _BP_GENERATOR_CACHE["mtime"] == st.st_mtime:
+            return _BP_GENERATOR_CACHE["bundle"]  # type: ignore[return-value]
         content = script_path.read_text(encoding="utf-8")
         digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-        m = re.search(r"^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", content, re.MULTILINE)
+        m = _BP_GENERATOR_VERSION_RE.search(content)
         version = int(m.group(1)) if m else 1
         bundle: dict[str, object] = {"version": version, "hash": digest, "content": content}
-        _BP_SCRIPT_CACHE["mtime"] = st.st_mtime
-        _BP_SCRIPT_CACHE["bundle"] = bundle
+        _BP_GENERATOR_CACHE["mtime"] = st.st_mtime
+        _BP_GENERATOR_CACHE["bundle"] = bundle
         return bundle
     except Exception:
         return None
 
 
-@router.get("/blueprint-script")
-async def get_blueprint_script(
+@router.get("/blueprint-generator")
+async def get_blueprint_generator(
     _user: User = Depends(verify_collector_token),
 ) -> dict:
-    """Return the canonical project_blueprint.py generator script for OTA sync to remote daemons."""
-    bundle = _get_blueprint_script_bundle()
+    """The canonical project_blueprint.mjs generator, for OTA sync to devices (v1.0.99 and later)."""
+    bundle = _get_blueprint_generator_bundle()
     if not bundle:
-        raise HTTPException(status_code=404, detail="Blueprint generator script not found on server")
+        raise HTTPException(status_code=404, detail="Blueprint generator not found on server")
     return bundle
 
 
@@ -679,7 +684,7 @@ async def get_injection(
     if published:
         content = render_device_profile(published.content, machine.name, await device_projects(db, machine))
         block = render_profile_block(published.version, content)
-    bp_bundle = _get_blueprint_script_bundle()
+    bp_bundle = _get_blueprint_generator_bundle()
     res = {
         "version": published.version if published else None,
         "block": block,
@@ -688,7 +693,9 @@ async def get_injection(
         "guards": {"completion_evidence": guard_tools(user, machine)},
         # Off: the device removes the hooks and generated blueprints it set up
         "blueprint": {"auto": blueprint_auto_enabled(user)},
-        "blueprint_script": (
+        # Clients before v1.0.99 read blueprint_script for their Python generator; with nothing
+        # there they keep the copy they shipped with
+        "blueprint_generator": (
             {"version": bp_bundle["version"], "hash": bp_bundle["hash"]}
             if bp_bundle
             else None

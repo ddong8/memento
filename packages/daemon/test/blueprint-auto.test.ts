@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import {
   ensureProjectBlueprint,
   findGitRoot,
   generatorFailureReason,
+  hookRuntimeScript,
   isBlueprintReady,
   locateBlueprintGenerator,
   needsRemoteBlueprintSync,
@@ -19,6 +20,7 @@ import {
   removeAllProjectBlueprints,
   resolveGitDirs,
   setBlueprintAutoEnabled,
+  syncGlobalBlueprintScript,
 } from "../src/blueprint-auto.js";
 
 let tmpDir: string;
@@ -43,7 +45,7 @@ function initRepo(dir: string): void {
 }
 
 beforeEach(() => {
-  // realpath: macOS tmpdir is a symlink, git and python report the resolved path
+  // realpath: macOS tmpdir is a symlink, git and the generator report the resolved path
   homeTmp = realpathSync(mkdtempSync(join(tmpdir(), "memento_bp_home_")));
   tmpDir = join(homeTmp, "dev", "proj");
   mkdirSync(tmpDir, { recursive: true });
@@ -102,8 +104,11 @@ describe("blueprint-auto", () => {
     expect(await isBlueprintReady(tmpDir)).toBe(true);
 
     const head = git(tmpDir, "rev-parse", "--short", "HEAD");
-    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.py`._\n");
+    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.mjs` (v20261120)._\n");
     expect(await isBlueprintReady(tmpDir)).toBe(false); // no marker yet
+    // The Python generator's are ours as well
+    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.py` (v20261120)._\n");
+    expect(await isBlueprintReady(tmpDir)).toBe(false);
     writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), `${head}\n`);
     expect(await isBlueprintReady(tmpDir)).toBe(true);
     writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "0000000\n");
@@ -147,15 +152,20 @@ describe("blueprint-auto", () => {
   it("locateBlueprintGenerator prefers the project's own generator unless it is older than ours", async () => {
     const localScripts = join(tmpDir, "scripts");
     mkdirSync(localScripts, { recursive: true });
-    const localPy = join(localScripts, "project_blueprint.py");
-    writeFileSync(localPy, "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 99999999\nprint('mock')\n");
-    expect(await locateBlueprintGenerator(tmpDir)).toBe(localPy);
+    const local = join(localScripts, "project_blueprint.mjs");
+    writeFileSync(local, "#!/usr/bin/env node\nvar BLUEPRINT_SCRIPT_VERSION = 99999999;\nconsole.log('mock');\n");
+    expect(await locateBlueprintGenerator(tmpDir)).toBe(local);
 
     // Copied in once and never updated: the shared, newer generator is used instead
-    writeFileSync(localPy, "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 20200101\nprint('mock')\n");
+    writeFileSync(local, "#!/usr/bin/env node\nvar BLUEPRINT_SCRIPT_VERSION = 20200101;\nconsole.log('mock');\n");
     const found = await locateBlueprintGenerator(tmpDir);
-    expect(found).not.toBe(localPy);
-    expect(found).toMatch(/project_blueprint\.py$/);
+    expect(found).not.toBe(local);
+    expect(found).toMatch(/project_blueprint\.mjs$/);
+
+    // A repo's Python copy is no longer anything we run
+    rmSync(local);
+    writeFileSync(join(localScripts, "project_blueprint.py"), "BLUEPRINT_SCRIPT_VERSION = 99999999\n");
+    expect(await locateBlueprintGenerator(tmpDir)).toMatch(/project_blueprint\.mjs$/);
   });
 
   it("writes the project's About line from its README into section 0", async () => {
@@ -212,23 +222,23 @@ describe("blueprint-auto", () => {
     expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
     let report = await blueprintStatusReport([tmpDir, join(homeTmp, "never-tried")]);
     expect(report).toMatchObject({ enabled: true, ok: 1, no_hooks: 0, failed: [] });
-    expect(report.python).toBeTruthy();
+    expect(report.runtime).toBe(process.execPath);
     expect(report.generator_version).toBeGreaterThan(20261110);
 
     // A broken generator in the repo (newer than ours, so it is the one used)
     mkdirSync(join(tmpDir, "scripts"), { recursive: true });
     writeFileSync(
-      join(tmpDir, "scripts", "project_blueprint.py"),
-      "import sys\nBLUEPRINT_SCRIPT_VERSION = 99999999\nsys.stderr.write('Traceback\\nValueError: boom\\n')\nsys.exit(3)\n",
+      join(tmpDir, "scripts", "project_blueprint.mjs"),
+      "var BLUEPRINT_SCRIPT_VERSION = 99999999;\nprocess.stderr.write('file:///x.mjs:1\\nError: boom\\n');\nprocess.exit(3);\n",
     );
     expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(false);
     report = await blueprintStatusReport([tmpDir]);
     expect(report.ok).toBe(0);
-    expect(report.failed).toEqual([{ name: "proj", reason: "exit 3: ValueError: boom" }]);
+    expect(report.failed).toEqual([{ name: "proj", reason: "exit 3: Error: boom" }]);
   });
 
-  it("names the failure: no Python, timeout, or the exit code with the error's last line", () => {
-    expect(generatorFailureReason({ code: null, stderr: "", failure: "no_python" })).toBe("no_python");
+  it("names the failure: no runtime, timeout, or the exit code with the error's last line", () => {
+    expect(generatorFailureReason({ code: null, stderr: "", failure: "no_runtime" })).toBe("no_runtime");
     expect(generatorFailureReason({ code: null, stderr: "timed out after 60s", failure: "timeout" })).toBe("timeout");
     expect(generatorFailureReason({ code: 1, stderr: "Traceback (most recent call last):\n  x\nOSError: denied\n" })).toBe(
       "exit 1: OSError: denied",
@@ -402,14 +412,93 @@ describe("blueprint-auto", () => {
   });
 
   it("extracts blueprint generator script version/hash metadata and validates OTA updates", async () => {
-    const sample = "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 20261108\ndef build_blueprint_content():\n    pass\n";
+    const sample = "#!/usr/bin/env node\n// Memento living blueprint generator: test\nvar BLUEPRINT_SCRIPT_VERSION = 20261108;\n";
     const meta = parseBlueprintScriptMeta(sample);
     expect(meta.version).toBe(20261108);
     expect(meta.hash.length).toBe(16);
+    expect(parseBlueprintScriptMeta("BLUEPRINT_SCRIPT_VERSION = 20261101\n").version).toBe(20261101);
 
     // Higher remote version triggers OTA sync
     expect(await needsRemoteBlueprintSync({ version: 99999999, hash: "deadbeef12345678" })).toBe(true);
-    // Rejects invalid script content
+    // Rejects anything that is not the bundled generator, the Python one included
     expect(await applyRemoteBlueprintScript({ version: 99999999, hash: "bad", content: "invalid" })).toBe(false);
+    const python = "BLUEPRINT_SCRIPT_VERSION = 99999999\ndef build_blueprint_content(root):\n    pass\n";
+    expect(await applyRemoteBlueprintScript({ version: 99999999, hash: "py", content: python })).toBe(false);
+    expect(await applyRemoteBlueprintScript({ version: 20261108, hash: meta.hash, content: sample })).toBe(true);
+    expect(readFileSync(join(homeTmp, ".memento", "scripts", "project_blueprint.mjs"), "utf8")).toBe(sample);
+  });
+
+  it("writes the hooks' runtime file and removes the Python generator from ~/.memento/scripts", async () => {
+    const scripts = join(homeTmp, ".memento", "scripts");
+    mkdirSync(scripts, { recursive: true });
+    writeFileSync(join(scripts, "project_blueprint.py"), "BLUEPRINT_SCRIPT_VERSION = 20261120\n");
+    await syncGlobalBlueprintScript();
+    expect(existsSync(join(scripts, "project_blueprint.py"))).toBe(false);
+    expect(readFileSync(join(scripts, "project_blueprint.mjs"), "utf8")).toContain("Memento living blueprint generator");
+    expect(readFileSync(join(scripts, "runtime"), "utf8")).toBe(hookRuntimeScript());
+  });
+
+  it.skipIf(process.platform === "win32")("the runtime file runs the app's binary as Node, or node once it is gone", () => {
+    const runtime = join(homeTmp, "runtime");
+    const probe = ["-e", "console.log(process.env.ELECTRON_RUN_AS_NODE ?? 'unset')"];
+    writeFileSync(runtime, hookRuntimeScript(process.execPath));
+    chmodSync(runtime, 0o755);
+    expect(execFileSync(runtime, probe, { encoding: "utf8" }).trim()).toBe("1");
+    writeFileSync(runtime, hookRuntimeScript(join(homeTmp, "uninstalled", "Memento")));
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: undefined, PATH: `${join(process.execPath, "..")}:${process.env.PATH}` };
+    expect(execFileSync(runtime, probe, { encoding: "utf8", env }).trim()).toBe("unset");
+  });
+
+  it("quotes the binary's path for sh, with forward slashes on Windows", () => {
+    expect(hookRuntimeScript("/Applications/It's Memento.app/x", "darwin")).toContain(`exec '/Applications/It'\\''s Memento.app/x' "$@"`);
+    expect(hookRuntimeScript("C:\\Users\\me\\Memento\\Memento.exe", "win32")).toContain("[ -x 'C:/Users/me/Memento/Memento.exe' ]");
+  });
+
+  it.skipIf(process.platform === "win32")("the installed hook regenerates a tracked blueprint into the commit", () => {
+    initRepo(tmpDir);
+    const scripts = join(homeTmp, ".memento", "scripts");
+    return (async () => {
+      expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+      expect(readFileSync(join(scripts, "runtime"), "utf8")).toBe(hookRuntimeScript());
+      git(tmpDir, "add", "-f", "PROJECT_BLUEPRINT.md");
+      git(tmpDir, "commit", "-q", "-m", "track blueprint");
+      mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
+      writeFileSync(join(tmpDir, "src", "controllers", "hook.controller.ts"), `@Controller('hook')\nexport class H {\n  @Get('ran')\n  ran() {}\n}\n`);
+      git(tmpDir, "add", "src");
+      // HOME points the hook at the runtime file and generator written above
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "add route"], {
+        cwd: tmpDir,
+        env: { ...process.env, HOME: homeTmp, MEMENTO_HOME: "" },
+        stdio: "ignore",
+      });
+      expect(git(tmpDir, "show", "HEAD:PROJECT_BLUEPRINT.md")).toContain("`GET /hook/ran`");
+      expect(git(tmpDir, "status", "--porcelain")).toBe("");
+    })();
+  });
+
+  it("sets a repo up again once when its hooks still run the Python generator", async () => {
+    initRepo(tmpDir);
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+    const hook = join(tmpDir, ".git", "hooks", "post-commit");
+    const legacy = [
+      "#!/bin/sh",
+      "",
+      "# <<< Memento Blueprint Hook Start >>>",
+      '    if [ -f "scripts/project_blueprint.py" ]; then',
+      '        BP_SCRIPT="scripts/project_blueprint.py"',
+      "    fi",
+      "# <<< Memento Blueprint Hook End >>>",
+      "",
+    ].join("\n");
+    writeFileSync(hook, legacy);
+    expect(await isBlueprintReady(tmpDir)).toBe(true);
+
+    setBlueprintAutoEnabled(false);
+    setBlueprintAutoEnabled(true); // drop the "verified" cache
+    expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
+    const text = readFileSync(hook, "utf8");
+    expect(text).not.toContain("project_blueprint.py");
+    expect(text).toContain("scripts/project_blueprint.mjs");
+    expect(text.match(/Memento Blueprint Hook Start/g)).toHaveLength(1);
   });
 });

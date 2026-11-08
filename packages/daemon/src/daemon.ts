@@ -242,7 +242,7 @@ export class Daemon extends EventEmitter {
   /** Follow the user's automatic-blueprint switch: on keeps repos current, off takes back what was set up. */
   private async applyBlueprintSwitch(
     ingest: IngestClient,
-    profile: { block?: string | null; blueprint?: { auto?: boolean } | null; blueprint_script?: { version?: number; hash?: string } | null },
+    profile: { block?: string | null; blueprint?: { auto?: boolean } | null; blueprint_generator?: { version?: number; hash?: string } | null },
   ): Promise<void> {
     const auto = profile.blueprint?.auto !== false;
     const previous = this.blueprintAuto;
@@ -259,8 +259,8 @@ export class Daemon extends EventEmitter {
       return;
     }
     let force = false;
-    if (await needsRemoteBlueprintSync(profile.blueprint_script)) {
-      const remoteBp = await ingest.fetchBlueprintScript();
+    if (await needsRemoteBlueprintSync(profile.blueprint_generator)) {
+      const remoteBp = await ingest.fetchBlueprintGenerator();
       if (await applyRemoteBlueprintScript(remoteBp)) {
         force = true;
         this.log(`Blueprint generator synced from server (v${remoteBp?.version ?? 1}, ${remoteBp?.hash ?? ""})`);

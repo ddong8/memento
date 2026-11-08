@@ -60,6 +60,13 @@ Electron 桌面端：
 - [x] 图标统一用网页的 Memento 标志（`scripts/brand-icons.mjs` 生成；Flutter 版用的是 Flutter 默认图标）
 - [ ] 真机/模拟器上走一遍（本机没有模拟器和 Android SDK，目前只验证了类型检查和两端 JS 打包）
 
+### 阶段 5：设备上不再需要 Python
+设备上跑的脚本全部改成 TS，用 Memento 自带的 Node（Electron 以 `ELECTRON_RUN_AS_NODE=1` 运行），设备不用另装 Python 3。esbuild 打成不依赖任何包的单文件（`packages/daemon/scripts/build-runners.mjs`）。
+- [x] 项目蓝图生成器：`scripts/project_blueprint.py`（3000 多行）改写为 `packages/daemon/src/blueprint`，打包成 `scripts/project_blueprint.mjs`（提交进仓库：服务端下发给设备、本仓库的 git hook 运行它；CI 用 `--check` 确认它和源码一致）。自带一个 Python 语法的分词器、解析器和 `ast.unparse` 等价实现，用来读 Python 项目：对 21 个仓库生成的蓝图与 Python 版逐字节一致，43 万个表达式的反解析只有标准库测试里的 85 个 `\N{名字}` 转义不同（JS 里没有 Unicode 名字表，按 U+FFFD 处理，只影响蓝图里引用的字面量）
+  - git hook 先找 `~/.memento/scripts/runtime`（守护进程写的，指向 Memento 自带的 Node），没有再用 PATH 上的 `node`；旧版写的调用 Python 的 hook 由新守护进程自动换掉
+  - 服务端改为下发 `.mjs`（`/api/profile/blueprint-generator`，注入响应里是 `blueprint_generator`）；v1.0.98 及更早的客户端读的是 `blueprint_script`，服务端不再给，它们继续用自带的 Python 版，升级后自动换成 TS 版
+  - 设备页的蓝图状态报的是运行环境（`runtime`），只有旧客户端才会提示缺 Python
+
 ### 收尾
 - [x] 清理不再使用的代码（2026-09-29 用户确认）：删除旧 Python 采集器 `collector/`、打包壳 `memento_brain/` 和它的架构文档；Python MCP 去掉直连数据库模式（远程模式保留，现有 `memento-memory` 配置照常可用）；服务端删掉从未生效的 `/mcp` 挂载和 PyPI 采集器版本接口，镜像不再安装 mcp_server；管理页去掉「更新采集器」按钮（新旧采集都不处理这个命令）；CI 和 PyPI 发布只保留 memento-brain-memory；自建安装脚本改为从仓库构建 Node 守护进程（没有 Node 就提示装桌面端）
 - [x] 再次清理冗余（2026-10-17）：服务端删掉没有任何客户端调用的接口（分片/表格上传、HTTP 轮询派活、文档原文与历史、记忆压缩与重置、按采集器 id 发命令、微信 OAuth 登录等）和它们留下的辅助函数、未使用的导入与依赖（alembic、passlib）；P2P 媒体直连只有已下线的 Flutter 手机端用过，网页端一直走服务器中转，守护进程不再在公网 IPv6 上开媒体端口
@@ -83,3 +90,4 @@ Electron 桌面端：
 | 2026-09-29 | 2 | Electron 桌面端 apps/desktop：本机打包 mac 版并冒烟通过（守护进程、上传、任务、退出清理） |
 | 2026-09-29 | 2 | 网页端补齐 Flutter 独有功能：健康、技能、纠正、待办、推送、做梦、任务时间线/插话/独立分支 |
 | 2026-09-29 | 2 | @memento/daemon：采集端全部移植（42 个测试，含假 Claude 端到端：结构化步骤、中途插话、worktree）；对本地模拟服务器冒烟通过 |
+| 2026-11-08 | 5 | 项目蓝图生成器改写为 TS（`packages/daemon/src/blueprint` → `scripts/project_blueprint.mjs`）：与 Python 版在 21 个仓库上输出一致；生成器测试移到 vitest（18 个），守护进程蓝图测试 23 个；服务端改为下发 .mjs |

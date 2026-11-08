@@ -293,19 +293,19 @@ export class IngestClient {
     guards?: { completion_evidence?: string[] };
     /** The user's automatic-blueprint switch; `auto: false` takes back hooks and generated files. */
     blueprint?: { auto?: boolean } | null;
-    /** Server-hosted living blueprint generator script metadata for OTA sync. */
-    blueprint_script?: { version?: number; hash?: string } | null;
+    /** The server's living blueprint generator (scripts/project_blueprint.mjs), for OTA sync. */
+    blueprint_generator?: { version?: number; hash?: string } | null;
   } | null> {
     return this.getJson("/api/profile/injection");
   }
 
-  /** Fetch the full project_blueprint.py script from the server when OTA update is needed. */
-  async fetchBlueprintScript(): Promise<{
+  /** Fetch the server's project_blueprint.mjs when it is newer than ours. */
+  async fetchBlueprintGenerator(): Promise<{
     version?: number;
     hash?: string;
     content?: string;
   } | null> {
-    return this.getJson("/api/profile/blueprint-script");
+    return this.getJson("/api/profile/blueprint-generator");
   }
 
   /** Fetch the synthesized User Cognitive & Domain Blueprint (USER_BLUEPRINT.md) from the server. */

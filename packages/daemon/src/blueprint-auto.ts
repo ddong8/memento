@@ -1,24 +1,32 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  BLUEPRINT_FILE,
+  GENERATED_FOOTER_RE,
+  GENERATED_MARK,
+  HEAD_MARKER,
+  HOOK_MARKER_START,
+  LEGACY_GENERATED_MARK,
+  LEGACY_SCRIPT_NAME,
+  MANAGED_GIT_HOOKS,
+  RUNTIME_NAME,
+  SCRIPT_NAME,
+  SCRIPT_SIGNATURE,
+  scriptVersionOf,
+} from "./blueprint/meta.js";
 import { homeDir, mementoDir } from "./config.js";
-import { findPython } from "./exec-env.js";
 
 /** Cache ttl in milliseconds for git roots verified to have blueprint configured */
 const VERIFIED_TTL_MS = 10 * 60 * 1000;
 /** A repo the generator failed on is retried after this long (or once HEAD moves), not on every sync. */
 const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
-/** One generator run; big monorepos take a few seconds, a hung python must not pile up. */
+/** One generator run; big monorepos take a few seconds, a hung run must not pile up. */
 const GENERATOR_TIMEOUT_MS = 60_000;
-const BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
-/** Written by the generator into the git dir: the HEAD the blueprint was built at. */
-const HEAD_MARKER = ".memento_blueprint_head";
-/** Footer of a generated blueprint; a file without it is hand-written and left alone. */
-const GENERATED_MARK = "_Auto-maintained by `scripts/project_blueprint.py`";
 
 interface CacheEntry {
   ready: boolean;
@@ -33,14 +41,15 @@ const inflight = new Map<string, Promise<boolean>>();
 /** How the last attempt on a repo went: `no_hooks` is a blueprint kept current from here, without git hooks. */
 export interface BlueprintRepoState {
   state: "ok" | "no_hooks" | "failed";
-  /** For failed: `no_python`, `timeout`, `no_generator`, or `exit <code>: <last stderr line>` */
+  /** For failed: `no_runtime`, `timeout`, `no_generator`, or `exit <code>: <last stderr line>` */
   reason?: string;
 }
 
 /** What the devices page shows for this machine's last blueprint pass. */
 export interface BlueprintStatusReport {
   enabled: boolean;
-  python: string | null;
+  /** What the generator runs on: this process's runtime (Electron as Node in the desktop app) */
+  runtime: string;
   generator_version: number | null;
   ok: number;
   no_hooks: number;
@@ -75,23 +84,12 @@ export async function blueprintStatusReport(gitRoots: Iterable<string>): Promise
   const generator = await locateBlueprintGenerator();
   return {
     enabled: autoEnabled,
-    python: (await resolvePython()) ?? null,
+    runtime: process.execPath,
     generator_version: generator ? await generatorVersion(generator) : null,
     ok,
     no_hooks: noHooks,
     failed,
   };
-}
-
-let pythonLookup: { at: number; exe: string | undefined } | undefined;
-
-/** The Python the generator runs with (re-looked up every 10 minutes: the user may install one). */
-async function resolvePython(): Promise<string | undefined> {
-  const now = Date.now();
-  if (pythonLookup && now - pythonLookup.at < VERIFIED_TTL_MS) return pythonLookup.exe;
-  const exe = await findPython();
-  pythonLookup = { at: now, exe };
-  return exe;
 }
 
 const versionCache = new Map<string, { mtimeMs: number; version: number }>();
@@ -112,7 +110,7 @@ async function generatorVersion(script: string): Promise<number> {
 
 /** The generator version a generated blueprint was written by, from its footer (0 before versions were written). */
 export function blueprintGeneratorVersion(text: string): number {
-  const m = text.match(/_Auto-maintained by `scripts\/project_blueprint\.py` \(v(\d+)\)/);
+  const m = text.match(GENERATED_FOOTER_RE);
   return m?.[1] ? Number.parseInt(m[1], 10) : 0;
 }
 
@@ -240,8 +238,23 @@ export async function readGitHeadShort(gitRoot: string): Promise<string | null> 
   }
 }
 
+/** Footer of a generated blueprint (the Python generator's too); a file without it is hand-written and left alone. */
 export function isGeneratedBlueprint(text: string): boolean {
-  return text.startsWith("# Project Blueprint:") && text.includes(GENERATED_MARK);
+  return text.startsWith("# Project Blueprint:") && (text.includes(GENERATED_MARK) || text.includes(LEGACY_GENERATED_MARK));
+}
+
+/**
+ * Git hooks still running the Python generator, which is gone from this machine: they do nothing
+ * now, and the repo is set up again once (the generator replaces our block in each hook).
+ */
+async function hasLegacyHooks(gitRoot: string): Promise<boolean> {
+  const dirs = await resolveGitDirs(gitRoot);
+  if (!dirs) return false;
+  for (const name of MANAGED_GIT_HOOKS) {
+    const text = await readFile(join(dirs.commonDir, "hooks", name), "utf8").catch(() => "");
+    if (text.includes(HOOK_MARKER_START) && text.includes(LEGACY_SCRIPT_NAME)) return true;
+  }
+  return false;
 }
 
 /**
@@ -270,15 +283,13 @@ export async function isBlueprintReady(gitRoot: string, minGeneratorVersion = 0)
 
 export function parseBlueprintScriptMeta(content: string): { version: number; hash: string } {
   const hash = createHash("sha256").update(content, "utf8").digest("hex").slice(0, 16);
-  const m = content.match(/^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)/m);
-  const version = m?.[1] ? Number.parseInt(m[1], 10) : 1;
-  return { version, hash };
+  return { version: scriptVersionOf(content) || 1, hash };
 }
 
 function hasRepoCheckoutScript(): boolean {
   try {
     const currentModulePath = fileURLToPath(import.meta.url);
-    const repoCandidate = resolve(currentModulePath, "../../../../scripts/project_blueprint.py");
+    const repoCandidate = resolve(currentModulePath, `../../../../scripts/${SCRIPT_NAME}`);
     return existsSync(repoCandidate);
   } catch {
     return false;
@@ -291,7 +302,7 @@ function locateBundledBlueprintGenerator(): string | null {
   }
   try {
     const currentModulePath = fileURLToPath(import.meta.url);
-    const repoCandidate = resolve(currentModulePath, "../../../../scripts/project_blueprint.py");
+    const repoCandidate = resolve(currentModulePath, `../../../../scripts/${SCRIPT_NAME}`);
     if (existsSync(repoCandidate)) {
       return repoCandidate;
     }
@@ -299,7 +310,7 @@ function locateBundledBlueprintGenerator(): string | null {
     // ignore
   }
   try {
-    const assetCandidate = fileURLToPath(new URL("../assets/project_blueprint.py", import.meta.url));
+    const assetCandidate = fileURLToPath(new URL(`../assets/${SCRIPT_NAME}`, import.meta.url));
     if (existsSync(assetCandidate)) {
       return assetCandidate;
     }
@@ -311,15 +322,15 @@ function locateBundledBlueprintGenerator(): string | null {
 
 /**
  * Locate generator script:
- * 1. Target project's own scripts/project_blueprint.py
- * 2. Bundled / Memento repository's scripts/project_blueprint.py
- * 3. Global ~/.memento/scripts/project_blueprint.py (synced from bundled asset or server OTA)
+ * 1. Target project's own scripts/project_blueprint.mjs
+ * 2. Bundled / Memento repository's scripts/project_blueprint.mjs
+ * 3. Global ~/.memento/scripts/project_blueprint.mjs (synced from bundled asset or server OTA)
  */
 export async function locateBlueprintGenerator(gitRoot?: string): Promise<string | null> {
   const shared = await locateSharedGenerator();
   if (gitRoot) {
     // A repo's own copy wins, unless it is older than ours (copied once and never updated)
-    const localScript = join(gitRoot, "scripts", "project_blueprint.py");
+    const localScript = join(gitRoot, "scripts", SCRIPT_NAME);
     if (existsSync(localScript) && (!shared || (await generatorVersion(localScript)) >= (await generatorVersion(shared)))) {
       return localScript;
     }
@@ -328,7 +339,7 @@ export async function locateBlueprintGenerator(gitRoot?: string): Promise<string
 }
 
 async function locateSharedGenerator(): Promise<string | null> {
-  const globalScript = join(mementoDir(homeDir()), "scripts", "project_blueprint.py");
+  const globalScript = join(mementoDir(homeDir()), "scripts", SCRIPT_NAME);
   const bundled = locateBundledBlueprintGenerator();
   if (existsSync(globalScript) && bundled) {
     const [gVersion, bVersion] = await Promise.all([generatorVersion(globalScript), generatorVersion(bundled)]);
@@ -344,12 +355,44 @@ async function locateSharedGenerator(): Promise<string | null> {
   return null;
 }
 
-/** Sync generator script to ~/.memento/scripts/project_blueprint.py for global accessibility */
+/**
+ * What the git hooks run the generator on (~/.memento/scripts/runtime): this process's runtime,
+ * Electron as Node in the desktop app, or `node` once that is gone (the app uninstalled).
+ */
+export function hookRuntimeScript(execPath = process.execPath, platform = process.platform): string {
+  // Git for Windows runs hooks in its sh, which takes C:/ paths
+  const exe = (platform === "win32" ? execPath.replaceAll("\\", "/") : execPath).replaceAll("'", "'\\''");
+  return [
+    "#!/bin/sh",
+    "# The runtime of Memento's project blueprint git hooks (rewritten by Memento)",
+    `if [ -x '${exe}' ]; then`,
+    `    ELECTRON_RUN_AS_NODE=1 exec '${exe}' "$@"`,
+    "fi",
+    'exec node "$@"',
+    "",
+  ].join("\n");
+}
+
+async function writeIfChanged(target: string, content: string, executable: boolean): Promise<boolean> {
+  if ((await readFile(target, "utf8").catch(() => null)) === content) return false;
+  const tmp = `${target}.tmp`;
+  await writeFile(tmp, content, "utf8");
+  if (executable && process.platform !== "win32") await chmod(tmp, 0o755);
+  await rename(tmp, target);
+  return true;
+}
+
+/**
+ * Sync generator script to ~/.memento/scripts/project_blueprint.mjs for global accessibility, with the
+ * runtime file the hooks run it on. The Python generator it replaces is removed.
+ */
 export async function syncGlobalBlueprintScript(): Promise<string | null> {
   try {
     const globalDir = join(mementoDir(homeDir()), "scripts");
     await mkdir(globalDir, { recursive: true });
-    const target = join(globalDir, "project_blueprint.py");
+    const target = join(globalDir, SCRIPT_NAME);
+    await writeIfChanged(join(globalDir, RUNTIME_NAME), hookRuntimeScript(), true);
+    await rm(join(globalDir, LEGACY_SCRIPT_NAME), { force: true });
 
     const bundled = locateBundledBlueprintGenerator();
     if (bundled && bundled !== target) {
@@ -365,13 +408,7 @@ export async function syncGlobalBlueprintScript(): Promise<string | null> {
           bundledMeta.hash !== existingMeta.hash &&
           hasRepoCheckoutScript());
 
-      if (shouldWrite) {
-        const tmp = `${target}.tmp`;
-        await writeFile(tmp, bundledContent, "utf8");
-        if (process.platform !== "win32") await chmod(tmp, 0o755);
-        await rename(tmp, target);
-        verifiedCache.clear();
-      }
+      if (shouldWrite && (await writeIfChanged(target, bundledContent, true))) verifiedCache.clear();
     }
     return existsSync(target) ? target : bundled;
   } catch {
@@ -386,7 +423,7 @@ export async function needsRemoteBlueprintSync(
   if (!remoteMeta?.hash) return false;
   try {
     await syncGlobalBlueprintScript();
-    const target = join(mementoDir(homeDir()), "scripts", "project_blueprint.py");
+    const target = join(mementoDir(homeDir()), "scripts", SCRIPT_NAME);
     if (!existsSync(target)) return true;
     const localContent = await readFile(target, "utf8");
     const localMeta = parseBlueprintScriptMeta(localContent);
@@ -405,17 +442,13 @@ export async function needsRemoteBlueprintSync(
 export async function applyRemoteBlueprintScript(
   remote?: { version?: number; hash?: string; content?: string } | null,
 ): Promise<boolean> {
-  if (!remote?.content || !remote.content.includes("def build_blueprint_content")) {
+  if (!remote?.content || !remote.content.includes(SCRIPT_SIGNATURE) || !scriptVersionOf(remote.content)) {
     return false;
   }
   try {
     const globalDir = join(mementoDir(homeDir()), "scripts");
     await mkdir(globalDir, { recursive: true });
-    const target = join(globalDir, "project_blueprint.py");
-    const tmp = `${target}.tmp`;
-    await writeFile(tmp, remote.content, "utf8");
-    if (process.platform !== "win32") await chmod(tmp, 0o755);
-    await rename(tmp, target);
+    await writeIfChanged(join(globalDir, SCRIPT_NAME), remote.content, true);
     verifiedCache.clear();
     return true;
   } catch {
@@ -444,16 +477,12 @@ export async function syncLocalUserBlueprint(markdown?: string | null): Promise<
 export interface GeneratorResult {
   code: number | null;
   stderr: string;
-  /** Why it could not run at all: no Python on this machine, or killed after GENERATOR_TIMEOUT_MS */
-  failure?: "no_python" | "timeout";
+  /** Why it could not run at all: the runtime missing (the app moved mid-update), or killed after GENERATOR_TIMEOUT_MS */
+  failure?: "no_runtime" | "timeout";
 }
 
-/** Windows' Store alias for python when no Python is installed: prints this and exits 9009. */
-const NO_PYTHON_OUTPUT = /Python was not found|was not found; run without arguments to install/i;
-
+/** The generator runs on this process's runtime: Electron as Node in the desktop app, node otherwise. */
 async function runGenerator(generator: string, args: string[], cwd: string): Promise<GeneratorResult> {
-  const pythonExe = await resolvePython();
-  if (!pythonExe) return { code: null, stderr: "", failure: "no_python" };
   return new Promise<GeneratorResult>((resolveDone) => {
     let settled = false;
     let stderr = "";
@@ -462,8 +491,6 @@ async function runGenerator(generator: string, args: string[], cwd: string): Pro
       settled = true;
       clearTimeout(timer);
       const text = (stderr + extra).trim().slice(-600);
-      if (!failure && (code === 9009 || NO_PYTHON_OUTPUT.test(text))) failure = "no_python";
-      if (failure === "no_python") pythonLookup = undefined;
       resolveDone({ code, stderr: text, ...(failure ? { failure } : {}) });
     };
     const timer = setTimeout(() => {
@@ -475,15 +502,16 @@ async function runGenerator(generator: string, args: string[], cwd: string): Pro
       done(null, `timed out after ${GENERATOR_TIMEOUT_MS / 1000}s`, "timeout");
     }, GENERATOR_TIMEOUT_MS);
     timer.unref?.();
-    const proc = spawn(pythonExe, [generator, ...args], {
+    const proc = spawn(process.execPath, [generator, ...args], {
       cwd,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
       windowsHide: true,
       stdio: ["ignore", "ignore", "pipe"],
     });
     proc.stderr?.on("data", (chunk) => {
       if (stderr.length < 4000) stderr += String(chunk);
     });
-    proc.once("error", (err) => done(null, err.message, (err as NodeJS.ErrnoException).code === "ENOENT" ? "no_python" : undefined));
+    proc.once("error", (err) => done(null, err.message, (err as NodeJS.ErrnoException).code === "ENOENT" ? "no_runtime" : undefined));
     proc.once("exit", (code) => done(code));
   });
 }
@@ -530,7 +558,7 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
   };
   let generator = await locateBlueprintGenerator(gitRoot);
   const minVersion = generator ? await generatorVersion(generator) : 0;
-  if (!force && (await isBlueprintReady(gitRoot, minVersion))) {
+  if (!force && (await isBlueprintReady(gitRoot, minVersion)) && !(await hasLegacyHooks(gitRoot))) {
     verifiedCache.set(gitRoot, { ready: true, timestamp: now, headSha: currentHead });
     if (repoStates.get(gitRoot)?.state !== "no_hooks") repoStates.set(gitRoot, { state: "ok" });
     return true;
@@ -562,8 +590,8 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
     }
     const reason = generatorFailureReason(res);
     log(
-      res.failure === "no_python"
-        ? `[blueprint-auto] No Python found; project blueprints need Python 3 (${gitRoot})`
+      res.failure === "no_runtime"
+        ? `[blueprint-auto] Could not start ${process.execPath} for the blueprint generator (${gitRoot})`
         : `[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${res.code}): ${res.stderr}`,
     );
     return fail(reason);

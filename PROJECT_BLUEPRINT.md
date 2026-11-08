@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b3bd4cdc` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ff6cad90` · Updated: `2026-11-08`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 152 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b3bd4cdc` (2026-11-08): refactor(blueprint): 项目蓝图生成器改写为 TypeScript，设备不再需要 Python
+- 最近改动 (Latest): `ff6cad90` (2026-11-08): refactor(antigravity): Antigravity 运行脚本改写为 TypeScript，设备不再需要 Python
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -25,11 +25,11 @@
 | 3. Subsystem Breakdown & Responsibilities | L79-L91 |
 | 4. Key Entry Points & API Endpoints | L93-L449 |
 | 5. Core Domain Services & Background Schedules | L451-L491 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L493-L568 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L570-L610 |
-| 8. Development & Verification Commands | L612-L629 |
-| 9. Recent Architectural Evolutions | L631-L638 |
-| 10. Key Environment Variables & Configuration | L640-L652 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L493-L565 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L567-L607 |
+| 8. Development & Verification Commands | L609-L626 |
+| 9. Recent Architectural Evolutions | L628-L635 |
+| 10. Key Environment Variables & Configuration | L637-L649 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -557,15 +557,12 @@ erDiagram
 | :--- | :--- | :--- |
 | `memento-daemon` | Node CLI Binary | `packages/daemon/dist/cli.js` |
 | `memento-mcp` | Node CLI Binary | `packages/mcp/dist/cli.js` |
-| `auto_punch_upnp.py` | Automation Script | `scripts/auto_punch_upnp.py` |
 | `brand-icons.mjs` | Automation Script | `scripts/brand-icons.mjs` |
 | `check-web-routes.mjs` | Automation Script | `scripts/check-web-routes.mjs` |
 | `check_ipv6.sh` | Automation Script | `scripts/check_ipv6.sh` |
 | `ddns_ipv6.sh` | Automation Script | `scripts/ddns_ipv6.sh` |
 | `fetch_geoip.py` | Automation Script | `scripts/fetch_geoip.py` |
-| `install.py` | Automation Script | `scripts/install.py` |
 | `project_blueprint.mjs` | Automation Script | `scripts/project_blueprint.mjs` |
-| `verify_release_metadata.py` | Automation Script | `scripts/verify_release_metadata.py` |
 
 ## 7. CI/CD Pipelines, Code Hotspots & Test Suites
 
@@ -599,15 +596,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (11 commits)
-- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
-- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (10 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
+- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (9 commits)
+- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (9 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
 - [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (7 commits)
-- [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -630,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ff6cad90` (2026-11-08): refactor(antigravity): Antigravity 运行脚本改写为 TypeScript，设备不再需要 Python
 - `b3bd4cdc` (2026-11-08): refactor(blueprint): 项目蓝图生成器改写为 TypeScript，设备不再需要 Python
 - `88006d14` (2026-11-08): chore(release): 升级客户端版本至 v1.0.98，设备页显示客户端版本与项目蓝图状态，蓝图写入项目简介
 - `368b3eb7` (2026-11-08): feat(blueprint): 项目蓝图写入项目简介、上报生成状态，设备页显示客户端版本
 - `cf40228e` (2026-11-08): fix(server): 项目主领域按项目本身判定，工作规则只作参考
 - `b1e37eef` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
-- `0bd095ae` (2026-11-08): feat(blueprint): 项目蓝图与个人蓝图全面优化
 
 ## 10. Key Environment Variables & Configuration
 

@@ -446,7 +446,7 @@ memento/
 │       ├── services/         # ingest / embedding / graph / 派活 / 主动执事 / 夜间复盘 …
 │       └── tasks/            # Celery worker + beat
 ├── embedding/                # BGE-M3 宿主服务
-├── scripts/                  # install.py 后端 + 工具脚本
+├── scripts/                  # 安装器(install.mts + install/)、发版元数据等工具脚本(TypeScript)
 ├── deploy/bootstrap/         # curl 一键安装(install.sh / .ps1 / index.html)
 ├── docs/                     # project-architecture.md / typescript-migration.md
 └── docker-compose.yml
@@ -556,7 +556,7 @@ memento/
 <details>
 <summary><b>只装了采集守护进程的设备</b></summary>
 
-在仓库目录里运行(需要 Python 3.11+):
+在仓库目录里运行(需要 Node.js 22.18+,或装了 Memento 桌面端):
 
 ```bash
 ./install.sh uninstall-collector     # macOS / Linux

@@ -446,7 +446,7 @@ memento/
 │       ├── services/         # ingest / embedding / graph / dispatch / proactive butler / nightly review …
 │       └── tasks/            # Celery worker + beat
 ├── embedding/                # BGE-M3 host service
-├── scripts/                  # install.py backend + utility scripts
+├── scripts/                  # installer (install.mts + install/), release metadata and other tools (TypeScript)
 ├── deploy/bootstrap/         # curl one-shot installer (install.sh / .ps1 / index.html)
 ├── docs/                     # project-architecture.md / typescript-migration.md
 └── docker-compose.yml
@@ -556,7 +556,7 @@ With Docker Compose, put them all in `.env` at the repo root: the api and both c
 <details>
 <summary><b>Daemon-only device</b></summary>
 
-Run in the repo directory (needs Python 3.11+):
+Run in the repo directory (needs Node.js 22.18+, or the Memento desktop app installed):
 
 ```bash
 ./install.sh uninstall-collector     # macOS / Linux

@@ -73,7 +73,7 @@ Memento 支持两种主流部署形态，可按需选择：
 - **操作系统**：macOS / Linux / Windows WSL2
 - **依赖软件**：
   - Docker 24.0+ 与 Docker Compose v2.20+
-  - Python 3.11+（用于执行初始化向导与服务自检）
+  - Node.js 22.18+（运行初始化向导与服务自检；macOS / Windows 装了 Memento 桌面端时可直接用它自带的运行时）
   - 机器内存建议 ≥ 4GB（启用本地 BGE-M3 向量模型建议 ≥ 8GB）
 
 ### 2. 获取代码与一键安装向导
@@ -87,7 +87,7 @@ cd memento
 chmod +x install.sh
 ./install.sh
 ```
-> **Windows 用户**：在 PowerShell 中直接运行 `python scripts/install.py` 即可。
+> **Windows 用户**：在 PowerShell 中运行 `.\install.ps1`（等同于 `node scripts/install.mts`）。
 
 安装向导将全自动完成：
 1. **配置文件生成**：自动生成包含强随机密钥的 `.env`；

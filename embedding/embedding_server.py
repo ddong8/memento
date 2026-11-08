@@ -1,7 +1,7 @@
 """Standalone embedding HTTP server for self-hosted BGE-M3.
 
 The Docker image (embedding/Dockerfile) and the native host service
-(scripts/install_lib/embedding_host.py) both run this file.
+(scripts/install/embedding-host.mts) both run this file.
 
 Usage:
   python embedding/embedding_server.py [--port 8002] [--model BAAI/bge-m3]

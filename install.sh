@@ -1,42 +1,53 @@
 #!/usr/bin/env bash
 # One-click installer launcher (macOS / Linux).
-# Delegates to scripts/install.py — this file only locates a suitable Python.
+# Delegates to scripts/install.mts — this file only locates a runtime that runs TypeScript directly:
+# Node.js 22.18+, or the Node inside the Memento app.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-PY=""
-for candidate in \
-    "${MEMENTO_INSTALL_PYTHON:-}" \
-    python3.13 python3.12 python3.11 \
-    /opt/homebrew/opt/python@3.11/bin/python3.11 \
-    /usr/local/opt/python@3.11/bin/python3.11 \
-    python3 python
-do
+# Whether this runtime strips TypeScript types by default (Node 22.18+ / 23.6+)
+runs_ts() {
+    "$@" -e 'process.exit(process.features.typescript ? 0 : 1)' >/dev/null 2>&1
+}
+
+RUNTIME=()
+for candidate in "${MEMENTO_INSTALL_NODE:-}" node; do
     [ -z "$candidate" ] && continue
-    if command -v "$candidate" >/dev/null 2>&1; then
-        # verify >= 3.11
-        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' 2>/dev/null; then
-            PY="$candidate"
-            break
-        fi
+    if command -v "$candidate" >/dev/null 2>&1 && runs_ts "$candidate"; then
+        RUNTIME=("$candidate")
+        break
     fi
 done
 
-if [ -z "$PY" ]; then
+# No suitable Node.js: the Memento app's own runtime (macOS installs it at a fixed place), run as plain Node
+if [ ${#RUNTIME[@]} -eq 0 ]; then
+    for app in \
+        /Applications/Memento.app/Contents/MacOS/Memento \
+        "$HOME/Applications/Memento.app/Contents/MacOS/Memento"
+    do
+        if [ -x "$app" ] && ELECTRON_RUN_AS_NODE=1 runs_ts "$app"; then
+            RUNTIME=(env ELECTRON_RUN_AS_NODE=1 "$app")
+            break
+        fi
+    done
+fi
+
+if [ ${#RUNTIME[@]} -eq 0 ]; then
     cat >&2 <<'EOF'
-Error: Python 3.11 or newer is required but was not found.
+Error: Node.js 22.18 or newer is required but was not found.
 
 Install options:
-  macOS:   brew install python@3.11
-  Linux:   sudo apt install python3.11 python3.11-venv
-  Other:   https://www.python.org/downloads/
+  macOS:   brew install node
+  Linux:   https://nodejs.org/en/download (or your distro's nodejs 22+ package)
+  Other:   https://nodejs.org/en/download
 
-Or set MEMENTO_INSTALL_PYTHON to the path of your Python 3.11+ interpreter.
+Or set MEMENTO_INSTALL_NODE to the path of your Node.js 22.18+ binary.
+(The native GPU embedding install, `./install.sh embedding --native`, also needs Python 3.11+.)
 EOF
     exit 1
 fi
 
-exec "$PY" scripts/install.py "$@"
+exec "${RUNTIME[@]}" scripts/install.mts "$@"

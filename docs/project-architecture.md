@@ -362,14 +362,14 @@ iwr https://mem.ihasy.com/install.ps1 -useb | iex
 ```
 
 脚本（`install.sh` / `install.ps1`）会:
-1. 检查 Docker / curl / tar / Python 3.11+
+1. 检查 Docker / curl / tar,找能直接跑 TypeScript 的 Node(Node.js 22.18+,或 Memento 桌面端自带的运行时)
 2. 下载仓库到 `~/memento/`(或 `$MEMENTO_INSTALL_DIR`)
 3. 生成 `.env` 随机密钥(`MEMENTO_SECRET_KEY` / `MEMENTO_COLLECTOR_TOKEN` / `POSTGRES_PASSWORD` / `MINIO_*`,幂等)
 4. `docker compose up -d --build` 起 7 个容器(postgres/redis/minio/api/celery-worker/celery-beat/web)
 5. 交互提示创建第一个用户(auto-owner,拿 `collector_token`)
-6. 把本机配到这台服务器（写 `~/.memento/collector.json`），有 Node.js 20+ 时从仓库构建 `packages/daemon` 并注册为系统服务；没有 Node 就提示安装桌面端
+6. 把本机配到这台服务器（写 `~/.memento/collector.json`），在 Node.js(带 npm)上运行时从仓库构建 `packages/daemon` 并注册为系统服务；借用桌面端运行时则只写配置,由桌面端接管采集
 
-实现细节:`install.sh` 是薄 launcher,只负责找 Python;`scripts/install.py` 是主逻辑;`scripts/install_lib/*` 分 6 个模块:`platform_utils` / `env_gen` / `docker_up` / `bootstrap_user` / `collector_setup` / `embedding_host`。跨平台服务安装(launchd / systemd / Windows 启动项)由守护进程自己的 `install-service` 完成。
+实现细节:`install.sh` / `install.ps1` 是薄 launcher,只负责找能跑 `.mts` 的 Node;`scripts/install.mts` 是主逻辑(子命令与参数解析);`scripts/install/*.mts` 分 7 个模块:`platform` / `env-file` / `docker` / `first-user` / `collector` / `embedding-docker` / `embedding-host`,只用 Node 内置模块、不需要 npm install。宿主 embedding(`embedding --native`)仍要 Python 3.11+,因为模型服务本身是 Python。跨平台服务安装(launchd / systemd / Windows 启动项)由守护进程自己的 `install-service` 完成。
 
 ### 子命令
 
@@ -377,10 +377,10 @@ iwr https://mem.ihasy.com/install.ps1 -useb | iex
 ./install.sh                    # 全流程安装 (不含 embedding)
 ./install.sh embedding          # 单独装 BGE-M3 宿主服务 (venv + torch + 模型 ~1.3GB)
 ./install.sh doctor             # 服务状态表
-./install.sh update             # git pull + 重建 + pip -U
+./install.sh update             # git pull + 重建容器 + 重建并重装采集守护进程
 ./install.sh uninstall          # 停服务, 保留数据
 ./install.sh uninstall --purge  # + 删 docker 卷 + .env
-./install.sh uninstall --all    # 彻底: pip 包 / ~/.memento / 日志 / 模型缓存 /
+./install.sh uninstall --all    # 彻底: 守护进程服务 / 旧 pip 包 / ~/.memento / 日志 / 模型缓存 /
                                 #       docker 镜像 / MCP 条目 (Claude/Cursor/Codex)
 ```
 

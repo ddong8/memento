@@ -38,7 +38,7 @@ RUN pip install ${PIP_INDEX_URL:+--index-url $PIP_INDEX_URL} \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     "torch>=2.6" "sentence-transformers>=3.0" "modelscope>=1.20"
 
-# Multi-source model fetch — mirrors scripts/install_lib/embedding_host.py
+# Multi-source model fetch — mirrors scripts/install/embedding-host.mts
 # so users on either side of the GFW get a working source.
 #   1. ModelScope — best from inside CN, no HF rate limits
 #   2. HuggingFace direct

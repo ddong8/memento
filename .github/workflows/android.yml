@@ -73,7 +73,7 @@ jobs:
             const [a, b, c] = v.split(".").map((n) => parseInt(n, 10) || 0);
             const cfg = JSON.parse(fs.readFileSync("app.json", "utf8"));
             cfg.expo.version = v;
-            cfg.expo.android = { ...cfg.expo.android, versionCode: a * 10000 + b * 100 + c };
+            cfg.expo.android = { ...cfg.expo.android, versionCode: a * 1000000 + b * 1000 + c };
             fs.writeFileSync("app.json", JSON.stringify(cfg, null, 2));
           '
 

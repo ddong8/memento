@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d75b572c` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `42e2eb50` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 152 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `57c8a3da` (2026-11-08): fix(updates): 新版尚未发布时检查更新接口不再提前宣布新版本
+- 最近改动 (Latest): `42e2eb50` (2026-11-09): fix(antigravity): 改写旧版留在 PATH 上的 agy 包装并清理 Python 缓存，卸载时一并清掉指向它的链接
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -599,12 +599,12 @@ erDiagram
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
-- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (7 commits)
-- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (7 commits)
 - [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (7 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (6 commits)
+- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (6 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
+- [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `42e2eb50` (2026-11-09): fix(antigravity): 改写旧版留在 PATH 上的 agy 包装并清理 Python 缓存，卸载时一并清掉指向它的链接
 - `57c8a3da` (2026-11-08): fix(updates): 新版尚未发布时检查更新接口不再提前宣布新版本
 - `c43847be` (2026-11-08): chore(release): 升级客户端版本至 v1.0.99，设备上不再需要 Python，自建安装器改用 Node.js
 - `92973487` (2026-11-08): docs(migration): 记录阶段 5 的 Antigravity 运行脚本与仓库工具脚本改写
 - `4f286f50` (2026-11-08): ci(scripts): CI 增加 scripts 的类型检查与测试
 - `ec809ca5` (2026-11-08): refactor(scripts): UPnP 端口映射脚本改写为 TypeScript
-- `e260d636` (2026-11-08): refactor(release): 发版元数据脚本改写为 TypeScript
 
 ## 10. Key Environment Variables & Configuration
 

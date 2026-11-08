@@ -269,7 +269,7 @@ jobs:
           SHA_SHORT="${SHA:0:12}"
           server_live() {
             [ "$SERVER" != true ] && return 0
-            live=$(curl -fsS --max-time 6 https://mem.ihasy.com/health | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)
+            live=$(curl -fsS --max-time 6 https://mem.ihasy.com/health | jq -r '.version // ""' || true)
             [[ "$live" == *"$SHA_SHORT"* ]]
           }
           web_live() {

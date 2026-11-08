@@ -107,6 +107,11 @@ jobs:
         with:
           ref: main
 
+      # scripts/release-metadata.mts runs as TypeScript directly, which needs Node 22.18+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Download desktop artifacts
         uses: actions/download-artifact@v4
         with:
@@ -129,15 +134,7 @@ jobs:
       # updater shows them too): use them as the release body, GitHub's commit list only without them
       - name: Release notes
         id: notes
-        run: |
-          python3 - <<'PY'
-          import json, os, pathlib
-          meta = json.loads(pathlib.Path("data/updates/version.json").read_text(encoding="utf-8"))
-          notes = str(meta.get("release_notes") or "").strip()
-          pathlib.Path("release-notes.md").write_text(notes + "\n" if notes else "", encoding="utf-8")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-              out.write(f"has_notes={'true' if notes else 'false'}\n")
-          PY
+        run: node scripts/release-metadata.mts notes
 
       - name: Upload Assets & Publish Release
         uses: softprops/action-gh-release@v2
@@ -152,146 +149,15 @@ jobs:
           files: |
             dist/electron-*/*
 
+      # Windows / macOS point at the hot-replaceable .zip (installer only as a fallback), Linux at the
+      # .tar.gz; the electron channel YAML is copied next to it so the server hosts it too
       - name: Update data/updates/version.json
-        run: |
-          TAG="${{ steps.release_meta.outputs.tag }}"
-          VER="${TAG#v}"
-          python3 -c "
-          import base64, hashlib, json, os, glob, shutil
-          from pathlib import Path
-
-          def calc_sha256(filepath):
-              h = hashlib.sha256()
-              with open(filepath, 'rb') as f:
-                  for chunk in iter(lambda: f.read(65536), b''):
-                      h.update(chunk)
-              return h.hexdigest()
-
-          def calc_sha512(filepath):
-              h = hashlib.sha512()
-              with open(filepath, 'rb') as f:
-                  for chunk in iter(lambda: f.read(65536), b''):
-                      h.update(chunk)
-              return base64.b64encode(h.digest()).decode('ascii')
-
-          ver_file = Path('data/updates/version.json')
-          ver_file.parent.mkdir(parents=True, exist_ok=True)
-          meta = {}
-          if ver_file.exists():
-              try:
-                  with open(ver_file, 'r', encoding='utf-8') as f:
-                      meta = json.load(f)
-              except Exception:
-                  meta = {}
-
-          meta['version'] = '$VER'
-          meta['title'] = f'Memento v$VER'
-          if 'platforms' not in meta:
-              meta['platforms'] = {}
-
-          all_files = glob.glob('dist/**/*', recursive=True)
-
-          # Find windows asset (prefer .zip for in-place hot-replacement, fallback setup.exe / .exe)
-          for p in all_files:
-              if not os.path.isfile(p):
-                  continue
-              fn = os.path.basename(p)
-              fn_lower = fn.lower()
-              if ('win' in fn_lower or 'windows' in fn_lower) and fn_lower.endswith('.zip') and not fn_lower.endswith('.blockmap'):
-                  meta['platforms']['windows'] = {
-                      'asset_name': fn,
-                      'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p),
-                      'sha512': calc_sha512(p),
-                  }
-                  break
-          if 'windows' not in meta.get('platforms', {}):
-              for p in all_files:
-                  if not os.path.isfile(p):
-                      continue
-                  fn = os.path.basename(p)
-                  fn_lower = fn.lower()
-                  if ('win' in fn_lower or 'windows' in fn_lower) and fn_lower.endswith('.exe') and not fn_lower.endswith('.blockmap'):
-                      meta['platforms']['windows'] = {
-                          'asset_name': fn,
-                          'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p),
-                          'sha512': calc_sha512(p),
-                      }
-                      break
-
-          # Find macos asset (prefer .zip for hot-update, fallback .dmg)
-          for p in all_files:
-              if not os.path.isfile(p):
-                  continue
-              fn = os.path.basename(p)
-              fn_lower = fn.lower()
-              if ('mac' in fn_lower or 'darwin' in fn_lower) and fn_lower.endswith('.zip') and not fn_lower.endswith('.blockmap'):
-                  meta['platforms']['macos'] = {
-                      'asset_name': fn,
-                      'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p),
-                      'sha512': calc_sha512(p),
-                  }
-                  break
-          if 'macos' not in meta.get('platforms', {}):
-              for p in all_files:
-                  if not os.path.isfile(p):
-                      continue
-                  fn = os.path.basename(p)
-                  fn_lower = fn.lower()
-                  if ('mac' in fn_lower or 'darwin' in fn_lower) and fn_lower.endswith('.dmg'):
-                      meta['platforms']['macos'] = {
-                          'asset_name': fn,
-                          'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p),
-                          'sha512': calc_sha512(p),
-                      }
-                      break
-
-          # Find linux asset (prefer .tar.gz / .zip, fallback .AppImage / .deb)
-          for p in all_files:
-              if not os.path.isfile(p):
-                  continue
-              fn = os.path.basename(p)
-              fn_lower = fn.lower()
-              if 'linux' in fn_lower and (fn_lower.endswith('.tar.gz') or fn_lower.endswith('.zip')):
-                  meta['platforms']['linux'] = {
-                      'asset_name': fn,
-                      'size': os.path.getsize(p),
-                      'sha256': calc_sha256(p),
-                      'sha512': calc_sha512(p),
-                  }
-                  break
-          if 'linux' not in meta.get('platforms', {}):
-              for p in all_files:
-                  if not os.path.isfile(p):
-                      continue
-                  fn = os.path.basename(p)
-                  fn_lower = fn.lower()
-                  if 'linux' in fn_lower and (fn_lower.endswith('.appimage') or fn_lower.endswith('.deb')):
-                      meta['platforms']['linux'] = {
-                          'asset_name': fn,
-                          'size': os.path.getsize(p),
-                          'sha256': calc_sha256(p),
-                          'sha512': calc_sha512(p),
-                      }
-                      break
-
-          # Sync electron channel YAML files to data/updates/ for zero-latency local hosting
-          for yml_p in glob.glob('dist/**/latest*.yml', recursive=True):
-              target_yml = ver_file.parent / os.path.basename(yml_p)
-              shutil.copy2(yml_p, target_yml)
-              print(f'Synced channel yml: {target_yml}')
-
-          with open(ver_file, 'w', encoding='utf-8') as f:
-              json.dump(meta, f, ensure_ascii=False, indent=2)
-          "
+        run: node scripts/release-metadata.mts update --tag "${{ steps.release_meta.outputs.tag }}"
 
       - name: Verify release metadata
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/verify_release_metadata.py --github-tag "${{ steps.release_meta.outputs.tag }}"
+        run: node scripts/release-metadata.mts verify --github-tag "${{ steps.release_meta.outputs.tag }}"
 
       - name: Commit and push updated version metadata
         run: |

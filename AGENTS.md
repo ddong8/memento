@@ -20,7 +20,7 @@
 2. GitHub Release 实际上传的 Release Assets 文件名与字节大小。
 3. `server/server/api/updates.py` 的平台匹配优先级：Windows 首选 `.zip`（备选 `.exe`/`.msi`），macOS 首选 `.zip`（备选 `.dmg`），Linux 首选 `.tar.gz`。
 
-`.github/workflows/desktop-release.yml` 发布后自动生成 version.json，并用 `scripts/verify_release_metadata.py --github-tag <tag>` 校验通过才提交。手动改 version.json 后也必须跑一遍这个脚本。
+`.github/workflows/desktop-release.yml` 发布后自动生成 version.json，并用 `node scripts/release-metadata.mts verify --github-tag <tag>` 校验通过才提交。手动改 version.json 后也必须跑一遍 `node scripts/release-metadata.mts verify`。
 
 ### 3. 版本号
 - 发版 tag 必须等于 `apps/desktop/package.json` 的 `version`：应用运行时报告的版本和 `latest*.yml` 都取自它，而 version.json 的版本取自 tag。两者不一致时，网页会对已是最新版的客户端反复提示更新。

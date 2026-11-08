@@ -1,25 +1,25 @@
 {
   "version": "1.0.99",
-  "title": "Memento v1.0.98",
+  "title": "Memento v1.0.99",
   "release_notes": "1. 项目蓝图生成和 Antigravity 任务改由客户端自带的运行环境执行，设备上不用再另装 Python\n2. Antigravity 任务的提问回传、模型自动降级、会话续接与原来一致；旧版留下的 agy 命令自动换成新版，你自己或 Google 装的同名命令不受影响\n3. 自建部署的一键安装脚本改用 Node.js 运行，没装 Node.js 时直接借用本机已安装的 Memento 客户端\n4. 卸载时能认出新旧两种 Antigravity 运行脚本并清理干净\n5. 手机端版本号与客户端统一为 1.0.99",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.98-win-x64.zip",
-      "size": 158037914,
-      "sha256": "d24e6bf741373eb82c2dd098d4ee87f90f6328336a80d8deb673bf0d0407ef3f",
-      "sha512": "ljk8juz7HuVMnF91vBGAPlyU5QW01IyFt7esG5ZUQVKnkZBIi4E1Tb+z8NXJkySSymc+pxeE9XgCanecGWOAQg=="
+      "asset_name": "Memento-1.0.99-win-x64.zip",
+      "size": 158067668,
+      "sha256": "995bd9940541bd3d40fee014cd6254f7467cbae6f7f84dae83d9de8d3c586eb1",
+      "sha512": "Lfq6iXiZFS7EnCEEcf/MnHO345yEFY29NtagX/zjaZkDutyqsddDRsX30DwIRTfJIma4k5JQD/gLOzfgyg7xVA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.98-mac-arm64.zip",
-      "size": 132515473,
-      "sha256": "9c92d55d4074725e95da8344f19fe47680b40b456ba1ada3835840b8a037c9a2",
-      "sha512": "yINZtUAgjGv9frEcKhaBZedIhcADAuXg9OqfENTReAWXOdXt9vluCw06fuioMwUrQPrNL3TNVLD4sbmyGSRnVA=="
+      "asset_name": "Memento-1.0.99-mac-arm64.zip",
+      "size": 132545890,
+      "sha256": "aa07cc2bac9c898146bbe48e51ea0c05d52a39fd0ba42d9f190a3d85c9a69210",
+      "sha512": "8JJtP7EHN5Oj+NXyn7xo4weUdw5hg+/VapapyklJGcusUPMO/ZDAGj1y1yf5B6IGDvp7iAFOkhURaS1ZoQr15Q=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.98-linux-x64.tar.gz",
-      "size": 131805260,
-      "sha256": "8625f093527a1f71102f47fb7d8f8704f0672a8706fbe20a741355c78eb091b0",
-      "sha512": "i8dHiS2Ih11op6U1X9vYPKcauojVsCrWt3TWhBZOndQ1pD/Qbh6fbD25Q53RV4VTTL6ZQnl3EpYztrAcgrwcBg=="
+      "asset_name": "Memento-1.0.99-linux-x64.tar.gz",
+      "size": 131833968,
+      "sha256": "9097ae2d5c3cf9aadfd3e19a9ca6ea68c1e17c5f9da89a35874a5f1c923d96f0",
+      "sha512": "neVKWicZcCOVCBWtBR9ZX12o4/1fjRDhW8fu+H8Oq7WDnAsIUxDj7/S4GakIKZx07LMA39cC/Gt81qMuLkIrXA=="
     }
   }
 }

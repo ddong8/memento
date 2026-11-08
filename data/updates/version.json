@@ -1,25 +1,25 @@
 {
   "version": "1.0.97",
-  "title": "Memento v1.0.96",
+  "title": "Memento v1.0.97",
   "release_notes": "1. 项目蓝图开头新增「速览与章节索引」，AI 先读速览、再按行号读需要的章节，读蓝图占用的上下文少很多\n2. 个人画像页新增「自动维护项目蓝图」开关，关闭后自动撤回所有仓库里的蓝图文件、钩子和记录，不留残留\n3. 支持 git worktree；自己手写的 PROJECT_BLUEPRINT.md 不会被覆盖；生成失败一小时内不再重复尝试\n4. 开始任务前最多等 3 秒准备蓝图，不再拖慢任务启动\n5. 卸载时清理所有仓库里的蓝图和钩子\n6. 手机端版本号与客户端统一为 1.0.97",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.96-win-x64.zip",
-      "size": 157964308,
-      "sha256": "a0cfdd64f16eed4b8db321f443dcb3e9af603c095cc828b30ef4a6d911a4b0af",
-      "sha512": "p2WlL8xMSrBKl8XEh6hDkiF8dpWKx0Z5W63YbVTZjZVtMk197LGLyqvAvLHF0ozUSCNFEIQ2aklATNpgtjF59A=="
+      "asset_name": "Memento-1.0.97-win-x64.zip",
+      "size": 158032392,
+      "sha256": "1b633ffe8ecd5d7663b1f4db300dfe9c62eca8896575d0075acfd8008e129512",
+      "sha512": "N2eWtjyLUjRks9mBYVNS0zY/qKAm7WyYiplPvyrlcjdSileTSy4MkqsqnF7j+jNCPne/rN6dagwmKdFRSCnbRA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.96-mac-arm64.zip",
-      "size": 132436542,
-      "sha256": "d7b96ed5836ecc4516cf52d6018210a25ddb64debd9f2a2cfd96cec03e92c9bb",
-      "sha512": "OrndKrZl/FAamxSLIrvzcZQk52nBV+/OAR78Eh3SbXPiGKXiUDJyf8BH0xgxlHPT4KP1r1qdZ3XycGRIx92J8g=="
+      "asset_name": "Memento-1.0.97-mac-arm64.zip",
+      "size": 132508300,
+      "sha256": "e0141f9bc258394a41b7ea5f9706e322ed44cfebf9e5b7cc8e411bfcdec1054f",
+      "sha512": "ApDlZSGL4VlIw7XKrZlKGyJ1khKnx4oCHIzWwSpTvKQi4/TxHfVifPBBk0cjkKZEwcex37DMAt9XhGnZC62K9A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.96-linux-x64.tar.gz",
-      "size": 131729957,
-      "sha256": "9340168de64deb16554cd0a18364690121537edd954a8a21198585426fe0e534",
-      "sha512": "lk2WpoXUClE2+HuxC8u04B32a/G3tKOzop+Lg4BG+kMBlEveEmn9d/J5gEvwbOPFQVMF7/HKyJRhmkCzXWLS2A=="
+      "asset_name": "Memento-1.0.97-linux-x64.tar.gz",
+      "size": 131796268,
+      "sha256": "91298cdbc3df290c5f634946e1f96b1acf7d76ac6dc70150aef51e8c7b46276e",
+      "sha512": "lGdk+f6XPPiUfUv9M6ATPdDj2+omK/DEqRNVry2Zl5RmOOdBNfYPPyQb+5zchF0nX9yUp+CMmzEt5eP16+11HA=="
     }
   }
 }

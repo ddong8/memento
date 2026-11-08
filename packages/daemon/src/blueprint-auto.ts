@@ -10,6 +10,15 @@ import { findExecutable } from "./exec-env.js";
 
 /** Cache ttl in milliseconds for git roots verified to have blueprint configured */
 const VERIFIED_TTL_MS = 10 * 60 * 1000;
+/** A repo the generator failed on is retried after this long (or once HEAD moves), not on every sync. */
+const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
+/** One generator run; big monorepos take a few seconds, a hung python must not pile up. */
+const GENERATOR_TIMEOUT_MS = 60_000;
+const BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
+/** Written by the generator into the git dir: the HEAD the blueprint was built at. */
+const HEAD_MARKER = ".memento_blueprint_head";
+/** Footer of a generated blueprint; a file without it is hand-written and left alone. */
+const GENERATED_MARK = "_Auto-maintained by `scripts/project_blueprint.py`";
 
 interface CacheEntry {
   ready: boolean;
@@ -18,6 +27,22 @@ interface CacheEntry {
 }
 
 const verifiedCache = new Map<string, CacheEntry>();
+const failedAt = new Map<string, { at: number; headSha: string | null }>();
+const inflight = new Map<string, Promise<boolean>>();
+
+/** Off when the user turned automatic blueprints off in Memento (profile injection `blueprint.auto`). */
+let autoEnabled = true;
+
+export function setBlueprintAutoEnabled(on: boolean): void {
+  if (on === autoEnabled) return;
+  autoEnabled = on;
+  verifiedCache.clear();
+  failedAt.clear();
+}
+
+export function isBlueprintAutoEnabled(): boolean {
+  return autoEnabled;
+}
 
 /** Locate the root git directory from any descendant working path */
 export function findGitRoot(startPath: string): string | null {
@@ -91,31 +116,47 @@ export async function discoverLocalGitRepositories(): Promise<{ name: string; pa
   return found;
 }
 
+/**
+ * The git dir (HEAD, per-worktree files, our marker) and the common dir (refs, packed-refs) of a
+ * checkout. In a linked worktree or submodule `.git` is a file pointing elsewhere.
+ */
+export async function resolveGitDirs(gitRoot: string): Promise<{ gitDir: string; commonDir: string } | null> {
+  const dotGit = join(gitRoot, ".git");
+  try {
+    const st = await stat(dotGit);
+    if (st.isDirectory()) return { gitDir: dotGit, commonDir: dotGit };
+    if (!st.isFile()) return null;
+    const m = (await readFile(dotGit, "utf8")).match(/^gitdir:\s*(.+)$/m);
+    if (!m?.[1]) return null;
+    const gitDir = resolve(gitRoot, m[1].trim());
+    const common = (await readFile(join(gitDir, "commondir"), "utf8").catch(() => "")).trim();
+    return { gitDir, commonDir: common ? resolve(gitDir, common) : gitDir };
+  } catch {
+    return null;
+  }
+}
+
 /** Fast zero-subprocess resolution of current Git HEAD short SHA (7 chars) */
 export async function readGitHeadShort(gitRoot: string): Promise<string | null> {
   try {
-    const headFile = join(gitRoot, ".git", "HEAD");
-    if (!existsSync(headFile)) return null;
-    const raw = (await readFile(headFile, "utf8")).trim();
+    const dirs = await resolveGitDirs(gitRoot);
+    if (!dirs) return null;
+    const raw = (await readFile(join(dirs.gitDir, "HEAD"), "utf8").catch(() => "")).trim();
     if (!raw) return null;
     if (!raw.startsWith("ref:")) {
       return raw.slice(0, 7);
     }
     const refRel = raw.replace(/^ref:\s*/, "").trim();
-    const refPath = join(gitRoot, ".git", refRel);
-    if (existsSync(refPath)) {
-      const sha = (await readFile(refPath, "utf8")).trim();
-      return sha ? sha.slice(0, 7) : null;
+    for (const base of new Set([dirs.gitDir, dirs.commonDir])) {
+      const sha = (await readFile(join(base, refRel), "utf8").catch(() => "")).trim();
+      if (sha) return sha.slice(0, 7);
     }
-    const packedPath = join(gitRoot, ".git", "packed-refs");
-    if (existsSync(packedPath)) {
-      const packed = await readFile(packedPath, "utf8");
-      for (const line of packed.split("\n")) {
-        const s = line.trim();
-        if (!s || s.startsWith("#") || s.startsWith("^")) continue;
-        const [sha, rname] = s.split(/\s+/);
-        if (rname === refRel && sha) return sha.slice(0, 7);
-      }
+    const packed = await readFile(join(dirs.commonDir, "packed-refs"), "utf8").catch(() => "");
+    for (const line of packed.split("\n")) {
+      const s = line.trim();
+      if (!s || s.startsWith("#") || s.startsWith("^")) continue;
+      const [sha, rname] = s.split(/\s+/);
+      if (rname === refRel && sha) return sha.slice(0, 7);
     }
     return null;
   } catch {
@@ -123,37 +164,26 @@ export async function readGitHeadShort(gitRoot: string): Promise<string | null> 
   }
 }
 
-/** Check if PROJECT_BLUEPRINT.md and the git hooks (post-commit, post-merge, post-checkout) are properly in place and up-to-date with HEAD */
+export function isGeneratedBlueprint(text: string): boolean {
+  return text.startsWith("# Project Blueprint:") && text.includes(GENERATED_MARK);
+}
+
+/**
+ * Whether the repo's PROJECT_BLUEPRINT.md is current: a hand-written one always is (never ours to
+ * touch); a generated one when the HEAD recorded at generation is still HEAD. Hooks are not required:
+ * repos with core.hooksPath or non-shell hooks get none, and are kept current from here instead.
+ */
 export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
   try {
-    const bpPath = join(gitRoot, "PROJECT_BLUEPRINT.md");
-    if (!existsSync(bpPath)) return false;
-    const bpStat = await stat(bpPath);
-    if (bpStat.size < 50) return false;
-
-    // Check git hooks
-    for (const hname of ["post-commit", "post-merge", "post-checkout"]) {
-      const hookPath = join(gitRoot, ".git", "hooks", hname);
-      if (!existsSync(hookPath)) return false;
-      const hookContent = await readFile(hookPath, "utf8");
-      if (!hookContent.includes("project_blueprint.py") && !hookContent.includes("Memento Blueprint Hook")) {
-        return false;
-      }
-    }
-
-    // Verify blueprint is not stale relative to current Git HEAD (catches --no-verify or GUI commits)
-    const currentHead = await readGitHeadShort(gitRoot);
-    if (currentHead) {
-      const recordedHeadPath = join(gitRoot, ".git", ".memento_blueprint_head");
-      if (existsSync(recordedHeadPath)) {
-        const recorded = (await readFile(recordedHeadPath, "utf8")).trim();
-        if (recorded && !recorded.startsWith(currentHead) && !currentHead.startsWith(recorded)) {
-          return false;
-        }
-      }
-    }
-
-    return true;
+    const text = await readFile(join(gitRoot, BLUEPRINT_FILE), "utf8").catch(() => "");
+    if (!text) return false;
+    if (!isGeneratedBlueprint(text)) return true;
+    const head = await readGitHeadShort(gitRoot);
+    if (!head) return true; // no commit yet: nothing to be stale against
+    const dirs = await resolveGitDirs(gitRoot);
+    if (!dirs) return false;
+    const recorded = (await readFile(join(dirs.gitDir, HEAD_MARKER), "utf8").catch(() => "")).trim();
+    return !!recorded && (recorded.startsWith(head) || head.startsWith(recorded));
   } catch {
     return false;
   }
@@ -334,94 +364,124 @@ export async function syncLocalUserBlueprint(markdown?: string | null): Promise<
   }
 }
 
+interface GeneratorResult {
+  code: number | null;
+  stderr: string;
+}
+
+async function runGenerator(generator: string, args: string[], cwd: string): Promise<GeneratorResult> {
+  const pythonExe = (await findExecutable(["python3", "python"])) || "python3";
+  return new Promise<GeneratorResult>((resolveDone) => {
+    let settled = false;
+    let stderr = "";
+    const done = (code: number | null, extra = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveDone({ code, stderr: (stderr + extra).trim().slice(-600) });
+    };
+    const timer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      done(null, `timed out after ${GENERATOR_TIMEOUT_MS / 1000}s`);
+    }, GENERATOR_TIMEOUT_MS);
+    timer.unref?.();
+    const proc = spawn(pythonExe, [generator, ...args], {
+      cwd,
+      windowsHide: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    proc.stderr?.on("data", (chunk) => {
+      if (stderr.length < 4000) stderr += String(chunk);
+    });
+    proc.once("error", (err) => done(null, err.message));
+    proc.once("exit", (code) => done(code));
+  });
+}
+
 /**
- * Ensure PROJECT_BLUEPRINT.md and post-commit hook are deployed for a given project directory.
- * Guaranteed to be non-blocking, safe, idempotent, and fault-tolerant.
+ * Ensure PROJECT_BLUEPRINT.md and its git hooks for a project directory. Non-blocking for callers
+ * that don't await it, idempotent, one generator run per repo at a time, and a no-op while the
+ * user has automatic blueprints off.
  */
 export async function ensureProjectBlueprint(
   targetPath: string,
   options: { force?: boolean; log?: (msg: string) => void } = {},
 ): Promise<boolean> {
-  const log = options.log || (() => {});
-  if (!targetPath) return false;
-
+  if (!autoEnabled || !targetPath) return false;
   const gitRoot = findGitRoot(targetPath);
-  if (!gitRoot) {
-    return false;
-  }
+  if (!gitRoot) return false;
+  const pending = inflight.get(gitRoot);
+  if (pending) return pending;
+  const run = ensureAt(gitRoot, options).finally(() => inflight.delete(gitRoot));
+  inflight.set(gitRoot, run);
+  return run;
+}
 
+async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg: string) => void }): Promise<boolean> {
+  const log = options.log || (() => {});
+  const force = !!options.force;
   const now = Date.now();
   const currentHead = await readGitHeadShort(gitRoot);
   const cached = verifiedCache.get(gitRoot);
-  if (
-    !options.force &&
-    cached &&
-    cached.ready &&
-    cached.headSha === currentHead &&
-    now - cached.timestamp < VERIFIED_TTL_MS
-  ) {
+  if (!force && cached?.ready && cached.headSha === currentHead && now - cached.timestamp < VERIFIED_TTL_MS) {
     return true;
   }
-
-  const alreadyReady = await isBlueprintReady(gitRoot);
-  if (!options.force && alreadyReady) {
+  if (!force && (await isBlueprintReady(gitRoot))) {
     verifiedCache.set(gitRoot, { ready: true, timestamp: now, headSha: currentHead });
     return true;
   }
+  const failed = failedAt.get(gitRoot);
+  if (!force && failed && failed.headSha === currentHead && now - failed.at < RETRY_AFTER_FAILURE_MS) {
+    return false;
+  }
 
-  // Ensure global script is mirrored
   await syncGlobalBlueprintScript();
   const generator = await locateBlueprintGenerator(gitRoot);
   if (!generator) {
     log(`[blueprint-auto] Could not locate generator script for ${gitRoot}`);
     return false;
   }
-
-  // Locate python executable (python3 or python)
-  const pythonExe = (await findExecutable(["python3", "python"])) || "python3";
-
-  return new Promise<boolean>((resolveDone) => {
-    try {
-      const proc = spawn(pythonExe, [generator, "--root", gitRoot, "--install-hook", "--quiet"], {
-        cwd: gitRoot,
-        windowsHide: true,
-        stdio: ["ignore", "ignore", "pipe"],
-      });
-
-      let errOut = "";
-      proc.stderr?.on("data", (chunk) => {
-        errOut += String(chunk);
-      });
-
-      proc.once("error", (err) => {
-        log(`[blueprint-auto] Spawn error for ${gitRoot}: ${err.message}`);
-        resolveDone(false);
-      });
-
-      proc.once("exit", (code) => {
-        if (code === 0) {
-          log(`[blueprint-auto] Successfully configured living blueprint & hook for ${gitRoot}`);
-          verifiedCache.set(gitRoot, { ready: true, timestamp: Date.now(), headSha: currentHead });
-          resolveDone(true);
-        } else {
-          log(`[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${code}): ${errOut}`);
-          resolveDone(false);
-        }
-      });
-
-      // Guard timeout: do not let hanging python process run forever
-      const timer = setTimeout(() => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // ignore
-        }
-        resolveDone(false);
-      }, 15000);
-      timer.unref?.();
-    } catch (e) {
-      log(`[blueprint-auto] Execution exception: ${String(e)}`);
-      resolveDone(false);
+  try {
+    const res = await runGenerator(generator, ["--root", gitRoot, "--install-hook", "--quiet"], gitRoot);
+    if (await isBlueprintReady(gitRoot)) {
+      verifiedCache.set(gitRoot, { ready: true, timestamp: Date.now(), headSha: await readGitHeadShort(gitRoot) });
+      failedAt.delete(gitRoot);
+      // Exit 1 with the blueprint written: hooks left out (core.hooksPath, or the repo's own non-shell hooks)
+      log(
+        res.code === 0
+          ? `[blueprint-auto] Living blueprint & hooks ready for ${gitRoot}`
+          : `[blueprint-auto] Living blueprint ready for ${gitRoot} (git hooks left out, kept current on sync)`,
+      );
+      return true;
     }
-  });
+    failedAt.set(gitRoot, { at: Date.now(), headSha: currentHead });
+    log(`[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${res.code}): ${res.stderr}`);
+    return false;
+  } catch (e) {
+    failedAt.set(gitRoot, { at: Date.now(), headSha: currentHead });
+    log(`[blueprint-auto] Execution exception: ${String(e)}`);
+    return false;
+  }
+}
+
+/**
+ * Take back everything the generator did on this machine (hooks, markers, untracked generated
+ * blueprints, anchors, its state dir): when the user turns automatic blueprints off.
+ */
+export async function removeAllProjectBlueprints(log: (msg: string) => void = () => {}): Promise<boolean> {
+  verifiedCache.clear();
+  failedAt.clear();
+  const generator = await locateBlueprintGenerator();
+  if (!generator) return false;
+  const res = await runGenerator(generator, ["--uninstall-all", "--quiet"], homeDir());
+  if (res.code === 0) {
+    log("[blueprint-auto] Removed living blueprints & hooks from local repos");
+    return true;
+  }
+  log(`[blueprint-auto] Could not fully remove living blueprints (code ${res.code}): ${res.stderr}`);
+  return false;
 }

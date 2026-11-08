@@ -315,7 +315,7 @@ After installation, AI IDEs can call:
 | `memory_search(query, limit, tool_filter, days)` | Cross-tool hybrid search (BGE-M3 semantic + jieba full-text; falls back to full-text when the semantic endpoint is unavailable); `days` bounds the time window, `tool_filter` restricts to one tool |
 | `memory_recall(category, project, days, limit, date)` | Recall a category's records from the last N days (or a given date) |
 | `memory_context(project_name)` | Pull context when switching projects (project metadata + full text of curated docs + list of recent conversations) |
-| `memory_blueprint(project_name, recent_conversations)` | With a project name: the whole project blueprint in one call (metadata + codebase architecture blueprint + docs + recent conversations + graph entities); with `me` / `user`: the personal cross-project blueprint |
+| `memory_blueprint(project_name, recent_conversations, section)` | With a project name: the whole project blueprint in one call (metadata + codebase architecture blueprint + docs + recent conversations + graph entities); with `me` / `user`: the personal cross-project blueprint. The codebase blueprint comes as its quick summary and section index by default; `section` takes section numbers (`3`, `4,6.5`) for just those, or `all` for the whole file |
 | `memory_project_map()` | All projects at a glance: name, main tool, document count |
 | **Drill in** | |
 | `memory_open(doc_id)` | Fetch the full content of a document (use after `memory_search` returns a snippet) |

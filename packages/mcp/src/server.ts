@@ -7,7 +7,7 @@ import type { Json, RemoteClient } from "./remote.js";
 
 export const INSTRUCTIONS =
   "Personal AI memory — search conversations, recall knowledge, explore project context from your Memento data. " +
-  "At the start of a session or before architectural changes, read PROJECT_BLUEPRINT.md in the project root (or call memory_blueprint) for instant full-stack orientation; pass project_name='me' (or read ~/.memento/USER_BLUEPRINT.md) for the user's cross-project, technical, business, and disciplinary blueprint. " +
+  "At the start of a session or before architectural changes, read the opening section \"0. 速览与章节索引\" of PROJECT_BLUEPRINT.md in the project root and then only the sections you need by its line numbers (or call memory_blueprint, which returns that summary; pass section for more); pass project_name='me' (or read ~/.memento/USER_BLUEPRINT.md) for the user's cross-project, technical, business, and disciplinary blueprint. " +
   "For instant mental alignment (心领神会) with the user's implicit intent, domain mindset, scenario iron rules, active graph entities, and pitfalls, call mind_resonance. " +
   "Before deploying, releasing, migrating a database, deleting or changing data, pushing, or changing config, " +
   "call memory_check_rule: it returns the user's iron rules, pitfalls hit before on similar work, and skills to follow. " +
@@ -33,6 +33,37 @@ async function findProject(remote: RemoteClient, name: string): Promise<Json | u
   const projects = await remote.get<Json[]>("/api/projects");
   const q = name.toLowerCase();
   return projects.find((p) => s(p.title).toLowerCase().includes(q));
+}
+
+const sectionNumber = (heading: string) => heading.match(/^##\s+(\d+(?:\.\d+)?)\./)?.[1];
+
+/**
+ * Part of a blueprint (PROJECT_BLUEPRINT.md / USER_BLUEPRINT.md): "summary" is everything through
+ * the "## 0." quick summary and section index; "all" the whole file; or section numbers ("3", "4,6.5").
+ * A blueprint from before the summary section gets its opening lines and the list of sections.
+ */
+export function blueprintSection(md: string, section = "summary"): string {
+  const want = section.trim().toLowerCase() || "summary";
+  if (want === "all" || want === "full") return md;
+  const lines = md.split("\n");
+  const heads = lines.flatMap((l, i) => (l.startsWith("## ") ? [{ l, i }] : []));
+  const sectionList = heads.map((h) => `- ${h.l.slice(3)} (line ${h.i + 1})`);
+  if (want === "summary") {
+    const zero = heads.findIndex((h) => sectionNumber(h.l) === "0");
+    if (zero >= 0) {
+      const end = heads[zero + 1]?.i ?? lines.length;
+      return `${lines.slice(0, end).join("\n").trimEnd()}\n\n_Quick summary only: pass section="<number>" (e.g. "3" or "4,6.5") or "all" for more._`;
+    }
+    const head = lines.slice(0, 80).join("\n").trimEnd();
+    const later = heads.filter((h) => h.i >= 80).map((h) => `- ${h.l.slice(3)} (line ${h.i + 1})`);
+    return `${head}${later.length ? `\n\n## More sections\n${later.join("\n")}` : ""}\n\n_Opening only: pass section="<number>" or "all" for more._`;
+  }
+  const wanted = new Set(want.split(/[\s,，、]+/).filter(Boolean).map((w) => w.replace(/\.$/, "")));
+  const parts = heads.flatMap((h, k) => {
+    const n = sectionNumber(h.l);
+    return n && wanted.has(n) ? [lines.slice(h.i, heads[k + 1]?.i ?? lines.length).join("\n").trimEnd()] : [];
+  });
+  return parts.length ? parts.join("\n\n") : `No section "${section}" in this blueprint. Sections:\n${sectionList.join("\n")}`;
 }
 
 export function todoLine(t: Json): string {
@@ -103,7 +134,11 @@ export async function projectContext(remote: RemoteClient, projectName: string):
     }
   }
   if (codebaseBp) {
-    parts.push("\n## Living Codebase Architecture Blueprint\n", codebaseBp);
+    parts.push(
+      "\n## Living Codebase Architecture Blueprint\n",
+      blueprintSection(codebaseBp, "summary"),
+      `\n_Other sections: memory_blueprint(project_name="${s(project.title) || projectName}", section="<number>")._`,
+    );
   }
 
   const docs = arr(project.documents).filter((d) => !isNoise(d.relative_path) && !(codebaseBp && s(d.relative_path).endsWith("PROJECT_BLUEPRINT.md")));
@@ -255,14 +290,19 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
       inputSchema: {
         project_name: z.string().describe("Project name (fuzzy match), or 'me' / 'user' for the User Blueprint"),
         recent_conversations: z.number().int().optional().describe("How many recent conversation summaries to include (default 10; 0 to omit)"),
+        section: z
+          .string()
+          .optional()
+          .describe('Which part of the blueprint: "summary" (default: quick summary + line-numbered section index), "all", or section numbers like "3" or "4,6.5"'),
       },
     },
-    async ({ project_name, recent_conversations = 10 }) => {
+    async ({ project_name, recent_conversations = 10, section = "summary" }) => {
+      const onlySections = !["summary", "all", "full", ""].includes(section.trim().toLowerCase());
       if (["me", "user", "global", "个人", "用户", "user_blueprint"].includes(project_name.trim().toLowerCase())) {
         try {
           const ubp = await remote.get<Json>("/api/profile/blueprint");
           const md = s(ubp.markdown);
-          if (md) return text(md);
+          if (md) return text(blueprintSection(md, section));
         } catch (e) {
           return failed("User blueprint fetch failed", e);
         }
@@ -300,13 +340,12 @@ export function createServer(remote: RemoteClient, version = "0.1.0"): McpServer
           // fallback to remote codebase_blueprint
         }
       }
+      if (onlySections) {
+        // Asked for particular sections: just those, without docs, graph and conversations
+        return text(codebaseBp ? `${out[0]}\n\n${blueprintSection(codebaseBp, section)}` : `${out[0]}\n\nNo codebase blueprint for this project yet.`);
+      }
       if (codebaseBp) {
-        out.push(
-          "## Living Codebase Architecture Blueprint",
-          "",
-          codebaseBp,
-          "",
-        );
+        out.push("## Living Codebase Architecture Blueprint", "", blueprintSection(codebaseBp, section), "");
       }
       const curated = arr(bp.curated_docs);
       if (curated.length) {

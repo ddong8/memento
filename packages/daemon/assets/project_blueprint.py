@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -60,7 +61,16 @@ IGNORED_DIRS = {
 MAX_TREE_DEPTH = 3
 
 # Monotonically increasing generator version for cross-device OTA synchronization
-BLUEPRINT_SCRIPT_VERSION = 20261109
+BLUEPRINT_SCRIPT_VERSION = 20261110
+
+BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md"
+# The footer every generated blueprint ends with: tells our files from hand-written ones
+GENERATED_MARK = "_Auto-maintained by `scripts/project_blueprint.py`"
+# The HEAD the blueprint was last generated for, in the repo's git dir (the collector compares it)
+HEAD_MARKER = ".memento_blueprint_head"
+# Keeps a generated, untracked blueprint out of `git status` (in .git/info/exclude, never .gitignore)
+EXCLUDE_MARK = "# memento:blueprint (generated locally, not tracked)"
+ANCHOR_MARKER = "<!-- memento:blueprint-anchor -->"
 
 
 def run_git_cmd(args: list[str], cwd: Path) -> str:
@@ -78,6 +88,102 @@ def run_git_cmd(args: list[str], cwd: Path) -> str:
         return res.stdout.strip()
     except Exception:
         return ""
+
+
+def _git_ok(args: list[str], cwd: Path) -> bool:
+    """Whether a git command exits 0."""
+    try:
+        res = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        return res.returncode == 0
+    except Exception:
+        return False
+
+
+def _git_path(root: Path, flag: str) -> Path | None:
+    """`git rev-parse --git-dir` / `--git-common-dir` as an absolute path (worktrees have a .git file)."""
+    out = run_git_cmd(["rev-parse", flag], root)
+    if out:
+        p = Path(out)
+        return (p if p.is_absolute() else root / p).resolve()
+    dot_git = root / ".git"
+    return dot_git if dot_git.is_dir() else None
+
+
+def _is_tracked(root: Path) -> bool:
+    return _git_ok(["ls-files", "--error-unmatch", "--", BLUEPRINT_FILE], root)
+
+
+def _is_generated(path: Path) -> bool:
+    """A blueprint this script wrote (not a hand-written file of the same name)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return text.startswith("# Project Blueprint:") and GENERATED_MARK in text
+
+
+def _atomic_write(path: Path, content: str) -> bool:
+    """Write through a temp file and a rename, so a reader never sees half a file. False when unchanged."""
+    try:
+        if path.read_text(encoding="utf-8") == content:
+            return False
+    except (OSError, UnicodeDecodeError):
+        pass
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+    return True
+
+
+# What this script changed in each repo, so turning it off or uninstalling takes all of it back.
+# One file per repo: the collector refreshes several repos at once.
+def _state_dir() -> Path:
+    return Path.home() / ".memento" / "blueprint_repos"
+
+
+def _state_file(root: Path) -> Path:
+    key = hashlib.sha1(str(root.resolve()).encode("utf-8")).hexdigest()[:16]
+    return _state_dir() / f"{key}.json"
+
+
+def _load_state(root: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(_state_file(root).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _record_state(root: Path, **changes: Any) -> None:
+    """Merge into the repo's state; lists are unions (hooks, anchors), other values replace."""
+    try:
+        state = _load_state(root)
+        state["root"] = str(root.resolve())
+        for key, value in changes.items():
+            if isinstance(value, list):
+                state[key] = sorted(set(state.get(key) or []) | set(value))
+            else:
+                state[key] = value
+        path = _state_file(root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
+    except OSError:
+        pass
 
 
 _REPO_FILE_CACHE: dict[Path, list[tuple[Path, str]]] = {}
@@ -1674,43 +1780,69 @@ def scan_env_variables(root: Path) -> list[dict[str, str]]:
     return vars_list
 
 
-def ensure_agent_guidance_anchor(root: Path) -> bool:
-    """Ensure agent instruction files in the project root have a blueprint reading hint for AI coding agents."""
-    guidance_files = [
-        root / "CLAUDE.md",
-        root / "AGENTS.md",
-        root / "GEMINI.md",
-        root / ".cursorrules",
-        root / ".windsurfrules",
-        root / ".clinerules",
-        root / ".github" / "copilot-instructions.md",
-    ]
-    anchor_marker = "<!-- memento:blueprint-anchor -->"
+GUIDANCE_FILES = (
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md",
+    ".cursorrules",
+    ".windsurfrules",
+    ".clinerules",
+    ".github/copilot-instructions.md",
+)
+
+
+def ensure_agent_guidance_anchor(root: Path) -> list[str]:
+    """Add a "read the blueprint first" hint to the repo's own agent instruction files (only with --anchor:
+    these files are usually tracked, and the resident profile already carries the same rule).
+    Returns the files changed, recorded so uninstalling takes the hint back out."""
     anchor_snippet = (
-        f"{anchor_marker}\n"
+        f"{ANCHOR_MARKER}\n"
         "> [!TIP]\n"
-        "> **架构心智指引**：新会话或全局重构前，请优先阅读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 快速建立全局架构全景，避免昂贵的重复 grep 扫描。\n"
-        f"{anchor_marker}\n\n"
+        "> **架构心智指引**：新会话或全局重构前，先读根目录活体代码蓝图 [PROJECT_BLUEPRINT.md](PROJECT_BLUEPRINT.md) 开头的「0. 速览与章节索引」，再按行号只读需要的章节，避免重复 grep 扫描。\n"
+        f"{ANCHOR_MARKER}\n\n"
     )
 
-    modified = False
-    for gf in guidance_files:
+    modified: list[str] = []
+    for rel in GUIDANCE_FILES:
+        gf = root / rel
         if not gf.exists():
             continue
         try:
             text = gf.read_text(encoding="utf-8", errors="ignore")
-            if "PROJECT_BLUEPRINT.md" in text:
+            if BLUEPRINT_FILE in text:
                 continue
             lines = text.splitlines(keepends=True)
             if lines and lines[0].startswith("#"):
                 new_text = lines[0] + "\n" + anchor_snippet + "".join(lines[1:])
             else:
                 new_text = anchor_snippet + text
-            gf.write_text(new_text, encoding="utf-8")
-            modified = True
+            _atomic_write(gf, new_text)
+            modified.append(rel)
         except Exception:
             pass
+    if modified:
+        _record_state(root, anchors=modified)
     return modified
+
+
+def remove_agent_guidance_anchor(root: Path, files: list[str]) -> None:
+    """Take out the hint ensure_agent_guidance_anchor added (only from the files it recorded)."""
+    snippet = rf"{re.escape(ANCHOR_MARKER)}\n[\s\S]*?{re.escape(ANCHOR_MARKER)}\n\n?"
+    for rel in files:
+        gf = root / rel
+        try:
+            text = gf.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if ANCHOR_MARKER not in text:
+            continue
+        # The exact inverse of the insert: after the first heading line and a blank line, or at the top
+        cleaned, n = re.subn(rf"^(#[^\n]*\n)\n{snippet}", r"\1", text, count=1)
+        if not n:
+            cleaned, n = re.subn(rf"^{snippet}", "", text, count=1)
+        if not n:
+            cleaned = re.sub(snippet, "", text, count=1)
+        _atomic_write(gf, cleaned)
 
 
 def generate_mermaid_diagram(
@@ -1991,9 +2123,8 @@ def build_blueprint_content(root: Path) -> str:
         "",
         "> [!NOTE]",
         f"> **Living Blueprint Auto-Generated** · Branch: `{git_branch}` · Commit: `{git_commit}` · Updated: `{git_date}`",
-        "> This document provides an instant, comprehensive architectural map of the codebase.",
-        "> AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint",
-        "> at the start of any session for instant global orientation without repetitive grep scans.",
+        "> An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).",
+        "> Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.",
         "",
         "## 1. Project Overview & Tech Stack",
         "",
@@ -2221,173 +2352,460 @@ def build_blueprint_content(root: Path) -> str:
     doc.extend([
         "",
         "---",
-        "_Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._",
+        f"{GENERATED_MARK} & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._",
         "",
     ])
 
-    return "\n".join(doc)
+    summary = _quick_summary(
+        stack, infra_list, subsystems, routes, frontend_routes, models, services, schedules,
+        test_suites, detect_verification_commands(root), evolution_list,
+    )
+    return _with_summary_and_index(doc, summary)
+
+
+def _quick_summary(
+    stack: dict[str, Any],
+    infra: list[str],
+    subsystems: list[dict[str, Any]],
+    routes: list[dict[str, Any]],
+    frontend_routes: list[str],
+    models: list[str],
+    services: list[dict[str, Any]],
+    schedules: list[dict[str, Any]],
+    test_suites: list[dict[str, Any]],
+    commands: list[str],
+    evolution: list[str],
+) -> list[str]:
+    """The few lines that orient an agent without reading the rest."""
+    langs = ", ".join(stack.get("languages") or []) or "Generic"
+    frameworks = ", ".join((stack.get("frameworks") or [])[:8])
+    lines = [
+        f"- 类型 (Type): {stack.get('project_type') or 'Generic'}",
+        f"- 技术栈 (Stack): {langs}" + (f" · {frameworks}" if frameworks else ""),
+    ]
+    if infra:
+        lines.append(f"- 基础设施 (Infra): {', '.join(infra[:8])}")
+    scale = [f"{len(subsystems)} 个子系统"]
+    if routes:
+        endpoints = sum(int(r.get("total") or 0) for r in routes)
+        scale.append(f"{len(routes)} 组 API 路由 / {endpoints} 个接口")
+    if frontend_routes:
+        scale.append(f"{len(frontend_routes)} 个前端页面")
+    if models:
+        scale.append(f"{len(models)} 个数据模型")
+    if services:
+        scale.append(f"{len(services)} 个服务模块")
+    if schedules:
+        scale.append(f"{len(schedules)} 个定时任务")
+    tests = sum(int(ts.get("count") or 0) for ts in test_suites)
+    if tests:
+        scale.append(f"{tests} 个测试文件")
+    lines.append(f"- 规模 (Scale): {' · '.join(scale)}")
+    names = [str(s.get("name")) for s in subsystems if s.get("name")][:12]
+    if names:
+        lines.append(f"- 子系统 (Subsystems): {', '.join(f'`{n}`' for n in names)}")
+    runnable = [c.strip() for c in commands if c.strip() and not c.lstrip().startswith("#")][:4]
+    if runnable:
+        lines.append(f"- 自测命令 (Verify): {' ; '.join(f'`{c}`' for c in runnable)}")
+    if evolution:
+        lines.append(f"- 最近改动 (Latest): {evolution[0].lstrip('- ').strip()[:160]}")
+    return lines
+
+
+def _with_summary_and_index(doc: list[str], summary: list[str]) -> str:
+    """Put section 0 (the summary and a line-numbered index of every other section) before section 1."""
+    doc = "\n".join(doc).split("\n")  # diagrams are one entry spanning many lines
+    first = next((i for i, line in enumerate(doc) if line.startswith("## ")), len(doc))
+    headings = sum(1 for line in doc[first:] if line.startswith("## "))
+    block = [
+        "## 0. 速览与章节索引 (Quick Summary & Section Index)",
+        "",
+        "> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' PROJECT_BLUEPRINT.md`），不必整份读入。",
+        "",
+        *summary,
+        "",
+        "| 章节 (Section) | 行号 (Lines) |",
+        "| :--- | :--- |",
+    ]
+    rows_at = first + len(block)
+    block.extend([""] * headings)
+    block.append("")
+    out = doc[:first] + block + doc[first:]
+    starts = [i for i in range(rows_at + headings, len(out)) if out[i].startswith("## ")]
+    footer = next((i for i in range(len(out) - 1, -1, -1) if out[i] == "---"), len(out))
+    for n, start in enumerate(starts):
+        end = (starts[n + 1] if n + 1 < len(starts) else footer) - 1
+        while end > start and not out[end].strip():
+            end -= 1
+        title = re.sub(r"^##\s+", "", out[start])
+        out[rows_at + n] = f"| {title} | L{start + 1}-L{end + 1} |"
+    return "\n".join(out)
 
 
 HOOK_MARKER_START = "# <<< Memento Blueprint Hook Start >>>"
 HOOK_MARKER_END = "# <<< Memento Blueprint Hook End >>>"
 
-HOOK_TEMPLATE = f"""{HOOK_MARKER_START}
-# Auto-update PROJECT_BLUEPRINT.md upon commit, merge, rebase, or branch checkout (managed by Memento)
-if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
-    exit 0
-fi
-
-# If invoked as post-checkout, only run on actual branch switch ($3 == 1)
-if [ -n "$3" ] && [ "$3" != "1" ]; then
-    exit 0
-fi
-
-BP_SCRIPT=""
-if [ -f "scripts/project_blueprint.py" ]; then
-    BP_SCRIPT="scripts/project_blueprint.py"
-elif [ -n "$MEMENTO_HOME" ] && [ -f "$MEMENTO_HOME/scripts/project_blueprint.py" ]; then
-    BP_SCRIPT="$MEMENTO_HOME/scripts/project_blueprint.py"
-elif [ -f "$HOME/.memento/scripts/project_blueprint.py" ]; then
-    BP_SCRIPT="$HOME/.memento/scripts/project_blueprint.py"
-elif [ -n "$USERPROFILE" ] && [ -f "$USERPROFILE/.memento/scripts/project_blueprint.py" ]; then
-    BP_SCRIPT="$USERPROFILE/.memento/scripts/project_blueprint.py"
-fi
-
-if [ -n "$BP_SCRIPT" ]; then
-    PYTHON_BIN=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo "python3")
-    HOOK_NAME=$(basename "$0")
-    if [ "$HOOK_NAME" = "pre-commit" ]; then
-        if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
-            "$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1 || true
-        fi
-    elif git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
-        git rev-parse --short HEAD > .git/.memento_blueprint_head 2>/dev/null || true
-    else
-        "$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 || true
+# POSIX sh, appended to the end of the hook. It runs in a subshell and then restores the exit status
+# of whatever ran before it, so a pre-commit check that failed still stops the commit.
+HOOK_TEMPLATE = """__START__
+# Keeps PROJECT_BLUEPRINT.md current on commit, merge, rebase and branch switch (managed by Memento)
+__memento_rc=$?
+(
+    GIT_DIR_PATH=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+    if [ -d "$GIT_DIR_PATH/rebase-merge" ] || [ -d "$GIT_DIR_PATH/rebase-apply" ]; then
+        exit 0
     fi
-fi
-{HOOK_MARKER_END}"""
+    HOOK_NAME=$(basename "$0")
+    # post-checkout: only a branch switch ($3 = 1), not a file checkout
+    if [ "$HOOK_NAME" = "post-checkout" ] && [ "$3" != "1" ]; then
+        exit 0
+    fi
+    BP_SCRIPT=""
+    if [ -f "scripts/project_blueprint.py" ]; then
+        BP_SCRIPT="scripts/project_blueprint.py"
+    elif [ -n "$MEMENTO_HOME" ] && [ -f "$MEMENTO_HOME/scripts/project_blueprint.py" ]; then
+        BP_SCRIPT="$MEMENTO_HOME/scripts/project_blueprint.py"
+    elif [ -f "$HOME/.memento/scripts/project_blueprint.py" ]; then
+        BP_SCRIPT="$HOME/.memento/scripts/project_blueprint.py"
+    elif [ -n "$USERPROFILE" ] && [ -f "$USERPROFILE/.memento/scripts/project_blueprint.py" ]; then
+        BP_SCRIPT="$USERPROFILE/.memento/scripts/project_blueprint.py"
+    fi
+    [ -n "$BP_SCRIPT" ] || exit 0
+    PYTHON_BIN=$(command -v python3 2>/dev/null || command -v python 2>/dev/null) || exit 0
+    if git ls-files --error-unmatch PROJECT_BLUEPRINT.md >/dev/null 2>&1; then
+        # Tracked: regenerated into the commit itself; afterwards only the HEAD it matches is recorded
+        if [ "$HOOK_NAME" = "pre-commit" ]; then
+            "$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet >/dev/null 2>&1 && git add PROJECT_BLUEPRINT.md >/dev/null 2>&1
+        else
+            git rev-parse --short HEAD > "$GIT_DIR_PATH/.memento_blueprint_head" 2>/dev/null
+        fi
+    elif [ "$HOOK_NAME" != "pre-commit" ]; then
+        # Untracked: refreshed in the background so the git command returns at once
+        ("$PYTHON_BIN" "$BP_SCRIPT" --root . --quiet </dev/null >/dev/null 2>&1 &)
+    fi
+) || true
+(exit $__memento_rc)
+__END__""".replace("__START__", HOOK_MARKER_START).replace("__END__", HOOK_MARKER_END)
+
+MANAGED_GIT_HOOKS = ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]
+_SH_SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
+_SHEBANG_ONLY = ("", "#!/bin/sh", "#!/bin/bash", "#!/usr/bin/env sh", "#!/usr/bin/env bash")
 
 
 def _record_blueprint_head(root: Path) -> None:
-    """Record current git HEAD short SHA into .git/.memento_blueprint_head for staleness detection."""
-    git_dir = root / ".git"
-    if not git_dir.is_dir():
+    """Record the HEAD the blueprint matches, in the git dir, for the collector's staleness check."""
+    git_dir = _git_path(root, "--git-dir")
+    if not git_dir:
         return
     try:
         sha = run_git_cmd(["rev-parse", "--short", "HEAD"], root)
         if sha:
-            (git_dir / ".memento_blueprint_head").write_text(sha.strip() + "\n", encoding="utf-8")
+            _atomic_write(git_dir / HEAD_MARKER, sha.strip() + "\n")
     except Exception:
         pass
 
 
+def _ensure_excluded(root: Path) -> bool:
+    """Keep an untracked generated blueprint out of `git status`, through .git/info/exclude
+    (local to this clone, unlike .gitignore). False when the user's own rules already ignore it."""
+    common = _git_path(root, "--git-common-dir")
+    if not common:
+        return False
+    exclude = common / "info" / "exclude"
+    try:
+        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        if EXCLUDE_MARK in text:
+            return True
+        if _git_ok(["check-ignore", "-q", "--", BLUEPRINT_FILE], root):
+            return False
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        sep = "" if not text or text.endswith("\n") else "\n"
+        _atomic_write(exclude, f"{text}{sep}{EXCLUDE_MARK}\n/{BLUEPRINT_FILE}\n")
+        return True
+    except OSError:
+        return False
+
+
+def _remove_excluded(root: Path) -> None:
+    common = _git_path(root, "--git-common-dir")
+    exclude = common / "info" / "exclude" if common else None
+    if not exclude or not exclude.is_file():
+        return
+    try:
+        text = exclude.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return
+    if EXCLUDE_MARK in text:
+        _atomic_write(exclude, re.sub(rf"(?m)^{re.escape(EXCLUDE_MARK)}\n(?:/{re.escape(BLUEPRINT_FILE)}\n?)?", "", text))
+
+
+def write_blueprint(root: Path, out_path: Path | None = None) -> tuple[Path, bool]:
+    """Generate the blueprint and write it (atomically, only when it changed). Returns (path, changed).
+    A hand-written PROJECT_BLUEPRINT.md of the same name is left as it is."""
+    target = out_path or root / BLUEPRINT_FILE
+    if out_path is None and target.is_file() and not _is_generated(target):
+        return target, False
+    changed = _atomic_write(target, build_blueprint_content(root))
+    if target.resolve() == (root / BLUEPRINT_FILE).resolve():
+        _record_blueprint_head(root)
+        untracked = not _is_tracked(root)
+        excluded = _ensure_excluded(root) if untracked else False
+        _record_state(root, generated_untracked=untracked, **({"excluded": True} if excluded else {}))
+    return target, changed
+
+
+def _hook_is_shell(content: str) -> bool:
+    """Whether a hook is a shell script our sh block can be appended to (not Python, Node, ...)."""
+    stripped = content.lstrip("﻿")
+    if not stripped.strip():
+        return True
+    first = stripped.splitlines()[0].strip()
+    if not first.startswith("#!"):
+        return True  # no interpreter line: git runs it with sh
+    parts = first[2:].split()
+    if not parts:
+        return True
+    prog = Path(parts[0]).name
+    if prog == "env":
+        args = [p for p in parts[1:] if not p.startswith("-")]
+        prog = Path(args[0]).name if args else ""
+    return prog in _SH_SHELLS
+
+
 def _clean_hook_content(content: str) -> str:
-    """Safely strip any Memento blueprint hook block or legacy artifacts."""
-    # Strip tagged blocks
+    """The hook without our block (and the untagged lines very early versions wrote)."""
     cleaned = re.sub(
-        rf"{re.escape(HOOK_MARKER_START)}[\s\S]*?{re.escape(HOOK_MARKER_END)}\n?",
-        "",
+        rf"\n*{re.escape(HOOK_MARKER_START)}[\s\S]*?{re.escape(HOOK_MARKER_END)}\n?",
+        "\n",
         content,
     )
-    # Strip legacy untagged artifacts
     cleaned = re.sub(
         r"# Auto-update PROJECT_BLUEPRINT\.md[^\n]*\n(?:[^\n]*\n)*?python3[^\n]*project_blueprint\.py[^\n]*\n(?:fi\n)?",
         "",
         cleaned,
     )
-    # Filter orphan lines matching blueprint patterns
-    clean_lines = []
-    for line in cleaned.splitlines():
-        trimmed = line.strip()
-        if any(token in trimmed for token in ("project_blueprint.py", "PROJECT_BLUEPRINT.md", "BP_SCRIPT")):
-            continue
-        clean_lines.append(line)
-
-    # If remaining lines contain no actual user logic (only repeated shebangs or dangling fi's)
-    non_trivial = [l for l in clean_lines if l.strip() and not l.strip().startswith("#!") and l.strip() != "fi"]
+    clean_lines = [
+        line for line in cleaned.splitlines()
+        if not ("project_blueprint.py" in line and "python" in line) and "# Auto-update PROJECT_BLUEPRINT.md" not in line
+    ]
+    non_trivial = [line for line in clean_lines if line.strip() and not line.strip().startswith("#!") and line.strip() != "fi"]
     if not non_trivial:
         return ""
     return "\n".join(clean_lines).strip()
 
 
-MANAGED_GIT_HOOKS = ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]
+def _sync_global_script() -> None:
+    """Mirror this script to ~/.memento/scripts for hooks in repos that don't carry it (never downgrading)."""
+    try:
+        current_script = Path(__file__).resolve()
+        global_script = Path.home() / ".memento" / "scripts" / "project_blueprint.py"
+        if not current_script.is_file() or current_script == global_script.resolve():
+            return
+        cur_content = current_script.read_text(encoding="utf-8")
+        existing = global_script.read_text(encoding="utf-8") if global_script.exists() else ""
+        m = re.search(r"^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", existing, re.MULTILINE)
+        if existing == cur_content or (m and int(m.group(1)) > BLUEPRINT_SCRIPT_VERSION):
+            return
+        global_script.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(global_script, cur_content)
+        global_script.chmod(0o755)
+    except Exception:
+        pass
 
 
 def install_git_hook(root: Path) -> bool:
-    """Install post-commit, post-merge, and post-checkout Git hooks to keep PROJECT_BLUEPRINT.md in sync across all projects."""
-    git_dir = root / ".git"
-    if not git_dir.exists():
-        print(f"Error: {git_dir} does not exist. Is this a git repository?", file=sys.stderr)
-        return False
+    """Append the refresh block to the repo's commit, merge, checkout and rewrite hooks.
 
-    hooks_dir = git_dir / "hooks"
+    Left alone: repos whose hooks belong to another tool (core.hooksPath: husky, lefthook...),
+    hooks written in another language, and symlinked hooks. The collector still refreshes
+    those repos' blueprints when HEAD moves.
+    """
+    if not _git_ok(["rev-parse", "--git-dir"], root):
+        print(f"Error: {root} is not a git repository.", file=sys.stderr)
+        return False
+    _sync_global_script()
+    if run_git_cmd(["config", "--get", "core.hooksPath"], root):
+        return True
+    common = _git_path(root, "--git-common-dir")
+    if not common:
+        return False
+    hooks_dir = common / "hooks"
     try:
         hooks_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-    if not hooks_dir.is_dir():
-        print(f"Error: {hooks_dir} does not exist. Is this a git repository?", file=sys.stderr)
+    except OSError:
         return False
 
-    # Ensure generator script is synced to global ~/.memento/scripts for external repos
-    try:
-        global_memento_dir = Path.home() / ".memento" / "scripts"
-        global_memento_dir.mkdir(parents=True, exist_ok=True)
-        global_script = global_memento_dir / "project_blueprint.py"
-        current_script = Path(__file__).resolve()
-        if current_script.is_file():
-            cur_content = current_script.read_text(encoding="utf-8")
-            if not global_script.exists() or global_script.read_text(encoding="utf-8") != cur_content:
-                global_script.write_text(cur_content, encoding="utf-8")
-                global_script.chmod(0o755)
-    except Exception:
-        pass
-
+    installed: list[str] = []
     all_ok = True
     for hname in MANAGED_GIT_HOOKS:
         hook_file = hooks_dir / hname
-        existing = hook_file.read_text(encoding="utf-8", errors="ignore") if hook_file.exists() else ""
+        if hook_file.is_symlink():
+            continue
+        try:
+            existing = hook_file.read_text(encoding="utf-8", errors="ignore") if hook_file.exists() else ""
+        except OSError:
+            all_ok = False
+            continue
+        if not _hook_is_shell(existing):
+            continue
         cleaned = _clean_hook_content(existing)
-
-        if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
+        if cleaned.strip() in _SHEBANG_ONLY:
             new_content = f"#!/bin/sh\n\n{HOOK_TEMPLATE}\n"
         else:
             new_content = f"{cleaned.rstrip()}\n\n{HOOK_TEMPLATE}\n"
-
         try:
-            hook_file.write_text(new_content, encoding="utf-8")
+            _atomic_write(hook_file, new_content)
             hook_file.chmod(0o755)
-        except Exception:
+            installed.append(hname)
+        except OSError:
             all_ok = False
-
+    if installed:
+        _record_state(root, hooks=installed)
     return all_ok
 
 
 def uninstall_git_hook(root: Path) -> bool:
-    """Remove Memento blueprint Git hook entries across all managed hooks."""
-    git_dir = root / ".git"
-    hooks_dir = git_dir / "hooks" if git_dir.exists() else None
+    """Take our block out of every managed hook; a hook left with nothing else in it is deleted."""
+    common = _git_path(root, "--git-common-dir")
+    hooks_dir = common / "hooks" if common else None
     if not hooks_dir or not hooks_dir.is_dir():
         return True
-
+    all_ok = True
     for hname in MANAGED_GIT_HOOKS:
         hook_file = hooks_dir / hname
-        if not hook_file.exists():
+        if not hook_file.is_file() or hook_file.is_symlink():
             continue
-        existing = hook_file.read_text(encoding="utf-8", errors="ignore")
-        cleaned = _clean_hook_content(existing)
+        try:
+            existing = hook_file.read_text(encoding="utf-8", errors="ignore")
+            if HOOK_MARKER_START not in existing and "project_blueprint.py" not in existing:
+                continue
+            cleaned = _clean_hook_content(existing)
+            if cleaned.strip() in _SHEBANG_ONLY:
+                hook_file.unlink()
+            else:
+                _atomic_write(hook_file, cleaned.strip() + "\n")
+                hook_file.chmod(0o755)
+        except OSError:
+            all_ok = False
+    return all_ok
 
-        if not cleaned or cleaned.strip() in ("#!/bin/sh", "#!/bin/bash"):
-            hook_file.write_text("", encoding="utf-8")
+
+def _has_our_traces(root: Path) -> bool:
+    if _state_file(root).exists():
+        return True
+    common = _git_path(root, "--git-common-dir")
+    if not common:
+        return False
+    for hname in MANAGED_GIT_HOOKS:
+        try:
+            if HOOK_MARKER_START in (common / "hooks" / hname).read_text(encoding="utf-8", errors="ignore"):
+                return True
+        except OSError:
+            pass
+    try:
+        return EXCLUDE_MARK in (common / "info" / "exclude").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
+def uninstall_repo(root: Path) -> bool:
+    """Take back everything this script did in one repo: hook blocks, the HEAD marker, the exclude
+    line, hints it added to instruction files, and the generated file when git doesn't track it."""
+    state = _load_state(root)
+    ok = uninstall_git_hook(root)
+    for d in {_git_path(root, "--git-dir"), _git_path(root, "--git-common-dir"), root / ".git"}:
+        if d and (d / HEAD_MARKER).is_file():
+            try:
+                (d / HEAD_MARKER).unlink()
+            except OSError:
+                ok = False
+    _remove_excluded(root)
+    remove_agent_guidance_anchor(root, [str(f) for f in state.get("anchors") or []])
+    bp = root / BLUEPRINT_FILE
+    if bp.is_file() and not _is_tracked(root) and _is_generated(bp):
+        try:
+            bp.unlink()
+        except OSError:
+            ok = False
+    try:
+        _state_file(root).unlink(missing_ok=True)
+        if not any(_state_dir().iterdir()):
+            _state_dir().rmdir()
+    except OSError:
+        pass
+    return ok
+
+
+# Where the collector looks for repos (packages/daemon/src/blueprint-auto.ts discoverLocalGitRepositories)
+DISCOVERY_BASES = ("dev", "Desktop/dev", "WorkBuddy", "projects", "workspace", "code", "repos")
+
+
+def _discover_git_roots() -> set[Path]:
+    home = Path.home()
+    roots: set[Path] = set()
+
+    def visit(d: Path, depth: int) -> None:
+        if depth > 2 or d.name.startswith(".") or d.name in ("node_modules", "venv") or "worktree" in d.name.lower():
+            return
+        if (d / ".git").exists():
+            roots.add(d.resolve())
+            return
+        if depth == 2:
+            return
+        try:
+            for child in d.iterdir():
+                if child.is_dir():
+                    visit(child, depth + 1)
+        except OSError:
+            pass
+
+    for rel in DISCOVERY_BASES:
+        base = home / rel
+        if not base.is_dir():
+            continue
+        try:
+            for child in base.iterdir():
+                if child.is_dir():
+                    visit(child, 1)
+        except OSError:
+            pass
+    return roots
+
+
+def uninstall_all(quiet: bool = False) -> int:
+    """uninstall_repo for every repo recorded in ~/.memento/blueprint_repos, plus any repo in the usual
+    workspace folders that still carries our hook block or exclude line (written before the record existed)."""
+    roots: set[Path] = set()
+    state_dir = _state_dir()
+    if state_dir.is_dir():
+        for f in state_dir.glob("*.json"):
+            try:
+                root = json.loads(f.read_text(encoding="utf-8")).get("root")
+            except (OSError, ValueError):
+                root = None
+            if isinstance(root, str) and Path(root).is_dir():
+                roots.add(Path(root))
+            else:
+                f.unlink(missing_ok=True)
+    roots |= {r for r in _discover_git_roots() if _has_our_traces(r)}
+    failed = 0
+    for r in sorted(roots):
+        if uninstall_repo(r):
+            if not quiet:
+                print(f"Removed living blueprint & hooks from: {r}")
         else:
-            hook_file.write_text(cleaned.strip() + "\n", encoding="utf-8")
+            failed += 1
+            if not quiet:
+                print(f"Could not fully clean {r}", file=sys.stderr)
+    try:
+        if state_dir.is_dir() and not any(state_dir.iterdir()):
+            state_dir.rmdir()
+    except OSError:
+        pass
+    return 1 if failed else 0
 
-    return True
 
-
-def bootstrap_discovered_projects(quiet: bool = False) -> int:
+def bootstrap_discovered_projects(quiet: bool = False, anchor: bool = False) -> int:
     """Scan local AI instruction files and common dev workspaces to deploy living blueprints & hooks."""
     home = Path.home()
     roots: set[Path] = set()
@@ -2409,27 +2827,15 @@ def bootstrap_discovered_projects(quiet: bool = False) -> int:
             except Exception:
                 pass
 
-    # 2. Scan top-level git repos under ~/dev and ~/Desktop/dev
-    for dev_dir in (home / "dev", home / "Desktop" / "dev"):
-        if dev_dir.is_dir():
-            for child in dev_dir.iterdir():
-                if child.is_dir():
-                    if (child / ".git").exists():
-                        roots.add(child.resolve())
-                    else:
-                        for sub in child.iterdir():
-                            if sub.is_dir() and (sub / ".git").exists():
-                                roots.add(sub.resolve())
+    # 2. The workspace folders the collector scans
+    roots |= _discover_git_roots()
 
-    count = 0
     for r in sorted(roots):
         try:
             install_git_hook(r)
-            ensure_agent_guidance_anchor(r)
-            content = build_blueprint_content(r)
-            (r / "PROJECT_BLUEPRINT.md").write_text(content, encoding="utf-8")
-            _record_blueprint_head(r)
-            count += 1
+            if anchor:
+                ensure_agent_guidance_anchor(r)
+            write_blueprint(r)
             if not quiet:
                 print(f"Bootstrapped living blueprint & hooks for: {r}")
         except Exception as e:
@@ -2442,62 +2848,65 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate and maintain living PROJECT_BLUEPRINT.md for AI agents.")
     parser.add_argument("--root", type=str, default=".", help="Project root directory (default: current directory)")
     parser.add_argument("--output", type=str, default="", help="Output markdown path (default: <root>/PROJECT_BLUEPRINT.md)")
-    parser.add_argument("--install-hook", action="store_true", help="Install git post-commit hook for auto-syncing")
-    parser.add_argument("--uninstall-hook", action="store_true", help="Uninstall git post-commit hook")
+    parser.add_argument("--install-hook", action="store_true", help="Install the git hooks that keep the blueprint current")
+    parser.add_argument("--uninstall-hook", action="store_true", help="Remove the git hooks only")
+    parser.add_argument("--uninstall", action="store_true", help="Take back everything done in --root (hooks, markers, generated file)")
+    parser.add_argument("--uninstall-all", action="store_true", help="--uninstall for every repo this script touched")
+    parser.add_argument("--anchor", action="store_true", help="Also add a read-the-blueprint hint to the repo's CLAUDE.md / AGENTS.md / ...")
     parser.add_argument("--bootstrap-discovered", action="store_true", help="Discover and install blueprint & hooks across all local git projects")
     parser.add_argument("--check", action="store_true", help="Check if current PROJECT_BLUEPRINT.md is up-to-date")
     parser.add_argument("--quiet", action="store_true", help="Suppress stdout messages")
 
     args = parser.parse_args()
+    if args.uninstall_all:
+        return uninstall_all(quiet=args.quiet)
     if args.bootstrap_discovered:
-        return bootstrap_discovered_projects(quiet=args.quiet)
+        return bootstrap_discovered_projects(quiet=args.quiet, anchor=args.anchor)
     root = Path(args.root).resolve()
+    out_path = Path(args.output).resolve() if args.output else None
 
-    if args.install_hook:
-        ok = install_git_hook(root)
-        try:
-            ensure_agent_guidance_anchor(root)
-            out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
-            content = build_blueprint_content(root)
-            out_path.write_text(content, encoding="utf-8")
-            _record_blueprint_head(root)
-        except Exception as e:
-            if not args.quiet:
-                print(f"Warning: Failed to generate blueprint file during hook install: {e}", file=sys.stderr)
+    if args.uninstall:
+        ok = uninstall_repo(root)
         if not args.quiet:
-            print("Git post-commit hook installed successfully." if ok else "Failed to install git hook.")
+            print(f"Removed living blueprint & hooks from: {root}" if ok else f"Could not fully clean {root}")
         return 0 if ok else 1
 
     if args.uninstall_hook:
         ok = uninstall_git_hook(root)
         if not args.quiet:
-            print("Git post-commit hook uninstalled.")
+            print("Git hooks uninstalled.")
         return 0 if ok else 1
 
-    out_path = Path(args.output).resolve() if args.output else root / "PROJECT_BLUEPRINT.md"
-    content = build_blueprint_content(root)
-    ensure_agent_guidance_anchor(root)
-
     if args.check:
-        if not out_path.exists():
+        target = out_path or root / BLUEPRINT_FILE
+        if not target.exists():
             if not args.quiet:
-                print(f"{out_path.name} is missing.")
+                print(f"{target.name} is missing.")
             return 1
-        current = out_path.read_text(encoding="utf-8", errors="ignore")
-        if current.strip() != content.strip():
+        current = target.read_text(encoding="utf-8", errors="ignore")
+        if current.strip() != build_blueprint_content(root).strip():
             if not args.quiet:
-                print(f"{out_path.name} is outdated.")
+                print(f"{target.name} is outdated.")
             return 1
         if not args.quiet:
-            print(f"{out_path.name} is up to date.")
+            print(f"{target.name} is up to date.")
         return 0
 
-    out_path.write_text(content, encoding="utf-8")
-    _record_blueprint_head(root)
+    ok = True
+    if args.install_hook:
+        ok = install_git_hook(root)
+    if args.anchor:
+        ensure_agent_guidance_anchor(root)
+    try:
+        target, changed = write_blueprint(root, out_path)
+    except Exception as e:
+        print(f"Failed to generate blueprint for {root}: {e}", file=sys.stderr)
+        return 1
     if not args.quiet:
-        print(f"Generated living blueprint at: {out_path} ({len(content)} bytes)")
-
-    return 0
+        if args.install_hook:
+            print("Git hooks installed." if ok else "Failed to install git hooks.")
+        print(f"{'Generated' if changed else 'Unchanged'} living blueprint at: {target}")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

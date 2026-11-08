@@ -12,12 +12,33 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import project_blueprint  # type: ignore
 
 
+def _git(root, *args, check=True):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=check)
+
+
+def _git_init(root):
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "t")
+    _git(root, "config", "commit.gpgsign", "false")
+
+
 class TestProjectBlueprint(unittest.TestCase):
     def setUp(self):
+        import os
+        from unittest.mock import patch
+
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp_dir.name)
+        self.root = Path(self.temp_dir.name).resolve() / "repo"
+        self.root.mkdir()
+        # State and the global copy of the script go to a throwaway home, not the real ~/.memento
+        self._env = patch.dict(os.environ, {"HOME": str(Path(self.temp_dir.name).resolve())})
+        self._env.start()
 
     def tearDown(self):
+        self._env.stop()
         self.temp_dir.cleanup()
 
     def test_detect_tech_stack_monorepo_python_node(self):
@@ -83,8 +104,9 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertIn("## 9. Recent Architectural Evolutions", content)
 
     def test_git_hook_lifecycle(self):
+        _git_init(self.root)
         git_dir = self.root / ".git" / "hooks"
-        git_dir.mkdir(parents=True)
+        git_dir.mkdir(parents=True, exist_ok=True)
 
         installed = project_blueprint.install_git_hook(self.root)
         self.assertTrue(installed)
@@ -96,8 +118,8 @@ class TestProjectBlueprint(unittest.TestCase):
         uninstalled = project_blueprint.uninstall_git_hook(self.root)
         self.assertTrue(uninstalled)
         for hname in ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"]:
-            hook_path = git_dir / hname
-            self.assertNotIn("project_blueprint.py", hook_path.read_text())
+            # Hooks holding nothing but our block are removed outright
+            self.assertFalse((git_dir / hname).exists())
 
 
     def test_detect_verification_commands_python_and_node(self):
@@ -162,61 +184,267 @@ class TestProjectBlueprint(unittest.TestCase):
         self.assertTrue(any("`IPC tauri:launch_gateway`" in r["endpoints"] for r in routes))
 
 
+MEMENTO_BP = (
+    "# Project Blueprint: memento\n\n"
+    "## 0. 速览与章节索引 (Quick Summary & Section Index)\n\n"
+    "- 类型 (Type): Monorepo (Workspaces)\n"
+    "- 技术栈 (Stack): TypeScript/JavaScript, Python · React, Electron, FastAPI\n"
+    "- 自测命令 (Verify): `cd server && uv run pytest`\n\n"
+    "| 章节 (Section) | 行号 (Lines) |\n| :--- | :--- |\n| 1. Project Overview & Tech Stack | L20-L24 |\n\n"
+    "## 1. Project Overview & Tech Stack\n"
+    "- **Core Languages**: `TypeScript/JavaScript`, `Python`\n"
+    "- **Key Frameworks**: `FastAPI`, `React`, `Electron`, `Next.js`\n"
+    "- **Infrastructure & Middleware**: `PostgreSQL`, `Redis`, `Docker`, `Kubernetes`\n"
+    "## 3. Subsystem Breakdown & Responsibilities\n"
+    "| Subsystem / Path | Category | Role & Purpose |\n"
+    "| :--- | :--- | :--- |\n"
+    "| [`server`](server) | Backend | FastAPI + MCP multi-agent memory server |\n"
+)
+
+
+def _sources(**overrides):
+    from datetime import datetime, timezone
+    from server.services.user_blueprint_service import BlueprintSources
+
+    now = datetime.now(timezone.utc)
+    src = BlueprintSources(
+        devices=[{"name": "mac (Darwin)", "platform": "macOS", "online": True}],
+        project_rows=[
+            ("p1", "memento", "/Users/u/dev/memento", 40, now),
+            ("p2", "pubchem", "/Users/u/dev/pubchem", 30, now),
+            ("p3", "quant_future", "/Users/u/dev/quant_future", 12, now),
+            # collector artifacts and nested folders are not projects
+            ("p4", "tmp", "/private/tmp", 50, now),
+            ("p5", "499fe778-1ba4-4e64-aea5-40249671183b", "/Users/u/dev/x", 9, now),
+            ("p6", "web", "/Users/u/dev/memento/apps/web", 20, now),
+            ("p7", "u", "/Users/u", 80, now),
+        ],
+        blueprint_docs=[("p1", "memento/PROJECT_BLUEPRINT.md", MEMENTO_BP, now)],
+        memories=["偏好容器化 + k8s 部署"],
+        entities=[("RDKit", "library", 9), ("Bash", "tool", 50), ("memento", "technology", 5)],
+        project_entities={
+            "pubchem": ("位于 /Users/u/dev/pubchem 的项目，逆合成路线规划与 CAS / SMILES 化合物检索，当前在 main 分支", ["RDKit", "FastAPI"]),
+            "quant-future": ("期货 quant 策略回测与 tqsdk 行情接入，有未跟踪文件", ["pandas"]),
+        },
+        profile_text=(
+            "### 铁律\n- 仔细深入调查问题\n### 技术偏好\n- 偏好容器化 + k8s 部署\n"
+            "### 只在对应项目里适用\n#### pubchem（`/Users/u/dev/pubchem`）\n- 逆合成路线重排与 CAS 号检索\n"
+        ),
+    )
+    for k, v in overrides.items():
+        setattr(src, k, v)
+    return src
+
+
+class TestBlueprintHooksAndUninstall(unittest.TestCase):
+    """Hooks, exclude and state live in a throwaway repo and a throwaway home."""
+
+    def setUp(self):
+        import os
+        from unittest.mock import patch
+
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.home = base / "home"
+        self.home.mkdir()
+        self.root = base / "repo"
+        self.root.mkdir()
+        self._env = patch.dict(os.environ, {"HOME": str(self.home)})
+        self._env.start()
+        _git_init(self.root)
+        (self.root / "app.py").write_text("print('hi')\n")
+        _git(self.root, "add", "app.py")
+        _git(self.root, "commit", "-qm", "init", "--no-verify")
+
+    def tearDown(self):
+        self._env.stop()
+        self.tmp.cleanup()
+
+    def _hook(self, name):
+        return self.root / ".git" / "hooks" / name
+
+    def _run_hook(self, name):
+        import subprocess
+
+        return subprocess.run(["sh", str(self._hook(name))], cwd=self.root, capture_output=True, text=True)
+
+    def test_a_failing_pre_commit_still_stops_the_commit(self):
+        self._hook("pre-commit").write_text("#!/bin/sh\necho lint failed >&2\nexit 3\n")
+        self.assertTrue(project_blueprint.install_git_hook(self.root))
+        text = self._hook("pre-commit").read_text()
+        self.assertIn("echo lint failed", text)
+        self.assertIn(project_blueprint.HOOK_MARKER_START, text)
+        self.assertEqual(self._run_hook("pre-commit").returncode, 3)
+
+        self._hook("pre-commit").write_text("#!/bin/sh\nexit 0\n")
+        project_blueprint.install_git_hook(self.root)
+        self.assertEqual(self._run_hook("pre-commit").returncode, 0)
+
+    def test_hooks_of_other_languages_and_hook_managers_are_left_alone(self):
+        py_hook = "#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n"
+        self._hook("pre-commit").write_text(py_hook)
+        self.assertTrue(project_blueprint.install_git_hook(self.root))
+        self.assertEqual(self._hook("pre-commit").read_text(), py_hook)
+        self.assertIn(project_blueprint.HOOK_MARKER_START, self._hook("post-commit").read_text())
+
+        project_blueprint.uninstall_git_hook(self.root)
+        self.assertFalse(self._hook("post-commit").exists())  # nothing but our block was in it
+        self.assertEqual(self._hook("pre-commit").read_text(), py_hook)
+
+        _git(self.root, "config", "core.hooksPath", ".husky")
+        self.assertTrue(project_blueprint.install_git_hook(self.root))
+        self.assertFalse(self._hook("post-commit").exists())
+        self.assertFalse((self.root / ".husky").exists())
+
+    def test_untracked_blueprint_is_excluded_and_uninstall_leaves_nothing(self):
+        project_blueprint.install_git_hook(self.root)
+        bp, changed = project_blueprint.write_blueprint(self.root)
+        self.assertTrue(changed)
+        self.assertTrue(bp.read_text().startswith("# Project Blueprint:"))
+        self.assertIn("## 0. 速览与章节索引", bp.read_text())
+        # Kept out of `git status` without touching the repo's .gitignore
+        self.assertNotIn("PROJECT_BLUEPRINT.md", _git(self.root, "status", "--porcelain").stdout)
+        self.assertFalse((self.root / ".gitignore").exists())
+        self.assertTrue((self.root / ".git" / project_blueprint.HEAD_MARKER).is_file())
+        self.assertTrue(project_blueprint._state_file(self.root).is_file())
+        # Rewriting identical content is not a change
+        self.assertFalse(project_blueprint.write_blueprint(self.root)[1])
+
+        self.assertTrue(project_blueprint.uninstall_repo(self.root))
+        self.assertFalse(bp.exists())
+        self.assertFalse((self.root / ".git" / project_blueprint.HEAD_MARKER).exists())
+        self.assertNotIn(project_blueprint.EXCLUDE_MARK, (self.root / ".git" / "info" / "exclude").read_text())
+        for name in project_blueprint.MANAGED_GIT_HOOKS:
+            self.assertFalse(self._hook(name).exists())
+        self.assertFalse((self.home / ".memento" / "blueprint_repos").exists())
+        self.assertEqual(_git(self.root, "status", "--porcelain").stdout, "")
+
+    def test_a_hand_written_blueprint_is_never_overwritten(self):
+        own = "# Our architecture notes\n\nwritten by hand\n"
+        (self.root / "PROJECT_BLUEPRINT.md").write_text(own)
+        self.assertFalse(project_blueprint.write_blueprint(self.root)[1])
+        project_blueprint.uninstall_repo(self.root)
+        self.assertEqual((self.root / "PROJECT_BLUEPRINT.md").read_text(), own)
+
+    def test_anchor_hint_is_opt_in_and_taken_back_exactly(self):
+        original = "# Rules\n\n- be brief\n"
+        (self.root / "CLAUDE.md").write_text(original)
+        project_blueprint.write_blueprint(self.root)
+        self.assertEqual((self.root / "CLAUDE.md").read_text(), original)  # not without --anchor
+        self.assertEqual(project_blueprint.ensure_agent_guidance_anchor(self.root), ["CLAUDE.md"])
+        self.assertIn("「0. 速览与章节索引」", (self.root / "CLAUDE.md").read_text())
+        project_blueprint.uninstall_repo(self.root)
+        self.assertEqual((self.root / "CLAUDE.md").read_text(), original)
+
+    def test_installer_uninstall_takes_back_blueprints(self):
+        from install_lib import collector_setup  # type: ignore
+
+        self.assertTrue(project_blueprint.install_git_hook(self.root))
+        project_blueprint.write_blueprint(self.root)
+        self.assertTrue((self.home / ".memento" / "blueprint_repos").is_dir())
+        collector_setup._remove_blueprints(self.home)
+        self.assertFalse((self.root / project_blueprint.BLUEPRINT_FILE).exists())
+        self.assertFalse(self._hook("post-commit").exists())
+        self.assertFalse((self.root / ".git" / project_blueprint.HEAD_MARKER).exists())
+        self.assertFalse((self.home / ".memento" / "blueprint_repos").exists())
+        self.assertEqual(_git(self.root, "status", "--porcelain").stdout, "")
+
+    def test_a_tracked_blueprint_survives_uninstall(self):
+        project_blueprint.write_blueprint(self.root)
+        _git(self.root, "add", "-f", "PROJECT_BLUEPRINT.md")
+        _git(self.root, "commit", "-qm", "bp", "--no-verify")
+        project_blueprint.install_git_hook(self.root)
+        project_blueprint.uninstall_repo(self.root)
+        self.assertTrue((self.root / "PROJECT_BLUEPRINT.md").is_file())
+
+
 class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
-    async def test_build_user_blueprint_synthesizes_disciplines_domains_and_projects(self):
+    def test_synthesize_classifies_projects_and_renders_quick_summary(self):
+        from server.services.user_blueprint_service import synthesize_user_blueprint
+
+        res = synthesize_user_blueprint("Haixing Dong", _sources())
+        names = [p["name"] for p in res["projects"]]
+        self.assertEqual(set(names), {"memento", "pubchem", "quant_future"})
+        by_name = {p["name"]: p for p in res["projects"]}
+        self.assertEqual(by_name["pubchem"]["primary_field"], "chemistry")
+        self.assertEqual(by_name["quant_future"]["primary_field"], "finance")
+        self.assertTrue(by_name["memento"]["has_blueprint"])
+        self.assertFalse(by_name["pubchem"]["has_blueprint"])
+        self.assertEqual(by_name["memento"]["tech_stack"][:2], ["TypeScript/JavaScript", "Python"])
+
+        # Summaries keep what the project is, not where it lives or the checkout's state
+        self.assertEqual(by_name["pubchem"]["summary"], "逆合成路线规划与 CAS / SMILES 化合物检索")
+        self.assertEqual(by_name["quant_future"]["summary"], "期货 quant 策略回测与 tqsdk 行情接入")
+
+        md = res["markdown"]
+        self.assertTrue(md.splitlines()[0].startswith("# User Cognitive & Domain Blueprint: Haixing Dong"))
+        self.assertIn("## 0. 速览 (Quick Summary)", md)
+        for heading in ("## 2. 学科交叉与专业领域", "## 3. 核心业务版图与应用场景", "## 4. 跨项目架构蓝图矩阵", "## 5. 全域技术栈与基础设施雷达"):
+            self.assertIn(heading, md)
+        self.assertIn("flowchart LR", res["mermaid_topology"])
+        # A project without a blueprint has no known size, not "0 模块"
+        pub_row = next(line for line in md.splitlines() if line.startswith("| **`pubchem`**"))
+        self.assertIn("| — |", pub_row)
+        self.assertIn("1 模块", next(line for line in md.splitlines() if line.startswith("| **`memento`**")))
+        # No user paths, ids or agent tools leak into the document
+        self.assertNotIn("/Users/u", md)
+        self.assertNotIn("499fe778", md)
+        self.assertNotIn("`Bash`", md.split("## 5.")[1].split("## 6.")[0].split("知识图谱")[-1])
+        self.assertIn("RDKit", md)
+        self.assertIn("偏好容器化 + k8s 部署", md)
+        self.assertEqual({d["platform"] for d in res["devices"]}, {"macOS"})
+
+    def test_rules_and_noise_are_not_project_summaries(self):
+        from server.services.user_blueprint_service import _is_noise_project, _sanitize_summary
+
+        self.assertEqual(_sanitize_summary("处理数据时先备份原表"), "")
+        self.assertEqual(_sanitize_summary("避坑指南：不要回滚"), "")
+        self.assertEqual(_sanitize_summary("Git 仓库项目，远程仓库托管于内网"), "")
+        self.assertEqual(_sanitize_summary("从名称推断是基于 TQSDK 的做市商程序"), "基于 TQSDK 的做市商程序")
+        self.assertEqual(_sanitize_summary("Mac mini 上的 VPS 相关仓库"), "VPS 相关仓库")
+        self.assertEqual(
+            _sanitize_summary("网格交易机器人，支持 paper/testnet/live 三种模式（ddong8/bot），代码在 /Users/u/dev/bot"),
+            "网格交易机器人，支持 paper/testnet/live 三种模式",
+        )
+        self.assertTrue(_is_noise_project("499fe778-1ba4-4e64-aea5-40249671183b", "/users/u/dev/x"))
+        self.assertTrue(_is_noise_project("tmp", "/private/tmp/x"))
+        self.assertTrue(_is_noise_project("main", "main"))
+        self.assertFalse(_is_noise_project("pubchem", "/users/u/dev/pubchem"))
+
+    async def test_build_uses_only_the_users_own_devices_and_caches(self):
         import uuid
-        from types import SimpleNamespace
         from unittest.mock import AsyncMock, MagicMock, patch
         from server.db.models import User
-        from server.services.user_blueprint_service import build_user_blueprint
+        from server.services import user_blueprint_service as ubs
 
         user = User(id=uuid.uuid4(), email="haixing@example.com", name="Haixing Dong", role="owner")
-        mock_db = AsyncMock()
-        mock_res = MagicMock()
-        mock_res.scalars.return_value.all.return_value = []
-        mock_res.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mock_res
+        statements: list[str] = []
 
-        sample_bps = {
-            "memento": (
-                "/workspace/memento",
-                "# Project Blueprint: memento\n"
-                "- **Core Languages**: `TypeScript/JavaScript`, `Python`\n"
-                "- **Key Frameworks**: `FastAPI`, `React`, `Electron`, `Next.js`\n"
-                "- **Infrastructure & Middleware**: `PostgreSQL`, `Redis`, `Docker`, `Kubernetes`\n"
-                "## 3. Subsystem Breakdown & Responsibilities\n"
-                "| Subsystem / Path | Category | Role & Purpose |\n"
-                "| :--- | :--- | :--- |\n"
-                "| [`server`](server) | Backend | FastAPI + MCP multi-agent memory server |\n",
-            ),
-            "pubchem": (
-                "/workspace/pubchem",
-                "# Project Blueprint: pubchem\n"
-                "- **Core Languages**: `Python`, `TypeScript/JavaScript`\n"
-                "- **Key Frameworks**: `FastAPI`, `SQLAlchemy`, `RDKit (Cheminformatics)`\n"
-                "## 3. Subsystem Breakdown & Responsibilities\n"
-                "| Subsystem / Path | Category | Role & Purpose |\n"
-                "| :--- | :--- | :--- |\n"
-                "| [`backend`](backend) | Backend | Retrosynthesis CAS SMILES and reaxys reaction search |\n",
-            ),
-        }
-        sample_profile = SimpleNamespace(
-            content="### 铁律\n- 仔细深入调查问题\n### 技术偏好\n- 偏好容器化 + k8s 部署\n#### pubchem（`/workspace/pubchem`）\n- 逆合成路线重排与 CAS 号检索\n"
-        )
-        with patch("server.services.user_blueprint_service._scan_local_blueprints", return_value=sample_bps), \
-             patch("server.services.user_blueprint_service.get_published_profile", AsyncMock(return_value=sample_profile)):
-            res = await build_user_blueprint(mock_db, user, force_refresh=True)
+        async def fake_execute(stmt, *a, **kw):
+            statements.append(str(stmt))
+            res = MagicMock()
+            res.all.return_value = []
+            res.scalars.return_value.all.return_value = []
+            return res
+
+        db = AsyncMock()
+        db.execute.side_effect = fake_execute
+        with patch.object(ubs, "cache_get", AsyncMock(return_value=None)), \
+             patch.object(ubs, "cache_set", AsyncMock()) as cache_set, \
+             patch.object(ubs, "get_published_profile", AsyncMock(return_value=None)):
+            res = await ubs.build_user_blueprint(db, user)
 
         self.assertEqual(res["user_name"], "Haixing Dong")
-        self.assertTrue(len(res["disciplines"]) >= 2)
-        self.assertTrue(len(res["business_domains"]) >= 2)
-        self.assertTrue(len(res["projects"]) >= 2)
-        self.assertIn("flowchart LR", res["mermaid_topology"])
-        self.assertIn("# User Cognitive & Domain Blueprint: Haixing Dong", res["markdown"])
-        self.assertIn("## 2. 学科交叉与专业领域", res["markdown"])
-        self.assertIn("## 3. 核心业务版图与应用场景", res["markdown"])
-        self.assertIn("## 4. 跨项目架构蓝图矩阵", res["markdown"])
-        self.assertIn("## 5. 全域技术栈与基础设施雷达", res["markdown"])
+        cache_set.assert_awaited_once()
+        self.assertEqual(cache_set.await_args.args[0], f"user:blueprint:v2:{user.id}")
+        # Even an owner gets their own devices only: the machines query is filtered by user id
+        self.assertIn("machines.user_id", statements[0])
+
+        cached = {"markdown": "# User Cognitive & Domain Blueprint: x"}
+        db.execute.reset_mock()
+        with patch.object(ubs, "cache_get", AsyncMock(return_value=cached)):
+            self.assertIs(await ubs.build_user_blueprint(db, user), cached)
+        db.execute.assert_not_called()
 
     def test_clean_truncation_word_boundaries_and_noise_filtering(self):
         from server.services.mind_resonance_service import _summarize_user_blueprint_markdown

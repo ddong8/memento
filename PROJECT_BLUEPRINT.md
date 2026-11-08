@@ -1,10 +1,34 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4b2a0d13` · Updated: `2026-11-08`
-> This document provides an instant, comprehensive architectural map of the codebase.
-> AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
-> at the start of any session for instant global orientation without repetitive grep scans.
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b8893565` · Updated: `2026-11-08`
+> An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
+> Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
+
+## 0. 速览与章节索引 (Quick Summary & Section Index)
+
+> 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' PROJECT_BLUEPRINT.md`），不必整份读入。
+
+- 类型 (Type): Monorepo (Workspaces)
+- 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
+- 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 218 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 150 个测试文件
+- 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
+- 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
+- 最近改动 (Latest): `9ed308a1` (2026-11-08): docs: README 中英文按代码现状更新
+
+| 章节 (Section) | 行号 (Lines) |
+| :--- | :--- |
+| 1. Project Overview & Tech Stack | L33-L38 |
+| 2. High-Level Architecture Topology | L40-L75 |
+| 3. Subsystem Breakdown & Responsibilities | L77-L89 |
+| 4. Key Entry Points & API Endpoints | L91-L447 |
+| 5. Core Domain Services & Background Schedules | L449-L489 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L491-L566 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L568-L608 |
+| 8. Development & Verification Commands | L610-L627 |
+| 9. Recent Architectural Evolutions | L629-L636 |
+| 10. Key Environment Variables & Configuration | L638-L650 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -280,12 +304,12 @@ flowchart TD
 
 #### `/api/profile` (profile.py)
 
+- `PUT /api/profile/blueprint/settings`
 - `GET /api/profile/blueprint`
 - `GET /api/profile`
 - `POST /api/profile/draft/regenerate`
 - `PUT /api/profile/draft`
-- `DELETE /api/profile/draft`
-- _... (10 more endpoints)_
+- _... (11 more endpoints)_
 
 #### `/api/projects` (projects.py)
 
@@ -573,8 +597,8 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (17 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
-- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (12 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
+- [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (11 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
 - [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
@@ -604,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `9ed308a1` (2026-11-08): docs: README 中英文按代码现状更新
 - `4b2a0d13` (2026-11-08): fix(install): 卸载时撤回写进 AI 工具的内容，.env 里的设置真正传进容器
 - `df5c8b83` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
 - `a1f2cea6` (2026-11-08): fix(server): 作息按用户本地日期统计，夜间学到的场景各副本定时刷新
 - `44dcb335` (2026-11-08): fix(tasks): 派活任务创建后立即经 WebSocket 下发，主动执事的后台任务按步推进
 - `8b24195e` (2026-11-08): test(db): 旧列删除用例按 to_tsvector 的实际输出（带位置）断言
-- `f652defb` (2026-11-08): perf(db): 删掉 documents 上不再使用的 content_tsv 旧列
 
 ## 10. Key Environment Variables & Configuration
 

@@ -289,6 +289,8 @@ export class IngestClient {
     targets?: string[];
     /** Tools the completion check (guard.ts) is on for. */
     guards?: { completion_evidence?: string[] };
+    /** The user's automatic-blueprint switch; `auto: false` takes back hooks and generated files. */
+    blueprint?: { auto?: boolean } | null;
     /** Server-hosted living blueprint generator script metadata for OTA sync. */
     blueprint_script?: { version?: number; hash?: string } | null;
   } | null> {

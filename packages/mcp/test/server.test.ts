@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 
 import { RemoteClient } from "../src/remote.js";
-import { bestSkill, createServer } from "../src/server.js";
+import { bestSkill, blueprintSection, createServer } from "../src/server.js";
 
 type Handler = (url: URL, init: RequestInit) => { status?: number; body: unknown } | undefined;
 
@@ -66,6 +66,60 @@ describe("memento MCP", () => {
     );
     const resources = (await client.listResources()).resources.map((r) => r.uri).sort();
     expect(resources).toEqual(["memory://core", "memory://projects", "memory://resonance"]);
+  });
+
+  it("returns a blueprint's quick summary by default and single sections on request", async () => {
+    const bp = [
+      "# Project Blueprint: demo",
+      "",
+      "## 0. 速览与章节索引 (Quick Summary & Section Index)",
+      "- 定位：demo service",
+      "| 1 | Overview | L9 |",
+      "",
+      "## 1. Project Overview & Tech Stack",
+      "- Python 3.12",
+      "## 6.5. AST Call Graph",
+      "- api ➔ services",
+      "## 7. CI/CD",
+      "- deploy.yml",
+    ].join("\n");
+    const summary = blueprintSection(bp);
+    expect(summary).toContain("- 定位：demo service");
+    expect(summary).not.toContain("Python 3.12");
+    expect(blueprintSection(bp, "6.5")).toBe("## 6.5. AST Call Graph\n- api ➔ services");
+    expect(blueprintSection(bp, "1, 7")).toContain("deploy.yml");
+    expect(blueprintSection(bp, "1, 7")).not.toContain("AST Call Graph");
+    expect(blueprintSection(bp, "all")).toBe(bp);
+    expect(blueprintSection(bp, "42")).toContain("- 7. CI/CD (line 11)");
+    // From before the summary section: the opening and the list of later sections
+    const legacy = ["# Project Blueprint: old", ...Array.from({ length: 90 }, (_, i) => `line ${i}`), "## 9. Recent", "- x"].join("\n");
+    const out = blueprintSection(legacy);
+    expect(out).toContain("line 10");
+    expect(out).not.toContain("line 85");
+    expect(out).toContain("- 9. Recent (line 92)");
+
+    const client = await connect(
+      new RemoteClient(
+        "http://m",
+        "ct-1",
+        undefined,
+        fakeFetch({
+          "GET /api/profile/blueprint": () => ({ body: { markdown: "# 个人全域蓝图\n\n## 0. 速览 (Quick Summary)\n- 主攻：AI\n\n## 1. 全域认知\n- 很长的内容" } }),
+          "GET /api/projects": () => ({ body: [{ id: "p1", title: "demo" }] }),
+          "GET /api/projects/p1/blueprint": () => ({ body: { project: { title: "demo", tool_id: "claude_code" }, codebase_blueprint: bp, curated_docs: [{ title: "CLAUDE.md", content: "rules" }] } }),
+        }),
+      ),
+    );
+    const me = textOf(await client.callTool({ name: "memory_blueprint", arguments: { project_name: "me" } }));
+    expect(me).toContain("- 主攻：AI");
+    expect(me).not.toContain("很长的内容");
+    const full = textOf(await client.callTool({ name: "memory_blueprint", arguments: { project_name: "demo" } }));
+    expect(full).toContain("- 定位：demo service");
+    expect(full).not.toContain("Python 3.12");
+    expect(full).toContain("rules");
+    const one = textOf(await client.callTool({ name: "memory_blueprint", arguments: { project_name: "demo", section: "7" } }));
+    expect(one).toContain("deploy.yml");
+    expect(one).not.toContain("rules");
   });
 
   it("activates mind resonance with markdown output", async () => {

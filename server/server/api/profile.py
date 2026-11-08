@@ -97,9 +97,40 @@ async def _bust_user_profile_cache(user_id) -> None:
         await cache_delete_prefix(f"profile:summary:{user_id}")
         await cache_delete_prefix(f"profile_injection:{user_id}")
         await cache_delete_prefix(f"skills_injection:{user_id}")
-        await cache_delete_prefix(f"user:blueprint:v1:{user_id}")
+        await cache_delete_prefix(f"user:blueprint:v2:{user_id}")
     except Exception:
         pass
+
+
+# users.proactive_settings key: devices keep their repos' PROJECT_BLUEPRINT.md and git hooks (default on)
+BLUEPRINT_AUTO_SETTING = "blueprint_auto"
+
+
+def blueprint_auto_enabled(user: User) -> bool:
+    return (user.proactive_settings or {}).get(BLUEPRINT_AUTO_SETTING, True) is not False
+
+
+class BlueprintSettingsBody(BaseModel):
+    auto: bool
+
+
+@router.put("/blueprint/settings")
+async def set_blueprint_settings(
+    body: BlueprintSettingsBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Turn automatic project blueprints on or off for all the user's devices. Off makes each device
+    take back what it set up (hooks, generated files) on its next profile sync."""
+    user.proactive_settings = {**(user.proactive_settings or {}), BLUEPRINT_AUTO_SETTING: body.auto}
+    await db.commit()
+    try:
+        # Devices pick the switch up with the profile injection (cached 60 s per device)
+        await cache_delete_prefix(f"profile_injection:{user.id}")
+        await cache_delete_prefix(f"profile:summary:{user.id}")
+    except Exception:
+        pass
+    return {"auto": body.auto}
 
 
 @router.get("/blueprint")
@@ -149,6 +180,7 @@ async def get_profile(
             {"version": v, "published_at": ts.isoformat() if ts else None} for v, ts in history
         ],
         "targets": list(INJECTION_TARGETS),
+        "blueprint_auto": blueprint_auto_enabled(user),
         "devices": [
             {
                 "device_id": m.collector_token_hash,
@@ -613,6 +645,8 @@ async def get_injection(
         "targets": machine.profile_targets or [],
         # Tools whose Stop hook checks "done / fixed / live" claims; [] removes it
         "guards": {"completion_evidence": guard_tools(user, machine)},
+        # Off: the device removes the hooks and generated blueprints it set up
+        "blueprint": {"auto": blueprint_auto_enabled(user)},
         "blueprint_script": (
             {"version": bp_bundle["version"], "hash": bp_bundle["hash"]}
             if bp_bundle

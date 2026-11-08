@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import { BrandMark } from "@/components/aurora/BrandMark";
 import { Btn, Chip, Glass } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
+import { SmoothToggle } from "@/components/aurora/SmoothToggle";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
 import LearnedCorrections from "@/components/persona/LearnedCorrections";
 import CompletionGuard from "@/components/persona/CompletionGuard";
@@ -430,6 +431,9 @@ export default function PersonaPage() {
   const [avatarSettings, setAvatarSettings] = useState<AvatarSettings | null>(() => cachedPersonaData?.avatarSettings ?? null);
   const [userBlueprint, setUserBlueprint] = useState<UserBlueprintData | null>(() => cachedPersonaData?.userBlueprint ?? null);
   const [blueprintRefreshing, setBlueprintRefreshing] = useState(false);
+  // 各设备自动维护本地仓库的 PROJECT_BLUEPRINT.md 与 git 钩子（null：还没读到）
+  const [blueprintAuto, setBlueprintAuto] = useState<boolean | null>(null);
+  const [blueprintAutoBusy, setBlueprintAutoBusy] = useState(false);
   const [showFullUserBlueprintMd, setShowFullUserBlueprintMd] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
@@ -455,6 +459,7 @@ export default function PersonaPage() {
       if (uBlueprint) {
         setUserBlueprint(uBlueprint);
       }
+      setBlueprintAuto(profile.blueprint_auto !== false);
       const nextPending = Array.isArray(corrections.pending)
         ? (corrections.pending as Record<string, unknown>[])
         : [];
@@ -2036,6 +2041,39 @@ export default function PersonaPage() {
                     <p className="text-[11px] text-[var(--aurora-fg3)] mt-1 leading-relaxed">
                       自动聚合全设备项目的 PROJECT_BLUEPRINT.md、长期记忆、知识图谱与常驻准则，提炼您的跨学科背景、业务版图、技术雷达与项目架构矩阵，并实时同步至各终端 ~/.memento/USER_BLUEPRINT.md。
                     </p>
+                    {blueprintAuto !== null && (
+                      <div className="mt-2 flex items-center gap-2.5">
+                        <SmoothToggle
+                          size="sm"
+                          checked={blueprintAuto}
+                          disabled={blueprintAutoBusy}
+                          onChange={async (next) => {
+                            setBlueprintAutoBusy(true);
+                            setBlueprintAuto(next);
+                            try {
+                              const res = await api.setBlueprintSettings(next);
+                              setBlueprintAuto(res.auto);
+                              setNotice(
+                                res.auto
+                                  ? "已开启：各设备下次同步时为本地 git 仓库生成并维护 PROJECT_BLUEPRINT.md"
+                                  : "已关闭：各设备下次同步时撤回 git 钩子与未纳入版本库的蓝图文件",
+                              );
+                            } catch (e) {
+                              setBlueprintAuto(!next);
+                              setError((e as Error).message);
+                            } finally {
+                              setBlueprintAutoBusy(false);
+                            }
+                          }}
+                        />
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-[var(--aurora-fg1)]">自动维护项目蓝图</div>
+                          <div className="text-[10px] text-[var(--aurora-fg4)] leading-snug">
+                            在各设备的本地 git 仓库生成 PROJECT_BLUEPRINT.md，提交、拉取、切分支后自动更新；关闭后撤回钩子与未纳入版本库的蓝图文件，手写的同名文件始终不动
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <Btn
@@ -2196,11 +2234,19 @@ export default function PersonaPage() {
                             className="p-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-surface)] space-y-1"
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold font-mono text-[var(--aurora-fg1)]">{p.name}</span>
-                              <span className="text-[9px] font-mono text-[var(--aurora-fg4)]">
-                                {p.subsystems_count} 模块 · {p.models_count} 表 · {p.routes_count} 路由
+                              <span className="text-xs font-bold font-mono text-[var(--aurora-fg1)] truncate">{p.name}</span>
+                              <span
+                                className="text-[9px] font-mono text-[var(--aurora-fg4)] shrink-0"
+                                title={p.has_blueprint === false ? "还没有设备上传这个项目的 PROJECT_BLUEPRINT.md" : undefined}
+                              >
+                                {p.has_blueprint === false
+                                  ? "— 暂无蓝图"
+                                  : `${p.subsystems_count} 模块 · ${p.models_count} 表 · ${p.routes_count} 路由`}
                               </span>
                             </div>
+                            {p.summary && (
+                              <div className="text-[10.5px] text-[var(--aurora-fg2)] leading-snug line-clamp-2">{p.summary}</div>
+                            )}
                             {p.tech_stack.length > 0 && (
                               <div className="flex flex-wrap gap-1">
                                 {p.tech_stack.slice(0, 5).map((t) => (

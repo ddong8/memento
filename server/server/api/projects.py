@@ -6,7 +6,6 @@ import re
 import time
 import uuid
 import traceback
-from pathlib import Path
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -455,18 +454,9 @@ async def _resolve_codebase_blueprint(
     project: Project,
     mids: list[uuid.UUID] | None,
     preloaded_docs: list[Document] | None = None,
-    explicit_path: str | None = None,
 ) -> str | None:
-    """Resolve PROJECT_BLUEPRINT.md from local disk, preloaded docs, or cross-tool DB fallback."""
-    clean_path = explicit_path if explicit_path is not None else _clean_source_path(project.source_path)
-    if clean_path:
-        try:
-            bp_file = Path(clean_path) / "PROJECT_BLUEPRINT.md"
-            if bp_file.is_file():
-                return bp_file.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            pass
-
+    """PROJECT_BLUEPRINT.md as the user's devices uploaded it: from preloaded docs, else the newest
+    synced copy. The project's source_path is a path on the user's device, never read on the server."""
     if preloaded_docs:
         for d in preloaded_docs:
             if (d.relative_path or "").endswith("PROJECT_BLUEPRINT.md"):
@@ -556,7 +546,7 @@ async def get_project(
 
     clean_path = _clean_source_path(project.source_path)
     codebase_blueprint = await _resolve_codebase_blueprint(
-        db, project, mids, preloaded_docs=list(docs) if include_content else None, explicit_path=clean_path
+        db, project, mids, preloaded_docs=list(docs) if include_content else None
     )
 
     return {
@@ -1707,9 +1697,7 @@ async def get_project_conversations(
         source_path = _clean_source_path(project.source_path) or ""
 
     # Also expose codebase_blueprint on project conversations response
-    codebase_blueprint = await _resolve_codebase_blueprint(
-        db, project, mids, explicit_path=source_path
-    )
+    codebase_blueprint = await _resolve_codebase_blueprint(db, project, mids)
 
     payload = {
         "project": {

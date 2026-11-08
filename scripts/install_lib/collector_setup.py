@@ -8,7 +8,8 @@ the device is configured and the desktop app picks it up when installed.
 Also provides `deep_uninstall()` for `./install.sh uninstall --all` and
 `./install.sh uninstall-collector`: stops the daemon service, removes the retired
 pip collector if present, takes back what the daemon wrote into the AI tools
-(profile block, Stop hook, synced skills, `agy` wrapper), then ~/.memento, logs,
+(profile block, Stop hook, synced skills, `agy` wrapper, project blueprints and
+their git hooks), then ~/.memento, logs,
 and MCP server entries from ~/.claude.json, Cursor, Codex, etc.
 """
 
@@ -20,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from .platform_utils import (
@@ -326,13 +328,43 @@ def _remove_agy_wrapper(home: Path) -> None:
             d.rmdir()
 
 
+def _blueprint_script_version(path: Path) -> int:
+    try:
+        m = re.search(r"^BLUEPRINT_SCRIPT_VERSION\s*=\s*(\d+)", path.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return -1
+    return int(m.group(1)) if m else 0
+
+
+def _remove_blueprints(home: Path) -> None:
+    """The git hooks, HEAD markers, exclude lines, anchors and untracked PROJECT_BLUEPRINT.md the
+    daemon set up in local repos (recorded in ~/.memento/blueprint_repos): the generator's own
+    --uninstall-all, from whichever copy is newer (the daemon may have an OTA one)."""
+    candidates = [home / ".memento" / "scripts" / "project_blueprint.py", REPO_ROOT / "scripts" / "project_blueprint.py"]
+    script = max((c for c in candidates if c.is_file()), key=_blueprint_script_version, default=None)
+    if script is None or _blueprint_script_version(script) < 20261110:  # older copies have no --uninstall-all
+        script = candidates[1] if candidates[1].is_file() else None
+    if script is None:
+        return
+    env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home)}
+    res = subprocess.run(
+        [sys.executable, str(script), "--uninstall-all"],
+        env=env, cwd=str(home), capture_output=True, text=True, timeout=300, check=False,
+    )
+    for line in (res.stdout or "").splitlines():
+        if line.strip():
+            ok(line.strip())
+    if res.returncode != 0:
+        warn(f"Project blueprints not fully removed: {(res.stderr or '').strip()[-300:]}")
+
+
 def remove_injected(home: Path | None = None) -> None:
-    """Take back what the daemon wrote into the AI tools' own files."""
+    """Take back what the daemon wrote into the AI tools' own files and the local repos."""
     home = home or Path.home()
-    for remove in (_remove_profile_blocks, _remove_stop_hooks, _remove_synced_skills, _remove_agy_wrapper):
+    for remove in (_remove_profile_blocks, _remove_stop_hooks, _remove_synced_skills, _remove_agy_wrapper, _remove_blueprints):
         try:
             remove(home)
-        except OSError as e:  # one unreadable file must not stop the rest
+        except (OSError, subprocess.SubprocessError) as e:  # one unreadable file must not stop the rest
             warn(f"{remove.__name__}: {e}")
 
 
@@ -362,7 +394,7 @@ def deep_uninstall() -> None:
         _pip_uninstall(pkg)
 
     # Before ~/.memento goes: its state files say which of these are ours.
-    info("Removing what Memento wrote into AI tools (profile blocks, Stop hooks, skills)…")
+    info("Removing what Memento wrote into AI tools and repos (profile blocks, Stop hooks, skills, blueprints)…")
     remove_injected()
 
     # Remove data dirs (new + legacy)

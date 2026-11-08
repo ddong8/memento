@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,16 +12,48 @@ import {
   locateBlueprintGenerator,
   needsRemoteBlueprintSync,
   parseBlueprintScriptMeta,
+  readGitHeadShort,
+  removeAllProjectBlueprints,
+  resolveGitDirs,
+  setBlueprintAutoEnabled,
 } from "../src/blueprint-auto.js";
 
 let tmpDir: string;
+let homeTmp: string;
+let savedHome: string | undefined;
+
+/** git with no user config, hooks or signing from the machine running the tests */
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
+function initRepo(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  git(dir, "init", "-q", "-b", "main");
+  writeFileSync(join(dir, "README.md"), "# demo\n");
+  git(dir, "add", "README.md");
+  git(dir, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "init");
+}
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "memento_bp_test_"));
+  // realpath: macOS tmpdir is a symlink, git and python report the resolved path
+  homeTmp = realpathSync(mkdtempSync(join(tmpdir(), "memento_bp_home_")));
+  tmpDir = join(homeTmp, "dev", "proj");
+  mkdirSync(tmpDir, { recursive: true });
+  // The generator records repos under ~/.memento: keep the tests out of the real home
+  savedHome = process.env.HOME;
+  process.env.HOME = homeTmp;
+  setBlueprintAutoEnabled(true);
 });
 
 afterEach(() => {
-  rmSync(tmpDir, { recursive: true, force: true });
+  process.env.HOME = savedHome;
+  setBlueprintAutoEnabled(true);
+  rmSync(homeTmp, { recursive: true, force: true });
 });
 
 describe("blueprint-auto", () => {
@@ -41,28 +74,71 @@ describe("blueprint-auto", () => {
     expect(findGitRoot(deepSub)).toBe(tmpDir);
   });
 
-  it("isBlueprintReady checks both blueprint doc and post-commit hook", async () => {
-    const gitDir = join(tmpDir, ".git", "hooks");
-    mkdirSync(gitDir, { recursive: true });
+  it("readGitHeadShort follows linked worktrees and packed refs", () => {
+    initRepo(tmpDir);
+    const wt = join(homeTmp, "wt-feature");
+    git(tmpDir, "worktree", "add", "-q", "-b", "feature", wt);
+    git(wt, "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "feature work");
+    git(tmpDir, "pack-refs", "--all");
+    return (async () => {
+      const dirs = await resolveGitDirs(wt);
+      expect(dirs?.gitDir).toBe(join(tmpDir, ".git", "worktrees", "wt-feature"));
+      expect(dirs?.commonDir).toBe(join(tmpDir, ".git"));
+      expect(await readGitHeadShort(wt)).toBe(git(wt, "rev-parse", "--short=7", "HEAD"));
+      expect(await readGitHeadShort(tmpDir)).toBe(git(tmpDir, "rev-parse", "--short=7", "HEAD"));
+      expect(await readGitHeadShort(wt)).not.toBe(await readGitHeadShort(tmpDir));
+    })();
+  });
 
-    // Nothing created yet
+  it("isBlueprintReady: generated blueprint must match HEAD, a hand-written one is left alone", async () => {
+    initRepo(tmpDir);
     expect(await isBlueprintReady(tmpDir)).toBe(false);
 
-    // Add dummy blueprint
     const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
-    writeFileSync(bpPath, "# Dummy Blueprint Header with sufficient size for check");
-    expect(await isBlueprintReady(tmpDir)).toBe(false);
-
-    // Add dummy hook without memento signature
-    const hookPath = join(gitDir, "post-commit");
-    writeFileSync(hookPath, "#!/bin/sh\necho test\n");
-    expect(await isBlueprintReady(tmpDir)).toBe(false);
-
-    // Add valid hook signatures for all 3 hooks
-    for (const hname of ["post-commit", "post-merge", "post-checkout"]) {
-      writeFileSync(join(gitDir, hname), "#!/bin/sh\n# Auto-update PROJECT_BLUEPRINT.md upon commit\npython3 scripts/project_blueprint.py\n");
-    }
+    writeFileSync(bpPath, "# Our architecture notes\n\nWritten by hand.\n");
     expect(await isBlueprintReady(tmpDir)).toBe(true);
+
+    const head = git(tmpDir, "rev-parse", "--short", "HEAD");
+    writeFileSync(bpPath, "# Project Blueprint: proj\n\n_Auto-maintained by `scripts/project_blueprint.py`._\n");
+    expect(await isBlueprintReady(tmpDir)).toBe(false); // no marker yet
+    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), `${head}\n`);
+    expect(await isBlueprintReady(tmpDir)).toBe(true);
+    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "0000000\n");
+    expect(await isBlueprintReady(tmpDir)).toBe(false);
+  });
+
+  it("leaves a hand-written PROJECT_BLUEPRINT.md and the repo's hooks untouched", async () => {
+    initRepo(tmpDir);
+    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    writeFileSync(bpPath, "# Our architecture notes\n");
+    expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
+    expect(readFileSync(bpPath, "utf8")).toBe("# Our architecture notes\n");
+    expect(existsSync(join(tmpDir, ".git", "hooks", "post-commit"))).toBe(false);
+  });
+
+  it("does nothing while automatic blueprints are switched off", async () => {
+    initRepo(tmpDir);
+    setBlueprintAutoEnabled(false);
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(false);
+    expect(existsSync(join(tmpDir, "PROJECT_BLUEPRINT.md"))).toBe(false);
+    expect(existsSync(join(homeTmp, ".memento"))).toBe(false);
+  });
+
+  it("removeAllProjectBlueprints takes back hooks, markers, generated files and records", async () => {
+    initRepo(tmpDir);
+    writeFileSync(join(tmpDir, ".git", "hooks", "post-merge"), "#!/bin/sh\necho mine\n");
+    expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
+    expect(readFileSync(join(tmpDir, ".git", "hooks", "post-commit"), "utf8")).toContain("Memento Blueprint Hook Start");
+    expect(existsSync(join(homeTmp, ".memento", "blueprint_repos"))).toBe(true);
+
+    expect(await removeAllProjectBlueprints()).toBe(true);
+    expect(existsSync(join(tmpDir, "PROJECT_BLUEPRINT.md"))).toBe(false);
+    expect(existsSync(join(tmpDir, ".git", ".memento_blueprint_head"))).toBe(false);
+    expect(existsSync(join(tmpDir, ".git", "hooks", "post-commit"))).toBe(false);
+    expect(readFileSync(join(tmpDir, ".git", "hooks", "post-merge"), "utf8")).toBe("#!/bin/sh\necho mine\n");
+    expect(readFileSync(join(tmpDir, ".git", "info", "exclude"), "utf8")).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(existsSync(join(homeTmp, ".memento", "blueprint_repos"))).toBe(false);
+    expect(git(tmpDir, "status", "--porcelain")).toBe("");
   });
 
   it("locateBlueprintGenerator finds local project generator if present", async () => {
@@ -81,8 +157,7 @@ describe("blueprint-auto", () => {
   });
 
   it("ensureProjectBlueprint runs generator and deploys blueprint and hook", async () => {
-    const gitDir = join(tmpDir, ".git");
-    mkdirSync(gitDir, { recursive: true });
+    initRepo(tmpDir);
 
     // Mock package.json
     writeFileSync(join(tmpDir, "package.json"), JSON.stringify({ name: "demo-auto-bp", version: "1.0.0" }));
@@ -97,8 +172,14 @@ describe("blueprint-auto", () => {
     const hookContent = readFileSync(hookPath, "utf8");
 
     expect(bpContent).toContain("# Project Blueprint: demo-auto-bp");
+    expect(bpContent).toContain("## 0. 速览与章节索引");
     expect(bpContent).toContain("## 1. Project Overview & Tech Stack");
     expect(hookContent).toContain("Memento Blueprint Hook Start");
+    // Untracked: kept out of git status, and the HEAD it matches is recorded
+    expect(git(tmpDir, "status", "--porcelain")).not.toContain("PROJECT_BLUEPRINT.md");
+    expect(readFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "utf8").trim()).toBe(
+      git(tmpDir, "rev-parse", "--short", "HEAD"),
+    );
 
     // Second call should hit in-memory cache and return true immediately
     const ok2 = await ensureProjectBlueprint(tmpDir);
@@ -106,7 +187,7 @@ describe("blueprint-auto", () => {
   });
 
   it("extracts models and foreign key relations across Prisma, Drizzle, Go GORM, Rust SeaORM, Java JPA, and SQL", async () => {
-    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    initRepo(tmpDir);
     mkdirSync(join(tmpDir, "prisma"), { recursive: true });
     writeFileSync(
       join(tmpDir, "prisma", "schema.prisma"),
@@ -137,7 +218,7 @@ describe("blueprint-auto", () => {
   });
 
   it("universally extracts routes, schedules, gRPC/GraphQL contracts, and test suites for any non-Memento project", async () => {
-    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    initRepo(tmpDir);
     mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
     writeFileSync(
       join(tmpDir, "src", "controllers", "orders.controller.ts"),
@@ -161,7 +242,7 @@ describe("blueprint-auto", () => {
   });
 
   it("extracts AST cross-layer call graphs, OpenAPI/Pydantic/TS DTO schemas, CLI entrypoints, and external infra nodes", async () => {
-    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    initRepo(tmpDir);
     writeFileSync(
       join(tmpDir, "package.json"),
       JSON.stringify({
@@ -215,34 +296,24 @@ describe("blueprint-auto", () => {
     expect(bpContent).toContain("`ep-cli`");
   });
 
-  it("detects HEAD commit advances (even with --no-verify) and injects anchors into multi-agent instruction files", async () => {
-    mkdirSync(join(tmpDir, ".git", "refs", "heads"), { recursive: true });
-    writeFileSync(join(tmpDir, ".git", "HEAD"), "ref: refs/heads/main\n");
-    writeFileSync(join(tmpDir, ".git", "refs", "heads", "main"), "1111111abcdef000000000000000000000000000\n");
-    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "1111111\n");
-    writeFileSync(join(tmpDir, "GEMINI.md"), "# Gemini Rules\n");
-    writeFileSync(join(tmpDir, ".cursorrules"), "# Cursor Rules\n");
+  it("regenerates when HEAD moved without the hooks running (GUI commits, core.hooksPath)", async () => {
+    initRepo(tmpDir);
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+    expect(await isBlueprintReady(tmpDir)).toBe(true);
 
-    const ok1 = await ensureProjectBlueprint(tmpDir, { force: true });
-    expect(ok1).toBe(true);
-    expect(readFileSync(join(tmpDir, "GEMINI.md"), "utf8")).toContain("PROJECT_BLUEPRINT.md");
-    expect(readFileSync(join(tmpDir, ".cursorrules"), "utf8")).toContain("PROJECT_BLUEPRINT.md");
-
-    // Simulate a new commit advancing refs/heads/main while .memento_blueprint_head has old SHA
-    writeFileSync(join(tmpDir, ".git", ".memento_blueprint_head"), "1111111\n");
-    writeFileSync(join(tmpDir, ".git", "refs", "heads", "main"), "2222222abcdef000000000000000000000000000\n");
-    expect(await isBlueprintReady(tmpDir)).toBe(false);
-
-    // Add a new route and call ensureProjectBlueprint WITHOUT force — it must detect HEAD change and regenerate
     mkdirSync(join(tmpDir, "src", "controllers"), { recursive: true });
     writeFileSync(
       join(tmpDir, "src", "controllers", "live.controller.ts"),
       `@Controller('live')\nexport class LiveController {\n  @Get('ping')\n  ping() {}\n}\n`,
     );
-    const ok2 = await ensureProjectBlueprint(tmpDir);
-    expect(ok2).toBe(true);
-    const bpAfter = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
-    expect(bpAfter).toContain("`GET /live/ping`");
+    git(tmpDir, "add", "src");
+    git(tmpDir, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "add live route");
+    expect(await isBlueprintReady(tmpDir)).toBe(false);
+
+    // Without force: the HEAD change alone must trigger a regeneration
+    expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
+    expect(readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8")).toContain("`GET /live/ping`");
+    expect(await isBlueprintReady(tmpDir)).toBe(true);
   });
 
   it("extracts blueprint generator script version/hash metadata and validates OTA updates", async () => {

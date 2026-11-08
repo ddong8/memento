@@ -315,7 +315,7 @@ LLM 自动从同步进来的对话和文档里抽:
 | `memory_search(query, limit, tool_filter, days)` | 跨工具混合检索(BGE-M3 语义 + jieba 全文,语义接口不可用时退回全文),`days` 限定时间窗,`tool_filter` 限定工具 |
 | `memory_recall(category, project, days, limit, date)` | 按类别召回最近 N 天(或指定日期)的记录 |
 | `memory_context(project_name)` | 切换项目时拉相关上下文(项目元信息 + 整理过的文档全文 + 近期对话清单) |
-| `memory_blueprint(project_name, recent_conversations)` | 传项目名:一次拿全项目蓝图(元信息 + 代码架构蓝图 + 文档 + 近期对话 + 图谱实体);传 `me` / `user`:个人全域蓝图 |
+| `memory_blueprint(project_name, recent_conversations, section)` | 传项目名:一次拿全项目蓝图(元信息 + 代码架构蓝图 + 文档 + 近期对话 + 图谱实体);传 `me` / `user`:个人全域蓝图。代码蓝图默认只给开头的速览与章节索引,`section` 传章节号(如 `3`、`4,6.5`)只取这几节,传 `all` 取全文 |
 | `memory_project_map()` | 所有项目一览:名称、主要工具、文档数 |
 | **钻取** | |
 | `memory_open(doc_id)` | 拿一篇文档的全文(配合 search 用,先找到再"打开") |

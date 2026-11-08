@@ -899,9 +899,10 @@ export class TaskRunner {
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));
     let workDir = resolveWorkingDir(text("cwd"), this.log);
 
-    // Auto-ensure living blueprint and git hooks before agent session starts
+    // Refresh the living blueprint before the agent starts, but never hold the task up more than 3 s
     if (workDir && !payload.worktree) {
-      await ensureProjectBlueprint(workDir, { log: this.log }).catch(() => false);
+      const ensuring = ensureProjectBlueprint(workDir, { log: this.log }).catch(() => false);
+      await Promise.race([ensuring, new Promise((r) => setTimeout(r, 3_000).unref?.())]);
     }
 
     let exe = "";
@@ -931,7 +932,7 @@ export class TaskRunner {
       const bpRoot = findGitRoot(workDir) || workDir;
       const bpFile = join(bpRoot, "PROJECT_BLUEPRINT.md");
       if (existsSync(bpFile) && !sysAppend.includes("PROJECT_BLUEPRINT.md")) {
-        const bpHint = `[架构心智指引] 当前项目根目录存在实时随 commit 同步的活体代码蓝图 (${bpFile})，新会话或跨模块排查前请优先读取该文件以快速掌握全局模块、数据表关系、API 路由与 AST 调用链。`;
+        const bpHint = `[架构心智指引] 当前项目根目录有随提交更新的活体代码蓝图 (${bpFile})。新会话或跨模块排查前先读它开头的「0. 速览与章节索引」，再按索引里的行号只读需要的章节，不要整份读入。`;
         sysAppend = sysAppend ? `${sysAppend}\n\n${bpHint}` : bpHint;
       }
     }

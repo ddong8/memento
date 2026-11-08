@@ -34,13 +34,14 @@ import logging
 import math
 import re
 import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import case, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Project, User, UserMemory
+from ..db.models import (
+    Document, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, Machine, Project, User, UserMemory,
+)
 from .guidance_service import score, terms_for
 from .profile_service import get_published_profile, split_profile_scopes
 
@@ -657,10 +658,27 @@ async def _project_name(db: AsyncSession, project: str | None) -> str | None:
         return None
 
 
+def _quick_summary(raw: str, max_chars: int) -> str:
+    """A blueprint's "## 0." section (both generators write one since 20261110) as bullet lines."""
+    from .user_blueprint_service import _blueprint_quick_summary
+
+    lines = [f"- {x}" for x in _blueprint_quick_summary(raw)]
+    out: list[str] = []
+    for line in lines:
+        if sum(len(x) + 1 for x in out) + len(line) > max_chars:
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
 def _summarize_blueprint_markdown(raw: str, max_chars: int = 1200) -> str:
     """Extract a high-signal architectural digest from PROJECT_BLUEPRINT.md."""
     if not raw or "# Project Blueprint" not in raw:
         return ""
+    quick = _quick_summary(raw, max_chars)
+    if quick:
+        title = next((s.strip() for s in raw.splitlines() if s.startswith("# Project Blueprint:")), "")
+        return f"{title}\n{quick}" if title else quick
     keep_lines: list[str] = []
     in_mermaid = False
     for line in raw.splitlines():
@@ -697,55 +715,44 @@ def _summarize_blueprint_markdown(raw: str, max_chars: int = 1200) -> str:
 
 async def _fetch_project_blueprint_summary(
     db: AsyncSession,
+    user: User,
     project_name: str | None,
     raw_project_arg: str | None = None,
 ) -> str:
-    """Locate PROJECT_BLUEPRINT.md from local disk or synced Document rows and summarize it."""
-    candidates: list[Path] = []
-    for raw_cand in (raw_project_arg, project_name):
-        if not raw_cand:
+    """Summarize the project's PROJECT_BLUEPRINT.md as the user's own devices uploaded it. Paths are
+    on the user's device: only their last segment names the project, nothing is read on the server."""
+    names: list[str] = []
+    for cand in (project_name, raw_project_arg):
+        if not cand or not cand.strip():
             continue
-        clean_c = raw_cand.strip()
-        if "/" in clean_c or "\\" in clean_c:
-            p = Path(clean_c)
-            candidates.append(p / "PROJECT_BLUEPRINT.md")
-    if project_name:
-        home = Path.home()
-        for base in (home / "dev", home / "Desktop" / "dev" / "python", home):
-            candidates.append(base / project_name / "PROJECT_BLUEPRINT.md")
-
-    for bp_file in candidates:
-        try:
-            if bp_file.is_file():
-                summary = _summarize_blueprint_markdown(bp_file.read_text(encoding="utf-8", errors="ignore"))
-                if summary:
-                    return summary
-        except Exception:
-            pass
-
-    if not project_name:
+        leaf = re.split(r"[\\/]", cand.strip().rstrip("/\\"))[-1].strip()
+        if leaf and leaf not in names and "%" not in leaf and "_" != leaf:
+            names.append(leaf)
+    if not names:
         return ""
     try:
+        conds = []
+        for name in names:
+            conds += [
+                Project.title.ilike(name),
+                Project.slug.ilike(name),
+                Project.slug.ilike(f"%/{name}"),
+                Document.relative_path.ilike(f"{name}/PROJECT_BLUEPRINT.md"),
+            ]
         doc_q = (
             select(Document.content)
             .outerjoin(Project, Document.project_id == Project.id)
-            .where(
-                or_(
-                    Project.title.ilike(project_name),
-                    Project.slug.ilike(project_name),
-                    Project.slug.ilike(f"%/{project_name}"),
-                    Document.relative_path.ilike(f"{project_name}/PROJECT_BLUEPRINT.md"),
-                ),
-                Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"),
-            )
+            .where(or_(*conds), Document.relative_path.ilike("%PROJECT_BLUEPRINT.md"))
             .order_by(Document.synced_at.desc())
             .limit(1)
         )
+        # The user's own devices even for an owner, who could otherwise get another user's same-named project
+        doc_q = doc_q.where(Document.machine_id.in_(select(Machine.id).where(Machine.user_id == user.id)))
         content = (await db.execute(doc_q)).scalar_one_or_none()
         if isinstance(content, str) and content:
             return _summarize_blueprint_markdown(content)
     except Exception as e:
-        logger.debug("Could not fetch blueprint summary for %s: %s", project_name, e)
+        logger.debug("Could not fetch blueprint summary for %s: %s", names, e)
     return ""
 
 
@@ -753,6 +760,9 @@ def _summarize_user_blueprint_markdown(raw: str, max_chars: int = 650) -> str:
     """Extract a high-signal cross-disciplinary & domain digest from USER_BLUEPRINT.md."""
     if not raw or "# User Cognitive & Domain Blueprint" not in raw:
         return ""
+    quick = _quick_summary(raw, max_chars)
+    if quick:
+        return quick
     keep_lines: list[str] = []
     in_mermaid = False
     current_sec = ""
@@ -790,27 +800,16 @@ def _summarize_user_blueprint_markdown(raw: str, max_chars: int = 650) -> str:
     return "\n".join(keep_lines)[:max_chars]
 
 
-async def _fetch_user_blueprint_summary(db: AsyncSession, user: User) -> str:
-    """Read local ~/.memento/USER_BLUEPRINT.md or cached user blueprint and summarize it."""
-    local_ubp = Path.home() / ".memento" / "USER_BLUEPRINT.md"
-    try:
-        if local_ubp.is_file():
-            summary = _summarize_user_blueprint_markdown(
-                local_ubp.read_text(encoding="utf-8", errors="ignore")
-            )
-            if summary:
-                return summary
-    except Exception:
-        pass
-    try:
-        from .cache import cache_get
+async def _fetch_user_blueprint_summary(user: User) -> str:
+    """Summarize the user's cached blueprint; on a miss, build it in the background for next time
+    rather than make this request wait."""
+    from .user_blueprint_service import cached_user_blueprint, warm_user_blueprint
 
-        cached = await cache_get(f"user:blueprint:v1:{user.id}")
-        if isinstance(cached, dict) and isinstance(cached.get("markdown"), str):
-            return _summarize_user_blueprint_markdown(cached["markdown"])
-    except Exception:
-        pass
-    return ""
+    cached = await cached_user_blueprint(user.id)
+    if cached is None:
+        warm_user_blueprint(user)
+        return ""
+    return _summarize_user_blueprint_markdown(cached["markdown"])
 
 
 async def sense_resonance(
@@ -857,8 +856,8 @@ async def sense_resonance(
         pitfalls_data = await _fetch_pitfalls(
             db, user, pitfall_terms(q_text, topic_action), limit_pitfalls, target_project=project,
         )
-        blueprint_summary = await _fetch_project_blueprint_summary(db, effective_project, raw_project_arg)
-        user_blueprint_summary = await _fetch_user_blueprint_summary(db, user)
+        blueprint_summary = await _fetch_project_blueprint_summary(db, user, effective_project, raw_project_arg)
+        user_blueprint_summary = await _fetch_user_blueprint_summary(user)
     finally:
         durable_corrections = await durable_task
 

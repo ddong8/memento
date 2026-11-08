@@ -578,12 +578,18 @@ export interface UserBlueprintData {
   projects: {
     name: string;
     path: string;
+    /** One-line description from the knowledge graph (rules, paths and git state taken out). */
+    summary?: string;
+    /** Discipline id the project is classified under. */
+    primary_field?: string | null;
     tech_stack: string[];
     subsystems_count: number;
     models_count: number;
     routes_count: number;
     subsystems_preview: string[];
     branch: string;
+    /** False when no device has uploaded a PROJECT_BLUEPRINT.md for it: the counts are unknown, not 0. */
+    has_blueprint?: boolean;
   }[];
   tech_radar: Record<string, { label: string; items: string[] }>;
   philosophy: Record<string, string[]>;
@@ -599,6 +605,8 @@ export interface ProfileState {
   targets: string[];
   devices: ProfileDevice[];
   user_blueprint?: UserBlueprintData | null;
+  /** Devices keep PROJECT_BLUEPRINT.md and its git hooks in local repos (default on). */
+  blueprint_auto?: boolean;
 }
 
 export interface AvatarSettings {
@@ -831,6 +839,10 @@ export const api = {
     refresh
       ? fresh<UserBlueprintData>("/api/profile/blueprint?refresh=true")
       : apiFetch<UserBlueprintData>("/api/profile/blueprint"),
+  setBlueprintSettings: (auto: boolean) =>
+    apiFetch<{ auto: boolean }>("/api/profile/blueprint/settings", {
+      method: "PUT", body: JSON.stringify({ auto }),
+    }).finally(_invalidateProfile),
   regenerateProfileDraft: () =>
     apiFetch<{ status: ProfileDraftStatus; draft: ProfileVersion | null }>(
       "/api/profile/draft/regenerate", { method: "POST" },

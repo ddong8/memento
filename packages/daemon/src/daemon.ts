@@ -2,17 +2,20 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { hostname } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   applyRemoteBlueprintScript,
   discoverLocalGitRepositories,
   ensureProjectBlueprint,
   findGitRoot,
+  isBlueprintAutoEnabled,
   needsRemoteBlueprintSync,
+  removeAllProjectBlueprints,
+  setBlueprintAutoEnabled,
   syncLocalUserBlueprint,
 } from "./blueprint-auto.js";
-import { loadConfig, saveConfig, type CollectorConfig } from "./config.js";
+import { homeDir, loadConfig, mementoDir, saveConfig, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
 import { applyGuards } from "./guard-inject.js";
@@ -73,6 +76,9 @@ export class Daemon extends EventEmitter {
   private syncing = false;
   private commandPollTimer: NodeJS.Timeout | null = null;
   private blueprintHashes = new Map<string, string>();
+  /** The automatic-blueprint switch last applied (undefined until the first profile sync). */
+  private blueprintAuto: boolean | undefined;
+  private blueprintCycle: Promise<boolean> | undefined;
 
   get status(): DaemonStatus {
     return {
@@ -122,7 +128,6 @@ export class Daemon extends EventEmitter {
     this.log(`Discovering installed AI tools on ${config.deviceName}...`);
     this.tools = await discoverAll();
     this.log(`Discovered ${Object.keys(this.tools).length} tools: ${Object.keys(this.tools).join(", ")}`);
-    void this.ensureDiscoveredBlueprints(this.tools);
 
     this.log(`Connecting to server ${config.serverUrl}...`);
     const key = await ingest.sendHeartbeat();
@@ -208,12 +213,59 @@ export class Daemon extends EventEmitter {
   /** Discover tools again and tell the server (after installing a tool, say). */
   async rediscover(): Promise<void> {
     this.tools = await discoverAll();
-    void this.ensureDiscoveredBlueprints(this.tools);
+    if (this.blueprintAuto) this.startBlueprintCycle();
     await this.ingest?.reportDiscovery(this.tools);
     this.notify();
   }
 
-  /** Asynchronously ensure living blueprints and post-commit hooks for all discovered projects */
+  /** One blueprint pass in the background; a pass still running is reused, not doubled. */
+  private startBlueprintCycle(profileBlock?: string | null, force = false): void {
+    if (!isBlueprintAutoEnabled()) return;
+    if (this.blueprintCycle) {
+      // A new generator arrived mid-pass: run the forced pass right after
+      if (force) void this.blueprintCycle.then(() => this.startBlueprintCycle(profileBlock, true));
+      return;
+    }
+    this.blueprintCycle = this.ensureDiscoveredBlueprints(this.tools, profileBlock, force)
+      .catch((e: unknown) => {
+        this.log(`Blueprint pass failed: ${e instanceof Error ? e.message : e}`);
+        return false;
+      })
+      .finally(() => {
+        this.blueprintCycle = undefined;
+      });
+  }
+
+  /** Follow the user's automatic-blueprint switch: on keeps repos current, off takes back what was set up. */
+  private async applyBlueprintSwitch(
+    ingest: IngestClient,
+    profile: { block?: string | null; blueprint?: { auto?: boolean } | null; blueprint_script?: { version?: number; hash?: string } | null },
+  ): Promise<void> {
+    const auto = profile.blueprint?.auto !== false;
+    const previous = this.blueprintAuto;
+    this.blueprintAuto = auto;
+    setBlueprintAutoEnabled(auto);
+    if (!auto) {
+      // Once per switch-off; after a restart only while the generator's records are still there
+      if (previous === false) return;
+      if (previous === undefined && !existsSync(join(mementoDir(homeDir()), "blueprint_repos"))) return;
+      await this.blueprintCycle;
+      this.blueprintHashes.clear();
+      await removeAllProjectBlueprints(this.log);
+      return;
+    }
+    let force = false;
+    if (await needsRemoteBlueprintSync(profile.blueprint_script)) {
+      const remoteBp = await ingest.fetchBlueprintScript();
+      if (await applyRemoteBlueprintScript(remoteBp)) {
+        force = true;
+        this.log(`Blueprint generator synced from server (v${remoteBp?.version ?? 1}, ${remoteBp?.hash ?? ""})`);
+      }
+    }
+    this.startBlueprintCycle(profile.block, force);
+  }
+
+  /** Ensure living blueprints and git hooks for all discovered projects, two repos at a time */
   private async ensureDiscoveredBlueprints(
     tools: Record<string, DiscoveredTool>,
     profileBlock?: string | null,
@@ -251,32 +303,41 @@ export class Daemon extends EventEmitter {
     }
 
     let anyUpdated = false;
+    const ensureOne = async (proj: (typeof candidates)[number]) => {
+      if (!isBlueprintAutoEnabled()) return;
+      const ok = await ensureProjectBlueprint(proj.path, { force, log: this.log });
+      if (!ok || !this.ingest) return;
+      const gitRoot = findGitRoot(proj.path) || proj.path;
+      const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
+      if (!existsSync(bpFile)) return;
+      const content = await readFile(bpFile, "utf8");
+      const hash = contentHash(content);
+      if (this.blueprintHashes.get(bpFile) === hash) return;
+      const st = await stat(bpFile);
+      // Named after the repo folder, as the server and MCP look projects up by the path's last segment
+      const name = basename(gitRoot);
+      const res = await this.ingest.ingestDocument({
+        toolId: proj.toolId,
+        category: "identity",
+        contentType: "md",
+        relativePath: `${name}/PROJECT_BLUEPRINT.md`,
+        content,
+        contentHash: hash,
+        fileSize: st.size,
+        mode: "full",
+        offset: 0,
+        metadata: { project_path: gitRoot, project_name: name, project_hash: name },
+      });
+      if (res.ok) {
+        this.blueprintHashes.set(bpFile, hash);
+        anyUpdated = true;
+      }
+    };
+    const queue = [...candidates];
     await Promise.allSettled(
-      candidates.map(async (proj) => {
-        const ok = await ensureProjectBlueprint(proj.path, { force, log: this.log });
-        if (!ok || !this.ingest) return;
-        const gitRoot = findGitRoot(proj.path) || proj.path;
-        const bpFile = join(gitRoot, "PROJECT_BLUEPRINT.md");
-        if (!existsSync(bpFile)) return;
-        const content = await readFile(bpFile, "utf8");
-        const hash = contentHash(content);
-        if (this.blueprintHashes.get(bpFile) === hash) return;
-        const st = await stat(bpFile);
-        const res = await this.ingest.ingestDocument({
-          toolId: proj.toolId,
-          category: "identity",
-          contentType: "md",
-          relativePath: `${proj.name}/PROJECT_BLUEPRINT.md`,
-          content,
-          contentHash: hash,
-          fileSize: st.size,
-          mode: "full",
-          offset: 0,
-          metadata: { project_path: gitRoot, project_name: proj.name, project_hash: proj.name },
-        });
-        if (res.ok) {
-          this.blueprintHashes.set(bpFile, hash);
-          anyUpdated = true;
+      [0, 1].map(async () => {
+        for (let proj = queue.shift(); proj; proj = queue.shift()) {
+          await ensureOne(proj).catch(() => {});
         }
       }),
     );
@@ -376,15 +437,7 @@ export class Daemon extends EventEmitter {
           await ingest.reportGuardStatus(guards);
           this.lastGuardReport = guards;
         }
-        let forceBlueprintRefresh = false;
-        if (await needsRemoteBlueprintSync(profile.blueprint_script)) {
-          const remoteBp = await ingest.fetchBlueprintScript();
-          if (await applyRemoteBlueprintScript(remoteBp)) {
-            forceBlueprintRefresh = true;
-            this.log(`Blueprint generator synced from server (v${remoteBp?.version ?? 1}, ${remoteBp?.hash ?? ""})`);
-          }
-        }
-        await this.ensureDiscoveredBlueprints(this.tools, profile.block, forceBlueprintRefresh);
+        await this.applyBlueprintSwitch(ingest, profile);
         const userBp = await ingest.fetchUserBlueprint();
         if (await syncLocalUserBlueprint(userBp?.markdown)) {
           this.log("User cognitive & domain blueprint synced to ~/.memento/USER_BLUEPRINT.md");

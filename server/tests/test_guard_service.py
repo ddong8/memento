@@ -110,6 +110,34 @@ class InjectionTests(unittest.IsolatedAsyncioTestCase):
         bust.assert_awaited_once_with(f"profile_injection:{u.id}")
 
 
+class BlueprintSwitchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_blueprint_switch_reaches_devices_through_the_injection(self) -> None:
+        from server.api import profile as profile_api
+
+        u = _user({"morning_brief_time": "08:00"})
+        m = _machine([])
+        db = MagicMock()
+        db.commit = AsyncMock()
+        with patch.object(profile_api, "cache_get", AsyncMock(return_value=None)), \
+             patch.object(profile_api, "cache_set", AsyncMock()), \
+             patch.object(profile_api, "_owned_machine", AsyncMock(return_value=m)), \
+             patch.object(profile_api, "get_published_profile", AsyncMock(return_value=None)):
+            res = await profile_api.get_injection(x_device_id="dev1", db=db, user=u)
+            self.assertEqual(res["blueprint"], {"auto": True})  # on unless turned off
+
+            with patch.object(profile_api, "cache_delete_prefix", AsyncMock()) as bust:
+                out = await profile_api.set_blueprint_settings(
+                    body=profile_api.BlueprintSettingsBody(auto=False), db=db, user=u,
+                )
+            self.assertEqual(out, {"auto": False})
+            self.assertEqual(u.proactive_settings, {"morning_brief_time": "08:00", "blueprint_auto": False})
+            busted = {c.args[0] for c in bust.await_args_list}
+            self.assertEqual(busted, {f"profile_injection:{u.id}", f"profile:summary:{u.id}"})
+
+            res = await profile_api.get_injection(x_device_id="dev1", db=db, user=u)
+            self.assertEqual(res["blueprint"], {"auto": False})
+
+
 class StatsTests(unittest.IsolatedAsyncioTestCase):
     async def test_stats_query_counts_first_stops_and_followups(self) -> None:
         captured = []

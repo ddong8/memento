@@ -1301,7 +1301,7 @@ async def ingest_file(
                 await cache_delete_prefix(f"project:blueprint:{user_id}:")
                 await cache_delete_prefix(f"project:conv:v3:{user_id}:")
                 await cache_delete_prefix(f"project:detail:{user_id}:")
-                await cache_delete_prefix(f"user:blueprint:v1:{user_id}")
+                await cache_delete_prefix(f"user:blueprint:v2:{user_id}")
             await cache_delete_prefix(f"projects:list:{user_id}:")
             await cache_delete_prefix(f"projects:list:v2:{user_id}:")
             await cache_delete_prefix(f"search:{user_id}:")

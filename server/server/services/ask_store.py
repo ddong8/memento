@@ -84,94 +84,6 @@ async def slice_turns(db: AsyncSession, conv_id: uuid.UUID, start: int, end: int
     return list(res or [])
 
 
-_ensured_git_roots: dict[str, float] = {}
-
-
-def _sync_ensure_blueprint(cwd_str: str) -> None:
-    try:
-        import subprocess
-        import sys
-        import time
-        from pathlib import Path
-
-        p = Path(cwd_str).resolve()
-        if not p.is_dir():
-            return
-        cur = p
-        git_root = None
-        for _ in range(25):
-            if (cur / ".git").exists():
-                git_root = cur
-                break
-            if cur.parent == cur:
-                break
-            cur = cur.parent
-        if not git_root:
-            return
-
-        git_root_str = str(git_root)
-        now = time.time()
-        if git_root_str in _ensured_git_roots and now - _ensured_git_roots[git_root_str] < 600:
-            return
-
-        bp_file = git_root / "PROJECT_BLUEPRINT.md"
-        hook_file = git_root / ".git" / "hooks" / "post-commit"
-        head_marker = git_root / ".git" / ".memento_blueprint_head"
-        is_fresh = True
-        if head_marker.exists():
-            try:
-                recorded = head_marker.read_text(encoding="utf-8", errors="ignore").strip()
-                head_raw = (git_root / ".git" / "HEAD").read_text(encoding="utf-8", errors="ignore").strip()
-                cur_sha = head_raw[:7] if not head_raw.startswith("ref:") else ""
-                if head_raw.startswith("ref:"):
-                    ref_file = git_root / ".git" / head_raw.split(":", 1)[1].strip()
-                    if ref_file.exists():
-                        cur_sha = ref_file.read_text(encoding="utf-8", errors="ignore").strip()[:7]
-                if cur_sha and recorded and not recorded.startswith(cur_sha) and not cur_sha.startswith(recorded):
-                    is_fresh = False
-            except Exception:
-                pass
-        if bp_file.exists() and bp_file.stat().st_size > 50 and hook_file.exists() and is_fresh:
-            _ensured_git_roots[git_root_str] = now
-            return
-
-        script_path = None
-        local_script = git_root / "scripts" / "project_blueprint.py"
-        if local_script.exists():
-            script_path = local_script
-        else:
-            global_script = Path.home() / ".memento" / "scripts" / "project_blueprint.py"
-            if global_script.exists():
-                script_path = global_script
-            else:
-                memento_repo_script = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "project_blueprint.py"
-                if memento_repo_script.exists():
-                    script_path = memento_repo_script
-
-        if script_path:
-            subprocess.run(
-                [sys.executable, str(script_path), "--root", git_root_str, "--install-hook", "--quiet"],
-                cwd=git_root_str,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-                check=False,
-            )
-            _ensured_git_roots[git_root_str] = now
-    except Exception:
-        pass
-
-
-def _schedule_blueprint_ensure(cwd_str: str | None) -> None:
-    if not cwd_str:
-        return
-    try:
-        loop = asyncio.get_running_loop()
-        loop.run_in_executor(None, _sync_ensure_blueprint, cwd_str)
-    except Exception:
-        pass
-
-
 async def get_or_create_conversation(
     conv_id_str: str | None,
     user: User,
@@ -227,7 +139,6 @@ async def get_or_create_conversation(
                         conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
                         await bust_conv_list(user.id)
-                    _schedule_blueprint_ensure(conv.cwd or cwd)
                     return conv.id, conv.title, dict(conv.config or {})
             except Exception:
                 pass
@@ -305,7 +216,6 @@ async def get_or_create_conversation(
                         sess_conv.updated_at = datetime.now(timezone.utc)
                         await session.commit()
                         await bust_conv_list(user.id)
-                        _schedule_blueprint_ensure(sess_conv.cwd or cwd)
                         return sess_conv.id, sess_conv.title, dict(sess_conv.config or {})
                 except Exception:
                     pass
@@ -438,7 +348,6 @@ async def get_or_create_conversation(
         await session.commit()
         await session.refresh(conv)
         await bust_conv_list(user.id)
-        _schedule_blueprint_ensure(conv.cwd or cwd)
         return conv.id, conv.title, dict(conv.config or {})
 
 

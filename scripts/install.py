@@ -6,7 +6,8 @@ Usage:
   python scripts/install.py embedding    # install embedding host service
   python scripts/install.py doctor       # status check
   python scripts/install.py update       # git pull + rebuild + upgrade
-  python scripts/install.py uninstall [--purge]
+  python scripts/install.py uninstall [--purge | --all]
+  python scripts/install.py uninstall-collector   # a device that only runs the collector
 
 Typically invoked via the top-level `./install.sh` or `.\\install.ps1` launcher.
 """
@@ -68,12 +69,14 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
         heading("Embedding (native host install — GPU mode)")
         with step("Install embedding (venv + torch + sentence-transformers + model)"):
             embedding_host.install()
-        info(
-            "Native install uses host.docker.internal:8002. If api/celery were\n"
-            "started before with a different URL, restart them so the daemon\n"
-            "picks up MEMENTO_EMBEDDING_SERVER_URL: "
-            "`docker compose up -d --force-recreate api celery-worker celery-beat`."
-        )
+        # The compose default is the in-stack `embedding` service; the api
+        # and worker reach a host process via host.docker.internal.
+        env_gen.set_env_value("MEMENTO_EMBEDDING_SERVER_URL", "http://host.docker.internal:8002")
+        if docker_up.service_running("api"):
+            with step("Recreate api + celery so they use the native embedding server"):
+                docker_up.recreate("api", "celery-worker", "celery-beat")
+        else:
+            info("MEMENTO_EMBEDDING_SERVER_URL is set in .env; the api picks it up when it starts.")
         return 0
 
     heading("Embedding (Docker — recommended)")
@@ -139,7 +142,10 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
             "  • Docker images (memento-*)\n"
             "  • docker volumes (all your synced data will be lost)\n"
             "  • .env and .env.local\n"
-            "  • MCP entries in Claude / Cursor / Codex / Windsurf configs"
+            "  • MCP entries in Claude / Cursor / Codex / Windsurf / Antigravity / Gemini configs\n"
+            "  • what Memento wrote into AI tools: profile block in CLAUDE.md / AGENTS.md / GEMINI.md …,\n"
+            "    Stop hooks, synced skills, the agy wrapper (anything you edited is kept)\n"
+            "Quit the Memento desktop app first, or it writes them back."
         )
         confirm = input("Type 'yes' to continue: ").strip().lower()
         if confirm != "yes":
@@ -199,6 +205,14 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_uninstall_collector(args: argparse.Namespace) -> int:
+    """A device that only runs the collector: everything of it, no server or Docker steps."""
+    heading("Uninstall collector")
+    collector_setup.deep_uninstall()
+    ok("Collector removed. Quit and delete the Memento app too if it is installed, or it starts collecting again.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="install", description=__doc__)
     sub = p.add_subparsers(dest="cmd")
@@ -232,6 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     p_rm.add_argument("-y", "--yes", action="store_true",
                       help="Skip confirmation prompt for --all")
     p_rm.set_defaults(func=_cmd_uninstall)
+
+    p_rmc = sub.add_parser(
+        "uninstall-collector",
+        help="Only this device's collector: service, ~/.memento, logs, MCP entries, what it wrote into AI tools",
+    )
+    p_rmc.set_defaults(func=_cmd_uninstall_collector)
 
     args = p.parse_args(argv)
     if not args.cmd:

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e345b2c2` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `df5c8b83` · Updated: `2026-11-08`
 > This document provides an instant, comprehensive architectural map of the codebase.
 > AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) can read this blueprint
 > at the start of any session for instant global orientation without repetitive grep scans.
@@ -604,7 +604,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `e345b2c2` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
+- `df5c8b83` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
 - `a1f2cea6` (2026-11-08): fix(server): 作息按用户本地日期统计，夜间学到的场景各副本定时刷新
 - `44dcb335` (2026-11-08): fix(tasks): 派活任务创建后立即经 WebSocket 下发，主动执事的后台任务按步推进
 - `8b24195e` (2026-11-08): test(db): 旧列删除用例按 to_tsvector 的实际输出（带位置）断言

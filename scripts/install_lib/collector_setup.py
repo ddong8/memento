@@ -5,13 +5,16 @@ Desktop app runs). With Node 20+ available it is built from this checkout and
 installed as a login service (launchd / systemd / Windows Run key); otherwise
 the device is configured and the desktop app picks it up when installed.
 
-Also provides `deep_uninstall()` for `./install.sh uninstall --all`: stops the
-daemon service, removes the retired pip collector if present, ~/.memento config,
-logs, and MCP server entries from ~/.claude.json, Cursor, Codex, etc.
+Also provides `deep_uninstall()` for `./install.sh uninstall --all` and
+`./install.sh uninstall-collector`: stops the daemon service, removes the retired
+pip collector if present, takes back what the daemon wrote into the AI tools
+(profile block, Stop hook, synced skills, `agy` wrapper), then ~/.memento, logs,
+and MCP server entries from ~/.claude.json, Cursor, Codex, etc.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -117,7 +120,7 @@ def _remove_mcp_entry(config_path: Path) -> None:
                 changed = True
                 ok(f"Removed '{key}' from {config_path.name}")
     if changed:
-        config_path.write_text(json.dumps(data, indent=2))
+        config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def _remove_codex_mcp(config_path: Path) -> None:
@@ -169,6 +172,170 @@ def _pip_uninstall(package: str) -> None:
     ok(f"pip uninstalled {package}")
 
 
+# What the daemon writes outside ~/.memento (packages/daemon/src/profile-inject.ts,
+# guard-inject.ts, skill-inject.ts, antigravity.ts). Each is taken back only where it
+# is still exactly Memento's: text outside the markers, other hooks and skills the
+# user edited stay. Ownership is read from the state files in ~/.memento, so this
+# runs before that directory goes.
+_PROFILE_BEGIN = "<!-- memento:begin"
+_PROFILE_END = "<!-- memento:end -->"
+_PROFILE_BLOCK = re.compile(r"<!-- memento:begin[^>]*-->[\s\S]*?<!-- memento:end -->\n?")
+
+
+def _load_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _drop_backup(path: Path) -> None:
+    """The copy of `path` the daemon made before its first write."""
+    bak = path.with_name(path.name + ".memento.bak")
+    if bak.exists():
+        bak.unlink()
+
+
+def _profile_files(home: Path) -> dict[str, Path]:
+    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
+    gemini = home / ".gemini"
+    appdata = os.environ.get("APPDATA")
+    if IS_WINDOWS and appdata and (Path(appdata) / ".gemini").exists():
+        gemini = Path(appdata) / ".gemini"
+    return {
+        "claude_code": home / ".claude" / "CLAUDE.md",
+        "codex": codex / "AGENTS.md",
+        "antigravity": gemini / "GEMINI.md",
+        "workbuddy": home / ".workbuddy" / "MEMORY.md",
+        "openclaw": home / ".openclaw" / "workspace" / "USER.md",
+        "hermes": home / ".hermes" / "SOUL.md",
+    }
+
+
+def _remove_profile_blocks(home: Path) -> None:
+    state = _load_json(home / ".memento" / "profile_inject.json") or {}
+    for tool, path in _profile_files(home).items():
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        begins, ends = text.count(_PROFILE_BEGIN), text.count(_PROFILE_END)
+        if begins == 0 and ends == 0:
+            _drop_backup(path)
+            continue
+        if begins != 1 or ends != 1 or not _PROFILE_BLOCK.search(text):
+            warn(f"The Memento block in {path} is damaged; remove it by hand (backup: {path.name}.memento.bak).")
+            continue
+        rest = _PROFILE_BLOCK.sub("", text, count=1)
+        if not rest.strip() and (state.get(tool) or {}).get("created"):
+            path.unlink()
+        else:
+            path.write_text(rest.rstrip("\n") + "\n" if rest.strip() else "", encoding="utf-8")
+        _drop_backup(path)
+        ok(f"Removed the Memento profile block from {path}")
+
+
+def _without_stop_hook(settings: dict, script: str) -> dict | None:
+    """`settings` without the Stop hooks that run `script`; None when there are none."""
+    hooks = settings.get("hooks") if isinstance(settings.get("hooks"), dict) else {}
+    groups = hooks.get("Stop") if isinstance(hooks.get("Stop"), list) else []
+
+    def ours(h) -> bool:
+        return isinstance(h, dict) and isinstance(h.get("command"), str) and script in h["command"]
+
+    kept, found = [], False
+    for g in groups:
+        entries = g.get("hooks") if isinstance(g, dict) else None
+        if not isinstance(entries, list) or not any(ours(h) for h in entries):
+            kept.append(g)
+            continue
+        found = True
+        rest = [h for h in entries if not ours(h)]
+        if rest:
+            kept.append({**g, "hooks": rest})
+    if not found:
+        return None
+    next_hooks = {k: v for k, v in hooks.items() if k != "Stop"}
+    if kept:
+        next_hooks["Stop"] = kept
+    out = {k: v for k, v in settings.items() if k != "hooks"}
+    if next_hooks:
+        out["hooks"] = next_hooks
+    return out
+
+
+def _remove_stop_hooks(home: Path) -> None:
+    script = str(home / ".memento" / "hooks" / "stop-check.sh")
+    created = (_load_json(home / ".memento" / "guard_inject.json") or {}).get("created") or []
+    for path in (
+        Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude") / "settings.json",
+        Path(os.environ.get("CODEX_HOME") or home / ".codex") / "hooks.json",
+    ):
+        settings = _load_json(path) if path.exists() else None
+        if not isinstance(settings, dict):
+            continue
+        cleaned = _without_stop_hook(settings, script)
+        if cleaned is not None:
+            if not cleaned and str(path) in created:
+                path.unlink()
+            else:
+                path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            ok(f"Removed the Memento Stop hook from {path}")
+        _drop_backup(path)
+
+
+def _remove_synced_skills(home: Path) -> None:
+    state = _load_json(home / ".memento" / "skill_inject.json") or {}
+    dirs = {
+        "claude": home / ".claude" / "skills",
+        "agents": home / ".agents" / "skills",
+        "workbuddy": home / ".workbuddy" / "skills",
+    }
+    for key, owned in state.items():
+        if key not in dirs or not isinstance(owned, dict):
+            continue
+        for name, mine in owned.items():
+            skill = dirs[key] / name / "SKILL.md"
+            if not skill.exists() or not isinstance(mine, dict):
+                continue
+            if hashlib.sha256(skill.read_bytes()).hexdigest() != mine.get("hash"):
+                info(f"Kept {skill}: edited after Memento wrote it.")
+                continue
+            skill.unlink()
+            if not any(skill.parent.iterdir()):
+                skill.parent.rmdir()
+            ok(f"Removed synced skill {skill.parent}")
+
+
+def _remove_agy_wrapper(home: Path) -> None:
+    script = home / ".gemini" / "antigravity" / "bin" / "agy_cli.py"
+    if IS_WINDOWS:
+        wrapper = home / "AppData" / "Local" / "agy" / "bin" / "agy.cmd"
+        ours = f'@echo off\r\npython "{script}" %*\r\n'
+    else:
+        wrapper = home / ".local" / "bin" / "agy"
+        ours = f'#!/bin/sh\nexec python3 "{script}" "$@"\n'
+    if wrapper.exists() and wrapper.read_bytes().decode("utf-8", "replace") == ours:
+        wrapper.unlink()
+        ok(f"Removed {wrapper}")
+    for f in (script, script.with_name(script.name + ".tmp")):
+        if f.exists():
+            f.unlink()
+            ok(f"Removed {f}")
+    for d in (script.parent, wrapper.parent, wrapper.parent.parent) if IS_WINDOWS else (script.parent,):
+        if d.exists() and not any(d.iterdir()):
+            d.rmdir()
+
+
+def remove_injected(home: Path | None = None) -> None:
+    """Take back what the daemon wrote into the AI tools' own files."""
+    home = home or Path.home()
+    for remove in (_remove_profile_blocks, _remove_stop_hooks, _remove_synced_skills, _remove_agy_wrapper):
+        try:
+            remove(home)
+        except OSError as e:  # one unreadable file must not stop the rest
+            warn(f"{remove.__name__}: {e}")
+
+
 def uninstall_daemon_service() -> None:
     """Remove the Node daemon's login service, if this checkout installed one."""
     node = which("node")
@@ -178,7 +345,8 @@ def uninstall_daemon_service() -> None:
 
 
 def deep_uninstall() -> None:
-    """Everything collector-side: services, retired pip packages, config, logs, MCP entries."""
+    """Everything collector-side: services, retired pip packages, what the daemon wrote into AI
+    tools, config, logs, MCP entries."""
     uninstall_daemon_service()
     # The retired Python collector, if an older install left it behind.
     for cmd in ("memento-collector", "daily-report-collector"):
@@ -192,6 +360,10 @@ def deep_uninstall() -> None:
                 "memento-collector", "memento-memory",
                 "daily-report-collector", "daily-report-memory"):
         _pip_uninstall(pkg)
+
+    # Before ~/.memento goes: its state files say which of these are ours.
+    info("Removing what Memento wrote into AI tools (profile blocks, Stop hooks, skills)…")
+    remove_injected()
 
     # Remove data dirs (new + legacy)
     for d in (Path.home() / ".memento", Path.home() / ".daily-report"):
@@ -225,11 +397,22 @@ def deep_uninstall() -> None:
     # Strip MCP server entries from AI tool configs
     info("Cleaning MCP configs in AI tool configs…")
     home = Path.home()
+    if IS_MAC:
+        app_config = home / "Library" / "Application Support"
+    elif IS_WINDOWS:
+        app_config = Path(os.environ.get("APPDATA", str(home)))
+    else:
+        app_config = home / ".config"
     for p in [
         home / ".claude.json",
         home / ".cursor" / "mcp.json",
-        home / ".config" / "windsurf" / "mcp.json",
-        home / "Library" / "Application Support" / "antigravity" / "mcp.json",
+        home / ".codeium" / "windsurf" / "mcp_config.json",
+        home / ".config" / "windsurf" / "mcp.json",  # older Windsurf
+        # Antigravity has kept it in each of these, depending on the version
+        home / ".gemini" / "antigravity" / "mcp_config.json",
+        home / ".gemini" / "config" / "mcp_config.json",
+        app_config / "antigravity" / "mcp.json",
+        home / ".gemini" / "settings.json",  # Gemini CLI
     ]:
         _remove_mcp_entry(p)
 

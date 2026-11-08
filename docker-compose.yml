@@ -1,5 +1,37 @@
 name: memento
 
+# What the api and the celery services read. `.env` also reaches all three
+# (env_file below), so any MEMENTO_* setting from the README can go there;
+# the entries here win over `.env` because they wire up the in-stack
+# addresses (postgres, redis, minio). Values written as ${VAR:-default}
+# still come from `.env` first.
+x-server-env: &server-env
+  MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/memento
+  MEMENTO_REDIS_URL: redis://redis:6379/0
+  MEMENTO_S3_ENDPOINT: http://minio:9000
+  MEMENTO_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+  MEMENTO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  MEMENTO_COLLECTOR_TOKEN: ${MEMENTO_COLLECTOR_TOKEN:-collector-dev-token}
+  MEMENTO_SECRET_KEY: ${MEMENTO_SECRET_KEY:-change-me-in-production}
+  MEMENTO_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
+  MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
+  MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
+  MEMENTO_AI_FALLBACK_BASE_URL: ${MEMENTO_AI_FALLBACK_BASE_URL:-https://oneapi.aiphacas.com/v1}
+  MEMENTO_AI_FALLBACK_API_KEY: ${MEMENTO_AI_FALLBACK_API_KEY:-}
+  MEMENTO_AI_FALLBACK_MODEL: ${MEMENTO_AI_FALLBACK_MODEL:-qwen3.8-27b}
+  MEMENTO_AI_PROVIDERS: ${MEMENTO_AI_PROVIDERS:-}
+  # Default points at the in-compose embedding container (`embedding`
+  # service, activated via `--profile embedding`). `./install.sh embedding
+  # --native` writes `http://host.docker.internal:8002` into .env instead.
+  # The worker needs it too: it re-embeds whatever the api failed to.
+  MEMENTO_EMBEDDING_SERVER_URL: ${MEMENTO_EMBEDDING_SERVER_URL:-http://embedding:8002}
+
+# Optional: a missing .env is skipped (needs Docker Compose 2.24+).
+x-env-file: &env-file
+  - path: .env
+    required: false
+
 services:
   # PostgreSQL database
   postgres:
@@ -129,28 +161,10 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8000"
+    env_file: *env-file
     environment:
-      MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/memento
-      MEMENTO_REDIS_URL: redis://redis:6379/0
+      <<: *server-env
       MEMENTO_PORT: "8000"
-      MEMENTO_S3_ENDPOINT: http://minio:9000
-      MEMENTO_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MEMENTO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MEMENTO_COLLECTOR_TOKEN: ${MEMENTO_COLLECTOR_TOKEN:-collector-dev-token}
-      MEMENTO_SECRET_KEY: ${MEMENTO_SECRET_KEY:-change-me-in-production}
-      MEMENTO_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
-      MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
-      MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
-      MEMENTO_AI_FALLBACK_BASE_URL: ${MEMENTO_AI_FALLBACK_BASE_URL:-https://oneapi.aiphacas.com/v1}
-      MEMENTO_AI_FALLBACK_API_KEY: ${MEMENTO_AI_FALLBACK_API_KEY:-}
-      MEMENTO_AI_FALLBACK_MODEL: ${MEMENTO_AI_FALLBACK_MODEL:-qwen3.8-27b}
-      MEMENTO_AI_PROVIDERS: ${MEMENTO_AI_PROVIDERS:-}
-      # Default points at the in-compose embedding container (`embedding`
-      # service, activated via `--profile embedding`). Users running the
-      # native host install override this in .env to
-      # `http://host.docker.internal:8002`.
-      MEMENTO_EMBEDDING_SERVER_URL: ${MEMENTO_EMBEDDING_SERVER_URL:-http://embedding:8002}
       MEMENTO_GEOIP_DB: /data/geoip/GeoLite2-City.mmdb
     # Linux Docker (non-Docker-Desktop) doesn't auto-resolve
     # host.docker.internal — embedding server runs on the host at :8002,
@@ -180,21 +194,12 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-}
     restart: unless-stopped
     command: celery -A server.tasks.celery_app worker --loglevel=info
+    env_file: *env-file
     environment:
-      MEMENTO_DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/memento
-      MEMENTO_REDIS_URL: redis://redis:6379/0
-      # MinIO/S3 needed for daily db_backup task
-      MEMENTO_S3_ENDPOINT: http://minio:9000
-      MEMENTO_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MEMENTO_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MEMENTO_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      MEMENTO_AI_API_KEY: ${MEMENTO_AI_API_KEY:-}
-      MEMENTO_AI_BASE_URL: ${MEMENTO_AI_BASE_URL:-https://coding.dashscope.aliyuncs.com/v1}
-      MEMENTO_AI_MODEL: ${MEMENTO_AI_MODEL:-kimi-k2.5}
-      MEMENTO_AI_FALLBACK_BASE_URL: ${MEMENTO_AI_FALLBACK_BASE_URL:-https://oneapi.aiphacas.com/v1}
-      MEMENTO_AI_FALLBACK_API_KEY: ${MEMENTO_AI_FALLBACK_API_KEY:-}
-      MEMENTO_AI_FALLBACK_MODEL: ${MEMENTO_AI_FALLBACK_MODEL:-qwen3.8-27b}
-      MEMENTO_AI_PROVIDERS: ${MEMENTO_AI_PROVIDERS:-}
+      <<: *server-env
+    # Same as api: a native embedding server is reached via the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -212,8 +217,9 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-}
     restart: unless-stopped
     command: celery -A server.tasks.celery_app beat --loglevel=info
+    env_file: *env-file
     environment:
-      MEMENTO_REDIS_URL: redis://redis:6379/0
+      <<: *server-env
     depends_on:
       redis:
         condition: service_healthy

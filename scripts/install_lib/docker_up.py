@@ -52,6 +52,25 @@ def compose_up(services: Iterable[str] | None = None, build: bool = True) -> Non
     subprocess.run(cmd, check=True, cwd=str(REPO_ROOT))
 
 
+def service_running(service: str) -> bool:
+    """Whether the compose service has a running container."""
+    if not docker_available():
+        return False
+    r = subprocess.run(
+        ["docker", "compose", "ps", "-q", "--status", "running", service],
+        capture_output=True, text=True, cwd=str(REPO_ROOT),
+    )
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def recreate(*services: str) -> None:
+    """Recreate containers so they pick up a changed .env."""
+    subprocess.run(
+        ["docker", "compose", "up", "-d", "--no-deps", "--force-recreate", *services],
+        check=True, cwd=str(REPO_ROOT),
+    )
+
+
 def _http_ok(url: str, timeout: float = 2.0) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:

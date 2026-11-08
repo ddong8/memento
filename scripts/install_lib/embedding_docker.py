@@ -20,6 +20,7 @@ from __future__ import annotations
 import subprocess
 import time
 
+from . import env_gen
 from .platform_utils import (
     REPO_ROOT, docker_available, docker_start_hint, info, ok, warn,
 )
@@ -57,7 +58,10 @@ def install() -> None:
     # they may be pointing at the old default (host.docker.internal:8002)
     # which isn't reachable from inside Linux Docker without a host
     # process listening. Recreate them so they pick up the compose
-    # default (http://embedding:8002) and the new network alias.
+    # default (http://embedding:8002) and the new network alias. A value
+    # left in .env by an earlier `--native` install would still win over
+    # that default, so write this path's address explicitly.
+    env_gen.set_env_value("MEMENTO_EMBEDDING_SERVER_URL", "http://embedding:8002")
     info("Recreating api + celery containers so they discover the embedding service…")
     subprocess.run(
         ["docker", "compose", "up", "-d", "--no-deps", "--force-recreate",

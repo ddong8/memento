@@ -223,6 +223,40 @@ class TestUpdatesApi(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_check_before_release_is_published_keeps_the_published_one(self):
+        """Between the release commit's deploy and the workflow publishing it, version.json is ahead of
+        GitHub but still names the previous release's files: /check must not announce the new version."""
+        async def run():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                updates_dir = Path(tmpdir)
+                updates_mod._UPDATES_DIR = updates_dir
+                (updates_dir / "version.json").write_text(json.dumps({
+                    "version": "1.0.99", "title": "Memento v1.0.98", "release_notes": "新版说明",
+                    "platforms": {"macos": {"asset_name": "Memento-1.0.98-mac-arm64.zip", "size": 1, "sha256": "old"},
+                                  "linux": {"asset_name": "Memento-1.0.99-linux-x64.tar.gz", "size": 7, "sha256": "own"}},
+                }), encoding="utf-8")
+                gh = {"tag_name": "v1.0.98", "name": "Memento v1.0.98", "body": "上一版说明",
+                      "assets": [{"name": "Memento-1.0.98-mac-arm64.zip", "size": 42, "digest": "sha256:published"},
+                                 {"name": "Memento-1.0.98-linux-x64.tar.gz", "size": 43, "digest": "sha256:gh-linux"}]}
+                app = FastAPI()
+                app.include_router(router)
+                with patch.object(updates_mod, "_fetch_latest_github_release", new_callable=AsyncMock) as mock_fetch:
+                    mock_fetch.return_value = gh
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        on_latest = (await client.get("/api/system/update/check?platform=macos&version=1.0.98")).json()
+                        behind = (await client.get("/api/system/update/check?platform=macos&version=1.0.97")).json()
+                        linux = (await client.get("/api/system/update/check?platform=linux&version=1.0.98")).json()
+                self.assertFalse(on_latest["has_update"])
+                self.assertEqual(on_latest["latest_version"], "1.0.98")
+                self.assertTrue(behind["has_update"])
+                self.assertEqual((behind["latest_version"], behind["title"], behind["asset_name"], behind["asset_size"], behind["sha256"]),
+                                 ("1.0.98", "Memento v1.0.98", "Memento-1.0.98-mac-arm64.zip", 42, "published"))
+                # A self-hosted server that already carries the new version's own package still offers it
+                self.assertEqual((linux["has_update"], linux["latest_version"], linux["asset_name"], linux["sha256"]),
+                                 (True, "1.0.99", "Memento-1.0.99-linux-x64.tar.gz", "own"))
+
+        asyncio.run(run())
+
 if __name__ == "__main__":
     unittest.main()
 

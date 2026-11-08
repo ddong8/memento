@@ -89,6 +89,20 @@ def _find_platform_asset(updates_dir: Path, platform: str) -> Path | None:
     return None
 
 
+def _local_asset_name(local_meta: dict[str, Any], platform: str, local_file: Path | None) -> str | None:
+    """The package /check would hand out from local metadata: a file on disk wins over version.json's platforms."""
+    if local_file:
+        return local_file.name
+    plat_meta = (local_meta.get("platforms") or {}).get(platform.lower())
+    return plat_meta.get("asset_name") if isinstance(plat_meta, dict) else None
+
+
+def _asset_is_for_version(name: str | None, version: str) -> bool:
+    """Whether a package named like Memento-1.0.98-mac-arm64.zip belongs to version (unversioned names count)."""
+    m = re.search(r"(\d+\.\d+\.\d+)", name or "")
+    return bool(name) and (m is None or m.group(1) == version)
+
+
 def _match_github_asset(assets: list[dict[str, Any]], platform: str) -> dict[str, Any] | None:
     """Match the most appropriate release asset for the requested platform."""
     plat = platform.lower()
@@ -243,7 +257,17 @@ async def check_update(
         # On the same version GitHub's assets are the ones actually published: the release commit bumps
         # version.json before the workflow fills in its platforms (that commit skips CI), so until the
         # next server deploy the image's platforms still name the previous release's files and hashes.
-        if _compare_semver(gh_ver, local_ver) or (gh_ver == local_ver and gh_asset):
+        # Ahead of GitHub with only those old files: the release commit is deployed but its workflow
+        # hasn't published yet, so keep offering the published release instead of announcing the new
+        # version with the previous release's package.
+        if (
+            _compare_semver(gh_ver, local_ver)
+            or (gh_ver == local_ver and gh_asset)
+            or (
+                _compare_semver(local_ver, gh_ver)
+                and not _asset_is_for_version(_local_asset_name(local_meta, platform, local_platform_asset), local_ver)
+            )
+        ):
             latest_ver = gh_ver
             use_github = True
         else:

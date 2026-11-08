@@ -133,6 +133,47 @@ async def set_blueprint_settings(
     return {"auto": body.auto}
 
 
+class BlueprintFailure(BaseModel):
+    name: str
+    reason: str
+
+
+class BlueprintStatusReport(BaseModel):
+    enabled: bool = True
+    # The Python the generator runs with; None when the device has none (Windows without Python)
+    python: str | None = None
+    generator_version: int | None = None
+    ok: int = 0
+    no_hooks: int = 0
+    failed: list[BlueprintFailure] = []
+
+
+@router.post("/blueprint/status")
+async def report_blueprint_status(
+    body: BlueprintStatusReport,
+    x_device_id: str = Header(..., alias="X-Device-Id"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(verify_collector_token),
+) -> dict:
+    """How the device's last blueprint pass went, shown on the devices page (failures stay off the
+    device's local log only otherwise). Kept beside the injection status; report_injection carries it over."""
+    machine = await _owned_machine(db, user, x_device_id)
+    status = dict(machine.profile_status or {})
+    status["blueprint"] = {
+        "enabled": body.enabled,
+        "python": body.python[:200] if body.python else None,
+        "generator_version": body.generator_version,
+        "ok": max(0, body.ok),
+        "no_hooks": max(0, body.no_hooks),
+        "failed": [{"name": f.name[:80], "reason": f.reason[:200]} for f in body.failed[:20]],
+        "failed_total": len(body.failed),
+        "reported_at": datetime.now(timezone.utc).isoformat(),
+    }
+    machine.profile_status = status
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/blueprint")
 async def get_user_blueprint(
     refresh: bool = False,
@@ -668,12 +709,13 @@ async def report_injection(
     user: User = Depends(verify_collector_token),
 ) -> dict:
     machine = await _owned_machine(db, user, x_device_id)
-    guards = (machine.profile_status or {}).get("guards")
+    # Reported on their own (guard_service.set_status, report_blueprint_status): kept as they are
+    kept = {k: v for k, v in (machine.profile_status or {}).items() if k in ("guards", "blueprint") and v}
     machine.profile_status = {
         "version": body.version,
         "results": {k: str(v)[:200] for k, v in body.results.items() if k in INJECTION_TARGETS},
         "reported_at": datetime.now(timezone.utc).isoformat(),
-        **({"guards": guards} if guards else {}),
+        **kept,
     }
     await db.commit()
     await _bust_user_profile_cache(user.id)

@@ -41,6 +41,52 @@ class TestProjectBlueprint(unittest.TestCase):
         self._env.stop()
         self.temp_dir.cleanup()
 
+    def test_about_from_readme_then_manifest_then_docs(self):
+        about = project_blueprint.detect_project_about
+        (self.root / "README.md").write_text(
+            '<div align="center">\n\n# Demo\n\n**化合物检索平台**\n\n'
+            "[![CI](https://x/b.svg)](https://x) [![L](https://x/l.svg)](LICENSE)\n\n"
+            "[快速开始](#a) · [架构](#b)\n\n"
+            "支持名称、[结构](docs/s.md)和属性检索，服务地址 10.255.255.254。\n\n</div>\n\n## 功能\n\n- 列表项\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(about(self.root), "化合物检索平台。支持名称、结构和属性检索，服务地址 <internal-ip>。")
+
+        # A template README says nothing: the manifest's description is used
+        (self.root / "README.md").write_text("# app\n\nThis template should help get you started developing.\n")
+        (self.root / "package.json").write_text('{"name": "app", "description": "Order routing desk"}')
+        self.assertEqual(about(self.root), "Order routing desk")
+
+        (self.root / "package.json").unlink()
+        (self.root / "pyproject.toml").write_text('[tool.ruff]\ndescription = "no"\n\n[project]\nname = "x"\ndescription = "Backtest service"\n')
+        self.assertEqual(about(self.root), "Backtest service")
+
+        # backend/ + frontend/ with no root README or manifest: the overview doc
+        (self.root / "README.md").unlink()
+        (self.root / "pyproject.toml").unlink()
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "architecture.md").write_text(
+            "# 平台 - 架构设计文档\n\n## 1. 系统概述\n本平台提供本地化化合物检索服务。\n\n## 2. 技术栈\n- FastAPI\n", encoding="utf-8"
+        )
+        self.assertEqual(about(self.root), "本平台提供本地化化合物检索服务。")
+
+        long = "这是一句很长的介绍。" * 30
+        (self.root / "README.md").write_text(f"# x\n\n{long}\n", encoding="utf-8")
+        clipped = about(self.root)
+        self.assertLessEqual(len(clipped), project_blueprint.ABOUT_MAX_CHARS)
+        self.assertTrue(clipped.endswith("。"))
+
+    def test_about_line_and_generator_version_in_blueprint(self):
+        (self.root / "README.md").write_text("# demo\n\nA tiny demo service.\n")
+        content = project_blueprint.build_blueprint_content(self.root)
+        section0 = content[content.index("## 0."):content.index("## 1.")]
+        self.assertIn("- 简介 (About): A tiny demo service.", section0)
+        self.assertIn("- **About**: A tiny demo service.", content)
+        self.assertIn(f"(v{project_blueprint.BLUEPRINT_SCRIPT_VERSION})", content.rstrip().splitlines()[-1])
+
+        (self.root / "README.md").unlink()
+        self.assertNotIn("About", project_blueprint.build_blueprint_content(self.root))
+
     def test_detect_tech_stack_monorepo_python_node(self):
         # Create package.json with workspaces
         p_json = self.root / "package.json"
@@ -407,6 +453,33 @@ class TestUserBlueprintService(unittest.IsolatedAsyncioTestCase):
         )
         by_name = {p["name"]: p for p in synthesize_user_blueprint("u", src)["projects"]}
         self.assertEqual(by_name["memento"]["primary_field"], "ai_ml")
+
+    def test_project_description_comes_from_its_own_readme_first(self):
+        from server.services.user_blueprint_service import (
+            _blueprint_about,
+            _blueprint_quick_summary,
+            synthesize_user_blueprint,
+        )
+
+        bp = MEMENTO_BP.replace(
+            "- 类型 (Type)", "- 简介 (About): 本平台提供高性能的本地化化合物检索服务，支持结构搜索\n- 类型 (Type)", 1
+        ).replace("# Project Blueprint: memento", "# Project Blueprint: pubchem", 1)
+        self.assertEqual(_blueprint_about(bp), "本平台提供高性能的本地化化合物检索服务，支持结构搜索")
+        self.assertFalse(any(q.startswith("简介") for q in _blueprint_quick_summary(bp)))
+        self.assertEqual(_blueprint_about("## 1. Project Overview\n- **About**: Order desk\n"), "Order desk")
+        self.assertEqual(_blueprint_about(MEMENTO_BP), "")
+
+        src = _sources(
+            blueprint_docs=[("p2", "pubchem/PROJECT_BLUEPRINT.md", bp, None)],
+            # What the knowledge graph made of conversations: the public database, not the project
+            project_entities={"pubchem": ("美国国立卫生研究院维护的公开化学数据库", ["RDKit"])},
+        )
+        by_name = {p["name"]: p for p in synthesize_user_blueprint("u", src)["projects"]}
+        self.assertTrue(by_name["pubchem"]["summary"].startswith("本平台提供高性能的本地化化合物检索服务"))
+        # No About line (generator before 20261111): the knowledge graph's summary as before
+        src = _sources()
+        by_name = {p["name"]: p for p in synthesize_user_blueprint("u", src)["projects"]}
+        self.assertIn("逆合成路线规划", by_name["pubchem"]["summary"])
 
     def test_rules_and_noise_are_not_project_summaries(self):
         from server.services.user_blueprint_service import _is_noise_project, _sanitize_summary

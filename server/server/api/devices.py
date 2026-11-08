@@ -190,6 +190,8 @@ async def list_devices(
                 "is_archived": is_arch,
                 "archived_at": m.archived_at.isoformat() if getattr(m, "archived_at", None) else None,
                 "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
+                # The device's last project-blueprint pass: repos kept current, failures and why (null before v1.0.98)
+                "blueprint": (m.profile_status or {}).get("blueprint"),
                 # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
                 "collect": m.collect_status or None,
                 # From the server's side: how long its messages took to arrive, what the audit found

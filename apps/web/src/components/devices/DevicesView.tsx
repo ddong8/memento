@@ -11,6 +11,8 @@ export interface Device {
   id: string;
   name: string;
   device_id: string;
+  /** The desktop client's version ("node-0.1.0" from clients before v1.0.98) */
+  collector_version?: string | null;
   last_heartbeat: string | null;
   online?: boolean;
   created_at: string;
@@ -24,6 +26,28 @@ export interface Device {
   lag?: { messages: number; p50: number; p99: number; max: number };
   /** What the message audit found in its conversations (server/services/message_audit.py) */
   audit?: { checked: number; ok: number; needs_repair: number; repaired: number; missing: number; duplicates: number };
+  /** The device's last project-blueprint pass (null before v1.0.98) */
+  blueprint?: {
+    enabled: boolean;
+    python: string | null;
+    ok: number;
+    no_hooks: number;
+    failed: { name: string; reason: string }[];
+    failed_total: number;
+  } | null;
+}
+
+function versionLabel(version: string | null | undefined, old: string): string | null {
+  if (!version) return null;
+  if (version.startsWith("node-")) return old;
+  return /^\d/.test(version) ? `v${version}` : version;
+}
+
+function blueprintReason(reason: string, t: ReturnType<typeof useI18n>["t"]): string {
+  if (reason === "no_python") return t.devices.blueprintReasonNoPython;
+  if (reason === "timeout") return t.devices.blueprintReasonTimeout;
+  if (reason === "no_generator") return t.devices.blueprintReasonNoGenerator;
+  return reason;
 }
 
 function useTimeAgo(t: ReturnType<typeof useI18n>["t"]) {
@@ -265,6 +289,14 @@ node packages/daemon/dist/cli.js install-service`}
                       <span style={{ fontFamily: "ui-monospace,monospace", color: "var(--aurora-fg4)" }}>
                         {d.device_id.slice(0, 8)}
                       </span>
+                      {versionLabel(d.collector_version, t.devices.versionOld) && (
+                        <>
+                          <span style={{ color: "var(--aurora-fg5)" }}>·</span>
+                          <span style={{ fontFamily: "ui-monospace,monospace", color: "var(--aurora-fg4)" }}>
+                            {versionLabel(d.collector_version, t.devices.versionOld)}
+                          </span>
+                        </>
+                      )}
                       <span style={{ color: "var(--aurora-fg5)" }}>·</span>
                       <span>
                         {t.devices.registered}: {new Date(d.created_at).toLocaleDateString(locale)}
@@ -304,7 +336,7 @@ node packages/daemon/dist/cli.js install-service`}
                   </div>
                 </div>
 
-                {!isArchived && (d.lag || d.audit || d.collect) && (
+                {!isArchived && (d.lag || d.audit || d.collect || d.blueprint) && (
                   <div
                     style={{
                       borderTop: "1px solid var(--aurora-border)",
@@ -349,6 +381,7 @@ node packages/daemon/dist/cli.js install-service`}
                         {fmt(t.devices.collectError, { msg: d.collect.last_error })}
                       </span>
                     )}
+                    {d.blueprint && <BlueprintStatusLine bp={d.blueprint} t={t} />}
                   </div>
                 )}
 
@@ -516,5 +549,30 @@ node packages/daemon/dist/cli.js install-service`}
         </div>
       )}
     </div>
+  );
+}
+
+function BlueprintStatusLine({ bp, t }: { bp: NonNullable<Device["blueprint"]>; t: ReturnType<typeof useI18n>["t"] }) {
+  if (!bp.enabled) return <span>{t.devices.blueprintOff}</span>;
+  const failedTotal = bp.failed_total ?? bp.failed.length;
+  if (!bp.python && failedTotal > 0) return <span style={{ color: "#EF4444" }}>{t.devices.blueprintNoPython}</span>;
+  return (
+    <>
+      <span>
+        {fmt(t.devices.blueprintKept, { n: bp.ok + bp.no_hooks })}
+        {bp.no_hooks > 0 && <> · {fmt(t.devices.blueprintNoHooks, { n: bp.no_hooks })}</>}
+        {failedTotal > 0 && (
+          <span style={{ color: "#EF4444" }}>
+            {" · "}
+            {fmt(t.devices.blueprintFailed, { n: failedTotal })}
+          </span>
+        )}
+      </span>
+      {bp.failed.slice(0, 3).map((f, i) => (
+        <span key={`${f.name}-${i}`} style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+          {f.name}: {blueprintReason(f.reason, t)}
+        </span>
+      ))}
+    </>
   );
 }

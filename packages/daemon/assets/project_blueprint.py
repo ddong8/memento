@@ -61,7 +61,7 @@ IGNORED_DIRS = {
 MAX_TREE_DEPTH = 3
 
 # Monotonically increasing generator version for cross-device OTA synchronization
-BLUEPRINT_SCRIPT_VERSION = 20261110
+BLUEPRINT_SCRIPT_VERSION = 20261111
 
 BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md"
 # The footer every generated blueprint ends with: tells our files from hand-written ones
@@ -408,6 +408,123 @@ def detect_tech_stack(root: Path) -> dict[str, Any]:
     }
 
 
+# Template READMEs that say nothing about the project itself
+README_BOILERPLATE = (
+    "this template should help get you started",
+    "getting started with create react app",
+    "a new flutter project",
+    "welcome to your new",
+    "bootstrapped with",
+    "create-next-app",
+    "react + typescript + vite",
+    "vue 3 + typescript + vite",
+    "recommended ide setup",
+)
+README_NAMES = ("README.md", "readme.md", "Readme.md", "README.zh-CN.md", "README_zh.md", "README.markdown", "README.rst", "README.txt", "README")
+ABOUT_MAX_CHARS = 200
+
+
+def _plain_markdown(line: str) -> str:
+    """One markdown line as plain text: links keep their text, images, emphasis and inline code marks go."""
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", line)
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"(\*\*|__|\*|`)", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _readme_about(text: str) -> str:
+    """The README's opening prose (tagline and first paragraph), skipping titles, badges, nav and lists."""
+    paragraphs: list[str] = []
+    current: list[str] = []
+    in_fence = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith(">"):
+            line = line.lstrip("> ").strip()
+            if line.startswith("[!"):
+                line = ""
+        skip = (
+            not line
+            or line.startswith(("#", "<", "|", "![", "[![", "- ", "* ", "+ ", "===", "---", "***"))
+            or re.match(r"^\d+[.)]\s", line) is not None
+            or len(re.findall(r"\]\(", line)) >= 2  # a row of links: badges, nav, language switch
+        )
+        plain = "" if skip else _plain_markdown(line)
+        if not plain or len(re.sub(r"[\W_]", "", plain)) < 4:
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            if line.startswith("#") and paragraphs:
+                break  # the intro ends at the first section heading after it
+            continue
+        if any(bp in plain.lower() for bp in README_BOILERPLATE):
+            return ""
+        current.append(plain)
+        if len(paragraphs) >= 2:
+            break
+    if current:
+        paragraphs.append(" ".join(current))
+    about = ""
+    for para in paragraphs[:2]:
+        if about and len(about) >= 60:
+            break
+        sep = "" if not about else ("" if about.endswith(("。", "！", "？", ".", "!", "?", "；", ";")) else "。")
+        about = f"{about}{sep}{para}" if about else para
+    return about
+
+
+def _clip_sentence(text: str, limit: int = ABOUT_MAX_CHARS) -> str:
+    """Cut at the last sentence end within the limit, or at the limit with an ellipsis."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = max(head.rfind(ch) for ch in ("。", "！", "？", "；", ". ", "! ", "? "))
+    if cut >= limit // 2:
+        return head[: cut + 1].rstrip()
+    return head.rstrip() + "…"
+
+
+def detect_project_about(root: Path) -> str:
+    """What the project is, in its authors' words: README intro, else the manifest description, else docs/."""
+    for name in README_NAMES:
+        rm = root / name
+        if rm.is_file():
+            about = _readme_about(_read_code(rm, 8_000))
+            if about:
+                return _clip_sentence(_sanitize_blueprint_text(about))
+            break
+    pj = root / "package.json"
+    if pj.is_file():
+        try:
+            desc = json.loads(_read_code(pj, 50_000)).get("description")
+            if isinstance(desc, str) and desc.strip():
+                return _clip_sentence(_sanitize_blueprint_text(_plain_markdown(desc)))
+        except Exception:
+            pass
+    for manifest, section in (("pyproject.toml", "project"), ("pyproject.toml", "tool.poetry"), ("Cargo.toml", "package")):
+        mf = root / manifest
+        if not mf.is_file():
+            continue
+        body = re.search(rf"^\[{re.escape(section)}\]\s*$([\s\S]*?)(?=^\[|\Z)", _read_code(mf, 50_000), re.MULTILINE)
+        m = re.search(r'^description\s*=\s*["\']([^"\']+)["\']', body.group(1), re.MULTILINE) if body else None
+        if m and m.group(1).strip():
+            return _clip_sentence(_sanitize_blueprint_text(m.group(1).strip()))
+    # No README or manifest at the root (e.g. a backend/ + frontend/ repo): its overview doc
+    for name in ("README.md", "overview.md", "architecture.md", "index.md", "intro.md"):
+        doc = root / "docs" / name
+        if doc.is_file():
+            about = _readme_about(_read_code(doc, 8_000))
+            if about:
+                return _clip_sentence(_sanitize_blueprint_text(about))
+    return ""
+
+
 def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
     """Infer semantic category and human-readable description for a project subdirectory."""
     name_low = d.name.lower()
@@ -452,24 +569,13 @@ def _infer_dir_role_and_desc(d: Path) -> tuple[str, str]:
         if m and m.group(1).strip():
             return role, m.group(1).strip()[:120]
 
-    boilerplate_substrings = (
-        "this template should help get you started",
-        "getting started with create react app",
-        "a new flutter project",
-        "welcome to your new",
-        "bootstrapped with",
-        "create-next-app",
-        "react + typescript + vite",
-        "vue 3 + typescript + vite",
-        "recommended ide setup",
-    )
     for rm_name in ("README.md", "readme.md"):
         rm = d / rm_name
         if rm.exists():
             for line in _read_code(rm, 4_000).splitlines():
                 sline = line.strip()
                 if sline and not sline.startswith(("#", "!", "[", ">", "`", "-")):
-                    if any(bp in sline.lower() for bp in boilerplate_substrings):
+                    if any(bp in sline.lower() for bp in README_BOILERPLATE):
                         break
                     return role, sline[:120]
 
@@ -2089,6 +2195,7 @@ def build_blueprint_content(root: Path) -> str:
     git_date = run_git_cmd(["log", "-1", "--format=%as"], root) or "recent"
 
     stack = detect_tech_stack(root)
+    about = detect_project_about(root)
     subsystems = scan_subsystems(root)
     frontend_routes = scan_frontend_routes(root)
     routes = scan_api_routes(root)
@@ -2128,6 +2235,7 @@ def build_blueprint_content(root: Path) -> str:
         "",
         "## 1. Project Overview & Tech Stack",
         "",
+        *([f"- **About**: {about}"] if about else []),
         f"- **Project Type**: {stack['project_type']}",
         f"- **Core Languages**: {', '.join(stack['languages']) if stack['languages'] else 'Generic'}",
         f"- **Key Frameworks**: {', '.join(stack['frameworks']) if stack['frameworks'] else 'None detected'}",
@@ -2352,13 +2460,13 @@ def build_blueprint_content(root: Path) -> str:
     doc.extend([
         "",
         "---",
-        f"{GENERATED_MARK} & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._",
+        f"{GENERATED_MARK} (v{BLUEPRINT_SCRIPT_VERSION}) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._",
         "",
     ])
 
     summary = _quick_summary(
         stack, infra_list, subsystems, routes, frontend_routes, models, services, schedules,
-        test_suites, detect_verification_commands(root), evolution_list,
+        test_suites, detect_verification_commands(root), evolution_list, about=about,
     )
     return _with_summary_and_index(doc, summary)
 
@@ -2375,11 +2483,13 @@ def _quick_summary(
     test_suites: list[dict[str, Any]],
     commands: list[str],
     evolution: list[str],
+    about: str = "",
 ) -> list[str]:
     """The few lines that orient an agent without reading the rest."""
     langs = ", ".join(stack.get("languages") or []) or "Generic"
     frameworks = ", ".join((stack.get("frameworks") or [])[:8])
     lines = [
+        *([f"- 简介 (About): {about}"] if about else []),
         f"- 类型 (Type): {stack.get('project_type') or 'Generic'}",
         f"- 技术栈 (Stack): {langs}" + (f" · {frameworks}" if frameworks else ""),
     ]

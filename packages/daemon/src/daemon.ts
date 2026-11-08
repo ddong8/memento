@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 
 import {
   applyRemoteBlueprintScript,
+  blueprintStatusReport,
   discoverLocalGitRepositories,
   ensureProjectBlueprint,
   findGitRoot,
@@ -79,6 +80,8 @@ export class Daemon extends EventEmitter {
   /** The automatic-blueprint switch last applied (undefined until the first profile sync). */
   private blueprintAuto: boolean | undefined;
   private blueprintCycle: Promise<boolean> | undefined;
+  /** The blueprint status last reported, so an unchanged pass is not sent again. */
+  private lastBlueprintReport: string | undefined;
 
   get status(): DaemonStatus {
     return {
@@ -252,6 +255,7 @@ export class Daemon extends EventEmitter {
       await this.blueprintCycle;
       this.blueprintHashes.clear();
       await removeAllProjectBlueprints(this.log);
+      await this.reportBlueprintPass([]);
       return;
     }
     let force = false;
@@ -345,7 +349,17 @@ export class Daemon extends EventEmitter {
       const ubp = await this.ingest.fetchUserBlueprint();
       await syncLocalUserBlueprint(ubp?.markdown);
     }
+    if (isBlueprintAutoEnabled()) await this.reportBlueprintPass(candidates.map((c) => c.path));
     return anyUpdated;
+  }
+
+  /** Tell the server how the pass went (shown on the devices page), when it differs from the last report. */
+  private async reportBlueprintPass(gitRoots: string[]): Promise<void> {
+    if (!this.ingest) return;
+    const report = await blueprintStatusReport(gitRoots);
+    const key = JSON.stringify(report);
+    if (key === this.lastBlueprintReport) return;
+    if (await this.ingest.reportBlueprintStatus(report)) this.lastBlueprintReport = key;
   }
 
   async resync(): Promise<void> {

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1ea50dc0` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `31bed8ac` · Updated: `2026-11-08`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -9,29 +9,31 @@
 
 > 先读这一节定位全局；要细节时按下表行号只读对应章节（Read 的 offset/limit，或 `sed -n 'A,Bp' PROJECT_BLUEPRINT.md`），不必整份读入。
 
+- 简介 (About): 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 218 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 150 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `1ea50dc0` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
+- 最近改动 (Latest): `cf40228e` (2026-11-08): fix(server): 项目主领域按项目本身判定，工作规则只作参考
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
-| 1. Project Overview & Tech Stack | L33-L38 |
-| 2. High-Level Architecture Topology | L40-L75 |
-| 3. Subsystem Breakdown & Responsibilities | L77-L89 |
-| 4. Key Entry Points & API Endpoints | L91-L447 |
-| 5. Core Domain Services & Background Schedules | L449-L489 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L491-L566 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L568-L608 |
-| 8. Development & Verification Commands | L610-L627 |
-| 9. Recent Architectural Evolutions | L629-L636 |
-| 10. Key Environment Variables & Configuration | L638-L650 |
+| 1. Project Overview & Tech Stack | L34-L40 |
+| 2. High-Level Architecture Topology | L42-L77 |
+| 3. Subsystem Breakdown & Responsibilities | L79-L91 |
+| 4. Key Entry Points & API Endpoints | L93-L449 |
+| 5. Core Domain Services & Background Schedules | L451-L491 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L493-L568 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L570-L610 |
+| 8. Development & Verification Commands | L612-L629 |
+| 9. Recent Architectural Evolutions | L631-L638 |
+| 10. Key Environment Variables & Configuration | L640-L652 |
 
 ## 1. Project Overview & Tech Stack
 
+- **About**: 给你的 AI 工具建个共享大脑与多模态工作台。跨设备、跨工具自动采集 AI 编程对话与记忆，自建后端汇总，内置全能文档与媒体视窗（Office/PPT 16:9 横屏放映、万行表格切片、音视频 GPU 加速），Web + MCP 统一查看、搜索、召回。
 - **Project Type**: Monorepo (Workspaces)
 - **Core Languages**: TypeScript/JavaScript, Python, Shell / Bash
 - **Key Frameworks**: React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery, Pydantic, Docker, Kubernetes / Fleet
@@ -305,11 +307,11 @@ flowchart TD
 #### `/api/profile` (profile.py)
 
 - `PUT /api/profile/blueprint/settings`
+- `POST /api/profile/blueprint/status`
 - `GET /api/profile/blueprint`
 - `GET /api/profile`
 - `POST /api/profile/draft/regenerate`
-- `PUT /api/profile/draft`
-- _... (11 more endpoints)_
+- _... (12 more endpoints)_
 
 #### `/api/projects` (projects.py)
 
@@ -597,8 +599,8 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (18 commits)
+- [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (12 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
-- [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (11 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (10 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (9 commits)
@@ -628,12 +630,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `1ea50dc0` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
+- `cf40228e` (2026-11-08): fix(server): 项目主领域按项目本身判定，工作规则只作参考
+- `b1e37eef` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
 - `0bd095ae` (2026-11-08): feat(blueprint): 项目蓝图与个人蓝图全面优化
 - `9ed308a1` (2026-11-08): docs: README 中英文按代码现状更新
 - `4b2a0d13` (2026-11-08): fix(install): 卸载时撤回写进 AI 工具的内容，.env 里的设置真正传进容器
 - `df5c8b83` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
-- `a1f2cea6` (2026-11-08): fix(server): 作息按用户本地日期统计，夜间学到的场景各副本定时刷新
 
 ## 10. Key Environment Variables & Configuration
 
@@ -650,4 +652,4 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 | `MEMENTO_AI_MODEL` | `kimi-k2.5` | Environment configuration |
 
 ---
-_Auto-maintained by `scripts/project_blueprint.py` & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._
+_Auto-maintained by `scripts/project_blueprint.py` (v20261111) & `.git/hooks/(post-commit, post-merge, post-checkout)`. Updates automatically on code modifications, pulls, and branch switches._

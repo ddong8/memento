@@ -643,8 +643,26 @@ def _is_noise_entity(name: str) -> bool:
     )
 
 
+_ABOUT_PREFIXES = ("简介 (About):", "About:")
+
+
+def _blueprint_about(md: str) -> str:
+    """What the project is in its authors' words (README intro or manifest description), as the
+    generator (20261111+) writes it: "- 简介 (About): ..." in section 0, "- **About**: ..." in section 1."""
+    for line in (md or "").splitlines():
+        s = line.strip().replace("**", "")
+        if s.startswith("- "):
+            s = s[2:].strip()
+            for prefix in _ABOUT_PREFIXES:
+                if s.startswith(prefix):
+                    return s[len(prefix):].strip()
+        elif s.startswith("## 2."):
+            break
+    return ""
+
+
 def _blueprint_quick_summary(md: str) -> list[str]:
-    """The bullet lines of a project blueprint's "## 0." section (generator 20261110+)."""
+    """The bullet lines of a project blueprint's "## 0." section (generator 20261110+), the About line aside."""
     out: list[str] = []
     in_sec = False
     for line in (md or "").splitlines():
@@ -655,7 +673,9 @@ def _blueprint_quick_summary(md: str) -> list[str]:
             in_sec = s.startswith("## 0.")
             continue
         if in_sec and s.startswith("- "):
-            out.append(s[2:].replace("**", "").strip())
+            item = s[2:].replace("**", "").strip()
+            if not item.startswith(_ABOUT_PREFIXES):
+                out.append(item)
     return out
 def _sanitize_mermaid_id(raw: str, prefix: str = "N") -> str:
     clean = re.sub(r"[^a-zA-Z0-9_]", "_", raw)
@@ -1111,6 +1131,7 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
             projects[key]["blueprint"] = {
                 **_parse_project_blueprint_markdown(content),
                 "quick": _blueprint_quick_summary(content),
+                "about": _blueprint_about(content),
             }
 
     if src.profile_text:
@@ -1131,10 +1152,13 @@ def _collect_projects(src: BlueprintSources, now: datetime) -> list[dict[str, An
         if not (p["docs"] >= 2 or bp or p["pinned"]):
             continue
         ent_summary, ent_tech = src.project_entities.get(key, (None, []))
-        # The profile's lines for a project are rules about working on it, not what it is
-        description = _sanitize_summary(ent_summary)
+        # The project's own README says what it is; the knowledge-graph summary is what the AI made of
+        # conversations about it (sometimes the public database it uses rather than the project).
+        # The profile's lines for a project are rules about working on it, not what it is.
+        bp_about = bp.get("about") or ""
+        description = _sanitize_summary(bp_about) or _sanitize_summary(ent_summary)
         tech_stack = [t for t in bp.get("tech_stack", []) if t.lower() not in _NOISE_TECH_TOKENS] or ent_tech[:6]
-        about = " ".join([p["name"], description, _sanitize_summary(ent_summary, 400)]).lower()
+        about = " ".join([p["name"], _sanitize_summary(bp_about, 400), _sanitize_summary(ent_summary, 400)]).lower()
         stack = " ".join([" ".join(tech_stack), " ".join(ent_tech), " ".join(bp.get("subsystems_preview", [])), " ".join(bp.get("quick", []))]).lower()
         # Working rules ("polish drafts before pushing to WeChat") only break ties: they say how the
         # user works on a project, not what it is

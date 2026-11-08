@@ -6,8 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   applyRemoteBlueprintScript,
+  blueprintGeneratorVersion,
+  blueprintStatusReport,
   ensureProjectBlueprint,
   findGitRoot,
+  generatorFailureReason,
   isBlueprintReady,
   locateBlueprintGenerator,
   needsRemoteBlueprintSync,
@@ -141,14 +144,96 @@ describe("blueprint-auto", () => {
     expect(git(tmpDir, "status", "--porcelain")).toBe("");
   });
 
-  it("locateBlueprintGenerator finds local project generator if present", async () => {
+  it("locateBlueprintGenerator prefers the project's own generator unless it is older than ours", async () => {
     const localScripts = join(tmpDir, "scripts");
     mkdirSync(localScripts, { recursive: true });
     const localPy = join(localScripts, "project_blueprint.py");
-    writeFileSync(localPy, "#!/usr/bin/env python3\nprint('mock')\n");
+    writeFileSync(localPy, "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 99999999\nprint('mock')\n");
+    expect(await locateBlueprintGenerator(tmpDir)).toBe(localPy);
 
+    // Copied in once and never updated: the shared, newer generator is used instead
+    writeFileSync(localPy, "#!/usr/bin/env python3\nBLUEPRINT_SCRIPT_VERSION = 20200101\nprint('mock')\n");
     const found = await locateBlueprintGenerator(tmpDir);
-    expect(found).toBe(localPy);
+    expect(found).not.toBe(localPy);
+    expect(found).toMatch(/project_blueprint\.py$/);
+  });
+
+  it("writes the project's About line from its README into section 0", async () => {
+    initRepo(tmpDir);
+    writeFileSync(
+      join(tmpDir, "README.md"),
+      [
+        '<div align="center">',
+        "",
+        "# Demo",
+        "",
+        "**给团队用的化合物检索平台**",
+        "",
+        "[![License](https://img.shields.io/badge/l-MIT-blue.svg)](LICENSE) [![CI](https://x/y.svg)](https://x)",
+        "",
+        "本地化部署，支持名称、结构和属性检索。",
+        "",
+        "</div>",
+        "",
+        "## 功能",
+        "",
+        "- 不应进入简介的列表项",
+        "",
+      ].join("\n"),
+    );
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+    const bp = readFileSync(join(tmpDir, "PROJECT_BLUEPRINT.md"), "utf8");
+    const section0 = bp.slice(bp.indexOf("## 0."), bp.indexOf("## 1."));
+    expect(section0).toContain("- 简介 (About): 给团队用的化合物检索平台。本地化部署，支持名称、结构和属性检索。");
+    expect(section0).not.toContain("列表项");
+    expect(blueprintGeneratorVersion(bp)).toBeGreaterThan(20261110);
+  });
+
+  it("rebuilds a generated blueprint written by an older generator, once", async () => {
+    initRepo(tmpDir);
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+    const bpPath = join(tmpDir, "PROJECT_BLUEPRINT.md");
+    const current = blueprintGeneratorVersion(readFileSync(bpPath, "utf8"));
+    expect(current).toBeGreaterThan(0);
+
+    // As written before footers carried the generator version
+    writeFileSync(bpPath, readFileSync(bpPath, "utf8").replace(/ \(v\d+\)/, ""));
+    expect(await isBlueprintReady(tmpDir)).toBe(true);
+    expect(await isBlueprintReady(tmpDir, current)).toBe(false);
+
+    setBlueprintAutoEnabled(false);
+    setBlueprintAutoEnabled(true); // drop the "verified" cache, as a new pass after restart would
+    expect(await ensureProjectBlueprint(tmpDir)).toBe(true);
+    expect(blueprintGeneratorVersion(readFileSync(bpPath, "utf8"))).toBe(current);
+  });
+
+  it("reports each repo's outcome and why the generator failed", async () => {
+    initRepo(tmpDir);
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(true);
+    let report = await blueprintStatusReport([tmpDir, join(homeTmp, "never-tried")]);
+    expect(report).toMatchObject({ enabled: true, ok: 1, no_hooks: 0, failed: [] });
+    expect(report.python).toBeTruthy();
+    expect(report.generator_version).toBeGreaterThan(20261110);
+
+    // A broken generator in the repo (newer than ours, so it is the one used)
+    mkdirSync(join(tmpDir, "scripts"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "scripts", "project_blueprint.py"),
+      "import sys\nBLUEPRINT_SCRIPT_VERSION = 99999999\nsys.stderr.write('Traceback\\nValueError: boom\\n')\nsys.exit(3)\n",
+    );
+    expect(await ensureProjectBlueprint(tmpDir, { force: true })).toBe(false);
+    report = await blueprintStatusReport([tmpDir]);
+    expect(report.ok).toBe(0);
+    expect(report.failed).toEqual([{ name: "proj", reason: "exit 3: ValueError: boom" }]);
+  });
+
+  it("names the failure: no Python, timeout, or the exit code with the error's last line", () => {
+    expect(generatorFailureReason({ code: null, stderr: "", failure: "no_python" })).toBe("no_python");
+    expect(generatorFailureReason({ code: null, stderr: "timed out after 60s", failure: "timeout" })).toBe("timeout");
+    expect(generatorFailureReason({ code: 1, stderr: "Traceback (most recent call last):\n  x\nOSError: denied\n" })).toBe(
+      "exit 1: OSError: denied",
+    );
+    expect(generatorFailureReason({ code: 2, stderr: "" })).toBe("exit 2");
   });
 
   it("ensureProjectBlueprint skips non-git repositories safely", async () => {

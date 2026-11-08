@@ -138,6 +138,36 @@ class BlueprintSwitchTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res["blueprint"], {"auto": False})
 
 
+class BlueprintStatusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_device_blueprint_status_is_kept_beside_the_injection_status(self) -> None:
+        from server.api import profile as profile_api
+
+        u = _user()
+        m = _machine(["claude_code"], {"guards": {"results": {"codex": "written"}}})
+        db = MagicMock()
+        db.commit = AsyncMock()
+        failed = [profile_api.BlueprintFailure(name=f"repo{i}", reason="exit 1: " + "x" * 300) for i in range(25)]
+        with patch.object(profile_api, "_owned_machine", AsyncMock(return_value=m)), \
+             patch.object(profile_api, "_bust_user_profile_cache", AsyncMock()):
+            await profile_api.report_blueprint_status(
+                body=profile_api.BlueprintStatusReport(python=None, generator_version=20261111, ok=3, no_hooks=1, failed=failed),
+                x_device_id="dev1", db=db, user=u,
+            )
+            bp = m.profile_status["blueprint"]
+            self.assertEqual((bp["ok"], bp["no_hooks"], bp["failed_total"], bp["python"]), (3, 1, 25, None))
+            self.assertEqual(len(bp["failed"]), 20)
+            self.assertEqual(len(bp["failed"][0]["reason"]), 200)
+            self.assertEqual(m.profile_status["guards"], {"results": {"codex": "written"}})
+
+            # The injection report replaces its own fields only
+            await profile_api.report_injection(
+                body=profile_api.InjectionReport(version=4, results={"claude_code": "written"}), x_device_id="dev1", db=db, user=u,
+            )
+        self.assertEqual(m.profile_status["version"], 4)
+        self.assertEqual(m.profile_status["blueprint"]["ok"], 3)
+        self.assertEqual(m.profile_status["guards"], {"results": {"codex": "written"}})
+
+
 class StatsTests(unittest.IsolatedAsyncioTestCase):
     async def test_stats_query_counts_first_stops_and_followups(self) -> None:
         captured = []

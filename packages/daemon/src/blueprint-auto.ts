@@ -6,7 +6,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { homeDir, mementoDir } from "./config.js";
-import { findExecutable } from "./exec-env.js";
+import { findPython } from "./exec-env.js";
 
 /** Cache ttl in milliseconds for git roots verified to have blueprint configured */
 const VERIFIED_TTL_MS = 10 * 60 * 1000;
@@ -30,6 +30,25 @@ const verifiedCache = new Map<string, CacheEntry>();
 const failedAt = new Map<string, { at: number; headSha: string | null }>();
 const inflight = new Map<string, Promise<boolean>>();
 
+/** How the last attempt on a repo went: `no_hooks` is a blueprint kept current from here, without git hooks. */
+export interface BlueprintRepoState {
+  state: "ok" | "no_hooks" | "failed";
+  /** For failed: `no_python`, `timeout`, `no_generator`, or `exit <code>: <last stderr line>` */
+  reason?: string;
+}
+
+/** What the devices page shows for this machine's last blueprint pass. */
+export interface BlueprintStatusReport {
+  enabled: boolean;
+  python: string | null;
+  generator_version: number | null;
+  ok: number;
+  no_hooks: number;
+  failed: { name: string; reason: string }[];
+}
+
+const repoStates = new Map<string, BlueprintRepoState>();
+
 /** Off when the user turned automatic blueprints off in Memento (profile injection `blueprint.auto`). */
 let autoEnabled = true;
 
@@ -38,6 +57,63 @@ export function setBlueprintAutoEnabled(on: boolean): void {
   autoEnabled = on;
   verifiedCache.clear();
   failedAt.clear();
+  repoStates.clear();
+}
+
+/** The pass over `gitRoots` summed up; repos never attempted (not git, switched off) are left out. */
+export async function blueprintStatusReport(gitRoots: Iterable<string>): Promise<BlueprintStatusReport> {
+  let ok = 0;
+  let noHooks = 0;
+  const failed: { name: string; reason: string }[] = [];
+  for (const root of new Set(gitRoots)) {
+    const st = repoStates.get(root);
+    if (!st) continue;
+    if (st.state === "ok") ok++;
+    else if (st.state === "no_hooks") noHooks++;
+    else failed.push({ name: basename(root), reason: st.reason ?? "error" });
+  }
+  const generator = await locateBlueprintGenerator();
+  return {
+    enabled: autoEnabled,
+    python: (await resolvePython()) ?? null,
+    generator_version: generator ? await generatorVersion(generator) : null,
+    ok,
+    no_hooks: noHooks,
+    failed,
+  };
+}
+
+let pythonLookup: { at: number; exe: string | undefined } | undefined;
+
+/** The Python the generator runs with (re-looked up every 10 minutes: the user may install one). */
+async function resolvePython(): Promise<string | undefined> {
+  const now = Date.now();
+  if (pythonLookup && now - pythonLookup.at < VERIFIED_TTL_MS) return pythonLookup.exe;
+  const exe = await findPython();
+  pythonLookup = { at: now, exe };
+  return exe;
+}
+
+const versionCache = new Map<string, { mtimeMs: number; version: number }>();
+
+/** BLUEPRINT_SCRIPT_VERSION of a generator script, cached until the file changes. */
+async function generatorVersion(script: string): Promise<number> {
+  try {
+    const { mtimeMs } = await stat(script);
+    const hit = versionCache.get(script);
+    if (hit && hit.mtimeMs === mtimeMs) return hit.version;
+    const { version } = parseBlueprintScriptMeta(await readFile(script, "utf8"));
+    versionCache.set(script, { mtimeMs, version });
+    return version;
+  } catch {
+    return 0;
+  }
+}
+
+/** The generator version a generated blueprint was written by, from its footer (0 before versions were written). */
+export function blueprintGeneratorVersion(text: string): number {
+  const m = text.match(/_Auto-maintained by `scripts\/project_blueprint\.py` \(v(\d+)\)/);
+  return m?.[1] ? Number.parseInt(m[1], 10) : 0;
 }
 
 export function isBlueprintAutoEnabled(): boolean {
@@ -170,14 +246,17 @@ export function isGeneratedBlueprint(text: string): boolean {
 
 /**
  * Whether the repo's PROJECT_BLUEPRINT.md is current: a hand-written one always is (never ours to
- * touch); a generated one when the HEAD recorded at generation is still HEAD. Hooks are not required:
+ * touch); a generated one when the HEAD recorded at generation is still HEAD and the generator that
+ * wrote it is not older than `minGeneratorVersion`. Hooks are not required:
  * repos with core.hooksPath or non-shell hooks get none, and are kept current from here instead.
  */
-export async function isBlueprintReady(gitRoot: string): Promise<boolean> {
+export async function isBlueprintReady(gitRoot: string, minGeneratorVersion = 0): Promise<boolean> {
   try {
     const text = await readFile(join(gitRoot, BLUEPRINT_FILE), "utf8").catch(() => "");
     if (!text) return false;
     if (!isGeneratedBlueprint(text)) return true;
+    // Written by an older generator: rebuilt once with the new one (new sections, the About line)
+    if (blueprintGeneratorVersion(text) < minGeneratorVersion) return false;
     const head = await readGitHeadShort(gitRoot);
     if (!head) return true; // no commit yet: nothing to be stale against
     const dirs = await resolveGitDirs(gitRoot);
@@ -237,27 +316,25 @@ function locateBundledBlueprintGenerator(): string | null {
  * 3. Global ~/.memento/scripts/project_blueprint.py (synced from bundled asset or server OTA)
  */
 export async function locateBlueprintGenerator(gitRoot?: string): Promise<string | null> {
+  const shared = await locateSharedGenerator();
   if (gitRoot) {
+    // A repo's own copy wins, unless it is older than ours (copied once and never updated)
     const localScript = join(gitRoot, "scripts", "project_blueprint.py");
-    if (existsSync(localScript)) return localScript;
+    if (existsSync(localScript) && (!shared || (await generatorVersion(localScript)) >= (await generatorVersion(shared)))) {
+      return localScript;
+    }
   }
+  return shared;
+}
 
+async function locateSharedGenerator(): Promise<string | null> {
   const globalScript = join(mementoDir(homeDir()), "scripts", "project_blueprint.py");
   const bundled = locateBundledBlueprintGenerator();
   if (existsSync(globalScript) && bundled) {
-    try {
-      const [gContent, bContent] = await Promise.all([
-        readFile(globalScript, "utf8"),
-        readFile(bundled, "utf8"),
-      ]);
-      const gMeta = parseBlueprintScriptMeta(gContent);
-      const bMeta = parseBlueprintScriptMeta(bContent);
-      // Prefer globalScript if it was upgraded via OTA to a newer version than bundled asset
-      if (gMeta.version > bMeta.version || (!hasRepoCheckoutScript() && gMeta.version === bMeta.version)) {
-        return globalScript;
-      }
-    } catch {
-      // fall through
+    const [gVersion, bVersion] = await Promise.all([generatorVersion(globalScript), generatorVersion(bundled)]);
+    // Prefer globalScript if it was upgraded via OTA to a newer version than bundled asset
+    if (gVersion > bVersion || (!hasRepoCheckoutScript() && gVersion === bVersion)) {
+      return globalScript;
     }
   }
 
@@ -364,21 +441,30 @@ export async function syncLocalUserBlueprint(markdown?: string | null): Promise<
   }
 }
 
-interface GeneratorResult {
+export interface GeneratorResult {
   code: number | null;
   stderr: string;
+  /** Why it could not run at all: no Python on this machine, or killed after GENERATOR_TIMEOUT_MS */
+  failure?: "no_python" | "timeout";
 }
 
+/** Windows' Store alias for python when no Python is installed: prints this and exits 9009. */
+const NO_PYTHON_OUTPUT = /Python was not found|was not found; run without arguments to install/i;
+
 async function runGenerator(generator: string, args: string[], cwd: string): Promise<GeneratorResult> {
-  const pythonExe = (await findExecutable(["python3", "python"])) || "python3";
+  const pythonExe = await resolvePython();
+  if (!pythonExe) return { code: null, stderr: "", failure: "no_python" };
   return new Promise<GeneratorResult>((resolveDone) => {
     let settled = false;
     let stderr = "";
-    const done = (code: number | null, extra = "") => {
+    const done = (code: number | null, extra = "", failure?: GeneratorResult["failure"]) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolveDone({ code, stderr: (stderr + extra).trim().slice(-600) });
+      const text = (stderr + extra).trim().slice(-600);
+      if (!failure && (code === 9009 || NO_PYTHON_OUTPUT.test(text))) failure = "no_python";
+      if (failure === "no_python") pythonLookup = undefined;
+      resolveDone({ code, stderr: text, ...(failure ? { failure } : {}) });
     };
     const timer = setTimeout(() => {
       try {
@@ -386,7 +472,7 @@ async function runGenerator(generator: string, args: string[], cwd: string): Pro
       } catch {
         // ignore
       }
-      done(null, `timed out after ${GENERATOR_TIMEOUT_MS / 1000}s`);
+      done(null, `timed out after ${GENERATOR_TIMEOUT_MS / 1000}s`, "timeout");
     }, GENERATOR_TIMEOUT_MS);
     timer.unref?.();
     const proc = spawn(pythonExe, [generator, ...args], {
@@ -397,9 +483,16 @@ async function runGenerator(generator: string, args: string[], cwd: string): Pro
     proc.stderr?.on("data", (chunk) => {
       if (stderr.length < 4000) stderr += String(chunk);
     });
-    proc.once("error", (err) => done(null, err.message));
+    proc.once("error", (err) => done(null, err.message, (err as NodeJS.ErrnoException).code === "ENOENT" ? "no_python" : undefined));
     proc.once("exit", (code) => done(code));
   });
+}
+
+/** The reason shown on the devices page: a known cause, or the exit code and the error's last line. */
+export function generatorFailureReason(res: GeneratorResult): string {
+  if (res.failure) return res.failure;
+  const last = res.stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  return `exit ${res.code ?? "?"}${last ? `: ${last.slice(0, 160)}` : ""}`;
 }
 
 /**
@@ -430,8 +523,16 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
   if (!force && cached?.ready && cached.headSha === currentHead && now - cached.timestamp < VERIFIED_TTL_MS) {
     return true;
   }
-  if (!force && (await isBlueprintReady(gitRoot))) {
+  const fail = (reason: string) => {
+    failedAt.set(gitRoot, { at: Date.now(), headSha: currentHead });
+    repoStates.set(gitRoot, { state: "failed", reason });
+    return false;
+  };
+  let generator = await locateBlueprintGenerator(gitRoot);
+  const minVersion = generator ? await generatorVersion(generator) : 0;
+  if (!force && (await isBlueprintReady(gitRoot, minVersion))) {
     verifiedCache.set(gitRoot, { ready: true, timestamp: now, headSha: currentHead });
+    if (repoStates.get(gitRoot)?.state !== "no_hooks") repoStates.set(gitRoot, { state: "ok" });
     return true;
   }
   const failed = failedAt.get(gitRoot);
@@ -440,17 +541,18 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
   }
 
   await syncGlobalBlueprintScript();
-  const generator = await locateBlueprintGenerator(gitRoot);
+  generator = await locateBlueprintGenerator(gitRoot);
   if (!generator) {
     log(`[blueprint-auto] Could not locate generator script for ${gitRoot}`);
-    return false;
+    return fail("no_generator");
   }
   try {
     const res = await runGenerator(generator, ["--root", gitRoot, "--install-hook", "--quiet"], gitRoot);
-    if (await isBlueprintReady(gitRoot)) {
+    if (!res.failure && (await isBlueprintReady(gitRoot, minVersion))) {
       verifiedCache.set(gitRoot, { ready: true, timestamp: Date.now(), headSha: await readGitHeadShort(gitRoot) });
       failedAt.delete(gitRoot);
       // Exit 1 with the blueprint written: hooks left out (core.hooksPath, or the repo's own non-shell hooks)
+      repoStates.set(gitRoot, { state: res.code === 0 ? "ok" : "no_hooks" });
       log(
         res.code === 0
           ? `[blueprint-auto] Living blueprint & hooks ready for ${gitRoot}`
@@ -458,13 +560,16 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
       );
       return true;
     }
-    failedAt.set(gitRoot, { at: Date.now(), headSha: currentHead });
-    log(`[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${res.code}): ${res.stderr}`);
-    return false;
+    const reason = generatorFailureReason(res);
+    log(
+      res.failure === "no_python"
+        ? `[blueprint-auto] No Python found; project blueprints need Python 3 (${gitRoot})`
+        : `[blueprint-auto] Failed configuring blueprint for ${gitRoot} (code ${res.code}): ${res.stderr}`,
+    );
+    return fail(reason);
   } catch (e) {
-    failedAt.set(gitRoot, { at: Date.now(), headSha: currentHead });
     log(`[blueprint-auto] Execution exception: ${String(e)}`);
-    return false;
+    return fail(`error: ${String(e).slice(0, 160)}`);
   }
 }
 
@@ -475,6 +580,7 @@ async function ensureAt(gitRoot: string, options: { force?: boolean; log?: (msg:
 export async function removeAllProjectBlueprints(log: (msg: string) => void = () => {}): Promise<boolean> {
   verifiedCache.clear();
   failedAt.clear();
+  repoStates.clear();
   const generator = await locateBlueprintGenerator();
   if (!generator) return false;
   const res = await runGenerator(generator, ["--uninstall-all", "--quiet"], homeDir());

@@ -4,9 +4,11 @@ import { gzip } from "node:zlib";
 import type { CollectorConfig } from "./config.js";
 import { toolReport, type DiscoveredTool } from "./discovery.js";
 import { sanitizeDocumentContent } from "./sanitizer.js";
+import type { BlueprintStatusReport } from "./blueprint-auto.js";
 import { hostFetch, type LanInfo, type ServerRoute } from "./server-route.js";
 
-export const DAEMON_VERSION = "node-0.1.0";
+/** The desktop app's version (set when it starts the daemon), shown on the devices page; a bare daemon has none. */
+export const DAEMON_VERSION = process.env.MEMENTO_DESKTOP_VERSION || "node-0.1.0";
 
 export interface IngestDocument {
   toolId: string;
@@ -334,6 +336,16 @@ export class IngestClient {
 
   async reportGuardStatus(results: Record<string, string>): Promise<void> {
     await this.request("/api/learning/guard/status", { method: "POST", body: { results } }).catch(() => {});
+  }
+
+  /** How the last project-blueprint pass went (repos kept current, failures and why), for the devices page. */
+  async reportBlueprintStatus(status: BlueprintStatusReport): Promise<boolean> {
+    try {
+      const res = await this.request("/api/profile/blueprint/status", { method: "POST", body: status });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   private async getJson<T>(path: string): Promise<T | null> {

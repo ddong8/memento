@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `31bed8ac` · Updated: `2026-11-08`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9f59aeb2` · Updated: `2026-11-08`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 150 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `cf40228e` (2026-11-08): fix(server): 项目主领域按项目本身判定，工作规则只作参考
+- 最近改动 (Latest): `368b3eb7` (2026-11-08): feat(blueprint): 项目蓝图写入项目简介、上报生成状态，设备页显示客户端版本
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -598,16 +598,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (18 commits)
-- [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (12 commits)
+- [`scripts/project_blueprint.py`](scripts/project_blueprint.py) (19 commits)
+- [`server/tests/test_project_blueprint.py`](server/tests/test_project_blueprint.py) (13 commits)
 - [`server/server/api/ask_conversations.py`](server/server/api/ask_conversations.py) (11 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
 - [`apps/web/src/components/ask/HistoryDrawer.tsx`](apps/web/src/components/ask/HistoryDrawer.tsx) (10 commits)
-- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (9 commits)
-- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (8 commits)
-- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (8 commits)
+- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (10 commits)
+- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (9 commits)
+- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (9 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
-- [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (8 commits)
+- [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
 
 ## 8. Development & Verification Commands
 
@@ -630,12 +630,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `368b3eb7` (2026-11-08): feat(blueprint): 项目蓝图写入项目简介、上报生成状态，设备页显示客户端版本
 - `cf40228e` (2026-11-08): fix(server): 项目主领域按项目本身判定，工作规则只作参考
 - `b1e37eef` (2026-11-08): chore(release): 升级客户端版本至 v1.0.97，项目蓝图分章节读取、可一键关闭并彻底撤回
 - `0bd095ae` (2026-11-08): feat(blueprint): 项目蓝图与个人蓝图全面优化
 - `9ed308a1` (2026-11-08): docs: README 中英文按代码现状更新
 - `4b2a0d13` (2026-11-08): fix(install): 卸载时撤回写进 AI 工具的内容，.env 里的设置真正传进容器
-- `df5c8b83` (2026-11-08): refactor: 删掉守护进程、桌面端和网页里的 Flutter 旧版遗留
 
 ## 10. Key Environment Variables & Configuration
 

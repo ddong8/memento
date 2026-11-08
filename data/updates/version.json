@@ -1,25 +1,25 @@
 {
   "version": "1.0.98",
-  "title": "Memento v1.0.97",
+  "title": "Memento v1.0.98",
   "release_notes": "1. 设备页显示每台设备实际运行的客户端版本，一眼看出哪台还没升级\n2. 设备页显示项目蓝图状态：几个仓库保持最新、哪些生成失败以及原因\n3. 项目蓝图开头写入项目简介（取自 README、包描述或文档概述），个人蓝图里的项目介绍更准确\n4. 生成脚本更新后，已有的项目蓝图自动按新版重新生成；仓库里残留的旧版脚本不再被优先使用\n5. Windows 上能识别应用商店的 python 占位程序，没装 Python 3 时在设备页明确提示\n6. 手机端版本号与客户端统一为 1.0.98",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.97-win-x64.zip",
-      "size": 158032392,
-      "sha256": "1b633ffe8ecd5d7663b1f4db300dfe9c62eca8896575d0075acfd8008e129512",
-      "sha512": "N2eWtjyLUjRks9mBYVNS0zY/qKAm7WyYiplPvyrlcjdSileTSy4MkqsqnF7j+jNCPne/rN6dagwmKdFRSCnbRA=="
+      "asset_name": "Memento-1.0.98-win-x64.zip",
+      "size": 158037914,
+      "sha256": "d24e6bf741373eb82c2dd098d4ee87f90f6328336a80d8deb673bf0d0407ef3f",
+      "sha512": "ljk8juz7HuVMnF91vBGAPlyU5QW01IyFt7esG5ZUQVKnkZBIi4E1Tb+z8NXJkySSymc+pxeE9XgCanecGWOAQg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.97-mac-arm64.zip",
-      "size": 132508300,
-      "sha256": "e0141f9bc258394a41b7ea5f9706e322ed44cfebf9e5b7cc8e411bfcdec1054f",
-      "sha512": "ApDlZSGL4VlIw7XKrZlKGyJ1khKnx4oCHIzWwSpTvKQi4/TxHfVifPBBk0cjkKZEwcex37DMAt9XhGnZC62K9A=="
+      "asset_name": "Memento-1.0.98-mac-arm64.zip",
+      "size": 132515473,
+      "sha256": "9c92d55d4074725e95da8344f19fe47680b40b456ba1ada3835840b8a037c9a2",
+      "sha512": "yINZtUAgjGv9frEcKhaBZedIhcADAuXg9OqfENTReAWXOdXt9vluCw06fuioMwUrQPrNL3TNVLD4sbmyGSRnVA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.97-linux-x64.tar.gz",
-      "size": 131796268,
-      "sha256": "91298cdbc3df290c5f634946e1f96b1acf7d76ac6dc70150aef51e8c7b46276e",
-      "sha512": "lGdk+f6XPPiUfUv9M6ATPdDj2+omK/DEqRNVry2Zl5RmOOdBNfYPPyQb+5zchF0nX9yUp+CMmzEt5eP16+11HA=="
+      "asset_name": "Memento-1.0.98-linux-x64.tar.gz",
+      "size": 131805260,
+      "sha256": "8625f093527a1f71102f47fb7d8f8704f0672a8706fbe20a741355c78eb091b0",
+      "sha512": "i8dHiS2Ih11op6U1X9vYPKcauojVsCrWt3TWhBZOndQ1pD/Qbh6fbD25Q53RV4VTTL6ZQnl3EpYztrAcgrwcBg=="
     }
   }
 }

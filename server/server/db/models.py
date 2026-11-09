@@ -901,7 +901,7 @@ class SessionReview(Base):
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     outcome: Mapped[str] = mapped_column(String(20), nullable=False, default="unknown")  # done | partial | failed | chat | error
     summary: Mapped[str | None] = mapped_column(Text)
-    # {"skill": slug | None, "pitfalls_new": n, "pitfalls_seen": [memory ids], "todos_new": n, "todos_done": n}
+    # {"skill": slug | None, "pitfalls_new": n, "pitfalls_seen": [memory ids], "slips": n, "todos_new": n, "todos_done": n}
     result: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

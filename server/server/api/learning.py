@@ -289,7 +289,7 @@ async def add_pitfall(
     mem = await save_pitfall(db, user, body.model_dump(), body.project, "mcp")
     await db.commit()
     if mem is None:
-        return {"saved": False, "note": "信息不全、属于 AI 工具自身的限制，或已经记过"}
+        return {"saved": False, "note": "信息不全、属于 AI 自己的操作失误或工具自身的限制，或已经记过"}
     return {"saved": True, "id": str(mem.id), "content": mem.content}
 
 

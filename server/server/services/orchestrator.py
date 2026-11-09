@@ -219,7 +219,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "remember_pitfall",
-            "description": "操作失败、查明了原因并解决之后，把这个坑记下来，以后同类操作前会提醒。没查明原因的不要记。",
+            "description": "操作失败、查明了原因并解决之后，把这个坑记下来，以后同类操作前会提醒。没查明原因的不要记；自己这次的操作失误（命令引号写坏、猜错路径或表名、工具用法不对）也不要记。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1368,7 +1368,7 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
     if name == "remember_pitfall":
         mem = await save_pitfall(db, user, args, None, "agent")
         await db.commit()
-        return {"saved": bool(mem), "note": None if mem else "信息不全或已经记过"}
+        return {"saved": bool(mem), "note": None if mem else "信息不全、属于 AI 自己的操作失误，或已经记过"}
     if name == "add_todo":
         raw_title = str(args.get("title") or "")
         raw_proj = args.get("project")

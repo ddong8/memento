@@ -6,8 +6,9 @@ background model, which pulls out three things:
 
 - a skill: a multi-step procedure that got something done in the user's own
   environment and will come up again (drafted; the user publishes it);
-- pitfalls: something failed, the cause was found, and the fix is known
-  (kept as memories, served before similar work);
+- pitfalls: something failed in the user's environment, the cause was found,
+  and the fix is known (kept as memories, served before similar work; the AI's
+  own slips are labelled and dropped);
 - todos: work the session left unfinished that the user wanted done, and
   open todos the session finished.
 
@@ -277,6 +278,7 @@ async def load_known(db: AsyncSession, user: User, project: str | None) -> Known
             UserMemory.user_id == user.id, UserMemory.category == "pitfall", UserMemory.status == "active",
         ).order_by(UserMemory.updated_at.desc()).limit(400)
     )).scalars().all()
+    pitfalls = [m for m in pitfalls if not is_slip_memory(m.content)]
     if project:
         mark = f"/pitfall/{project_key(project)}/"
         pitfalls = sorted(pitfalls, key=lambda m: mark not in (m.tree_path or "").lower())
@@ -307,28 +309,62 @@ _REVIEW_PROMPT = """你在帮一位开发者复盘他和 AI 编程工具的一�
    - body：Markdown，按"## 何时使用 / ## 步骤（编号，带具体命令和路径）/ ## 验证 / ## 注意"组织，写给 AI 看的祈使句。
    - description：一句话说清"做什么 + 什么时候用"，AI 靠它决定是否调用，60-200 字。slug：英文小写加连字符，如 memento-gitops-deploy。title：中文短名。
    - 如果和已知技能是同一件事，match 填它的编号（如 "s2"），changes 写这次比已知版本多了/改了什么（没有变化就填空字符串）。用户不要的技能不要再提。
-3. pitfalls：这次会话里**真实发生**的失败，且找到了原因和解法。每条写清 title（一句话）、symptom（报错/现象，保留关键原文）、cause（根因）、fix（怎么解决的）。只是猜测、没解决的不算。和已记下的坑是同一个的，match 填它的编号（如 "p3"），其余字段照样填。
-   - 只记和用户的项目、代码、机器、服务、数据有关的坑。AI 工具自己的使用限制（写文件前要先读、每次 Bash 是独立 shell、sleep 被拦截、工具参数写错、找不到自己刚 cd 的目录）不算，不要写。
+3. pitfalls：这次会话里**真实发生**的失败，且找到了原因和解法。每条写清 kind、title（一句话）、symptom（报错/现象，保留关键原文）、cause（根因）、fix（怎么解决的）。只是猜测、没解决的不算。和已记下的坑是同一个的，match 填它的编号（如 "p3"），其余字段照样填。
+   - {kinds}
 4. todos_new：会话结束时还没做完、而用户明确想做的事（用户说了以后再做，或 AI 提出后用户同意留到以后）。AI 自己随口建议但用户没回应的不算。title 是动宾短语，due 为 YYYY-MM-DD 或 null。
 5. todos_done：已知待办里，这次会话明确做完了的，填编号（如 "d1"）和一句依据。
 
 宁缺毋滥：拿不准就不填。只输出 JSON：
 {{"outcome": "done", "summary": "...", "skill": null, "pitfalls": [], "todos_new": [], "todos_done": []}}
 skill 的格式：{{"match": null, "slug": "...", "title": "...", "description": "...", "body": "...", "project": "...", "changes": ""}}
-pitfall 的格式：{{"match": null, "title": "...", "symptom": "...", "cause": "...", "fix": "...", "project": "..."}}
+pitfall 的格式：{{"kind": "env", "match": null, "title": "...", "symptom": "...", "cause": "...", "fix": "...", "project": "..."}}
 todo 的格式：{{"title": "...", "detail": null, "due": null}}；done 的格式：{{"d": "d1", "evidence": "..."}}"""
 
 
-# The AI tool's own mechanics, not the user's environment; models keep proposing these anyway.
+# Only what another AI would hit again in the user's environment is worth serving before similar work.
+# Told to leave the AI's own slips out, the model kept them anyway: on 11-09 67 of 271 pitfalls were
+# slips (a quote broken in an inline script, a guessed table name, Antigravity's view_file failing on a
+# big file), and 83 "known pitfall hit again" in a week were nearly all slips, so the health page warned
+# every week. Labelling each one works better than asking to leave some out; slips are dropped.
+PITFALL_KINDS = (
+    "kind 只能是 env 或 slip。env：换一个 AI 来也会踩、记下来能避开的事实——用户某台机器或某个 shell 的特性"
+    "（缺某个命令、PowerShell 不支持 &&、macOS 没有 timeout、某目录 I/O 挂起）、项目约定（测试要用 uv run）、"
+    "表结构、某个服务/接口/客户端的行为，以及用户代码或服务里真实缺陷的根因和修法。slip：AI 自己这一次的操作失误，"
+    "或 AI 工具自身的机制——内联脚本的引号/转义写坏、猜路径/表名/列名/任务号/pod 名、文件名打错、文件查看或编辑工具"
+    "报错（目标文本不匹配、大文件读不出、换行被改坏）、后台任务轮询或去 kill 已结束的任务、输出太长被截断、沙箱拦截、"
+    "AI 工具自己的额度或 429、写文件前要先读、每次 Bash 是独立 shell、这次会话刚写出又当场改好的类型或语法错误、"
+    "自己写的一次性脚本里的 bug。slip 也照样列出、标上 kind，由程序过滤。"
+)
+
+# The AI tool's own mechanics, not the user's environment, for when the model labels one env anyway.
 _HARNESS_RE = re.compile(
     r"独立\s*的?\s*shell|工作目录不(会)?(保留|延续|保持)|先\s*read|has not been read|tool_use_error|"
     r"blocked:\s*sleep|sleep.{0,12}拦截|工具参数|invalid tool|InputValidationError",
     re.IGNORECASE,
 )
+# Matched against what failed, not the fix: a real pitfall's fix may well say "edited with replace_file_content".
+_SLIP_RE = re.compile(
+    r"view_file|replace_file_content|multi_replace|manage_task|old_string|"
+    r"(target|目标)\s*(文本|内容|字符串)?.{0,12}(不匹配|找不到|匹配不上)|"
+    r"task is not running|已结束.{0,10}kill|kill.{0,10}已结束|(转入|转成|被转为|转到)后台|"
+    r"(输出|结果|diff).{0,8}(过长|太长).{0,6}截断|"
+    r"引号.{0,15}(破坏|转义失败|被吞|吞掉|被.{0,8}(解析|展开))|转义.{0,6}失败|"
+    r"猜(测|错)?的?.{0,6}(表名|列名|路径|run id|pod|任务号|文件名)|沙箱(拒绝|拦截)",
+    re.IGNORECASE,
+)
 
 
 def is_harness_pitfall(item: dict[str, Any]) -> bool:
-    return bool(_HARNESS_RE.search(" ".join(str(item.get(k) or "") for k in ("title", "symptom", "cause", "fix"))))
+    if str(item.get("kind") or "").strip().lower() == "slip":
+        return True
+    failed = " ".join(str(item.get(k) or "") for k in ("title", "symptom", "cause"))
+    return bool(_HARNESS_RE.search(f"{failed} {item.get('fix') or ''}") or _SLIP_RE.search(failed))
+
+
+def is_slip_memory(content: str | None) -> bool:
+    """The same test on a stored pitfall (format_pitfall: everything before 解决 is what failed)."""
+    failed, _, fix = (content or "").partition("；解决：")
+    return is_harness_pitfall({"title": failed, "fix": fix})
 
 
 def format_pitfall(item: dict[str, Any], project: str | None) -> str:
@@ -404,6 +440,7 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
             {"role": "user", "content": _REVIEW_PROMPT.format(
                 tool=cand.tool_id, project=cand.project or "未知", title=cand.title or "（无标题）",
                 transcript=transcript, skills=skills_text, pitfalls=pitfalls_text, todos=todos_text,
+                kinds=PITFALL_KINDS,
             )},
         ],
         max_tokens=3000,
@@ -414,7 +451,7 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
     data = _safe_json_loads(raw)
     now = datetime.now(timezone.utc)
     evidence = {"doc_id": str(cand.doc_id), "title": cand.title[:120], "tool_id": cand.tool_id, "at": cand.last_at.isoformat()}
-    result: dict[str, Any] = {"skill": None, "skill_event": None, "pitfalls_new": 0, "pitfalls_seen": [], "todos_new": 0, "todos_done": 0}
+    result: dict[str, Any] = {"skill": None, "skill_event": None, "pitfalls_new": 0, "pitfalls_seen": [], "slips": 0, "todos_new": 0, "todos_done": 0}
 
     skill = data.get("skill")
     if isinstance(skill, dict) and str(skill.get("description") or "").strip() and str(skill.get("body") or "").strip():
@@ -429,6 +466,9 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
 
     for item in data.get("pitfalls") or []:
         if not isinstance(item, dict):
+            continue
+        if is_harness_pitfall(item):
+            result["slips"] += 1  # the AI's own slip: neither a new pitfall nor a known one hit again
             continue
         matched = known.pitfalls.get(str(item.get("match") or ""))
         if matched is not None:
@@ -519,7 +559,8 @@ _TASK_PROMPT = """下面是 AI agent 在用户设备上执行失败的任务，�
 {tasks}
 
 要求：只写能从上面的输出里看出原因的；看不出原因、或只是偶发网络抖动的不写。和已记下的坑是同一个的，match 填它的编号。
-只输出 JSON：{{"pitfalls": [{{"match": null, "title": "...", "symptom": "...", "cause": "...", "fix": "...", "project": null}}]}}"""
+{kinds}这些命令是 Memento 的助手发到这台设备上的，所以这台设备用什么 shell、缺什么命令算 env。
+只输出 JSON：{{"pitfalls": [{{"kind": "env", "match": null, "title": "...", "symptom": "...", "cause": "...", "fix": "...", "project": null}}]}}"""
 
 
 def _task_line(t: DeviceTask) -> str:
@@ -569,7 +610,7 @@ async def learn_from_tasks(db: AsyncSession, user: User, now: datetime | None = 
     raw = await call_plain_chat(
         messages=[
             {"role": "system", "content": "You extract lessons from failed commands. Respond only with valid JSON."},
-            {"role": "user", "content": _TASK_PROMPT.format(pitfalls=pitfalls_text, tasks="\n".join(blocks)[:12000])},
+            {"role": "user", "content": _TASK_PROMPT.format(pitfalls=pitfalls_text, tasks="\n".join(blocks)[:12000], kinds=PITFALL_KINDS)},
         ],
         max_tokens=2000,
     )
@@ -588,6 +629,24 @@ async def learn_from_tasks(db: AsyncSession, user: User, now: datetime | None = 
 
 # ---- numbers for the health page ----
 
+async def _pitfalls_in_force(db: AsyncSession, user: User, ids: set[str]) -> set[str]:
+    """Reviews from before slips were dropped (11-09) matched them too; a pitfall retired since doesn't count."""
+    wanted = []
+    for i in ids:
+        try:
+            wanted.append(uuid.UUID(i))
+        except ValueError:
+            continue
+    if not wanted:
+        return set()
+    rows = (await db.execute(
+        select(UserMemory.id, UserMemory.content).where(
+            UserMemory.user_id == user.id, UserMemory.id.in_(wanted), UserMemory.status == "active",
+        )
+    )).all()
+    return {str(i) for i, content in rows if not is_slip_memory(content)}
+
+
 async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str, Any]:
     since = datetime.now(timezone.utc) - timedelta(days=days)
     rows = (await db.execute(
@@ -596,10 +655,12 @@ async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str,
         )
     )).all()
     outcomes: dict[str, int] = {}
-    repeats = 0
+    seen: list[str] = []
     for outcome, result in rows:
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
-        repeats += len((result or {}).get("pitfalls_seen") or [])
+        seen += [str(i) for i in (result or {}).get("pitfalls_seen") or []]
+    in_force = await _pitfalls_in_force(db, user, set(seen))
+    repeats = sum(1 for i in seen if i in in_force)
     tasks = (await db.execute(
         select(DeviceTask.status, func.count()).where(
             DeviceTask.user_id == user.id, DeviceTask.created_at >= since, DeviceTask.action.in_(("shell", "agent")),

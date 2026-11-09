@@ -96,10 +96,8 @@ describe("TaskTimeline in the workbench", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    let active: string | undefined;
     function Probe() {
-      active = useMediaInspector()?.activeMedia?.url;
-      return null;
+      return <output data-active={useMediaInspector()?.activeMedia?.url ?? ""} />;
     }
     const events: TaskEvent[] = [
       { kind: "tool", id: "w", name: "Write", detail: "C:\\work\\report.md", status: "done" },
@@ -117,7 +115,7 @@ describe("TaskTimeline in the workbench", () => {
     // The .md previews in the workbench; a .ts file has no viewer, so it is just shown.
     expect(Array.from(links).map((l) => l.textContent)).toEqual(["report.md"]);
     act(() => links[0].click());
-    expect(active).toBe("C:\\work\\report.md");
+    expect(container.querySelector("output")?.dataset.active).toBe("C:\\work\\report.md");
     expect(fileDevice("C:/work/report.md")).toEqual({ id: "pc-1", name: "PC (Windows)" });
     act(() => root.unmount());
     container.remove();

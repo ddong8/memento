@@ -85,6 +85,8 @@ export interface MementoDesktop {
   showItemInFolder?(path: string): Promise<void>;
   readFile?(path: string): Promise<{ content?: string; error?: string }>;
   toMediaUrl?(path: string): string;
+  /** v1.0.103+: memento-media:// URLs take ?remote=<server relay URL>, used when the file isn't on this computer. */
+  mediaFallback?: boolean;
   server?: {
     get(): Promise<ServerInfo>;
     set(options: { url: string; resetAuth?: boolean }): Promise<{ ok: boolean; error?: string }>;

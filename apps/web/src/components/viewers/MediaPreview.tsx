@@ -40,7 +40,7 @@ import {
 } from "react-icons/fi";
 import { desktop } from "@/lib/desktop";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
-import { getApiBase } from "@/lib/api-client";
+import { deviceRelayUrl, fileDevice, foreignPathStyle, onThisDevice } from "@/lib/file-devices";
 import { directMediaUrl, markDirectFailed } from "@/lib/p2p";
 import { useMediaInspector } from "./MediaInspectorContext";
 import { ImageViewerModal } from "./ImageViewerModal";
@@ -177,6 +177,8 @@ export interface ResolvedMedia {
   localPath: string | null;
   filename: string;
   isLocal: boolean;
+  /** For a file on one of the user's devices: the server relay that streams it from that device. */
+  relayUrl?: string;
 }
 
 /** Check if a given string represents a local file path */
@@ -251,30 +253,42 @@ export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedi
 
   if (isLocalFilePath(decoded)) {
     let clean = decoded.replace(/^file:\/\//, "");
-    if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+    if (/^\/[a-zA-Z]:[/\\]/.test(clean)) {
       clean = clean.slice(1);
     }
+    // From the device the file came from (the task that read or wrote it), through the server relay
+    const device = fileDevice(clean);
+    const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
+    const relayUrl = deviceRelayUrl(clean, filename, device, token);
     const d = desktop();
     if (d && typeof d.toMediaUrl === "function") {
-      const mediaUrl = d.toMediaUrl(clean);
+      // In the desktop app this computer's files come straight from disk; another device's through the
+      // relay. When it isn't known whose it is, the app tries its disk and falls back to the relay itself
+      // (older apps can't, so they get the relay for paths that can't be this computer's).
+      const here = onThisDevice(device);
+      const windows = navigator.userAgent.includes("Windows");
+      const mediaUrl =
+        here === false || (!d.mediaFallback && here === null && foreignPathStyle(clean, windows))
+          ? relayUrl
+          : d.mediaFallback
+            ? `${d.toMediaUrl(clean)}?remote=${encodeURIComponent(relayUrl)}`
+            : d.toMediaUrl(clean);
       return {
         playUrl: mediaUrl,
         downloadUrl: mediaUrl,
         localPath: clean,
         filename,
         isLocal: true,
+        relayUrl,
       };
     }
-    const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-    const apiBase = getApiBase();
-    const streamUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}${tokenParam}`;
     return {
-      playUrl: streamUrl,
-      downloadUrl: streamUrl,
+      playUrl: relayUrl,
+      downloadUrl: relayUrl,
       localPath: clean,
       filename,
       isLocal: true,
+      relayUrl,
     };
   }
 
@@ -999,10 +1013,7 @@ export function VideoPlayer({
 
     if (resolved.playUrl.startsWith("memento-media://")) {
       // If desktop local IPC protocol encounters an issue, gracefully fall back to the authenticated device tunnel stream
-      const token = typeof window !== "undefined" ? localStorage.getItem("dr_token") : null;
-      const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-      const apiBase = getApiBase();
-      const fallbackUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(resolvedFilename)}?path=${encodeURIComponent(localPath || "")}${tokenParam}`;
+      const fallbackUrl = resolved.relayUrl || deviceRelayUrl(localPath || "", resolvedFilename, fileDevice(localPath), localStorage.getItem("dr_token"));
       resumeAtRef.current = currentPos;
       setResolved((prev) => ({
         ...prev,
@@ -2960,14 +2971,18 @@ export interface ImagePreviewProps {
 export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<boolean>(false);
+  // Not on this computer's disk (older desktop apps can't fall back themselves): from its device instead
+  const [viaRelay, setViaRelay] = useState<boolean>(false);
   const [prevSrc, setPrevSrc] = useState(src);
   if (prevSrc !== src) {
     setPrevSrc(src);
     setLoadError(false);
+    setViaRelay(false);
   }
   const resolved = useMemo(() => resolveMediaUrl(src), [src]);
 
-  const { playUrl, filename: resolvedFilename } = resolved;
+  const { filename: resolvedFilename } = resolved;
+  const playUrl = viaRelay && resolved.relayUrl ? resolved.relayUrl : resolved.playUrl;
   const displayTitle = alt || resolvedFilename || "image-preview";
 
   if (loadError) {
@@ -2997,7 +3012,10 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
           alt={displayTitle}
           loading="lazy"
           decoding="async"
-          onError={() => setLoadError(true)}
+          onError={() => {
+            if (!viaRelay && resolved.relayUrl && playUrl !== resolved.relayUrl) setViaRelay(true);
+            else setLoadError(true);
+          }}
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
         />
         <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white pointer-events-none">

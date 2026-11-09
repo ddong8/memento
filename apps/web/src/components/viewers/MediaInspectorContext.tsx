@@ -1,7 +1,14 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { desktop } from "@/lib/desktop";
+import { deviceOfCall, rememberFileDevice, setLocalDeviceName, type FileDevice } from "@/lib/file-devices";
 import { detectMediaType, getFilenameFromUrl, isLocalFilePath, safeDecodePath, type MediaType } from "./MediaPreview";
+
+/** The device a local path in a chat belongs to, so the workbench opens it from there. */
+function rememberPathDevice(url: string, device: FileDevice | undefined) {
+  if (device && isLocalFilePath(url)) rememberFileDevice(safeDecodePath(url.replace(/^file:\/\//, "")), device);
+}
 
 export interface MediaItem {
   id: string;
@@ -17,7 +24,8 @@ interface MediaInspectorContextType {
   activeMedia: MediaItem | null;
   isOpen: boolean;
   openMedia: (item: MediaItem) => void;
-  openMediaByUrl: (url: string, title?: string, content?: string | null) => void;
+  /** `device`: the device the file is on (a task's device), when known. */
+  openMediaByUrl: (url: string, title?: string, content?: string | null, device?: FileDevice) => void;
   closeInspector: () => void;
   toggleInspector: () => void;
   selectIndex: (index: number) => void;
@@ -84,6 +92,17 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
 
   const userManuallyClosedRef = useRef<boolean>(false);
 
+  // In the desktop app: which device this computer is, so its own files are read from disk
+  useEffect(() => {
+    const d = desktop();
+    if (!d) return;
+    void d.daemon
+      .status()
+      .then((s) => setLocalDeviceName(s.status?.deviceName))
+      .catch(() => {});
+    return typeof d.daemon.onStatus === "function" ? d.daemon.onStatus((s) => setLocalDeviceName(s.deviceName)) : undefined;
+  }, []);
+
   const activeMedia = useMemo(() => {
     if (!activeId) return mediaList[mediaList.length - 1] || null;
     return mediaList.find((m) => m.id === activeId) || mediaList[mediaList.length - 1] || null;
@@ -128,7 +147,8 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     });
   }, []);
 
-  const openMediaByUrl = useCallback((url: string, title?: string, content?: string | null) => {
+  const openMediaByUrl = useCallback((url: string, title?: string, content?: string | null, device?: FileDevice) => {
+    rememberPathDevice(url, device);
     userManuallyClosedRef.current = false;
     setRefreshKey((k) => k + 1);
     const cleanUrl = safeDecodePath(url);
@@ -213,10 +233,12 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     const discovered: MediaItem[] = [];
     const seen = new Set<string>();
 
-    const scanAndAdd = (text?: string | null) => {
+    // `device`: the device of the task whose call this text is in (its files are on it)
+    const scanAndAdd = (text?: string | null, device?: FileDevice) => {
       if (!text || typeof text !== "string") return;
       const extracted = extractMediaFromMarkdown(text);
       for (const item of extracted) {
+        rememberPathDevice(item.url, device);
         const key = safeDecodePath(item.url);
         if (!seen.has(key)) {
           seen.add(key);
@@ -231,16 +253,17 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       }
     };
 
-    const scanDeep = (obj: any) => {
+    const scanDeep = (obj: any, device?: FileDevice) => {
       if (!obj) return;
       if (typeof obj === "string") {
-        scanAndAdd(obj);
+        scanAndAdd(obj, device);
       } else if (Array.isArray(obj)) {
-        for (const item of obj) scanDeep(item);
+        for (const item of obj) scanDeep(item, device);
       } else if (typeof obj === "object") {
+        const own = deviceOfCall(obj) ?? device;
         for (const [k, val] of Object.entries(obj)) {
           if (k === "image_base64" || k === "bytes") continue;
-          scanDeep(val);
+          scanDeep(val, own);
         }
       }
     };

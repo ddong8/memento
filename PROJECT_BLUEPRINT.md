@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `491e13f2` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `29c4f51d` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 221 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 160 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 221 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 162 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `491e13f2` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
+- 最近改动 (Latest): `85def648` (2026-11-09): chore(release): 升级客户端版本至 v1.0.102，各 AI 工具的记忆服务自动配置、不用再填 token
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -586,8 +586,8 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 99 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 35 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 36 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 22 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 1 | `deeplink.test.ts` |
@@ -603,8 +603,8 @@ erDiagram
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (7 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (7 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (7 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (6 commits)
 - [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (6 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `491e13f2` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
+- `85def648` (2026-11-09): chore(release): 升级客户端版本至 v1.0.102，各 AI 工具的记忆服务自动配置、不用再填 token
+- `1078cb41` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
 - `cc8627dc` (2026-11-09): fix(memory): 记忆补齐向量，夜间去重先比最像的，坑的命中跟着合并走
 - `56a62b7e` (2026-11-09): fix(profile): 设备画像里只放机器环境的坑，代码缺陷和手动改集群的解法不放
 - `9d6ddf9e` (2026-11-09): feat(profile): 每台设备的常驻画像带上在这台设备上反复踩过的坑
 - `d8ece75d` (2026-11-09): fix(learning): WorkBuddy 的会话摘要和 Antigravity 派给子智能体的任务不再当作用户原话
-- `c18a5969` (2026-11-09): fix(learning): 纠正分类区分"功能还没做好"和"违反做事规矩"，AI 流水线报告不再当作用户原话，健康页说清规矩没生效的真实原因
 
 ## 10. Key Environment Variables & Configuration
 

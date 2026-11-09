@@ -68,7 +68,9 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import MagicMock
         from server.api.devices import stream_device_file
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch("server.api.devices._SERVER_FILE_ROOTS", (tmpdir,)):
             chinese_dir = os.path.join(tmpdir, "NAS相册第九支")
             os.makedirs(chinese_dir, exist_ok=True)
             video_path = os.path.join(chinese_dir, "去海边_45秒.mp4")
@@ -103,7 +105,9 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import MagicMock
         from server.api.devices import stream_device_file
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir, patch("server.api.devices._SERVER_FILE_ROOTS", (tmpdir,)):
             video_path = os.path.join(tmpdir, "岁末余晖_45秒.mp4")
             payload = b"test-mp4-stream-cache-payload-9876543210"
             with open(video_path, "wb") as f:
@@ -140,6 +144,59 @@ class TestArtifactMediaStream(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(cond_resp.status_code, 304)
             self.assertEqual(cond_resp.headers["ETag"], etag)
+
+    def test_server_serves_only_its_own_chat_files(self):
+        """A path that is also a file in the server's container is a device's file, not the server's:
+        the relay used to hand out any of them (its code, config, /proc/self/environ with its secrets)."""
+        import os
+        import tempfile
+        from unittest.mock import patch
+        from fastapi import HTTPException
+        from server.api.devices import _clean_device_path, _server_file
+
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+            os.makedirs(os.path.join(root, "conv1"))
+            img = os.path.join(root, "conv1", "image_1.png")
+            secret = os.path.join(outside, "config.env")
+            for f in (img, secret):
+                with open(f, "wb") as fh:
+                    fh.write(b"x")
+            link = os.path.join(root, "conv1", "escape.env")
+            os.symlink(secret, link)
+            with patch("server.api.devices._SERVER_FILE_ROOTS", (root,)):
+                self.assertEqual(_server_file(img), os.path.realpath(img))
+                self.assertIsNone(_server_file(secret))
+                self.assertIsNone(_server_file(link))  # a link out of the root
+                self.assertIsNone(_server_file(os.path.join(root, "conv1")))  # a folder
+                self.assertIsNone(_server_file("/proc/self/environ"))
+                self.assertIsNone(_server_file("conv1/image_1.png"))
+                self.assertIsNone(_server_file(root + "x/image_1.png"))  # a sibling that shares the prefix
+            with self.assertRaises(HTTPException):
+                _clean_device_path(os.path.join(root, "conv1", "..", "..", "etc", "passwd"))
+
+    async def test_locate_sends_server_container_paths_to_devices(self):
+        import os
+        import tempfile
+        from unittest.mock import MagicMock, patch
+        from fastapi import HTTPException
+        from server.api import devices
+
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside:
+            img = os.path.join(root, "a.png")
+            other = os.path.join(outside, "b.png")
+            for f in (img, other):
+                with open(f, "wb") as fh:
+                    fh.write(b"x")
+            user = MagicMock(role="admin", id=1)
+            with patch.object(devices, "_SERVER_FILE_ROOTS", (root,)), \
+                    patch.object(devices, "_authorized_machine", AsyncMock(return_value=(None, None))), \
+                    patch.object(devices, "_get_cached_stat", AsyncMock(return_value=None)), \
+                    patch.object(devices, "_stat_on_devices", AsyncMock(return_value=({"exists": False, "error": "offline"}, "auto"))) as on_devices:
+                self.assertEqual(await devices.locate_device_file("auto", path=img, db=MagicMock(), _user=user), {"local": True})
+                with self.assertRaises(HTTPException) as ctx:
+                    await devices.locate_device_file("auto", path=other, db=MagicMock(), _user=user)
+                self.assertEqual(ctx.exception.status_code, 404)
+                self.assertEqual(on_devices.await_args.args[-1], other)
 
     def test_initial_chunk_cache_bounds_and_ttl(self):
         """Verify _initial_chunk_cache enforces capacity and TTL."""

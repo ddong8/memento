@@ -38,6 +38,7 @@ import MarkdownViewer from "./MarkdownViewer";
 import { WeChatPublishModal } from "./WeChatPublishModal";
 import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
+import { deviceRelayUrl, fileDevice, onThisDevice } from "@/lib/file-devices";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 
 /**
@@ -738,12 +739,13 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         let clean = "";
         if (isLocalFilePath(decoded)) {
           clean = decoded.replace(/^file:\/\//, "");
-          if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+          if (/^\/[a-zA-Z]:[/\\]/.test(clean)) {
             clean = clean.slice(1);
           }
           const d = desktop();
           // 1. Direct desktop IPC file read: instantaneous, bypasses network, Chromium web security & CORS
-          if (d && typeof d.readFile === "function") {
+          // (not for a file known to be on another of the user's devices)
+          if (d && typeof d.readFile === "function" && onThisDevice(fileDevice(clean)) !== false) {
             try {
               const ipcRes = await d.readFile(clean);
               if (ipcRes && typeof ipcRes.content === "string") {
@@ -762,13 +764,10 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
             }
           }
 
-          if (d && typeof d.toMediaUrl === "function") {
-            fetchUrl = d.toMediaUrl(clean);
-          } else {
-            const resolved = resolveMediaUrl(rawUrl);
-            fetchUrl = resolved.playUrl;
-          }
+          // From its device: through the relay, or in the desktop app its disk falling back to the relay
+          fetchUrl = resolveMediaUrl(rawUrl).playUrl;
         }
+        const relayUrl = () => `${deviceRelayUrl(clean, filename, fileDevice(clean))}&_t=${Date.now()}`;
 
         const isIntroArticle = filename === "memento_introduction_article.md" || clean.endsWith("memento_introduction_article.md");
         // 2. Another site's document (an Apple technote, a raw GitHub file …)
@@ -799,9 +798,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           // Fallback: Local file relay via device stream API
           if (isLocalFilePath(decoded) && clean) {
             try {
-              const apiBase = getApiBase();
-              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}&_t=${Date.now()}`;
-              res = await authFetch(relayUrl);
+              res = await authFetch(relayUrl());
             } catch {
               // ignore
             }
@@ -815,9 +812,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         if (!res || !res.ok) {
           if (isLocalFilePath(decoded) && clean) {
             try {
-              const apiBase = getApiBase();
-              const relayUrl = `${apiBase}/api/devices/auto/files/stream/${encodeURIComponent(filename)}?path=${encodeURIComponent(clean)}&_t=${Date.now()}`;
-              const relayRes = await authFetch(relayUrl);
+              const relayRes = await authFetch(relayUrl());
               if (relayRes.ok) {
                 res = relayRes;
               }
@@ -1344,11 +1339,11 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       try {
         const decoded = safeDecodePath(item.url);
         let clean = decoded.replace(/^file:\/\//, "");
-        if (typeof window !== "undefined" && navigator.userAgent.includes("Windows") && clean.startsWith("/") && clean[2] === ":") {
+        if (/^\/[a-zA-Z]:[/\\]/.test(clean)) {
           clean = clean.slice(1);
         }
         const d = desktop();
-        if (d && typeof d.readFile === "function" && isLocal) {
+        if (d && typeof d.readFile === "function" && isLocal && onThisDevice(fileDevice(clean)) !== false) {
           const res = await d.readFile(clean);
           if (res && typeof res.content === "string") {
             if (active) {
@@ -1359,7 +1354,12 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
           }
         }
         const fetchUrl = resolved.playUrl;
-        const res = await authFetch(fetchUrl);
+        let res = await authFetch(fetchUrl).catch(() => null);
+        if ((!res || !res.ok) && resolved.relayUrl && fetchUrl !== resolved.relayUrl) {
+          // not on this computer: from its device through the relay
+          res = await authFetch(resolved.relayUrl);
+        }
+        if (!res) throw new Error("无法读取文本内容");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const txt = await res.text();
         if (active) {

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
 
+import { deviceFilePath } from "./file-path.js";
+
 /**
  * Direct file transfer to a page over WebRTC, so videos and large files on this device reach a browser
  * on the same LAN, or over IPv6 / a punched NAT, without passing through the server (whose public entry
@@ -45,8 +47,6 @@ interface Session {
   pc: PeerConnection;
   lastActive: number;
 }
-
-const stripFileScheme = (p: string) => p.replace(/^file:\/\//, "");
 
 export class P2PHost {
   private readonly sessions = new Map<string, Session>();
@@ -134,7 +134,7 @@ export class P2PHost {
         cancelled.add(id);
         return;
       }
-      const path = stripFileScheme(String(req.path ?? ""));
+      const path = deviceFilePath(String(req.path ?? ""));
       if (!path) return reply({ id, error: "no path" });
       if (req.op === "stat") {
         void stat(path)

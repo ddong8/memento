@@ -4,6 +4,7 @@ import WebSocket from "ws";
 
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
+import { deviceFilePath } from "./file-path.js";
 import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
@@ -20,7 +21,6 @@ export function taskSocketUrl(serverUrl: string, deviceId: string): string {
   return `${base}/api/tasks/ws/${encodeURIComponent(deviceId)}`;
 }
 
-const stripFileScheme = (p: string) => p.replace(/^file:\/\//, "");
 
 /**
  * The device's live link to the server: receives dispatched tasks, cancels and
@@ -343,7 +343,7 @@ export class WsTaskClient {
   }
 
   private async handleFileStat(reqId: string, rawPath: string): Promise<void> {
-    const path = stripFileScheme(rawPath);
+    const path = deviceFilePath(rawPath);
     try {
       const st = await stat(path);
       if (!st.isFile()) throw new Error(`File not found on device: ${path}`);
@@ -360,7 +360,7 @@ export class WsTaskClient {
   }
 
   private async handleFileChunk(reqId: string, rawPath: string, offset: number, length: number): Promise<void> {
-    const path = stripFileScheme(rawPath);
+    const path = deviceFilePath(rawPath);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
       handle = await open(path, "r");

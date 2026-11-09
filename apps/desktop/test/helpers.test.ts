@@ -6,6 +6,7 @@ import {
   getTodayKey,
   normalizeDesktopAppName,
   parseByteRange,
+  mediaRemoteUrl,
   parseMementoMediaFilePath,
 } from "../src/helpers";
 
@@ -38,6 +39,20 @@ describe("memento-media URLs", () => {
     expect(parseMementoMediaFilePath("memento-media://local/Users/me/a%20b.mp4", "darwin")).toBe("/Users/me/a b.mp4");
     expect(parseMementoMediaFilePath("memento-media://users/me/v.mp4", "darwin")).toBe("/users/me/v.mp4");
     expect(parseMementoMediaFilePath("memento-media://local/C:/Users/me/v.mp4", "win32")).toBe("C:/Users/me/v.mp4");
+    // Git Bash paths from agents on Windows, and names with "#" / "?" encoded per segment
+    expect(parseMementoMediaFilePath("memento-media://local/c/Users/me/v.mp4", "win32")).toBe("C:/Users/me/v.mp4");
+    expect(parseMementoMediaFilePath("memento-media://local/C%3A/Users/me/a%23b%3F.png", "win32")).toBe("C:/Users/me/a#b?.png");
+    expect(parseMementoMediaFilePath("memento-media://local/Users/me/a.png?remote=x", "darwin")).toBe("/Users/me/a.png");
+  });
+
+  it("falls back only to the device-file routes of memento's own server", () => {
+    const relay = "https://mem.ihasy.com/api/devices/abc/files/stream/a.png?path=%2Fx%2Fa.png&token=t";
+    const url = (remote: string) => `memento-media://local/x/a.png?remote=${encodeURIComponent(remote)}`;
+    expect(mediaRemoteUrl(url(relay), ["https://mem.ihasy.com"])).toBe(relay);
+    expect(mediaRemoteUrl(url(relay), ["https://other.example"])).toBeNull();
+    expect(mediaRemoteUrl(url("https://mem.ihasy.com/api/auth/me"), ["https://mem.ihasy.com"])).toBeNull();
+    expect(mediaRemoteUrl("memento-media://local/x/a.png", ["https://mem.ihasy.com"])).toBeNull();
+    expect(mediaRemoteUrl(url("not a url"), ["https://mem.ihasy.com"])).toBeNull();
   });
 
   it("types by extension", () => {

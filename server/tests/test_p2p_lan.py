@@ -88,5 +88,15 @@ class P2PSignallingTests(unittest.TestCase):
         self.assertTrue(body["ice_servers"])
 
     def test_locate_says_local_when_the_server_has_the_file(self) -> None:
-        r = TestClient(app).get("/api/devices/dev-1/files/locate", params={"path": __file__})
-        self.assertEqual(r.json(), {"local": True})
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            image = Path(root) / "conv-1" / "a.png"
+            image.parent.mkdir()
+            image.write_bytes(b"png")
+            with patch.object(devices, "_SERVER_FILE_ROOTS", (root,)):
+                r = TestClient(app).get("/api/devices/dev-1/files/locate", params={"path": str(image)})
+                self.assertEqual(r.json(), {"local": True})
+                # Only the chat images it keeps count as its own, never its other files
+                r = TestClient(app).get("/api/devices/dev-1/files/locate", params={"path": __file__})
+                self.assertNotEqual(r.json(), {"local": True})

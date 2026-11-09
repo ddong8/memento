@@ -2,6 +2,8 @@
  * The desktop app's pure helpers, kept out of main.ts (which needs Electron) so they can be tested.
  */
 
+import { deviceFilePath } from "@memento/daemon";
+
 /** A notification shown twice within two minutes (from the push stream and the feed poll) is dropped;
  * "任务完成：xxx" and "xxx" with the same title count as the same one. */
 export function createNotificationDeduper(windowMs = 120_000, now: () => number = Date.now) {
@@ -136,7 +138,8 @@ export function getMediaMimeType(filePath: string): string {
   }
 }
 
-/** The file a memento-media:// URL points at. */
+/** The file a memento-media:// URL points at, spelled the way this computer's file system wants it
+ * (Git Bash's "/c/Users/..." is C:/Users/... on Windows). */
 export function parseMementoMediaFilePath(rawUrl: string, platform: NodeJS.Platform): string {
   const parsed = new URL(rawUrl);
   let filePath: string;
@@ -146,10 +149,23 @@ export function parseMementoMediaFilePath(rawUrl: string, platform: NodeJS.Platf
     // When memento-media:///Users/... is navigated, Chromium treats the first segment (e.g. "users") as the host
     filePath = "/" + decodeURIComponent(parsed.host + parsed.pathname);
   }
-  if (platform === "win32" && filePath.startsWith("/")) {
-    filePath = filePath.slice(1);
+  return deviceFilePath(filePath, platform);
+}
+
+/**
+ * Where to get a memento-media:// file that isn't on this computer (it is on another of the user's devices):
+ * the server relay the page put in the URL's "remote" parameter, and only when that is a device-file route
+ * of memento's own server, so a page can't make the app fetch anything else.
+ */
+export function mediaRemoteUrl(rawUrl: string, serverOrigins: string[]): string | null {
+  const remote = new URL(rawUrl).searchParams.get("remote");
+  if (!remote) return null;
+  try {
+    const u = new URL(remote);
+    return serverOrigins.includes(u.origin) && u.pathname.startsWith("/api/devices/") ? u.toString() : null;
+  } catch {
+    return null;
   }
-  return filePath;
 }
 
 /**

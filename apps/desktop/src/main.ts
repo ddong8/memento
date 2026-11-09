@@ -17,13 +17,14 @@ app.setName("Memento");
 app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("enable-zero-copy");
 
-import { loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
+import { deviceFilePath, loadConfig, saveConfig, type CollectorConfig } from "@memento/daemon";
 
 import { DaemonHost, type DaemonMode } from "./daemon-host";
 import {
   createNotificationDeduper,
   getMediaMimeType,
   getTodayKey,
+  mediaRemoteUrl,
   normalizeDesktopAppName,
   parseByteRange,
   parseMementoMediaFilePath,
@@ -40,6 +41,8 @@ const daemon = new DaemonHost();
 
 /** Where the web app is: the server's origin, or a separate web URL on self-hosted setups. */
 const serverOrigin = () => new URL(config.webUrl || config.serverUrl).origin;
+/** memento's own origins: the API's and, on self-hosted setups, the web app's. */
+const serverOrigins = () => [...new Set([config.serverUrl, config.webUrl].filter((u): u is string => !!u).map((u) => new URL(u).origin))];
 /** Whether an IPC call comes from memento's own page rather than another site shown in the window. */
 const fromApp = (e: Electron.IpcMainInvokeEvent) => {
   try {
@@ -1381,9 +1384,7 @@ function setupIpc(): void {
         clean = decodeURI(clean);
       } catch {}
     }
-    if (process.platform === "win32" && clean.startsWith("/") && clean[2] === ":") {
-      clean = clean.slice(1);
-    }
+    clean = deviceFilePath(clean);
     try {
       const st = await stat(clean);
       if (st.isDirectory()) {
@@ -1431,6 +1432,30 @@ function setupIpc(): void {
 }
 
 // Privileged scheme for streaming local media (video, audio) in Desktop window
+/** A memento-media:// request answered from the server relay: ranges and revalidation pass through, and
+ * so do the relay's status (206, 304, 404…) and headers. */
+async function proxyMedia(request: Request, remote: string): Promise<Response> {
+  const headers: Record<string, string> = {};
+  for (const h of ["range", "if-range", "if-none-match"]) {
+    const v = request.headers.get(h);
+    if (v) headers[h] = v;
+  }
+  try {
+    const res = await net.fetch(remote, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
+    const out = new Headers(res.headers);
+    out.set("Access-Control-Allow-Origin", "*");
+    if (out.has("content-encoding")) {
+      // net.fetch has already decoded the body, so its encoding and length no longer apply
+      out.delete("content-encoding");
+      out.delete("content-length");
+    }
+    const bodyless = request.method === "HEAD" || res.status === 204 || res.status === 304;
+    return new Response(bodyless ? null : res.body, { status: res.status, statusText: res.statusText, headers: out });
+  } catch (err) {
+    return new Response(`Media relay failed: ${String(err)}`, { status: 502, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
+}
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "memento-media",
@@ -1489,14 +1514,20 @@ if (!app.requestSingleInstanceLock()) {
           },
         });
       }
+      // Not on this computer: from the device that has it, through the server relay the page named
+      const missing = (why: string) => {
+        const remote = mediaRemoteUrl(request.url, serverOrigins());
+        if (remote) return proxyMedia(request, remote);
+        return new Response(why, {
+          status: 404,
+          headers: { "Access-Control-Allow-Origin": "*" },
+        });
+      };
       try {
         const filePath = parseMementoMediaFilePath(request.url, process.platform);
-        const st = statSync(filePath);
-        if (!st.isFile()) {
-          return new Response("Not a file", {
-            status: 404,
-            headers: { "Access-Control-Allow-Origin": "*" },
-          });
+        const st = statSync(filePath, { throwIfNoEntry: false });
+        if (!st?.isFile()) {
+          return missing(st ? "Not a file" : `Media not found: ${filePath}`);
         }
         const fileSize = st.size;
         const mimeType = getMediaMimeType(filePath);
@@ -1582,10 +1613,7 @@ if (!app.requestSingleInstanceLock()) {
           },
         });
       } catch (err) {
-        return new Response("Media not found: " + String(err), {
-          status: 404,
-          headers: { "Access-Control-Allow-Origin": "*" },
-        });
+        return missing("Media not found: " + String(err));
       }
     });
 

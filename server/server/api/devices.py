@@ -774,6 +774,29 @@ async def _stat_on_devices(
     return stat, dev_token
 
 
+# Files the server keeps itself and hands out by path: images sent with a question (ask_stream.py and
+# the agent dispatch in orchestrator.py write them here). Every other path names a file on a device.
+_SERVER_FILE_ROOTS: tuple[str, ...] = (
+    "/data2/memento/images",
+    "/tmp/memento_images",
+    os.path.join(tempfile.gettempdir(), "memento_images"),
+)
+
+
+def _server_file(clean_path: str) -> str | None:
+    """The server's own copy of a file, only under _SERVER_FILE_ROOTS (links resolved first): a path that
+    is also a file in the server's container (its code, config, /proc/self/environ) is never served from
+    it, and the request goes to the user's devices instead."""
+    if not clean_path.startswith("/"):
+        return None
+    real = os.path.realpath(clean_path)
+    for root in _SERVER_FILE_ROOTS:
+        base = os.path.realpath(root).rstrip(os.sep) + os.sep
+        if real.startswith(base) and os.path.isfile(real):
+            return real
+    return None
+
+
 def _clean_device_path(path: str) -> str:
     """The absolute path the client meant: unquoted (also when double-encoded), forward slashes, no file://."""
     clean_path = path.strip()
@@ -818,7 +841,7 @@ async def locate_device_file(
     server has it itself (on its disk or in its media cache)."""
     target_machine, mids = await _authorized_machine(db, device_id, _user)
     clean_path = _clean_device_path(path)
-    if (os.path.isfile(clean_path) and os.path.exists(clean_path)) or clean_path in _known_cache_map:
+    if _server_file(clean_path) or clean_path in _known_cache_map:
         return {"local": True}
     cached = await _get_cached_stat(clean_path)
     if cached and cached[0] > 0 and (device_id == "auto" or not target_machine):
@@ -901,24 +924,7 @@ async def stream_device_file(
         if target_machine and mids is not None and target_machine.id not in mids:
             raise HTTPException(status_code=403, detail="Device access denied")
 
-    # Defensive recursive unquote in case client double-encoded or path contains %XX
-    clean_path = path.strip()
-    for _ in range(3):
-        unquoted = urllib.parse.unquote(clean_path)
-        if unquoted == clean_path:
-            break
-        clean_path = unquoted
-
-    clean_path = clean_path.replace("\\", "/")
-    if clean_path.startswith("file://"):
-        clean_path = clean_path.replace("file://", "")
-        if clean_path.startswith("/") and len(clean_path) > 3 and clean_path[2] == ":":
-            clean_path = clean_path[1:]
-
-    # Path traversal check
-    if any(p == ".." for p in clean_path.split("/")):
-        raise HTTPException(status_code=400, detail="Path traversal forbidden")
-
+    clean_path = _clean_device_path(path)
     raw_clean_path = clean_path
     ext = os.path.splitext(clean_path)[1].lower()
     mime_type, _ = mimetypes.guess_type(clean_path)
@@ -975,12 +981,12 @@ async def stream_device_file(
             mime_type = "application/octet-stream"
 
     total_size = 0
-    is_local = os.path.exists(clean_path) and os.path.isfile(clean_path)
-    if not is_local and "_720p" in clean_path:
-        alt_path = clean_path.replace("_720p", "")
-        if os.path.exists(alt_path) and os.path.isfile(alt_path):
-            clean_path = alt_path
-            is_local = True
+    server_copy = _server_file(clean_path)
+    if not server_copy and "_720p" in clean_path:
+        server_copy = _server_file(clean_path.replace("_720p", ""))
+    is_local = server_copy is not None
+    if server_copy:
+        clean_path = server_copy
 
     cache_dir = _get_media_cache_dir()
 

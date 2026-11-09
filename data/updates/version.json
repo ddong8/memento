@@ -1,25 +1,25 @@
 {
   "version": "1.0.103",
-  "title": "Memento v1.0.102",
+  "title": "Memento v1.0.103",
   "release_notes": "1. 工作台里的文件在 Mac、Windows 客户端、网页和手机上都能打开，不管文件在本机还是在别的设备上：本机的直接读磁盘，别的设备上的经服务端从那台设备取\n2. Windows 上 Git Bash、WSL 写法的路径（如 /c/Users/...、/mnt/c/...）也能找到文件；文件名带 # 或 ? 的文件不再打不开；图片在本机找不到时自动改从文件所在的设备取\n3. 任务过程里每一步工具调用显示更多输出，开头和结尾都保留；一个任务最多保留 800 步；Antigravity、WorkBuddy 的工具调用也一步一步显示\n4. 读文件、改文件、写文件的步骤直接显示文件名、读取的行号和所在目录，能预览的文件点文件名就在工作台打开\n5. 手机端版本号与客户端统一为 1.0.103",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.102-win-x64.zip",
-      "size": 158095078,
-      "sha256": "21e630982968965b5d76e16821726d53b6e6f50b3f0fa436d83ccb2b2c7a62c5",
-      "sha512": "t9fbqgmVo16LWYr6XjRKVVRYLZId62kqp4GUfPWnb+rRbDQ+tzC41htQWa1XLb4km1RPqJa1wlVJX5MOZmeG+Q=="
+      "asset_name": "Memento-1.0.103-win-x64.zip",
+      "size": 158105431,
+      "sha256": "fefad3b49d2cc61db1059cdbb33f9c06c53c36f03fc08cde4903f4733c6f1799",
+      "sha512": "WEQvz8cSDQ9jLUU4pVM4G6DstgKN3ekxK54iKB2ju6f8vJRhQZLrg/cxkECrpbrYCwVi79iXvWbGvNGsZE9VBw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.102-mac-arm64.zip",
-      "size": 132573829,
-      "sha256": "68afdf3c12f356157c7690e0f33435ff952ef6920e463a8bb53844174950fee6",
-      "sha512": "QryPDBz8oZS/DEKrt/Cgy4dZgmPGDEed9oE3xgYdoDusVVklmK+REyUIQy4m/LDPM8H/HQiAnlN2a3Bz6YKJTA=="
+      "asset_name": "Memento-1.0.103-mac-arm64.zip",
+      "size": 132584468,
+      "sha256": "e9ce0055215efa154855a134405147dada39d2b4bae0a51baae926531aca0910",
+      "sha512": "8fARvhSeWTeKxOBQUl8J9Mf872/27M4KDGWRj/37Gjy7oEzRjR2S/679KrTQJ5TZleyuEkhsaCJzG8szncq8lg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.102-linux-x64.tar.gz",
-      "size": 131861056,
-      "sha256": "d26a37b9e50d546bcfc564e7afd8b32cef368ce710ebe522c859c325ec7031a5",
-      "sha512": "K0HS0CrEKdYewnNfAKUB9yESqgKl2Ko5zEEiuFNHuJKlxsJ1NedO+azm4T8geJZUk3gDpD3UMF8RSaXym3Bj8g=="
+      "asset_name": "Memento-1.0.103-linux-x64.tar.gz",
+      "size": 131872492,
+      "sha256": "aefcc273ea9fb1629bc0c6c0b55820f0a1276fc2bfc5c266bbf9254f4a713909",
+      "sha512": "7bzHeVwXyUsZd1gQzuEVE8/9Y8lWYLZqO1tXmcJ7gVUoH/NH+r/cedb3aFUXbT1Tc18ZL+aKI2525Wy1MNlDuQ=="
     }
   }
 }

@@ -177,6 +177,11 @@ celery_app.conf.beat_schedule = {
         "task": "server.tasks.learning_tasks.memory_lifecycle",
         "schedule": crontab(hour=4, minute=10),
     },
+    # Every 10 min — vectors for memories written without one (only dreaming wrote them before 11-09).
+    "memory-vectors": {
+        "task": "server.tasks.learning_tasks.memory_vectors",
+        "schedule": crontab(minute="6,16,26,36,46,56"),
+    },
     # 09:05 — push todos due today or overdue.
     "remind-todos": {
         "task": "server.tasks.learning_tasks.remind_todos",

@@ -95,7 +95,8 @@ class ReviewDropsSlipsTests(unittest.IsolatedAsyncioTestCase):
         cand = rs.Candidate(uuid.uuid4(), "会话", "claude_code", "memento", "memento", 40, 20, datetime.now(timezone.utc))
         db = MagicMock(commit=AsyncMock(), get=AsyncMock(return_value=None))
         user = SimpleNamespace(id=uuid.uuid4())
-        save = AsyncMock(return_value=object())
+        saved = SimpleNamespace(id=uuid.uuid4())
+        save = AsyncMock(return_value=saved)
         with patch.object(rs, "load_transcript", AsyncMock(return_value="…")), \
                 patch.object(rs, "load_known", AsyncMock(return_value=known)), \
                 patch.object(rs, "call_plain_chat", AsyncMock(return_value=json.dumps(answer, ensure_ascii=False))) as chat, \
@@ -105,6 +106,7 @@ class ReviewDropsSlipsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["pitfalls_seen"], [str(env_known.id)])
         self.assertEqual(result["slips"], 2)
         self.assertEqual(result["pitfalls_new"], 1)
+        self.assertEqual(result["pitfalls_added"], [str(saved.id)])
         self.assertEqual([c.args[2]["title"] for c in save.await_args_list], ["uv sync 要先装 Python 3.12"])
         self.assertIn("kind 只能是 env 或 slip", chat.await_args.kwargs["messages"][1]["content"])
 

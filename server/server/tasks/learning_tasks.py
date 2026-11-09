@@ -4,6 +4,7 @@
 - nightly: review finished sessions (skills, pitfalls, todos), then tidy memory
   (merge duplicates, retire contradicted memories, let unused ones go dormant)
 - 09:05: push todos due today or overdue
+- every 10 min: vectors for memories that have none (Ask's memory search, reconcile's closest ones)
 - weekly: score retrieval against the frozen question set, and measure whether
   the user has to correct the AI less (learning eval)
 """
@@ -23,6 +24,7 @@ from ..services.correction_service import learn_from_corrections, summarize_new_
 from ..services.eval_service import NoMaterial, build_set, needs_new_set, regression, recent_runs, run_eval
 from ..services import learning_eval_service as learning_eval
 from ..services.memory_lifecycle import reconcile, sweep_dormant
+from ..services.memory_vectors import backfill_memory_vectors
 from ..config import settings
 from ..services.notify_service import notify_user
 from ..services.retrospective_service import learn_from_tasks, review_sessions
@@ -229,6 +231,23 @@ def memory_lifecycle_task() -> dict:
         return asyncio.run(_lifecycle())
     except Exception as e:
         logger.warning("memory_lifecycle errored: %s", e)
+        return {"error": str(e)[:200]}
+
+
+async def _memory_vectors() -> dict:
+    async with async_session_factory() as db:
+        return await backfill_memory_vectors(db)
+
+
+@celery_app.task(
+    name="server.tasks.learning_tasks.memory_vectors",
+    acks_late=True, time_limit=600, soft_time_limit=540,
+)
+def memory_vectors_task() -> dict:
+    try:
+        return asyncio.run(_memory_vectors())
+    except Exception as e:
+        logger.warning("memory_vectors errored: %s", e)
         return {"error": str(e)[:200]}
 
 

@@ -452,7 +452,10 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
     data = _safe_json_loads(raw)
     now = datetime.now(timezone.utc)
     evidence = {"doc_id": str(cand.doc_id), "title": cand.title[:120], "tool_id": cand.tool_id, "at": cand.last_at.isoformat()}
-    result: dict[str, Any] = {"skill": None, "skill_event": None, "pitfalls_new": 0, "pitfalls_seen": [], "slips": 0, "todos_new": 0, "todos_done": 0}
+    result: dict[str, Any] = {
+        "skill": None, "skill_event": None, "pitfalls_new": 0, "pitfalls_seen": [], "pitfalls_added": [],
+        "slips": 0, "todos_new": 0, "todos_done": 0,
+    }
 
     skill = data.get("skill")
     if isinstance(skill, dict) and str(skill.get("description") or "").strip() and str(skill.get("body") or "").strip():
@@ -475,8 +478,10 @@ async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[
         if matched is not None:
             result["pitfalls_seen"].append(str(matched.id))
             continue
-        if await save_pitfall(db, user, item, cand.project, "outcome"):
+        mem = await save_pitfall(db, user, item, cand.project, "outcome")
+        if mem is not None:
             result["pitfalls_new"] += 1
+            result["pitfalls_added"].append(str(mem.id))  # a reworded known one, once reconcile merges it, is a hit
 
     for item in data.get("todos_new") or []:
         if not isinstance(item, dict) or not clean_title(item.get("title")):
@@ -630,22 +635,50 @@ async def learn_from_tasks(db: AsyncSession, user: User, now: datetime | None = 
 
 # ---- numbers for the health page ----
 
-async def _pitfalls_in_force(db: AsyncSession, user: User, ids: set[str]) -> set[str]:
-    """Reviews from before slips were dropped (11-09) matched them too; a pitfall retired since doesn't count."""
-    wanted = []
+async def pitfalls_in_force(db: AsyncSession, user: User, ids: set[str]) -> dict[str, tuple[str, str]]:
+    """Pitfall id -> (id, content) of the pitfall in force for it: itself while active, else the one
+    reconcile merged it into. Slips (reviews before 11-09 matched them too) and retired ones are left out."""
+    wanted: set[uuid.UUID] = set()
     for i in ids:
         try:
-            wanted.append(uuid.UUID(i))
+            wanted.add(uuid.UUID(i))
         except ValueError:
             continue
-    if not wanted:
-        return set()
-    rows = (await db.execute(
-        select(UserMemory.id, UserMemory.content).where(
-            UserMemory.user_id == user.id, UserMemory.id.in_(wanted), UserMemory.status == "active",
-        )
-    )).all()
-    return {str(i) for i, content in rows if not is_slip_memory(content)}
+    rows: dict[uuid.UUID, Any] = {}
+    frontier = set(wanted)
+    for _ in range(4):  # a chain of merges is short
+        if not frontier:
+            break
+        found = (await db.execute(
+            select(UserMemory.id, UserMemory.content, UserMemory.status, UserMemory.superseded_by).where(
+                UserMemory.user_id == user.id, UserMemory.category == "pitfall", UserMemory.id.in_(frontier),
+            )
+        )).all()
+        rows.update({r.id: r for r in found})
+        frontier = {r.superseded_by for r in found if r.status == "superseded" and r.superseded_by and r.superseded_by not in rows}
+    out: dict[str, tuple[str, str]] = {}
+    for pid in wanted:
+        row, hops = rows.get(pid), 0
+        while row is not None and row.status == "superseded" and row.superseded_by and hops < 4:
+            row, hops = rows.get(row.superseded_by), hops + 1
+        if row is not None and row.status == "active" and not is_slip_memory(row.content):
+            out[str(pid)] = (str(row.id), row.content)
+    return out
+
+
+def _review_pitfall_ids(result: Any) -> tuple[list[str], list[str]]:
+    result = result if isinstance(result, dict) else {}
+    seen, added = result.get("pitfalls_seen"), result.get("pitfalls_added")
+    return ([str(i) for i in seen] if isinstance(seen, list) else []), ([str(i) for i in added] if isinstance(added, list) else [])
+
+
+def pitfalls_hit_again(result: Any, in_force: dict[str, tuple[str, str]]) -> list[str]:
+    """Ids of the pitfalls in force a reviewed session hit again: the known ones it matched, and the
+    new ones it wrote that reconcile later found to be an older one reworded."""
+    seen, added = _review_pitfall_ids(result)
+    hits = [in_force[i][0] for i in seen if i in in_force]
+    hits += [in_force[i][0] for i in added if i in in_force and in_force[i][0] != i]
+    return list(dict.fromkeys(hits))  # once per session, also when it matched one and wrote its duplicate
 
 
 async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str, Any]:
@@ -656,12 +689,12 @@ async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str,
         )
     )).all()
     outcomes: dict[str, int] = {}
-    seen: list[str] = []
+    ids: set[str] = set()
     for outcome, result in rows:
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
-        seen += [str(i) for i in (result or {}).get("pitfalls_seen") or []]
-    in_force = await _pitfalls_in_force(db, user, set(seen))
-    repeats = sum(1 for i in seen if i in in_force)
+        ids.update(*_review_pitfall_ids(result))
+    in_force = await pitfalls_in_force(db, user, ids)
+    repeats = sum(len(pitfalls_hit_again(result, in_force)) for _, result in rows)
     tasks = (await db.execute(
         select(DeviceTask.status, func.count()).where(
             DeviceTask.user_id == user.id, DeviceTask.created_at >= since, DeviceTask.action.in_(("shell", "agent")),
@@ -726,8 +759,9 @@ def is_machine_pitfall(content: str | None) -> bool:
 async def device_pitfalls(db: AsyncSession, user: User, days: int = DEVICE_PITFALL_DAYS) -> dict[str, list[dict[str, Any]]]:
     """Machine id -> the pitfalls about the machine itself that the nightly review saw hit again in
     sessions on it lately, most hit first: [{"id", "content", "hits", "last"}]. Only ones still in
-    force (active, not the AI's own slips); one not hit again for `days` drops out by itself."""
-    cache_key = f"device_pitfalls:v2:{user.id}:{days}"
+    force (active, not the AI's own slips; a merged duplicate's hits go to the one it was merged
+    into); one not hit again for `days` drops out by itself."""
+    cache_key = f"device_pitfalls:v3:{user.id}:{days}"
     try:
         cached = await cache_get(cache_key)
         if isinstance(cached, dict):
@@ -737,33 +771,23 @@ async def device_pitfalls(db: AsyncSession, user: User, days: int = DEVICE_PITFA
 
     since = datetime.now(timezone.utc) - timedelta(days=days)
     rows = (await db.execute(
-        select(Document.machine_id, SessionReview.reviewed_at, SessionReview.result["pitfalls_seen"])
+        select(Document.machine_id, SessionReview.reviewed_at, SessionReview.result)
         .join(Document, Document.id == SessionReview.document_id)
         .where(SessionReview.user_id == user.id, SessionReview.reviewed_at >= since, Document.machine_id.is_not(None))
     )).all()
+    ids: set[str] = set()
+    for _, _, result in rows:
+        ids.update(*_review_pitfall_ids(result))
+    in_force = await pitfalls_in_force(db, user, ids) if ids else {}
     hits: dict[tuple[str, str], int] = {}
     last: dict[tuple[str, str], datetime] = {}
-    for machine_id, reviewed_at, seen in rows:
-        for pid in seen if isinstance(seen, list) else ():
-            key = (str(machine_id), str(pid))
+    for machine_id, reviewed_at, result in rows:
+        for pid in pitfalls_hit_again(result, in_force):
+            key = (str(machine_id), pid)
             hits[key] = hits.get(key, 0) + 1
             if key not in last or reviewed_at > last[key]:
                 last[key] = reviewed_at
-    wanted = set()
-    for _, pid in hits:
-        try:
-            wanted.add(uuid.UUID(pid))
-        except ValueError:
-            continue
-    content: dict[str, str] = {}
-    if wanted:
-        mems = (await db.execute(
-            select(UserMemory.id, UserMemory.content).where(
-                UserMemory.user_id == user.id, UserMemory.id.in_(wanted),
-                UserMemory.category == "pitfall", UserMemory.status == "active",
-            )
-        )).all()
-        content = {str(i): c for i, c in mems if c and not is_slip_memory(c) and is_machine_pitfall(c)}
+    content = {pid: c for pid, c in in_force.values() if c and is_machine_pitfall(c)}
     found: dict[str, list[dict[str, Any]]] = {}
     for (machine_id, pid), n in hits.items():
         if pid in content:

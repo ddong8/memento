@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9d6ddf9e` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `56a62b7e` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 220 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 158 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 220 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 159 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `9d6ddf9e` (2026-11-09): feat(profile): 每台设备的常驻画像带上在这台设备上反复踩过的坑
+- 最近改动 (Latest): `56a62b7e` (2026-11-09): fix(profile): 设备画像里只放机器环境的坑，代码缺陷和手动改集群的解法不放
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -585,7 +585,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 98 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 99 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 34 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-runner.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 21 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -596,10 +596,10 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (10 commits)
-- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (9 commits)
-- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (8 commits)
+- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (8 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (8 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
+- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (7 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (7 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (6 commits)
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `56a62b7e` (2026-11-09): fix(profile): 设备画像里只放机器环境的坑，代码缺陷和手动改集群的解法不放
 - `9d6ddf9e` (2026-11-09): feat(profile): 每台设备的常驻画像带上在这台设备上反复踩过的坑
 - `d8ece75d` (2026-11-09): fix(learning): WorkBuddy 的会话摘要和 Antigravity 派给子智能体的任务不再当作用户原话
 - `c18a5969` (2026-11-09): fix(learning): 纠正分类区分"功能还没做好"和"违反做事规矩"，AI 流水线报告不再当作用户原话，健康页说清规矩没生效的真实原因
 - `f807e3ed` (2026-11-09): fix(learning): 会话复盘把坑分成环境坑和 AI 自己的失误，失误不再入库，也不再算作又踩了已记下的坑
 - `4aaba93e` (2026-11-09): perf(sync): 大对话的暂存增量等会话真正结束再合并，静默 10 分钟或最早一段等满 1 小时才合并
-- `c1d7b5f6` (2026-11-09): fix(learning): 笔记、技能和项目文档重新进向量检索，文档不再值得向量化时清掉旧向量，没有素材的夜间整理不再写空日记
 
 ## 10. Key Environment Variables & Configuration
 

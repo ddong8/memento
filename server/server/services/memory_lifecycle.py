@@ -28,6 +28,7 @@ from ..db.models import User, UserMemory, UserProfile
 from ..db.session import async_session_factory
 from .ai_provider import call_plain_chat
 from .dreaming_service import _safe_json_loads
+from .memory_vectors import embed_memories, nearest_memories
 from .profile_service import get_draft_profile, get_published_profile, sanitize_profile_content
 
 logger = logging.getLogger("server.memory_lifecycle")
@@ -236,8 +237,8 @@ async def reconcile_group(
             if drop is None or drop is keep:
                 continue
             k, d = settle(kind, keep, drop)
-            if k.id in gone or d.id in gone:
-                continue
+            if k.id in gone or d.id in gone or k.status != ACTIVE or d.status != ACTIVE:
+                continue  # one closest to another group's memory may have stepped aside there already
             if not any(m is k or m is d for m in new):
                 continue  # only pairs that involve something new
             reason = f"{'和另一条重复' if kind == 'duplicate' else '被新的说法取代'}：{str(action.get('reason') or '')[:200]}"
@@ -247,6 +248,40 @@ async def reconcile_group(
             gone.add(d.id)
             changes.append((k, d, reason))
     return changes
+
+
+def _related_categories(mem: UserMemory) -> tuple[str, ...]:
+    """Where a duplicate of `mem` could be filed: rules and preferences are one group (group_key)."""
+    cat = (mem.category or "general").lower()
+    return ALWAYS_ON if cat in ALWAYS_ON else (cat,)
+
+
+async def _closest_first(
+    db: AsyncSession, user: User, new: list[UserMemory], others: list[UserMemory],
+) -> list[UserMemory]:
+    """What `new` is judged against: the memories closest to each new one first, from any project,
+    then `others` (the group, most recently touched first). Recency alone missed duplicates: on 11-09
+    the memento group held 144 pitfalls, so "pytest isn't on PATH" (10-30) was never put next to
+    "no pytest command on macOS" (10-11), and the same PowerShell "&&" pitfall sat in two projects."""
+    new_ids = {m.id for m in new}
+    seen = set(new_ids)
+    picked: list[UserMemory] = []
+    for mem in new:
+        if mem.embedding is None:
+            continue
+        for near in await nearest_memories(db, user.id, mem.embedding, categories=_related_categories(mem), exclude=new_ids):
+            if near.id not in seen:
+                seen.add(near.id)
+                picked.append(near)
+    picked += [m for m in others if m.id not in seen]
+    return picked[:EXISTING_PER_CALL]
+
+
+async def _embed_quietly(db: AsyncSession, memories: list[UserMemory]) -> None:
+    try:
+        await embed_memories(db, memories)
+    except Exception as e:  # without vectors the group's most recent ones are still compared
+        logger.warning("embedding memories before reconcile failed: %s", e)
 
 
 async def _active_memories(db: AsyncSession, user: User) -> list[UserMemory]:
@@ -264,15 +299,17 @@ async def reconcile(db: AsyncSession, user: User, since: datetime | None) -> dic
 
     checked = superseded = 0
     pairs: list[tuple[UserMemory, UserMemory]] = []
+    batches: list[tuple[list[UserMemory], list[UserMemory]]] = []
     for members in groups.values():
         members.sort(key=_touched_at, reverse=True)
         new = [m for m in members if since is None or _touched_at(m) > since][:NEW_PER_CALL]
-        if not new:
-            continue
-        new_ids = {m.id for m in new}
-        old = [m for m in members if m.id not in new_ids][:EXISTING_PER_CALL]
+        if new:
+            new_ids = {m.id for m in new}
+            batches.append((new, [m for m in members if m.id not in new_ids]))
+    await _embed_quietly(db, [m for new, _ in batches for m in new])
+    for new, others in batches:
         try:
-            changes = await reconcile_group(db, user, new, old)
+            changes = await reconcile_group(db, user, new, await _closest_first(db, user, new, others))
         except Exception as e:
             logger.warning("reconcile group failed for user %s: %s", user.id, e)
             continue
@@ -288,9 +325,10 @@ async def reconcile_one(db: AsyncSession, user: User, memory: UserMemory) -> lis
     """Check one just-written memory against its group right away (e.g. a rule the user
     just accepted), so a changed preference doesn't sit next to the old one until night."""
     key = group_key(memory)
-    old = [m for m in await _active_memories(db, user) if m.id != memory.id and group_key(m) == key]
-    old.sort(key=_touched_at, reverse=True)
-    changes = await reconcile_group(db, user, [memory], old[:EXISTING_PER_CALL])
+    await _embed_quietly(db, [memory])
+    others = [m for m in await _active_memories(db, user) if m.id != memory.id and group_key(m) == key]
+    others.sort(key=_touched_at, reverse=True)
+    changes = await reconcile_group(db, user, [memory], await _closest_first(db, user, [memory], others))
     await _sync_profile(db, user, [(k, d) for k, d, _ in changes])
     await db.commit()
     return changes

@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String,
-    Text, UniqueConstraint, cast, func, text,
+    Text, UniqueConstraint, cast, event, func, inspect, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -775,6 +775,14 @@ class UserMemory(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+@event.listens_for(UserMemory.content, "set")
+def _drop_stale_memory_vector(target: UserMemory, value, oldvalue, initiator) -> None:
+    """A stored memory whose text changes loses the vector of its old text, which would keep matching
+    what it used to say; services/memory_vectors.py embeds the new text within minutes."""
+    if value != oldvalue and inspect(target).has_identity:
+        target.embedding = None
 
 
 # ---------------------------------------------------------------------------

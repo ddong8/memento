@@ -883,6 +883,7 @@ const zhCN = {
     failedShort: "失败",
     okShort: "成功",
     draftStatus: "画像草稿：{status}",
+    nothingToDream: "当晚没有可整理的新内容，未写记录",
     noJournals: "还没有做梦记录。",
     recentJournals: "最近的记录",
     scanned: "扫描 {n}",

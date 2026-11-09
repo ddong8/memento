@@ -157,6 +157,35 @@ class TestDreamingService(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不是有效的 JSON", journal.rem_reflections)
         self.assertIn("没有沉淀新的长期记忆", journal.deep_consolidations)
 
+    async def test_nightly_with_nothing_to_consolidate_writes_no_journal(self):
+        user = User(id=uuid.uuid4(), email="idle@example.com")
+
+        def empty_db():
+            db = AsyncMock()
+            db.add = MagicMock()
+            m = MagicMock()
+            m.scalars.return_value.all.return_value = []
+            m.all.return_value = []
+            m.scalar_one_or_none.return_value = None
+            db.execute.return_value = m
+            return db
+
+        llm = AsyncMock(return_value="{}")
+        with patch("server.services.dreaming_service.get_ai_providers", return_value=[{"provider": "t"}]), \
+             patch("server.services.dreaming_service.deduplicate_and_merge_entities", AsyncMock(return_value={})), \
+             patch("server.services.dreaming_service.call_plain_chat", llm):
+            db = empty_db()
+            self.assertIsNone(await run_dreaming_pipeline(db, user, days_back=1, skip_if_empty=True))
+            db.add.assert_not_called()
+            db.commit.assert_awaited()  # the read transaction is closed, not left idle
+
+            # Asked for explicitly (on demand, backfill), an empty window still gets its journal.
+            db = empty_db()
+            journal = await run_dreaming_pipeline(db, user, days_back=1)
+            self.assertEqual(journal.stage_metrics["scanned_items"], 0)
+            db.add.assert_called_once_with(journal)
+        llm.assert_not_awaited()
+
     def test_is_suspicious_non_project(self):
         # Chemical compounds and IUPAC
         self.assertTrue(_is_suspicious_non_project("3_甲基_3,9_二氮杂螺[5,5]十一烷", "3-甲基-3,9-二氮杂螺[5.5]十一烷"))

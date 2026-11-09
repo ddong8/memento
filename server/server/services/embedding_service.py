@@ -62,8 +62,11 @@ CHUNK_OVERLAP = 200
 # A guard against runaway documents (~40M chars), not a budget: with only
 # changed chunks embedded, a long conversation costs its length once.
 MAX_CHUNKS = 20_000
-# Only these get vectors (other categories are config, extensions, …)
-EMBED_CATEGORIES = ("conversation", "memory", "learning", "plan", "identity")
+# Only these get vectors: what the user wrote or said. The rest are listings the
+# collector generates (configs, tool discovery, shell history, extensions, state).
+# Notes, skills and project docs were left out from 10-17 to 11-09, so Obsidian
+# notes went unembedded and edits to them never reached the vectors.
+EMBED_CATEGORIES = ("conversation", "memory", "learning", "plan", "identity", "note", "skill", "document")
 QUIET_SECONDS = 120  # a document still being written waits until it goes quiet...
 MAX_WAIT_SECONDS = 1800  # ...or until its last embedding is this old
 SLICE = 128  # chunks embedded and committed together
@@ -404,6 +407,14 @@ async def _finish(db: AsyncSession, doc: Document, status: str, seen_synced_at) 
     await db.commit()
 
 
+async def _skip(db: AsyncSession, doc: Document, seen_synced_at) -> None:
+    """Nothing worth embedding any more: drop the vectors of what it used to say,
+    or semantic search keeps returning text the document no longer has (11-09:
+    19 conversations, cut below 100 characters of dialogue, still had 113)."""
+    await db.execute(delete(DocumentEmbedding).where(DocumentEmbedding.document_id == doc.id))
+    await _finish(db, doc, "skipped", seen_synced_at)
+
+
 async def embed_document(
     db: AsyncSession, doc: Document, *, deadline: float | None = None, client: httpx.AsyncClient | None = None,
 ) -> tuple[str, int]:
@@ -415,12 +426,12 @@ async def embed_document(
     """
     seen_synced_at = doc.synced_at
     if doc.content_type in ("sqlite", "sqlite_export", "binary"):
-        await _finish(db, doc, "skipped", seen_synced_at)
+        await _skip(db, doc, seen_synced_at)
         return "skipped", 0
     body = await _document_text(db, doc)
     chunks = _chunk_text(body)[:MAX_CHUNKS] if len(body) >= 100 else []
     if not chunks:
-        await _finish(db, doc, "skipped", seen_synced_at)
+        await _skip(db, doc, seen_synced_at)
         return "skipped", 0
 
     stored = dict((await db.execute(

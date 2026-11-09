@@ -830,7 +830,10 @@ function Dreaming({ dreaming }: { dreaming: Obj }) {
           left={fmt(h.lastNightly, { at: time(run.at) })}
           right={run.ok === false ? h.failedShort : h.okShort}
           rightColor={run.ok === false ? DANGER : SUCCESS}
-          sub={run.ok === false ? String(run.error ?? "") : fmt(h.draftStatus, { status: labels[String(run.profile_status)] ?? String(run.profile_status ?? "—") })}
+          sub={run.ok === false ? String(run.error ?? "") : [
+            ...(run.skipped === "no_material" ? [h.nothingToDream] : []),
+            fmt(h.draftStatus, { status: labels[String(run.profile_status)] ?? String(run.profile_status ?? "—") }),
+          ].join(" · ")}
         />
       )}
       {run && journals.length > 0 && <Divider />}

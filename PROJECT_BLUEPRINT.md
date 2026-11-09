@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7db9e7ba` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7e7e4162` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 156 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `7db9e7ba` (2026-11-09): fix(learning): 夜间整理拿到截断回答时自动加额度重问，检索评测只出有原文依据的题，日报重算失败稍后重试
+- 最近改动 (Latest): `7e7e4162` (2026-11-09): perf(search): 关键词检索按词的稀有度加权并强制走全文索引，评测按含答案原文的文档计分，Codex 回合结束的重复回复不再入库
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -598,12 +598,12 @@ erDiagram
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (11 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
 - [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (8 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
-- [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (7 commits)
+- [`server/server/api/projects.py`](server/server/api/projects.py) (7 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
 - [`packages/mcp/src/server.ts`](packages/mcp/src/server.ts) (6 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
+- [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (6 commits)
 - [`server/server/services/mind_resonance_service.py`](server/server/services/mind_resonance_service.py) (6 commits)
 
 ## 8. Development & Verification Commands
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7e7e4162` (2026-11-09): perf(search): 关键词检索按词的稀有度加权并强制走全文索引，评测按含答案原文的文档计分，Codex 回合结束的重复回复不再入库
 - `7db9e7ba` (2026-11-09): fix(learning): 夜间整理拿到截断回答时自动加额度重问，检索评测只出有原文依据的题，日报重算失败稍后重试
 - `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
 - `c6d9d3d6` (2026-11-09): chore(release): 升级客户端版本至 v1.0.101，AI 工具查项目蓝图默认只返回摘要与文档开头
 - `03a65218` (2026-11-09): fix(blueprint): 多设备蓝图按最新代码挑选，蓝图工具不再重复返回各设备副本，个人蓝图不再被旧克隆占满
 - `70cae1f7` (2026-11-09): chore(release): 升级客户端版本至 v1.0.100，旧版 agy 命令自动修复，卸载清理旧包装与链接
-- `31ea7d9d` (2026-11-09): fix(android): versionCode 改为 主×1000000+次×1000+修订，版本号到三位数后不与 1.1.0 撞号
 
 ## 10. Key Environment Variables & Configuration
 

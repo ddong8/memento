@@ -76,9 +76,12 @@ async def _run_all_users_dreaming(days_back: int = 1) -> dict[str, int]:
         for user in users:
             run: dict = {"at": datetime.now(timezone.utc).isoformat(), "ok": True}
             try:
-                journal = await run_dreaming_pipeline(db, user, days_back=days_back)
+                journal = await run_dreaming_pipeline(db, user, days_back=days_back, skip_if_empty=True)
                 processed += 1
-                run["promoted"] = ((journal.stage_metrics or {}).get("promoted_count") if journal else None)
+                if journal is None:
+                    run["skipped"] = "no_material"  # nothing in the window, so no journal was written
+                else:
+                    run["promoted"] = (journal.stage_metrics or {}).get("promoted_count")
             except Exception as e:
                 logger.error("Dreaming failed for user %s (%s): %s", user.id, user.email, e)
                 await db.rollback()
@@ -99,10 +102,10 @@ async def _run_all_users_dreaming(days_back: int = 1) -> dict[str, int]:
             await _alert_bad_night(user, run)
 
             # 成功固化新记忆时，主动推送今日心智晨报通知
-            if run["ok"] and run.get("promoted", 0) and run.get("promoted", 0) > 0:
+            if run["ok"] and (run.get("promoted") or 0) > 0:
                 try:
                     today_str = datetime.now().strftime("%m月%d日")
-                    promoted = run.get("promoted", 0)
+                    promoted = run["promoted"]
                     brief_title = f"🧠 Memento 心智晨报 · {today_str}"
                     brief_msg = f"昨夜心智深度做梦提炼完成：固化沉淀了 {promoted} 条高价值业务记忆，个人画像已自进化更新。"
                     await notify_user(user.id, "briefing", brief_title, brief_msg, url="/memory?tab=dreams")

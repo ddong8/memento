@@ -869,6 +869,7 @@ const enUS: Translations = {
     failedShort: "failed",
     okShort: "ok",
     draftStatus: "Profile draft: {status}",
+    nothingToDream: "nothing new to consolidate, no journal written",
     noJournals: "No dream journals yet.",
     recentJournals: "Recent journals",
     scanned: "scanned {n}",

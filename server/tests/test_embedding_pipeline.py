@@ -264,3 +264,44 @@ class SweepTests(unittest.IsolatedAsyncioTestCase):
             results = await asyncio.gather(self._sweep(), self._sweep())
         self.patch.start()
         self.assertEqual(sum(1 for r in results if r.get("busy")), 1)
+
+    async def test_a_document_cut_below_the_minimum_loses_its_old_vectors(self) -> None:
+        from sqlalchemy import delete, update
+
+        from server.db.models import Document
+
+        await self._sweep()
+        self.assertGreater(await self._chunk_count(), 0)
+        # A collector update now keeps only a line of dialogue from the session
+        async with self.Session() as db:
+            await db.execute(delete(self.ConversationMessage).where(
+                self.ConversationMessage.document_id == self.doc.id, self.ConversationMessage.line_number > 0))
+            await db.execute(update(self.ConversationMessage).where(self.ConversationMessage.document_id == self.doc.id)
+                             .values(content="好"))
+            await db.execute(update(Document).where(Document.id == self.doc.id).values(
+                embedding_status="pending", synced_at=datetime.now(timezone.utc) - timedelta(minutes=5)))
+            await db.commit()
+        self.calls.clear()
+        await self._sweep()
+        self.assertEqual((await self._doc()).embedding_status, "skipped")
+        self.assertEqual(await self._chunk_count(), 0)  # no stale text left for semantic search
+        self.assertEqual(self.calls, [])
+
+    async def test_notes_are_embedded(self) -> None:
+        from sqlalchemy import func, select, update
+
+        from server.db.models import Document, DocumentEmbedding
+
+        async with self.Session() as db:
+            await db.execute(update(Document).where(Document.id == self.doc.id).values(embedding_status="ok"))
+            note = Document(tool_id="claude_code", machine_id=self.doc.machine_id, relative_path="vault/部署.md",
+                            category="note", content_type="text/markdown", content="部署走 GitOps，推送后等 CI。" * 20,
+                            content_hash="n", file_size_bytes=1, synced_at=NOW - timedelta(minutes=10))
+            db.add(note)
+            await db.commit()
+        stats = await self._sweep()
+        self.assertEqual(stats["embedded"], 1)
+        async with self.Session() as db:
+            self.assertEqual((await db.get(Document, note.id)).embedding_status, "ok")
+            self.assertGreater(await db.scalar(select(func.count()).select_from(DocumentEmbedding)
+                                               .where(DocumentEmbedding.document_id == note.id)), 0)

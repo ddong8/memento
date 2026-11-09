@@ -1002,8 +1002,14 @@ async def run_dreaming_pipeline(
     start_date: date | None = None,
     end_date: date | None = None,
     tag: str = "nightly",
-) -> DreamJournal:
-    """Execute the 3-stage Dreaming pipeline for a specific user."""
+    skip_if_empty: bool = False,
+) -> DreamJournal | None:
+    """Execute the 3-stage Dreaming pipeline for a specific user.
+
+    With skip_if_empty, a window with nothing to consolidate returns None
+    instead of writing an empty journal (the nightly run uses this, so a user
+    with no devices doesn't collect a blank journal every night).
+    """
     today = date.today()
     now = datetime.now(timezone.utc)
 
@@ -1097,6 +1103,10 @@ async def run_dreaming_pipeline(
         + len(window_ents)
         + len(canonical_projects)
     )
+    if skip_if_empty and scanned_count == 0:
+        await db.commit()  # end the read transaction; nothing was written
+        logger.info("Dreaming skipped for user %s: nothing to consolidate", user.email)
+        return None
 
     if canonical_projects:
         proj_lines = [

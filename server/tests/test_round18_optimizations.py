@@ -41,6 +41,29 @@ class TestRound18Optimizations(unittest.IsolatedAsyncioTestCase):
             self.assertIn("心智晨报", call_args[2])
             self.assertIn("3 条高价值业务记忆", call_args[3])
 
+    async def test_nightly_run_with_nothing_to_consolidate_records_the_skip(self):
+        fake_user = unittest.mock.MagicMock()
+        fake_user.id = uuid.uuid4()
+        fake_session = AsyncMock()
+        mock_result = unittest.mock.MagicMock()
+        mock_result.scalars.return_value.all.return_value = [fake_user]
+        fake_session.execute.return_value = mock_result
+
+        with patch("server.tasks.dreaming_tasks.async_session_factory") as mock_sf, \
+             patch("server.tasks.dreaming_tasks.run_dreaming_pipeline", new_callable=AsyncMock, return_value=None) as mock_dreaming, \
+             patch("server.tasks.dreaming_tasks.build_profile_draft", new_callable=AsyncMock, return_value=(None, "no_input")), \
+             patch("server.services.ai_health.put_json", new_callable=AsyncMock) as put_json, \
+             patch("server.tasks.dreaming_tasks.notify_user", new_callable=AsyncMock) as mock_notify:
+            mock_sf.return_value.__aenter__.return_value = fake_session
+            res = await _run_all_users_dreaming(days_back=1)
+
+        self.assertEqual(res, {"processed": 1, "errors": 0})
+        self.assertTrue(mock_dreaming.await_args.kwargs["skip_if_empty"])
+        run = put_json.await_args[0][1]
+        self.assertEqual((run["ok"], run["skipped"], run["profile_status"]), (True, "no_material", "no_input"))
+        self.assertNotIn("promoted", run)
+        mock_notify.assert_not_awaited()  # neither a briefing nor a failure alert
+
     async def test_ask_cache_hit_emits_cached_delta_and_done(self):
         """Verify that ask stream returns cached response and avoids LLM call when cache hits."""
         from server.api.ask import ask, AskRequest

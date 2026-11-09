@@ -84,6 +84,18 @@ class AssessTests(unittest.TestCase):
         issues = assess(_stats(ok=5), _stats(), _dreaming(last_run=run), PROFILE_OK, PIPELINE_OK, NOW)
         self.assertEqual([i["level"] for i in issues], ["error", "warn"])
 
+    def test_a_recent_night_with_nothing_to_consolidate_is_not_stale(self) -> None:
+        # No devices, no activity: the nightly run writes no journal, so the
+        # newest journal can be weeks old (or missing) without anything being wrong.
+        run = {"at": (NOW - timedelta(hours=9)).isoformat(), "ok": True, "skipped": "no_material"}
+        self.assertEqual(assess(_stats(ok=5), _stats(), _dreaming(hours_ago=400, last_run=run), PROFILE_OK, PIPELINE_OK, NOW), [])
+        empty = {"journals": [], "last_run": run}
+        self.assertEqual(assess(_stats(ok=5), _stats(), empty, PROFILE_OK, PIPELINE_OK, NOW), [])
+        # ...but a skip that is itself old means the nightly run stopped.
+        run["at"] = (NOW - timedelta(hours=40)).isoformat()
+        issues = assess(_stats(ok=5), _stats(), empty, PROFILE_OK, PIPELINE_OK, NOW)
+        self.assertEqual(issues[0]["text"], "还没有做梦记录")
+
     def test_dreaming_without_a_usable_answer_is_flagged(self) -> None:
         issues = assess(_stats(ok=5), _stats(), _dreaming(llm="unparsed"), PROFILE_OK, PIPELINE_OK, NOW)
         self.assertEqual([i["area"] for i in issues], ["dreaming"])

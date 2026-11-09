@@ -72,7 +72,10 @@ def assess(
         add("error", "dreaming", f"上次做梦失败：{last_run.get('error', '未知错误')}")
     latest = dreaming.get("journals", [])[:1]
     latest_at = datetime.fromisoformat(latest[0]["created_at"]) if latest else None
-    if latest_at is None or now - latest_at > DREAM_STALE:
+    # The nightly run writes no journal when the window had nothing to consolidate.
+    ran_empty = bool(last_run and last_run.get("skipped") == "no_material" and last_run.get("at")
+                     and now - datetime.fromisoformat(last_run["at"]) <= DREAM_STALE)
+    if not ran_empty and (latest_at is None or now - latest_at > DREAM_STALE):
         add("warn", "dreaming", "超过 30 小时没有新的做梦记录" if latest_at else "还没有做梦记录")
     if latest and latest[0].get("llm") in ("failed", "unparsed"):
         add("warn", "dreaming", "上次做梦没拿到模型的有效回答，当晚没有沉淀新记忆"

@@ -36,6 +36,7 @@ from ..db.models import (
 )
 from . import ai_health
 from .ai_provider import call_plain_chat
+from .cache import cache_get, cache_set
 from .dreaming_service import SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 from .skill_service import slugify, unique_slug, upsert_mined
 from .todo_service import add_todo, clean_title, close_todo, open_todos, parse_due
@@ -691,3 +692,66 @@ async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str,
             "success_rate": round(task_counts.get("succeeded", 0) / finished, 3) if finished else None,
         },
     }
+
+
+# ---- what each device keeps hitting, for its resident profile ----
+
+DEVICE_PITFALL_DAYS = 30
+DEVICE_PITFALL_LIMIT = 6
+
+
+async def device_pitfalls(db: AsyncSession, user: User, days: int = DEVICE_PITFALL_DAYS) -> dict[str, list[dict[str, Any]]]:
+    """Machine id -> the pitfalls the nightly review saw hit again in sessions on that machine
+    lately, most hit first: [{"id", "content", "hits", "last"}]. Only ones still in force (active,
+    not the AI's own slips); one not hit again for `days` drops out by itself."""
+    cache_key = f"device_pitfalls:{user.id}:{days}"
+    try:
+        cached = await cache_get(cache_key)
+        if isinstance(cached, dict):
+            return cached
+    except Exception:
+        pass
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        select(Document.machine_id, SessionReview.reviewed_at, SessionReview.result["pitfalls_seen"])
+        .join(Document, Document.id == SessionReview.document_id)
+        .where(SessionReview.user_id == user.id, SessionReview.reviewed_at >= since, Document.machine_id.is_not(None))
+    )).all()
+    hits: dict[tuple[str, str], int] = {}
+    last: dict[tuple[str, str], datetime] = {}
+    for machine_id, reviewed_at, seen in rows:
+        for pid in seen if isinstance(seen, list) else ():
+            key = (str(machine_id), str(pid))
+            hits[key] = hits.get(key, 0) + 1
+            if key not in last or reviewed_at > last[key]:
+                last[key] = reviewed_at
+    wanted = set()
+    for _, pid in hits:
+        try:
+            wanted.add(uuid.UUID(pid))
+        except ValueError:
+            continue
+    content: dict[str, str] = {}
+    if wanted:
+        mems = (await db.execute(
+            select(UserMemory.id, UserMemory.content).where(
+                UserMemory.user_id == user.id, UserMemory.id.in_(wanted),
+                UserMemory.category == "pitfall", UserMemory.status == "active",
+            )
+        )).all()
+        content = {str(i): c for i, c in mems if c and not is_slip_memory(c)}
+    found: dict[str, list[dict[str, Any]]] = {}
+    for (machine_id, pid), n in hits.items():
+        if pid in content:
+            found.setdefault(machine_id, []).append(
+                {"id": pid, "content": content[pid], "hits": n, "last": last[(machine_id, pid)].isoformat()}
+            )
+    for items in found.values():
+        items.sort(key=lambda p: (p["hits"], p["last"], p["id"]), reverse=True)
+        del items[DEVICE_PITFALL_LIMIT:]
+    try:
+        await cache_set(cache_key, found, ttl_seconds=600)
+    except Exception:
+        pass
+    return found

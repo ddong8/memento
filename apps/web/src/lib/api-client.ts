@@ -552,6 +552,16 @@ export interface ProfileDevice {
   online: boolean;
   targets: string[];
   status: { version?: number | null; results?: Record<string, string>; reported_at?: string };
+  /** Pitfalls the nightly review saw hit again on this device lately, as its profile carries them. */
+  pitfalls?: DevicePitfall[];
+}
+
+export interface DevicePitfall {
+  id: string;
+  /** The line in the profile: "【project】title：fix". */
+  line: string;
+  hits: number;
+  last: string;
 }
 
 export interface UserBlueprintData {
@@ -607,6 +617,8 @@ export interface ProfileState {
   user_blueprint?: UserBlueprintData | null;
   /** Devices keep PROJECT_BLUEPRINT.md and its git hooks in local repos (default on). */
   blueprint_auto?: boolean;
+  /** Each device's profile lists the pitfalls hit again on it in the last 30 days (default on). */
+  pitfalls_auto?: boolean;
 }
 
 export interface AvatarSettings {
@@ -842,6 +854,10 @@ export const api = {
   setBlueprintSettings: (auto: boolean) =>
     apiFetch<{ auto: boolean }>("/api/profile/blueprint/settings", {
       method: "PUT", body: JSON.stringify({ auto }),
+    }).finally(_invalidateProfile),
+  setProfilePitfallSettings: (enabled: boolean) =>
+    apiFetch<{ enabled: boolean }>("/api/profile/pitfalls/settings", {
+      method: "PUT", body: JSON.stringify({ enabled }),
     }).finally(_invalidateProfile),
   regenerateProfileDraft: () =>
     apiFetch<{ status: ProfileDraftStatus; draft: ProfileVersion | null }>(

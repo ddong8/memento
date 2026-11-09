@@ -434,6 +434,9 @@ export default function PersonaPage() {
   // 各设备自动维护本地仓库的 PROJECT_BLUEPRINT.md 与 git 钩子（null：还没读到）
   const [blueprintAuto, setBlueprintAuto] = useState<boolean | null>(null);
   const [blueprintAutoBusy, setBlueprintAutoBusy] = useState(false);
+  // 各设备画像带上近 30 天在这台设备上又踩过的坑（null：还没读到）
+  const [pitfallsAuto, setPitfallsAuto] = useState<boolean | null>(null);
+  const [pitfallsAutoBusy, setPitfallsAutoBusy] = useState(false);
   const [showFullUserBlueprintMd, setShowFullUserBlueprintMd] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isAvatarFirstTime, setIsAvatarFirstTime] = useState(false);
@@ -460,6 +463,7 @@ export default function PersonaPage() {
         setUserBlueprint(uBlueprint);
       }
       setBlueprintAuto(profile.blueprint_auto !== false);
+      setPitfallsAuto(profile.pitfalls_auto !== false);
       const nextPending = Array.isArray(corrections.pending)
         ? (corrections.pending as Record<string, unknown>[])
         : [];
@@ -1940,6 +1944,40 @@ export default function PersonaPage() {
                   <p className="text-[10px] text-[var(--aurora-fg3)] mt-0.5">
                     画像准则自动热写入本地开发环境，点击卡片可单独开关同步：
                   </p>
+                  {pitfallsAuto !== null && (
+                    <div className="mt-2 flex items-center gap-2.5">
+                      <SmoothToggle
+                        size="sm"
+                        checked={pitfallsAuto}
+                        disabled={pitfallsAutoBusy}
+                        onChange={async (next) => {
+                          setPitfallsAutoBusy(true);
+                          setPitfallsAuto(next);
+                          try {
+                            const res = await api.setProfilePitfallSettings(next);
+                            setPitfallsAuto(res.enabled);
+                            setNotice(
+                              res.enabled
+                                ? "已开启：各设备下次同步画像时带上在这台设备上反复踩过的坑"
+                                : "已关闭：各设备下次同步画像时去掉反复踩过的坑这一节",
+                            );
+                            load();
+                          } catch (e) {
+                            setPitfallsAuto(!next);
+                            setError((e as Error).message);
+                          } finally {
+                            setPitfallsAutoBusy(false);
+                          }
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-[var(--aurora-fg1)]">画像带上本机反复踩过的坑</div>
+                        <div className="text-[10px] text-[var(--aurora-fg4)] leading-snug">
+                          每晚复盘认定近 30 天在这台设备上又遇到过的问题和解法，写进这台设备的画像，不调 MCP 也能看到；AI 自己的操作失误不算，30 天没再遇到自动去掉
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {state?.devices.map((device) => (
@@ -1998,6 +2036,26 @@ export default function PersonaPage() {
                         );
                       })}
                     </div>
+
+                    {device.pitfalls && device.pitfalls.length > 0 && (
+                      <div className="p-2.5 rounded-xl border border-[var(--aurora-border)] bg-[var(--aurora-chip)] space-y-1.5">
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-[var(--aurora-fg2)]">
+                          <Icon name="target" size={12} />
+                          <span>画像里带的反复踩过的坑 · {device.pitfalls.length} 条</span>
+                        </div>
+                        {device.pitfalls.map((pit) => (
+                          <div key={pit.id} className="flex items-start gap-2 text-[11px] leading-snug">
+                            <span
+                              className="shrink-0 mt-px text-[9px] font-mono text-[var(--aurora-accent)]"
+                              title={`最近一次：${formatTime(pit.last)}`}
+                            >
+                              {pit.hits} 次
+                            </span>
+                            <span className="min-w-0 break-words text-[var(--aurora-fg2)]">{pit.line}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -38,6 +38,7 @@ from ..services.profile_service import (
     build_profile_draft,
     get_draft_profile,
     get_published_profile,
+    pick_device_pitfalls,
     publish_profile,
     device_projects,
     render_device_profile,
@@ -45,6 +46,7 @@ from ..services.profile_service import (
     sanitize_profile_content,
 )
 from ..services.ai_provider import call_plain_chat
+from ..services.retrospective_service import device_pitfalls
 import time
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -114,6 +116,27 @@ class BlueprintSettingsBody(BaseModel):
     auto: bool
 
 
+# users.proactive_settings key: each device's profile lists the pitfalls hit again on it lately (default on)
+PITFALLS_SETTING = "profile_pitfalls"
+
+
+def profile_pitfalls_enabled(user: User) -> bool:
+    return (user.proactive_settings or {}).get(PITFALLS_SETTING, True) is not False
+
+
+async def _device_pitfalls(db: AsyncSession, user: User) -> dict[str, list[dict]]:
+    """Machine id -> the pitfalls its profile carries, [] for all when the switch is off."""
+    return await device_pitfalls(db, user) if profile_pitfalls_enabled(user) else {}
+
+
+def _pitfalls_out(items: list[dict]) -> list[dict]:
+    """What the web shows: exactly the lines the device's profile carries."""
+    return [
+        {"id": items[i]["id"], "line": line.removeprefix("- "), "hits": items[i]["hits"], "last": items[i]["last"]}
+        for i, line in pick_device_pitfalls([p["content"] for p in items])
+    ]
+
+
 @router.put("/blueprint/settings")
 async def set_blueprint_settings(
     body: BlueprintSettingsBody,
@@ -131,6 +154,28 @@ async def set_blueprint_settings(
     except Exception:
         pass
     return {"auto": body.auto}
+
+
+class PitfallSettingsBody(BaseModel):
+    enabled: bool
+
+
+@router.put("/pitfalls/settings")
+async def set_pitfall_settings(
+    body: PitfallSettingsBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Turn the "反复踩过的坑" section of every device's profile on or off. It isn't part of the
+    published text, so the publish review doesn't cover it; this is how the user keeps it out."""
+    user.proactive_settings = {**(user.proactive_settings or {}), PITFALLS_SETTING: body.enabled}
+    await db.commit()
+    try:
+        await cache_delete_prefix(f"profile_injection:{user.id}")
+        await cache_delete_prefix(f"profile:summary:{user.id}")
+    except Exception:
+        pass
+    return {"enabled": body.enabled}
 
 
 class BlueprintFailure(BaseModel):
@@ -217,6 +262,7 @@ async def get_profile(
         .order_by(Machine.last_heartbeat.desc().nulls_last())
     )).scalars().all()
     now = datetime.now(timezone.utc)
+    pitfalls = await _device_pitfalls(db, user) if published else {}
     payload = {
         "published": _profile_out(published),
         "draft": _profile_out(draft),
@@ -225,6 +271,7 @@ async def get_profile(
         ],
         "targets": list(INJECTION_TARGETS),
         "blueprint_auto": blueprint_auto_enabled(user),
+        "pitfalls_auto": profile_pitfalls_enabled(user),
         "devices": [
             {
                 "device_id": m.collector_token_hash,
@@ -232,6 +279,7 @@ async def get_profile(
                 "online": bool(m.last_heartbeat and now - m.last_heartbeat < ONLINE_WINDOW),
                 "targets": m.profile_targets or [],
                 "status": m.profile_status or {},
+                "pitfalls": _pitfalls_out(pitfalls.get(str(m.id), [])),
             }
             for m in machines
         ],
@@ -682,7 +730,9 @@ async def get_injection(
     published = await get_published_profile(db, user)
     block = None
     if published:
-        content = render_device_profile(published.content, machine.name, await device_projects(db, machine))
+        projects_here = await device_projects(db, machine)
+        pitfalls = [p["content"] for p in (await _device_pitfalls(db, user)).get(str(machine.id), [])]
+        content = render_device_profile(published.content, machine.name, projects_here, pitfalls)
         block = render_profile_block(published.version, content)
     bp_bundle = _get_blueprint_generator_bundle()
     res = {

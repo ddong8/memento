@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -197,17 +198,67 @@ def norm_scope_name(name: str) -> str:
     return re.sub(r"[\s_-]+", "", name or "").lower()
 
 
-def render_device_profile(content: str, device_name: str, projects_here: dict[str, str]) -> str:
-    """What one device's tools load: the general rules, this device's own, and the
-    rules of each project that lives on it, tied to that project's directory there.
-    Project and device rules for elsewhere stay out, so they can't leak into
-    unrelated work."""
+DEVICE_PITFALLS_HEADING = "### 这台设备上反复踩过的坑"
+DEVICE_PITFALLS_NOTE = "Memento 每晚复盘自动整理：近 30 天在这台设备上又遇到过的问题，做相关操作时直接用后面的办法。"
+_PITFALL_PARTS_RE = re.compile(r"^(?:【(?P<project>[^】]{1,60})】)?(?P<title>.+?)。现象：.*?；解决：(?P<fix>.+)$", re.DOTALL)
+_PRIVATE_IP_RE = re.compile(
+    r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"
+    r"|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])(?:\.\d{1,3}){2})(?::\d+)?\b"
+)
+_SECRET_RE = re.compile(r"\b(?:sk|ghp|gho|ghs|github_pat|xox[bp])[-_][A-Za-z0-9_-]{12,}")
+PITFALL_FIX_CHARS = 120
+
+
+def pitfall_line(content: str) -> str:
+    """A stored pitfall ("【project】title。现象：…；原因：…；解决：fix") as one profile line:
+    what it is and what to do, without the story. Internal addresses and keys stay out of
+    the tools' instruction files."""
+    text = re.sub(r"\s+", " ", (content or "").replace("<!--", "").replace("-->", "")).strip()
+    text = _SECRET_RE.sub("***", _PRIVATE_IP_RE.sub("内网地址", text))
+    m = _PITFALL_PARTS_RE.match(text)
+    if not m:
+        return f"- {_clip(text, PITFALL_FIX_CHARS + 40)}"
+    head = f"【{m['project']}】" if m["project"] else ""
+    return f"- {head}{m['title'].strip()}：{_clip(m['fix'].strip(), PITFALL_FIX_CHARS)}"
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def pick_device_pitfalls(pitfalls: Sequence[str]) -> list[tuple[int, str]]:
+    """The "反复踩过的坑" lines, most hit first, as many as fit in a scoped part: (index in
+    `pitfalls`, line). Two memories saying the same thing take one line."""
+    used = len(DEVICE_PITFALLS_HEADING) + len(DEVICE_PITFALLS_NOTE) + 2
+    picked: list[tuple[int, str]] = []
+    for i, content in enumerate(pitfalls):
+        line = pitfall_line(content)
+        if any(line == seen for _, seen in picked):
+            continue
+        if used + len(line) + 1 > SCOPED_MAX_CHARS:
+            break
+        picked.append((i, line))
+        used += len(line) + 1
+    return picked
+
+
+def render_device_profile(
+    content: str, device_name: str, projects_here: dict[str, str], pitfalls: Sequence[str] = (),
+) -> str:
+    """What one device's tools load: the general rules, this device's own, the pitfalls
+    hit again on it lately (contents of pitfall memories, most hit first), and the rules
+    of each project that lives on it, tied to that project's directory there. Project and
+    device rules for elsewhere stay out, so they can't leak into unrelated work."""
     scopes = split_profile_scopes(content)
     parts = [scopes.general] if scopes.general else []
     device_key = norm_scope_name(clean_device_name(device_name))
     own = [line for name, lines in scopes.devices.items() if norm_scope_name(clean_device_name(name)) == device_key for line in lines]
     if own:
         parts.append("### 本机专属\n" + "\n".join(own))
+    picked = pick_device_pitfalls(pitfalls)
+    if picked:
+        # Plain "- " lines: the collector reads "#### name（`path`）" headings as this device's projects
+        parts.append(f"{DEVICE_PITFALLS_HEADING}\n{DEVICE_PITFALLS_NOTE}\n" + "\n".join(line for _, line in picked))
     paths = {norm_scope_name(name): path for name, path in projects_here.items()}
     here = [(name, paths[norm_scope_name(name)], lines) for name, lines in scopes.projects.items() if lines and norm_scope_name(name) in paths]
     if here:

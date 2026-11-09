@@ -71,6 +71,37 @@ class PitfallLineTests(unittest.TestCase):
         self.assertLess(len(lines), 20)
 
 
+class MachinePitfallTests(unittest.TestCase):
+    def test_what_the_machine_does_differently_goes_in(self):
+        for content in (
+            GREP, PYTEST,
+            _pit("macOS 上不存在 timeout 命令", "zsh:1: command not found: timeout", "macOS 默认没有 GNU coreutils", "用 gtimeout"),
+            _pit("PowerShell 不支持 &&", "ParserError", "Windows PowerShell 5.1", "改用 ;"),
+            _pit("python-docx 读日报输出中文乱码", "Command output 显示乱码", "控制台是 GBK", "sys.stdout.reconfigure(encoding='utf-8')"),
+            _pit("git push 因代理问题反复失败", "unable to access github.com", "代理没开", "先确认代理端口在监听"),
+            _pit("kubectl cp 用 Windows 绝对路径当 src 报错", "one of src or dest must be a local file", "盘符里的冒号", "改用相对路径"),
+            _pit("容器内没有 python3", "executable file not found", "nginx 镜像", "改用 sh -c"),
+        ):
+            with self.subTest(content=content[:30]):
+                self.assertTrue(rs.is_machine_pitfall(content))
+
+    def test_bugs_in_the_code_and_hand_made_cluster_changes_stay_out(self):
+        for content in (
+            # the two the Mac mini would have carried on 11-09
+            _pit("线上报 current transaction is aborted，根因是 user_memories 缺 embedding 列且迁移未执行",
+                 "current transaction is aborted", "生产库没有对应迁移",
+                 "用 kubectl exec deploy/postgres psql 手动 ALTER TABLE user_memories ADD COLUMN", "memento"),
+            _pit("暂存路径只改 hash/大小/metadata 仍触发全索引重写", "一条不碰 content 的暂存 UPDATE 很慢", "更新了带索引的列",
+                 "把同步字段的更新与 content 写入解耦", "memento"),
+            _pit("服务端代理固定用解析出的第一个 IP 导致 GitHub 502", "502", "只用了第一个地址", "按地址逐个重试", "memento"),
+            _pit("搬迁模块后函数内的相对导入失效", "ModuleNotFoundError: No module named 'server.api.services'", "相对导入层级变了", "改成模块顶层导入"),
+            _pit("PowerShell 下 grep 不可用", "'grep' is not recognized", "Windows", "kubectl -n memento set image deploy/api api=x"),
+        ):
+            with self.subTest(content=content[:30]):
+                self.assertFalse(rs.is_machine_pitfall(content))
+        self.assertFalse(rs.is_machine_pitfall(None))
+
+
 class RenderTests(unittest.TestCase):
     PROFILE = "### 铁律\n- 只走 GitOps\n\n## 项目：memento\n- 提交用中文\n\n## 设备：DESKTOP-KR9IPP4\n- 数据放 D 盘"
 
@@ -179,17 +210,19 @@ class DevicePitfallQueryTests(unittest.IsolatedAsyncioTestCase):
                 db.add(m)
                 return m
 
-            grep, build = memory(user, GREP), memory(user, _pit("uni-app 打包失败", fix="先装 HBuilderX CLI"))
+            grep = memory(user, GREP)
+            amp = memory(user, _pit("PowerShell 不支持 &&", "ParserError", "Windows PowerShell 5.1", "改用 ;"))
             pytest_ = memory(user, PYTEST)
-            retired = memory(user, _pit("旧的坑"), status="dormant")
+            bug = memory(user, _pit("合并时漏了最后一片", "消息少了一条", "循环边界写错", "改成 <=", "memento"))
+            retired = memory(user, _pit("没有 jq 命令", "command not found: jq"), status="dormant")
             slip = memory(user, _pit("猜错表名", "relation does not exist", "猜错了表名", "先查 information_schema"))
-            foreign = memory(other, _pit("别人的坑"))
+            foreign = memory(other, _pit("没有 gh 命令", "command not found: gh"))
             await db.flush()
 
             reviews = [  # (machine, days ago, pitfalls seen)
-                (win, 1, [grep, build, retired, slip, foreign]),
-                (win, 2, [grep]),
-                (win, 3, [grep, build]),
+                (win, 1, [grep, amp, retired, slip, foreign, bug]),
+                (win, 2, [grep, bug]),
+                (win, 3, [grep, amp, bug]),
                 (win, 40, [grep, retired]),  # too old
                 (win, 4, []),
                 (mac, 1, [pytest_]),
@@ -208,7 +241,7 @@ class DevicePitfallQueryTests(unittest.IsolatedAsyncioTestCase):
                 found = await rs.device_pitfalls(db, user)
                 theirs = await rs.device_pitfalls(db, other)
 
-        self.assertEqual([(p["id"], p["hits"]) for p in found[str(win.id)]], [(str(grep.id), 3), (str(build.id), 2)])
+        self.assertEqual([(p["id"], p["hits"]) for p in found[str(win.id)]], [(str(grep.id), 3), (str(amp.id), 2)])
         self.assertEqual([p["id"] for p in found[str(mac.id)]], [str(pytest_.id)])
         self.assertEqual(found[str(win.id)][0]["content"], GREP)
         self.assertEqual(theirs, {})

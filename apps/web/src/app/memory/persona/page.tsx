@@ -1973,7 +1973,7 @@ export default function PersonaPage() {
                       <div className="min-w-0">
                         <div className="text-[11px] font-bold text-[var(--aurora-fg1)]">画像带上本机反复踩过的坑</div>
                         <div className="text-[10px] text-[var(--aurora-fg4)] leading-snug">
-                          每晚复盘认定近 30 天在这台设备上又遇到过的问题和解法，写进这台设备的画像，不调 MCP 也能看到；AI 自己的操作失误不算，30 天没再遇到自动去掉
+                          每晚复盘认定近 30 天在这台设备上又遇到过的机器环境问题（缺命令、PATH、shell、编码、代理、路径）和解法，写进这台设备的画像，不调 MCP 也能看到；代码缺陷和 AI 自己的操作失误不算，30 天没再遇到自动去掉
                         </div>
                       </div>
                     </div>

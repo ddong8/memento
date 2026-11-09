@@ -699,12 +699,35 @@ async def review_stats(db: AsyncSession, user: User, days: int = 7) -> dict[str,
 DEVICE_PITFALL_DAYS = 30
 DEVICE_PITFALL_LIMIT = 6
 
+# What failed came from the machine itself: a missing command, the shell, encoding, a proxy, its paths.
+# "env" pitfalls also hold bugs in the user's code; their fix was a one-off change, nothing to keep in mind there.
+_MACHINE_RE = re.compile(
+    r"(?i:command not found|is not recognized|无法将.{0,20}识别为|不是(内部或外部|可用的?|有效的?)?命令|找不到(该)?命令|"
+    r"命令(不存在|不可用|找不到)|(不存在|没有)\s*[\w.+-]{1,24}\s*(命令|可执行)|(未|没有?)安装|not installed|"
+    r"PowerShell|cmd\.exe|cmdlet|ParserError|\bzsh\b|非交互|login shell|"
+    r"GBK|乱码|编码|\bencoding\b|Unicode(De|En)codeError|"
+    r"(git|npm|pnpm|pip|uv|curl|push|pull|clone|下载|拉取)\S{0,6}\s*(因|走|经|用|的)?\s*(代理|proxy)|https?_proxy|镜像源|"
+    r"容器(内|里)(没有|缺)|Windows\s*的?\s*(绝对)?路径|盘符|反斜杠)"
+    r"|\bPATH\b|\bLANG=|\bLC_ALL\b"
+)
+# A fix that changes the cluster or the database by hand goes against GitOps; it stays out of a resident profile.
+_MANUAL_OPS_RE = re.compile(
+    r"(?i:kubectl\s+(-n\s+\S+\s+)?(apply|edit|patch|set|delete|scale|rollout)\b|"
+    r"kubectl\s.{0,60}\b(psql|alter|update|delete)\b|ALTER\s+TABLE|DROP\s+TABLE|docker\s+build)"
+)
+
+
+def is_machine_pitfall(content: str | None) -> bool:
+    """A stored pitfall about the machine it was hit on (format_pitfall: before 解决 is what failed)."""
+    failed, _, fix = (content or "").partition("；解决：")
+    return bool(_MACHINE_RE.search(failed)) and not _MANUAL_OPS_RE.search(fix)
+
 
 async def device_pitfalls(db: AsyncSession, user: User, days: int = DEVICE_PITFALL_DAYS) -> dict[str, list[dict[str, Any]]]:
-    """Machine id -> the pitfalls the nightly review saw hit again in sessions on that machine
-    lately, most hit first: [{"id", "content", "hits", "last"}]. Only ones still in force (active,
-    not the AI's own slips); one not hit again for `days` drops out by itself."""
-    cache_key = f"device_pitfalls:{user.id}:{days}"
+    """Machine id -> the pitfalls about the machine itself that the nightly review saw hit again in
+    sessions on it lately, most hit first: [{"id", "content", "hits", "last"}]. Only ones still in
+    force (active, not the AI's own slips); one not hit again for `days` drops out by itself."""
+    cache_key = f"device_pitfalls:v2:{user.id}:{days}"
     try:
         cached = await cache_get(cache_key)
         if isinstance(cached, dict):
@@ -740,7 +763,7 @@ async def device_pitfalls(db: AsyncSession, user: User, days: int = DEVICE_PITFA
                 UserMemory.category == "pitfall", UserMemory.status == "active",
             )
         )).all()
-        content = {str(i): c for i, c in mems if c and not is_slip_memory(c)}
+        content = {str(i): c for i, c in mems if c and not is_slip_memory(c) and is_machine_pitfall(c)}
     found: dict[str, list[dict[str, Any]]] = {}
     for (machine_id, pid), n in hits.items():
         if pid in content:

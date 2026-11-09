@@ -199,7 +199,7 @@ def norm_scope_name(name: str) -> str:
 
 
 DEVICE_PITFALLS_HEADING = "### 这台设备上反复踩过的坑"
-DEVICE_PITFALLS_NOTE = "Memento 每晚复盘自动整理：近 30 天在这台设备上又遇到过的问题，做相关操作时直接用后面的办法。"
+DEVICE_PITFALLS_NOTE = "Memento 每晚复盘自动整理：近 30 天在这台设备上又遇到过的环境问题，做相关操作时直接用后面的办法。"
 _PITFALL_PARTS_RE = re.compile(r"^(?:【(?P<project>[^】]{1,60})】)?(?P<title>.+?)。现象：.*?；解决：(?P<fix>.+)$", re.DOTALL)
 _PRIVATE_IP_RE = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"

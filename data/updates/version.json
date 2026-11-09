@@ -1,25 +1,25 @@
 {
   "version": "1.0.102",
-  "title": "Memento v1.0.101",
+  "title": "Memento v1.0.102",
   "release_notes": "1. Claude Code、Codex、Antigravity、Cursor 里的 Memento 记忆服务改为自动配置：客户端每 5 分钟检查一次，旧版留下的、带着过期 token 的配置自动改为客户端自带的服务，不用再填 token，也不会再出现「Invalid token」\n2. 修复 Antigravity 新版读不到 Memento 记忆服务的问题，配置写到新版实际读取的位置，并让正在运行的 Antigravity 立即加载，不用重启\n3. 改动前自动备份原配置，你自己写的同名配置不会被改\n4. 设备页显示每台设备上各个 AI 工具的记忆服务配置状态\n5. 手机端版本号与客户端统一为 1.0.102",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.101-win-x64.zip",
-      "size": 158069272,
-      "sha256": "ff4ad1803d3a4df0f827c86648725308ac56edc5c8decf3d2545a44900fc163e",
-      "sha512": "bsdpQHo7w+VHxQqhBB0YtOW1eMg0SuHafRcg4DGVXT1tr3eIGiNA0kH/DI/exy3+UUqrckZ+MIf1HObV4Iqc5g=="
+      "asset_name": "Memento-1.0.102-win-x64.zip",
+      "size": 158095078,
+      "sha256": "21e630982968965b5d76e16821726d53b6e6f50b3f0fa436d83ccb2b2c7a62c5",
+      "sha512": "t9fbqgmVo16LWYr6XjRKVVRYLZId62kqp4GUfPWnb+rRbDQ+tzC41htQWa1XLb4km1RPqJa1wlVJX5MOZmeG+Q=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.101-mac-arm64.zip",
-      "size": 132548615,
-      "sha256": "b5a154288beaa1b888354f573761b8b23ad1ce71f936cb227315cac8985a345e",
-      "sha512": "bDVh5puV0T/Ez5laI+oNOELQ6CHQV4glvwBdQdtcxhvJigNBOvAp0TzZEaSOEaADipHGCC56jTeZbGUAHHShrQ=="
+      "asset_name": "Memento-1.0.102-mac-arm64.zip",
+      "size": 132573829,
+      "sha256": "68afdf3c12f356157c7690e0f33435ff952ef6920e463a8bb53844174950fee6",
+      "sha512": "QryPDBz8oZS/DEKrt/Cgy4dZgmPGDEed9oE3xgYdoDusVVklmK+REyUIQy4m/LDPM8H/HQiAnlN2a3Bz6YKJTA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.101-linux-x64.tar.gz",
-      "size": 131836708,
-      "sha256": "4c675f74e32fab6a86d8bcb789341e06d9dd152f8437db377451a719916cd95a",
-      "sha512": "3ZyXqrF0WwrDmPYRnQy2zpapwRBr6xKzt7GvlxaZ1lehngkk6xApA1N0Q7LOcJt9lotHg+84AEOHdTMDFXQulw=="
+      "asset_name": "Memento-1.0.102-linux-x64.tar.gz",
+      "size": 131861056,
+      "sha256": "d26a37b9e50d546bcfc564e7afd8b32cef368ce710ebe522c859c325ec7031a5",
+      "sha512": "K0HS0CrEKdYewnNfAKUB9yESqgKl2Ko5zEEiuFNHuJKlxsJ1NedO+azm4T8geJZUk3gDpD3UMF8RSaXym3Bj8g=="
     }
   }
 }

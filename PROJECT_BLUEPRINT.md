@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f807e3ed` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c18a5969` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 219 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 157 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `f807e3ed` (2026-11-09): fix(learning): 会话复盘把坑分成环境坑和 AI 自己的失误，失误不再入库，也不再算作又踩了已记下的坑
+- 最近改动 (Latest): `c18a5969` (2026-11-09): fix(learning): 纠正分类区分"功能还没做好"和"违反做事规矩"，AI 流水线报告不再当作用户原话，健康页说清规矩没生效的真实原因
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -595,16 +595,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (11 commits)
-- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (10 commits)
-- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (10 commits)
+- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (10 commits)
+- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (9 commits)
+- [`packages/daemon/test/blueprint-auto.test.ts`](packages/daemon/test/blueprint-auto.test.ts) (9 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
+- [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (7 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (6 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
 - [`server/server/api/projects.py`](server/server/api/projects.py) (6 commits)
-- [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (6 commits)
+- [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `c18a5969` (2026-11-09): fix(learning): 纠正分类区分"功能还没做好"和"违反做事规矩"，AI 流水线报告不再当作用户原话，健康页说清规矩没生效的真实原因
 - `f807e3ed` (2026-11-09): fix(learning): 会话复盘把坑分成环境坑和 AI 自己的失误，失误不再入库，也不再算作又踩了已记下的坑
 - `4aaba93e` (2026-11-09): perf(sync): 大对话的暂存增量等会话真正结束再合并，静默 10 分钟或最早一段等满 1 小时才合并
 - `c1d7b5f6` (2026-11-09): fix(learning): 笔记、技能和项目文档重新进向量检索，文档不再值得向量化时清掉旧向量，没有素材的夜间整理不再写空日记
 - `7e7e4162` (2026-11-09): perf(search): 关键词检索按词的稀有度加权并强制走全文索引，评测按含答案原文的文档计分，Codex 回合结束的重复回复不再入库
 - `7db9e7ba` (2026-11-09): fix(learning): 夜间整理拿到截断回答时自动加额度重问，检索评测只出有原文依据的题，日报重算失败稍后重试
-- `3e24b680` (2026-11-09): fix(daily): 凌晨重新生成日报时有对话摘要失败就保留 23:30 那份，不再用截断原文覆盖
 
 ## 10. Key Environment Variables & Configuration
 

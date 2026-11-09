@@ -76,9 +76,16 @@ _NON_USER_PREFIXES = (
     "This session is being continued",
     "[Request interrupted",
     "[OpenClaw heartbeat",
+    # written by an agent, not typed (11-09: 36 WorkBuddy compaction summaries and 26 Antigravity
+    # delegations were read as the user's words; a summary is full of "用户要求…")
+    "<conversation_history_summary>",
+    "<cb_summary>",
+    "<analysis>",
+    "<original_task>",
 )
 _EMBEDDED_CONTEXT_RE = re.compile(
-    r"<(system-reminder|ide_selection|ide_opened_file|environment_context|user_instructions)>[\s\S]*?</\1>"
+    r"<(system-reminder|ide_selection|ide_opened_file|environment_context|user_instructions"
+    r"|external_codex_apps_open_page)>[\s\S]*?</\1>"
 )
 # Claude Code subagent transcripts: their "user" turns are prompts written by the parent agent.
 SUBAGENT_PATH_REGEX = r"(^|/)agent-[0-9a-f]+\.jsonl$"
@@ -120,9 +127,10 @@ _INJECTED_CONTEXT_RE = re.compile(
 )
 _INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话历史】", "Memento: 【前序会话核心记忆快照")
 
-# Another agent's report posted into the session as a queued user message: from 10-30 to 11-01 an
-# Antigravity pipeline sent 31 ("DeepCoder pipeline completed. **Worker Report**: > [!WARNING] …"),
-# and two were learned as the user pushing back on a rule.
+# Another agent's report posted into the session as a user message: from 10-30 to 11-01 Antigravity
+# pipelines sent 31 ("DeepCoder pipeline completed. **Worker Report**: > [!WARNING] Skepticism
+# Disclaimer …"); two were learned as the user pushing back on a rule, and a nightly memory said the
+# user wants reports to carry a Skepticism Disclaimer.
 _AGENT_REPORT_RE = re.compile(r"^[\w.-]+ pipeline (?:completed|failed)\b|\*\*Worker Report\*\*|Skepticism Disclaimer", re.IGNORECASE)
 
 _CLIENT_INJECTED_BLOCK_RE = re.compile(

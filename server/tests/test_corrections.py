@@ -169,6 +169,18 @@ class PrefilterTests(unittest.TestCase):
         report = ("DeepCoder pipeline completed.  **Worker Report**: > [!WARNING] **Skepticism Disclaimer** > "
                   "本次修改已通过 Vite 生产编译与零白屏校验，但因未连接物理真机触摸设备，不要默认它已经适配")
         self.assertIsNone(clean_user_voice(report))
+        for written_by_an_agent in (
+            "DeepInvestigator pipeline completed. **Investigation Findings**: # 系统全局研判",
+            "<original_task> **Task**: 退回到 commit 10aeaa13 吧 **Additional Context**: 用户更新了回退目标",
+            "<conversation_history_summary> Summary: 1. Primary Request: 用户要求把服务部署到 NAS </conversation_history_summary>",
+            "<analysis> 本次对话是平台的延续 </analysis> <summary> 用户本次会话的核心请求 </summary>",
+            "<cb_summary> Summary of the conversation so far </cb_summary>",
+            '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>',
+        ):
+            with self.subTest(written_by_an_agent[:20]):
+                self.assertIsNone(clean_user_voice(written_by_an_agent))
+        self.assertEqual(clean_user_voice('<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>不要提问题'),
+                         "不要提问题")
         self.assertEqual(clean_user_voice("手机版还是没有适配好啊，不要默认是灰色的"), "手机版还是没有适配好啊，不要默认是灰色的")
 
     def test_clean_user_voice_strips_client_injected_prefixes(self) -> None:

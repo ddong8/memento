@@ -90,6 +90,8 @@ EXEC_ACTIONS = {"shell", "agent"}
 # Cap stored output. The collector truncates before upload too; this is the
 # server-side backstop so one runaway task cannot bloat the table.
 MAX_OUTPUT_CHARS = 200_000
+# Step events kept per task (the daemon's AgentEventLog keeps the same number, the latest ones)
+MAX_TASK_EVENTS = 800
 
 class CreateTask(BaseModel):
     action: str
@@ -393,7 +395,7 @@ async def _save_finished(tid_str: str, data: dict) -> bool:
                     t.error = done.get("error")
                     t.session_id = str(data.get("session_id") or "")[:128] or None
                     if attempt == "full" and isinstance(data.get("events"), list):
-                        t.events = data["events"][:400]
+                        t.events = data["events"][-MAX_TASK_EVENTS:]
                 # still_running too: the agent has exited and nothing more comes for this task
                 # (left open, the reaper turned it into a timeout a day later)
                 t.finished_at = datetime.now(timezone.utc)

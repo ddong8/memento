@@ -536,6 +536,58 @@ describe("workbuddy_cli.mjs on memento's gateway", () => {
     expect(stdout).toContain("写不了，改用别的办法");
   }, 30_000);
 
+  it.skipIf(isWin)("shows each tool call with the file it works on, its status and output", async () => {
+    const home = await tempHome();
+    const server = createServer(async (req, res) => {
+      const url = req.url ?? "";
+      if (url === "/api/v1/acp/connect") return res.end(JSON.stringify({ connectionId: "c1" }));
+      const msg = JSON.parse(await body(req));
+      res.setHeader("Content-Type", "text/event-stream");
+      const send = (o: unknown) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+      const update = (u: Record<string, unknown>) => send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: u } });
+      if (msg.method === "session/new") return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "s1" } })}\n\n`);
+      if (msg.method === "session/prompt") {
+        // As the 5.8 CLI sends them: announced with the name only, arguments streamed, then the complete ones and the result
+        update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "先看看文件" } });
+        update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Read", kind: "other", status: "in_progress", rawInput: {}, _meta: { "codebuddy.ai/toolName": "Read" } });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t1", rawInput: { file_path: "/repo/REA" }, content: [{ type: "content", content: { type: "text", text: "" } }] });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t1", rawInput: { file_path: "/repo/README.md" }, _meta: { "codebuddy.ai/toolName": "Read", "codebuddy.ai/toolArgumentsComplete": true } });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed", content: [{ type: "content", content: { type: "text", text: "# memento" } }] });
+        update({ sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit", status: "in_progress", rawInput: {}, _meta: { "codebuddy.ai/toolName": "Edit" } });
+        update({ sessionUpdate: "tool_call_update", toolCallId: "t2", status: "failed", rawInput: { file_path: "/repo/a.ts" }, content: [{ type: "content", content: { type: "text", text: "old_string not found" } }] });
+        update({ sessionUpdate: "tool_call", toolCallId: "t3", title: "TodoWrite", status: "in_progress", rawInput: {}, _meta: { "codebuddy.ai/toolName": "TodoWrite" } });
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "看完了" } });
+        return res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn" } })}\n\n`);
+      }
+      res.end(`data: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} })}\n\n`);
+    });
+    servers.push(server);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    await mkdir(join(home, ".memento"), { recursive: true });
+    await writeFile(join(home, ".memento", "workbuddy-gateway.json"), JSON.stringify({ endpoint: `http://127.0.0.1:${port}`, password: "pw", pid: process.pid }));
+
+    const child = spawn(process.execPath, [RUNNER, "-p", "看看 README"], { cwd: home, env: { ...process.env, HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    expect(await new Promise<number | null>((r) => child.on("close", r))).toBe(0);
+
+    const events = stdout.split("\n").filter((l) => l.includes('"memento_event"')).map((l) => JSON.parse(l).event);
+    expect(events).toEqual([
+      { kind: "tool", id: "wb_thought", name: "深度思考", detail: "先看看文件…", status: "running" },
+      { kind: "tool", id: "wb_thought", status: "done" },
+      { kind: "tool", id: "wb_t1", name: "Read", detail: "", status: "running" },
+      { kind: "tool", id: "wb_t1", detail: "/repo/README.md" },
+      { kind: "tool", id: "wb_t1", status: "done", output: "# memento" },
+      { kind: "tool", id: "wb_t2", name: "Edit", detail: "", status: "running" },
+      { kind: "tool", id: "wb_t2", detail: "/repo/a.ts", status: "failed", output: "old_string not found" },
+      { kind: "tool", id: "wb_t3", name: "TodoWrite", detail: "", status: "running" },
+      { kind: "tool", id: "wb_t3", status: "done" },
+    ]);
+    expect(stdout).toContain("看完了");
+    expect(stdout).not.toContain("⚡");
+  }, 30_000);
+
   it("cancels session directly via cancelWorkbuddySession", async () => {
     const home = await tempHome();
     const password = "pw";

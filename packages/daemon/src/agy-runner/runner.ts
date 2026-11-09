@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
+import { clipOutput, toolArgsDetail } from "../agent-stream.js";
 import { sqliteRows } from "../sqlite.js";
 
 /**
@@ -14,7 +15,8 @@ import { sqliteRows } from "../sqlite.js";
  *
  * What the daemon reads (task-runner.ts, agent-stream.ts):
  *   - "session id: <id>" on stderr once the conversation is known, and progress lines there;
- *   - the reply on stdout, with "⚡ [action]" badges and memento_event JSON lines (questions);
+ *   - the reply on stdout, with memento_event JSON lines for each tool call (what it works on, its
+ *     status and output) and each question;
  *   - answers on stdin as {"type":"memento_answer","question_id","answer"}; any other line is a follow-up;
  *   - "[STATUS_STILL_RUNNING: tasks=…]" when background tasks outlive the wait;
  *   - exit 0 done, 1 failed, 124 timed out or unfinished, 130 stopped.
@@ -43,6 +45,91 @@ const err = (text: string) => void process.stderr.write(text);
 const out = (text: string) => void process.stdout.write(text);
 
 const agyHome = () => join(homedir(), ".gemini", "antigravity");
+
+/** What an Antigravity tool call works on (the file, the command, the query), for its row in the timeline. */
+export function agyToolDetail(name: string, a: Obj): string {
+  const first = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = a[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (typeof v === "number") return String(v);
+    }
+    return "";
+  };
+  const join2 = (x: string, y: string, sep = "  ") => [x, y].filter(Boolean).join(sep);
+  let d = "";
+  switch (name) {
+    case "run_command":
+      d = first("CommandLine", "Command");
+      break;
+    case "command_status":
+      d = first("CommandId");
+      break;
+    case "read_file":
+    case "view_file":
+    case "view_file_outline":
+    case "view_code_item": {
+      d = first("Path", "AbsolutePath", "File", "TargetFile");
+      const from = first("StartLine");
+      const to = first("EndLine");
+      if (d && from) d += to ? `:${from}-${to}` : `:${from}`;
+      break;
+    }
+    case "edit_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+    case "write_file":
+    case "write_to_file":
+      d = first("Path", "TargetFile", "AbsolutePath", "File");
+      break;
+    case "list_dir":
+      d = first("DirectoryPath", "Path");
+      break;
+    case "grep_search":
+    case "codebase_search":
+      d = join2(first("Query", "Pattern"), first("SearchPath", "SearchDirectory", "Path"));
+      break;
+    case "find_by_name":
+      d = join2(first("Pattern"), first("SearchDirectory", "SearchPath"));
+      break;
+    case "search_web":
+      d = first("query", "Query");
+      break;
+    case "read_url_content":
+    case "view_content_chunk":
+      d = first("Url", "url", "DocumentId");
+      break;
+    case "manage_task":
+      d = join2(first("Action"), first("TaskId"), " ");
+      break;
+    case "schedule": {
+      const secs = first("DurationSeconds");
+      d = join2(secs ? `${secs}s 后` : "", first("Prompt"), "：");
+      break;
+    }
+    case "invoke_subagent":
+      d = join2(first("Role", "TypeName"), first("Prompt"), "：");
+      break;
+    case "send_message":
+      d = join2(first("Recipient"), first("Message"), "：");
+      break;
+    case "manage_subagents":
+      d = first("toolSummary", "Action");
+      break;
+  }
+  if (!d) d = first("toolSummary", "toolAction");
+  if (!d) d = toolArgsDetail(a);
+  return head(d.split("\n")[0]!.replace(/^["']+|["']+$/g, ""), 200);
+}
+
+/** A tool step's result as the timeline shows it: without the timestamps and the reminder Antigravity adds for the model. */
+export function agyToolOutput(content: string): string {
+  return clipOutput(
+    content
+      .replace(/^(?:Created At|Completed At):[^\n]*\n/gm, "")
+      .replace(/\s*If relevant, proactively run terminal commands to execute this code for the USER\. Don't ask for permission\./g, ""),
+  );
+}
 
 /** stdout of a command, rejecting when it fails (as Python's check_output). */
 function capture(cmd: string, args: string[], timeout?: number): Promise<string> {
@@ -663,6 +750,22 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const questionId = (step: number, item: number) => `agy_${cid.slice(0, 8)}_${step}_${item}`;
   const emit = (event: Obj) => out(`\n${JSON.stringify({ type: "memento_event", event })}\n`);
 
+  // Each tool call is a row in the timeline. Its result is the next GENERIC step, in call order
+  // (null holds the place of an ask_question, shown as a question instead); one started in the
+  // background stays running until its task ends.
+  const pendingTools: (string | null)[] = [];
+  const backgroundTools = new Map<string, string>();
+  const toolEnded = (id: string | null | undefined, status: "done" | "failed", output?: string) => {
+    if (id) emit({ kind: "tool", id, status, ...(output ? { output } : {}) });
+  };
+  const closePending = () => {
+    for (const id of pendingTools.splice(0)) toolEnded(id, "done");
+  };
+  const backgroundEnded = (tid: string, status: "done" | "failed") => {
+    toolEnded(backgroundTools.get(tid), status);
+    backgroundTools.delete(tid);
+  };
+
   /** Shows each step Antigravity is waiting on as a question (once); false when the RPC isn't reachable. */
   const pollInteractions = async (): Promise<boolean> => {
     const traj = await lsRpc("GetCascadeTrajectory", { cascadeId: cid });
@@ -850,6 +953,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
               }
               if (size > 0 && timerEnded(logPath, size)) {
                 background.delete(t);
+                backgroundEnded(t, "done");
                 err(`\n✅ [后台任务 ${tc} 执行完毕/已结束]\n\n`);
                 idle = 0;
               }
@@ -941,6 +1045,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
       // task-<n> IDs only from a real async tool start (type GENERIC, status RUNNING), never from code or
       // logs a view_file or grep shows
+      let startedTask = "";
       if (stepType === "GENERIC" && data.status === "RUNNING" && content.startsWith("Created At:")) {
         const m =
           /(?:Tool is running as a background task with task id|Command running in background with ID|Task running in background with ID):\s*((?:[0-9a-fA-F-]+\/)?task-\d+)/i.exec(
@@ -948,6 +1053,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
           );
         if (m) {
           const tid = m[1]!.trim();
+          startedTask = tid;
           background.add(tid);
           err(`\n⏳ [后台任务启动: ${short(tid)}，持续追踪执行进度...]\n\n`);
           idle = 0;
@@ -974,6 +1080,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
             (matched && ["finished with result", "The command exited with code", "Timer fired", "Status: DONE"].some((kw) => content.includes(kw))));
         if (finished || cancelled) {
           background.delete(tid);
+          backgroundEnded(tid, cancelled ? "failed" : "done");
           err(`\n${cancelled ? "⏹️" : "✅"} [后台任务 ${tc} ${cancelled ? "已取消/终止" : "执行完毕，已接收运行结果"}]\n\n`);
           idle = 0;
         } else if (existsSync(tasksDir)) {
@@ -982,6 +1089,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
             const size = existsSync(logPath) ? statSync(logPath).size : 0;
             if (size > 0 && timerEnded(logPath, size)) {
               background.delete(tid);
+              backgroundEnded(tid, "done");
               err(`\n✅ [后台任务 ${tc} 执行完毕/已结束]\n\n`);
               idle = 0;
             }
@@ -996,10 +1104,23 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         state.inFlight.shift();
         if (!state.inFlight.length) state.toolStart = 0;
       }
+      if (stepType === "GENERIC" && pendingTools.length) {
+        const id = pendingTools.shift();
+        if (id) {
+          const output = agyToolOutput(content);
+          if (startedTask) {
+            backgroundTools.set(startedTask, id);
+            emit({ kind: "tool", id, status: "running", ...(output ? { output } : {}) });
+          } else {
+            toolEnded(id, data.status === "ERROR" || data.status === "INVALID" ? "failed" : "done", output);
+          }
+        }
+      }
       if (stepType === "USER_INPUT") {
         state.waiting = false;
         state.inFlight = [];
         state.toolStart = 0;
+        closePending();
       }
 
       // Not the model's own steps, or a tool's output
@@ -1025,6 +1146,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         lastError = "";
         state.inFlight = [];
         state.toolStart = 0;
+        // Calls whose results never came (the model moved on): over
+        closePending();
 
         if (toolCalls.length) {
           const names = toolCalls.map((tc) => str(tc.name) || "tool");
@@ -1039,7 +1162,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
             state.toolStart = Date.now();
           }
 
-          for (const tc of toolCalls) {
+          for (const [i, tc] of toolCalls.entries()) {
             const tcName = str(tc.name) || "tool";
             let tcArgs: Obj = obj(tc.args);
             if (typeof tc.args === "string") {
@@ -1054,6 +1177,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
               for (const tid of [...background]) {
                 if (target && (tid.includes(target) || target.includes(tid) || short(target) === short(tid))) {
                   background.delete(tid);
+                  backgroundEnded(tid, "done");
                   err(`\n⏹️ [后台任务 ${short(tid)} 已由 Agent 主动终止]\n\n`);
                   idle = 0;
                 }
@@ -1075,8 +1199,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
               });
             }
 
-            const action = or(tcArgs.toolAction, tcArgs.toolSummary) ?? tcName;
-            out(`\n\n⚡ [${typeof action === "string" ? action.replace(/^["']+|["']+$/g, "") : JSON.stringify(action)}]\n\n`);
+            if (tcName === "ask_question") {
+              pendingTools.push(null);
+              continue;
+            }
+            const id = `agy_${String(data.step_index ?? Date.now())}_${i}`;
+            pendingTools.push(id);
+            emit({ kind: "tool", id, name: tcName, detail: agyToolDetail(tcName, tcArgs), status: "running" });
           }
         }
 
@@ -1098,6 +1227,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
   } finally {
     reader.close();
+    // Every row ends with the run, except the background ones it leaves running
+    closePending();
   }
   return completed ? 0 : 124;
 }

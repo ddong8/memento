@@ -40,6 +40,44 @@ function clip(text: string, max: number): string {
 
 const firstLine = (text: string) => text.trim().split("\n")[0] ?? "";
 
+/** Most of a tool's output a step keeps: the head plus the tail, where errors and summaries end up. */
+export const TOOL_OUTPUT_HEAD = 1200;
+export const TOOL_OUTPUT_TAIL = 600;
+
+export function clipOutput(text: string, head = TOOL_OUTPUT_HEAD, tail = TOOL_OUTPUT_TAIL): string {
+  const t = text.trim();
+  if (t.length <= head + tail + 40) return t;
+  const lines = t.slice(head, t.length - tail).split("\n").length - 1;
+  return `${t.slice(0, head)}\n… 省略 ${t.length - head - tail} 字${lines > 0 ? `（${lines} 行）` : ""} …\n${t.slice(-tail)}`;
+}
+
+/** Keys that say what a tool call is about, in the order they're worth showing. */
+const DETAIL_KEYS = [
+  "file_path", "notebook_path", "path", "filePath", "file", "target_file", "TargetFile", "AbsolutePath", "Path",
+  "command", "cmd", "CommandLine", "url", "Url", "query", "Query", "q", "pattern", "Pattern",
+  "description", "task_id", "taskId", "bash_id", "shell_id", "skill", "name", "title", "subject", "prompt", "message",
+];
+
+/**
+ * A one-line summary of any tool's arguments: the first telling key, else the first short string,
+ * else a few key=value pairs. For tools nothing knows by name (MCP and the like).
+ */
+export function toolArgsDetail(input: Json): string {
+  for (const k of DETAIL_KEYS) {
+    const v = input[k];
+    if (typeof v === "string" && v.trim()) return clip(firstLine(v), 200);
+    if (typeof v === "number") return String(v);
+  }
+  for (const v of Object.values(input)) {
+    if (typeof v === "string" && v.trim() && v.length <= 200) return clip(firstLine(v), 200);
+  }
+  const pairs = Object.entries(input)
+    .filter(([, v]) => v != null && v !== "" && typeof v !== "object")
+    .slice(0, 3)
+    .map(([k, v]) => `${k}=${String(v)}`);
+  return clip(firstLine(pairs.join(" ")), 200);
+}
+
 export abstract class AgentStreamParser {
   sessionId: string | undefined;
   /** Error text reported inside the stream (not on stderr), for retry decisions. */
@@ -224,7 +262,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
               kind: "tool",
               id: toolUseId,
               status: block.is_error === true ? "failed" : "done",
-              output: clip(resText, 400),
+              output: clipOutput(resText),
             });
           }
         }
@@ -353,9 +391,29 @@ export function claudeToolDetail(name: string, input: Json): string {
     case "TodoWrite":
       detail = Array.isArray(input.todos) ? `${input.todos.length} 项待办` : undefined;
       break;
+    case "TaskStop":
+    case "TaskOutput":
+    case "KillShell":
+      detail = pick(["task_id", "shell_id", "bash_id"]);
+      break;
+    case "ToolSearch":
+      detail = pick(["query"]);
+      break;
+    case "Skill":
+      detail = [pick(["skill"]), pick(["args"])].filter((x): x is string => !!x).join("  ");
+      break;
+    case "AskUserQuestion": {
+      const q = Array.isArray(input.questions) ? input.questions.find(isObject) : undefined;
+      detail = q ? str(q.question) : undefined;
+      break;
+    }
+    case "Monitor":
+      detail = pick(["description", "command"]);
+      break;
     default:
-      detail = pick(["description", "command", "file_path", "path", "query", "url", "pattern", "prompt"]);
+      detail = undefined;
   }
+  if (!detail) detail = toolArgsDetail(input);
   return clip(firstLine(detail ?? ""), 200);
 }
 
@@ -412,7 +470,7 @@ export class CodexStreamParser extends AgentStreamParser {
               name: "Shell",
               detail: clip(firstLine(codexCommand(cmd)), 200),
               status: running(exit !== undefined && exit !== 0),
-              ...(done ? { output: clip(outText, 400) } : {}),
+              ...(done ? { output: clipOutput(outText) } : {}),
             });
 
             // Interactive confirmation prompt detection in shell output
@@ -473,9 +531,9 @@ export class CodexStreamParser extends AgentStreamParser {
               kind: "tool",
               id: str(item.id),
               name: fullName || "tool",
-              detail: isQuestion ? clip(str(args.question) || str(args.prompt) || "", 200) : "",
+              detail: isQuestion ? clip(str(args.question) || str(args.prompt) || "", 200) : toolArgsDetail(args),
               status: running(item.status === "failed"),
-              ...(done && item.result != null ? { output: clip(str(item.result) ?? "", 400) } : {}),
+              ...(done && item.result != null ? { output: clipOutput(mcpResultText(item.result)) } : {}),
             });
 
             if (isQuestion) {
@@ -627,6 +685,8 @@ export class UniversalStreamParser extends AgentStreamParser {
       if (colonIdx > 0 && colonIdx < 30) {
         toolName = label.slice(0, colonIdx).trim();
         toolDetail = label.slice(colonIdx + 1).trim();
+        // "Read: Read README.md": the title repeats the tool's name
+        if (toolDetail.toLowerCase().startsWith(`${toolName.toLowerCase()} `)) toolDetail = toolDetail.slice(toolName.length + 1).trim();
       }
 
       events.push({
@@ -677,6 +737,22 @@ export class UniversalStreamParser extends AgentStreamParser {
   }
 }
 
+/** An MCP call's result as text: Codex hands it over as {content: [{type: "text", text}]} or a plain string. */
+function mcpResultText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (isObject(result)) {
+    const text = toolResultText(result.content);
+    if (text) return text;
+    if (isObject(result.Ok)) return mcpResultText(result.Ok);
+    if (result.Err != null) return String(result.Err);
+  }
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
 /** "/bin/zsh -lc 'printf hi > a.txt'" -> "printf hi > a.txt". */
 export function codexCommand(raw: string): string {
   let cmd = raw.trim().replace(/^(?:\/\S*\/)?(?:ba|z)?sh\s+-l?c\s+/, "");
@@ -689,13 +765,23 @@ export function codexCommand(raw: string): string {
 /**
  * Tool events arrive as "running" and then again as "done"; the timeline keeps
  * one row per tool, updated in place. Other events are appended.
+ *
+ * A long run keeps its latest steps: once the log is full the oldest finished tool rows make room
+ * (the beginning of a run is the least useful part to lose the end for), and once the outputs add up
+ * to more than outputBudget characters the oldest ones are cut down to their first lines.
  */
 export class AgentEventLog {
-  private readonly rows: AgentEvent[] = [];
+  private rows: AgentEvent[] = [];
   private readonly toolIndex = new Map<string, number>();
   private readonly questionIndex = new Map<string, number>();
+  private outputChars = 0;
+  /** Rows let go to make room. */
+  dropped = 0;
 
-  constructor(private readonly limit = 400) {}
+  constructor(
+    private readonly limit = 800,
+    private readonly outputBudget = 400_000,
+  ) {}
 
   get events(): readonly AgentEvent[] {
     return this.rows;
@@ -713,16 +799,55 @@ export class AgentEventLog {
       : undefined;
 
     if (at !== undefined) {
-      const merged = { ...this.rows[at]!, ...event };
+      const before = this.rows[at]!;
+      const merged = { ...before, ...event };
       this.rows[at] = merged;
+      this.outputChars += outputLength(merged) - outputLength(before);
+      this.trimOutputs();
       return merged;
     }
     const row = { ...event, at: new Date().toISOString() };
-    if (this.rows.length < this.limit) {
-      if (isTool) this.toolIndex.set(id!, this.rows.length);
-      if (isQuestion) this.questionIndex.set(id!, this.rows.length);
-      this.rows.push(row);
-    }
+    if (this.rows.length >= this.limit && !this.makeRoom()) return row;
+    if (isTool) this.toolIndex.set(id!, this.rows.length);
+    if (isQuestion) this.questionIndex.set(id!, this.rows.length);
+    this.rows.push(row);
+    this.outputChars += outputLength(row);
+    this.trimOutputs();
     return row;
   }
+
+  /** Lets go of the oldest finished tool rows (a tenth of the log); false when there's none to let go. */
+  private makeRoom(): boolean {
+    const want = Math.max(1, Math.floor(this.limit / 10));
+    const drop = new Set<number>();
+    for (let i = 0; i < this.rows.length && drop.size < want; i++) {
+      const r = this.rows[i]!;
+      if (r.kind === "tool" && r.status !== "running") drop.add(i);
+    }
+    if (!drop.size) return false;
+    for (const i of drop) this.outputChars -= outputLength(this.rows[i]!);
+    this.rows = this.rows.filter((_, i) => !drop.has(i));
+    this.dropped += drop.size;
+    this.toolIndex.clear();
+    this.questionIndex.clear();
+    this.rows.forEach((r, i) => {
+      if (r.id == null) return;
+      if (r.kind === "tool") this.toolIndex.set(String(r.id), i);
+      else if (r.kind === "question") this.questionIndex.set(String(r.id), i);
+    });
+    return true;
+  }
+
+  private trimOutputs(): void {
+    for (let i = 0; i < this.rows.length && this.outputChars > this.outputBudget; i++) {
+      const r = this.rows[i]!;
+      const len = outputLength(r);
+      if (r.status === "running" || len <= 300) continue;
+      const short = clipOutput(String(r.output), 200, 100);
+      this.rows[i] = { ...r, output: short };
+      this.outputChars -= len - short.length;
+    }
+  }
 }
+
+const outputLength = (row: AgentEvent) => (typeof row.output === "string" ? row.output.length : 0);

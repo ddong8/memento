@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatTokenCount, mergeTaskEvent, taskRunSummary, taskToolLabel, type TaskEvent } from "../src/index.js";
+import { formatTokenCount, mergeTaskEvent, taskRunSummary, taskToolKind, taskToolLabel, type TaskEvent } from "../src/index.js";
 
 describe("task events", () => {
   it("updates a tool step in place and appends the rest", () => {
@@ -46,5 +46,25 @@ describe("task events", () => {
     expect(taskToolLabel("Bash: `du -sh ~/.memento`")).toBe("运行命令");
     expect(taskToolLabel("TaskOutput")).toBe("任务输出");
     expect(taskToolLabel("mcp.search")).toBe("mcp.search");
+    expect(taskToolLabel("constructor")).toBe("constructor");
+  });
+
+  it("labels and sorts every agent's tools, Antigravity's and MCP's too", () => {
+    expect(taskToolLabel("read_file")).toBe("读取");
+    expect(taskToolLabel("view_file")).toBe("读取");
+    expect(taskToolLabel("edit_file")).toBe("修改");
+    expect(taskToolLabel("replace_file_content")).toBe("修改");
+    expect(taskToolLabel("write_to_file")).toBe("写入文件");
+    expect(taskToolLabel("run_command")).toBe("运行命令");
+    expect(taskToolLabel("TaskStop")).toBe("停止后台任务");
+    expect(taskToolLabel("mcp__memento-memory__memory_search")).toBe("memento-memory · memory_search");
+    expect(taskToolKind("view_file")).toBe("read");
+    expect(taskToolKind("Edit")).toBe("edit");
+    expect(taskToolKind("write_file")).toBe("write");
+    expect(taskToolKind("grep_search")).toBe("search");
+    expect(taskToolKind("mcp__x__y")).toBe("mcp");
+    expect(taskToolKind("Read: Read a.md")).toBe("read");
+    expect(taskToolKind("toString")).toBe("other");
+    expect(taskToolKind(undefined)).toBe("other");
   });
 });

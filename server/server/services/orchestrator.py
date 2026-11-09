@@ -58,7 +58,7 @@ TASK_POLL_INTERVAL = 1.5
 # Trim tool output before it goes back into the prompt — a 100k-char build log
 # would blow the context and bury the signal.
 MAX_TOOL_OUTPUT = 6000
-MAX_TASK_EVENTS = 400  # step events kept per task (tool calls, file changes, usage)
+MAX_TASK_EVENTS = 800  # step events kept per task (tool calls, file changes, usage); api/tasks.py keeps as many
 # A device that hasn't checked in for this long is reported as likely offline,
 # so the model can pick a different machine instead of waiting on a dead one.
 OFFLINE_AFTER_SECONDS = 180
@@ -1093,7 +1093,7 @@ async def _follow_device_task(
                 "error_type": done_ws.get("error_type"),
                 "session_id": ext_sid,
                 "alerts": await _load_alerts(task_id_str),
-                "events": (done_ws.get("events") or [])[:MAX_TASK_EVENTS],
+                "events": (done_ws.get("events") or [])[-MAX_TASK_EVENTS:],
             }
             mark_usage_limit(ws_result)
             if pitfall_hint:
@@ -1140,7 +1140,7 @@ async def _follow_device_task(
             "error": done_task.error,
             "session_id": task_sid,
             "alerts": done_task.alerts or [],
-            "events": (done_task.events or [])[:MAX_TASK_EVENTS],
+            "events": (done_task.events or [])[-MAX_TASK_EVENTS:],
         }
         mark_usage_limit(task_result)
         if pitfall_hint:

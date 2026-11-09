@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import type { TaskEvent } from "@memento/core";
 import TaskTimeline, { SteerBox } from "./TaskTimeline";
 import { useMediaInspector, extractMediaFromMarkdown } from "./viewers/MediaInspectorContext";
+import { deviceOfCall } from "@/lib/file-devices";
 
 export interface ToolCallItem {
   id?: string;
@@ -69,6 +70,7 @@ const ExecutionCard = memo(function ExecutionCard({
   const { t, locale } = useI18n();
   const terminalRef = useRef<HTMLPreElement>(null);
   const inspector = useMediaInspector?.() || null;
+  const device = deviceOfCall(call);
 
   const { name, args, device_name, result } = call;
   const action = (result?.action || (args?.action as string) || (name === "run_on_device" ? "shell" : name));
@@ -808,7 +810,7 @@ const ExecutionCard = memo(function ExecutionCard({
           </div>
 
           {result?.events && result.events.length > 0 && (
-            <TaskTimeline events={result.events} running={isRunning} taskId={result?.task_id} />
+            <TaskTimeline events={result.events} running={isRunning} taskId={result?.task_id} device={device} />
           )}
           {/* Steer/Input box: any running agent with a valid task_id can take user follow-up input */}
           {isRunning && result?.task_id && isAgent && !waitingQuestion && (
@@ -856,7 +858,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      inspector.openMediaByUrl(discoveredMedia[0].url, discoveredMedia[0].title);
+                      inspector.openMediaByUrl(discoveredMedia[0].url, discoveredMedia[0].title, null, device);
                     }}
                     style={{
                       display: "inline-flex",

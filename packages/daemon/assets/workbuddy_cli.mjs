@@ -330,6 +330,69 @@ async function signIn(gw) {
   return false;
 }
 
+// What a tool step shows in memento's timeline (as packages/daemon/src/agent-stream.ts does for the
+// other agents): what the call works on, its status, and the head and tail of its output.
+const TOOL_DETAIL_KEYS = [
+  "file_path", "filePath", "notebook_path", "path", "target_file", "command", "cmd", "url", "query",
+  "pattern", "description", "task_id", "skill", "prompt", "name",
+];
+const firstLine = (text) => String(text).trim().split("\n")[0] ?? "";
+const clip = (text, max) => (text.length <= max ? text : `${text.slice(0, max)}…`);
+
+function clipOutput(text, head = 1200, tail = 600) {
+  const t = String(text).trim();
+  if (t.length <= head + tail + 40) return t;
+  const lines = t.slice(head, t.length - tail).split("\n").length - 1;
+  return `${t.slice(0, head)}\n… 省略 ${t.length - head - tail} 字${lines > 0 ? `（${lines} 行）` : ""} …\n${t.slice(-tail)}`;
+}
+
+function toolNameOf(upd) {
+  const meta = upd?._meta ?? {};
+  return String(meta["codebuddy.ai/toolName"] ?? meta["codebuddy.ai"]?.toolName ?? upd?.name ?? upd?.title ?? upd?.kind ?? "tool");
+}
+
+/** The file, command or query a call works on: from its arguments, else where it points, else its title. */
+function toolDetailOf(upd, name) {
+  const input = upd?.rawInput && typeof upd.rawInput === "object" ? upd.rawInput : {};
+  let detail = "";
+  for (const k of TOOL_DETAIL_KEYS) {
+    const v = input[k];
+    if (typeof v === "string" && v.trim()) {
+      detail = v;
+      break;
+    }
+  }
+  if (detail && name === "Grep" && typeof input.path === "string" && input.path && detail !== input.path) detail = `${detail}  ${input.path}`;
+  const where = Array.isArray(upd?.locations) ? upd.locations.find((l) => typeof l?.path === "string" && l.path) : null;
+  if (!detail && where) detail = where.path;
+  if (!detail && typeof upd?.title === "string" && upd.title.trim() && upd.title !== name) {
+    // "Read: Read README.md" and "Read README.md": the title repeats the tool's name
+    detail = upd.title.trim();
+    for (const prefix of [`${name}:`, `${name} `]) if (detail.startsWith(prefix)) detail = detail.slice(prefix.length).trim();
+  }
+  return clip(firstLine(detail), 200);
+}
+
+/** A finished call's output: the text it sent back, else the file it changed, else its raw output. */
+function toolOutputOf(upd) {
+  const parts = [];
+  for (const c of Array.isArray(upd?.content) ? upd.content : []) {
+    if (c?.type === "content" && typeof c.content?.text === "string") parts.push(c.content.text);
+    else if (c?.type === "diff" && typeof c.path === "string") parts.push(c.path);
+  }
+  if (!parts.length) {
+    const raw = upd?.rawOutput;
+    if (typeof raw === "string") parts.push(raw);
+    else if (raw && typeof raw === "object") {
+      const text = raw.output ?? raw.stdout ?? raw.content ?? raw.result;
+      if (typeof text === "string") parts.push(text);
+    }
+  }
+  return clipOutput(parts.join("\n"));
+}
+
+const TOOL_STATUS = { completed: "done", failed: "failed", cancelled: "failed", in_progress: "running", pending: "running" };
+
 function parseSseFrames(rawText) {
   const results = [];
   for (const line of rawText.split("\n")) {
@@ -502,7 +565,6 @@ async function main() {
   const timeoutTimer = setTimeout(() => controller.abort(), args.timeout * 1000);
 
   let printedText = false;
-  let lastToolId = "";
   let thoughtShown = false;
 
   // Questions WorkBuddy holds open for the user. Its AskUserQuestion comes as session/request_permission
@@ -511,6 +573,48 @@ async function main() {
   const asks = new Map(); // ask id -> { rpcId, toolCallId, kind, questions, options, answers }
   const openQuestions = []; // [question id, ask id, index]
   const emit = (event) => process.stdout.write(`\n${JSON.stringify({ type: "memento_event", event })}\n`);
+
+  // Each tool call is a row in the timeline. WorkBuddy announces it (tool_call, often with only the
+  // tool's name), streams its arguments, then sends the complete ones and its status and output
+  // (tool_call_update). The thinking row ends at the next step.
+  const tools = new Map(); // toolCallId -> { id, name, detail, status }
+  let thought = "";
+  const endThought = () => {
+    if (thought) emit({ kind: "tool", id: thought, status: "done" });
+    thought = "";
+  };
+  const onToolUpdate = (upd, announced) => {
+    const key = String(upd.toolCallId ?? "");
+    if (!key) return;
+    endThought();
+    let t = tools.get(key);
+    const status = TOOL_STATUS[upd.status];
+    // Arguments still streaming in can be cut off mid-path: only complete ones, or once it's under way
+    const argsReady = announced || upd.status != null || upd._meta?.["codebuddy.ai/toolArgumentsComplete"] === true;
+    if (!t) {
+      const name = toolNameOf(upd);
+      t = { id: `wb_${key}`, name, detail: argsReady ? toolDetailOf(upd, name) : "", status: "running" };
+      tools.set(key, t);
+      emit({ kind: "tool", id: t.id, name: t.name, detail: t.detail, status: t.status });
+    }
+    const event = { kind: "tool", id: t.id };
+    const detail = argsReady ? toolDetailOf(upd, t.name) : "";
+    if (detail && detail !== t.detail) event.detail = t.detail = detail;
+    if (status && status !== "running" && t.status === "running") {
+      event.status = t.status = status;
+      const output = toolOutputOf(upd);
+      if (output) event.output = output;
+    }
+    if (Object.keys(event).length > 2) emit(event);
+  };
+  const closeTools = () => {
+    endThought();
+    for (const t of tools.values()) {
+      if (t.status !== "running") continue;
+      t.status = "done";
+      emit({ kind: "tool", id: t.id, status: "done" });
+    }
+  };
   const reply = (id, result) =>
     fetch(`${gw.endpoint}/api/v1/acp`, {
       method: "POST",
@@ -554,7 +658,7 @@ async function main() {
     }
     asks.set(askId, { rpcId: obj.id, kind: "permission", options, answers: {} });
     openQuestions.push([`${askId}:0`, askId, 0]);
-    const detail = tc.rawInput?.command ?? tc.rawInput?.target ?? tc.title ?? "";
+    const detail = tc.rawInput?.command ?? tc.rawInput?.target ?? (toolDetailOf(tc, toolName) || tc.title) ?? "";
     emit({
       kind: "question",
       id: `${askId}:0`,
@@ -678,21 +782,17 @@ async function main() {
               const clean = t.replace(/\s+/g, " ").trim().slice(0, 60);
               if (clean) {
                 thoughtShown = true;
-                process.stdout.write(`\n⚡ [深度思考: ${clean}...]\n`);
+                thought = "wb_thought";
+                emit({ kind: "tool", id: thought, name: "深度思考", detail: `${clean}…`, status: "running" });
               }
             }
-          } else if (kind === "tool_call") {
-            const tcId = upd.toolCallId ?? "";
-            if (tcId !== lastToolId) {
-              lastToolId = tcId;
-              const toolName = upd._meta?.["codebuddy.ai/toolName"] ?? upd.title ?? upd.kind ?? "tool";
-              const title = upd.title && upd.title !== toolName ? `${toolName}: ${upd.title}` : toolName;
-              process.stdout.write(`\n⚡ [${String(title).replace(/[\r\n]+/g, " ").slice(0, 120)}]\n`);
-            }
+          } else if (kind === "tool_call" || kind === "tool_call_update") {
+            onToolUpdate(upd, kind === "tool_call");
           } else if (kind === "agent_message_chunk") {
             const t = upd.content?.text ?? "";
             if (t) {
-              if (!printedText && (thoughtShown || lastToolId)) {
+              endThought();
+              if (!printedText && (thoughtShown || tools.size)) {
                 process.stdout.write("\n");
               }
               printedText = true;
@@ -715,6 +815,8 @@ async function main() {
       }
       if (answered) break;
     }
+    // The prompt is over: steps WorkBuddy never closed (TodoWrite sends no result) are too
+    closeTools();
     if (printedText) process.stdout.write("\n");
     if (!terminating) {
       try {

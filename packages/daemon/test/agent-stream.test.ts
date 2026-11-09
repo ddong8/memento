@@ -5,8 +5,12 @@ import {
   AgentEventLog,
   ClaudeStreamParser,
   claudeToolDetail,
+  clipOutput,
   codexCommand,
   CodexStreamParser,
+  TOOL_OUTPUT_HEAD,
+  TOOL_OUTPUT_TAIL,
+  toolArgsDetail,
   UniversalStreamParser,
   type AgentEvent,
   type AgentStreamParser,
@@ -131,14 +135,53 @@ it("tool details read like what the agent did", () => {
   expect(codexCommand("/bin/zsh -lc 'git status'")).toBe("git status");
 });
 
-it("event log keeps one row per tool and caps its size", () => {
-  const log = new AgentEventLog(2);
+it("tool details for tools not known by name come from their arguments", () => {
+  expect(claudeToolDetail("TaskStop", { task_id: "b1x2" })).toBe("b1x2");
+  expect(claudeToolDetail("ToolSearch", { query: "select:Monitor", max_results: 3 })).toBe("select:Monitor");
+  expect(claudeToolDetail("Skill", { skill: "loop", args: "5m /foo" })).toBe("loop  5m /foo");
+  expect(claudeToolDetail("AskUserQuestion", { questions: [{ question: "用哪个？" }] })).toBe("用哪个？");
+  expect(claudeToolDetail("mcp__memento-memory__memory_search", { query: "部署", limit: 5 })).toBe("部署");
+  expect(claudeToolDetail("mcp__x__y", { limit: 5, verbose: true })).toBe("limit=5 verbose=true");
+  expect(toolArgsDetail({ Path: "/a/b.ts", StartLine: 1 })).toBe("/a/b.ts");
+});
+
+it("long tool output keeps its head and tail", () => {
+  const out = clipOutput(`${"a".repeat(3000)}\nlast line`);
+  expect(out.startsWith("a".repeat(TOOL_OUTPUT_HEAD))).toBe(true);
+  expect(out.endsWith("last line")).toBe(true);
+  expect(out).toContain("省略");
+  expect(out.length).toBeLessThan(TOOL_OUTPUT_HEAD + TOOL_OUTPUT_TAIL + 40);
+  expect(clipOutput("  short  ")).toBe("short");
+});
+
+it("event log keeps one row per tool and, when full, lets go of the oldest finished steps", () => {
+  const log = new AgentEventLog(3);
   log.add({ kind: "tool", id: "a", name: "Bash", status: "running" });
   log.add({ kind: "tool", id: "a", status: "done" });
+  log.add({ kind: "tool", id: "b", name: "Read", status: "running" });
   log.add({ kind: "usage", turns: 1 });
-  log.add({ kind: "error", message: "dropped" });
-  expect(log.events).toHaveLength(2);
-  expect(log.events[0]).toMatchObject({ name: "Bash", status: "done" });
+  log.add({ kind: "tool", id: "c", name: "Edit", status: "running" });
+  expect(log.events.map((e) => e.id ?? e.kind)).toEqual(["b", "usage", "c"]);
+  // the indexes follow the rows that moved
+  log.add({ kind: "tool", id: "b", status: "done", output: "ok" });
+  log.add({ kind: "tool", id: "c", status: "failed" });
+  expect(log.events[0]).toMatchObject({ id: "b", name: "Read", status: "done", output: "ok" });
+  expect(log.events[2]).toMatchObject({ id: "c", name: "Edit", status: "failed" });
+  expect(log.dropped).toBe(1);
+  // nothing finished to let go of: the new row isn't kept
+  const busy = new AgentEventLog(1);
+  busy.add({ kind: "tool", id: "x", status: "running" });
+  busy.add({ kind: "error", message: "dropped" });
+  expect(busy.events).toHaveLength(1);
+});
+
+it("event log cuts the oldest outputs down once they add up past the budget", () => {
+  const log = new AgentEventLog(100, 2500);
+  for (const id of ["a", "b", "c"]) log.add({ kind: "tool", id, status: "done", output: id.repeat(1000) });
+  const [a, b, c] = log.events.map((e) => String(e.output));
+  expect(a!.length).toBeLessThan(400);
+  expect(b).toBe("b".repeat(1000));
+  expect(c).toBe("c".repeat(1000));
 });
 
 describe("Background task detection", () => {

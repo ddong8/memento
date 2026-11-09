@@ -52,40 +52,56 @@ export function taskRunSummary(events: readonly TaskEvent[]): string {
   return parts.join(" · ");
 }
 
-/** What a Claude Code / Codex tool does, in the user's words. */
+/** What kind of step a tool call is, whichever agent made it (Claude Code, Codex, Antigravity, WorkBuddy). */
+export type TaskToolKind = "command" | "read" | "edit" | "write" | "list" | "search" | "web" | "agent" | "todo" | "task" | "question" | "mcp" | "other";
+
+const TOOL_KINDS: Record<string, TaskToolKind> = {
+  Bash: "command", BashOutput: "command", Shell: "command", run_command: "command", command_status: "command",
+  Read: "read", read_file: "read", view_file: "read", view_file_outline: "read", view_code_item: "read", NotebookRead: "read",
+  Edit: "edit", MultiEdit: "edit", NotebookEdit: "edit", edit_file: "edit", replace_file_content: "edit", multi_replace_file_content: "edit",
+  Write: "write", write_file: "write", write_to_file: "write",
+  LS: "list", list_dir: "list",
+  Grep: "search", Glob: "search", grep_search: "search", find_by_name: "search", codebase_search: "search", ToolSearch: "search",
+  WebSearch: "web", WebFetch: "web", search_web: "web", read_url_content: "web", view_content_chunk: "web",
+  Task: "agent", Agent: "agent", invoke_subagent: "agent", manage_subagents: "agent", send_message: "agent",
+  TodoWrite: "todo",
+  TaskOutput: "task", TaskStop: "task", KillShell: "task", manage_task: "task", schedule: "task", Monitor: "task",
+  AskUserQuestion: "question", ask_question: "question",
+};
+
+/** "Bash: `ls`" -> "Bash": a badge's tool name with its detail. */
+const toolKey = (name: string) => (name.includes(":") ? (name.split(":")[0] ?? "").trim() : name);
+/** A table entry, never one Object.prototype has ("constructor"). */
+const own = <T>(table: Record<string, T>, key: string): T | undefined => (Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined);
+
+export function taskToolKind(name: string | undefined): TaskToolKind {
+  if (!name) return "other";
+  const clean = toolKey(name);
+  return own(TOOL_KINDS, clean) ?? (clean.startsWith("mcp__") ? "mcp" : "other");
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  Bash: "运行命令", BashOutput: "运行命令", Shell: "运行命令", run_command: "运行命令", command_status: "命令进度",
+  Read: "读取", read_file: "读取", view_file: "读取", view_file_outline: "查看大纲", view_code_item: "读取", NotebookRead: "读取",
+  Write: "新建文件", write_file: "写入文件", write_to_file: "写入文件",
+  Edit: "修改", MultiEdit: "修改", NotebookEdit: "修改", edit_file: "修改", replace_file_content: "修改", multi_replace_file_content: "修改",
+  LS: "查看目录", list_dir: "查看目录",
+  Grep: "查找", Glob: "查找", grep_search: "查找", find_by_name: "查找", codebase_search: "查找",
+  WebSearch: "搜索网页", search_web: "搜索网页", WebFetch: "打开网页", read_url_content: "打开网页", view_content_chunk: "打开网页",
+  Task: "派子任务", Agent: "派子任务", invoke_subagent: "派子任务", manage_subagents: "管理子任务", send_message: "发消息",
+  TaskOutput: "任务输出", TaskStop: "停止后台任务", KillShell: "停止后台任务", manage_task: "管理后台任务", schedule: "定时",
+  Monitor: "监视", TodoWrite: "更新待办", ToolSearch: "加载工具", Skill: "使用技能",
+  AskUserQuestion: "提问", ask_question: "提问",
+};
+
+/** What a tool call does, in the user's words; "memento-memory · memory_search" for an MCP tool. */
 export function taskToolLabel(name: string | undefined): string {
   if (!name) return "工具";
-  const clean = name.includes(":") ? (name.split(":")[0] ?? "").trim() : name;
-  switch (clean) {
-    case "Bash":
-    case "BashOutput":
-    case "Shell":
-      return "运行命令";
-    case "Read":
-      return "读取";
-    case "Write":
-      return "新建文件";
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return "修改";
-    case "Grep":
-    case "Glob":
-      return "查找";
-    case "WebSearch":
-      return "搜索网页";
-    case "WebFetch":
-      return "打开网页";
-    case "Task":
-    case "Agent":
-      return "派子任务";
-    case "TaskOutput":
-      return "任务输出";
-    case "TodoWrite":
-      return "更新待办";
-    default:
-      return clean;
-  }
+  const clean = toolKey(name);
+  const label = own(TOOL_LABELS, clean);
+  if (label) return label;
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(clean);
+  return mcp ? `${mcp[1]} · ${mcp[2]}` : clean;
 }
 
 /** What happened to a follow-up the user sent to a running task. */

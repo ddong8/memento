@@ -1,47 +1,66 @@
 "use client";
 
 import { useState, useMemo, type CSSProperties } from "react";
-import { formatTokenCount, steerNote, taskRunSummary, taskToolLabel, type TaskEvent } from "@memento/core";
+import { formatTokenCount, steerNote, taskRunSummary, taskToolKind, taskToolLabel, type TaskEvent, type TaskToolKind } from "@memento/core";
 import { authFetch, getApiBase } from "@/lib/api-client";
+import type { FileDevice } from "@/lib/file-devices";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Icon } from "./aurora/Icon";
 import { QuestionPrompt } from "./QuestionPrompt";
+import { useMediaInspector } from "./viewers/MediaInspectorContext";
+import { detectMediaType, isLocalFilePath } from "./viewers/MediaPreview";
 
 type IconName = Parameters<typeof Icon>[0]["name"];
 
 const COLLAPSED = 6;
 const mono: CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 };
 
-function toolIcon(name: string | undefined): IconName {
-  if (!name) return "cube";
-  const clean = name.includes(":") ? name.split(":")[0].trim() : name;
-  switch (clean) {
-    case "Bash":
-    case "BashOutput":
-    case "Shell":
-      return "terminal";
-    case "Read":
-      return "book";
-    case "Write":
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return "edit";
-    case "Grep":
-    case "Glob":
-    case "WebSearch":
-      return "search";
-    case "WebFetch":
-      return "link";
-    case "Task":
-    case "Agent":
-    case "TaskOutput":
-      return "layers";
-    case "TodoWrite":
-      return "check";
-    default:
-      return "cube";
+const KIND_ICON: Record<TaskToolKind, IconName> = {
+  command: "terminal",
+  read: "book",
+  edit: "edit",
+  write: "file_text",
+  list: "folder",
+  search: "search",
+  web: "link",
+  agent: "layers",
+  todo: "check",
+  task: "activity",
+  question: "message",
+  mcp: "server",
+  other: "cube",
+};
+
+export interface StepFile {
+  path: string;
+  /** The lines it read ("10-40"), when the agent says. */
+  range: string;
+  name: string;
+  dir: string;
+}
+
+/**
+ * The files a read / edit / write step names, from its detail: one path (Claude's file_path), several
+ * ("a.ts, b.ts" from Codex) or a path with the lines read ("src/x.ts:10-40" from Antigravity). Empty
+ * when the detail isn't paths (a description, or a list cut short), so it shows as plain text.
+ */
+export function stepFiles(detail: string): StepFile[] {
+  const parts = detail.split(/,\s+/).map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return [];
+  const files: StepFile[] = [];
+  for (const part of parts) {
+    // A list cut short ("…"), or words rather than a path ("Reading the config"); a path may have spaces
+    // in it ("/Users/me/My Docs/a.md") but then starts like one.
+    if (part.endsWith("…") || (/\s/.test(part) && !/^(?:[/~.]|[A-Za-z]:[/\\]|file:)/.test(part))) return [];
+    const m = /^(.+?):(\d+(?:-\d+)?)$/.exec(part);
+    const path = m?.[1] ?? part;
+    const range = m?.[2] ?? "";
+    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    const name = path.slice(cut + 1);
+    if (!name || (cut < 0 && !/\.[A-Za-z0-9]{1,12}$/.test(name))) return [];
+    files.push({ path, range, name, dir: cut > 0 ? path.slice(0, cut) : "" });
   }
+  return files;
 }
 
 const str = (v: unknown) => (v == null ? "" : String(v));
@@ -54,13 +73,17 @@ export default function TaskTimeline({
   events,
   running,
   taskId,
+  device,
 }: {
   events: readonly TaskEvent[];
   running: boolean;
   taskId?: string;
+  /** The device the task ran on, so a file it read or edited opens from that device. */
+  device?: FileDevice;
 }) {
   const { t } = useI18n();
   const tl = t.taskRun;
+  const inspector = useMediaInspector();
   const [showAll, setShowAll] = useState(false);
   const [openTool, setOpenTool] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -118,13 +141,16 @@ export default function TaskTimeline({
 
         const label = taskToolLabel(toolName || undefined);
         const showDetail = Boolean(detail && detail !== label && detail !== toolName);
+        const kind = taskToolKind(toolName || rawName || undefined);
+        const files = showDetail && (kind === "read" || kind === "edit" || kind === "write") ? stepFiles(detail) : [];
 
         return (
           <div key={id} style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden" }}>
             <button
               type="button"
-              disabled={!output}
-              onClick={() => setOpenTool(open ? null : id)}
+              // Not `disabled`: a disabled button swallows clicks on the file names inside it.
+              aria-disabled={!output || undefined}
+              onClick={() => output && setOpenTool(open ? null : id)}
               style={{
                 display: "flex",
                 width: "100%",
@@ -140,7 +166,7 @@ export default function TaskTimeline({
                 overflow: "hidden",
               }}
             >
-              <Icon name={toolIcon(toolName || rawName)} size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
+              <Icon name={KIND_ICON[kind]} size={13} style={{ color: "var(--aurora-fg3)", flexShrink: 0 }} />
               <span
                 style={{
                   fontSize: 12.5,
@@ -154,7 +180,54 @@ export default function TaskTimeline({
               >
                 {label}
               </span>
-              {showDetail && (
+              {files.length > 0 && (
+                <span title={files.map((f) => f.path).join("\n")} style={{ ...mono, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {files.map((f, n) => {
+                    const openable = !!inspector && isLocalFilePath(f.path) && detectMediaType(f.path) !== "unknown";
+                    const open = () => inspector?.openMediaByUrl(f.path, f.name, null, device);
+                    return (
+                      <span key={`${f.path}:${n}`}>
+                        {n > 0 && <span style={{ color: "var(--aurora-fg4)" }}>{", "}</span>}
+                        <span
+                          role={openable ? "link" : undefined}
+                          tabIndex={openable ? 0 : undefined}
+                          onClick={
+                            openable
+                              ? (ev) => {
+                                  ev.stopPropagation();
+                                  open();
+                                }
+                              : undefined
+                          }
+                          onKeyDown={
+                            openable
+                              ? (ev) => {
+                                  if (ev.key !== "Enter" && ev.key !== " ") return;
+                                  ev.preventDefault();
+                                  ev.stopPropagation();
+                                  open();
+                                }
+                              : undefined
+                          }
+                          style={{
+                            color: openable ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                            fontWeight: 600,
+                            cursor: openable ? "pointer" : undefined,
+                            textDecoration: openable ? "underline" : undefined,
+                            textDecorationColor: openable ? "color-mix(in srgb, var(--aurora-accent) 40%, transparent)" : undefined,
+                            textUnderlineOffset: 2,
+                          }}
+                        >
+                          {f.name}
+                        </span>
+                        {f.range && <span style={{ color: "var(--aurora-fg3)" }}>{`:${f.range}`}</span>}
+                        {f.dir && files.length === 1 && <span style={{ color: "var(--aurora-fg4)" }}>{`  ${f.dir}`}</span>}
+                      </span>
+                    );
+                  })}
+                </span>
+              )}
+              {showDetail && files.length === 0 && (
                 <span
                   style={{
                     ...mono,

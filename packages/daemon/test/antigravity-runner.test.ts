@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 import { antigravityExecutable, ensureAgyCliInstalled } from "../src/antigravity.js";
-import { agentapiCommand, latestConversationId, parseArgs, runAgentapi } from "../src/agy-runner/runner.js";
+import { agentapiCommand, agyToolDetail, agyToolOutput, latestConversationId, parseArgs, runAgentapi } from "../src/agy-runner/runner.js";
 import { findExecutable, prepareCommand } from "../src/exec-env.js";
 import { sqliteRows, sqliteRun, useSqliteCli } from "../src/sqlite.js";
 
@@ -299,12 +299,16 @@ if (sub === "new-conversation") {
   if (process.env.FAKE_FAIL_MODEL === model) { process.stderr.write("UNAVAILABLE (code 503): No capacity available for model " + model); process.exit(1); }
   write({ source: "USER", type: "USER_INPUT", content: prompt });
   if (scenario === "simple") write(
-    { source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "view_file", args: { toolAction: '"读取 README.md"' } }] },
-    { source: "SYSTEM", type: "GENERIC", content: "File Path: \`README.md\`\\n# 机密内容" },
+    { step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [
+      { name: "view_file", args: { AbsolutePath: "/repo/README.md", toolAction: '"读取 README.md"' } },
+      { name: "edit_file", args: { Path: "/repo/a.ts", Target: "x", Replacement: "y" } },
+    ] },
+    { step_index: 2, source: "SYSTEM", type: "GENERIC", status: "DONE", content: "Created At: 2026-11-09T10:00:00+08:00\\nCompleted At: 2026-11-09T10:00:01+08:00\\nFile Path: \`README.md\`\\n# 机密内容" },
+    { step_index: 3, source: "SYSTEM", type: "GENERIC", status: "ERROR", content: "Created At: 2026-11-09T10:00:01+08:00\\nCompleted At: 2026-11-09T10:00:01+08:00\\nEncountered error in step execution: target content not found in the file" },
     { source: "MODEL", type: "PLANNER_RESPONSE", content: "  最终答案：完成  " },
   );
   if (scenario === "ask") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "ask_question", id: "tc1", args: { questions: [{ question: "选哪个？", options: ["A", "B"] }] } }] });
-  if (scenario === "hang") write({ source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "run_command", args: {} }] });
+  if (scenario === "hang") write({ step_index: 1, source: "MODEL", type: "PLANNER_RESPONSE", content: "", tool_calls: [{ name: "run_command", args: { CommandLine: "npm test" } }] });
   console.log(JSON.stringify({ response: { newConversation: { conversationId: cid } } }));
 } else if (sub === "send-message") {
   const prompt = rest[rest.length - 1];
@@ -367,6 +371,9 @@ if (sub === "new-conversation") {
     onAnswer = undefined;
   });
 
+  const events = (stdout: string) => stdout.split("\n").filter((l) => l.includes('"memento_event"')).map((l) => JSON.parse(l).event);
+  const reply = (stdout: string) => stdout.split("\n").filter((l) => !l.includes('"memento_event"')).join("\n");
+
   /** Starts the runner; `done` resolves once it exits. */
   function start(args: string[], env: Record<string, string> = {}) {
     // MEMENTO_E2E_RUNTIME: the desktop app's executable, to run it on Electron as Node as tasks do
@@ -406,9 +413,16 @@ if (sub === "new-conversation") {
     expect(run.out.stderr).toContain("模型 gemini-4-argon-high 启动遇到异常 (UNAVAILABLE (code 503)");
     expect(run.out.stderr).toContain("⚡ [提示: 模型 gemini-4-argon-high 暂不可用，已自动智能降级至 pro 成功建立会话]");
     expect(run.out.stderr).toMatch(/^session id: conv-e2e-0001$/m);
-    expect(run.out.stdout).toContain("\n\n⚡ [读取 README.md]\n\n");
+    // Each call a row with what it works on; its result closes it, with the output minus the timestamps
+    expect(events(run.out.stdout).filter((e) => e.kind === "tool")).toEqual([
+      { kind: "tool", id: "agy_1_0", name: "view_file", detail: "/repo/README.md", status: "running" },
+      { kind: "tool", id: "agy_1_1", name: "edit_file", detail: "/repo/a.ts", status: "running" },
+      { kind: "tool", id: "agy_1_0", status: "done", output: "File Path: `README.md`\n# 机密内容" },
+      { kind: "tool", id: "agy_1_1", status: "failed", output: "Encountered error in step execution: target content not found in the file" },
+    ]);
     expect(run.out.stdout).toContain("最终答案：完成\n\n");
-    expect(run.out.stdout).not.toContain("机密内容");
+    // A tool's output is never part of the reply
+    expect(reply(run.out.stdout)).not.toContain("机密内容");
     expect(rpcCalls.map((c) => c.method)).toEqual(["GetUserStatus"]);
     // Neither the runner's runtime switch nor a parent session's id reaches agentapi
     const envs = readFileSync(join(home, "agentapi-env.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -457,7 +471,8 @@ if (sub === "new-conversation") {
         askQuestion: { responses: [{ question: "选哪个？", options: [{ id: "o1", text: "A" }, { id: "o2", text: "B" }], selectedOptionIds: ["o2"] }] },
       },
     });
-    expect(run.out.stdout).toContain("⚡ [ask_question]");
+    // The question is its own row, not a tool step as well
+    expect(events(run.out.stdout).filter((e) => e.kind === "tool")).toEqual([]);
     expect(run.out.stdout).toContain("你选了 B");
     // The answer went to the open question, not to agentapi as a follow-up message
     expect(agentapiCalls().map((a) => a[1])).toEqual(["new-conversation"]);
@@ -479,7 +494,7 @@ if (sub === "new-conversation") {
     expect(timed.out.stderr).toContain("[Agent timeout: 任务执行已达到安全上限（1s）]");
 
     const stopped = start(["-p", "跑命令"], { FAKE_AGY: "hang" });
-    await stopped.waitFor(() => stopped.out.stdout.includes("⚡ [run_command]"));
+    await stopped.waitFor(() => events(stopped.out.stdout).some((e) => e.name === "run_command" && e.detail === "npm test"));
     stopped.child.kill("SIGTERM");
     expect(await stopped.done).toBe(130);
     expect(stopped.out.stderr).toContain("⏹️ [收到系统终止信号 (SIGTERM)，已主动停止 Antigravity 任务]");
@@ -495,5 +510,32 @@ if (sub === "new-conversation") {
     expect(await badTimeout.done).toBe(2);
     expect(badTimeout.out.stderr).toContain("argument --timeout: invalid int value: 'soon'");
     expect(agentapiCalls()).toEqual([]);
+  });
+});
+
+describe("Antigravity tool steps", () => {
+  it("say which file, command or query each call works on", () => {
+    expect(agyToolDetail("read_file", { Path: "/a/b.ts", StartLine: 10, EndLine: 40 })).toBe("/a/b.ts:10-40");
+    expect(agyToolDetail("view_file", { AbsolutePath: "/a/README.md", toolAction: "读取 README.md" })).toBe("/a/README.md");
+    expect(agyToolDetail("edit_file", { Path: "/a/b.ts", Target: "x", Replacement: "y" })).toBe("/a/b.ts");
+    expect(agyToolDetail("replace_file_content", { TargetFile: "/a/c.py", Description: "d" })).toBe("/a/c.py");
+    expect(agyToolDetail("write_to_file", { TargetFile: "/a/new.md", CodeContent: "..." })).toBe("/a/new.md");
+    expect(agyToolDetail("run_command", { CommandLine: "npm test\nnpm run build", WaitMsBeforeAsync: 500 })).toBe("npm test");
+    expect(agyToolDetail("grep_search", { Query: "TODO", SearchPath: "/a" })).toBe("TODO  /a");
+    expect(agyToolDetail("find_by_name", { Pattern: "*.ts", SearchDirectory: "/a" })).toBe("*.ts  /a");
+    expect(agyToolDetail("list_dir", { DirectoryPath: "/a" })).toBe("/a");
+    expect(agyToolDetail("manage_task", { Action: "kill", TaskId: "x/task-3" })).toBe("kill x/task-3");
+    expect(agyToolDetail("invoke_subagent", { Role: "审查", Prompt: "看看改动" })).toBe("审查：看看改动");
+    expect(agyToolDetail("some_new_tool", { toolSummary: '"整理清单"' })).toBe("整理清单");
+    expect(agyToolDetail("other_tool", { Foo: "bar" })).toBe("bar");
+  });
+
+  it("show a result without Antigravity's timestamps and reminders", () => {
+    expect(
+      agyToolOutput(
+        "Created At: 2026-11-01T19:20:13+08:00\nCompleted At: 2026-11-01T19:20:13+08:00\nCreated file file:///a/D.md with requested content.\nIf relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.",
+      ),
+    ).toBe("Created file file:///a/D.md with requested content.");
+    expect(agyToolOutput("Created At: x\nCommand exited with code 0.\n\nCommand output:\nok")).toBe("Command exited with code 0.\n\nCommand output:\nok");
   });
 });

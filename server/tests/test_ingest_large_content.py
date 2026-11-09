@@ -126,10 +126,12 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self._pending(doc.id), 0)
 
     async def test_sweep_merges_quiet_conversations_only(self) -> None:
-        from sqlalchemy import text, update
+        from datetime import timedelta
+
+        from sqlalchemy import func, update
 
         from server.db.models import DocumentPendingDelta
-        from server.services.content_staging import merge_due
+        from server.services.content_staging import QUIET_SECONDS, merge_due
 
         rel = "projects/-Users-me-dev-memento/sweep.jsonl"
         slices = ["\n".join(_line(s * 10 + i, 6_000) for i in range(10)) for s in range(5)]
@@ -137,12 +139,49 @@ class LargeConversationTests(unittest.IsolatedAsyncioTestCase):
         doc = await self._content(rel)
         self.assertEqual(await self._pending(doc.id), 1)
 
+        async def age(seconds: int) -> None:
+            async with self.Session() as db:
+                await db.execute(update(DocumentPendingDelta).values(created_at=func.now() - timedelta(seconds=seconds)))
+                await db.commit()
+
         self.assertEqual((await merge_due(self.Session, self.engine))["deltas"], 0)  # still being written
-        async with self.Session() as db:
-            await db.execute(update(DocumentPendingDelta).values(created_at=text("now() - interval '3 minutes'")))
-            await db.commit()
+        await age(QUIET_SECONDS - 60)  # an agent waiting a few minutes on a build: the session goes on
+        self.assertEqual((await merge_due(self.Session, self.engine))["deltas"], 0)
+        await age(QUIET_SECONDS + 60)
         self.assertEqual(await merge_due(self.Session, self.engine), {"documents": 1, "deltas": 1})
         self.assertEqual((await self._content(rel)).content, "\n".join(slices))
+
+    async def test_a_session_that_never_pauses_is_merged_once_its_oldest_delta_waited_long_enough(self) -> None:
+        from datetime import timedelta
+
+        from sqlalchemy import func, select, update
+
+        from server.db.models import DocumentPendingDelta
+        from server.services import content_staging as cs
+
+        rel = "projects/-Users-me-dev-memento/busy.jsonl"
+        head = "\n".join(_line(i, 30_000) for i in range(40))  # ~1.2 MB: staged
+        await self._ingest(rel, [head])
+        doc = await self._content(rel)
+        deltas = [_line(900, 10), _line(901, 10)]
+        async with self.Session() as db:
+            for d in deltas:
+                await cs.stage_delta(db, doc.id, d)
+            await db.commit()
+
+        async def age_oldest(seconds: int) -> None:
+            async with self.Session() as db:
+                first = await db.scalar(select(func.min(DocumentPendingDelta.id)))
+                await db.execute(update(DocumentPendingDelta).where(DocumentPendingDelta.id == first)
+                                 .values(created_at=func.now() - timedelta(seconds=seconds)))
+                await db.commit()
+
+        await age_oldest(cs.MAX_WAIT_SECONDS - 60)
+        self.assertEqual((await cs.merge_due(self.Session, self.engine))["deltas"], 0)  # the newest is seconds old
+        await age_oldest(cs.MAX_WAIT_SECONDS + 60)
+        self.assertEqual(await cs.merge_due(self.Session, self.engine), {"documents": 1, "deltas": 2})
+        self.assertEqual((await self._content(rel)).content, "\n".join([head, *deltas]))
+        self.assertEqual(await self._pending(doc.id), 0)
 
     async def test_full_upload_supersedes_waiting_deltas(self) -> None:
         rel = "projects/-Users-me-dev-memento/full.jsonl"

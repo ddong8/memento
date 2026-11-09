@@ -39,8 +39,13 @@ logger = logging.getLogger("content_staging")
 # appending to a staged conversation never changes its index.
 STAGE_MIN_BYTES = 1 << 20
 assert STAGE_MIN_BYTES // 4 >= _MAX_INDEX_INPUT_CHARS
-QUIET_SECONDS = 120
-MAX_WAIT_SECONDS = 600
+# A merge writes the whole compressed text again (3.5 MB for one at MAX_CONTENT_CHARS), so it waits
+# for the session to end, not for a pause: at 120 s quiet and 600 s at most, an agent session that
+# kept waiting on builds was merged 3 times in 15 minutes (11-09, 15.5 MB of WAL); merges wrote
+# 5.1 GB from 10-28 to 11-09. Readers of the whole text add the waiting deltas (with_pending) and
+# the message audit skips a conversation with deltas waiting, so nothing reads a stale text meanwhile.
+QUIET_SECONDS = 600
+MAX_WAIT_SECONDS = 3600
 
 # A conversation's text stops growing here: its start and its latest part are kept. Only the start
 # feeds the index and the previews; the messages table holds the whole conversation.

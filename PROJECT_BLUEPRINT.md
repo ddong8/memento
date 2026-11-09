@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `592fdbd3` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `491e13f2` · Updated: `2026-11-09`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 221 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 160 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `592fdbd3` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
+- 最近改动 (Latest): `491e13f2` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -627,7 +627,7 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `592fdbd3` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
+- `491e13f2` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
 - `cc8627dc` (2026-11-09): fix(memory): 记忆补齐向量，夜间去重先比最像的，坑的命中跟着合并走
 - `56a62b7e` (2026-11-09): fix(profile): 设备画像里只放机器环境的坑，代码缺陷和手动改集群的解法不放
 - `9d6ddf9e` (2026-11-09): feat(profile): 每台设备的常驻画像带上在这台设备上反复踩过的坑

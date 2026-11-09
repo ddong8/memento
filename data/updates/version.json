@@ -1,7 +1,7 @@
 {
-  "version": "1.0.102",
+  "version": "1.0.103",
   "title": "Memento v1.0.102",
-  "release_notes": "1. Claude Code、Codex、Antigravity、Cursor 里的 Memento 记忆服务改为自动配置：客户端每 5 分钟检查一次，旧版留下的、带着过期 token 的配置自动改为客户端自带的服务，不用再填 token，也不会再出现「Invalid token」\n2. 修复 Antigravity 新版读不到 Memento 记忆服务的问题，配置写到新版实际读取的位置，并让正在运行的 Antigravity 立即加载，不用重启\n3. 改动前自动备份原配置，你自己写的同名配置不会被改\n4. 设备页显示每台设备上各个 AI 工具的记忆服务配置状态\n5. 手机端版本号与客户端统一为 1.0.102",
+  "release_notes": "1. 工作台里的文件在 Mac、Windows 客户端、网页和手机上都能打开，不管文件在本机还是在别的设备上：本机的直接读磁盘，别的设备上的经服务端从那台设备取\n2. Windows 上 Git Bash、WSL 写法的路径（如 /c/Users/...、/mnt/c/...）也能找到文件；文件名带 # 或 ? 的文件不再打不开；图片在本机找不到时自动改从文件所在的设备取\n3. 任务过程里每一步工具调用显示更多输出，开头和结尾都保留；一个任务最多保留 800 步；Antigravity、WorkBuddy 的工具调用也一步一步显示\n4. 读文件、改文件、写文件的步骤直接显示文件名、读取的行号和所在目录，能预览的文件点文件名就在工作台打开\n5. 手机端版本号与客户端统一为 1.0.103",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.102-win-x64.zip",

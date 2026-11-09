@@ -91,8 +91,16 @@ def assess(
         add("warn", "profile", f"{len(broken)} 台设备写入画像出错：{'、'.join(broken[:3])}")
 
     if learning and learning.get("learned_repeat_7d", 0) >= 2:
-        add("warn", "learning", f"最近 7 天有 {learning['learned_repeat_7d']} 次纠正的是已经学会的规矩，"
-                                "说明它没传到 AI 那里（画像没发布，或设备没开启写入）")
+        stale = [d["name"] for d in profile.get("devices", []) if not d.get("synced")]
+        if not profile.get("published"):
+            why = "画像还没发布，规矩传不到 AI 那里"
+        elif not profile.get("devices"):
+            why = "没有设备开启画像写入，规矩传不到 AI 那里"
+        elif stale:
+            why = f"{len(stale)} 台设备的画像不是最新版本：{'、'.join(stale[:3])}"
+        else:
+            why = "规矩已经写进画像、设备也都是最新版本，AI 读到了还是没照做"
+        add("warn", "learning", f"最近 7 天有 {learning['learned_repeat_7d']} 次纠正的是已经学会的规矩，{why}")
 
     if evolution:
         run = evolution.get("review_run") or {}

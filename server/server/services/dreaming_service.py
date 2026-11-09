@@ -120,6 +120,11 @@ _INJECTED_CONTEXT_RE = re.compile(
 )
 _INJECTED_CONTEXT_HEADS = ("【前序会话核心记忆快照", "【前文对话历史】", "Memento: 【前序会话核心记忆快照")
 
+# Another agent's report posted into the session as a queued user message: from 10-30 to 11-01 an
+# Antigravity pipeline sent 31 ("DeepCoder pipeline completed. **Worker Report**: > [!WARNING] …"),
+# and two were learned as the user pushing back on a rule.
+_AGENT_REPORT_RE = re.compile(r"^[\w.-]+ pipeline (?:completed|failed)\b|\*\*Worker Report\*\*|Skepticism Disclaimer", re.IGNORECASE)
+
 _CLIENT_INJECTED_BLOCK_RE = re.compile(
     r"(?:【用户上传了(?:图片|附件)\s*#\d+】[\s\S]*?(?:\n\n|$)|\[本轮答复已输出[^\]]*\])"
 )
@@ -138,6 +143,8 @@ def clean_user_voice(content: str | None) -> str | None:
     if len(text) < 2 or text.isdigit() or text.lower().strip(" .!！。") in _TRIVIAL_REPLIES:
         return None
     if len(text) >= SCRIPTED_PROMPT_MIN_CHARS and _SCRIPTED_PROMPT_RE.match(text):
+        return None
+    if _AGENT_REPORT_RE.search(text):
         return None
     if len(text) > USER_VOICE_MSG_CHARS:
         text = text[:USER_VOICE_MSG_CHARS] + "…"

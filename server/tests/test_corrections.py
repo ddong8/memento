@@ -163,6 +163,14 @@ class PrefilterTests(unittest.TestCase):
         for text in ["帮我看看这个接口的性能", "部署吧", "发布版本"]:
             self.assertFalse(looks_like_pushback(text), text)
 
+    def test_another_agents_report_is_not_the_users_words(self) -> None:
+        from server.services.dreaming_service import clean_user_voice
+
+        report = ("DeepCoder pipeline completed.  **Worker Report**: > [!WARNING] **Skepticism Disclaimer** > "
+                  "本次修改已通过 Vite 生产编译与零白屏校验，但因未连接物理真机触摸设备，不要默认它已经适配")
+        self.assertIsNone(clean_user_voice(report))
+        self.assertEqual(clean_user_voice("手机版还是没有适配好啊，不要默认是灰色的"), "手机版还是没有适配好啊，不要默认是灰色的")
+
     def test_clean_user_voice_strips_client_injected_prefixes(self) -> None:
         from server.services.dreaming_service import clean_user_voice
         raw = (
@@ -188,7 +196,7 @@ class ClassifyTests(unittest.IsolatedAsyncioTestCase):
         with patch("server.services.correction_service.call_plain_chat", new=AsyncMock(return_value=answer)):
             items = await classify(batch, [("t2", "用中文回复")])
         self.assertEqual(items, [{"indices": [1, 3], "statement": "始终用中文回复", "category": "communication",
-                                  "scope": "global", "match": "t2", "upfront": []}])
+                                  "scope": "global", "match": "t2", "upfront": [], "unmet": []}])
 
     async def test_upfront_requests_are_told_apart_from_pushback(self) -> None:
         batch = [Said(1, "我今天做了什么，我要写日报，尽量通俗，不要提问题", NOW), Said(2, "怎么又提问题了", NOW)]
@@ -197,6 +205,15 @@ class ClassifyTests(unittest.IsolatedAsyncioTestCase):
         with patch("server.services.correction_service.call_plain_chat", new=AsyncMock(return_value=answer)):
             items = await classify(batch, [("t1", "写日报不要提问题")])
         self.assertEqual(items[0]["upfront"], [1])  # out-of-range and junk numbers dropped
+
+    async def test_a_feature_still_broken_is_told_apart_from_breaking_the_rule(self) -> None:
+        batch = [Said(1, "这张图还是没有被识别为两个反应啊", NOW), Said(2, "你到底测试没，还是空白", NOW)]
+        answer = ('{"items": [{"i": [1, 2], "statement": "交付前先在真实环境验证", "category": "rule",'
+                  ' "match": "t1", "upfront": [], "unmet": [1, 9, null]}]}')
+        with patch("server.services.correction_service.call_plain_chat", new=AsyncMock(return_value=answer)) as chat:
+            items = await classify(batch, [("t1", "交付前先在真实环境验证")])
+        self.assertEqual(items[0]["unmet"], [1])
+        self.assertIn("unmet", chat.await_args.kwargs["messages"][1]["content"])
 
     async def test_single_index_still_works(self) -> None:
         answer = '{"items": [{"i": 1, "statement": "先写测试", "category": "workflow"}]}'
@@ -224,7 +241,23 @@ class LearningHealthTests(unittest.TestCase):
         pipeline = {"embedding_failed": 0, "knowledge_failed": 0}
         issues = assess(ok, ok, dreaming, profile, pipeline, NOW, {"learned_repeat_7d": 3})
         self.assertEqual([i["area"] for i in issues], ["learning"])
+        self.assertIn("画像还没发布", issues[0]["text"])
         self.assertEqual(assess(ok, ok, dreaming, profile, pipeline, NOW, {"learned_repeat_7d": 1}), [])
+
+    def test_the_warning_says_why_from_what_the_devices_report(self) -> None:
+        ok = {"available": True, "calls": {"total": 5, "ok": 5, "fallback": 0, "failed": 0}, "reasons": []}
+        dreaming = {"journals": [{"created_at": (NOW - timedelta(hours=3)).isoformat()}], "last_run": None}
+        pipeline = {"embedding_failed": 0, "knowledge_failed": 0}
+        published = {"version": 71, "published_at": NOW.isoformat()}
+
+        def why(devices):
+            profile = {"last_run": None, "published": published, "devices": devices}
+            return assess(ok, ok, dreaming, profile, pipeline, NOW, {"learned_repeat_7d": 9})[0]["text"]
+
+        self.assertIn("没有设备开启画像写入", why([]))
+        device = {"name": "Mac-mini", "errors": [], "synced": True}
+        self.assertIn("1 台设备的画像不是最新版本：PC", why([device, {"name": "PC", "errors": [], "synced": False}]))
+        self.assertIn("AI 读到了还是没照做", why([device]))
 
 
 if __name__ == "__main__":
@@ -256,6 +289,34 @@ class CorrectionStatsDatabaseTests(unittest.IsolatedAsyncioTestCase):
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
         await self.engine.dispose()
+
+    async def test_saying_a_feature_is_still_broken_is_not_the_ai_forgetting_a_rule(self) -> None:
+        from sqlalchemy import select
+
+        from server.db.models import CorrectionEvent
+        from server.services import correction_service as cs
+
+        now = datetime.now(timezone.utc)
+        async with self.Session() as db:
+            user = User(email="owner@example.com", role="owner", status="active")
+            db.add(user)
+            await db.flush()
+            rule = CorrectionTopic(user_id=user.id, statement="交付前先在真实环境验证", status="accepted",
+                                   accepted_at=now - timedelta(days=3), times=1)
+            db.add(rule)
+            await db.commit()
+            said = [Said(1, "还是空白", now - timedelta(minutes=2)), Said(2, "你到底测试没", now - timedelta(minutes=1))]
+            items = [{"indices": [1, 2], "statement": rule.statement, "category": "rule", "scope": "global",
+                      "match": "t1", "upfront": [], "unmet": [1]}]
+            with patch.object(cs, "accept_covered_topics", AsyncMock(return_value=[])), \
+                    patch.object(cs, "fetch_new_corrections", AsyncMock(return_value=(said, 2))), \
+                    patch.object(cs, "classify", AsyncMock(return_value=items)), \
+                    patch.object(cs.ai_health, "get_json", AsyncMock(return_value=None)), \
+                    patch.object(cs.ai_health, "put_json", AsyncMock()):
+                await cs.learn_from_corrections(db, user)
+            events = {e.quote: e for e in (await db.execute(select(CorrectionEvent))).scalars().all()}
+        self.assertEqual({q: (e.repeat, e.already_learned) for q, e in events.items()},
+                         {"还是空白": (True, False), "你到底测试没": (True, True)})
 
     async def test_dismissed_topics_are_not_counted(self) -> None:
         from server.db.models import CorrectionEvent

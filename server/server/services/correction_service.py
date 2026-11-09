@@ -337,9 +337,10 @@ _CLASSIFY_PROMPT = """下面是用户在各个 AI 工具里亲手打的话，都
 - match：如果和某个已知话题说的是同一件事，填它的编号（如 "t3"、"m12"）；否则填 null。宁可匹配已知话题，也不要把同一件事拆成两个。
 - 抱怨 AI 又违反了某个已知话题的话也要输出、填上 match，哪怕它本身不像一条规矩。例如已知话题是"始终用中文回复"，原话"怎么又变成英文了"就匹配它。这类重复最重要，不要漏。
 - upfront：i 里哪些原话是用户提新请求时顺带交代的要求（如"我今天做了什么，我要写日报，尽量通俗，不要提问题"），而不是在回应 AI 刚做错、刚忘了的事（如"中文！"、"怎么又提问题了"）。没有就填 []。
+- unmet：i 里哪些原话只是在说某个功能还没做好、问题还在（如"还是不行啊"、"手机版还是没适配好"、"这张图还是没识别成两个反应"），没有指出 AI 的做法违反了这条规矩。指出 AI 做法的（"你到底测试没"、"怎么又用英文了"、"没验证就说修好了"）不算。没有就填 []。
 - 不是规矩的原话直接略过，不用输出。
 
-只输出 JSON：{{"items": [{{"i": [1, 4], "statement": "...", "category": "rule", "scope": "global", "match": null, "upfront": []}}]}}"""
+只输出 JSON：{{"items": [{{"i": [1, 4], "statement": "...", "category": "rule", "scope": "global", "match": null, "upfront": [], "unmet": []}}]}}"""
 
 
 async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict[str, Any]]:
@@ -360,20 +361,7 @@ async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict
         if not isinstance(item, dict):
             continue
         raw_i = item.get("i")
-        indices = set()
-        for v in raw_i if isinstance(raw_i, list) else [raw_i]:
-            try:
-                indices.add(int(v))
-            except (TypeError, ValueError):
-                continue
-        indices = sorted(i for i in indices if 1 <= i <= len(batch))
-        raw_upfront = item.get("upfront")
-        upfront = set()
-        for v in raw_upfront if isinstance(raw_upfront, list) else []:
-            try:
-                upfront.add(int(v))
-            except (TypeError, ValueError):
-                continue
+        indices = sorted(i for i in _numbers(raw_i if isinstance(raw_i, list) else [raw_i]) if 1 <= i <= len(batch))
         statement = clean_statement(str(item.get("statement") or ""))
         if not indices or not statement:
             continue
@@ -385,8 +373,19 @@ async def classify(batch: list[Said], known: list[tuple[str, str]]) -> list[dict
             "category": category if category in CATEGORY_HEADINGS else "rule",
             "scope": scope if scope in ("global", "project", "device") else "global",
             "match": str(item["match"]) if item.get("match") else None,
-            "upfront": sorted(upfront.intersection(indices)),
+            "upfront": sorted(_numbers(item.get("upfront")).intersection(indices)),
+            "unmet": sorted(_numbers(item.get("unmet")).intersection(indices)),
         })
+    return out
+
+
+def _numbers(values: Any) -> set[int]:
+    out = set()
+    for v in values if isinstance(values, list) else []:
+        try:
+            out.add(int(v))
+        except (TypeError, ValueError):
+            continue
     return out
 
 
@@ -459,7 +458,9 @@ async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]
             item = items[n]
             # Only words reacting to the AI show a lesson that didn't stick; restating a standing
             # request up front ("我要写日报，尽量通俗，不要提问题") is habit, not the AI forgetting.
-            pushback = i not in item["upfront"]
+            # Nor does "还是不行啊" about a feature the rule asked for: the AI may have followed the rule and
+            # the feature still has a bug. Of 49 "learned but forgotten" in 30 days (11-09), most were these.
+            pushback = i not in item["upfront"] and i not in item.get("unmet", ())
             fp = fingerprint(s)
             if (await db.execute(select(CorrectionEvent.id).where(
                 CorrectionEvent.user_id == user.id,

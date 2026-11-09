@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { parseNetstatListeningPorts, parseWindowsLanguageServer, WINDOWS_LS_REPORT } from "../src/antigravity.js";
+import { parseNetstatListeningPorts, parseWindowsLanguageServer, refreshAntigravityMcpServers, WINDOWS_LS_REPORT } from "../src/antigravity.js";
 
 const powershell = ["pwsh", "powershell"].find((exe) => spawnSync(exe, ["-NoProfile", "-Command", "exit 0"]).status === 0);
 import { probeAntigravityQuota } from "../src/quotas.js";
@@ -126,5 +126,43 @@ describe("Antigravity quota", () => {
   it("says the service isn't running when there is no language server", async () => {
     const quota = await probeAntigravityQuota(async () => undefined);
     expect(quota).toMatchObject({ available: false, error: "Antigravity 本地服务未运行" });
+  });
+});
+
+describe("Antigravity MCP reload", () => {
+  const csrf = "token-ok";
+  let server: Server;
+  let port: number;
+  let refreshed = 0;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      if (req.url !== "/exa.language_server_pb.LanguageServerService/RefreshMcpServers" || req.method !== "POST") return void res.writeHead(404).end();
+      if (req.headers["x-codeium-csrf-token"] !== csrf) return void res.writeHead(401).end();
+      refreshed++;
+      res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    port = (server.address() as AddressInfo).port;
+  });
+  afterAll(() => new Promise<void>((r) => server.close(() => r())));
+
+  it("asks the running app to load its MCP config again, looking it up afresh when the remembered token is stale", async () => {
+    expect(await refreshAntigravityMcpServers(async () => ({ port, csrf }))).toBe(true);
+    const calls: unknown[] = [];
+    expect(
+      await refreshAntigravityMcpServers(async (options) => {
+        calls.push(options);
+        return options?.forceRefresh ? { port, csrf } : { port, csrf: "rotated" };
+      }),
+    ).toBe(true);
+    expect(calls).toEqual([undefined, { forceRefresh: true }]);
+    expect(refreshed).toBe(2);
+  });
+
+  it("does nothing when the app isn't running", async () => {
+    const calls: unknown[] = [];
+    expect(await refreshAntigravityMcpServers(async (options) => (calls.push(options), undefined))).toBe(false);
+    expect(calls).toEqual([undefined]);
   });
 });

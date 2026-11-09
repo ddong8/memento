@@ -9,6 +9,7 @@ export * from "./discovery.js";
 export * from "./exec-env.js";
 export * from "./ingest.js";
 export * from "./local-api.js";
+export * from "./mcp-register.js";
 export * from "./profile-inject.js";
 export * from "./quotas.js";
 export * from "./skill-inject.js";

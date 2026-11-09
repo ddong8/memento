@@ -338,6 +338,11 @@ export class IngestClient {
     await this.request("/api/learning/guard/status", { method: "POST", body: { results } }).catch(() => {});
   }
 
+  /** How each AI tool's memento-memory MCP entry stands (see mcp-register.ts), for the devices page. */
+  async reportMcpStatus(results: Record<string, string>): Promise<void> {
+    await this.request("/api/profile/mcp/status", { method: "POST", body: { results } }).catch(() => {});
+  }
+
   /** How the last project-blueprint pass went (repos kept current, failures and why), for the devices page. */
   async reportBlueprintStatus(status: BlueprintStatusReport): Promise<boolean> {
     try {

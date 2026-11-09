@@ -38,7 +38,11 @@ export interface Device {
     failed: { name: string; reason: string }[];
     failed_total: number;
   } | null;
+  /** Each AI tool's memento-memory MCP entry, kept by the client (null before v1.0.102) */
+  mcp?: { results: Record<string, string>; reported_at?: string } | null;
 }
+
+const MCP_TOOL_LABELS: Record<string, string> = { claude_code: "Claude Code", codex: "Codex", antigravity: "Antigravity", cursor: "Cursor" };
 
 function versionLabel(version: string | null | undefined, old: string): string | null {
   if (!version) return null;
@@ -340,7 +344,7 @@ node packages/daemon/dist/cli.js install-service`}
                   </div>
                 </div>
 
-                {!isArchived && (d.lag || d.audit || d.collect || d.blueprint) && (
+                {!isArchived && (d.lag || d.audit || d.collect || d.blueprint || hasMcpStatus(d.mcp)) && (
                   <div
                     style={{
                       borderTop: "1px solid var(--aurora-border)",
@@ -386,6 +390,7 @@ node packages/daemon/dist/cli.js install-service`}
                       </span>
                     )}
                     {d.blueprint && <BlueprintStatusLine bp={d.blueprint} t={t} />}
+                    {hasMcpStatus(d.mcp) && <McpStatusLine results={d.mcp!.results} t={t} />}
                   </div>
                 )}
 
@@ -553,6 +558,34 @@ node packages/daemon/dist/cli.js install-service`}
         </div>
       )}
     </div>
+  );
+}
+
+/** Tools where the entry is in use (installed, or added for the resident profile); "off" and "absent" aren't shown */
+const MCP_SHOWN = (r: string) => r === "unchanged" || r === "added" || r === "repaired" || r.startsWith("error");
+const hasMcpStatus = (mcp: Device["mcp"]) => !!mcp && Object.values(mcp.results ?? {}).some(MCP_SHOWN);
+
+function McpStatusLine({ results, t }: { results: Record<string, string>; t: ReturnType<typeof useI18n>["t"] }) {
+  const shown = Object.entries(results).filter(([, r]) => MCP_SHOWN(r));
+  const errors = shown.filter(([, r]) => r.startsWith("error"));
+  const label = (r: string) => (r === "added" ? t.devices.mcpAdded : r === "repaired" ? t.devices.mcpRepaired : r === "unchanged" ? t.devices.mcpOk : t.devices.mcpError);
+  return (
+    <>
+      <span title={t.devices.mcpHint}>
+        {t.devices.mcpTitle}
+        {shown.map(([tool, r], i) => (
+          <span key={tool} style={r.startsWith("error") ? { color: "#EF4444" } : undefined}>
+            {i > 0 && " · "}
+            {MCP_TOOL_LABELS[tool] ?? tool} {label(r)}
+          </span>
+        ))}
+      </span>
+      {errors.map(([tool, r]) => (
+        <span key={`${tool}-error`} style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+          {MCP_TOOL_LABELS[tool] ?? tool}: {r.replace(/^error:\s*/, "")}
+        </span>
+      ))}
+    </>
   );
 }
 

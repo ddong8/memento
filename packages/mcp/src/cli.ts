@@ -18,7 +18,19 @@ import { createServer } from "./server.js";
  *
  * MEMENTO_SERVER_URL / MEMENTO_SERVER_TOKEN / MEMENTO_COLLECTOR_CONFIG work too.
  */
-const configPath = () => process.env.MEMENTO_COLLECTOR_CONFIG || join(process.env.HOME || homedir(), ".memento", "collector.json");
+/**
+ * Where the Memento app keeps this device's sign-in. The same home as the daemon's (packages/daemon
+ * config.ts): on Windows USERPROFILE, since a HOME set by Git Bash or MSYS points somewhere else;
+ * on macOS the real home also from inside an app sandbox.
+ */
+export function collectorConfigPath(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+  if (env.MEMENTO_COLLECTOR_CONFIG) return env.MEMENTO_COLLECTOR_CONFIG;
+  let home = platform === "win32" ? env.USERPROFILE || env.HOME || homedir() : env.HOME || homedir();
+  if (platform === "darwin" && home.includes("/Library/Containers/")) home = home.split("/Library/Containers/")[0] || home;
+  return join(home, ".memento", "collector.json");
+}
+
+const configPath = () => collectorConfigPath();
 
 async function readCollectorConfig(): Promise<{ server?: string; token?: string }> {
   try {

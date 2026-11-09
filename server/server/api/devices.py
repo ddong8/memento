@@ -192,6 +192,8 @@ async def list_devices(
                 "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
                 # The device's last project-blueprint pass: repos kept current, failures and why (null before v1.0.98)
                 "blueprint": (m.profile_status or {}).get("blueprint"),
+                # Each AI tool's memento-memory MCP entry: added / repaired / unchanged / error (null before v1.0.102)
+                "mcp": (m.profile_status or {}).get("mcp"),
                 # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
                 "collect": m.collect_status or None,
                 # From the server's side: how long its messages took to arrive, what the audit found

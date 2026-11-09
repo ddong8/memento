@@ -179,6 +179,8 @@ async def _profile(db: AsyncSession, user: User, now: datetime) -> dict[str, Any
             "synced": published is not None and status.get("version") == published.version,
             "errors": [t for t, r in results.items() if str(r).startswith("error")] + [
                 f"{t}（完成核查）" for t, r in ((status.get("guards") or {}).get("results") or {}).items() if str(r).startswith("error")
+            ] + [
+                f"{t}（MCP 配置）" for t, r in ((status.get("mcp") or {}).get("results") or {}).items() if str(r).startswith("error")
             ],
         })
     return {

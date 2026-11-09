@@ -169,6 +169,34 @@ class BlueprintStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(m.profile_status["guards"], {"results": {"codex": "written"}})
 
 
+class McpStatusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_device_mcp_status_is_kept_beside_the_injection_status(self) -> None:
+        from server.api import profile as profile_api
+
+        u = _user()
+        m = _machine(["claude_code"], {"blueprint": {"ok": 2}})
+        db = MagicMock()
+        db.commit = AsyncMock()
+        with patch.object(profile_api, "_owned_machine", AsyncMock(return_value=m)), \
+             patch.object(profile_api, "_bust_user_profile_cache", AsyncMock()):
+            await profile_api.report_mcp_status(
+                body=profile_api.McpStatusReport(results={"claude_code": "repaired", "codex": "error: " + "x" * 300, "vim": "added"}),
+                x_device_id="dev1", db=db, user=u,
+            )
+            mcp = m.profile_status["mcp"]
+            self.assertEqual(set(mcp["results"]), {"claude_code", "codex"})  # unknown tools dropped
+            self.assertEqual(len(mcp["results"]["codex"]), 200)
+            self.assertIn("reported_at", mcp)
+            self.assertEqual(m.profile_status["blueprint"], {"ok": 2})
+
+            await profile_api.report_injection(
+                body=profile_api.InjectionReport(version=5, results={"claude_code": "written"}), x_device_id="dev1", db=db, user=u,
+            )
+        self.assertEqual(m.profile_status["version"], 5)
+        self.assertEqual(m.profile_status["mcp"]["results"]["claude_code"], "repaired")
+        self.assertEqual(m.profile_status["blueprint"], {"ok": 2})
+
+
 class StatsTests(unittest.IsolatedAsyncioTestCase):
     async def test_stats_query_counts_first_stops_and_followups(self) -> None:
         captured = []

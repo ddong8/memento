@@ -296,14 +296,14 @@ Read / write through MCP tools: write with `memory_store`; read with `memory_gra
 
 ## 🧠 MCP memory service
 
-The desktop app ships the MCP server (`@memento/mcp`); its "This computer" page has ready-to-copy setup for Claude Code, Codex and other tools (`mcpServers` JSON). On a machine without the desktop app, run `npm ci && npm run build -w @memento/mcp` in a checkout, then `node packages/mcp/dist/cli.js` (it reads the sign-in from `~/.memento/collector.json`, or pass `--server URL --token TOKEN`). Where each tool keeps its MCP config:
+The desktop app ships the MCP server (`@memento/mcp`), and its config needs no token: the server reads this device's sign-in (`~/.memento/collector.json`), so signing in again or switching accounts never touches the config. Every 5 minutes the desktop app checks the `memento-memory` entry of Claude Code, Codex, Antigravity and Cursor: one still on an old launcher (the Python server, the removed sidecar, a hardcoded token) is pointed at the bundled server, a tool chosen for the resident profile gets one when it has none, each change is backed up to `~/.memento/backups/mcp` first, and the devices page shows how each tool stands. For other tools, the "This computer" page has ready-to-copy setup (`mcpServers` JSON). On a machine without the desktop app, run `npm ci && npm run build -w @memento/mcp` in a checkout, then `node packages/mcp/dist/cli.js` (it reads the sign-in from `~/.memento/collector.json`, or pass `--server URL --token TOKEN`). Where each tool keeps its MCP config:
 
 | AI tool | MCP config file | How it's written |
 |---|---|---|
 | Claude Code | `~/.claude.json` | run the copied `claude mcp add` command |
 | Cursor | `~/.cursor/mcp.json` | JSON `mcpServers.memento-memory` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | same |
-| Antigravity | open the config file from Antigravity's MCP settings (the location varies by version, commonly `~/.gemini/antigravity/mcp_config.json`) | same |
+| Antigravity | `~/.gemini/config/mcp_config.json` (shared by the app, the IDE and the agy CLI; older versions used `~/.gemini/antigravity/mcp_config.json`, which is no longer read once they move) | same |
 | Gemini CLI | `~/.gemini/settings.json` | same |
 | **Codex** | `~/.codex/config.toml` | TOML `[mcp_servers.memento-memory]` |
 

@@ -608,6 +608,38 @@ export async function findAntigravityLanguageServer(
   return located;
 }
 
+/**
+ * Has the running Antigravity load its MCP servers again. It reads
+ * mcp_config.json when it starts and doesn't watch it, so an entry written
+ * meanwhile (mcp-register.ts) would otherwise wait for the app's next start
+ * (2026-11-09 on Windows: none loaded until RefreshMcpServers, then
+ * memento-memory was ready at once). Never starts the app; false when it isn't
+ * running or didn't take the call.
+ */
+export async function refreshAntigravityMcpServers(
+  locate: typeof findAntigravityLanguageServer = findAntigravityLanguageServer,
+): Promise<boolean> {
+  const call = async (ls: AntigravityLanguageServer) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${ls.port}/exa.language_server_pb.LanguageServerService/RefreshMcpServers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(ls.csrf ? { "x-codeium-csrf-token": ls.csrf } : {}) },
+        body: "{}",
+        signal: AbortSignal.timeout(15_000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  };
+  const ls = await locate();
+  if (!ls) return false;
+  if (await call(ls)) return true;
+  // The remembered port or token may be stale
+  const again = await locate({ forceRefresh: true });
+  return again ? call(again) : false;
+}
+
 async function lastProjectId(files: string[]): Promise<string | undefined> {
   for (const f of files) {
     try {

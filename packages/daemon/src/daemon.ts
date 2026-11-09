@@ -4,6 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { basename, join } from "node:path";
 
+import { refreshAntigravityMcpServers } from "./antigravity.js";
 import {
   applyRemoteBlueprintScript,
   blueprintStatusReport,
@@ -21,6 +22,7 @@ import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
 import { applyGuards } from "./guard-inject.js";
 import { IngestClient } from "./ingest.js";
+import { applyMcpRegistration, bundledMcpLauncher, MCP_ADD_TOOLS } from "./mcp-register.js";
 import { applyProfileInjection, PROFILE_SYNC_MS } from "./profile-inject.js";
 import { contentHash } from "./sanitizer.js";
 import { ServerRoute } from "./server-route.js";
@@ -72,6 +74,7 @@ export class Daemon extends EventEmitter {
   private lastProfileReport: Record<string, string> | undefined;
   private lastSkillReport: Record<string, string> | undefined;
   private lastGuardReport: Record<string, string> | undefined;
+  private lastMcpReport: Record<string, string> | undefined;
   /** Tools the server turned the completion check on for. */
   private guardTools = new Set<GuardTool>();
   private syncing = false;
@@ -434,9 +437,12 @@ export class Daemon extends EventEmitter {
     const ingest = this.ingest;
     if (!ingest || this.syncing) return;
     this.syncing = true;
+    // Profile targets also get the memento-memory MCP entry; without the profile only broken ones are repaired
+    let mcpAdd: string[] = [];
     try {
       const profile = await ingest.fetchProfileInjection();
       if (profile) {
+        mcpAdd = (profile.targets ?? []).filter((t) => (MCP_ADD_TOOLS as readonly string[]).includes(t));
         const results = await applyProfileInjection({ version: profile.version, block: profile.block, targets: profile.targets ?? [] });
         for (const [tool, outcome] of Object.entries(results)) if (outcome !== "unchanged") this.log(`Profile ${tool}: ${outcome}`);
         if (!sameReport(results, this.lastProfileReport)) {
@@ -468,8 +474,30 @@ export class Daemon extends EventEmitter {
       }
     } catch (e) {
       this.log(`Profile/skill sync skipped: ${e instanceof Error ? e.message : e}`);
+    }
+    try {
+      await this.syncMcpRegistration(ingest, mcpAdd);
+    } catch (e) {
+      this.log(`MCP registration skipped: ${e instanceof Error ? e.message : e}`);
     } finally {
       this.syncing = false;
+    }
+  }
+
+  /** Each AI tool's memento-memory entry pointed at the MCP server bundled with the desktop app (see mcp-register.ts). */
+  private async syncMcpRegistration(ingest: IngestClient, add: string[]): Promise<void> {
+    const results = await applyMcpRegistration({ launcher: bundledMcpLauncher(), add });
+    if (!Object.keys(results).length) return;
+    for (const [tool, outcome] of Object.entries(results)) {
+      if (outcome === "added" || outcome === "repaired" || outcome.startsWith("error")) this.log(`MCP ${tool}: ${outcome}`);
+    }
+    // A running Antigravity doesn't notice its file changed (Claude Code and Codex read theirs per session)
+    if (results.antigravity === "added" || results.antigravity === "repaired") {
+      if (await refreshAntigravityMcpServers()) this.log("MCP antigravity: reloaded in the running app");
+    }
+    if (!sameReport(results, this.lastMcpReport)) {
+      await ingest.reportMcpStatus(results);
+      this.lastMcpReport = results;
     }
   }
 }

@@ -296,14 +296,14 @@ LLM 自动从同步进来的对话和文档里抽:
 
 ## 🧠 MCP 记忆服务
 
-桌面端自带 MCP 服务(`@memento/mcp`),在「本机采集」页一键复制 Claude Code / Codex / 其他工具的配置(`mcpServers` JSON);没装桌面端的机器可以在仓库里 `npm ci && npm run build -w @memento/mcp` 后运行 `node packages/mcp/dist/cli.js`(读取 `~/.memento/collector.json` 的登录信息,也可以传 `--server URL --token TOKEN`)。各工具的配置位置:
+桌面端自带 MCP 服务(`@memento/mcp`),配置里不需要 token:它直接读这台设备的登录(`~/.memento/collector.json`),换号、重新登录都不用改配置。桌面端每 5 分钟检查一次 Claude Code、Codex、Antigravity、Cursor 的 `memento-memory` 条目,指向旧启动方式(Python 版、已删除的 sidecar、写死的 token)的会自动改成自带的这份,常驻画像选中的工具没有条目时自动加上,改之前备份到 `~/.memento/backups/mcp`,设备页能看到每个工具的状态。其他工具在「本机采集」页一键复制配置(`mcpServers` JSON);没装桌面端的机器可以在仓库里 `npm ci && npm run build -w @memento/mcp` 后运行 `node packages/mcp/dist/cli.js`(读取 `~/.memento/collector.json` 的登录信息,也可以传 `--server URL --token TOKEN`)。各工具的配置位置:
 
 | AI 工具 | MCP 配置文件 | 写入方式 |
 |---|---|---|
 | Claude Code | `~/.claude.json` | 运行复制的 `claude mcp add` 命令 |
 | Cursor | `~/.cursor/mcp.json` | JSON `mcpServers.memento-memory` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | 同上 |
-| Antigravity | 在 Antigravity 的 MCP 设置里打开配置文件(位置随版本变化,常见 `~/.gemini/antigravity/mcp_config.json`) | 同上 |
+| Antigravity | `~/.gemini/config/mcp_config.json`(应用、IDE、agy 命令行共用;更早的版本是 `~/.gemini/antigravity/mcp_config.json`,迁移后不再读) | 同上 |
 | Gemini CLI | `~/.gemini/settings.json` | 同上 |
 | **Codex** | `~/.codex/config.toml` | TOML `[mcp_servers.memento-memory]` |
 

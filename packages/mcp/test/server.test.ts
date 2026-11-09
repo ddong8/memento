@@ -2,6 +2,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 
+import { join } from "node:path";
+
+import { collectorConfigPath } from "../src/cli.js";
 import { RemoteClient } from "../src/remote.js";
 import { bestSkill, blueprintSection, createServer } from "../src/server.js";
 
@@ -241,6 +244,19 @@ describe("memento MCP", () => {
     const client = await connect(remote);
     expect(textOf(await client.callTool({ name: "memory_skill", arguments: {} }))).toBe("No published skills yet.");
     expect(loads).toBe(1);
+  });
+
+  it("says how to fix a rejected sign-in, and tells an unreachable server apart", async () => {
+    const rejected = new RemoteClient("http://m", "ct-stale", async () => "ct-stale", fakeFetch({}));
+    await expect(rejected.get("/api/skills")).rejects.toThrow(/Invalid token.*Sign in to the Memento app on this device again.*no --token/);
+    const down = new RemoteClient("http://m", "ct-1", undefined, (async () => new Response("bad gateway", { status: 502 })) as typeof fetch);
+    await expect(down.get("/api/skills")).rejects.toThrow(/returned 502 on sign-in/);
+  });
+
+  it("finds the sign-in where the Memento app writes it", () => {
+    expect(collectorConfigPath({ USERPROFILE: "C:\\Users\\Admin", HOME: "/c/Users/Admin" }, "win32")).toBe(join("C:\\Users\\Admin", ".memento", "collector.json"));
+    expect(collectorConfigPath({ HOME: "/Users/me/Library/Containers/com.x/Data" }, "darwin")).toBe(join("/Users/me", ".memento", "collector.json"));
+    expect(collectorConfigPath({ HOME: "/home/me", MEMENTO_COLLECTOR_CONFIG: "/etc/m.json" }, "linux")).toBe("/etc/m.json");
   });
 
   it("leaves pitfalls out of the core memory unless asked for", async () => {

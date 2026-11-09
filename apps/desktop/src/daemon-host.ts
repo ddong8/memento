@@ -44,6 +44,17 @@ export class DaemonHost extends EventEmitter {
     return this.unpacked(join(__dirname, "daemon.mjs"));
   }
 
+  /**
+   * How AI tools start the bundled MCP server (this binary run as Node plus mcp.mjs, no token: it reads
+   * the device's sign-in). The daemon writes it into their configs (mcp-register.ts), so only from an
+   * installed app: not a dev build, a disk image or a macOS translocated copy, whose paths go away.
+   */
+  private mcpLauncherEnv(): Record<string, string> {
+    const exe = process.execPath;
+    if (!app.isPackaged || exe.includes("/AppTranslocation/") || exe.startsWith("/Volumes/")) return {};
+    return { MEMENTO_MCP_COMMAND: exe, MEMENTO_MCP_ENTRY: this.unpacked(join(__dirname, "mcp.mjs")) };
+  }
+
   async start(): Promise<void> {
     this.stopping = false;
     const other = await runningCollectorPid();
@@ -74,6 +85,7 @@ export class DaemonHost extends EventEmitter {
         MEMENTO_AGY_RUNNER: this.unpacked(join(__dirname, "..", "assets", "agy_cli.mjs")),
         MEMENTO_WORKBUDDY_RUNNER: this.unpacked(join(__dirname, "..", "assets", "workbuddy_cli.mjs")),
         MEMENTO_BLUEPRINT_RUNNER: this.unpacked(join(__dirname, "..", "assets", "project_blueprint.mjs")),
+        ...this.mcpLauncherEnv(),
       },
     });
     this.child = child;

@@ -222,6 +222,34 @@ async def report_blueprint_status(
     return {"status": "ok"}
 
 
+# AI tools whose memento-memory MCP entry the device keeps on the bundled server (daemon mcp-register.ts)
+MCP_TOOLS = ("claude_code", "codex", "antigravity", "cursor")
+
+
+class McpStatusReport(BaseModel):
+    results: dict[str, str] = {}
+
+
+@router.post("/mcp/status")
+async def report_mcp_status(
+    body: McpStatusReport,
+    x_device_id: str = Header(..., alias="X-Device-Id"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(verify_collector_token),
+) -> dict:
+    """How each AI tool's memento-memory MCP entry stands on the device (added, repaired, unchanged,
+    error), shown on the devices page. Kept beside the injection status; report_injection carries it over."""
+    machine = await _owned_machine(db, user, x_device_id)
+    status = dict(machine.profile_status or {})
+    status["mcp"] = {
+        "results": {k: str(v)[:200] for k, v in body.results.items() if k in MCP_TOOLS},
+        "reported_at": datetime.now(timezone.utc).isoformat(),
+    }
+    machine.profile_status = status
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/blueprint")
 async def get_user_blueprint(
     refresh: bool = False,
@@ -766,8 +794,8 @@ async def report_injection(
     user: User = Depends(verify_collector_token),
 ) -> dict:
     machine = await _owned_machine(db, user, x_device_id)
-    # Reported on their own (guard_service.set_status, report_blueprint_status): kept as they are
-    kept = {k: v for k, v in (machine.profile_status or {}).items() if k in ("guards", "blueprint") and v}
+    # Reported on their own (guard_service.set_status, report_blueprint_status, report_mcp_status): kept as they are
+    kept = {k: v for k, v in (machine.profile_status or {}).items() if k in ("guards", "blueprint", "mcp") and v}
     machine.profile_status = {
         "version": body.version,
         "results": {k: str(v)[:200] for k, v in body.results.items() if k in INJECTION_TARGETS},

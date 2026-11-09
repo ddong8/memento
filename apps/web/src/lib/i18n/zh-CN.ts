@@ -453,6 +453,12 @@ const zhCN = {
     blueprintReasonNoRuntime: "客户端运行环境不可用",
     blueprintReasonTimeout: "超过 60 秒未完成",
     blueprintReasonNoGenerator: "找不到生成脚本",
+    mcpTitle: "记忆服务 MCP：",
+    mcpOk: "正常",
+    mcpAdded: "已添加",
+    mcpRepaired: "已修复",
+    mcpError: "出错",
+    mcpHint: "客户端自动维护各 AI 工具里的 memento-memory 配置，指向客户端自带的 MCP，登录信息从本机读取，不需要填 token",
     unbindSuccess: "设备已解绑，历史采集数据已完整保留",
     cancel: "取消",
   },
@@ -1112,7 +1118,7 @@ const zhCN = {
 
   collector: {
     mcpTitle: "给 AI 工具接上记忆（MCP）",
-    mcpHint: "桌面端自带 Memento 的 MCP 服务，用这台设备的登录状态访问你的记忆、规矩、技能和待办。复制下面对应的配置即可；已经配过旧版（Python）的可以直接替换。",
+    mcpHint: "桌面端自带 Memento 的 MCP 服务，用这台设备的登录状态访问你的记忆、规矩、技能和待办，配置里不需要 token。Claude Code、Codex、Antigravity、Cursor 的 memento-memory 配置由客户端自动维护（旧版 Python、旧 token、失效路径会被自动改正，改前备份到 ~/.memento/backups/mcp）；其他工具复制下面对应的配置即可。",
     mcpClaude: "Claude Code（在终端运行）",
     mcpCodex: "Codex（加到 ~/.codex/config.toml）",
     mcpJson: "其他工具（Gemini CLI、Cursor 等的 mcpServers 配置）",

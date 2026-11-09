@@ -38,7 +38,13 @@ export class RemoteClient {
       const data = (await res.json()) as { access_token?: string };
       if (data.access_token) return data.access_token;
     }
-    throw new Error(`Invalid token. Get a valid token from ${this.baseUrl}`);
+    if (res.ok || res.status === 401 || res.status === 403) {
+      throw new Error(
+        `Invalid token: ${this.baseUrl} doesn't accept it. Sign in to the Memento app on this device again (it writes ~/.memento/collector.json); ` +
+          "AI tools should start the MCP server bundled with the app, with no --token or MEMENTO_SERVER_TOKEN, so it always uses that sign-in.",
+      );
+    }
+    throw new Error(`${this.baseUrl} returned ${res.status} on sign-in; the server may be unreachable for now, try again shortly.`);
   }
 
   private async ensureJwt(): Promise<string> {

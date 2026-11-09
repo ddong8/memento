@@ -444,6 +444,12 @@ const enUS: Translations = {
     blueprintReasonNoRuntime: "the client's runtime is unavailable",
     blueprintReasonTimeout: "not done within 60 s",
     blueprintReasonNoGenerator: "generator script missing",
+    mcpTitle: "Memory MCP: ",
+    mcpOk: "ok",
+    mcpAdded: "added",
+    mcpRepaired: "repaired",
+    mcpError: "error",
+    mcpHint: "The client keeps each AI tool's memento-memory entry on its bundled MCP, which reads this device's sign-in: no token to fill in",
     unbindSuccess: "Device unlinked, all collected data safely preserved",
     cancel: "Cancel",
   },
@@ -1098,7 +1104,7 @@ const enUS: Translations = {
 
   collector: {
     mcpTitle: "Give your AI tools memory (MCP)",
-    mcpHint: "The desktop app includes Memento's MCP server; it uses this device's sign-in to reach your memories, rules, skills and todos. Copy the setup for your tool; it can replace an older (Python) setup.",
+    mcpHint: "The desktop app includes Memento's MCP server; it uses this device's sign-in to reach your memories, rules, skills and todos, so no token goes in the config. The client keeps the memento-memory entry of Claude Code, Codex, Antigravity and Cursor up to date (an old Python setup, an old token or a missing path is fixed, after a backup in ~/.memento/backups/mcp); for other tools copy the setup below.",
     mcpClaude: "Claude Code (run in a terminal)",
     mcpCodex: "Codex (add to ~/.codex/config.toml)",
     mcpJson: "Other tools (mcpServers for Gemini CLI, Cursor, ...)",

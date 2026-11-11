@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select, delete
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +33,12 @@ from ..services.ask_store import (
 logger = logging.getLogger("server.ask")
 
 router = APIRouter()
+
+
+def _turns_loaded(conv) -> bool:
+    """Whether conv.turns is in memory, so reading it won't lazy-load (rows here load it deferred)."""
+    state = sa_inspect(conv, raiseerr=False)
+    return state is None or "turns" not in state.unloaded
 
 
 async def _get_project_and_machine_maps(db: AsyncSession, user_id: uuid.UUID | None):
@@ -507,7 +514,10 @@ async def get_conversation(
         has_more = offset > 0
     elif limit > 0:
         raw_turns = await tail_turns(db, cid, limit)
-        if not raw_turns and conv.turns:
+        # tail_turns already read the column in SQL; fall back to conv.turns only when it is in
+        # memory (a row materialized above): it is deferred otherwise, and reading it would lazy-load
+        # in an async session (MissingGreenlet -> 500 for every conversation with no turns yet)
+        if not raw_turns and _turns_loaded(conv) and conv.turns:
             raw_turns = list(conv.turns)[-limit:]
         if len(raw_turns) < limit:
             true_count = len(raw_turns)  # the page is the whole conversation

@@ -197,8 +197,11 @@ export class AgentLogins {
       // agy goes on to run its prompt once signed in, and Claude Code exits: either way the status says so
       if (s.exited || Date.now() - lastCheck > 3_000) {
         lastCheck = Date.now();
+        const exitedBefore = s.exited;
         const st = await this.checkDone(agent);
-        if (st.state === "logged_in" || s.exited) {
+        // Only a status read after the CLI exited settles a failure: one started before it saved the
+        // login (Claude Code exits right after) still says logged out
+        if (st.state === "logged_in" || exitedBefore) {
           this.stop(agent);
           if (st.state === "logged_in") this.onLoggedIn(agent);
           return st.state === "logged_in" ? st : { agent, state: "failed", detail: failureText(plainText(s.out.slice(before)).split(code.trim()).join("")) };

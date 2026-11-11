@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `dcd626a4` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a0047c91` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 223 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 175 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `dcd626a4` (2026-11-11): fix(ai): 后台整理任务也用用户自己配置的模型，服务器没配系统模型时不再悄悄跳过
+- 最近改动 (Latest): `a0047c91` (2026-11-11): fix(ask): 「今天/最近 N 天」按资料发生时间算，不再按上传时间，首次同步的历史不会都当成今天的
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -600,12 +600,12 @@ erDiagram
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (9 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (9 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (8 commits)
+- [`server/server/db/models.py`](server/server/db/models.py) (7 commits)
+- [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (6 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
-- [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (6 commits)
 - [`apps/web/src/components/devices/DevicesView.tsx`](apps/web/src/components/devices/DevicesView.tsx) (5 commits)
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) (5 commits)
-- [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (5 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `dcd626a4` (2026-11-11): fix(ai): 后台整理任务也用用户自己配置的模型，服务器没配系统模型时不再悄悄跳过
+- `a0047c91` (2026-11-11): fix(ask): 「今天/最近 N 天」按资料发生时间算，不再按上传时间，首次同步的历史不会都当成今天的
+- `6ecfaf55` (2026-11-11): fix(ai): 后台整理任务也用用户自己配置的模型，服务器没配系统模型时不再悄悄跳过
 - `1bf3a52b` (2026-11-11): fix(ask): 打开还没有回合的对话不再 500(deferred turns 懒加载)
 - `d6a627ce` (2026-11-11): fix(ask): 预检算上用户自己配置的模型，不再一律 503
 - `35f7857b` (2026-11-11): chore(release): 升级客户端版本至 v1.0.106，在网页上登录执行机的 Claude Code / Codex / Antigravity
 - `30fab769` (2026-11-11): feat(devices): 在网页上登录执行机的 Claude Code / Codex / Antigravity，不用 ssh 进服务器
-- `bc529072` (2026-11-11): fix(workspace): 代码所在设备的客户端太旧时发送前就提示升级，不再等导出超时
 
 ## 10. Key Environment Variables & Configuration
 

@@ -47,11 +47,13 @@ function fakeClis() {
     claude,
     `#!/bin/sh
 if [ "$1 $2" = "auth status" ]; then
-  if [ -f '${state("claude")}' ]; then echo '{"loggedIn": true, "email": "me@example.com"}'; else echo '{"loggedIn": false}'; exit 1; fi
+  # Slow, as on a busy CI runner: a check started before the login is saved answers after the CLI exited
+  if [ -f '${state("claude")}' ]; then sleep 0.3; echo '{"loggedIn": true, "email": "me@example.com"}'; else sleep 0.3; echo '{"loggedIn": false}'; exit 1; fi
   exit 0
 fi
 printf '%s' "${CLAUDE_OUT.replace(/"/g, '\\"')}"
 read code
+sleep 0.15
 if [ "$code" = "good-code" ]; then touch '${state("claude")}'; echo "Login successful."; exit 0; fi
 echo "Invalid code. Please make sure the full code was copied."; exit 1
 `,

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `441285eb` · Updated: `2026-11-09`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1c80e13d` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 221 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 164 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a23924d8` (2026-11-09): test(web): 时间线打开文件的测试不在组件里改外部变量，过 lint
+- 最近改动 (Latest): `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -604,7 +604,7 @@ erDiagram
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (7 commits)
 - [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (6 commits)
 - [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (6 commits)
-- [`server/server/api/projects.py`](server/server/api/projects.py) (6 commits)
+- [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
 
 ## 8. Development & Verification Commands
 
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
 - `a23924d8` (2026-11-09): test(web): 时间线打开文件的测试不在组件里改外部变量，过 lint
 - `a684bc87` (2026-11-09): chore(release): 升级客户端版本至 v1.0.103，工作台文件各客户端都能打开、工具步骤显示文件名和更多输出
 - `d69772a8` (2026-11-09): feat(agent): 工具步骤带上更多过程输出，读文件/改文件的步骤显示文件名
 - `cade9fb9` (2026-11-09): fix(workbench): 工作台里的文件在每个客户端都能打开，不管在哪台设备上
 - `85def648` (2026-11-09): chore(release): 升级客户端版本至 v1.0.102，各 AI 工具的记忆服务自动配置、不用再填 token
-- `1078cb41` (2026-11-09): feat(mcp): 各 AI 工具里的 memento-memory 自动指向客户端自带的 MCP，不用再填 token
 
 ## 10. Key Environment Variables & Configuration
 

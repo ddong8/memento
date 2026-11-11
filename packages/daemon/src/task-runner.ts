@@ -26,7 +26,7 @@ import {
   type WorkbuddyGatewayHandle,
 } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
-import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, type Relay, type WorkspaceRun } from "./workspace-sync.js";
+import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
 /** A task the server dispatched to this device. */
 export interface TaskDispatch {
@@ -1352,6 +1352,7 @@ export class TaskRunner {
       const usageLimit = action === "agent" ? usageLimitMessage(`${streamErrors}\n${fullErr}`) : undefined;
       const effectiveExitCode = (sessionFailedFinal || usageLimit) && exitCode === 0 ? 1 : exitCode;
 
+      if (wsRun) fullOut = toSourcePaths(fullOut, wsRun.mirror.workDir, wsRun.spec.sourcePath);
       if (wsRun && this.relay) {
         // Back to the device the code is on: into its files when the run finished well, else only kept there
         const ok = !this.cancelledTasks.has(taskId) && !usageLimit && !timedOut && effectiveExitCode === 0;

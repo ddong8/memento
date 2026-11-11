@@ -18,7 +18,7 @@ import {
   unpackPatch,
   WorkspaceError,
 } from "../src/workspace.js";
-import { finishWorkspace, flushPendingPatches, parseWorkspaceSpec, prepareWorkspace, type Relay } from "../src/workspace-sync.js";
+import { finishWorkspace, flushPendingPatches, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay } from "../src/workspace-sync.js";
 
 const dirs: string[] = [];
 const tmp = (name: string) => {
@@ -298,5 +298,29 @@ describe("workspace on another device", () => {
     const p = await mirrorPatch(run.mirror, { env, home: exeHome });
     expect(p.patch.length).toBe(0);
     run.release();
+  });
+});
+
+describe("toSourcePaths", () => {
+  const clone = "/home/opc/.memento/workspaces/785722bc73d2/proj";
+
+  it("points the answer's paths and links at the source's directory", () => {
+    const text = `已改 [calc.py](file://${clone}/calc.py#L5-L6)，见 ${clone}/src/a.ts 和 \`${clone}\``;
+    expect(toSourcePaths(text, clone, "/Users/me/dev/proj")).toBe(
+      "已改 [calc.py](file:///Users/me/dev/proj/calc.py#L5-L6)，见 /Users/me/dev/proj/src/a.ts 和 `/Users/me/dev/proj`",
+    );
+  });
+
+  it("gives a Windows source forward slashes and a file:/// link", () => {
+    const text = `[calc.py](file://${clone}/calc.py) ${clone}/lib/b.py`;
+    expect(toSourcePaths(text, `${clone}/`, "C:\\Users\\Admin\\dev\\proj")).toBe(
+      "[calc.py](file:///C:/Users/Admin/dev/proj/calc.py) C:/Users/Admin/dev/proj/lib/b.py",
+    );
+  });
+
+  it("leaves paths that only start the same and text without the clone alone", () => {
+    expect(toSourcePaths(`${clone}2/x.py`, clone, "/src")).toBe(`${clone}2/x.py`);
+    expect(toSourcePaths("nothing here", clone, "/src")).toBe("nothing here");
+    expect(toSourcePaths("/x", "/", "/src")).toBe("/x");
   });
 });

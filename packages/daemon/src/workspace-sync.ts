@@ -44,6 +44,21 @@ export function parseWorkspaceSpec(raw: unknown): WorkspaceSpec | undefined {
   return { sourceDeviceId, sourcePath, sourceName: String(r.source_name ?? "").trim() || "源设备" };
 }
 
+/**
+ * The agent's answer with the clone's paths turned into the source's: the user reads it on the
+ * device the code is on, where links into ~/.memento/workspaces/... open nothing. A Windows source
+ * gets forward slashes, so "C:/x/a.py" and "file:///C:/x/a.py" both work there.
+ */
+export function toSourcePaths(text: string, workDir: string, sourcePath: string): string {
+  const clone = workDir.replace(/[\\/]+$/, "");
+  if (!text || !clone || clone === "/" || !text.includes(clone)) return text;
+  const windows = /^[A-Za-z]:[\\/]/.test(sourcePath) || sourcePath.startsWith("\\\\");
+  const source = (windows ? sourcePath.replaceAll("\\", "/") : sourcePath).replace(/\/+$/, "");
+  // Only whole path components: "/ws/x" must not match inside "/ws/xy"
+  const at = new RegExp(`(file://)?${clone.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![^/\\s)\\]"'\`<>])`, "g");
+  return text.replace(at, (_m, scheme: string | undefined) => (scheme ? `file://${source.startsWith("/") ? "" : "/"}${source}` : source));
+}
+
 /** Bundle pieces fetched per request: base64 makes it a third bigger on the wire. */
 const CHUNK = 4 * 1024 * 1024;
 

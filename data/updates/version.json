@@ -1,25 +1,25 @@
 {
   "version": "1.0.110",
-  "title": "Memento v1.0.109",
+  "title": "Memento v1.0.110",
   "release_notes": "1. 新增「协作任务」：把一个大任务交给 Memento，自动拆成几个子任务，按各设备上 Claude Code、Codex、Antigravity 的特点、模型、额度和忙闲分派到多台设备同时做，最后复查并汇总结果\n2. 子任务失败或超时会自动换别的智能体或设备重做，每次最多 30 分钟，不会被一个卡住的智能体拖住\n3. 修复 Windows 上 Codex 装在 Program Files 时一启动就失败的问题\n4. 手机端版本号与客户端统一为 1.0.110",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.109-win-x64.zip",
-      "size": 158183245,
-      "sha256": "8f041cbff19f757f662876c4b091a23559ae9de2052e5fa6d63e70b8b2b095be",
-      "sha512": "BZ+3DyyZvJn84OmORo1SHIzGoXM1sVsRA11SVZQw3ibwpNmeLCGmA1ZSxgxP6GLkjWNCmfK+wQWApqSa2+ChJQ=="
+      "asset_name": "Memento-1.0.110-win-x64.zip",
+      "size": 158183339,
+      "sha256": "2e60219c594c7ec3200553248de886623114f24aa928bf18d9148af53a5c983e",
+      "sha512": "MKQ0c2MOlengEBUPB5drGftH5/aj5Hv9EFm3vr1momizKZH6FmC6f8Rga2+xkQNvhSMhf45pBE9RiSE7ujjxFw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.109-mac-arm64.zip",
-      "size": 132665790,
-      "sha256": "33e0f219819f1ca8994027cc840b139459a2ce8c556c22d1778039624f0ffe64",
-      "sha512": "t6Cxs7ebuoabZb3KG/Y5MQqzlFmGm2A1/U3dKhwPgDZVwdE7Gsf1Erd0cx8b2D0OlcWQecwaoKB/0LEpAhzVwA=="
+      "asset_name": "Memento-1.0.110-mac-arm64.zip",
+      "size": 132665886,
+      "sha256": "f9e3e1cf5bb78bbf2ea19ec66faf71d7a0998018a4eebe9e6a2274421b399d0d",
+      "sha512": "usTOJZ+hdtxwEF1hHmoWSM7AHlbp9i4Xe4r6K2EV79i7950IwTGExEfxyPBfM/saGjODANJLxKzJCpYdtaqMIA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.109-linux-x64.tar.gz",
-      "size": 131950028,
-      "sha256": "23a343635cf2a4532c31693bd2cb3724392e0d1061e1936d3c9aa5d4ff9f6a3c",
-      "sha512": "teM/F9WEWmkCH2rIp/a0LKSP2hUwW3YJL5tzYtz3QS2rdkhZeAmlOLFLX/7G53zz02fh5EWR6mdEE2E+Ofwnnw=="
+      "asset_name": "Memento-1.0.110-linux-x64.tar.gz",
+      "size": 131950168,
+      "sha256": "99527c33436cbba1d1275d9063d4f28452116dd8a9e8080454486d025d773cee",
+      "sha512": "E89rattLLAbYLqx147krsg4F69VFMDVMtJ6qaNZKZtqmWnw07+aIHu5d4eikrPS6tm6vvEavQcUf14KimFkzzw=="
     }
   }
 }

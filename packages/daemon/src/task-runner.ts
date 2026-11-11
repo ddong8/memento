@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 import { AgentEventLog, AgyCliStreamParser, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
 import { antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
+import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
@@ -318,10 +319,9 @@ export function agentLoginHint(binary: string, text: string, device = hostname()
 
 // Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read the
 // same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
-// Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s." (a 429
-// RESOURCE_EXHAUSTED, like a model out of capacity, but no other model or session helps).
-// Read up to a quote too, for when it turns up inside a logged JSON line.
-const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*|Individual quota reached[^\n"]*/i;
+// Read up to a quote too, for when it turns up inside a logged JSON line. Antigravity's quota is per
+// model and another model goes on (agy-models.ts), so it counts only when the last run ended on it.
+const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*/i;
 
 /**
  * The agent's own report that the account's quota ran out, from what it gave as errors (stderr, errors in
@@ -963,7 +963,7 @@ export class TaskRunner {
     const prompt = text("prompt");
     const sessionId = text("session_id");
     this.taskSessions.set(taskId, { binary, sessionId: sessionId || undefined });
-    const model = text("model");
+    let model = text("model");
     const effort = text("effort");
     const rawSysAppend = text("system_prompt_append");
     const offlineMind = !rawSysAppend ? await getOfflineMindSnapshot() : null;
@@ -1175,6 +1175,14 @@ export class TaskRunner {
           officialAgy = true;
           delete env.ELECTRON_RUN_AS_NODE;
           this.runnerTasks.delete(taskId);
+          // A model that ran out of quota in an earlier task: straight to one that has some
+          if (isExhausted(model)) {
+            const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
+            if (next) {
+              this.notice(taskId, `\n⚡ [模型切换] ${model || "默认模型"} 的额度还没恢复，这次改用 ${next.label}。\n\n`);
+              model = next.id;
+            }
+          }
           args = antigravityArgs({ sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt, official: true });
           parser = new AgyCliStreamParser();
         } else {
@@ -1200,12 +1208,16 @@ export class TaskRunner {
         parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser();
         return { args: antigravityArgs({ ...o, official: officialAgy }), parser };
       };
-      const run = (spec: Omit<RunSpec, "exe" | "cwd" | "env">) =>
-        this.runOnce(
+      /** Where the latest run's stderr starts: a retry that succeeded leaves the earlier errors above it. */
+      let runFrom = 0;
+      const run = (spec: Omit<RunSpec, "exe" | "cwd" | "env">) => {
+        runFrom = out.stderr.length;
+        return this.runOnce(
           taskId,
           { exe, cwd: workDir, env, ...spec, args: agyRunner ? [agyRunner, ...spec.args] : spec.args },
           task.timeoutSeconds,
         );
+      };
 
       let exitCode = await run({ args, parser, stdinPrompt, consoleEncoding });
       if (this.cancelledTasks.has(taskId)) {
@@ -1214,6 +1226,25 @@ export class TaskRunner {
       }
       // Errors can come on stderr or inside the JSON stream; retries look at both.
       const errScan = () => `${out.stderr}\n${parser?.errors ?? ""}`;
+      const lastErrors = () => `${out.stderr.slice(runFrom)}\n${parser?.errors ?? ""}`;
+      if (officialAgy && !model && parser instanceof AgyCliStreamParser) noteDefaultModel(parser.model);
+
+      // Retry 0.4: Google's CLI ran out of this model's quota (each model has its own): go on with another
+      for (let switches = 0; exitCode !== 0 && officialAgy && switches < 3 && !this.cancelledTasks.has(taskId); switches++) {
+        const quota = agyQuotaMessage(lastErrors());
+        if (!quota) break;
+        const failed = agyModel || (parser instanceof AgyCliStreamParser ? parser.model : "");
+        noteQuotaExhausted(failed, quota);
+        const next = nextAgyModel(await listAgyModels(exe, env), failed, effort);
+        if (!next) break;
+        const reset = quotaResetMs(quota);
+        this.notice(
+          taskId,
+          `\n⚡ [模型切换] ${failed || "默认模型"} 的额度用完了${reset ? `（约 ${Math.ceil(reset / 3_600_000)} 小时后恢复）` : ""}，改用 ${next.label} 继续。\n\n`,
+        );
+        agyModel = next.id;
+        exitCode = await run(agyRun({ sessionId, model: agyModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
+      }
 
       // Retry 0: Antigravity's language server moved.
       if (exitCode !== 0 && isAntigravity && (out.stderr + out.stdout).includes("ANTIGRAVITY_LS_ADDRESS is not set")) {
@@ -1229,8 +1260,8 @@ export class TaskRunner {
       if (
         exitCode !== 0 &&
         isAntigravity &&
-        /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(errScan()) &&
-        !usageLimitMessage(errScan())
+        /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(lastErrors()) &&
+        !agyQuotaMessage(lastErrors())
       ) {
         const currentModel = (model || "").toLowerCase();
         // The runner's tiers; Google's CLI names its models differently, so it falls back to its default
@@ -1352,7 +1383,10 @@ export class TaskRunner {
 
       const sessionFailedFinal = !fullOut && (isSessionNotFound(fullErr) || isSessionNotFound(streamErrors));
       // Out of quota: the run stopped there, whatever background work it had open or however it exited
-      const usageLimit = action === "agent" ? usageLimitMessage(`${streamErrors}\n${fullErr}`) : undefined;
+      const usageLimit =
+        action !== "agent"
+          ? undefined
+          : (usageLimitMessage(`${streamErrors}\n${fullErr}`) ?? (isAntigravity && exitCode !== 0 ? agyQuotaMessage(lastErrors()) : undefined));
       const effectiveExitCode = (sessionFailedFinal || usageLimit) && exitCode === 0 ? 1 : exitCode;
 
       if (wsRun) fullOut = toSourcePaths(fullOut, wsRun.mirror.workDir, wsRun.spec.sourcePath);

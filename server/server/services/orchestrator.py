@@ -1157,7 +1157,7 @@ async def _follow_device_task(
             if done_task.status in ("failed", "timeout") or (done_task.exit_code and done_task.exit_code != 0):
                 is_failed = True
                 err_candidate = str(done_task.stderr or done_task.error or "")
-        if is_failed and usage_limit_message({"action": action, "error": err_candidate}):
+        if is_failed and usage_limit_message({"action": action, "status": "failed", "error": err_candidate}):
             is_failed = False  # an empty quota has no pitfall to look up
 
         pitfall_hint = await _extract_pitfall_hint(

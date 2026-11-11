@@ -123,7 +123,7 @@ async def handle_task_finished(task_id: str, status: str | None, device_name: st
             )).scalar_one_or_none()
         if task is None or task.action != "agent":
             return
-        out_of_quota = usage_limit_message({"action": task.action, "error": task.error})
+        out_of_quota = usage_limit_message({"action": task.action, "status": task.status, "error": task.error})
         if out_of_quota:
             status = "failed"  # older daemons said still_running
         pl = task.payload or {}

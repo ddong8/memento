@@ -186,14 +186,12 @@ describe("usageLimitMessage", () => {
     );
     expect(usageLimitMessage("You’ve hit your weekly limit · resets Nov 3")).toBe("You’ve hit your weekly limit · resets Nov 3");
     expect(usageLimitMessage("Claude AI usage limit reached|1761710400")).toBe("usage limit reached|1761710400");
-    expect(
-      usageLimitMessage('error: Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s.\nAGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 58h12m23s."}'),
-    ).toBe("Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s.");
   });
 
   it("stays quiet for other failures", () => {
     expect(usageLimitMessage("API Error: 529 overloaded")).toBeUndefined();
-    expect(usageLimitMessage("RESOURCE_EXHAUSTED (code 503): No capacity available for model")).toBeUndefined();
+    // Antigravity's quota is per model and another one goes on (agy-models.ts)
+    expect(usageLimitMessage("Individual quota reached. Resets in 58h12m23s.")).toBeUndefined();
     expect(usageLimitMessage("Prompt is too long")).toBeUndefined();
     expect(usageLimitMessage("")).toBeUndefined();
   });

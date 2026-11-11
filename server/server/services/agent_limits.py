@@ -9,11 +9,11 @@ USAGE_LIMIT = "usage_limit"
 
 # Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read
 # the same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
-# Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s.".
 # Read up to a quote too, for when it turns up inside a logged JSON line.
-_USAGE_LIMIT = re.compile(
-    r"You(?:'|’)ve hit your [\w ]*limit[^\n\"]*|usage limit reached[^\n\"]*|Individual quota reached[^\n\"]*", re.I
-)
+_USAGE_LIMIT = re.compile(r"You(?:'|’)ve hit your [\w ]*limit[^\n\"]*|usage limit reached[^\n\"]*", re.I)
+# Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s.". The quota
+# is per model and the daemon goes on with another one, so it counts only for a run that failed.
+_AGY_QUOTA = re.compile(r"Individual quota reached[^\n\"]*", re.I)
 
 
 def usage_limit_message(result: dict | None) -> str | None:
@@ -21,10 +21,12 @@ def usage_limit_message(result: dict | None) -> str | None:
     (error, stderr), not its answer, which may well discuss limits."""
     if not result or (result.get("action") or "agent") != "agent":
         return None
-    for key in ("error", "stderr"):
-        m = _USAGE_LIMIT.search(str(result.get(key) or ""))
-        if m:
-            return m.group(0).strip()
+    patterns = [_USAGE_LIMIT] + ([_AGY_QUOTA] if result.get("status") == "failed" else [])
+    for pattern in patterns:
+        for key in ("error", "stderr"):
+            m = pattern.search(str(result.get(key) or ""))
+            if m:
+                return m.group(0).strip()
     return None
 
 

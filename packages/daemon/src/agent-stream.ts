@@ -837,6 +837,8 @@ export class AgyCliStreamParser extends AgentStreamParser {
   /** agent_response text so far, by step. */
   private deltas = new Map<number, string>();
   private response = "";
+  /** The model the run uses, as its init event names it (the CLI's default when none was asked for). */
+  model = "";
 
   get finalText(): string | undefined {
     return this.response.trim() || this.messages.join("\n\n").trim() || undefined;
@@ -853,7 +855,10 @@ export class AgyCliStreamParser extends AgentStreamParser {
     const d = decode(line);
     if (!d || typeof d.event !== "string") return null;
     const events: AgentEvent[] = [];
-    if (d.event === "init") return this.session(d.conversation_id);
+    if (d.event === "init") {
+      if (isObject(d.init)) this.model = str(d.init.model)?.trim() ?? "";
+      return this.session(d.conversation_id);
+    }
     if (d.event === "step_update" && isObject(d.step_update)) {
       const u = d.step_update;
       events.push(...this.session(u.conversation_id));

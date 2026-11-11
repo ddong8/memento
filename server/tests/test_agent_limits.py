@@ -15,8 +15,10 @@ def test_the_quota_message_is_read_from_the_agents_errors():
     assert usage_limit_message({"stderr": f"x\n{LIMIT}\n"}) == LIMIT
     assert usage_limit_message({"error": "You’ve hit your weekly limit · resets Nov 3"}) == "You’ve hit your weekly limit · resets Nov 3"
     assert usage_limit_message({"error": "Claude AI usage limit reached|1761710400"}) == "usage limit reached|1761710400"
+    # Antigravity's per-model quota: only when the run failed (a later model may have answered)
     agy = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s."
-    assert usage_limit_message({"stderr": f"error: {agy}\nAGY_ERROR: {{}}"}) == agy
+    assert usage_limit_message({"status": "failed", "stderr": f"error: {agy}\nAGY_ERROR: {{}}"}) == agy
+    assert usage_limit_message({"status": "succeeded", "stderr": f"error: {agy}"}) is None
     # Inside a logged JSON line: up to the quote
     assert usage_limit_message({"stderr": '{"text":"' + LIMIT + '"}'}) == LIMIT
 

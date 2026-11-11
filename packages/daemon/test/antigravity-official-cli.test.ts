@@ -29,11 +29,25 @@ beforeAll(() => {
   writeFileSync(
     js,
     `
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 const args = process.argv.slice(2);
 appendFileSync(${JSON.stringify(join(dir, "calls.jsonl"))}, JSON.stringify({ args, electron: process.env.ELECTRON_RUN_AS_NODE ?? null }) + "\\n");
-const model = args[args.indexOf("--model") + 1];
+const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
 const emit = (e) => console.log(JSON.stringify(e));
+if (args[0] === "models") {
+  console.log("Fetching available models...\\ngemini-4-argon-medium\tGemini 4 Argon (Medium)\\ngemini-4-argon-high\tGemini 4 Argon (High)\\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)\\ngemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)");
+  process.exit(0);
+}
+// Gemini 4 Argon (the default) out of its quota, once the test says so
+const out = (f) => existsSync(join(${JSON.stringify(dir)}, f));
+if ((out("argon-out") && (!model || model.startsWith("gemini-4-argon"))) || (out("flash-out") && model.startsWith("gemini-3.8-flash"))) {
+  const quota = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s.";
+  emit({ event: "init", conversation_id: "${CID}", init: { model: model || "gemini-4-argon-medium", cwd: process.cwd() } });
+  emit({ event: "result", result: { conversation_id: "${CID}", status: "ERROR", response: "", error: quota } });
+  console.error("error: " + quota + "\\nAGY_ERROR: " + JSON.stringify({ short_error: "RESOURCE_EXHAUSTED (code 429): " + quota }));
+  process.exit(1);
+}
 if (args.includes("--model") && model === "pro") {
   emit({ event: "result", result: { conversation_id: "", status: "ERROR", response: "", error: "invalid model selection (--model \\"pro\\" --effort \\"\\"): model pro is not recognized as a known model or custom model in settings" } });
   process.exit(1);
@@ -113,6 +127,42 @@ it.skipIf(process.platform === "win32")(
     expect(first!.args).toEqual(expect.arrayContaining(["--conversation", CID, "--model", "pro"]));
     expect(retry!.args).toEqual(expect.arrayContaining(["--conversation", CID]));
     expect(retry!.args).not.toContain("--model");
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "a model out of quota (each has its own) goes on with another, and the next task skips it from the start",
+  async () => {
+    writeFileSync(join(dir, "argon-out"), "");
+    const before = calls().length;
+    const { done, events } = await runTask("feedbeef-0000-4000-8000-0000000000b3", { prompt: "加个函数", effort: "medium" });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(done.error_type ?? null).toBeNull();
+    const runs = calls().slice(before).filter((c) => c.args[0] !== "models");
+    expect(runs).toHaveLength(2);
+    expect(runs[0]!.args).not.toContain("--model");
+    expect(runs[1]!.args).toEqual(expect.arrayContaining(["--model", "gemini-3.8-flash-medium"]));
+    expect(JSON.stringify(events) + String(done.stderr)).toContain("改用 Gemini 3.8 Flash (Medium)");
+
+    const next = calls().length;
+    const second = await runTask("feedbeef-0000-4000-8000-0000000000b4", { prompt: "再加一个" });
+    expect(second.done).toMatchObject({ status: "succeeded" });
+    const runs2 = calls().slice(next).filter((c) => c.args[0] !== "models");
+    expect(runs2).toHaveLength(1);
+    expect(runs2[0]!.args).toEqual(expect.arrayContaining(["--model", "gemini-3.8-flash-medium"]));
+  },
+  45_000,
+);
+
+it.skipIf(process.platform === "win32")(
+  "every model out of quota: the task ends as out of quota, with the CLI's message",
+  async () => {
+    writeFileSync(join(dir, "flash-out"), "");
+    const { done } = await runTask("feedbeef-0000-4000-8000-0000000000b5", { prompt: "x", model: "gemini-4-argon-high" });
+    expect(done).toMatchObject({ status: "failed", error_type: "usage_limit" });
+    expect(String(done.error)).toContain("Individual quota reached");
+    expect(String(done.stderr)).not.toContain("模型容灾降级");
   },
   45_000,
 );

@@ -606,8 +606,10 @@ export default function WebShell() {
           overScrollMode="never"
           showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
-          dataDetectorTypes="none"
-          decelerationRate="normal"
+          // Array and number, not "none"/"normal": only the iOS wrapper converts those strings; Android
+          // hands them to the native props parser as is and the app crashes when the web view mounts.
+          dataDetectorTypes={["none"]}
+          decelerationRate={0.998}
           textZoom={100}
           automaticallyAdjustContentInsets={false}
           contentInsetAdjustmentBehavior="never"

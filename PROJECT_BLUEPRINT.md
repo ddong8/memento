@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e02a6911` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `30fab769` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 223 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 171 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `bc529072` (2026-11-11): fix(workspace): 代码所在设备的客户端太旧时发送前就提示升级，不再等导出超时
+- 最近改动 (Latest): `30fab769` (2026-11-11): feat(devices): 在网页上登录执行机的 Claude Code / Codex / Antigravity，不用 ssh 进服务器
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -597,15 +597,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (10 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (8 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (8 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (9 commits)
+- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (9 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (7 commits)
-- [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (7 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
 - [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (6 commits)
+- [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (6 commits)
+- [`apps/web/src/components/devices/DevicesView.tsx`](apps/web/src/components/devices/DevicesView.tsx) (5 commits)
+- [`docs/deployment-guide.md`](docs/deployment-guide.md) (5 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (5 commits)
-- [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `30fab769` (2026-11-11): feat(devices): 在网页上登录执行机的 Claude Code / Codex / Antigravity，不用 ssh 进服务器
 - `bc529072` (2026-11-11): fix(workspace): 代码所在设备的客户端太旧时发送前就提示升级，不再等导出超时
 - `c80b64da` (2026-11-11): fix(daemon): 从源码运行的守护进程上报仓库里的客户端版本，设备页不再显示成旧客户端
 - `9d13573f` (2026-11-11): fix(executor): 执行机脚本缺 git 时自动安装，重跑升级会重启守护进程到新版本
 - `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
 - `1467156b` (2026-11-11): feat(workspace): 代码留在 Mac/Windows，智能体在 Linux 执行机上跑，改动自动带回原电脑
-- `092bc2e5` (2026-11-11): test(daemon): 官方 agy 任务测试打桩 memento 运行脚本，不依赖本机构建产物
 
 ## 10. Key Environment Variables & Configuration
 

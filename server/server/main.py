@@ -649,7 +649,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from .services.pulse_service import start_proactive_pulse, stop_proactive_pulse
     await start_proactive_pulse()
     # Collaborative tasks: one replica schedules their steps onto the devices
-    from .services.plan_service import start_plan_runner, stop_plan_runner
+    from .services.plan_service import hand_over_plans, start_plan_runner, stop_plan_runner
     await start_plan_runner()
     # Mind resonance scenarios learned by dreaming (in the Celery worker): loaded now and every 10 minutes
     from .services.mind_resonance_service import keep_dynamic_scenarios_fresh
@@ -657,6 +657,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
     # Out of the load balancer by now: let ask runs finish while their readers
     # reattach through the other replicas, then leave.
+    await hand_over_plans()
     await ask_runs.drain(settings.shutdown_drain_seconds)
     await stop_proactive_pulse()
     await stop_plan_runner()

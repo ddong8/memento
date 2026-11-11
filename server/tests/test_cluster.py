@@ -97,6 +97,13 @@ class ClusterTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.4)  # holder stops renewing (e.g. it died)
         self.assertTrue(await self.b.hold_lease("pulse", 0.3))
 
+    async def test_release_lease_hands_the_job_over_now(self) -> None:
+        self.assertTrue(await self.a.hold_lease("plans", 60))
+        await self.b.release_lease("plans")  # not the holder: nothing happens
+        self.assertFalse(await self.b.hold_lease("plans", 60))
+        await self.a.release_lease("plans")
+        self.assertTrue(await self.b.hold_lease("plans", 60))
+
     async def test_leased_block_runs_on_one_replica_and_keeps_its_lease(self) -> None:
         async with self.a.leased("job", ttl=0.3) as mine:
             self.assertTrue(mine)

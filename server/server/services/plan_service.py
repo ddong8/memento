@@ -972,14 +972,34 @@ async def start_plan_runner() -> None:
         _runner = asyncio.create_task(_loop())
 
 
+async def hand_over_plans() -> None:
+    """Shutdown, before ask_runs.drain: start no more steps here and let a replica that stays (running
+    the new code) take the scheduling over at once. Steps already followed here go on until
+    stop_plan_runner; the new holder follows the same device tasks from the database meanwhile and
+    whichever sees the result first records it (the other finds the step done and leaves it)."""
+    global _runner, _running
+    _running = False
+    if _runner:
+        _runner.cancel()
+        await asyncio.gather(_runner, return_exceptions=True)
+        _runner = None
+    await cluster.release_lease("plans")
+
+
 async def stop_plan_runner() -> None:
     """After ask_runs.drain: the device tasks of steps cut short here keep going (shutting_down), the
     replica taking the lease over follows them from the database."""
+    from .ask_runs import ask_runs
+
     global _runner, _running
     _running = False
     if _runner:
         _runner.cancel()
         _runner = None
+    # The steps' device tasks must survive the cancel below. drain returns early without marking the
+    # shutdown when no ask run was going, and the cancelled dispatch then stopped the task on the
+    # device (11-12: a step cut off a minute in by a deploy).
+    ask_runs.shutting_down = True
     tasks = list(_local.values())
     for t in tasks:
         t.cancel()

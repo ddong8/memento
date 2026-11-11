@@ -520,6 +520,26 @@ class Cluster:
             return False
 
 
+    async def release_lease(self, name: str) -> None:
+        """Give the named lease up now if this replica holds it, so another replica takes the job
+        over at its next try instead of after the ttl."""
+        if not self.available:
+            return
+        key = f"{PREFIX}lease:{name}"
+        try:
+            # Deleted only if still ours: the lease may have run out and gone to another replica
+            async with self._r.pipeline(transaction=True) as pipe:
+                await pipe.watch(key)
+                if await pipe.get(key) == self.pod_id:
+                    pipe.multi()
+                    pipe.delete(key)
+                    await pipe.execute()
+                else:
+                    await pipe.unwatch()
+        except Exception as e:
+            logger.warning("lease %s release failed: %s", name, e)
+
+
 class SharedDict:
     """A small dict every replica sees, for what devices report to the replica
     they're connected to. A write lands here at once, on the other replicas via

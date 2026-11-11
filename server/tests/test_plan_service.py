@@ -313,3 +313,26 @@ async def test_advance_reassigns_a_retried_step_whose_agent_timed_out(monkeypatc
     await ps._advance(plan.id)
     s = plan.steps[0]
     assert s["status"] == "running" and s["agent"] != "antigravity" and spawned == [f"{plan.id}/s2"]
+
+
+@pytest.mark.asyncio
+async def test_stop_runner_leaves_the_device_task_going(monkeypatch):
+    import asyncio
+
+    from server.services.ask_runs import ask_runs
+
+    monkeypatch.setattr(ask_runs, "shutting_down", False)
+    seen = {}
+
+    async def following():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            seen["keeps"] = ask_runs.keeps_device_tasks("T1")
+            raise
+
+    task = asyncio.create_task(following())
+    await asyncio.sleep(0)
+    monkeypatch.setitem(ps._local, "p/s1", task)
+    await ps.stop_plan_runner()
+    assert seen["keeps"] is True and task.cancelled()

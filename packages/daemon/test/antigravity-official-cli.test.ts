@@ -43,7 +43,7 @@ if (args[0] === "models") {
 const out = (f) => existsSync(join(${JSON.stringify(dir)}, f));
 if ((out("argon-out") && (!model || model.startsWith("gemini-4-argon"))) || (out("flash-out") && model.startsWith("gemini-3.8-flash"))) {
   const quota = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s.";
-  emit({ event: "init", conversation_id: "${CID}", init: { model: model || "gemini-4-argon-medium", cwd: process.cwd() } });
+  // The real CLI fails before its init event, so the default's name is never reported
   emit({ event: "result", result: { conversation_id: "${CID}", status: "ERROR", response: "", error: quota } });
   console.error("error: " + quota + "\\nAGY_ERROR: " + JSON.stringify({ short_error: "RESOURCE_EXHAUSTED (code 429): " + quota }));
   process.exit(1);

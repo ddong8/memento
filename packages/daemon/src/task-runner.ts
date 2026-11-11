@@ -1233,9 +1233,12 @@ export class TaskRunner {
       for (let switches = 0; exitCode !== 0 && officialAgy && switches < 3 && !this.cancelledTasks.has(taskId); switches++) {
         const quota = agyQuotaMessage(lastErrors());
         if (!quota) break;
-        const failed = agyModel || (parser instanceof AgyCliStreamParser ? parser.model : "");
+        const models = await listAgyModels(exe, env);
+        // No model asked for and the CLI failed before naming it: its default, which `agy models` lists first
+        const failed = agyModel || (parser instanceof AgyCliStreamParser ? parser.model : "") || models[0]?.id || "";
+        if (!agyModel) noteDefaultModel(failed);
         noteQuotaExhausted(failed, quota);
-        const next = nextAgyModel(await listAgyModels(exe, env), failed, effort);
+        const next = nextAgyModel(models, failed, effort);
         if (!next) break;
         const reset = quotaResetMs(quota);
         this.notice(

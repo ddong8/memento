@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `816039ea` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `77beb12f` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 223 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 178 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `816039ea` (2026-11-11): fix(daemon): Antigravity 账号额度用完按额度用完上报，不再当成模型容量不足去重试
+- 最近改动 (Latest): `77beb12f` (2026-11-11): feat(daemon): 官方 agy 某个模型额度用完时自动换别的模型继续
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -599,10 +599,10 @@ erDiagram
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (8 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (8 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (7 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (7 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
 - [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (6 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (6 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
 - [`apps/web/src/components/devices/DevicesView.tsx`](apps/web/src/components/devices/DevicesView.tsx) (5 commits)
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) (5 commits)
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `77beb12f` (2026-11-11): feat(daemon): 官方 agy 某个模型额度用完时自动换别的模型继续
 - `816039ea` (2026-11-11): fix(daemon): Antigravity 账号额度用完按额度用完上报，不再当成模型容量不足去重试
 - `308ac0c9` (2026-11-11): fix(server): 派给设备的智能体任务发不出去时立即失败，不再一直排队
 - `7b7a6e80` (2026-11-11): fix(daemon): 跨设备任务回复里的文件路径换回源设备上的路径
 - `9c70a733` (2026-11-11): fix(mobile): 安卓 app 里全景总览、个人中心等整页滚动的页面上下划不动 (#10)
 - `26f91e4b` (2026-11-11): chore(release): 升级客户端版本至 v1.0.108，修复安卓客户端登录后打开黑屏
-- `098ef833` (2026-11-11): fix(mobile): 安卓登录后打开即闪退黑屏
 
 ## 10. Key Environment Variables & Configuration
 

@@ -1,25 +1,25 @@
 {
   "version": "1.0.108",
-  "title": "Memento v1.0.107",
+  "title": "Memento v1.0.108",
   "release_notes": "1. 修复安卓客户端登录后再打开一直黑屏（实际是一打开就闪退）的问题，升级后直接进入 AI 执事\n2. 加了自动检查，防止手机端再把网页视图的参数写成安卓不认的格式\n3. 手机端版本号与客户端统一为 1.0.108",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.107-win-x64.zip",
-      "size": 158164902,
-      "sha256": "6a568df592ff50ef566b500b1d3f0f1767f5ce5328f022432ad0719176b85c9d",
-      "sha512": "iJWSZjwBuNJXBdpTbAXt5QqPIW204nk+3Z8NmsjabgUxcQo0xVCTxK0GhAjO0o+V0k3hmV0CDOkOSIChSVatfg=="
+      "asset_name": "Memento-1.0.108-win-x64.zip",
+      "size": 158164900,
+      "sha256": "5ab8f27b97bae7079bffe2cd0ca71715a81ce7a7a249d1816b368973f64a8d8f",
+      "sha512": "tH3bO8ffTlT6/NZo/D7okX1FunCeMW32pgW4GbGGOabGb0n5W4yZCdgIVHbPMNfvTOzfpasMz/+Ak04zEW7/9w=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.107-mac-arm64.zip",
+      "asset_name": "Memento-1.0.108-mac-arm64.zip",
       "size": 132647509,
-      "sha256": "7b167c63cd22cf6f66400f622b7b5694011ef41fef094e6a0330291907a756e9",
-      "sha512": "iNwSkI41oHYaflZ8I3GL1N5A3icsZEVQYncWke5bjINX6zeEYvgyhao7qspfpyTTwGrge90TliL4MWb2LHI1/A=="
+      "sha256": "da7ab868b17fabec9906b78ff68242432ae438bfe541c0d2068d7b123a7f511e",
+      "sha512": "JazbiOHwSzK0y+7pfaIiIQvIt+7SAx0TZmc8xBCL5uihDIUg8jbepFCuhThiDdPe8AN7KTxc64FANUZDRfs2Bg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.107-linux-x64.tar.gz",
-      "size": 131931349,
-      "sha256": "d2fb68b450bd5550e6454ab22a505354225c662d91adf9fe9e95ced63256dbaf",
-      "sha512": "bJa8nrZUtd8RryBRqYo9ucdzIAdDoDS6b8IuB3/xytyUwBGHvRhKQjvNCuLWdUBHBbTZInhMmcg3VAipyp3H7g=="
+      "asset_name": "Memento-1.0.108-linux-x64.tar.gz",
+      "size": 131931342,
+      "sha256": "75bf4d35ed950e4f7da4cf5869c15181a53494efc0d63fa1f94775e3c17a3f9b",
+      "sha512": "1H9rDfkFnp+Xctn6AoobaDb9FsiFdAiIbl9wT9hFAd8AlGPavcfHArvahXfpy22Oy9RkTRJlccerj537BuFnbg=="
     }
   }
 }

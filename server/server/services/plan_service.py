@@ -233,7 +233,7 @@ def choose_assignment(
             if not can_run(snapshot, dev, agent, source_device_id=source_device_id, code=code):
                 continue
             score = 0.0
-            if prefer_agent and agent == prefer_agent:
+            if prefer_agent and agent == prefer_agent and not penalty.get(agent):
                 score += 40
             if prefer_device and _device(snapshot, prefer_device) is dev:
                 score += 25
@@ -822,8 +822,9 @@ async def _advance(plan_id: uuid.UUID) -> None:
             s = _step(steps, sid)
             pick = None
             dev = _device(snapshot, s.get("device_id"))
+            # The planned (or last) agent, unless it already failed in this plan: then picked afresh
             if dev and s.get("agent") and [dev["device_id"], s["agent"]] not in (s.get("tried") or []) \
-                    and can_run(snapshot, dev, s["agent"], source_device_id=plan.source_device_id, code=bool(plan.cwd)):
+                    and not penalty.get(s["agent"]) and can_run(snapshot, dev, s["agent"], source_device_id=plan.source_device_id, code=bool(plan.cwd)):
                 pick = (dev["device_id"], s["agent"])
             if not pick:
                 pick = choose_assignment(

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3d35398d` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `ed0f401e` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 182 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `3d35398d` (2026-11-12): fix(daemon): Windows 上 Codex 装在 Program Files 时启动失败，命令路径加引号
+- 最近改动 (Latest): `ed0f401e` (2026-11-12): chore(release): 升级客户端版本至 v1.0.110，新增协作任务，修复 Windows 上 Codex 启动失败
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -607,11 +607,11 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (12 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (7 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (7 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
+- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (6 commits)
 - [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
 - [`docs/deployment-guide.md`](docs/deployment-guide.md) (5 commits)
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `ed0f401e` (2026-11-12): chore(release): 升级客户端版本至 v1.0.110，新增协作任务，修复 Windows 上 Codex 启动失败
 - `3d35398d` (2026-11-12): fix(daemon): Windows 上 Codex 装在 Program Files 时启动失败，命令路径加引号
 - `0ac55641` (2026-11-12): fix(plans): 子任务默认 30 分钟超时，失败或超时的智能体重试时靠后
 - `c8da2120` (2026-11-12): feat: 协作任务——大任务自动拆分，多设备多智能体并行执行、复查汇总
 - `4048c0cc` (2026-11-12): chore(release): 升级客户端版本至 v1.0.109，Claude Code 和 Codex 单个模型额度用完时自动换模型
 - `b7c1febd` (2026-11-12): feat: Claude Code 和 Codex 单个模型额度用完时也自动换模型，网页标出用完的模型
-- `829d7fc0` (2026-11-11): fix(daemon): agy 没说用的哪个模型就额度用完时，按它的默认模型算，不再白换一次
 
 ## 10. Key Environment Variables & Configuration
 

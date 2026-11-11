@@ -136,6 +136,9 @@ def test_retry_moves_off_an_agent_that_timed_out_in_the_plan():
     assert penalty == {"antigravity": 2}
     pick = ps.choose_assignment(snap, exclude=[["vps3", "antigravity"]], penalty=penalty)
     assert pick and pick[1] != "antigravity"
+    # Even when the planner (or the step left from before a retry) still names it
+    pick = ps.choose_assignment(snap, prefer_agent="antigravity", penalty=penalty)
+    assert pick and pick[1] != "antigravity"
 
 
 def test_plan_progress_ready_blocked_over():
@@ -283,3 +286,30 @@ async def test_run_step_records_task_id_then_result(monkeypatch):
     assert seen[0]["binary"] == "codex"
     s = plan.steps[0]
     assert s["status"] == "succeeded" and s["result"] == "完成" and s["device_name"] == "MacBook"
+
+
+@pytest.mark.asyncio
+async def test_advance_reassigns_a_retried_step_whose_agent_timed_out(monkeypatch):
+    # Retry by hand keeps the step's last agent; it timed out before, so the scheduler picks again
+    step = ps._new_step("s2", "测试", "写测试", agent="antigravity", device_id="vps3")
+    step["history"] = [{"attempt": 3, "agent": "antigravity", "device_id": "vps3", "status": "timeout", "error_type": None}]
+    plan = _plan([step])
+    monkeypatch.setattr(ps, "_mutate", _mutate_on(plan))
+    monkeypatch.setattr(ps, "capability_snapshot", AsyncMock(return_value=_snapshot()))
+    spawned = []
+    monkeypatch.setattr(ps, "_spawn", lambda key, coro: (spawned.append(key), coro.close()))
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, model, _id):
+            return plan if model is ps.AgentPlan else SimpleNamespace(id=plan.user_id)
+
+    monkeypatch.setattr(ps, "async_session_factory", Session)
+    await ps._advance(plan.id)
+    s = plan.steps[0]
+    assert s["status"] == "running" and s["agent"] != "antigravity" and spawned == [f"{plan.id}/s2"]

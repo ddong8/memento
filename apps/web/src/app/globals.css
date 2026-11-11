@@ -677,6 +677,11 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 /* When inside native Memento Mobile shell, bottom safe area is already handled by native wrapper */
 html.memento-native-shell body {
   padding-bottom: 0 !important;
+  /* Mobile apps up to v1.0.108 inject overscroll-behavior-y: none on html and body. body is a scroll
+     container too (overflow-x: hidden), and on Android a vertical swipe stopped there instead of
+     scrolling the page: overview, profile and every other whole-page view couldn't be scrolled.
+     Overrides theirs (more specific); the page itself keeps none, so there's still no bounce. */
+  overscroll-behavior-y: auto !important;
 }
 html.memento-native-shell [data-ask-footer] {
   padding-bottom: 2px !important;

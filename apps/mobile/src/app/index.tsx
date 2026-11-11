@@ -127,11 +127,16 @@ const INJECTED_CLIENT_HELPERS = `(() => {
       -webkit-font-smoothing: antialiased !important;
       -moz-osx-font-smoothing: grayscale !important;
       text-rendering: optimizeLegibility !important;
-      overscroll-behavior-y: none !important;
       max-width: 100vw !important;
       width: 100% !important;
       overflow-x: hidden !important;
       -webkit-text-size-adjust: 100% !important;
+    }
+    /* The page (viewport) only, not body: overflow-x: hidden makes body a scroll container too, and
+       on Android a vertical swipe goes to body first; with overscroll none there it never reaches the
+       page, so pages that scroll as a whole (overview, profile, ...) can't be scrolled at all. */
+    html {
+      overscroll-behavior-y: none !important;
     }
     input, textarea, select {
       font-size: 16px !important;

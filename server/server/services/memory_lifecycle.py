@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import User, UserMemory, UserProfile
 from ..db.session import async_session_factory
-from .ai_provider import call_plain_chat
+from .ai_provider import call_plain_chat, uses_user_llm
 from .dreaming_service import _safe_json_loads
 from .memory_vectors import embed_memories, nearest_memories
 from .profile_service import get_draft_profile, get_published_profile, sanitize_profile_content
@@ -214,6 +214,7 @@ async def _judge(new: list[UserMemory], old: list[UserMemory]) -> tuple[list[dic
     return list(_safe_json_loads(raw).get("actions") or []), refs
 
 
+@uses_user_llm
 async def reconcile_group(
     db: AsyncSession, user: User, new: list[UserMemory], old: list[UserMemory],
 ) -> list[tuple[UserMemory, UserMemory, str]]:

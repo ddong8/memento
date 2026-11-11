@@ -416,7 +416,9 @@ async def generate_daily_summary_endpoint(
             "digest": "\n".join(parts),
         })
 
-    summary_text = await generate_daily_summary_from_digests(target_date, conv_data)
+    from ..services.ai_provider import llm_user
+    with llm_user(_user):
+        summary_text = await generate_daily_summary_from_digests(target_date, conv_data)
     if not summary_text:
         raise HTTPException(status_code=500, detail="AI summary generation failed")
 

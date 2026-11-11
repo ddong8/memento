@@ -309,9 +309,11 @@ async def ask(
         try:
             from ..services.session_compactor import build_compacted_continuation
             from ..services.user_filter import user_machine_ids
-            comp_res = await build_compacted_continuation(
-                db, body.session_id, question, recent_turns=6, machine_ids=await user_machine_ids(db, _user),
-            )
+            from ..services.ai_provider import llm_user
+            with llm_user(_user):
+                comp_res = await build_compacted_continuation(
+                    db, body.session_id, question, recent_turns=6, machine_ids=await user_machine_ids(db, _user),
+                )
             injected_ctx = comp_res.get("injected_context", "")
             if injected_ctx:
                 question = f"{injected_ctx}\n\n当前用户指令：\n{question}"

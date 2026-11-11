@@ -30,7 +30,7 @@ from ..db.models import (
     DreamJournal, KnowledgeEntity, KnowledgeObservation, KnowledgeRelation,
     Machine, Project, User, UserMemory,
 )
-from .ai_provider import call_plain_chat, get_ai_providers
+from .ai_provider import call_plain_chat, get_ai_providers, uses_user_llm
 
 
 logger = logging.getLogger("server.dreaming_service")
@@ -1010,6 +1010,7 @@ async def extract_canonical_projects(db: AsyncSession, user: User) -> list[dict[
     return sorted_projs
 
 
+@uses_user_llm
 async def run_dreaming_pipeline(
     db: AsyncSession,
     user: User,
@@ -1882,6 +1883,7 @@ _BOOTSTRAP_PROMPT = """你是一个高阶个人认知知识图谱与大脑记忆
 """
 
 
+@uses_user_llm
 async def bootstrap_memories_from_knowledge_graph(
     db: AsyncSession,
     user: User,

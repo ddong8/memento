@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
 from ..db.models import CHAT_MESSAGE, ConversationMessage, Document, EvalCase, EvalRun, Machine, User
-from .ai_provider import call_plain_chat
+from .ai_provider import call_plain_chat, uses_user_llm
 from .dreaming_service import _EMBEDDED_CONTEXT_RE, SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 
 logger = logging.getLogger("server.eval")
@@ -243,6 +243,7 @@ async def current_version(db: AsyncSession, user: User) -> int | None:
     )).scalar()
 
 
+@uses_user_llm
 async def build_set(db: AsyncSession, user: User, size: int = SET_SIZE) -> dict[str, Any]:
     """Generate a new frozen question set under the next version number."""
     version = (await current_version(db, user) or 0) + 1

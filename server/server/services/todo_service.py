@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import ConversationMessage, Document, Machine, Project, Todo, User
 from . import ai_health
-from .ai_provider import call_plain_chat
+from .ai_provider import call_plain_chat, uses_user_llm
 from .cache import cache_delete_prefix
 from .dreaming_service import SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 
@@ -295,6 +295,7 @@ async def classify(batch: list[Said], opened: list[Todo]) -> dict[str, Any]:
     return _safe_json_loads(raw)
 
 
+@uses_user_llm
 async def learn_todos(db: AsyncSession, user: User) -> dict[str, Any]:
     """Process messages synced since the last run. Returns what changed."""
     now = datetime.now(timezone.utc)

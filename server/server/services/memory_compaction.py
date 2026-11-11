@@ -16,9 +16,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation
+from ..db.models import KnowledgeEntity, KnowledgeObservation, KnowledgeRelation, User
 
-from .ai_provider import call_plain_chat, get_ai_providers
+from .ai_provider import call_plain_chat, get_ai_providers, llm_user
 
 logger = logging.getLogger("memory_compaction")
 
@@ -146,8 +146,11 @@ async def run_compaction(db: AsyncSession) -> dict:
 
     total_removed = 0
     entities_compacted = 0
+    # Each entity's observations are compacted with its owner's model (个人中心) when they set one
+    owners = {u.id: u for u in (await db.execute(select(User))).scalars().all()}
     for entity in entities:
-        removed = await compact_entity(db, entity)
+        with llm_user(owners.get(entity.user_id)):
+            removed = await compact_entity(db, entity)
         if removed > 0:
             total_removed += removed
             entities_compacted += 1

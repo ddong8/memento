@@ -37,7 +37,7 @@ from ..db.models import (
     UserProfile,
 )
 from . import ai_health
-from .ai_provider import call_plain_chat
+from .ai_provider import call_plain_chat, uses_user_llm
 from .dreaming_service import _CORRECTION_RE, SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 from .profile_service import (
     PROFILE_MAX_CHARS,
@@ -409,6 +409,7 @@ async def accept_covered_topics(db: AsyncSession, user: User) -> list[str]:
     return accepted
 
 
+@uses_user_llm
 async def learn_from_corrections(db: AsyncSession, user: User) -> dict[str, Any]:
     """Process corrections synced since the last run. Returns what changed."""
     now = datetime.now(timezone.utc)

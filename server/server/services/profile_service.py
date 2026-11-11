@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import Document, Machine, Project, User, UserMemory, UserProfile
-from .ai_provider import call_plain_chat, get_ai_providers
+from .ai_provider import call_plain_chat, get_ai_providers, uses_user_llm
 from .cache import cache_delete_prefix, cache_get, cache_set
 from .dreaming_service import fetch_user_voice_rows, plan_user_voice_batches, render_user_voice
 
@@ -444,6 +444,7 @@ async def _profile_memories(db: AsyncSession, user: User) -> list[UserMemory]:
     return sorted(rows, key=lambda m: (m.source != "manual", -(m.confidence or 0)))[:60]
 
 
+@uses_user_llm
 async def build_profile_draft(db: AsyncSession, user: User) -> tuple[UserProfile | None, str]:
     """Refresh the user's draft profile.
 

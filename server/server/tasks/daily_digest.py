@@ -13,6 +13,7 @@ from .celery_app import celery_app
 from ..db.models import CHAT_MESSAGE, ConversationMessage, DailySummary, Document, User
 from ..db.session import async_session_factory
 from ..services.ai_summary_service import generate_daily_summary_from_digests
+from ..services.ai_provider import llm_user
 from ..services.user_filter import user_machine_ids
 
 # A day whose report couldn't be (re)written because the model didn't answer is tried again this
@@ -90,9 +91,10 @@ async def _generate_digest(target_date: date, user_ids: list[str] | None = None)
             )).scalar_one_or_none()
             # Re-baking a day that has a report (03:30): if the model can't be reached for some conversations,
             # they would go in as their first 300 characters over the 23:30 report. Keep that one instead.
-            summary_text = await generate_daily_summary_from_digests(
-                target_date, conv_data, require_complete=existing is not None
-            )
+            with llm_user(user):  # the user's own model if they set one (个人中心)
+                summary_text = await generate_daily_summary_from_digests(
+                    target_date, conv_data, require_complete=existing is not None
+                )
             if not summary_text:
                 pending.append(str(user.id))
                 continue

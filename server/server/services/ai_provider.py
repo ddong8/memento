@@ -11,16 +11,60 @@ import asyncio
 import json
 import logging
 import os
+import functools
+import inspect
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Iterator
 
 import httpx
 
 from . import ai_health
 
 logger = logging.getLogger("server.ai_provider")
+
+# The user a background job is working for. Calls that don't pass user= (extraction, summaries, nightly
+# jobs deep inside a per-user run) use this user's own model (个人中心, custom_enabled) like the answer
+# path does, so a server without MEMENTO_AI_* still runs them. Copied into tasks spawned meanwhile.
+_llm_user: ContextVar[dict | None] = ContextVar("memento_llm_user", default=None)
+
+
+def _settings_of(user: Any) -> dict | None:
+    # Read once, up front: later in a job the row may be expired by a commit, and reading it then
+    # would lazy-load (MissingGreenlet in an async session)
+    try:
+        settings = getattr(user, "llm_settings", None)
+    except Exception:
+        return None
+    return dict(settings) if isinstance(settings, dict) else None
+
+
+@contextmanager
+def llm_user(user: Any) -> Iterator[None]:
+    """Run the block with `user`'s model settings as the default for every model call in it."""
+    token = _llm_user.set(_settings_of(user) if user is not None else None)
+    try:
+        yield
+    finally:
+        _llm_user.reset(token)
+
+
+def uses_user_llm(fn):
+    """For async per-user jobs taking a `user` argument: model calls inside use that user's settings."""
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        user = sig.bind_partial(*args, **kwargs).arguments.get("user")
+        if user is None:
+            return await fn(*args, **kwargs)
+        with llm_user(user):
+            return await fn(*args, **kwargs)
+
+    return wrapper
+
 
 _shared_chat_client: httpx.AsyncClient | None = None
 
@@ -89,6 +133,8 @@ def get_ai_providers(
     the user's configured provider is placed first with highest priority.
     """
     providers: list[AIProviderConfig] = []
+    if user is None and custom_settings is None:
+        custom_settings = _llm_user.get()
 
     # 1. User-customized provider (highest priority if enabled)
     user_settings = custom_settings

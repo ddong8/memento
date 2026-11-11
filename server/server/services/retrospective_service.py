@@ -35,7 +35,7 @@ from ..db.models import (
     ConversationMessage, DeviceTask, Document, Machine, Project, SessionReview, Skill, Todo, User, UserMemory,
 )
 from . import ai_health
-from .ai_provider import call_plain_chat
+from .ai_provider import call_plain_chat, uses_user_llm
 from .cache import cache_get, cache_set
 from .dreaming_service import SUBAGENT_PATH_REGEX, _safe_json_loads, clean_user_voice
 from .skill_service import slugify, unique_slug, upsert_mined
@@ -429,6 +429,7 @@ async def save_pitfall(
     return mem
 
 
+@uses_user_llm
 async def review_session(db: AsyncSession, user: User, cand: Candidate) -> dict[str, Any]:
     transcript = await load_transcript(db, cand.doc_id, prev_messages=cand.prev_messages)
     known = await load_known(db, user, cand.project)
@@ -580,6 +581,7 @@ def _task_line(t: DeviceTask) -> str:
     )
 
 
+@uses_user_llm
 async def learn_from_tasks(db: AsyncSession, user: User, now: datetime | None = None) -> dict[str, int]:
     """Pitfalls from agent tasks that failed since the last run."""
     now = now or datetime.now(timezone.utc)

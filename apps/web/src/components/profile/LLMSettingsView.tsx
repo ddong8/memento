@@ -588,6 +588,11 @@ export function LLMSettingsView() {
                   模型返回样例：{testResult.reply}
                 </div>
               )}
+              {testResult.success && !enabled && (
+                <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                  当前未启用：这份配置还不会用于提问和后台整理。打开上方的开关并保存后才生效。
+                </div>
+              )}
             </div>
           )}
 

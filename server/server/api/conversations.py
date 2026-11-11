@@ -332,9 +332,11 @@ async def compact_conversation_session(
 
     recent = payload.recent_turns if payload else 6
     prompt = payload.new_prompt if payload else ""
-    result = await build_compacted_continuation(
-        db, session_id, prompt, recent_turns=recent, machine_ids=await user_machine_ids(db, _user),
-    )
+    from ..services.ai_provider import llm_user
+    with llm_user(_user):
+        result = await build_compacted_continuation(
+            db, session_id, prompt, recent_turns=recent, machine_ids=await user_machine_ids(db, _user),
+        )
     if not result["injected_context"]:
         raise HTTPException(status_code=404, detail="session not found")
     return result

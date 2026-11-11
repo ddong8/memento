@@ -904,7 +904,7 @@ export class FileWatcher {
   private async syncJsonl(file: string, toolId: string, relPath: string, fromBacklog = false): Promise<boolean> {
     // Where the server's copy ends: each slice starts here
     let offset = this.offsets.get(file) ?? 0;
-    const size0 = (await stat(file)).size;
+    const { size: size0, mtimeMs } = await stat(file);
     if (size0 < offset) {
       this.log(`File shrunk (${size0} < ${offset}), starting over: ${relPath}`);
       offset = 0;
@@ -969,6 +969,7 @@ export class FileWatcher {
           offset,
           endOffset: pos,
           mode,
+          mtimeMs,
           metadata: sessionMetadata(file, toolId, relPath, lines, this.home, head),
         } as const;
         const result = await this.ingest.ingestDocument(doc);
@@ -1072,6 +1073,7 @@ export class FileWatcher {
           content,
           contentHash: contentHash(content),
           fileSize: s.size,
+          mtimeMs: s.mtimeMs,
           mode: "full",
           offset: 0,
         },

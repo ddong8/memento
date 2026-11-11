@@ -18,7 +18,7 @@ from sqlalchemy import or_, select, func, case
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, DocumentSearch, User, UserMemory, Project
+from ..db.models import DOCUMENT_HAPPENED_AT, Document, DocumentSearch, User, UserMemory, Project, document_happened_at
 from ..db.session import async_session_factory
 from ..services.fulltext import keyword_match, use_fulltext_index
 from ..services.tokenize import query_terms
@@ -84,7 +84,7 @@ async def hybrid_rank(
 
     clean_q = q.strip()
     # k is in the key: each channel fetches k rows, so Ask (6) and the evaluation (10) rank different pools.
-    cache_key = f"hybrid_rank:{user.id}:{tool or 'all'}:{days or 'all'}:{k}:{hashlib.sha256(clean_q.lower().encode('utf-8')).hexdigest()[:16]}"
+    cache_key = f"hybrid_rank:v2:{user.id}:{tool or 'all'}:{days or 'all'}:{k}:{hashlib.sha256(clean_q.lower().encode('utf-8')).hexdigest()[:16]}"
     cached_payload = await cache_get(cache_key)
     if cached_payload and isinstance(cached_payload, dict):
         try:
@@ -120,15 +120,13 @@ async def hybrid_rank(
     if days:
         from datetime import datetime, timedelta, timezone
 
-        kw_q = kw_q.where(
-            Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days)
-        )
+        kw_q = kw_q.where(DOCUMENT_HAPPENED_AT >= datetime.now(timezone.utc) - timedelta(days=days))
     kw_q = apply_user_filter(kw_q, mids, Document.machine_id)
 
     async def _fetch_kw():
         async with async_session_factory() as kw_db:
             conds = [Document.title.ilike(term), Document.relative_path.ilike(term)]
-            order = (Document.synced_at.desc(),)
+            order = (DOCUMENT_HAPPENED_AT.desc(),)
             if terms:
                 await use_fulltext_index(kw_db)
                 tsquery, rank = await keyword_match(kw_db, terms)
@@ -138,7 +136,7 @@ async def hybrid_rank(
                     select(DocumentSearch.document_id)
                     .where(DocumentSearch.content_tsv.op("@@")(func.to_tsquery("simple", tsquery))).correlate(None)
                 ))
-                order = (rank.desc(), Document.synced_at.desc())
+                order = (rank.desc(), DOCUMENT_HAPPENED_AT.desc())
             return (await kw_db.execute(kw_q.where(or_(*conds)).order_by(*order).limit(k))).scalars().all()
 
     async def _fetch_sem():
@@ -304,6 +302,7 @@ async def retrieve(
             "tool_id": d.tool_id,
             "category": d.category,
             "synced_at": d.synced_at.isoformat() if d.synced_at else None,
+            "happened_at": document_happened_at(d),
             "excerpt": clean_text[:CHARS_PER_DOC],
         })
     return sources

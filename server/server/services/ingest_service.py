@@ -1104,6 +1104,7 @@ async def ingest_file(
             )
             title = ann_title
 
+    created = doc is None
     if doc is None:
         # Create new document — always store content in DB (TEXT has no size limit). The whole text
         # stays in the row: about twenty readers use documents.content directly, and keeping only a
@@ -1321,7 +1322,10 @@ async def ingest_file(
         content_type == "jsonl"
         or (content_type == "json" and tool_id == "hermes")
     ):
-        await _extract_messages(db, doc, content, mode, end_offset is not None and end_offset >= file_size)
+        latest_msg = await _extract_messages(db, doc, content, mode, end_offset is not None and end_offset >= file_size)
+    else:
+        latest_msg = None
+    _set_source_time(doc, timestamp, latest_msg, now, created)
 
     # Update sync state
     await _update_sync_state(db, tool_id, relative_path, content_hash, offset, machine_id, end_offset)
@@ -1412,11 +1416,46 @@ async def _run_post_ingest_inner(doc_id, tool_id: str, category: str) -> None:
         logger.info("Post-ingest error: %s", e)
 
 
+def _set_source_time(
+    doc: Document, timestamp: float | None, latest_msg: datetime | None, now: datetime, created: bool,
+) -> None:
+    """When what the document holds happened (source_modified_at): what "today" / "the last N days"
+    are filtered and ranked by (ask_retrieval), not when it reached the server (#7: a first sync uploads
+    months of history at once, and all of it read as today's). The file's mtime from the collector or
+    the latest message of the slice, whichever is later, never in the future. A slice only moves it
+    forward: a log sent again comes in slices from the start, each older than the last line. Without
+    either (an older collector), a new document keeps the sync time; an updated conversation keeps its
+    time until a message says otherwise, any other document changed now."""
+    cands = [t for t in (
+        datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None, latest_msg,
+    ) if t is not None]
+    if not cands:
+        if not created and doc.category != "conversation":
+            doc.source_modified_at = now
+        return
+    when = min(max(cands), now)
+    prev = doc.source_modified_at
+    if prev is not None and prev.tzinfo is None:
+        prev = prev.replace(tzinfo=timezone.utc)
+    # A new document without the collector's time got the sync time as a placeholder
+    if created and not timestamp:
+        prev = None
+    doc.source_modified_at = when if prev is None else max(prev, when)
+
+
+def _latest_time(msgs) -> datetime | None:
+    times = [m.timestamp for m in msgs if getattr(m, "timestamp", None)]
+    if not times:
+        return None
+    return max(t if t.tzinfo else t.replace(tzinfo=timezone.utc) for t in times)
+
+
 async def _extract_messages(
     db: AsyncSession, doc: Document, content: str, mode: str, complete: bool = False,
-) -> None:
+) -> datetime | None:
     """Parse conversation content and store normalized messages. `complete`: the content reaches the
-    end of the log, so a full upload's rows it doesn't hold can go (message_store.store_slice)."""
+    end of the log, so a full upload's rows it doesn't hold can go (message_store.store_slice).
+    Returns the time of the slice's latest message."""
 
     # Messages already stored keep their rows and ids (message_store): the learning scans read by id
     from . import message_store
@@ -1428,7 +1467,7 @@ async def _extract_messages(
         msgs = hermes_messages_to_store(content)
         plan = message_store.plan_alignment(await message_store.stored_rows(db, doc.id), msgs)
         await message_store.apply_alignment(db, doc.id, plan)
-        return
+        return _latest_time(msgs)
 
     msgs = await message_store.store_slice(
         db, doc.id, lambda seen: messages_to_store(content, doc.tool_id, seen), mode != "delta", complete,
@@ -1508,6 +1547,7 @@ async def _extract_messages(
                     timestamp=doc.source_modified_at or doc.synced_at,
                 ))
                 await db.flush()
+    return _latest_time(msgs)
 
 
 async def _update_sync_state(

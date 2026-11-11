@@ -1381,7 +1381,8 @@ async def _tool_memory(db: AsyncSession, user: User, name: str, args: dict) -> d
                     "title": s["title"],
                     "tool": s["tool_id"],
                     "path": s["relative_path"],
-                    "synced_at": s["synced_at"],
+                    # When it happened, not when it was uploaded: a first sync uploads months at once (#7)
+                    "happened_at": s.get("happened_at") or s["synced_at"],
                     "excerpt": (s["excerpt"] or "")[:700],
                 }
                 for s in sources[:5]

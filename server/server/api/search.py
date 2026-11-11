@@ -8,7 +8,7 @@ from sqlalchemy import or_, select, func
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Document, DocumentSearch, Machine, User
+from ..db.models import DOCUMENT_HAPPENED_AT, Document, DocumentSearch, Machine, User, document_happened_at
 from ..db.session import get_db, async_session_factory
 from ..middleware.auth import get_current_user
 from ..services.cache import cache_get, cache_set
@@ -155,7 +155,7 @@ async def search(
     if days:
         from datetime import datetime, timedelta, timezone
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-        query = query.where(Document.synced_at >= cutoff)
+        query = query.where(DOCUMENT_HAPPENED_AT >= cutoff)
     query = apply_user_filter(query, mids, Document.machine_id)
 
     # Fetch page + total in one query. COUNT(*) OVER () reuses the same bitmap
@@ -163,7 +163,7 @@ async def search(
     total_col = func.count().over().label("_total")
     paged = (
         query.add_columns(total_col)
-        .order_by(Document.synced_at.desc())
+        .order_by(DOCUMENT_HAPPENED_AT.desc())
         .offset(offset)
         .limit(limit)
     )
@@ -274,6 +274,7 @@ async def search(
             "snippet": snippet,
             "file_size_bytes": d.file_size_bytes,
             "synced_at": d.synced_at.isoformat() if d.synced_at else None,
+            "happened_at": document_happened_at(d),
             "matched_semantically": d.id in sem_snippets,
         })
 

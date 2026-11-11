@@ -207,6 +207,19 @@ class Document(Base):
 # ---------------------------------------------------------------------------
 # Conversation messages (extracted from JSONL)
 # ---------------------------------------------------------------------------
+# When what a document holds happened: the collector's file time or its latest message (ingest_service
+# _set_source_time), the sync time only for rows without one. "Today" / "the last N days" in retrieval
+# mean this, not when the document reached the server (#7). No index on purpose (see DocumentSearch):
+# the filters it goes into already narrow by tool, user or text first.
+DOCUMENT_HAPPENED_AT = func.coalesce(Document.source_modified_at, Document.synced_at)
+
+
+def document_happened_at(doc: Document) -> str | None:
+    """DOCUMENT_HAPPENED_AT of a loaded row, as ISO text for an API or the model."""
+    when = doc.source_modified_at or doc.synced_at
+    return when.isoformat() if when else None
+
+
 class DocumentSearch(Base):
     """A document's full-text index: jieba tokens of its title + content, to_tsvector('simple', …).
 

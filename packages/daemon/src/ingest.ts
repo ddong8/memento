@@ -35,6 +35,9 @@ export interface IngestDocument {
   /** Where a slice of a log ends in the file: the server stores each slice once, in order. */
   endOffset?: number;
   metadata?: Record<string, unknown>;
+  /** The file's modification time (ms): when what it holds happened, not when it reached the server.
+   * "Today" in the server's retrieval means this, else a first sync makes months of history today's (#7). */
+  mtimeMs?: number;
 }
 
 /** What an upload came to. */
@@ -167,6 +170,7 @@ export class IngestClient {
       mode: doc.mode ?? "full",
       offset: doc.offset ?? 0,
       ...(doc.endOffset !== undefined ? { end_offset: doc.endOffset } : {}),
+      ...(doc.mtimeMs ? { timestamp: doc.mtimeMs / 1000 } : {}),
       metadata,
     };
   }

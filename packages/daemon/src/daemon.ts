@@ -331,6 +331,7 @@ export class Daemon extends EventEmitter {
         content,
         contentHash: hash,
         fileSize: st.size,
+        mtimeMs: st.mtimeMs,
         mode: "full",
         offset: 0,
         metadata: { project_path: gitRoot, project_name: name, project_hash: name },

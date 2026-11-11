@@ -40,7 +40,7 @@ from sqlalchemy.orm import load_only
 
 from pgvector.sqlalchemy import HALFVEC
 
-from ..db.models import EMBEDDING_INDEX_DIM, ConversationMessage, Document, DocumentEmbedding, embedding_half
+from ..db.models import DOCUMENT_HAPPENED_AT, EMBEDDING_INDEX_DIM, ConversationMessage, Document, DocumentEmbedding, embedding_half
 from .cache import cache_get, cache_set
 
 logger = logging.getLogger("embedding_service")
@@ -327,7 +327,7 @@ async def semantic_document_hits(
         if category:
             stmt = stmt.where(Document.category == category)
         if days:
-            stmt = stmt.where(Document.synced_at >= datetime.now(timezone.utc) - timedelta(days=days))
+            stmt = stmt.where(DOCUMENT_HAPPENED_AT >= datetime.now(timezone.utc) - timedelta(days=days))
         if mids is not None:
             stmt = stmt.where(Document.machine_id.in_(mids))
     await widen_hnsw_scan(db, size)

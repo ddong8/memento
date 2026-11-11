@@ -1,25 +1,25 @@
 {
   "version": "1.0.105",
-  "title": "Memento v1.0.104",
+  "title": "Memento v1.0.105",
   "release_notes": "1. 代码留在 Mac / Windows 上，智能体可以在 Linux 服务器上跑：提问时设备选服务器、「代码在」选你的电脑，代码连同未提交的改动自动同步过去，跑完改动自动写回原电脑\n2. 写回时不覆盖你的修改：运行期间你在原电脑上改过代码，改动就放到 memento/ 开头的分支；任务失败或被停止时只保存补丁；原电脑不在线时先存在服务器上，上线后自动补交\n3. 任务详情里显示代码同步、写回、冲突分支和改动了哪些文件\n4. 一条命令把 Linux 服务器设为执行机：设备页底部的执行机卡片可复制整条命令，自动装好运行环境、守护进程、开机自启和 Claude Code / Codex / Antigravity，默认低优先级运行，不抢服务器上其它服务\n5. 手机端版本号与客户端统一为 1.0.105",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.104-win-x64.zip",
-      "size": 158114428,
-      "sha256": "0802f81a30ef579d537e0185e6d4086a7c2081b0daba863f9387c8f5f5023232",
-      "sha512": "ZaZXHb45w/90zR4DzcROwe0AryaS5dFPQ+xQqYerL2aoE01f1anxon7o16/LDvUZaJT0A8n8J74sZaLGeQOvpQ=="
+      "asset_name": "Memento-1.0.105-win-x64.zip",
+      "size": 158151934,
+      "sha256": "672ebd0dd46de81f2b77b2ed6d0f5f2976acb8324d038bd14d9642793b2c07ec",
+      "sha512": "facarD2pMZHff+NULWk945sBYAor0xTx8+TqK6DrwYLOIhhX7TGpihYR9QsypHWp1OwtvnN9SVFvyvypZF828A=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.104-mac-arm64.zip",
-      "size": 132594762,
-      "sha256": "6259eb07d39bff8735cc7a09ffb5494b186bb27f2628f62dbca20362fdaf5dc6",
-      "sha512": "+2bscL5SVekE+4QFx9CGj5nNcz5Xa2XHnVqr+yyaB4M4UZ9BQFr5n8XXRp6e+ETKRAw0YEDJgOWIB/lu7x5xtA=="
+      "asset_name": "Memento-1.0.105-mac-arm64.zip",
+      "size": 132634751,
+      "sha256": "646657b93705fb2f9c0b0e435606d977de71a37bb5c3e1e25dc0a3b27876da18",
+      "sha512": "BW+UM3Si+9R7WmtOwemWCa312Lve6nRdgV7NHf2Jj8prdT6xfICQ7eYJpvRZw05nx4VdaedvNEghQ7ySOFHo4Q=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.104-linux-x64.tar.gz",
-      "size": 131881717,
-      "sha256": "b6e839b0caddd83d470acc2c7fae3ca147d701f51edf57ccb114196e19aaef6e",
-      "sha512": "T8UPjhKksMPtuknjNeBjHR5WsLp129LLE6the22yGKjh27tnUd0bX/jndM86DGaM+sY2VqZpuc6TbhxD2ZuOWw=="
+      "asset_name": "Memento-1.0.105-linux-x64.tar.gz",
+      "size": 131918287,
+      "sha256": "ba925706f39da007cc1c8a4a9f9c68d8e414da5fc1e780d30ee390379564443d",
+      "sha512": "4u5o9C2VlVhROYJgjn01g/Am+YONJVB0Y/xYBmfu5qZFHa2bFGEvH0aVgBcVkr8Oe3R3JbYCNDgbIFgUZSqFdA=="
     }
   }
 }

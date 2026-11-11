@@ -30,7 +30,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import DeviceTask, Machine, User
@@ -44,6 +44,7 @@ from .ai_provider import (
 from . import notify_service, task_alerts
 from .agent_limits import mark_usage_limit, usage_limit_message
 from .risk_policy import classify_shell_command
+from .device_dispatch import OFFLINE_ERROR, SEND_FAILED_ERROR
 from .ws_manager import ws_manager
 
 logger = logging.getLogger("server.orchestrator")
@@ -971,6 +972,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 }
 
         task_q = None
+        dispatched_ws = False
         # Try WebSocket dispatch by all candidate aliases
         target_ws_id = None
         base_mach_name = normalize_device_name(mach_name)
@@ -982,10 +984,7 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 normalize_device_name(machine.name),
                 str(machine.id),
             ])
-        for cand in candidates:
-            if cand and ws_manager.has_device(cand):
-                target_ws_id = cand
-                break
+        target_ws_id = await _wait_device_alias(candidates, machine)
 
         if target_ws_id:
             if action == "agent" and args.get("images") and isinstance(args["images"], list):
@@ -1047,6 +1046,9 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             else:
                 await ws_manager.unsubscribe_task(task_id_str)
                 task_q = None
+        if not dispatched_ws:
+            # Devices take work only over the socket: an unsent row would sit queued until the reaper
+            await _fail_undelivered(db, task, SEND_FAILED_ERROR if target_ws_id else OFFLINE_ERROR)
 
         if device_timeout > 0:
             deadline = asyncio.get_event_loop().time() + server_wait
@@ -1061,6 +1063,45 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
             "name": "run_on_device",
             "result": {"error": f"执行遇到异常: {e}"},
         }
+
+
+# A daemon restarting (an upgrade) is gone for a few seconds; a task sent in that gap waits for it
+RECONNECT_WAIT_SECONDS = 20.0
+RECENTLY_SEEN_SECONDS = 180
+
+
+async def _wait_device_alias(candidates: list[str | None], machine: Machine | None) -> str | None:
+    """The alias the device is connected under; one that was online moments ago gets time to reconnect."""
+    def connected() -> str | None:
+        return next((c for c in candidates if c and ws_manager.has_device(c)), None)
+
+    alias = connected()
+    beat = machine.last_heartbeat if machine is not None else None
+    if alias or beat is None:
+        return alias
+    if beat.tzinfo is None:
+        beat = beat.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - beat).total_seconds() > RECENTLY_SEEN_SECONDS:
+        return None
+    loop = asyncio.get_event_loop()
+    until = loop.time() + RECONNECT_WAIT_SECONDS
+    while alias is None and loop.time() < until:
+        await asyncio.sleep(0.5)
+        alias = connected()
+    return alias
+
+
+async def _fail_undelivered(db: AsyncSession, task: DeviceTask, error: str) -> None:
+    """Ends a task the device never got, so the run reports it now instead of waiting hours."""
+    logger.info("Task %s for %s not delivered: %s", task.id, task.device_id, error)
+    await db.execute(
+        update(DeviceTask)
+        .where(DeviceTask.id == task.id, DeviceTask.status == "queued")
+        .values(status="failed", error=error, finished_at=datetime.now(timezone.utc))
+        .execution_options(synchronize_session=False)
+    )
+    await db.commit()
+    await db.refresh(task)
 
 
 async def _follow_device_task(

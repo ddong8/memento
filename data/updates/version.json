@@ -1,25 +1,25 @@
 {
   "version": "1.0.109",
-  "title": "Memento v1.0.108",
+  "title": "Memento v1.0.109",
   "release_notes": "1. Claude Code 的 Opus、Sonnet 等单个模型额度用完（或团队按模型的预算用完）时，自动换别的模型在同一会话里接着做完，不再直接失败\n2. Codex 提示某个模型额度用完、让换模型时，自动换成别的模型继续\n3. 设备记住哪些模型还没恢复，之后的任务直接绕开，重启也不丢\n4. 网页的模型选择器里标出额度用完的模型和大约多久恢复，仍可选择，设备会自动换\n5. 整个账号的 5 小时 / 每周额度用完时换模型没用，照旧提示额度用完\n6. 手机端版本号与客户端统一为 1.0.109",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.108-win-x64.zip",
-      "size": 158164900,
-      "sha256": "5ab8f27b97bae7079bffe2cd0ca71715a81ce7a7a249d1816b368973f64a8d8f",
-      "sha512": "tH3bO8ffTlT6/NZo/D7okX1FunCeMW32pgW4GbGGOabGb0n5W4yZCdgIVHbPMNfvTOzfpasMz/+Ak04zEW7/9w=="
+      "asset_name": "Memento-1.0.109-win-x64.zip",
+      "size": 158183245,
+      "sha256": "8f041cbff19f757f662876c4b091a23559ae9de2052e5fa6d63e70b8b2b095be",
+      "sha512": "BZ+3DyyZvJn84OmORo1SHIzGoXM1sVsRA11SVZQw3ibwpNmeLCGmA1ZSxgxP6GLkjWNCmfK+wQWApqSa2+ChJQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.108-mac-arm64.zip",
-      "size": 132647509,
-      "sha256": "da7ab868b17fabec9906b78ff68242432ae438bfe541c0d2068d7b123a7f511e",
-      "sha512": "JazbiOHwSzK0y+7pfaIiIQvIt+7SAx0TZmc8xBCL5uihDIUg8jbepFCuhThiDdPe8AN7KTxc64FANUZDRfs2Bg=="
+      "asset_name": "Memento-1.0.109-mac-arm64.zip",
+      "size": 132665790,
+      "sha256": "33e0f219819f1ca8994027cc840b139459a2ce8c556c22d1778039624f0ffe64",
+      "sha512": "t6Cxs7ebuoabZb3KG/Y5MQqzlFmGm2A1/U3dKhwPgDZVwdE7Gsf1Erd0cx8b2D0OlcWQecwaoKB/0LEpAhzVwA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.108-linux-x64.tar.gz",
-      "size": 131931342,
-      "sha256": "75bf4d35ed950e4f7da4cf5869c15181a53494efc0d63fa1f94775e3c17a3f9b",
-      "sha512": "1H9rDfkFnp+Xctn6AoobaDb9FsiFdAiIbl9wT9hFAd8AlGPavcfHArvahXfpy22Oy9RkTRJlccerj537BuFnbg=="
+      "asset_name": "Memento-1.0.109-linux-x64.tar.gz",
+      "size": 131950028,
+      "sha256": "23a343635cf2a4532c31693bd2cb3724392e0d1061e1936d3c9aa5d4ff9f6a3c",
+      "sha512": "teM/F9WEWmkCH2rIp/a0LKSP2hUwW3YJL5tzYtz3QS2rdkhZeAmlOLFLX/7G53zz02fh5EWR6mdEE2E+Ofwnnw=="
     }
   }
 }

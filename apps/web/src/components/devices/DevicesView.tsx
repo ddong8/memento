@@ -7,6 +7,7 @@ import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph, Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar } from "@/components/aurora/primitives";
 import { ExecutorGuide } from "./ExecutorGuide";
+import { AgentLoginModal } from "./AgentLogin";
 
 export interface Device {
   id: string;
@@ -41,6 +42,8 @@ export interface Device {
   } | null;
   /** Each AI tool's memento-memory MCP entry, kept by the client (null before v1.0.102) */
   mcp?: { results: Record<string, string>; reported_at?: string } | null;
+  /** The client can sign its agent CLIs in from this page (v1.0.106+) */
+  agent_login?: boolean;
 }
 
 const MCP_TOOL_LABELS: Record<string, string> = { claude_code: "Claude Code", codex: "Codex", antigravity: "Antigravity", cursor: "Cursor" };
@@ -80,6 +83,7 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
 
   const [showArchived, setShowArchived] = useState(false);
   const [modalTarget, setModalTarget] = useState<Device | null>(null);
+  const [loginTarget, setLoginTarget] = useState<Device | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [busyDeviceId, setBusyDeviceId] = useState<string | null>(null);
 
@@ -332,6 +336,11 @@ node packages/daemon/dist/cli.js install-service`}
                         {isBusy ? "…" : t.devices.restoreBtn}
                       </Btn>
                     )}
+                    {d.agent_login && isOnline && (
+                      <Btn size="sm" variant="glass" icon="lock" onClick={() => setLoginTarget(d)} title={t.devices.loginTitle}>
+                        {t.devices.loginBtn}
+                      </Btn>
+                    )}
                     <Btn
                       size="sm"
                       variant="ghost"
@@ -440,6 +449,8 @@ node packages/daemon/dist/cli.js install-service`}
       )}
 
       <ExecutorGuide />
+
+      {loginTarget && <AgentLoginModal device={loginTarget} onClose={() => setLoginTarget(null)} />}
 
       {/* Unbind / Delete confirmation modal */}
       {modalTarget && (

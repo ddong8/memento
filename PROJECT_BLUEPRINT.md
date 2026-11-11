@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c80b64da` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `e02a6911` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 222 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 169 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 223 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 171 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `c80b64da` (2026-11-11): fix(daemon): 从源码运行的守护进程上报仓库里的客户端版本，设备页不再显示成旧客户端
+- 最近改动 (Latest): `bc529072` (2026-11-11): fix(workspace): 代码所在设备的客户端太旧时发送前就提示升级，不再等导出超时
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -200,7 +200,7 @@ flowchart TD
 - `DELETE /api/devices/{device_db_id}`
 - `POST /api/devices/{device_db_id}/archive`
 - `POST /api/devices/{device_db_id}/unarchive`
-- _... (6 more endpoints)_
+- _... (7 more endpoints)_
 
 #### `/api/documents` (documents.py)
 
@@ -541,6 +541,7 @@ erDiagram
 | `ConversationUpdate` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `title: str` |
 | `CompactRequest` | Pydantic DTO | [`server/server/api/conversations.py`](server/server/api/conversations.py) | `recent_turns: int`, `new_prompt: str` |
 | `P2POffer` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `sdp: str` |
+| `AgentLoginBody` | Pydantic DTO | [`server/server/api/devices.py`](server/server/api/devices.py) | `action: str`, `agent: str`, `code: str` |
 | `IngestFileRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `tool: str`, `category: str`, `content_type: str`, `relative_path: str`, `hash: str`, `mode: str` |
 | `IngestResponse` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `status: str`, `document_id: str`, `message: str`, `next_offset: int \| None` |
 | `IngestFilesRequest` | Pydantic DTO | [`server/server/api/ingest.py`](server/server/api/ingest.py) | `files: list[IngestFileRequest]` |
@@ -550,7 +551,6 @@ erDiagram
 | `PitfallBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `title: str`, `symptom: str`, `fix: str`, `cause: str \| None`, `project: str \| None` |
 | `GuardBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `enabled: bool` |
 | `GuardEventsBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `events: list[dict]` |
-| `GuardStatusBody` | Pydantic DTO | [`server/server/api/learning.py`](server/server/api/learning.py) | `results: dict[str, str]` |
 
 ### CLI Binaries & Automation Entrypoints
 
@@ -586,8 +586,8 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 101 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 40 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-official-cli.test.ts` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 102 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 41 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 23 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -599,13 +599,13 @@ erDiagram
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (10 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (8 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (8 commits)
-- [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (8 commits)
+- [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (7 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (7 commits)
-- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (6 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (6 commits)
 - [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (6 commits)
+- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (5 commits)
 - [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (5 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `bc529072` (2026-11-11): fix(workspace): 代码所在设备的客户端太旧时发送前就提示升级，不再等导出超时
 - `c80b64da` (2026-11-11): fix(daemon): 从源码运行的守护进程上报仓库里的客户端版本，设备页不再显示成旧客户端
 - `9d13573f` (2026-11-11): fix(executor): 执行机脚本缺 git 时自动安装，重跑升级会重启守护进程到新版本
 - `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
 - `1467156b` (2026-11-11): feat(workspace): 代码留在 Mac/Windows，智能体在 Linux 执行机上跑，改动自动带回原电脑
 - `092bc2e5` (2026-11-11): test(daemon): 官方 agy 任务测试打桩 memento 运行脚本，不依赖本机构建产物
-- `5b774ddf` (2026-11-11): chore(release): 升级客户端版本至 v1.0.104，无界面 Linux 上可跑 Antigravity 任务、开机自启不随退出登录停止
 
 ## 10. Key Environment Variables & Configuration
 

@@ -296,6 +296,8 @@ journalctl --user-unit memento-daemon -f   # 等同 journalctl _SYSTEMD_USER_UNI
 
 智能体要先在这台机器上装好并登录一次，守护进程才能调用：
 
+最省事的登录方式（1.0.106 起）：网页「设备」页这台机器那一行点「智能体登录」，三个智能体各点一次「登录」，在自己电脑的浏览器打开链接登录；Claude Code 和 Antigravity 把登录页最后给的验证码贴回网页，Codex 在打开的页面输入网页上显示的设备码即可，不用 ssh 进服务器。Antigravity 只等 60 秒，先在浏览器里登好 Google 账号再点。下表是在服务器终端里登录的做法：
+
 | 智能体 | 安装 | 无界面登录 |
 |---|---|---|
 | Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash`（官方推荐，装到 `~/.local/bin/claude`；也可 `npm install -g @anthropic-ai/claude-code`，不要加 sudo） | 运行 `claude` 后 `/login`，按 `c` 复制登录链接到本地浏览器打开，把页面给的验证码贴回终端；或在有浏览器的机器上 `claude setup-token`，把令牌设为 `CLAUDE_CODE_OAUTH_TOKEN`；或设置 `ANTHROPIC_API_KEY`（按 API 计费，优先级最高） |

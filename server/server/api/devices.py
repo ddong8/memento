@@ -192,6 +192,8 @@ async def list_devices(
                 "direct_endpoints": (m.profile_status or {}).get("direct_endpoints", []),
                 # The device's last project-blueprint pass: repos kept current, failures and why (null before v1.0.98)
                 "blueprint": (m.profile_status or {}).get("blueprint"),
+                # Agent CLIs can be signed in from the devices page (daemon 1.0.106+)
+                "agent_login": _has_feature(m.name, "agent_login", _user),
                 # Each AI tool's memento-memory MCP entry: added / repaired / unchanged / error (null before v1.0.102)
                 "mcp": (m.profile_status or {}).get("mcp"),
                 # From the device's heartbeat: backlog, files failing, uploads (null before v1.0.95)
@@ -879,6 +881,55 @@ async def p2p_offer(
     if res.get("error") or not res.get("sdp"):
         raise HTTPException(status_code=502, detail=str(res.get("error") or "no answer from device"))
     return {"sdp": res["sdp"]}
+
+
+def _has_feature(name: str | None, feature: str, user: User) -> bool:
+    from ..services import device_reports
+    caps = device_reports.get_cached_device_capabilities(name, user=user) if name else None
+    env = caps.get("environment") if isinstance(caps, dict) else None
+    return isinstance(env, dict) and feature in (env.get("features") or [])
+
+
+class AgentLoginBody(BaseModel):
+    # status (agent empty = all three) / start / submit / poll / cancel
+    action: str = "status"
+    agent: str = ""
+    code: str = ""
+
+
+_LOGIN_ACTIONS = {"status", "start", "submit", "poll", "cancel"}
+_LOGIN_AGENTS = {"", "claude", "codex", "agy"}
+
+
+@router.post("/{device_db_id}/agent-login")
+async def agent_login(
+    device_db_id: uuid.UUID,
+    body: AgentLoginBody,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Sign the device's agent CLIs in from the page: the device runs each CLI's own login and hands back
+    the link (and Codex's device code); the user opens it in their own browser and pastes the code back."""
+    if body.action not in _LOGIN_ACTIONS or body.agent not in _LOGIN_AGENTS or (body.action != "status" and not body.agent):
+        raise HTTPException(status_code=400, detail="Bad action or agent")
+    if len(body.code) > 4096:
+        raise HTTPException(status_code=400, detail="Code too long")
+    machine = await _verify_device_ownership(db, device_db_id, _user)
+    token = next((c for c in (machine.collector_token_hash, machine.name, normalize_device_name(machine.name))
+                  if c and ws_manager.has_device(c)), None)
+    if not token:
+        raise HTTPException(status_code=409, detail="设备不在线")
+    if not _has_feature(machine.name, "agent_login", _user):
+        raise HTTPException(status_code=409, detail="这台设备的 Memento 还不支持在网页上登录智能体，升级到 1.0.106 及以上")
+    timeout = {"start": 30.0, "submit": 60.0}.get(body.action, 40.0)
+    res = await ws_manager.request_device(
+        token, {"type": "agent_login_req", "action": body.action, "agent": body.agent, "code": body.code}, timeout,
+    )
+    if res.get("error"):
+        raise HTTPException(status_code=504 if res.get("code") == "timeout" else 502, detail=str(res["error"]))
+    res.pop("type", None)
+    res.pop("req_id", None)
+    return res
 
 
 @router.api_route("/{device_id}/files/stream", methods=["GET", "HEAD"])

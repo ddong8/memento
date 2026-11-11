@@ -3,6 +3,7 @@ import { open, stat } from "node:fs/promises";
 
 import WebSocket from "ws";
 
+import { AgentLogins, LOGIN_AGENTS, type LoginAgent } from "./agent-login.js";
 import { probeCapabilities } from "./capabilities.js";
 import type { CollectorConfig } from "./config.js";
 import { deviceFilePath } from "./file-path.js";
@@ -47,6 +48,8 @@ export class WsTaskClient {
   /** Requests this device made to the server (ws_relay), waiting for its ws_relay_reply. */
   private readonly relayWaiting = new Map<string, { resolve: (r: Record<string, unknown>) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
   private pendingPatchTimer: NodeJS.Timeout | undefined;
+  /** Agent CLI sign-ins driven from the web page (a server nobody sits at). */
+  private readonly logins = new AgentLogins(() => void this.reportCapabilities(true));
 
   constructor(
     private config: CollectorConfig,
@@ -135,6 +138,7 @@ export class WsTaskClient {
     this.wakeUp?.();
     this.runner.dispose();
     this.p2p.dispose();
+    this.logins.stopAll();
   }
 
   /** Connects and stays connected until disposed. */
@@ -278,6 +282,9 @@ export class WsTaskClient {
           break;
         case "workspace_apply_req":
           void this.handleWorkspaceApply(data);
+          break;
+        case "agent_login_req":
+          void this.handleAgentLogin(data);
           break;
         case "task_log_resync": {
           if (data.task_id != null) {
@@ -467,6 +474,32 @@ export class WsTaskClient {
       });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** Sign an agent CLI in from the web page: status / start / submit / poll / cancel. Links and codes never go to the log. */
+  private async handleAgentLogin(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    const action = String(data.action ?? "status");
+    const agent = String(data.agent ?? "") as LoginAgent;
+    try {
+      if (action === "status" && !agent) {
+        this.sendJson({ type: "agent_login_resp", req_id: reqId, agents: await this.logins.statusAll() });
+        return;
+      }
+      if (!LOGIN_AGENTS.includes(agent)) throw new Error(`不认识的智能体：${agent}`);
+      let state;
+      if (action === "start") state = await this.logins.start(agent);
+      else if (action === "submit") state = await this.logins.submit(agent, String(data.code ?? ""));
+      else if (action === "poll") state = await this.logins.poll(agent);
+      else if (action === "cancel") {
+        this.logins.stop(agent);
+        state = await this.logins.status(agent);
+      } else state = await this.logins.status(agent);
+      this.log(`Agent login ${agent} ${action}: ${state.state}`);
+      this.sendJson({ type: "agent_login_resp", req_id: reqId, ...state });
+    } catch (e) {
+      this.sendJson({ type: "agent_login_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e) });
     }
   }
 

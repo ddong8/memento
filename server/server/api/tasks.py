@@ -561,7 +561,7 @@ async def device_websocket_endpoint(
             elif msg_type == "ws_relay":
                 # Code fetched from / sent back to another of the user's devices: may take minutes, never on this loop
                 notify_service.spawn(workspace_relay.handle(data, real_device_id, machine.user_id))
-            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp"):
+            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp", "agent_login_resp"):
                 ws_manager.handle_file_response(data)
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")

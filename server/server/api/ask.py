@@ -298,7 +298,9 @@ async def ask(
             resume={"kind": "direct_agent", "kwargs": {**agent_kwargs, "conv_id": str(conv_id)}, "checkpoint": ckpt},
         )
 
-    if not get_ai_providers():
+    # Count the user's own model (个人中心, custom_enabled) too: the answer below is generated with
+    # user=run_user, so a server with no MEMENTO_AI_* but a user-configured model can answer.
+    if not get_ai_providers(user=_user):
         raise HTTPException(status_code=503, detail="AI provider not configured")
 
     resolved_device_name = await _device_display_name(device_id)

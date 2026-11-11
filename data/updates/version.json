@@ -1,25 +1,25 @@
 {
   "version": "1.0.104",
-  "title": "Memento v1.0.103",
+  "title": "Memento v1.0.104",
   "release_notes": "1. 支持部署在没有桌面的 Linux 服务器上：Antigravity 应用没在运行时，任务自动改用 Google 官方 agy 命令行执行，过程中的每一步、回复和会话续接照常回传到网页和手机\n2. Windows 上 Antigravity 应用没开、或机器上没装应用时，装了官方 agy 命令行也能照常跑任务，不再直接失败\n3. Linux 上设置开机自启后，退出 ssh 登录守护进程也不会停，开机自动启动\n4. 部署文档补上无界面服务器的接入步骤，以及 Claude Code、Codex、Antigravity 在无界面机器上的登录方式\n5. 手机端版本号与客户端统一为 1.0.104",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.103-win-x64.zip",
-      "size": 158105431,
-      "sha256": "fefad3b49d2cc61db1059cdbb33f9c06c53c36f03fc08cde4903f4733c6f1799",
-      "sha512": "WEQvz8cSDQ9jLUU4pVM4G6DstgKN3ekxK54iKB2ju6f8vJRhQZLrg/cxkECrpbrYCwVi79iXvWbGvNGsZE9VBw=="
+      "asset_name": "Memento-1.0.104-win-x64.zip",
+      "size": 158114428,
+      "sha256": "0802f81a30ef579d537e0185e6d4086a7c2081b0daba863f9387c8f5f5023232",
+      "sha512": "ZaZXHb45w/90zR4DzcROwe0AryaS5dFPQ+xQqYerL2aoE01f1anxon7o16/LDvUZaJT0A8n8J74sZaLGeQOvpQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.103-mac-arm64.zip",
-      "size": 132584468,
-      "sha256": "e9ce0055215efa154855a134405147dada39d2b4bae0a51baae926531aca0910",
-      "sha512": "8fARvhSeWTeKxOBQUl8J9Mf872/27M4KDGWRj/37Gjy7oEzRjR2S/679KrTQJ5TZleyuEkhsaCJzG8szncq8lg=="
+      "asset_name": "Memento-1.0.104-mac-arm64.zip",
+      "size": 132594762,
+      "sha256": "6259eb07d39bff8735cc7a09ffb5494b186bb27f2628f62dbca20362fdaf5dc6",
+      "sha512": "+2bscL5SVekE+4QFx9CGj5nNcz5Xa2XHnVqr+yyaB4M4UZ9BQFr5n8XXRp6e+ETKRAw0YEDJgOWIB/lu7x5xtA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.103-linux-x64.tar.gz",
-      "size": 131872492,
-      "sha256": "aefcc273ea9fb1629bc0c6c0b55820f0a1276fc2bfc5c266bbf9254f4a713909",
-      "sha512": "7bzHeVwXyUsZd1gQzuEVE8/9Y8lWYLZqO1tXmcJ7gVUoH/NH+r/cedb3aFUXbT1Tc18ZL+aKI2525Wy1MNlDuQ=="
+      "asset_name": "Memento-1.0.104-linux-x64.tar.gz",
+      "size": 131881717,
+      "sha256": "b6e839b0caddd83d470acc2c7fae3ca147d701f51edf57ccb114196e19aaef6e",
+      "sha512": "T8UPjhKksMPtuknjNeBjHR5WsLp129LLE6the22yGKjh27tnUd0bX/jndM86DGaM+sY2VqZpuc6TbhxD2ZuOWw=="
     }
   }
 }

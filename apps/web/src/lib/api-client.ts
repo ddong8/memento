@@ -1360,8 +1360,19 @@ export interface ToolQuotaInfo {
   remaining_percent?: number | null;
   reset_time?: string | null;
   models?: QuotaModelItem[];
+  /** Models out of quota on the device (守护进程自动换别的模型), until they reset. */
+  limited_models?: LimitedModelInfo[];
+  /** The model the agent runs when given none, as its last run named it. */
+  default_model?: string;
   error?: string;
   details?: Record<string, any>;
+}
+
+export interface LimitedModelInfo {
+  family: string;
+  model: string;
+  until: string;
+  message: string;
 }
 
 export interface AgentQuotasResponse {

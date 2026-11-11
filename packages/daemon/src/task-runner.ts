@@ -8,6 +8,19 @@ import { AgentEventLog, AgyCliStreamParser, ClaudeStreamParser, CodexStreamParse
 import { antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
 import { agyQuotaMessage, isExhausted, listAgyModels, nextAgyModel, noteDefaultModel, noteQuotaExhausted, quotaResetMs } from "./agy-models.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
+import {
+  CLAUDE_MODELS,
+  claudeModelLimit,
+  codexModelLimit,
+  codexModels,
+  isModelLimited,
+  nextModel,
+  noteDefaultModel as noteAgentDefault,
+  noteModelLimit,
+  type LimitAgent,
+  type ModelChoice,
+} from "./model-limits.js";
+import { probeAllQuotas } from "./quotas.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
 import { executionEnvironment, findExecutable, killProcessTree, prepareCommand, withExeDirOnPath } from "./exec-env.js";
@@ -317,11 +330,12 @@ export function agentLoginHint(binary: string, text: string, device = hostname()
   return undefined;
 }
 
-// Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read the
-// same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
-// Read up to a quote too, for when it turns up inside a logged JSON line. Antigravity's quota is per
-// model and another model goes on (agy-models.ts), so it counts only when the last run ended on it.
-const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*/i;
+// Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly limit reads the same);
+// Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>". Read up
+// to a quote too, for when it turns up inside a logged JSON line. A limit of one model (Claude's Opus limit, a
+// team's budget, Codex's "usage limit for X", Antigravity's quota) goes on with another model first
+// (model-limits.ts), so the run ends on it only when the last run did.
+const USAGE_LIMIT = /You(?:'|’)ve hit your [\w' ]*limit[^\n"]*|You(?:'|’)ve hit your team(?:'|’)s shared budget[^\n"]*|usage limit reached[^\n"]*/i;
 
 /**
  * The agent's own report that the account's quota ran out, from what it gave as errors (stderr, errors in
@@ -901,6 +915,22 @@ export class TaskRunner {
     this.sendChunk(taskId, "stderr", text);
   }
 
+  /** A model ran out: the server's model picker learns it now rather than at the next quota report. */
+  private reportModelLimits(): void {
+    void probeAllQuotas(undefined, { force: true })
+      .then((quotas) => this.send({ type: "agent_quotas", quotas }))
+      .catch(() => {});
+  }
+
+  /** The model asked for (or the agent's default) ran out in an earlier task and hasn't reset: one that has quota. */
+  private skipLimitedModel(taskId: string, agent: LimitAgent, model: string, models: ModelChoice[], effort: string): string {
+    if (!isModelLimited(agent, model)) return model;
+    const next = nextModel(agent, models, model, effort);
+    if (!next) return model;
+    this.notice(taskId, `\n⚡ [模型切换] ${model || "默认模型"} 的额度还没恢复，这次改用 ${next.label}。\n\n`);
+    return next.id;
+  }
+
   async execute(task: TaskDispatch): Promise<void> {
     const taskId = task.id;
     const { action, payload } = task;
@@ -1088,6 +1118,7 @@ export class TaskRunner {
         const hooks = await this.hookBridge.claudeHooks(taskId);
         if (hooks) settings.hooks = hooks;
         claudeSettings = Object.keys(settings).length ? JSON.stringify(settings) : undefined;
+        model = this.skipLimitedModel(taskId, "claude", model, CLAUDE_MODELS, effort);
         const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
         args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
         parser = new ClaudeStreamParser();
@@ -1096,6 +1127,7 @@ export class TaskRunner {
       } else if (binary.includes("codex")) {
         codex = { runner: await codexRunner(), codex: exe };
         exe = process.execPath;
+        model = this.skipLimitedModel(taskId, "codex", model, await codexModels(), effort);
         args = codexArgs({ ...codex, workDir, sessionId, fork: payload.fork === true, effort, model, prompt });
         parser = new CodexStreamParser();
         this.runnerTasks.add(taskId);
@@ -1238,6 +1270,7 @@ export class TaskRunner {
         const failed = agyModel || (parser instanceof AgyCliStreamParser ? parser.model : "") || models[0]?.id || "";
         if (!agyModel) noteDefaultModel(failed);
         noteQuotaExhausted(failed, quota);
+        this.reportModelLimits();
         const next = nextAgyModel(models, failed, effort);
         if (!next) break;
         const reset = quotaResetMs(quota);
@@ -1247,6 +1280,37 @@ export class TaskRunner {
         );
         agyModel = next.id;
         exitCode = await run(agyRun({ sessionId, model: agyModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
+      }
+
+      // Retry 0.45: Claude Code's or Codex's model ran out (a limit of the model, not the account's): go on with another
+      const limitAgent: LimitAgent | undefined = action !== "agent" ? undefined : binary.includes("claude") ? "claude" : binary.includes("codex") ? "codex" : undefined;
+      if (limitAgent && !model) noteAgentDefault(limitAgent, parser?.model);
+      for (let switches = 0; limitAgent && switches < 3 && !this.cancelledTasks.has(taskId); switches++) {
+        const choices = limitAgent === "claude" ? CLAUDE_MODELS : await codexModels();
+        const current = model || parser?.model || "";
+        const hit =
+          limitAgent === "claude"
+            ? claudeModelLimit(lastErrors(), current, parser instanceof ClaudeStreamParser ? parser.rejectedLimit : undefined)
+            : codexModelLimit(lastErrors(), current, choices);
+        if (!hit) break;
+        noteModelLimit(limitAgent, hit.model, hit.message, hit.until);
+        this.reportModelLimits();
+        const next = nextModel(limitAgent, choices, hit.model || current, effort);
+        if (!next) break;
+        const hours = hit.until ? Math.ceil((hit.until - Date.now()) / 3_600_000) : 0;
+        this.notice(
+          taskId,
+          `\n⚡ [模型切换] ${hit.model || current || "默认模型"} 的额度用完了${hours > 0 ? `（约 ${hours} 小时后恢复）` : ""}，改用 ${next.label} 继续。\n\n`,
+        );
+        model = next.id;
+        if (limitAgent === "claude") {
+          parser = new ClaudeStreamParser();
+          const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
+          exitCode = await run({ args: claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName }), parser, stdinPrompt: prompt });
+        } else {
+          parser = new CodexStreamParser();
+          exitCode = await run({ args: codexArgs({ ...codex!, workDir, sessionId, fork: payload.fork === true, effort, model, prompt }), parser });
+        }
       }
 
       // Retry 0: Antigravity's language server moved.
@@ -1389,7 +1453,8 @@ export class TaskRunner {
       const usageLimit =
         action !== "agent"
           ? undefined
-          : (usageLimitMessage(`${streamErrors}\n${fullErr}`) ?? (isAntigravity && exitCode !== 0 ? agyQuotaMessage(lastErrors()) : undefined));
+          : // The last run's: a model that ran out before another one went on doesn't count
+            (usageLimitMessage(lastErrors()) ?? (isAntigravity && exitCode !== 0 ? agyQuotaMessage(lastErrors()) : undefined));
       const effectiveExitCode = (sessionFailedFinal || usageLimit) && exitCode === 0 ? 1 : exitCode;
 
       if (wsRun) fullOut = toSourcePaths(fullOut, wsRun.mirror.workDir, wsRun.spec.sourcePath);

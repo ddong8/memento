@@ -7,12 +7,19 @@ import re
 
 USAGE_LIMIT = "usage_limit"
 
-# Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read
-# the same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
+# Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly limit reads the same);
+# Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
 # Read up to a quote too, for when it turns up inside a logged JSON line.
-_USAGE_LIMIT = re.compile(r"You(?:'|’)ve hit your [\w ]*limit[^\n\"]*|usage limit reached[^\n\"]*", re.I)
-# Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s.". The quota
-# is per model and the daemon goes on with another one, so it counts only for a run that failed.
+_USAGE_LIMIT = re.compile(r"You(?:'|’)ve hit your [\w' ]*limit[^\n\"]*|You(?:'|’)ve hit your team(?:'|’)s shared budget[^\n\"]*|usage limit reached[^\n\"]*", re.I)
+# A limit of one model, not of the account: the daemon goes on with another model, so these count only for
+# a run that failed. Claude Code's own weekly limit for Opus / Sonnet / Fable and a team's budget for a model,
+# Codex's "usage limit for GPT-…. Switch to another model now", Antigravity's "Individual quota reached. …
+# Resets in 58h12m23s." (its quota is per model).
+_MODEL_LIMIT = re.compile(
+    r"You(?:'|’)ve hit your (?:Opus|Sonnet|Fable|Haiku) limit|You(?:'|’)ve hit your team(?:'|’)s shared budget"
+    r"|You(?:'|’)ve hit your usage limit for ",
+    re.I,
+)
 _AGY_QUOTA = re.compile(r"Individual quota reached[^\n\"]*", re.I)
 
 
@@ -21,12 +28,14 @@ def usage_limit_message(result: dict | None) -> str | None:
     (error, stderr), not its answer, which may well discuss limits."""
     if not result or (result.get("action") or "agent") != "agent":
         return None
-    patterns = [_USAGE_LIMIT] + ([_AGY_QUOTA] if result.get("status") == "failed" else [])
-    for pattern in patterns:
-        for key in ("error", "stderr"):
-            m = pattern.search(str(result.get(key) or ""))
-            if m:
+    failed = result.get("status") == "failed"
+    for key in ("error", "stderr"):
+        text = str(result.get(key) or "")
+        for m in _USAGE_LIMIT.finditer(text):
+            if failed or not _MODEL_LIMIT.match(m.group(0)):
                 return m.group(0).strip()
+        if failed and (m := _AGY_QUOTA.search(text)):
+            return m.group(0).strip()
     return None
 
 

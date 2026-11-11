@@ -19,6 +19,15 @@ def test_the_quota_message_is_read_from_the_agents_errors():
     agy = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s."
     assert usage_limit_message({"status": "failed", "stderr": f"error: {agy}\nAGY_ERROR: {{}}"}) == agy
     assert usage_limit_message({"status": "succeeded", "stderr": f"error: {agy}"}) is None
+    # One model's limit on Claude Code / Codex: also only for a run that failed (the daemon went on with another model)
+    opus = "You've hit your Opus limit · resets Nov 14, 4am"
+    codex = "You've hit your usage limit for GPT-6-Luna. Switch to another model now, or try again at 3:05 PM."
+    team = "You've hit your team's shared budget. Switch to another model to continue."
+    for msg in (opus, codex, team):
+        assert usage_limit_message({"status": "failed", "stderr": f"x\n{msg}\n"}) == msg
+        assert usage_limit_message({"status": "succeeded", "stderr": f"x\n{msg}\n"}) is None
+    # The account's limit after a model's: still the account's
+    assert usage_limit_message({"status": "succeeded", "stderr": f"{opus}\n{LIMIT}"}) == LIMIT
     # Inside a logged JSON line: up to the quote
     assert usage_limit_message({"stderr": '{"text":"' + LIMIT + '"}'}) == LIMIT
 

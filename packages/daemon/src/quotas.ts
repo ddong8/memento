@@ -8,6 +8,7 @@ import https from "node:https";
 
 import { type AntigravityLanguageServer, findAntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
+import { defaultModel, limitedModels, type LimitAgent, type LimitedModel } from "./model-limits.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 import { workbuddyProductModels } from "./workbuddy-models.js";
@@ -36,6 +37,10 @@ export interface ToolQuotaInfo {
   remaining_percent?: number | null;
   reset_time?: string | null;
   models?: QuotaModelItem[];
+  /** Models out of quota while the others still answer (model-limits.ts): the model picker marks them. */
+  limited_models?: LimitedModel[];
+  /** The model the agent uses when none is asked for, as its last run named it. */
+  default_model?: string;
   error?: string;
   details?: Record<string, unknown>;
 }
@@ -800,12 +805,16 @@ export async function probeAllQuotas(home = homeDir(), options?: { force?: boole
     probeWorkbuddyQuota(home),
   ]);
 
+  const withLimits = (info: ToolQuotaInfo, agent: LimitAgent): ToolQuotaInfo => {
+    const def = defaultModel(agent);
+    return { ...info, limited_models: limitedModels(agent), ...(def ? { default_model: def } : {}) };
+  };
   const report: DeviceQuotasReport = {
     timestamp: new Date().toISOString(),
     tools: {
-      antigravity: agy,
-      claude_code: claude,
-      codex: codex,
+      antigravity: withLimits(agy, "antigravity"),
+      claude_code: withLimits(claude, "claude"),
+      codex: withLimits(codex, "codex"),
       workbuddy: wb,
     },
   };

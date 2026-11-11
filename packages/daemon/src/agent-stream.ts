@@ -92,6 +92,8 @@ export abstract class AgentStreamParser {
    * agent's own words ("left it running in the background") mustn't override it (detectStillRunning).
    */
   tracksBackgroundTasks = false;
+  /** The model the run uses, as the agent names it when it starts (its default when none was asked for). */
+  model = "";
 
   /** The agent's final answer, once known. */
   abstract get finalText(): string | undefined;
@@ -139,6 +141,8 @@ export class ClaudeStreamParser extends AgentStreamParser {
   /** Set by the result event: user messages still waiting to be read. Zero means the run is done and stdin can be closed. */
   queuedTurns: number | undefined;
   finished = false;
+  /** The limit that turned a request down (rate_limit_event with status "rejected"): which one, and when it resets (epoch s). */
+  rejectedLimit: { type?: string; resetsAt?: number } | undefined;
 
   get finalText(): string | undefined {
     const combinedTexts = this.texts.map((t) => t.trim()).filter(Boolean).join("\n\n").trim();
@@ -199,6 +203,7 @@ export class ClaudeStreamParser extends AgentStreamParser {
       case "system":
         if (d.subtype === "init" && d.session_id != null) {
           this.sessionId = String(d.session_id);
+          if (typeof d.model === "string") this.model = d.model;
           events.push({ kind: "session", session_id: this.sessionId, ...(d.model != null ? { model: d.model } : {}) });
         } else if (d.subtype === "task_started" && d.task_id != null) {
           // Background shells, subagents and the like; each one's end comes as task_notification
@@ -304,6 +309,11 @@ export class ClaudeStreamParser extends AgentStreamParser {
           const [ask] = this.asks.splice(at, 1);
           ask!.questions.forEach((_, i) => events.push({ kind: "question", id: `${requestId}:${i}`, status: "answered", answer: "（已取消）" }));
         }
+        break;
+      }
+      case "rate_limit_event": {
+        const info = isObject(d.rate_limit_info) ? d.rate_limit_info : {};
+        if (info.status === "rejected") this.rejectedLimit = { type: str(info.rateLimitType), resetsAt: num(info.resetsAt) };
         break;
       }
       case "result": {
@@ -434,6 +444,7 @@ export class CodexStreamParser extends AgentStreamParser {
     switch (d.type) {
       case "thread.started":
         this.sessionId = str(d.thread_id);
+        this.model = str(d.model) ?? "";
         if (this.sessionId) events.push({ kind: "session", session_id: this.sessionId });
         break;
       case "item.started":
@@ -837,8 +848,6 @@ export class AgyCliStreamParser extends AgentStreamParser {
   /** agent_response text so far, by step. */
   private deltas = new Map<number, string>();
   private response = "";
-  /** The model the run uses, as its init event names it (the CLI's default when none was asked for). */
-  model = "";
 
   get finalText(): string | undefined {
     return this.response.trim() || this.messages.join("\n\n").trim() || undefined;

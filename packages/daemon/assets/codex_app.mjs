@@ -300,7 +300,7 @@ async function main() {
   }
   threadId = started?.thread?.id ?? "";
   if (!threadId) return fail("Error: Codex app-server returned no thread");
-  out({ type: "thread.started", thread_id: threadId });
+  out({ type: "thread.started", thread_id: threadId, ...(started?.model ? { model: started.model } : {}) });
 
   const turn = await request("turn/start", {
     threadId,

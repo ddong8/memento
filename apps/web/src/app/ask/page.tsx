@@ -38,6 +38,7 @@ import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { formatContextTokens, isJunkSessionTitle, type AgentSessionItem } from "@/lib/ask/sessions";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot } from "@/lib/ask/cache";
+import { modelLimitLabel, modelLimitOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
@@ -5876,11 +5877,20 @@ function AskPageContent() {
                           merged.push(bm);
                         }
                         return merged;
-                      })().map((m) => (
-                        <option key={m.id} value={m.id} title={m.desc} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                          {m.name}
-                        </option>
-                      ))}
+                      })().map((m) => {
+                        const limit = modelLimitOf(quotasData, executionMode, m.id);
+                        const note = limit ? modelLimitLabel(limit, isZh) : "";
+                        return (
+                          <option
+                            key={m.id}
+                            value={m.id}
+                            title={limit ? `${note}（${isZh ? "选了也能跑，设备会自动换别的模型" : "still runs: the device switches to another model"}）\n${limit.message}` : m.desc}
+                            style={{ background: "var(--aurora-surface-solid)", color: limit ? "var(--aurora-fg3)" : "var(--aurora-fg1)" }}
+                          >
+                            {limit ? `${m.name} · ${note}` : m.name}
+                          </option>
+                        );
+                      })}
                       <option value="__custom__" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-accent)" }}>
                         {isZh ? "✏️ 自定义输入任意模型..." : "✏️ Custom model..."}
                       </option>

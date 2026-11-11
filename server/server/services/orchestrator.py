@@ -176,6 +176,28 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "plan_and_run",
+            "description": (
+                "协作任务：把一个大任务自动拆成多个子任务，按各智能体（Claude Code / Codex / Antigravity）的特点、"
+                "模型和各设备的额度与负载，分派到多台设备并行执行，最后合并复查并汇总结果，全程在后台进行。"
+                "用户说「拆开做」「分给几个智能体一起做」，或任务明显大到要分模块多人协作时用；小任务直接用 run_on_device。"
+                "返回协作任务链接，用户可在「协作任务」页面看进度。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "完整的任务描述（用户的原始要求加上必要的背景）"},
+                    "cwd": {"type": "string", "description": "代码目录（在代码所在设备上的路径），没有代码可不填"},
+                    "source_device": {"type": "string", "description": "代码所在设备的 device_id 或名称"},
+                    "auto_start": {"type": "boolean", "description": "规划好后直接开跑（默认 true）；false 时等用户确认"},
+                },
+                "required": ["goal"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_memory",
             "description": "在用户同步到服务端的历史资料（各 AI 工具的对话、笔记、计划）里检索。回答依赖过去的决定、配置、排障经过时先查。",
             "parameters": {
@@ -353,6 +375,7 @@ ORCHESTRATOR_SYSTEM = """你是 Memento 的多设备调度与记忆助手，能�
    - 先使用 list_devices 查看设备列表、系统版本、在线状态；若用户已指定设备或上下文已明确设备，可直接调用 run_on_device；
    - 确认设备 online 后，再使用 run_on_device 发送任务。
    - 【支持多设备并发】：若涉及多台机器（如排查集群或对比多机端口），你可以在一轮中同时发出针对不同机器的多个 run_on_device 调用，系统已支持全并发下发与实时流式回传！
+   - 【协作任务】：用户要「拆开做」「分给几个智能体一起做」，或任务大到要分多个模块并行时，调用 plan_and_run：系统在后台拆分子任务、按智能体特点和设备额度分派到多台设备并行做、最后复查汇总，你只需告诉用户已创建和查看进度的位置。
 
 【跟进与设备操作执行规则】（核心必遵）：
 - 当用户发出「关闭」、「关掉」、「杀死」、「杀掉」、「停止」、「停掉」、「清理」、「重启」、「继续修复」、「重试」或确认词（如「好的」、「可以」、「清理吧」）等跟进指令时：
@@ -1556,7 +1579,27 @@ async def _dispatch_tool(db: AsyncSession, user: User, name: str, args: dict):
         async for evt in _tool_run_on_device(db, user, args, classify_shell=True):
             yield evt
         return
+    if name == "plan_and_run":
+        yield {"type": "tool_result", "name": name, "result": await _tool_plan_and_run(db, user, args)}
+        return
     yield {"type": "tool_result", "name": name, "result": {"error": f"unknown tool: {name}"}}
+
+
+async def _tool_plan_and_run(db: AsyncSession, user: User, args: dict) -> dict:
+    from .plan_service import create_plan
+    goal = str(args.get("goal") or "").strip()
+    if not goal:
+        return {"error": "plan_and_run 需要 goal"}
+    plan = await create_plan(
+        db, user, goal, cwd=args.get("cwd") or None, source_device_id=args.get("source_device") or None,
+        auto_start=args.get("auto_start") is not False,
+    )
+    return {
+        "plan_id": str(plan.id),
+        "status": plan.status,
+        "url": f"/plans/{plan.id}",
+        "note": "协作任务已创建，正在后台拆分规划并分派到各设备执行，完成后会推送通知。告诉用户可以在「协作任务」页面查看进度，不要等待结果。",
+    }
 
 
 async def run_agent_loop(

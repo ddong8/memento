@@ -31,6 +31,7 @@ export default function Header({ onMenuToggle, className = "" }: { onMenuToggle:
     if (pathname.startsWith("/memory")) return { title: t.nav.memory || "认知大脑", icon: "brain" as const };
     if (pathname.startsWith("/daily")) return { title: t.nav.daily || "作息节律", icon: "calendar" as const };
     if (pathname.startsWith("/inbox") || pathname.startsWith("/tasks")) return { title: t.nav.inbox || "工作待办", icon: "check" as const };
+    if (pathname.startsWith("/plans")) return { title: "协作任务", icon: "layers" as const };
     if (pathname.startsWith("/profile")) return { title: "个人中心", icon: "settings" as const };
     if (pathname.startsWith("/projects")) return { title: t.nav.projects || "项目空间", icon: "folder" as const };
     if (pathname.startsWith("/skills")) return { title: t.nav.skills || "技能中心", icon: "sparkles" as const };

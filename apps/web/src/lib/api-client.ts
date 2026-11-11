@@ -417,6 +417,75 @@ export interface DeviceTask {
   alerts?: { label: string; detail: string; tool: string; at?: string; level?: "critical" | "danger" | "warn" }[];
 }
 
+// Collaborative tasks (server/services/plan_service.py)
+export type PlanStatus = "planning" | "ready" | "running" | "integrating" | "succeeded" | "failed" | "cancelled";
+export type PlanStepStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled" | "skipped";
+
+export interface PlanStepAttempt {
+  attempt: number;
+  device_id: string;
+  device_name?: string | null;
+  agent: string;
+  task_id?: string | null;
+  error?: string | null;
+  error_type?: string | null;
+  at?: string | null;
+}
+
+export interface PlanStep {
+  id: string;
+  kind: "work" | "review";
+  title: string;
+  prompt: string;
+  acceptance: string;
+  depends_on: string[];
+  agent: string;
+  device_id: string;
+  device_name: string;
+  model: string;
+  status: PlanStepStatus;
+  attempts: number;
+  history: PlanStepAttempt[];
+  task_id: string | null;
+  result: string | null;
+  error: string | null;
+  workspace: { status: string; branch?: string | null; patch_path?: string | null; files?: number; error?: string | null } | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AgentPlan {
+  id: string;
+  title: string;
+  goal: string;
+  status: PlanStatus;
+  auto_start: boolean;
+  cwd: string | null;
+  source_device_id: string | null;
+  project_id: string | null;
+  options: Record<string, unknown>;
+  plan_note: string | null;
+  summary: string | null;
+  error: string | null;
+  step_counts: Partial<Record<PlanStepStatus, number>>;
+  step_total: number;
+  created_at: string | null;
+  updated_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  steps?: PlanStep[];
+}
+
+export interface CreatePlanInput {
+  goal: string;
+  title?: string;
+  cwd?: string | null;
+  source_device_id?: string | null;
+  auto_start?: boolean;
+  review?: boolean;
+  max_parallel?: number;
+}
+
 export interface DeviceSummary {
   id: string;
   name: string;
@@ -1039,6 +1108,19 @@ export const api = {
     }),
   cancelDeviceTask: (taskId: string) =>
     apiFetch<DeviceTask>(`/api/tasks/${taskId}/cancel`, { method: "POST" }),
+  listPlans: () => apiFetch<AgentPlan[]>("/api/plans", { skipCache: true }),
+  getPlan: (planId: string) => apiFetch<AgentPlan>(`/api/plans/${planId}`, { skipCache: true }),
+  createPlan: (input: CreatePlanInput) =>
+    apiFetch<AgentPlan>("/api/plans", { method: "POST", body: JSON.stringify(input) }),
+  startPlan: (planId: string) => apiFetch<AgentPlan>(`/api/plans/${planId}/start`, { method: "POST" }),
+  cancelPlan: (planId: string) => apiFetch<AgentPlan>(`/api/plans/${planId}/cancel`, { method: "POST" }),
+  replan: (planId: string) => apiFetch<AgentPlan>(`/api/plans/${planId}/replan`, { method: "POST" }),
+  editPlanSteps: (planId: string, steps: Partial<PlanStep>[]) =>
+    apiFetch<AgentPlan>(`/api/plans/${planId}/steps`, { method: "PUT", body: JSON.stringify({ steps }) }),
+  retryPlanStep: (planId: string, stepId: string) =>
+    apiFetch<AgentPlan>(`/api/plans/${planId}/steps/${encodeURIComponent(stepId)}/retry`, { method: "POST" }),
+  cancelPlanStep: (planId: string, stepId: string) =>
+    apiFetch<AgentPlan>(`/api/plans/${planId}/steps/${encodeURIComponent(stepId)}/cancel`, { method: "POST" }),
   getBacklinks: (docId: string) =>
     apiFetch<BacklinksResult>(`/api/documents/${docId}/backlinks`),
   register: (email: string, password: string, name?: string, inviteCode?: string) =>

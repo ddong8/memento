@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c8ba0035` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4048c0cc` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,23 +13,23 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 223 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 180 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 182 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b7c1febd` (2026-11-12): feat: Claude Code 和 Codex 单个模型额度用完时也自动换模型，网页标出用完的模型
+- 最近改动 (Latest): `4048c0cc` (2026-11-12): chore(release): 升级客户端版本至 v1.0.109，Claude Code 和 Codex 单个模型额度用完时自动换模型
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
 | 1. Project Overview & Tech Stack | L34-L40 |
 | 2. High-Level Architecture Topology | L42-L77 |
 | 3. Subsystem Breakdown & Responsibilities | L79-L91 |
-| 4. Key Entry Points & API Endpoints | L93-L450 |
-| 5. Core Domain Services & Background Schedules | L452-L492 |
-| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L494-L566 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L568-L608 |
-| 8. Development & Verification Commands | L610-L627 |
-| 9. Recent Architectural Evolutions | L629-L636 |
-| 10. Key Environment Variables & Configuration | L638-L650 |
+| 4. Key Entry Points & API Endpoints | L93-L461 |
+| 5. Core Domain Services & Background Schedules | L463-L503 |
+| 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L505-L577 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L579-L619 |
+| 8. Development & Verification Commands | L621-L638 |
+| 9. Recent Architectural Evolutions | L640-L647 |
+| 10. Key Environment Variables & Configuration | L649-L661 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -114,6 +114,8 @@ flowchart TD
 - `/inbox`
 - `/memory`
 - `/memory/persona`
+- `/plans`
+- `/plans/[id]`
 - `/privacy`
 - `/profile`
 - `/projects`
@@ -298,6 +300,15 @@ flowchart TD
 - `POST /api/notify/live-activity-token`
 - _... (3 more endpoints)_
 
+#### `/api/plans` (plans.py)
+
+- `POST /api/plans`
+- `GET /api/plans`
+- `GET /api/plans/capabilities`
+- `GET /api/plans/{plan_id}`
+- `POST /api/plans/{plan_id}/start`
+- _... (5 more endpoints)_
+
 #### `/api/proactive` (proactive.py)
 
 - `GET /api/proactive/settings`
@@ -381,7 +392,7 @@ flowchart TD
 
 ### Core Database Models (`models.py`)
 
-`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `UserLifeRhythm`
+`Base`, `Machine`, `MachineMerge`, `Tool`, `Project`, `Document`, `DocumentSearch`, `ConversationMessage`, `DailySummary`, `DocumentVersion`, `ConversationMessageRemoved`, `MessageAudit`, `DocumentPendingDelta`, `User`, `InviteCode`, `Permission`, `AccessLog`, `SyncState`, `DocumentEmbedding`, `KnowledgeEntity`, `KnowledgeRelation`, `KnowledgeObservation`, `ShareLink`, `ShareView`, `DeviceTask`, `AskConversation`, `UserMemory`, `DreamJournal`, `UserProfile`, `CorrectionTopic`, `CorrectionEvent`, `SessionReview`, `GuardEvent`, `Skill`, `Todo`, `EvalCase`, `EvalRun`, `LearningEval`, `AgentMission`, `AgentPlan`, `UserLifeRhythm`
 
 #### Key Entity Relationships (Foreign Keys)
 
@@ -586,9 +597,9 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 106 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 107 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 44 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-failover.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 24 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 25 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -628,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `4048c0cc` (2026-11-12): chore(release): 升级客户端版本至 v1.0.109，Claude Code 和 Codex 单个模型额度用完时自动换模型
 - `b7c1febd` (2026-11-12): feat: Claude Code 和 Codex 单个模型额度用完时也自动换模型，网页标出用完的模型
 - `829d7fc0` (2026-11-11): fix(daemon): agy 没说用的哪个模型就额度用完时，按它的默认模型算，不再白换一次
 - `77beb12f` (2026-11-11): feat(daemon): 官方 agy 某个模型额度用完时自动换别的模型继续
 - `816039ea` (2026-11-11): fix(daemon): Antigravity 账号额度用完按额度用完上报，不再当成模型容量不足去重试
 - `308ac0c9` (2026-11-11): fix(server): 派给设备的智能体任务发不出去时立即失败，不再一直排队
-- `7b7a6e80` (2026-11-11): fix(daemon): 跨设备任务回复里的文件路径换回源设备上的路径
 
 ## 10. Key Environment Variables & Configuration
 

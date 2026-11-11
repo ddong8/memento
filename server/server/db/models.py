@@ -1112,6 +1112,38 @@ class AgentMission(Base):
     )
 
 
+class AgentPlan(Base):
+    """A big task split into sub-tasks that run on several devices and agents at once (plan_service)."""
+
+    __tablename__ = "agent_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    # planning | ready | running | integrating | succeeded | failed | cancelled
+    status: Mapped[str] = mapped_column(String(40), default="planning", nullable=False)
+    auto_start: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cwd: Mapped[str | None] = mapped_column(Text)
+    # Where the code is (collector_token_hash): steps on other devices work on a copy of it
+    source_device_id: Mapped[str | None] = mapped_column(String(255))
+    project_id: Mapped[str | None] = mapped_column(String(64))
+    options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    steps: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    plan_note: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_agent_plans_user_created", "user_id", "created_at"),
+        Index("idx_agent_plans_status", "status"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 24/7 Life Rhythm & App Screen Time Allocation
 # ---------------------------------------------------------------------------

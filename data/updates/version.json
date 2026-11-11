@@ -1,25 +1,25 @@
 {
   "version": "1.0.106",
-  "title": "Memento v1.0.105",
+  "title": "Memento v1.0.106",
   "release_notes": "1. 设备页每台在线设备多了「智能体登录」：Claude Code、Codex、Antigravity 可以直接在网页上登录，打开链接用自己的账号登好、把验证码贴回网页即可，不用再 ssh 进服务器\n2. Codex 在网页上显示设备码，在打开的页面输入并确认后自动变成已登录；Antigravity 只等 60 秒，页面显示倒计时，过期可一键重新获取链接\n3. 验证码不对或超时会给出中文提示，日志里不记录登录链接和验证码\n4. 执行机脚本结束时和部署文档里补上网页登录的说明\n5. 手机端版本号与客户端统一为 1.0.106",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.105-win-x64.zip",
-      "size": 158151934,
-      "sha256": "672ebd0dd46de81f2b77b2ed6d0f5f2976acb8324d038bd14d9642793b2c07ec",
-      "sha512": "facarD2pMZHff+NULWk945sBYAor0xTx8+TqK6DrwYLOIhhX7TGpihYR9QsypHWp1OwtvnN9SVFvyvypZF828A=="
+      "asset_name": "Memento-1.0.106-win-x64.zip",
+      "size": 158164611,
+      "sha256": "f0d0fc4112b50ba2c26bab6f980f3ecdb06eb13304822ac3159d2a69a7b7fb16",
+      "sha512": "Pz1cekOWVTB64yyD6bwGgfyp3u6o3A75lnHWrD7nRBrQdJzIOr6S+L+6yc4Mnv+vNX2CKDEonVjzoFhDOYvugA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.105-mac-arm64.zip",
-      "size": 132634751,
-      "sha256": "646657b93705fb2f9c0b0e435606d977de71a37bb5c3e1e25dc0a3b27876da18",
-      "sha512": "BW+UM3Si+9R7WmtOwemWCa312Lve6nRdgV7NHf2Jj8prdT6xfICQ7eYJpvRZw05nx4VdaedvNEghQ7ySOFHo4Q=="
+      "asset_name": "Memento-1.0.106-mac-arm64.zip",
+      "size": 132646986,
+      "sha256": "091c1e74984a188c60574240a1693a0573fada1aa9ab5f66fd1a3d793fa8b374",
+      "sha512": "GE5jyr6HQYlS1vSO1UvW/87lFS6FFu658jSVXs2sB3h7njlF2ylwq+784aTbV5Be3MkvQTbJXylqgc8wC57+Gw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.105-linux-x64.tar.gz",
-      "size": 131918287,
-      "sha256": "ba925706f39da007cc1c8a4a9f9c68d8e414da5fc1e780d30ee390379564443d",
-      "sha512": "4u5o9C2VlVhROYJgjn01g/Am+YONJVB0Y/xYBmfu5qZFHa2bFGEvH0aVgBcVkr8Oe3R3JbYCNDgbIFgUZSqFdA=="
+      "asset_name": "Memento-1.0.106-linux-x64.tar.gz",
+      "size": 131930578,
+      "sha256": "f12d8b349849c7284adfd256ff5d45d138bda618c357a25d25dbf1d126dfe378",
+      "sha512": "tUIUfm4bmB/e6+bDpznWboEHqXEV96Wx5uZyqV9PaUQEWPLXXfSom6l7A/DMf0ffnj0wJlWcYA04oaOkX2yBgQ=="
     }
   }
 }

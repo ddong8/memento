@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 from server.api import ask_conversations
 from server.db.models import AskConversation, User, Project, Machine, Document
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm import make_transient_to_detached
 
 
 def _conv(message_count: int):
@@ -29,11 +31,11 @@ def _conv(message_count: int):
     return conv
 
 
-async def _get(conv, commit_side_effect=None, limit=0):
+async def _get(conv, commit_side_effect=None, limit=0, page=None):
     db = AsyncMock()
     res = MagicMock()
     res.scalars.return_value.first.return_value = conv
-    res.scalar.return_value = conv.turns  # the page sliced in SQL
+    res.scalar.return_value = conv.turns if page is None else page  # the page sliced in SQL
     db.execute.return_value = res
     if commit_side_effect is not None:
         db.commit.side_effect = commit_side_effect
@@ -427,6 +429,31 @@ class TestListConversations(unittest.TestCase):
 
         self.assertEqual(items[0]["id"], str(row_old_pinned.id))
         self.assertEqual(items[1]["id"], str(row_new_unpinned.id))
+
+
+def _row_with_deferred_turns():
+    """A real AskConversation as get_conversation loads it: every column but the deferred `turns`.
+
+    Reading `turns` on it would lazy-load (here DetachedInstanceError; in the async app
+    MissingGreenlet), which is what answered 500 for conversations that have no turns yet."""
+    values = {a.key: None for a in sa_inspect(AskConversation).column_attrs if a.key != "turns"}
+    values.update(
+        id=uuid.uuid4(), title="t", message_count=0, config={},
+        created_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 10, 2, tzinfo=timezone.utc),
+    )
+    conv = AskConversation(**values)
+    make_transient_to_detached(conv)  # columns never set (turns) become unloaded
+    return conv
+
+
+class TestConversationWithoutTurns(unittest.TestCase):
+    def test_empty_conversation_does_not_lazy_load_turns(self):
+        conv = _row_with_deferred_turns()
+        self.assertIn("turns", sa_inspect(conv).unloaded)
+        out, _response, _db = asyncio.run(_get(conv, limit=40, page=[]))
+        self.assertEqual(out["total_turns"], 0)
+        self.assertIn("turns", sa_inspect(conv).unloaded)  # never touched
 
 
 if __name__ == "__main__":

@@ -107,7 +107,12 @@ ${command.map((c) => `        <string>${xmlEscape(c)}</string>`).join("\n")}
 
 const quoteArg = (s: string) => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s);
 
-export function systemdUnit(command: string[]): string {
+/**
+ * `lowPriority`: for a machine shared with other services (a VPS running agent tasks for other
+ * devices): the daemon and the agents it starts yield CPU and disk to everything else.
+ */
+export function systemdUnit(command: string[], options: { lowPriority?: boolean } = {}): string {
+  const yieldTo = options.lowPriority ? "Nice=10\nCPUWeight=50\nIOSchedulingClass=best-effort\nIOSchedulingPriority=7\n" : "";
   return `[Unit]
 Description=Memento daemon (collector and agent task runner)
 After=network-online.target
@@ -116,7 +121,7 @@ After=network-online.target
 ExecStart=${command.map(quoteArg).join(" ")}
 Restart=on-failure
 RestartSec=10
-
+${yieldTo}
 [Install]
 WantedBy=default.target
 `;
@@ -135,7 +140,7 @@ const paths = (home: string) => ({
 const WIN_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const WIN_VALUE = "MementoDaemon";
 
-export async function installService(command: string[], home = homeDir()): Promise<string> {
+export async function installService(command: string[], home = homeDir(), options: { lowPriority?: boolean } = {}): Promise<string> {
   const p = paths(home);
   if (process.platform === "darwin") {
     await mkdir(dirname(p.plist), { recursive: true });
@@ -147,7 +152,7 @@ export async function installService(command: string[], home = homeDir()): Promi
   }
   if (process.platform === "linux") {
     await mkdir(dirname(p.unit), { recursive: true });
-    await writeFile(p.unit, systemdUnit(command));
+    await writeFile(p.unit, systemdUnit(command, options));
     await run("systemctl", ["--user", "daemon-reload"]);
     if (!(await run("systemctl", ["--user", "enable", "--now", "memento-daemon.service"]))) {
       throw new Error(

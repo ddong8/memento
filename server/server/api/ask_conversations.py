@@ -645,6 +645,7 @@ async def get_conversation(
         "project_title": proj_title_val or "",
         "session_id": cfg.get("session_id", ""),
         "worktree": bool(cfg.get("worktree", False)),
+        "source_device_id": cfg.get("source_device_id") or "",
         "compact_mode": bool(cfg.get("compact_mode", False)),
         "config": cfg,
         "created_at": created_at_iso,
@@ -716,6 +717,7 @@ async def ensure_conversation_by_session(
             "project_title": proj_title_final or "",
             "session_id": cfg_final.get("session_id", body.session_id),
             "worktree": bool(cfg_final.get("worktree", False)),
+            "source_device_id": cfg_final.get("source_device_id") or "",
             "compact_mode": False,
             "config": cfg_final,
             "created_at": conv.created_at.isoformat() if conv.created_at else None,
@@ -733,6 +735,7 @@ class UpdateConversationRequest(BaseModel):
     project_id: str | None = None
     session_id: str | None = None
     worktree: bool | None = None
+    source_device_id: str | None = None
     compact_mode: bool | None = None
     pinned: bool | None = None
     config: dict | None = None
@@ -780,6 +783,8 @@ async def update_conversation(
         cfg["session_id"] = body.session_id
     if body.worktree is not None:
         cfg["worktree"] = body.worktree
+    if body.source_device_id is not None:
+        cfg["source_device_id"] = body.source_device_id
     if body.compact_mode is not None:
         cfg["compact_mode"] = body.compact_mode
     if body.pinned is not None:

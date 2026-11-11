@@ -177,6 +177,25 @@ def _clean_agent_summary(text: str) -> str:
     return text.strip()
 
 
+async def _workspace_spec(db: AsyncSession, user: User, device_id: str | None, source: str, path: str) -> dict | None:
+    """The code is on `source`, the agent runs on `device_id`: what the executor needs to fetch it.
+
+    None when both are the same machine (nothing to carry over)."""
+    from .user_filter import find_machine_by_id_or_hash
+    src = await find_machine_by_id_or_hash(db, source, user)
+    if not src or not src.collector_token_hash:
+        return None
+    exe = await find_machine_by_id_or_hash(db, device_id, user) if device_id else None
+    if exe is not None and exe.id == src.id:
+        return None
+    from .task_alerts import display_device_name
+    return {
+        "source_device_id": src.collector_token_hash,
+        "source_path": path,
+        "source_name": display_device_name(src.name or "") or "源设备",
+    }
+
+
 async def _prepare_agent_args(
     db: AsyncSession,
     user: User,
@@ -197,6 +216,7 @@ async def _prepare_agent_args(
     images: list[str] | None,
     attachments: list[dict] | None,
     worktree: bool,
+    source_device_id: str | None = None,
 ) -> tuple[str, dict, str, str | None, str | None]:
     """The run_on_device args of a direct agent/shell ask: (action, args, command shown, session id
     the task resumes (None once compacted), session id the client asked for)."""
@@ -233,6 +253,10 @@ async def _prepare_agent_args(
         args["fork"] = fork
     if worktree and action == "agent":
         args["worktree"] = True
+    if source_device_id and action == "agent" and cwd:
+        workspace = await _workspace_spec(db, user, device_id, source_device_id, cwd)
+        if workspace:
+            args["workspace"] = workspace
     if conv_title and action == "agent":
         # The device names the agent's session after the conversation, so it reads the same everywhere
         args["title"] = conv_title
@@ -452,6 +476,7 @@ async def direct_agent_stream(
     images: list[str] | None = None,
     attachments: list[dict] | None = None,
     worktree: bool = False,
+    source_device_id: str | None = None,
     checkpoint: dict | None = None,
     resume: bool = False,
 ):
@@ -497,6 +522,7 @@ async def direct_agent_stream(
         action, run_args, cmd_display, session_id, orig_session_id = await _prepare_agent_args(
             db, user, question, conv_id, conv_title, execution_mode, device_id, cwd, model, effort, session_id,
             project_id, fork, compact_mode, history, timeout_seconds, images, attachments, worktree,
+            source_device_id,
         )
         call_id = f"direct_{uuid.uuid4().hex[:8]}"
         tool_call_item = {
@@ -615,6 +641,7 @@ async def direct_agent_stream(
                 "session_id": next_session or "",
                 "device_id": persisted_dev_id or "",
                 "worktree": bool(worktree),
+                "source_device_id": source_device_id or "",
                 "compact_mode": False,  # 瘦身完成后复位，后续在当前对话中默认以正常会话无缝续接
             },
             user_created_at=user_created_at,

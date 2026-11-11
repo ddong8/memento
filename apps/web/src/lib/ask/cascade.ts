@@ -21,6 +21,8 @@ export interface Cascade {
   projectId: string;
   projectTitle: string;
   sessionId: string;
+  /** Device the code is on, when the agent runs on another one ("" otherwise). */
+  codeDevice: string;
 }
 
 /** A cached conversation's whole cascade, empty fields included. */
@@ -32,6 +34,7 @@ export function cascadeOf(config: CachedConversationConfig | undefined): Cascade
     projectId: c.selectedProjectId || "",
     projectTitle: c.selectedProjectTitle || "",
     sessionId: c.selectedSessionId || "",
+    codeDevice: c.codeDevice || "",
   };
 }
 

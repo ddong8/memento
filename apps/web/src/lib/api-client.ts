@@ -1175,6 +1175,7 @@ export const api = {
       project_id: string;
       session_id: string;
       worktree: boolean;
+      source_device_id: string;
       compact_mode: boolean;
       pinned: boolean;
       config: Record<string, any>;
@@ -1489,6 +1490,7 @@ export interface AskConversationDetail {
   project_title?: string;
   session_id?: string;
   worktree?: boolean;
+  source_device_id?: string;
   compact_mode?: boolean;
   config?: Record<string, any>;
   created_at: string | null;

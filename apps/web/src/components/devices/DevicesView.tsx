@@ -6,6 +6,7 @@ import { useNow } from "@/lib/use-now";
 import { getApiBase, authFetch } from "@/lib/api-client";
 import { ToolGlyph, PlatformGlyph, Icon } from "@/components/aurora/Icon";
 import { Btn, Glass, TopBar } from "@/components/aurora/primitives";
+import { ExecutorGuide } from "./ExecutorGuide";
 
 export interface Device {
   id: string;
@@ -437,6 +438,8 @@ node packages/daemon/dist/cli.js install-service`}
           })}
         </div>
       )}
+
+      <ExecutorGuide />
 
       {/* Unbind / Delete confirmation modal */}
       {modalTarget && (

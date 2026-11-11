@@ -26,6 +26,7 @@ import {
   type WorkbuddyGatewayHandle,
 } from "./workbuddy.js";
 import { TaskWorktree } from "./worktree.js";
+import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
 /** A task the server dispatched to this device. */
 export interface TaskDispatch {
@@ -510,6 +511,8 @@ export class TaskRunner {
   private readonly taskLogBuffer = new Map<string, TaskChunkMessage[]>();
   private readonly MAX_TASK_LOG_BUFFER = 2000;
   private hookBridge: HookBridge | undefined;
+  /** Requests to the server over this device's connection: fetching code that lives on another device. */
+  relay: Relay | undefined;
 
   constructor(
     private readonly send: Send,
@@ -900,10 +903,38 @@ export class TaskRunner {
     const taskId = task.id;
     const { action, payload } = task;
     const text = (key: string) => (payload[key] == null ? "" : String(payload[key]));
-    let workDir = resolveWorkingDir(text("cwd"), this.log);
+    const wsSpec = action === "agent" ? parseWorkspaceSpec(payload.workspace) : undefined;
+    /** The code is on another device: the agent works in this device's clone of it. */
+    let wsRun: WorkspaceRun | undefined;
+    let workDir: string | undefined;
+    if (wsSpec) {
+      this.eventLogs.set(taskId, new AgentEventLog());
+      this.emitEvent(taskId, { kind: "workspace", status: "syncing", source: wsSpec.sourceName, path: wsSpec.sourcePath });
+      try {
+        if (!this.relay) throw new Error("和服务器的连接还没建立");
+        wsRun = await prepareWorkspace(wsSpec, this.relay, { env: await executionEnvironment(), emit: (e) => this.emitEvent(taskId, e) });
+        workDir = wsRun.mirror.workDir;
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        this.emitEvent(taskId, { kind: "workspace", status: "failed", source: wsSpec.sourceName, error: reason });
+        this.send(
+          taskFinishedMessage({
+            taskId,
+            status: "failed",
+            exitCode: 1,
+            error: `取不到 ${wsSpec.sourceName} 上 ${wsSpec.sourcePath} 的代码：${reason}`,
+            events: this.eventLogs.get(taskId)?.events,
+          }),
+        );
+        this.eventLogs.delete(taskId);
+        return;
+      }
+    } else {
+      workDir = resolveWorkingDir(text("cwd"), this.log);
+    }
 
     // Refresh the living blueprint before the agent starts, but never hold the task up more than 3 s
-    if (workDir && !payload.worktree) {
+    if (workDir && !payload.worktree && !wsRun) {
       const ensuring = ensureProjectBlueprint(workDir, { log: this.log }).catch(() => false);
       await Promise.race([ensuring, new Promise((r) => setTimeout(r, 3_000).unref?.())]);
     }
@@ -1018,6 +1049,7 @@ export class TaskRunner {
         this.send(
           taskFinishedMessage({ taskId, status: "failed", exitCode: 1, error: `Agent CLI executable not found on device: ${binary}${tip}` }),
         );
+        wsRun?.release();
         return;
       }
       exe = resolved;
@@ -1025,10 +1057,11 @@ export class TaskRunner {
         agyRunner = exe;
         exe = process.execPath;
       }
-      this.eventLogs.set(taskId, new AgentEventLog());
+      if (!this.eventLogs.has(taskId)) this.eventLogs.set(taskId, new AgentEventLog());
 
       // Its own worktree and branch, so parallel tasks on one repository don't collide.
-      if (payload.worktree === true && workDir) {
+      // (A clone of another device's code is a separate checkout already.)
+      if (payload.worktree === true && workDir && !wsRun) {
         const made = await TaskWorktree.create(workDir, taskId, { env: await executionEnvironment() });
         if (made.tree) {
           worktree = made.tree;
@@ -1319,6 +1352,16 @@ export class TaskRunner {
       const usageLimit = action === "agent" ? usageLimitMessage(`${streamErrors}\n${fullErr}`) : undefined;
       const effectiveExitCode = (sessionFailedFinal || usageLimit) && exitCode === 0 ? 1 : exitCode;
 
+      if (wsRun && this.relay) {
+        // Back to the device the code is on: into its files when the run finished well, else only kept there
+        const ok = !this.cancelledTasks.has(taskId) && !usageLimit && !timedOut && effectiveExitCode === 0;
+        const run = wsRun;
+        wsRun = undefined;
+        const done = await finishWorkspace(run, taskId, ok ? "apply" : "save", this.relay, { env: await executionEnvironment() });
+        this.emitEvent(taskId, done);
+        if (done.status !== "unchanged") this.log(`Workspace changes of ${taskId} -> ${run.spec.sourceDeviceId}: ${done.status}`);
+      }
+
       if (this.cancelledTasks.has(taskId)) {
         this.log(`Task ${taskId} was cancelled by user; skipping final task_finished overwrite`);
         return;
@@ -1369,7 +1412,18 @@ export class TaskRunner {
       this.taskSessions.delete(taskId);
       // Its idle time starts now.
       if (gatewayFile) void touchWorkbuddyGateway(gatewayFile).catch(() => {});
-      if (workDir && !payload.worktree && action === "agent") {
+      if (wsRun) {
+        // Stopped or broke off before the wrap-up: whatever it changed is still kept on the source
+        const run = wsRun;
+        wsRun = undefined;
+        if (this.relay) {
+          void executionEnvironment()
+            .then((env) => finishWorkspace(run, taskId, "save", this.relay!, { env }))
+            .then((done) => this.log(`Workspace changes of ${taskId} kept on ${run.spec.sourceDeviceId}: ${done.status}`))
+            .catch(() => run.release());
+        } else run.release();
+      }
+      if (workDir && !payload.worktree && !wsSpec && action === "agent") {
         void ensureProjectBlueprint(workDir, { log: this.log }).catch(() => {});
       }
       setTimeout(() => {

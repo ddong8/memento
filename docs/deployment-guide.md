@@ -298,13 +298,41 @@ journalctl --user -u memento-daemon -f
 
 | 智能体 | 安装 | 无界面登录 |
 |---|---|---|
-| Claude Code | `npm install -g @anthropic-ai/claude-code` | 运行 `claude` 后 `/login`，按 `c` 复制登录链接到本地浏览器打开，把页面给的验证码贴回终端；或在有浏览器的机器上 `claude setup-token`，把令牌设为 `CLAUDE_CODE_OAUTH_TOKEN`；或设置 `ANTHROPIC_API_KEY`（按 API 计费，优先级最高） |
-| Codex | `npm install -g @openai/codex` | 先在 ChatGPT 安全设置里打开设备码登录，再 `codex login --device-auth`；或 `printenv OPENAI_API_KEY \| codex login --with-api-key` |
+| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash`（官方推荐，装到 `~/.local/bin/claude`；也可 `npm install -g @anthropic-ai/claude-code`，不要加 sudo） | 运行 `claude` 后 `/login`，按 `c` 复制登录链接到本地浏览器打开，把页面给的验证码贴回终端；或在有浏览器的机器上 `claude setup-token`，把令牌设为 `CLAUDE_CODE_OAUTH_TOKEN`；或设置 `ANTHROPIC_API_KEY`（按 API 计费，优先级最高） |
+| Codex | `npm install -g @openai/codex`（或官方脚本 `curl -fsSL https://chatgpt.com/codex/install.sh \| sh`） | 先在 ChatGPT 安全设置里打开设备码登录，再 `codex login --device-auth`；或 `printenv OPENAI_API_KEY \| codex login --with-api-key` |
 | Antigravity | `curl -fsSL https://antigravity.google/cli/install.sh \| bash`（装到 `~/.local/bin/agy`） | 在终端运行一次 `agy`，按提示在本地浏览器打开链接、把验证码贴回；或在 `~/.gemini/antigravity-cli/settings.json` 写 `{"modelProvider": "gemini"}` 并设置 `GEMINI_API_KEY` |
 
 Antigravity 说明：有桌面的机器上，守护进程驱动 Antigravity 应用本身（会话在应用里能看到）；这台机器上没有运行中的 Antigravity 应用时，自动改用 Google 官方 `agy` 命令行的打印模式（`agy -p … --output-format stream-json`），工具步骤、回复和会话续接照常回传。账号登录方式下 agy 把令牌存在系统密钥环里，无界面机器要有 D-Bus 会话和密钥环服务，报 `secret keyring is locked` 时见官方排障文档；用 `GEMINI_API_KEY` 方式不涉及密钥环。`ANTHROPIC_API_KEY`、`CLAUDE_CODE_OAUTH_TOKEN`、`GEMINI_API_KEY` 这类变量写在 `~/.bashrc` / `~/.zshrc` 的 `export` 里即可，守护进程会读给智能体。
 
-派任务：在网页或手机上选这台设备，工作目录填这台机器上的项目路径（如 `~/dev/myapp`），选 Claude Code / Codex / Antigravity 发送。智能体在这台机器上、在这个目录里执行，过程和结果实时回传，可随时停止。项目要在哪台机器上改，守护进程就装在哪台机器上；文件不在同一台机器时，用 git 或共享目录把代码放过去。
+派任务：在网页或手机上选这台设备，工作目录填这台机器上的项目路径（如 `~/dev/myapp`），选 Claude Code / Codex / Antigravity 发送。智能体在这台机器上、在这个目录里执行，过程和结果实时回传，可随时停止。代码不在这台机器上（比如代码在 Mac、想让服务器跑智能体）时，见下面的「代码在另一台电脑」。
+
+#### 一键把 Linux 服务器设为执行机
+
+上面的步骤可以用一条命令做完：网页「设备」页底部的「把 Linux 服务器加为执行机」卡片里能复制带好 token 的整条命令，在服务器上用普通用户 ssh 登录后运行：
+
+```bash
+curl -fsSL https://mem.yourdomain.com/install/executor.sh | bash -s -- --token <collector_token> --agents claude,codex,agy
+```
+
+脚本做的事（重跑即升级，不重复安装）：
+
+1) 检查 Linux、systemd、git、curl、tar；系统没有 Node.js 22.18+ 时下载官方 Node 22 到 `~/.memento/runtime/node`（`NODE_MIRROR` 可换下载源，失败自动改用 npmmirror），不动系统环境。
+2) 把守护进程源码浅克隆到 `~/.memento/src/memento`（`MEMENTO_REF` 可指定版本），只构建守护进程。
+3) 绑定服务端（默认就是下载脚本的这个服务端，`--server` 可改），注册为 systemd 用户服务并打开 linger。
+4) `--agents` 里列的智能体没装就按官方方式装到 `~/.local/bin`，并把它和 Node 加进 `~/.bashrc` 的 PATH。
+5) 默认以低优先级运行（`Nice=10`、`CPUWeight=50`、IO 空闲优先级），服务器上的其它服务不被抢资源；不想要就加 `--no-low-priority`。
+
+跑完按提示把智能体各登录一次即可（上表的无界面登录方式）。
+
+#### 代码在另一台电脑（跨设备工作区）
+
+代码留在 Mac / Windows 上，智能体在服务器上跑：提问时设备选服务器，旁边的「代码在」选你的电脑（只有选了具体设备、有多台设备时出现）。
+
+1) 发送时，服务器上的守护进程经 memento 向你的电脑要一份 git bundle：包含当前分支和所有未提交、未跟踪的改动（`.gitignore` 忽略的文件不带），用临时索引打快照，不碰你的暂存区。第二次起只传增量，代码没变就不传。
+2) 服务器上的副本在 `~/.memento/workspaces/<编号>/<仓库名>`，`node_modules` 这类被忽略的文件保留，下次不用重装；同一项目同时跑多个任务各用一份副本。
+3) 智能体跑完，把它的改动（包括它自己做的提交）打成补丁带回你的电脑：你的电脑上的代码在运行期间没变就直接写回工作区；变了就不覆盖，改动放到 `memento/<任务号>` 分支上，自己合并。任务失败或被停止时补丁只保存到 `.git/memento/patches/`，不写回。
+4) 带回时你的电脑不在线，补丁先存在服务器上，你的电脑上线后自动补交（7 天内）。
+5) 两边的守护进程都要是支持这个功能的版本（v1.0.105+）；代码所在目录必须是 git 仓库且至少有一个提交。任务详情里能看到同步、写回、冲突分支和改动的文件。
 
 ---
 

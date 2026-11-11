@@ -1,0 +1,158 @@
+"""Code on one device, agent on another: the server relays the code and the changes between the two."""
+
+import asyncio
+import uuid
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from server.db.models import Machine
+from server.services import workspace_relay as wr
+from server.services.ws_manager import DeviceConnectionManager
+
+USER = uuid.uuid4()
+
+
+def _machine(user_id=USER, archived=False, token="tok-mac"):
+    m = Machine(id=uuid.uuid4(), name="Mac", collector_token_hash=token, user_id=user_id)
+    m.is_archived = archived
+    return m
+
+
+@asynccontextmanager
+async def _session():
+    yield MagicMock()
+
+
+def _env(machine, online=True, answer=None, chunk=b"bundle-bytes"):
+    ws = MagicMock()
+    ws.is_online.side_effect = lambda dev: online
+    ws.request_device = AsyncMock(return_value=answer or {})
+    ws.request_file_chunk = AsyncMock(return_value=chunk)
+    ws.send_json = AsyncMock(return_value=True)
+    cl = MagicMock()
+    cl.redis = None
+    return [
+        patch.object(wr, "async_session_factory", _session),
+        patch.object(wr, "find_machine_by_id_or_hash", AsyncMock(return_value=machine)),
+        patch.object(wr, "ws_manager", ws),
+        patch.object(wr, "cluster", cl),
+    ], ws
+
+
+async def _run(patches, coro_fn):
+    for p in patches:
+        p.start()
+    try:
+        return await coro_fn()
+    finally:
+        for p in patches:
+            p.stop()
+
+
+@pytest.mark.asyncio
+async def test_export_hands_out_a_token_for_the_bundle_and_chunks_read_it_from_the_source():
+    answer = {"bundle_path": "/Users/me/.memento/workspace-out/a.bundle", "size": 12, "head": "h", "branch": "main",
+              "snapshot": "s", "tree": "t", "root": "/Users/me/repo", "rel": "", "up_to_date": False}
+    patches, ws = _env(_machine(), answer=answer)
+
+    async def go():
+        out = await wr._export({"source_device_id": "mac", "path": "/Users/me/repo", "have": ["abc", 3]}, USER)
+        sent = ws.request_device.await_args.args
+        assert sent[0] == "tok-mac"
+        assert sent[1] == {"type": "workspace_export_req", "path": "/Users/me/repo", "have": ["abc"]}
+        assert out["token"] and out["branch"] == "main" and "bundle_path" not in out
+        chunk = await wr._chunk({"token": out["token"], "offset": 0, "length": 999}, USER)
+        # Never past the bundle's end, from the device and path the token stands for
+        assert ws.request_file_chunk.await_args.args[:4] == ("tok-mac", answer["bundle_path"], 0, 12)
+        assert chunk["bytes_read"] == len(b"bundle-bytes")
+        # Another account can't use the token, and past the end is empty
+        assert (await wr._chunk({"token": out["token"], "offset": 0}, uuid.uuid4()))["code"] == "expired"
+        assert (await wr._chunk({"token": out["token"], "offset": 12}, USER)) == {"data_b64": "", "bytes_read": 0}
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_an_up_to_date_clone_gets_no_token():
+    patches, _ = _env(_machine(), answer={"up_to_date": True, "snapshot": "s", "size": 0})
+    out = await _run(patches, lambda: wr._export({"source_device_id": "mac", "path": "/r"}, USER))
+    assert out["up_to_date"] is True and "token" not in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("machine,online,why", [
+    (None, True, "找不到"),
+    ("other-user", True, "不属于"),
+    ("archived", True, "解除关联"),
+    ("ok", False, "不在线"),
+])
+async def test_only_an_online_device_of_the_same_account_is_reached(machine, online, why):
+    m = None if machine is None else _machine(user_id=uuid.uuid4()) if machine == "other-user" else _machine(archived=machine == "archived")
+    patches, ws = _env(m, online=online)
+    out = await _run(patches, lambda: wr._export({"source_device_id": "mac", "path": "/r"}, USER))
+    assert out["code"] == "source_unavailable" and why in out["error"]
+    ws.request_device.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_passes_the_patch_on_and_returns_what_the_source_did():
+    patches, ws = _env(_machine(), answer={"applied": False, "conflict": True, "branch": "memento/abcd1234",
+                                           "files": [{"status": "M", "path": "a.txt"}], "patch_path": "/r/.git/p", "detail": "x"})
+
+    async def go():
+        out = await wr._apply({"source_device_id": "mac", "path": "/r", "task_id": "t", "base_tree": "bt",
+                               "mode": "weird", "patch_b64": "UEFUQ0g=", "files": [{"path": "a.txt"}]}, USER)
+        payload = ws.request_device.await_args.args[1]
+        assert payload["type"] == "workspace_apply_req" and payload["mode"] == "apply" and payload["base_tree"] == "bt"
+        assert out == {"applied": False, "conflict": True, "branch": "memento/abcd1234",
+                       "files": [{"status": "M", "path": "a.txt"}], "patch_path": "/r/.git/p", "detail": "x"}
+        assert (await wr._apply({"source_device_id": "mac", "patch_b64": "x" * (wr.PATCH_MAX + 1)}, USER))["code"] == "too_big"
+        assert "空" in (await wr._apply({"source_device_id": "mac", "patch_b64": ""}, USER))["error"]
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_the_executor_always_gets_a_reply_even_when_the_relay_blows_up():
+    patches, ws = _env(_machine())
+
+    async def go():
+        with patch.object(wr, "_export", AsyncMock(side_effect=RuntimeError("boom"))), \
+                patch.dict(wr._OPS, {"export": wr._export}):
+            await wr.handle({"req_id": "r1", "op": "export"}, "tok-vps", USER)
+        reply = ws.send_json.await_args.args
+        assert reply[0] == "tok-vps" and reply[1]["type"] == "ws_relay_reply" and reply[1]["req_id"] == "r1"
+        assert "boom" in reply[1]["error"]
+        await wr.handle({"req_id": "r2", "op": "nope"}, "tok-vps", USER)
+        assert "unknown op" in ws.send_json.await_args.args[1]["error"]
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_request_device_waits_for_the_answer_with_the_same_req_id():
+    mgr = DeviceConnectionManager()
+    sent: list[dict] = []
+
+    async def fake_send(device_id, payload):
+        sent.append(payload)
+        asyncio.get_running_loop().call_soon(mgr.handle_file_response, {"req_id": payload["req_id"], "ok": 1})
+        return True
+
+    mgr._connections["tok-mac"] = MagicMock()
+    with patch.object(mgr, "_send_json_local", fake_send):
+        res = await mgr.request_device("tok-mac", {"type": "workspace_export_req", "path": "/r"}, timeout=2)
+    assert res["ok"] == 1 and sent[0]["type"] == "workspace_export_req"
+    assert mgr._pending_file_requests == {}
+
+    async def silent(device_id, payload):
+        return True
+
+    with patch.object(mgr, "_send_json_local", silent):
+        res = await mgr.request_device("tok-mac", {"type": "workspace_export_req"}, timeout=0.05)
+    assert res["code"] == "timeout"
+    mgr._connections.clear()
+    with patch.object(mgr, "_owner", AsyncMock(return_value=None)):
+        assert (await mgr.request_device("tok-mac", {"type": "x"}))["code"] == "offline"

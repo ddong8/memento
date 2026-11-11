@@ -7,6 +7,10 @@ it("service files run the daemon and escape what they must", () => {
   expect(plist).toContain("<string>/opt/a&amp;b/cli.js</string>");
   expect(plist).toContain("<key>KeepAlive</key>");
   expect(systemdUnit(["/usr/bin/node", "/opt/my dir/cli.js", "run"])).toContain('ExecStart=/usr/bin/node "/opt/my dir/cli.js" run');
+  expect(systemdUnit(["/usr/bin/node", "cli.js", "run"])).not.toContain("Nice=");
+  // A shared machine: the daemon and the agents it starts yield to the other services
+  const low = systemdUnit(["/usr/bin/node", "cli.js", "run"], { lowPriority: true });
+  expect(low).toMatch(/\[Service\][\s\S]*Nice=10\nCPUWeight=50\n[\s\S]*\[Install\]/);
 });
 
 it("lingering is turned on for a Linux service that would stop at logout, with a hint when that's refused", async () => {

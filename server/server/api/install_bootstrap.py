@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 router = APIRouter(tags=["install"])
@@ -57,6 +57,26 @@ async def install_sh() -> Response:
 @router.get("/install.ps1", include_in_schema=False)
 async def install_ps1() -> Response:
     return _serve_script("install.ps1", "text/plain; charset=utf-8")
+
+
+def _public_base(request: Request) -> str:
+    """The address the caller reached us at (behind the ingress, from its forwarded headers)."""
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.headers.get("host", "")
+    host = "".join(c for c in host if c.isalnum() or c in ".-:[]")
+    if proto not in ("http", "https") or not host:
+        return ""
+    return f"{proto}://{host}"
+
+
+@router.get("/install/executor.sh", include_in_schema=False)
+async def executor_sh(request: Request) -> Response:
+    """Sets up a Linux server as an executor; defaults to this server's address."""
+    path = _BOOTSTRAP_DIR / "executor.sh"
+    if not path.exists():
+        return Response(status_code=503, content="Bootstrap asset missing on server: executor.sh", media_type="text/plain")
+    body = path.read_text(encoding="utf-8").replace("__MEMENTO_SERVER__", _public_base(request) or "__MEMENTO_SERVER__")
+    return Response(content=body, media_type="text/x-shellscript; charset=utf-8", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/install", include_in_schema=False)

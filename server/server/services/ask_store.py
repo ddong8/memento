@@ -30,7 +30,7 @@ logger = logging.getLogger("server.ask")
 # What the user sends or saves: "" for model / effort is the CLI's own default, for project / session
 # "none" (a new session): the user cleared them, so they are neither kept nor inferred back from earlier
 # turns. For the other keys "" means "not given".
-_EMPTY_IS_A_CHOICE = ("model", "effort", "project_id", "session_id")
+_EMPTY_IS_A_CHOICE = ("model", "effort", "project_id", "session_id", "source_device_id")
 # What a finished run reports: no session there means none came back (the device was offline, say),
 # not that the user dropped it
 _RUN_EMPTY_IS_A_CHOICE = ("model", "effort")

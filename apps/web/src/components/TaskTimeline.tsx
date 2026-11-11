@@ -115,6 +115,59 @@ export default function TaskTimeline({
     </div>
   );
 
+  // Code synced from another device before the run, and what the agent changed sent back after it
+  const workspaceRow = (ev: Record<string, unknown>) => {
+    const source = str(ev.source) || tl.wsSourceDevice;
+    const files = Array.isArray(ev.files) ? (ev.files as Array<{ path?: string; status?: string }>).filter((f) => f && f.path) : [];
+    const error = str(ev.error) || null;
+    const patch = str(ev.patch_path);
+    const fileList = files.length > 0 && (
+      <div title={files.map((f) => `${f.status || "M"} ${f.path}`).join("\n")} style={{ ...mono, fontSize: 11.5, color: "var(--aurora-fg3)", margin: "0 0 2px 21px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {files.slice(0, 6).map((f) => f.path).join(", ")}
+        {files.length > 6 && `  ${fmt(tl.wsMoreFiles, { n: files.length - 6 })}`}
+      </div>
+    );
+    switch (ev.status) {
+      case "syncing":
+        return plain("refresh", fmt(tl.wsSyncing, { source }), str(ev.path) || null, "var(--aurora-accent)");
+      case "synced": {
+        const bytes = Number(ev.bytes) || 0;
+        const size = bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)}MB` : bytes > 0 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : "";
+        const note = [str(ev.branch), size, Number(ev.seconds) > 0 ? `${ev.seconds}s` : ""].filter(Boolean).join(" · ");
+        return plain("refresh", fmt(tl.wsSynced, { source }), note || null, "#10B981");
+      }
+      case "applied":
+        return (
+          <>
+            {plain("check", fmt(tl.wsApplied, { source, n: files.length }), null, "#10B981")}
+            {fileList}
+          </>
+        );
+      case "conflict":
+        return (
+          <>
+            {plain("layers", fmt(tl.wsConflict, { source, branch: str(ev.branch) }), error, "#D97706")}
+            {fileList}
+          </>
+        );
+      case "saved":
+        return (
+          <>
+            {plain("file_text", fmt(tl.wsSaved, { source }), patch || error, "#D97706")}
+            {fileList}
+          </>
+        );
+      case "pending":
+        return plain("clock", fmt(tl.wsPending, { source }), error, "#D97706");
+      case "unchanged":
+        return plain("check", tl.wsUnchanged, null);
+      case "failed":
+        return plain("close", fmt(tl.wsFailed, { source }), error, "#DC2626");
+      default:
+        return null;
+    }
+  };
+
   const row = (e: TaskEvent, i: number) => {
     const ev = e as TaskEvent & Record<string, unknown>;
     switch (e.kind) {
@@ -287,6 +340,8 @@ export default function TaskTimeline({
         if (ev.status === "removed") return <div key={i}>{plain("layers", tl.branchRemoved, null)}</div>;
         if (ev.status === "skipped") return <div key={i}>{plain("layers", tl.noBranch, str(ev.reason) || null, "#D97706")}</div>;
         return null;
+      case "workspace":
+        return <div key={i}>{workspaceRow(ev)}</div>;
       case "error":
         return <div key={i}>{plain("close", str(ev.message) || tl.error, null, "#DC2626")}</div>;
       case "compact": {

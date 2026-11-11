@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { open, stat } from "node:fs/promises";
 
 import WebSocket from "ws";
@@ -9,6 +10,8 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
+import { applyWorkspacePatch, exportWorkspace, unpackPatch, WorkspaceError, type AppliedFile } from "./workspace.js";
+import { flushPendingPatches, type Relay } from "./workspace-sync.js";
 
 type Log = (message: string) => void;
 
@@ -41,6 +44,9 @@ export class WsTaskClient {
   /** Whether the open connection goes over the LAN address. */
   private viaLan = false;
   private commandsPending: (() => void) | undefined;
+  /** Requests this device made to the server (ws_relay), waiting for its ws_relay_reply. */
+  private readonly relayWaiting = new Map<string, { resolve: (r: Record<string, unknown>) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private pendingPatchTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private config: CollectorConfig,
@@ -48,7 +54,48 @@ export class WsTaskClient {
     private readonly onConnection: (online: boolean) => void = () => {},
   ) {
     this.runner = new TaskRunner((m) => this.sendJson(m), log);
+    this.runner.relay = this.relay;
     this.p2p = new P2PHost(log);
+  }
+
+  /** Asks the server something over this connection; never queued for a later connection. */
+  readonly relay: Relay = (op, body, timeoutMs = 60_000) =>
+    new Promise((resolve, reject) => {
+      const ws = this.ws;
+      if (ws?.readyState !== WebSocket.OPEN) {
+        reject(new Error("没有连上服务器"));
+        return;
+      }
+      const reqId = randomUUID();
+      const timer = setTimeout(() => {
+        this.relayWaiting.delete(reqId);
+        reject(new Error(`服务器 ${Math.round(timeoutMs / 1000)} 秒没有回应`));
+      }, timeoutMs);
+      this.relayWaiting.set(reqId, { resolve, reject, timer });
+      try {
+        ws.send(JSON.stringify({ ...body, type: "ws_relay", req_id: reqId, op }));
+      } catch (e) {
+        clearTimeout(timer);
+        this.relayWaiting.delete(reqId);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+
+  private settleRelay(data: Record<string, unknown>): void {
+    const waiting = this.relayWaiting.get(String(data.req_id ?? ""));
+    if (!waiting) return;
+    this.relayWaiting.delete(String(data.req_id));
+    clearTimeout(waiting.timer);
+    if (data.error) waiting.reject(new WorkspaceError(String(data.error), String(data.code ?? "failed")));
+    else waiting.resolve(data);
+  }
+
+  private failRelays(reason: string): void {
+    for (const [id, w] of this.relayWaiting) {
+      clearTimeout(w.timer);
+      w.reject(new Error(reason));
+      this.relayWaiting.delete(id);
+    }
   }
 
   updateConfig(config: CollectorConfig): void {
@@ -82,6 +129,8 @@ export class WsTaskClient {
   dispose(): void {
     this.disposed = true;
     clearInterval(this.pingTimer);
+    clearInterval(this.pendingPatchTimer);
+    this.failRelays("守护进程正在退出");
     this.ws?.close();
     this.wakeUp?.();
     this.runner.dispose();
@@ -105,6 +154,7 @@ export class WsTaskClient {
       } finally {
         clearInterval(this.pingTimer);
         this.ws = undefined;
+        this.failRelays("和服务器的连接断开了");
         this.onConnection(false);
       }
       if (this.disposed) break;
@@ -174,6 +224,7 @@ export class WsTaskClient {
           this.log(`Handshake verified by server (${String(data.device_name ?? "")})`);
           this.flushPendingOutbox();
           void this.reportQuotas();
+          this.schedulePendingPatches();
           break;
         case "pong":
           break;
@@ -218,6 +269,15 @@ export class WsTaskClient {
             typeof data.offset === "number" ? data.offset : 0,
             typeof data.length === "number" ? data.length : 512 * 1024,
           );
+          break;
+        case "ws_relay_reply":
+          this.settleRelay(data);
+          break;
+        case "workspace_export_req":
+          void this.handleWorkspaceExport(data);
+          break;
+        case "workspace_apply_req":
+          void this.handleWorkspaceApply(data);
           break;
         case "task_log_resync": {
           if (data.task_id != null) {
@@ -372,6 +432,69 @@ export class WsTaskClient {
       this.sendJson({ type: "file_chunk_resp", req_id: reqId, error: missing ? `File not found: ${path}` : e instanceof Error ? e.message : String(e) });
     } finally {
       await handle?.close().catch(() => {});
+    }
+  }
+
+  /** Changes another device made to code on this one, which couldn't be delivered then: sent now and every 5 minutes. */
+  private schedulePendingPatches(): void {
+    const flush = () => void flushPendingPatches(this.relay, this.log).catch(() => {});
+    setTimeout(flush, 5_000).unref?.();
+    if (!this.pendingPatchTimer) {
+      this.pendingPatchTimer = setInterval(() => this.connected && flush(), 5 * 60_000);
+      this.pendingPatchTimer.unref?.();
+    }
+  }
+
+  /** Another device is about to work on code in a directory here: pack it up for the server to fetch. */
+  private async handleWorkspaceExport(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const have = Array.isArray(data.have) ? data.have.map(String) : [];
+      const r = await exportWorkspace(deviceFilePath(String(data.path ?? "")), have);
+      this.log(`Workspace export of ${r.root}: ${r.upToDate ? "up to date" : `${r.size} bytes`}`);
+      this.sendJson({
+        type: "workspace_resp",
+        req_id: reqId,
+        bundle_path: r.bundle,
+        size: r.size,
+        head: r.head,
+        branch: r.branch,
+        snapshot: r.snapshot,
+        tree: r.tree,
+        root: r.root,
+        rel: r.rel,
+        up_to_date: r.upToDate,
+      });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** What an agent on another device changed in a directory here. */
+  private async handleWorkspaceApply(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const patch = await unpackPatch(String(data.patch_b64 ?? ""));
+      const files = Array.isArray(data.files) ? (data.files as AppliedFile[]).filter((f) => f && typeof f.path === "string") : undefined;
+      const r = await applyWorkspacePatch(deviceFilePath(String(data.path ?? "")), patch, {
+        taskId: String(data.task_id ?? ""),
+        baseTree: String(data.base_tree ?? ""),
+        mode: data.mode === "save" ? "save" : "apply",
+        ...(files?.length ? { files } : {}),
+      });
+      this.log(`Workspace patch of task ${String(data.task_id ?? "")}: ${r.applied ? "applied" : r.conflict ? `conflict, kept on ${r.branch ?? "patch file"}` : "saved"}`);
+      this.sendJson({
+        type: "workspace_resp",
+        req_id: reqId,
+        applied: r.applied,
+        conflict: r.conflict === true,
+        ...(r.branch ? { branch: r.branch } : {}),
+        files: r.files.slice(0, 200),
+        patch_path: r.patchPath,
+        ...(r.error ? { detail: r.error } : {}),
+      });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
     }
   }
 }

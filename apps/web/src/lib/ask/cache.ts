@@ -98,6 +98,8 @@ export interface CachedAskState {
   selectedModel: string;
   selectedEffort: string;
   worktreeMode: boolean;
+  /** The device the code is on when it isn't the one running the agent ("" = the same). */
+  codeDevice?: string;
   selectedProjectId: string;
   selectedSessionId: string;
   compactMode: boolean;
@@ -200,6 +202,7 @@ export interface LocalConvSnapshot {
   selectedProjectTitle?: string;
   selectedSessionId?: string;
   worktreeMode?: boolean;
+  codeDevice?: string;
   hasMoreTurns?: boolean;
   totalTurns?: number;
   etag?: string;
@@ -357,6 +360,7 @@ export function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: s
       selectedProjectTitle: data.selectedProjectTitle,
       selectedSessionId: data.selectedSessionId,
       worktreeMode: data.worktreeMode,
+      codeDevice: data.codeDevice,
       hasMoreTurns: data.hasMoreTurns,
       totalTurns: data.totalTurns,
       etag: data.etag,
@@ -375,6 +379,7 @@ export function saveLocalConvSnapshot(data: Partial<LocalConvSnapshot> & { id: s
         selectedProjectTitle: data.selectedProjectTitle,
         selectedSessionId: data.selectedSessionId,
         worktreeMode: data.worktreeMode,
+        codeDevice: data.codeDevice,
       },
     });
     writeLater(SNAPSHOT_KEY, () => JSON.stringify({ ...snapshot, turns: compactTurnsForStorage(snapshot.turns) }));
@@ -391,6 +396,7 @@ export interface CachedConversationConfig {
   selectedProjectTitle?: string;
   selectedSessionId?: string;
   worktreeMode?: boolean;
+  codeDevice?: string;
 }
 
 // Module-level in-memory caches for true zero-latency instant navigation and refreshing
@@ -449,6 +455,7 @@ export function saveToRecentConvTurnsCache(
       selectedProjectTitle: d?.project_title,
       selectedSessionId: d?.session_id || d?.config?.session_id,
       worktreeMode: Boolean(d?.worktree ?? d?.config?.worktree),
+      codeDevice: d?.source_device_id ?? d?.config?.source_device_id ?? "",
     };
 
     conversationTurnsCache.set(id, { turns, config });

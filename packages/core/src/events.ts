@@ -33,6 +33,23 @@ export type TaskEvent = { at?: string } & (
       file_count?: number;
       reason?: string;
     }
+  /**
+   * The code is on another device: synced from it before the run (`syncing` → `synced`), what the
+   * agent changed sent back after it (`applied` into its working tree, `conflict` → kept on `branch`,
+   * `saved` as a patch only, `pending` until that device is online again, `unchanged`, `failed`).
+   */
+  | {
+      kind: "workspace";
+      status: "syncing" | "synced" | "applied" | "conflict" | "saved" | "pending" | "unchanged" | "failed";
+      source?: string;
+      path?: string;
+      branch?: string;
+      bytes?: number;
+      seconds?: number;
+      files?: Array<{ path: string; status?: string }>;
+      patch_path?: string;
+      error?: string;
+    }
   | {
       kind: "question";
       id?: string;
@@ -125,4 +142,6 @@ export interface AskRequest {
   attachments?: Record<string, unknown>[];
   /** Run the agent in its own git worktree and branch. */
   worktree?: boolean;
+  /** The device the code is on, when it isn't the one running the agent ("" clears it). */
+  source_device_id?: string;
 }

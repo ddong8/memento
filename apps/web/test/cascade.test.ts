@@ -13,8 +13,11 @@ describe("device / project / session cascade", () => {
       projectId: "",
       projectTitle: "",
       sessionId: "",
+      codeDevice: "",
     });
     expect(cascadeOf(undefined).device).toBe("auto");
+    // The code device comes with the conversation too, never left over from the one shown before
+    expect(cascadeOf({ selectedDevice: "tok-vps", codeDevice: "tok-mac" }).codeDevice).toBe("tok-mac");
     expect(
       cascadeOf({ selectedDevice: "tok-mini", selectedProjectId: "p1", selectedProjectTitle: "memento", selectedSessionId: "s1" })
     ).toMatchObject({ device: "tok-mini", projectId: "p1", projectTitle: "memento", sessionId: "s1" });

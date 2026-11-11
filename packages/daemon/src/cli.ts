@@ -13,6 +13,7 @@ const USAGE = `memento-daemon <command>
   status              查看正在运行的守护进程状态
   login <token> [url] 保存 collector token（和服务器地址）
   install-service     登录时自动启动（macOS launchd / Linux systemd / Windows 启动项）
+                      --low-priority  Linux 上降低守护进程和它启动的智能体的 CPU/磁盘优先级（和其他服务共用的机器）
   uninstall-service   取消自动启动
 `;
 
@@ -82,7 +83,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       return login(rest[0], rest[1]);
     case "install-service": {
       const self = fileURLToPath(import.meta.url);
-      console.log(`已设置自动启动：${await installService([process.execPath, self, "run"])}`);
+      const lowPriority = rest.includes("--low-priority");
+      console.log(`已设置自动启动：${await installService([process.execPath, self, "run"], undefined, { lowPriority })}`);
       const linger = await ensureLinger();
       if (linger) console.warn(linger);
       return;

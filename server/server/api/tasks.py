@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
-from ..services import device_reports, notify_service, task_alerts
+from ..services import device_reports, notify_service, task_alerts, workspace_relay
 from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_dispatch import deliver_task
@@ -558,7 +558,10 @@ async def device_websocket_endpoint(
                 # Classified and pushed off the receive loop: a slow push must
                 # never stall chunk streaming.
                 notify_service.spawn(task_alerts.handle_agent_tool_use(machine.id, machine.name, data))
-            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer"):
+            elif msg_type == "ws_relay":
+                # Code fetched from / sent back to another of the user's devices: may take minutes, never on this loop
+                notify_service.spawn(workspace_relay.handle(data, real_device_id, machine.user_id))
+            elif msg_type in ("file_stat_resp", "file_chunk_resp", "p2p_answer", "workspace_resp"):
                 ws_manager.handle_file_response(data)
             elif msg_type == "task_finished":
                 tid_str = data.get("task_id")

@@ -200,6 +200,8 @@ function AskPageContent() {
   const [selectedModel, setSelectedModel] = useState<string>(() => askCache?.selectedModel ?? initSnap?.selectedModel ?? "");
   /** Run agent tasks in their own git worktree and branch. */
   const [worktreeMode, setWorktreeMode] = useState<boolean>(() => askCache?.worktreeMode ?? initSnap?.worktreeMode ?? false);
+  /** Device the code is on when it isn't the one running the agent ("": the executor's own folder). */
+  const [codeDevice, setCodeDevice] = useState<string>(() => askCache?.codeDevice ?? initSnap?.codeDevice ?? "");
   const [selectedEffort, setSelectedEffort] = useState<string>(() => askCache?.selectedEffort ?? initSnap?.selectedEffort ?? "");
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(
     () => askCache?.capabilities || getImmediateCapabilities(initSnap?.executionMode || "ai", initSnap?.selectedDevice)
@@ -407,6 +409,10 @@ function AskPageContent() {
   const devicesLoadedRef = useRef<Promise<DeviceSummary[]> | null>(null);
   const selectedDeviceRef = useRef<string>(selectedDevice);
   selectedDeviceRef.current = selectedDevice;
+  const codeDeviceRef = useRef<string>(codeDevice);
+  codeDeviceRef.current = codeDevice;
+  /** Whose folders a project resolves to when the agent runs on dev: the code device, if one is picked. */
+  const folderDev = (dev: string) => (codeDeviceRef.current && isConcreteDevice(dev) ? codeDeviceRef.current : dev);
   const cwdRef = useRef<string>(cwd);
   cwdRef.current = cwd;
   const autoPinnedRef = useRef<string>("");
@@ -650,6 +656,7 @@ function AskPageContent() {
       selectedModel,
       selectedEffort,
       worktreeMode,
+      codeDevice,
       selectedProjectId,
       selectedSessionId,
       compactMode,
@@ -673,6 +680,7 @@ function AskPageContent() {
     selectedModel,
     selectedEffort,
     worktreeMode,
+    codeDevice,
     selectedProjectId,
     selectedSessionId,
     compactMode,
@@ -1099,9 +1107,12 @@ function AskPageContent() {
       setSelectedProjectTitle(c.projectTitle);
       selectedProjectTitleRef.current = c.projectTitle;
       setSelectedSessionId(c.sessionId);
+      const codeDev = isConcreteDevice(dev) && c.codeDevice ? normalizeDeviceId(c.codeDevice) : "";
+      setCodeDevice(codeDev);
+      codeDeviceRef.current = codeDev;
       const toolId = AGENT_TOOL_ID[mode];
       const devForQuery = isConcreteDevice(dev) ? dev : undefined;
-      setProjects(toolId ? getCachedProjects(toolId, devForQuery) : []);
+      setProjects(toolId ? getCachedProjects(toolId, codeDev || devForQuery) : []);
       setSessions(toolId && c.projectId ? getCachedSessions(c.projectId, devForQuery) : []);
     },
     [normalizeDeviceId]
@@ -1173,6 +1184,10 @@ function AskPageContent() {
 
       const isWorktree = Boolean(data.worktree ?? cfg.worktree ?? false);
       setWorktreeMode(isWorktree);
+      const rawCodeDev = String(data.source_device_id ?? cfg.source_device_id ?? "");
+      const restoredCodeDev = rawCodeDev ? normalizeDeviceId(rawCodeDev) : "";
+      setCodeDevice(restoredCodeDev);
+      codeDeviceRef.current = restoredCodeDev;
 
       setCompactMode(false);
 
@@ -1213,6 +1228,7 @@ function AskPageContent() {
           selectedProjectTitle: incomingProjTitle || selectedProjectTitleRef.current,
           selectedSessionId: targetSessionId,
           worktreeMode: isWorktree,
+          codeDevice: restoredCodeDev,
           hasMoreTurns: hasMore,
           totalTurns: total,
           etag: data._etag,
@@ -1306,7 +1322,7 @@ function AskPageContent() {
           if (!devForQuery && isConcreteDevice(pinned)) {
             setSelectedDevice(pinned);
             selectedDeviceRef.current = pinned;
-            const folder = targetCwd || projectPathOn(matchedProj, pinned);
+            const folder = targetCwd || projectPathOn(matchedProj, folderDev(pinned));
             if (folder) {
               setCwd(folder);
               setShowCwd(true);
@@ -1523,6 +1539,8 @@ function AskPageContent() {
     setIsCustomModel(false);
     setSelectedEffort("");
     setWorktreeMode(false);
+    setCodeDevice("");
+    codeDeviceRef.current = "";
 
     if (askShown()) {
       try {
@@ -3443,6 +3461,7 @@ function AskPageContent() {
         selectedProjectTitle: selectedProjectTitleRef.current,
         selectedSessionId,
         worktreeMode,
+        codeDevice,
         hasMoreTurns: false,
         totalTurns: finalTurns.length,
       });
@@ -3458,6 +3477,7 @@ function AskPageContent() {
     selectedProjectId,
     selectedSessionId,
     worktreeMode,
+    codeDevice,
   ]);
 
   // Show a run that is still going (opened from history, or after a reload).
@@ -3627,6 +3647,7 @@ function AskPageContent() {
           selectedProjectTitle: selectedProjectTitleRef.current,
           selectedSessionId: effectiveSessionId,
           worktreeMode,
+          codeDevice,
         },
       });
     }
@@ -3682,6 +3703,8 @@ function AskPageContent() {
               : effectiveCompact || undefined,
           project_id: selectedProjectId,
           worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
+          // "" goes too: it clears a code device the conversation had
+          source_device_id: ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && isConcreteDevice(selectedDevice) ? codeDevice : undefined,
         }),
         signal: ctrl.signal,
       });
@@ -3706,7 +3729,7 @@ function AskPageContent() {
     } finally {
       finishStream(ctrl);
     }
-  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode]);
+  }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode, codeDevice]);
 
   const send = useCallback(() => {
     if (streaming || (!input.trim() && attachedImages.length === 0)) return;
@@ -3958,7 +3981,7 @@ function AskPageContent() {
           pinned = true;
         }
       }
-      const folder = projectPathOn(proj, dev);
+      const folder = projectPathOn(proj, folderDev(dev));
       setCwd(folder);
       setShowCwd(Boolean(folder));
       if (pinned) {
@@ -3982,7 +4005,7 @@ function AskPageContent() {
         setSessions(sessList);
         saveCachedSessions(projId, dev, sessList);
         // The server knows this device's folder even when the list didn't
-        const serverFolder = isConcreteDevice(dev) ? cleanProjectPath(res.project?.source_path) : "";
+        const serverFolder = isConcreteDevice(dev) && !codeDeviceRef.current ? cleanProjectPath(res.project?.source_path) : "";
         if (!folder && serverFolder) {
           setCwd(serverFolder);
           setShowCwd(true);
@@ -4023,10 +4046,12 @@ function AskPageContent() {
         return;
       }
       const devToUse = targetDev !== undefined ? targetDev : selectedDeviceRef.current;
+      // Code on another device: its projects (and folders) are the ones to pick from
+      const listDev = folderDev(devToUse);
       // 0ms instant hydration from this device's cache, never another device's list
-      setProjects(getCachedProjects(toolId, devToUse));
+      setProjects(getCachedProjects(toolId, listDev));
       try {
-        let list = (await api.listProjects(toolId, devToUse)) || [];
+        let list = (await api.listProjects(toolId, listDev)) || [];
         if (ticket !== projectsReqRef.current) return;
         const curProjId = selectedProjectIdRef.current;
         // An old conversation's project that is no longer listed still shows by name
@@ -4044,7 +4069,7 @@ function AskPageContent() {
           } catch {}
         }
         setProjects(list);
-        saveCachedProjects(toolId, devToUse, list);
+        saveCachedProjects(toolId, listDev, list);
         if (isRestoringRef.current) return;
 
         const pref = preferredTitle || projectsRef.current.find((p) => p.id === curProjId)?.title;
@@ -4057,7 +4082,7 @@ function AskPageContent() {
         if (target && target.id !== curProjId) {
           handleSelectProject(target.id, list, devToUse);
         } else if (target) {
-          const folder = projectPathOn(target, devToUse);
+          const folder = projectPathOn(target, listDev);
           if (folder && !pathWithin(cwdRef.current, folder)) {
             setCwd(folder);
             setShowCwd(true);
@@ -4101,13 +4126,37 @@ function AskPageContent() {
     // The folder was the previous device's; the project brings its own folder on this one
     setCwd("");
     setShowCwd(false);
-    persistCurrentConfig({ device_id: newDev, project_id: "", session_id: "", cwd: "" });
+    // Code "on another device" that is now the one running it is just local code again
+    const dropCodeDev = Boolean(codeDeviceRef.current) && (!isConcreteDevice(newDev) || newDev === codeDeviceRef.current);
+    if (dropCodeDev) {
+      setCodeDevice("");
+      codeDeviceRef.current = "";
+    }
+    persistCurrentConfig({ device_id: newDev, project_id: "", session_id: "", cwd: "", ...(dropCodeDev ? { source_device_id: "" } : {}) });
     if (["codex", "claude", "antigravity", "workbuddy"].includes(executionMode)) {
       // Choosing auto leaves the project to the user: picking one then picks its device
       loadProjectsForMode(executionMode, newDev, isConcreteDevice(newDev) ? prevTitle : undefined);
     }
     // 手机端切换设备只拉该设备的项目和对话，桌面端加载全量历史会话
     void loadConversations(isMobileViewport && isConcreteDevice(newDev) ? newDev : "all");
+  };
+
+  // The code device decides whose projects and folders are offered: the picked ones belong to the old one
+  const handleCodeDeviceChange = (next: string) => {
+    takeOverCascade();
+    setCodeDevice(next);
+    codeDeviceRef.current = next;
+    setProjects([]);
+    projectsRef.current = [];
+    ++sessionsReqRef.current;
+    setSelectedProjectId("");
+    selectedProjectIdRef.current = "";
+    setSelectedSessionId("");
+    setSessions([]);
+    setCwd("");
+    setShowCwd(false);
+    persistCurrentConfig({ source_device_id: next, project_id: "", session_id: "", cwd: "" });
+    loadProjectsForMode(executionModeRef.current, selectedDeviceRef.current);
   };
 
   const handleSelectMode = (mode: ExecutionMode) => {
@@ -4157,10 +4206,15 @@ function AskPageContent() {
       if (isConcreteDevice(ranOn) && ranOn !== selectedDeviceRef.current) {
         setSelectedDevice(ranOn);
         selectedDeviceRef.current = ranOn;
-        const folder = projectPathOn(projectsRef.current.find((p) => p.id === selectedProjectIdRef.current), ranOn);
+        const dropCodeDev = ranOn === codeDeviceRef.current;
+        if (dropCodeDev) {
+          setCodeDevice("");
+          codeDeviceRef.current = "";
+        }
+        const folder = projectPathOn(projectsRef.current.find((p) => p.id === selectedProjectIdRef.current), folderDev(ranOn));
         setCwd(folder);
         setShowCwd(Boolean(folder));
-        persistCurrentConfig({ device_id: ranOn, cwd: folder });
+        persistCurrentConfig({ device_id: ranOn, cwd: folder, ...(dropCodeDev ? { source_device_id: "" } : {}) });
       }
       if (!targetSession) {
         const matchedAskConv = conversations.find(
@@ -5547,6 +5601,64 @@ function AskPageContent() {
                 )}
               </div>
 
+              {/* Where the code is: another device's folder, synced to the one running the agent and back */}
+              {["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) && isConcreteDevice(selectedDevice) && devices.length > 1 && (
+                <div
+                  title={t.ask.codeDeviceHint}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: codeDevice ? "var(--aurora-accent-soft)" : "var(--aurora-chip)",
+                    border: `1px solid ${codeDevice ? "var(--aurora-accent)" : "var(--aurora-border)"}`,
+                    borderRadius: 10,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    maxWidth: "100%",
+                    minWidth: 0,
+                  }}
+                >
+                  <Icon name="code" size={13} style={{ color: codeDevice ? "var(--aurora-accent)" : "var(--aurora-fg3)", flexShrink: 0 }} />
+                  <span style={{ color: "var(--aurora-fg2)", whiteSpace: "nowrap" }}>{t.ask.codeOn}</span>
+                  <select
+                    value={codeDevice}
+                    onChange={(e) => handleCodeDeviceChange(e.target.value)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: codeDevice ? "var(--aurora-accent)" : "var(--aurora-fg1)",
+                      fontSize: 12,
+                      fontWeight: codeDevice ? 600 : 500,
+                      cursor: "pointer",
+                      maxWidth: "min(180px, 50vw)",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                  >
+                    <option value="" style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
+                      {t.ask.codeOnExecutor}
+                    </option>
+                    {codeDevice && !devices.some((d) => d.device_id === codeDevice) && (
+                      <option value={codeDevice} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg3)" }}>
+                        💻 {codeDevice}
+                      </option>
+                    )}
+                    {devices
+                      .filter((d) => d.device_id !== selectedDevice)
+                      .map((d) => {
+                        const isOnline = d.online ?? (d.last_heartbeat ? (Date.now() - new Date(d.last_heartbeat).getTime()) < 180_000 : false);
+                        return (
+                          <option key={d.device_id} value={d.device_id} style={{ background: "var(--aurora-surface-solid)", color: isOnline ? "var(--aurora-fg1)" : "var(--aurora-fg3)" }}>
+                            {isOnline ? "🟢" : "🔴"} {d.name}
+                          </option>
+                        );
+                      })}
+                  </select>
+                </div>
+              )}
+
               {/* Optional working directory selector */}
               {selectedDevice !== "ask_only" && (
                 showCwd ? (
@@ -5576,7 +5688,7 @@ function AskPageContent() {
                       onBlur={() => {
                         // A folder outside the project's no longer belongs to that project or its sessions
                         const proj = projects.find((p) => p.id === selectedProjectId);
-                        const root = projectPathOn(proj, selectedDevice);
+                        const root = projectPathOn(proj, folderDev(selectedDevice));
                         if (proj && root && cwd.trim() && !pathWithin(cwd, root)) {
                           ++sessionsReqRef.current;
                           setSelectedProjectId("");
@@ -5944,7 +6056,7 @@ function AskPageContent() {
                     {projects
                       .filter((p) => {
                         if (!isConcreteDevice(selectedDevice)) return true;
-                        const hasPathOnDev = projectPathOn(p, selectedDevice);
+                        const hasPathOnDev = projectPathOn(p, folderDev(selectedDevice));
                         if (hasPathOnDev !== undefined) return Boolean(hasPathOnDev);
                         return true;
                       })

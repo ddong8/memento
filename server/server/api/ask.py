@@ -76,6 +76,9 @@ class AskRequest(BaseModel):
     # Run the agent in its own git worktree and branch, so parallel tasks on one
     # repository don't step on each other.
     worktree: bool | None = None
+    # The device the code is on, when it isn't the one running the agent: the agent works in a
+    # clone of it there and its changes come back here. "" = the code is on the agent's device.
+    source_device_id: str | None = None
     # Smart sliding-window hierarchical context compaction
     compact_mode: bool | None = None
     # Optional execution timeout override in seconds (up to 3600)
@@ -182,6 +185,7 @@ async def ask(
         "project_id": body.project_id,
         "session_id": body.session_id,
         "worktree": bool(body.worktree),
+        "source_device_id": body.source_device_id,
         "compact_mode": bool(body.compact_mode),
     }
 
@@ -268,6 +272,7 @@ async def ask(
             images=body.images,
             attachments=body.attachments,
             worktree=bool(body.worktree),
+            source_device_id=_chosen(body.source_device_id, "source_device_id") if exec_mode != "shell" else None,
         )
         ckpt: dict = {}  # filled in by the run; lets another replica take it over on a deploy
         return await run_response(

@@ -34,12 +34,14 @@ const fail = (message, code = 1) => {
 };
 
 // Without the flag Codex refuses request_user_input outside Plan mode ("unavailable in Default mode").
-const server = spawn(args.codex, ["app-server", "--enable", "default_mode_request_user_input"], {
+// npm installs Codex on Windows as codex.cmd, which only a shell can start. The shell gets the command
+// line joined as is, so a path with spaces (C:\Program Files\...) has to be quoted or cmd stops at the space.
+const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(args.codex);
+const server = spawn(viaShell ? `"${args.codex}"` : args.codex, ["app-server", "--enable", "default_mode_request_user_input"], {
   cwd: args.cwd || undefined,
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
-  // npm installs Codex on Windows as codex.cmd, which only a shell can start
-  shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(args.codex),
+  shell: viaShell,
 });
 server.on("error", (e) => fail(`Codex app-server failed to start: ${e.message}`));
 server.on("exit", (code) => {

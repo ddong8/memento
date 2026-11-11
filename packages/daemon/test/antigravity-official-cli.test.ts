@@ -1,6 +1,7 @@
 // A machine without the Antigravity app (a server with no desktop): the daemon runs Google's own agy CLI
 // in print mode instead and reads its stream-json. A fake agy stands in for the CLI, printing the events
-// https://antigravity.google/docs/cli/headless documents; finding the app and the CLI is stubbed out.
+// https://antigravity.google/docs/cli/headless documents; finding the app and the CLI is stubbed out, and so is
+// memento's runner (a build output, missing on a fresh checkout), which the CLI takes over from anyway.
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +14,12 @@ const CID = "c3b66b04-872b-4fbe-a3a4-058a026ef20a";
 
 vi.mock("../src/antigravity.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("../src/antigravity.js")>();
-  return { ...real, discoverAntigravityEnv: async () => null, officialAgyCli: async () => fakeAgy };
+  return {
+    ...real,
+    antigravityExecutable: async () => join(dir, "agy_cli.mjs"),
+    discoverAntigravityEnv: async () => null,
+    officialAgyCli: async () => fakeAgy,
+  };
 });
 
 const { WsTaskClient } = await import("../src/ws-client.js");
@@ -83,7 +89,7 @@ it.skipIf(process.platform === "win32")(
   "no Antigravity app: the task runs Google's agy CLI in print mode, with its steps, reply and conversation",
   async () => {
     const { done, events } = await runTask("feedbeef-0000-4000-8000-0000000000b1", { prompt: "修好测试", effort: "high" });
-    expect(done).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
     expect(String(done.stdout)).toContain("改好了，测试已过。");
     const { args, electron } = calls()[0]!;
     expect(args).toEqual(["--effort", "high", "--print-timeout", "105s", "--dangerously-skip-permissions", "--output-format", "stream-json", "-p", "修好测试"]);
@@ -102,7 +108,7 @@ it.skipIf(process.platform === "win32")(
   async () => {
     const before = calls().length;
     const { done } = await runTask("feedbeef-0000-4000-8000-0000000000b2", { prompt: "继续", model: "pro", session_id: CID });
-    expect(done).toMatchObject({ status: "succeeded", session_id: CID });
+    expect(done, `${done.error}\n${done.stderr}`).toMatchObject({ status: "succeeded", session_id: CID });
     const [first, retry] = calls().slice(before);
     expect(first!.args).toEqual(expect.arrayContaining(["--conversation", CID, "--model", "pro"]));
     expect(retry!.args).toEqual(expect.arrayContaining(["--conversation", CID]));

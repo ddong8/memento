@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1c80e13d` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5b774ddf` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 221 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 164 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
+- 最近改动 (Latest): `5b774ddf` (2026-11-11): chore(release): 升级客户端版本至 v1.0.104，无界面 Linux 上可跑 Antigravity 任务、开机自启不随退出登录停止
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -595,8 +595,8 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (9 commits)
 - [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (9 commits)
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (8 commits)
 - [`server/server/api/profile.py`](server/server/api/profile.py) (8 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (8 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
@@ -627,12 +627,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `5b774ddf` (2026-11-11): chore(release): 升级客户端版本至 v1.0.104，无界面 Linux 上可跑 Antigravity 任务、开机自启不随退出登录停止
 - `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
 - `a23924d8` (2026-11-09): test(web): 时间线打开文件的测试不在组件里改外部变量，过 lint
 - `a684bc87` (2026-11-09): chore(release): 升级客户端版本至 v1.0.103，工作台文件各客户端都能打开、工具步骤显示文件名和更多输出
 - `d69772a8` (2026-11-09): feat(agent): 工具步骤带上更多过程输出，读文件/改文件的步骤显示文件名
 - `cade9fb9` (2026-11-09): fix(workbench): 工作台里的文件在每个客户端都能打开，不管在哪台设备上
-- `85def648` (2026-11-09): chore(release): 升级客户端版本至 v1.0.102，各 AI 工具的记忆服务自动配置、不用再填 token
 
 ## 10. Key Environment Variables & Configuration
 

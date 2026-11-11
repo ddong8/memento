@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, readdir, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -453,6 +453,30 @@ export async function ensureAgyCliInstalled(home = homeDir(), pathDirs?: string[
  */
 export async function antigravityExecutable(home = homeDir()): Promise<string | undefined> {
   return (await ensureAgyCliInstalled(home)) ?? findExecutable(["agy", "agentapi"]);
+}
+
+/** Whether `file` is (or links to) an `agy` wrapper memento wrote, not Google's CLI. */
+function isOurWrapper(file: string): boolean {
+  try {
+    const real = realpathSync(file);
+    return statSync(real).size < 64 * 1024 && OUR_WRAPPER.test(readFileSync(real, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Google's own Antigravity CLI (`agy`, installed to ~/.local/bin by its install script), for tasks on a
+ * machine where the Antigravity app isn't running, such as a server without a desktop; passes over the
+ * `agy` wrappers memento writes. Undefined when it isn't installed.
+ */
+export async function officialAgyCli(home = homeDir(), env?: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const e = { ...(env ?? (await executionEnvironment())) };
+  const key = Object.keys(e).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  const sep = process.platform === "win32" ? ";" : ":";
+  // A service's PATH often lacks the installer's folder
+  e[key] = [e[key] ?? "", join(home, ".local", "bin")].filter(Boolean).join(sep);
+  return findExecutable(process.platform === "win32" ? ["agy.exe"] : ["agy"], e, isOurWrapper);
 }
 
 let cached: { env: Record<string, string>; at: number } | undefined;

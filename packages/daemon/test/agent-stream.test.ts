@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AgentEventLog,
+  AgyCliStreamParser,
   ClaudeStreamParser,
   claudeToolDetail,
   clipOutput,
@@ -364,3 +365,38 @@ describe("Interactive questions", () => {
 });
 
 
+
+describe("Google's agy CLI stream-json", () => {
+  const feed = (p: AgyCliStreamParser, ...lines: unknown[]) => lines.flatMap((l) => p.feed(JSON.stringify(l)) ?? []);
+  const cid = "9ec58bfd-4d67-4f5e-83a5-9d907e9c6b1f";
+
+  it("joins a reply's text deltas, reports the conversation once and keeps the turn's response", () => {
+    const p = new AgyCliStreamParser();
+    const events = feed(
+      p,
+      { event: "init", conversation_id: cid, init: { cwd: "/w" } },
+      { event: "step_update", step_update: { conversation_id: cid, step_index: 2, state: "ACTIVE", step_type: "agent_response", text_delta: "app" } },
+      { event: "step_update", step_update: { conversation_id: cid, step_index: 2, state: "DONE", step_type: "agent_response", text_delta: "le\n" } },
+      { event: "result", result: { conversation_id: cid, status: "SUCCESS", response: "apple\n", num_turns: 1, usage: { input_tokens: 5 } } },
+    );
+    expect(events.filter((e) => e.kind === "session")).toEqual([{ kind: "session", session_id: cid }]);
+    expect(events).toContainEqual({ kind: "text", text: "apple" });
+    expect(events).toContainEqual({ kind: "usage", input_tokens: 5, turns: 1 });
+    expect(p.finalText).toBe("apple");
+    expect(p.sessionId).toBe(cid);
+  });
+
+  it("a failed run's error goes to the errors retries read; subagents get a row; other lines pass through", () => {
+    const p = new AgyCliStreamParser();
+    const events = feed(
+      p,
+      { event: "step_update", step_update: { step_index: 4, state: "ACTIVE", step_type: "subagent", subagent_info: { subagents: [{ role: "审查" }, { type_name: "researcher" }] } } },
+      { event: "result", result: { conversation_id: "", status: "ERROR", response: "", error: "authentication required" } },
+    );
+    expect(events).toContainEqual({ kind: "tool", id: "agy_step_4", name: "invoke_subagent", detail: "审查、researcher", status: "running" });
+    expect(events).toContainEqual({ kind: "error", message: "authentication required" });
+    expect(p.errors).toContain("authentication required");
+    expect(p.finalText).toBeUndefined();
+    expect(p.feed("Warning: something on stdout")).toBeNull();
+  });
+});

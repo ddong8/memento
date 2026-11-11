@@ -2,7 +2,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { acquirePidFile, installService, isServiceInstalled, runningCollectorPid, uninstallService } from "./autostart.js";
+import { acquirePidFile, ensureLinger, installService, isServiceInstalled, runningCollectorPid, uninstallService } from "./autostart.js";
 import { loadConfig, saveConfig } from "./config.js";
 import { Daemon } from "./daemon.js";
 import { LocalApi, readLocalApiInfo } from "./local-api.js";
@@ -83,6 +83,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     case "install-service": {
       const self = fileURLToPath(import.meta.url);
       console.log(`已设置自动启动：${await installService([process.execPath, self, "run"])}`);
+      const linger = await ensureLinger();
+      if (linger) console.warn(linger);
       return;
     }
     case "uninstall-service":

@@ -11,7 +11,11 @@ const SHELL_KEYS = new Set([
   "DASHSCOPE_API_KEY",
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
   "GEMINI_API_KEY",
+  // Google's agy CLI: its Gemini endpoint and gcloud credentials
+  "GOOGLE_GEMINI_BASE_URL",
+  "AGY_ADC_AUTH",
   "DEEPSEEK_API_KEY",
   "OPENAI_BASE_URL",
   "CODEX_HOME",

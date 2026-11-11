@@ -13,6 +13,7 @@
  *
  * Claude Code: `claude -p --output-format stream-json --verbose --permission-prompt-tool stdio`.
  * Codex: `codex exec --json`, or assets/codex_app.mjs, which prints the same lines.
+ * Google's Antigravity CLI: `agy -p --output-format stream-json` (AgyCliStreamParser).
  */
 export type AgentEvent = Record<string, unknown> & { kind: string };
 
@@ -734,6 +735,186 @@ export class UniversalStreamParser extends AgentStreamParser {
       this.plainTexts.push(line);
     }
     return null;
+  }
+}
+
+/** What an Antigravity tool call works on (the file, the command, the query), for its row in the timeline. */
+export function agyToolDetail(name: string, a: Json): string {
+  const first = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = a[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (typeof v === "number") return String(v);
+    }
+    return "";
+  };
+  const join2 = (x: string, y: string, sep = "  ") => [x, y].filter(Boolean).join(sep);
+  let d = "";
+  switch (name) {
+    case "run_command":
+      d = first("CommandLine", "Command");
+      break;
+    case "command_status":
+      d = first("CommandId");
+      break;
+    case "read_file":
+    case "view_file":
+    case "view_file_outline":
+    case "view_code_item": {
+      d = first("Path", "AbsolutePath", "File", "TargetFile");
+      const from = first("StartLine");
+      const to = first("EndLine");
+      if (d && from) d += to ? `:${from}-${to}` : `:${from}`;
+      break;
+    }
+    case "edit_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+    case "write_file":
+    case "write_to_file":
+      d = first("Path", "TargetFile", "AbsolutePath", "File");
+      break;
+    case "list_dir":
+      d = first("DirectoryPath", "Path");
+      break;
+    case "grep_search":
+    case "codebase_search":
+      d = join2(first("Query", "Pattern"), first("SearchPath", "SearchDirectory", "Path"));
+      break;
+    case "find_by_name":
+      d = join2(first("Pattern"), first("SearchDirectory", "SearchPath"));
+      break;
+    case "search_web":
+      d = first("query", "Query");
+      break;
+    case "read_url_content":
+    case "view_content_chunk":
+      d = first("Url", "url", "DocumentId");
+      break;
+    case "manage_task":
+      d = join2(first("Action"), first("TaskId"), " ");
+      break;
+    case "schedule": {
+      const secs = first("DurationSeconds");
+      d = join2(secs ? `${secs}s 后` : "", first("Prompt"), "：");
+      break;
+    }
+    case "invoke_subagent":
+      d = join2(first("Role", "TypeName"), first("Prompt"), "：");
+      break;
+    case "send_message":
+      d = join2(first("Recipient"), first("Message"), "：");
+      break;
+    case "manage_subagents":
+      d = first("toolSummary", "Action");
+      break;
+  }
+  if (!d) d = first("toolSummary", "toolAction");
+  if (!d) d = toolArgsDetail(a);
+  return Array.from(d.split("\n")[0]!.replace(/^["']+|["']+$/g, "")).slice(0, 200).join("");
+}
+
+/** A tool step's result as the timeline shows it: without the timestamps and the reminder Antigravity adds for the model. */
+export function agyToolOutput(content: string): string {
+  return clipOutput(
+    content
+      .replace(/^(?:Created At|Completed At):[^\n]*\n/gm, "")
+      .replace(/\s*If relevant, proactively run terminal commands to execute this code for the USER\. Don't ask for permission\./g, ""),
+  );
+}
+
+/**
+ * Google's own Antigravity CLI in print mode: `agy -p … --output-format stream-json`, used where the
+ * Antigravity app isn't running (a server without a desktop). Events, per
+ * https://antigravity.google/docs/cli/headless:
+ *   {"event":"init","conversation_id":…}
+ *   {"event":"step_update","step_update":{step_index, state: ACTIVE|DONE, step_type: agent_response|tool|…,
+ *     text_delta?, tool_name?, tool_info?: {name, parameters, output, error?: {type, message}}, subagent_info?}}
+ *   {"event":"result","result":{conversation_id, status: SUCCESS|ERROR|…, response, error?, duration_seconds, num_turns, usage}}
+ */
+export class AgyCliStreamParser extends AgentStreamParser {
+  private messages: string[] = [];
+  /** agent_response text so far, by step. */
+  private deltas = new Map<number, string>();
+  private response = "";
+
+  get finalText(): string | undefined {
+    return this.response.trim() || this.messages.join("\n\n").trim() || undefined;
+  }
+
+  private session(id: unknown): AgentEvent[] {
+    const sid = str(id)?.trim();
+    if (!sid || sid === this.sessionId) return [];
+    this.sessionId = sid;
+    return [{ kind: "session", session_id: sid }];
+  }
+
+  feed(line: string): AgentEvent[] | null {
+    const d = decode(line);
+    if (!d || typeof d.event !== "string") return null;
+    const events: AgentEvent[] = [];
+    if (d.event === "init") return this.session(d.conversation_id);
+    if (d.event === "step_update" && isObject(d.step_update)) {
+      const u = d.step_update;
+      events.push(...this.session(u.conversation_id));
+      const index = num(u.step_index) ?? -1;
+      const done = u.state === "DONE";
+      if (u.step_type === "agent_response") {
+        const text = (this.deltas.get(index) ?? "") + (str(u.text_delta) ?? "");
+        this.deltas.set(index, text);
+        if (done) {
+          this.deltas.delete(index);
+          if (text.trim()) {
+            this.messages.push(text.trim());
+            events.push({ kind: "text", text: text.trim() });
+          }
+        }
+      } else if (u.step_type === "tool" || isObject(u.tool_info)) {
+        const info = isObject(u.tool_info) ? u.tool_info : {};
+        const name = str(info.name) || str(u.tool_name) || "tool";
+        const failure = isObject(info.error) ? str(info.error.message) || str(info.error.type) || "failed" : undefined;
+        const output = [str(info.output) ?? "", failure ?? ""].filter((t) => t.trim()).join("\n");
+        events.push({
+          kind: "tool",
+          id: `agy_step_${index}`,
+          name,
+          detail: agyToolDetail(name, isObject(info.parameters) ? info.parameters : {}),
+          status: !done ? "running" : failure ? "failed" : "done",
+          ...(done && output ? { output: agyToolOutput(output) } : {}),
+        });
+      } else if (isObject(u.subagent_info)) {
+        const roles = (Array.isArray(u.subagent_info.subagents) ? u.subagent_info.subagents : [])
+          .filter(isObject)
+          .map((a) => str(a.role) || str(a.type_name) || "")
+          .filter(Boolean);
+        events.push({ kind: "tool", id: `agy_step_${index}`, name: "invoke_subagent", detail: clip(roles.join("、"), 200), status: done ? "done" : "running" });
+      }
+      return events;
+    }
+    if (d.event === "result" && isObject(d.result)) {
+      const r = d.result;
+      events.push(...this.session(r.conversation_id));
+      const response = str(r.response)?.trim();
+      if (response) this.response = response;
+      const error = str(r.error)?.trim();
+      if (r.status !== "SUCCESS" && error) {
+        this.addError(error);
+        events.push({ kind: "error", message: clip(error, 2000) });
+      }
+      const usage = isObject(r.usage) ? r.usage : {};
+      const seconds = num(r.duration_seconds);
+      // input_tokens already counts the cache reads (input + output = total in the docs' examples), as for Claude
+      const counts: Record<string, number | undefined> = {
+        input_tokens: num(usage.input_tokens),
+        cache_read_tokens: num(usage.cache_read_tokens),
+        output_tokens: num(usage.output_tokens),
+        duration_ms: seconds !== undefined ? Math.round(seconds * 1000) : undefined,
+        turns: num(r.num_turns),
+      };
+      events.push({ kind: "usage", ...Object.fromEntries(Object.entries(counts).filter(([, v]) => v !== undefined)) });
+      return events;
+    }
+    return events;
   }
 }
 

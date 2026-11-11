@@ -4,7 +4,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-import { clipOutput, toolArgsDetail } from "../agent-stream.js";
+import { agyToolDetail, agyToolOutput } from "../agent-stream.js";
+
+export { agyToolDetail, agyToolOutput };
 import { sqliteRows } from "../sqlite.js";
 
 /**
@@ -45,91 +47,6 @@ const err = (text: string) => void process.stderr.write(text);
 const out = (text: string) => void process.stdout.write(text);
 
 const agyHome = () => join(homedir(), ".gemini", "antigravity");
-
-/** What an Antigravity tool call works on (the file, the command, the query), for its row in the timeline. */
-export function agyToolDetail(name: string, a: Obj): string {
-  const first = (...keys: string[]): string => {
-    for (const k of keys) {
-      const v = a[k];
-      if (typeof v === "string" && v.trim()) return v.trim();
-      if (typeof v === "number") return String(v);
-    }
-    return "";
-  };
-  const join2 = (x: string, y: string, sep = "  ") => [x, y].filter(Boolean).join(sep);
-  let d = "";
-  switch (name) {
-    case "run_command":
-      d = first("CommandLine", "Command");
-      break;
-    case "command_status":
-      d = first("CommandId");
-      break;
-    case "read_file":
-    case "view_file":
-    case "view_file_outline":
-    case "view_code_item": {
-      d = first("Path", "AbsolutePath", "File", "TargetFile");
-      const from = first("StartLine");
-      const to = first("EndLine");
-      if (d && from) d += to ? `:${from}-${to}` : `:${from}`;
-      break;
-    }
-    case "edit_file":
-    case "replace_file_content":
-    case "multi_replace_file_content":
-    case "write_file":
-    case "write_to_file":
-      d = first("Path", "TargetFile", "AbsolutePath", "File");
-      break;
-    case "list_dir":
-      d = first("DirectoryPath", "Path");
-      break;
-    case "grep_search":
-    case "codebase_search":
-      d = join2(first("Query", "Pattern"), first("SearchPath", "SearchDirectory", "Path"));
-      break;
-    case "find_by_name":
-      d = join2(first("Pattern"), first("SearchDirectory", "SearchPath"));
-      break;
-    case "search_web":
-      d = first("query", "Query");
-      break;
-    case "read_url_content":
-    case "view_content_chunk":
-      d = first("Url", "url", "DocumentId");
-      break;
-    case "manage_task":
-      d = join2(first("Action"), first("TaskId"), " ");
-      break;
-    case "schedule": {
-      const secs = first("DurationSeconds");
-      d = join2(secs ? `${secs}s 后` : "", first("Prompt"), "：");
-      break;
-    }
-    case "invoke_subagent":
-      d = join2(first("Role", "TypeName"), first("Prompt"), "：");
-      break;
-    case "send_message":
-      d = join2(first("Recipient"), first("Message"), "：");
-      break;
-    case "manage_subagents":
-      d = first("toolSummary", "Action");
-      break;
-  }
-  if (!d) d = first("toolSummary", "toolAction");
-  if (!d) d = toolArgsDetail(a);
-  return head(d.split("\n")[0]!.replace(/^["']+|["']+$/g, ""), 200);
-}
-
-/** A tool step's result as the timeline shows it: without the timestamps and the reminder Antigravity adds for the model. */
-export function agyToolOutput(content: string): string {
-  return clipOutput(
-    content
-      .replace(/^(?:Created At|Completed At):[^\n]*\n/gm, "")
-      .replace(/\s*If relevant, proactively run terminal commands to execute this code for the USER\. Don't ask for permission\./g, ""),
-  );
-}
 
 /** stdout of a command, rejecting when it fails (as Python's check_output). */
 function capture(cmd: string, args: string[], timeout?: number): Promise<string> {

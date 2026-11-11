@@ -266,20 +266,45 @@ Memento 桌面客户端已将采集守护进程（`DaemonHost`）原生打包集
 
 ### 2. 方式二：纯终端 / 无图形界面服务器接入（Headless 独立模式）
 
-在无桌面界面的远程 Linux 主机或远程开发容器（DevContainer）中：
+官方参考：[Claude Code 认证](https://code.claude.com/docs/en/authentication)、[Codex 认证](https://developers.openai.com/codex/auth)、[Antigravity CLI 安装](https://antigravity.google/docs/getting-started?tab=cli) / [无界面模式](https://antigravity.google/docs/cli/headless) / [排障](https://antigravity.google/docs/cli/troubleshooting/)。
+
+在没有桌面的 Linux 主机（云服务器、NAS、开发容器）上，守护进程用 Node.js 从仓库源码运行，不需要桌面端。它负责采集这台机器上的 AI 会话，并执行从网页或手机派到这台机器的任务：智能体在这台机器的项目目录里读写代码。
 
 ```bash
-# 1. 全局安装轻量守护进程
-npm install -g @memento/daemon
+# 0. 需要 Node.js 22.18+ 和 git
+git clone https://github.com/ddong8/memento.git ~/memento && cd ~/memento
 
-# 2. 配置并绑定服务端
-memento-daemon configure \
-  --server https://mem.yourdomain.com \
-  --token your_collector_token
+# 1. 只构建守护进程（不装服务端）
+npm ci -w @memento/daemon -w @memento/core --include-workspace-root
+npm run build -w @memento/daemon
 
-# 3. 启动后台常驻监听（自动注册为系统 systemd / launchd 服务）
-memento-daemon start
+# 2. 绑定服务端：collector token 在网页「个人设置」或「本机采集」页复制
+node packages/daemon/dist/cli.js login <collector_token> https://mem.yourdomain.com
+
+# 3. 注册为 systemd 用户服务并立即启动；会顺带打开 linger，退出 ssh 后也不停、开机自启
+node packages/daemon/dist/cli.js install-service
+#    若提示没打开 linger，执行：sudo loginctl enable-linger $USER
+
+# 4. 查看状态 / 日志
+node packages/daemon/dist/cli.js status
+journalctl --user -u memento-daemon -f
 ```
+
+升级：`git pull` 后重跑第 1 步和 `install-service`。取消自启：`node packages/daemon/dist/cli.js uninstall-service`；彻底清理（服务、`~/.memento`、日志、写进各 AI 工具的配置）：`node scripts/install.mts uninstall-collector`。
+
+`install-service` 要在这个用户自己的登录会话里运行（直接 ssh 登录），`su` / `sudo -u` 切过来的会话没有用户级 systemd，会报错提示。
+
+智能体要先在这台机器上装好并登录一次，守护进程才能调用：
+
+| 智能体 | 安装 | 无界面登录 |
+|---|---|---|
+| Claude Code | `npm install -g @anthropic-ai/claude-code` | 运行 `claude` 后 `/login`，按 `c` 复制登录链接到本地浏览器打开，把页面给的验证码贴回终端；或在有浏览器的机器上 `claude setup-token`，把令牌设为 `CLAUDE_CODE_OAUTH_TOKEN`；或设置 `ANTHROPIC_API_KEY`（按 API 计费，优先级最高） |
+| Codex | `npm install -g @openai/codex` | 先在 ChatGPT 安全设置里打开设备码登录，再 `codex login --device-auth`；或 `printenv OPENAI_API_KEY \| codex login --with-api-key` |
+| Antigravity | `curl -fsSL https://antigravity.google/cli/install.sh \| bash`（装到 `~/.local/bin/agy`） | 在终端运行一次 `agy`，按提示在本地浏览器打开链接、把验证码贴回；或在 `~/.gemini/antigravity-cli/settings.json` 写 `{"modelProvider": "gemini"}` 并设置 `GEMINI_API_KEY` |
+
+Antigravity 说明：有桌面的机器上，守护进程驱动 Antigravity 应用本身（会话在应用里能看到）；这台机器上没有运行中的 Antigravity 应用时，自动改用 Google 官方 `agy` 命令行的打印模式（`agy -p … --output-format stream-json`），工具步骤、回复和会话续接照常回传。账号登录方式下 agy 把令牌存在系统密钥环里，无界面机器要有 D-Bus 会话和密钥环服务，报 `secret keyring is locked` 时见官方排障文档；用 `GEMINI_API_KEY` 方式不涉及密钥环。`ANTHROPIC_API_KEY`、`CLAUDE_CODE_OAUTH_TOKEN`、`GEMINI_API_KEY` 这类变量写在 `~/.bashrc` / `~/.zshrc` 的 `export` 里即可，守护进程会读给智能体。
+
+派任务：在网页或手机上选这台设备，工作目录填这台机器上的项目路径（如 `~/dev/myapp`），选 Claude Code / Codex / Antigravity 发送。智能体在这台机器上、在这个目录里执行，过程和结果实时回传，可随时停止。项目要在哪台机器上改，守护进程就装在哪台机器上；文件不在同一台机器时，用 git 或共享目录把代码放过去。
 
 ---
 

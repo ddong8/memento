@@ -149,7 +149,12 @@ export async function installService(command: string[], home = homeDir()): Promi
     await mkdir(dirname(p.unit), { recursive: true });
     await writeFile(p.unit, systemdUnit(command));
     await run("systemctl", ["--user", "daemon-reload"]);
-    await run("systemctl", ["--user", "enable", "--now", "memento-daemon.service"]);
+    if (!(await run("systemctl", ["--user", "enable", "--now", "memento-daemon.service"]))) {
+      throw new Error(
+        `已写入 ${p.unit}，但 systemctl --user 启用失败：当前会话没有用户级 systemd。` +
+          "请用这个用户直接 ssh 登录后再运行（su / sudo -u 切换过来的会话没有），或运行 sudo loginctl enable-linger $USER 后重新登录再试。",
+      );
+    }
     return p.unit;
   }
   if (process.platform === "win32") {
@@ -158,6 +163,24 @@ export async function installService(command: string[], home = homeDir()): Promi
     return `${WIN_RUN_KEY}\\${WIN_VALUE}`;
   }
   throw new Error(`不支持的平台: ${process.platform}`);
+}
+
+/**
+ * A systemd user service stops when its user's last session ends, so on a server reached over ssh the
+ * daemon would go with the ssh session. Lingering keeps it running and starts it at boot: turned on
+ * here when it's off (allowed for oneself on most distributions); a hint when that didn't work, else
+ * undefined. Linux only.
+ */
+export async function ensureLinger(
+  user = process.env.USER || process.env.LOGNAME || "",
+  deps: { lingering?: (user: string) => boolean; enable?: () => Promise<boolean> } = {},
+): Promise<string | undefined> {
+  if (process.platform !== "linux" || !user) return undefined;
+  const lingering = deps.lingering ?? ((u: string) => existsSync(join("/var/lib/systemd/linger", u)));
+  if (lingering(user)) return undefined;
+  await (deps.enable ?? (() => run("loginctl", ["enable-linger"])))();
+  if (lingering(user)) return undefined;
+  return `退出登录后守护进程会停止、开机也不会自动启动：请运行 sudo loginctl enable-linger ${user}`;
 }
 
 export async function uninstallService(home = homeDir()): Promise<void> {

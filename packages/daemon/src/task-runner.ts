@@ -4,8 +4,8 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
-import { AgentEventLog, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
-import { antigravityExecutable, discoverAntigravityEnv } from "./antigravity.js";
+import { AgentEventLog, AgyCliStreamParser, ClaudeStreamParser, CodexStreamParser, UniversalStreamParser, type AgentEvent, type AgentStreamParser } from "./agent-stream.js";
+import { antigravityExecutable, discoverAntigravityEnv, officialAgyCli } from "./antigravity.js";
 import { ensureProjectBlueprint, findGitRoot } from "./blueprint-auto.js";
 import { homeDir } from "./config.js";
 import { LineDecoder, windowsConsoleEncoding } from "./console-text.js";
@@ -245,6 +245,8 @@ export function antigravityArgs(o: {
   effort?: string;
   timeoutSeconds?: number;
   prompt: string;
+  /** Google's own CLI rather than memento's runner: it reports its steps as stream-json. */
+  official?: boolean;
 }): string[] {
   const args: string[] = [];
   const sid = o.sessionId ? (UUID_RE.exec(o.sessionId)?.[0] ?? o.sessionId.trim()) : "";
@@ -262,6 +264,7 @@ export function antigravityArgs(o: {
     args.push("--print-timeout", `${s}s`);
   }
   args.push("--dangerously-skip-permissions");
+  if (o.official) args.push("--output-format", "stream-json");
   args.push("-p", o.prompt);
   return args;
 }
@@ -910,6 +913,8 @@ export class TaskRunner {
     let isAntigravity = false;
     // memento's Antigravity runner (agy_cli.mjs), run on this process's own runtime like the Codex runner
     let agyRunner: string | undefined;
+    /** Google's own agy CLI runs the task: the Antigravity app isn't running here (a server without a desktop). */
+    let officialAgy = false;
     // Structured agents (Claude, Codex) report every step through the parser.
     let parser: AgentStreamParser | undefined;
     let stdinPrompt: string | undefined;
@@ -1124,20 +1129,42 @@ export class TaskRunner {
       if (codex || agyRunner) env.ELECTRON_RUN_AS_NODE = "1";
       if (isAntigravity) {
         const ag = await discoverAntigravityEnv();
-        if (!ag) {
+        const cli = ag ? undefined : await officialAgyCli();
+        if (ag) {
+          Object.assign(env, ag);
+        } else if (cli) {
+          // No Antigravity app here: Google's own CLI in print mode, in its own conversations
+          this.log(`Task ${taskId}: Antigravity app not running, using Google's agy CLI at ${cli}`);
+          exe = cli;
+          agyRunner = undefined;
+          officialAgy = true;
+          delete env.ELECTRON_RUN_AS_NODE;
+          this.runnerTasks.delete(taskId);
+          args = antigravityArgs({ sessionId, model, effort, timeoutSeconds: task.timeoutSeconds, prompt, official: true });
+          parser = new AgyCliStreamParser();
+        } else {
           this.send(
             taskFinishedMessage({
               taskId,
               status: "failed",
               exitCode: 1,
               error:
-                "💡 未检测到正在运行的 Antigravity 应用服务。\n\nAntigravity 需在本地保持运行以便通过 language_server 进行通信。\n请先启动 Antigravity 客户端应用后再试。",
+                "💡 未检测到正在运行的 Antigravity 应用服务，也没有安装 Google 官方 agy 命令行。\n\n" +
+                "有桌面的机器：启动 Antigravity 应用后再试。\n" +
+                "没有桌面的服务器：运行 curl -fsSL https://antigravity.google/cli/install.sh | bash 安装 agy，" +
+                "在终端里运行一次 agy 完成登录（或按官方文档配置 GEMINI_API_KEY），之后任务会自动改用它。",
             }),
           );
           return;
         }
-        Object.assign(env, ag);
       }
+      /** The model Antigravity retries take: none once Google's CLI turned it down. */
+      let agyModel = model;
+      /** Antigravity's arguments and parser for a run: memento's runner or Google's CLI. */
+      const agyRun = (o: Omit<Parameters<typeof antigravityArgs>[0], "official">) => {
+        parser = officialAgy ? new AgyCliStreamParser() : new UniversalStreamParser();
+        return { args: antigravityArgs({ ...o, official: officialAgy }), parser };
+      };
       const run = (spec: Omit<RunSpec, "exe" | "cwd" | "env">) =>
         this.runOnce(
           taskId,
@@ -1170,19 +1197,20 @@ export class TaskRunner {
         /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(errScan())
       ) {
         const currentModel = (model || "").toLowerCase();
-        const fallbackModel = currentModel.includes("pro") ? "flash_lite" : "pro";
+        // The runner's tiers; Google's CLI names its models differently, so it falls back to its default
+        const fallbackModel = officialAgy ? "" : currentModel.includes("pro") ? "flash_lite" : "pro";
         this.notice(
           taskId,
-          `\n⚡ [模型容灾降级] 检测到当前模型容量不足 (503 No capacity)，已自动切换至 ${fallbackModel.toUpperCase()} 档位全新会话无缝重试...\n\n`,
+          `\n⚡ [模型容灾降级] 检测到当前模型容量不足 (503 No capacity)，已自动切换至 ${fallbackModel ? `${fallbackModel.toUpperCase()} 档位` : "默认模型"}全新会话无缝重试...\n\n`,
         );
-        parser = new UniversalStreamParser();
-        const fallbackArgs = antigravityArgs({
-          model: fallbackModel,
-          effort,
-          timeoutSeconds: task.timeoutSeconds,
-          prompt,
-        });
-        exitCode = await run({ args: fallbackArgs, parser });
+        exitCode = await run(agyRun({ model: fallbackModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
+      }
+
+      // Retry 0.6: Google's CLI doesn't know the model (memento's tier names, or one it dropped): its default
+      if (exitCode !== 0 && officialAgy && model && /invalid model selection|not recognized as a known model/i.test(errScan())) {
+        this.notice(taskId, `\n⚡ [模型自适应] agy 不认识模型 ${model}，已改用它的默认模型重试...\n\n`);
+        agyModel = "";
+        exitCode = await run(agyRun({ sessionId, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
       }
 
       // Retry 1: the ChatGPT app holds the Codex session's writer lock, so fork it instead.
@@ -1234,16 +1262,7 @@ export class TaskRunner {
             });
           }
         } else if (isAntigravity) {
-          parser = new UniversalStreamParser();
-          exitCode = await run({
-            args: antigravityArgs({
-              model,
-              effort,
-              timeoutSeconds: task.timeoutSeconds,
-              prompt,
-            }),
-            parser,
-          });
+          exitCode = await run(agyRun({ model: agyModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
         } else {
           parser = new UniversalStreamParser();
           exitCode = await run({ args: [...(model ? ["--model", model] : []), "-p", prompt], parser });

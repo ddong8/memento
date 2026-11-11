@@ -125,6 +125,19 @@ def test_choose_assignment_spreads_load():
     assert first[0] != second[0]
 
 
+def test_retry_moves_off_an_agent_that_timed_out_in_the_plan():
+    # 11-11 overnight: Antigravity hung two hours on every device; the retry kept picking it elsewhere
+    snap = _snapshot()
+    steps = [
+        {"id": "s1", "history": [{"agent": "antigravity", "status": "timeout", "error_type": None}]},
+        {"id": "s2", "history": [{"agent": "codex", "status": "failed", "error_type": "usage_limit"}]},
+    ]
+    penalty = ps.agent_penalty(steps)
+    assert penalty == {"antigravity": 2}
+    pick = ps.choose_assignment(snap, exclude=[["vps3", "antigravity"]], penalty=penalty)
+    assert pick and pick[1] != "antigravity"
+
+
 def test_plan_progress_ready_blocked_over():
     steps = [
         {"id": "a", "status": "succeeded", "depends_on": []},

@@ -429,6 +429,7 @@ export interface PlanStepAttempt {
   task_id?: string | null;
   error?: string | null;
   error_type?: string | null;
+  status?: string | null;
   at?: string | null;
 }
 

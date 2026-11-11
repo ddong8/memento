@@ -109,7 +109,7 @@ function StepCard({
           {step.history.map((h) => (
             <div key={`${h.attempt}-${h.at}`} className="truncate">
               第 {h.attempt} 次 {agentName(h.agent)}
-              {h.device_name ? `@${h.device_name}` : ""} 没成功：{h.error_type === "usage_limit" ? "额度用完" : h.error}
+              {h.device_name ? `@${h.device_name}` : ""} 没成功：{h.error_type === "usage_limit" ? "额度用完" : h.status === "timeout" ? "超时没做完" : h.error}
             </div>
           ))}
         </div>

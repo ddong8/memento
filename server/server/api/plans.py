@@ -28,6 +28,8 @@ class CreatePlanBody(BaseModel):
     auto_start: bool = True
     review: bool = True
     max_parallel: int | None = None
+    # Seconds one attempt at a step may take before it goes to another agent (default 30 minutes)
+    step_timeout: int | None = None
 
 
 class EditStepsBody(BaseModel):
@@ -53,6 +55,8 @@ async def create_plan(body: CreatePlanBody, db: AsyncSession = Depends(get_db), 
     options: dict[str, Any] = {"review": body.review}
     if body.max_parallel:
         options["max_parallel"] = max(1, min(int(body.max_parallel), 8))
+    if body.step_timeout:
+        options["step_timeout"] = max(300, min(int(body.step_timeout), 14400))
     plan = await plan_service.create_plan(
         db, user, goal, cwd=body.cwd, source_device_id=body.source_device_id, project_id=body.project_id,
         auto_start=body.auto_start, title=body.title, options=options,

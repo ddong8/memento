@@ -41,6 +41,9 @@ TICK_SECONDS = 5.0
 MAX_STEPS = int(os.environ.get("MEMENTO_PLAN_MAX_STEPS", "8"))
 MAX_ATTEMPTS = int(os.environ.get("MEMENTO_PLAN_MAX_ATTEMPTS", "3"))
 DEFAULT_PARALLEL = int(os.environ.get("MEMENTO_PLAN_PARALLEL", "4"))
+# One attempt at a step; past it the device stops the agent and the step goes to another one. Small
+# steps take minutes; an agent stuck far longer (a remote model queueing for hours) holds up the whole plan.
+STEP_TIMEOUT = int(os.environ.get("MEMENTO_PLAN_STEP_TIMEOUT", "1800"))
 # No device/agent can take a step: wait this long for one to come online before giving up on it
 WAIT_FOR_DEVICE = timedelta(minutes=30)
 # A step marked running whose device task never got made (the replica went away mid-dispatch)
@@ -213,11 +216,15 @@ def choose_assignment(
     source_device_id: str | None = None,
     code: bool = False,
     load: dict | None = None,
+    penalty: dict | None = None,
 ) -> tuple[str, str] | None:
     """The best (device_id, agent) left for a step. Asked for agent and device first, then the agents
-    with quota to spare (Codex, Antigravity) before Claude, the less busy device, the better record."""
+    with quota to spare (Codex, Antigravity) before Claude, the less busy device, the better record.
+    `penalty` counts how often each agent already failed in this plan (a timeout counts double): an
+    agent stuck on one device is usually stuck on all of them, so the retry goes to another agent."""
     tried = {(str(e[0]), str(e[1])) for e in (exclude or []) if isinstance(e, (list, tuple)) and len(e) == 2}
     load = load or {}
+    penalty = penalty or {}
     best: tuple[float, str, str] | None = None
     for dev in snapshot.get("devices") or []:
         for agent in dev.get("agents") or {}:
@@ -241,12 +248,27 @@ def choose_assignment(
             st = (snapshot.get("stats") or {}).get(f"{dev['device_id']}/{agent}")
             if st and st["runs"] >= 3:
                 score += 15 * (st["ok"] / st["runs"] - 0.5)
+                if st.get("avg_seconds", 0) > STEP_TIMEOUT:
+                    score -= 5
+            score -= 12 * penalty.get(agent, 0)
             if best is None or score > best[0]:
                 best = (score, dev["device_id"], agent)
     return (best[1], best[2]) if best else None
 
 
 # ── planning ────────────────────────────────────────────────────────────────
+def agent_penalty(steps: list[dict]) -> dict[str, int]:
+    """Failures per agent across the plan's steps; a timeout counts double, a spent quota not at all
+    (the quota check already keeps that agent out)."""
+    out: dict[str, int] = {}
+    for s in steps:
+        for h in s.get("history") or []:
+            if h.get("error_type") == "usage_limit" or not h.get("agent"):
+                continue
+            out[h["agent"]] = out.get(h["agent"], 0) + (2 if h.get("status") == "timeout" else 1)
+    return out
+
+
 def _snapshot_text(snapshot: dict) -> str:
     lines = []
     for d in snapshot.get("devices") or []:
@@ -568,6 +590,7 @@ async def _step_args(db, user: User, plan: AgentPlan, step: dict, steps: list[di
         "prompt": build_step_prompt(plan, step, steps),
         "title": f"{plan.title or plan.goal[:40]} · {step['title']}"[:120],
         "user_question": step["title"],
+        "timeout_seconds": int((plan.options or {}).get("step_timeout") or STEP_TIMEOUT),
     }
     if step.get("model"):
         args["model"] = step["model"]
@@ -590,7 +613,7 @@ def _result_of(res: dict | None) -> tuple[bool, dict]:
     kept = {
         "status": status or "failed",
         "result": _tail(res.get("stdout") or "", 6000) or None,
-        "error": None if ok else (_tail(res.get("error") or res.get("stderr") or res.get("note") or "没有结果", 2000)),
+        "error": None if ok else (_tail(res.get("error") or res.get("stderr") or res.get("note") or "没有结果", 300 if status == "timeout" else 2000)),
         "error_type": res.get("error_type"),
         "workspace": _workspace_outcome(res.get("events")),
         "session_id": res.get("session_id"),
@@ -620,7 +643,8 @@ async def _finish_step(plan_id: uuid.UUID, sid: str, attempt: int, res: dict | N
         s["error"] = kept["error"]
         s["history"] = (s.get("history") or []) + [{
             "attempt": attempt, "device_id": s["device_id"], "device_name": s.get("device_name"), "agent": s["agent"],
-            "task_id": s.get("task_id"), "error": kept["error"], "error_type": kept["error_type"], "at": s["finished_at"],
+            "task_id": s.get("task_id"), "error": kept["error"], "error_type": kept["error_type"], "status": kept["status"],
+            "at": s["finished_at"],
         }]
         s["tried"] = (s.get("tried") or []) + [[s["device_id"], s["agent"]]]
         if attempt < MAX_ATTEMPTS:
@@ -789,6 +813,7 @@ async def _advance(plan_id: uuid.UUID) -> None:
         # The code's own device works right in its directory: one step there at a time
         direct_busy = any(s["status"] == "running" and plan.cwd and s.get("device_id") == plan.source_device_id for s in steps)
         load: dict[str, int] = {}
+        penalty = agent_penalty(steps)
         starts: list[tuple[str, str, str, str]] = []
         waiting: list[str] = []
         for sid in prog["ready"]:
@@ -804,6 +829,7 @@ async def _advance(plan_id: uuid.UUID) -> None:
                 pick = choose_assignment(
                     snapshot, prefer_agent=s.get("agent") or ("claude" if s.get("kind") == "review" else None),
                     exclude=s.get("tried"), source_device_id=plan.source_device_id, code=bool(plan.cwd), load=load,
+                    penalty=penalty,
                 )
             if not pick:
                 waiting.append(sid)

@@ -1,25 +1,25 @@
 {
   "version": "1.0.107",
-  "title": "Memento v1.0.106",
+  "title": "Memento v1.0.107",
   "release_notes": "1. AI 执事问「今天 / 最近几天做了什么」时按对话真正发生的时间找资料，新设备首次同步上传的几个月历史不会再被当成今天的\n2. 采集端上传时带上文件的修改时间，搜索和问答里的时间更准\n3. 服务器没配系统模型时，夜间整理、画像、纠正学习、日报、对话压缩等后台任务改用你在个人设置里开启的自己的模型，不再悄悄跳过\n4. 个人设置测试模型连通成功但还没开启时，提示打开开关并保存后才生效\n5. 手机端版本号与客户端统一为 1.0.107",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.106-win-x64.zip",
-      "size": 158164611,
-      "sha256": "f0d0fc4112b50ba2c26bab6f980f3ecdb06eb13304822ac3159d2a69a7b7fb16",
-      "sha512": "Pz1cekOWVTB64yyD6bwGgfyp3u6o3A75lnHWrD7nRBrQdJzIOr6S+L+6yc4Mnv+vNX2CKDEonVjzoFhDOYvugA=="
+      "asset_name": "Memento-1.0.107-win-x64.zip",
+      "size": 158164902,
+      "sha256": "6a568df592ff50ef566b500b1d3f0f1767f5ce5328f022432ad0719176b85c9d",
+      "sha512": "iJWSZjwBuNJXBdpTbAXt5QqPIW204nk+3Z8NmsjabgUxcQo0xVCTxK0GhAjO0o+V0k3hmV0CDOkOSIChSVatfg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.106-mac-arm64.zip",
-      "size": 132646986,
-      "sha256": "091c1e74984a188c60574240a1693a0573fada1aa9ab5f66fd1a3d793fa8b374",
-      "sha512": "GE5jyr6HQYlS1vSO1UvW/87lFS6FFu658jSVXs2sB3h7njlF2ylwq+784aTbV5Be3MkvQTbJXylqgc8wC57+Gw=="
+      "asset_name": "Memento-1.0.107-mac-arm64.zip",
+      "size": 132647509,
+      "sha256": "7b167c63cd22cf6f66400f622b7b5694011ef41fef094e6a0330291907a756e9",
+      "sha512": "iNwSkI41oHYaflZ8I3GL1N5A3icsZEVQYncWke5bjINX6zeEYvgyhao7qspfpyTTwGrge90TliL4MWb2LHI1/A=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.106-linux-x64.tar.gz",
-      "size": 131930578,
-      "sha256": "f12d8b349849c7284adfd256ff5d45d138bda618c357a25d25dbf1d126dfe378",
-      "sha512": "tUIUfm4bmB/e6+bDpznWboEHqXEV96Wx5uZyqV9PaUQEWPLXXfSom6l7A/DMf0ffnj0wJlWcYA04oaOkX2yBgQ=="
+      "asset_name": "Memento-1.0.107-linux-x64.tar.gz",
+      "size": 131931349,
+      "sha256": "d2fb68b450bd5550e6454ab22a505354225c662d91adf9fe9e95ced63256dbaf",
+      "sha512": "bJa8nrZUtd8RryBRqYo9ucdzIAdDoDS6b8IuB3/xytyUwBGHvRhKQjvNCuLWdUBHBbTZInhMmcg3VAipyp3H7g=="
     }
   }
 }

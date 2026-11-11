@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
@@ -7,8 +9,18 @@ import { sanitizeDocumentContent } from "./sanitizer.js";
 import type { BlueprintStatusReport } from "./blueprint-auto.js";
 import { hostFetch, type LanInfo, type ServerRoute } from "./server-route.js";
 
-/** The desktop app's version (set when it starts the daemon), shown on the devices page; a bare daemon has none. */
-export const DAEMON_VERSION = process.env.MEMENTO_DESKTOP_VERSION || "node-0.1.0";
+/** The client version of the repo a daemon run from source was built in (packages/daemon/dist → apps/desktop). */
+export function sourceVersion(url: string = import.meta.url): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../../../apps/desktop/package.json", url)), "utf8")) as { version?: unknown };
+    return typeof pkg.version === "string" && /^\d+\.\d+\.\d+/.test(pkg.version) ? pkg.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The desktop app's version (set when it starts the daemon), shown on the devices page; from source, the repo's. */
+export const DAEMON_VERSION = process.env.MEMENTO_DESKTOP_VERSION || sourceVersion() || "node-0.1.0";
 
 export interface IngestDocument {
   toolId: string;

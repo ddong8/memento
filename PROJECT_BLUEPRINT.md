@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b6bb00ff` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9d13573f` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 222 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 168 个测试文件
+- 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 222 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 169 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
+- 最近改动 (Latest): `9d13573f` (2026-11-11): fix(executor): 执行机脚本缺 git 时自动安装，重跑升级会重启守护进程到新版本
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -587,7 +587,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 101 | `test_agent_limits.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py`, `test_ask_adversarial_challenger.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 39 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-official-cli.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 40 | `agent-args.test.ts`, `agent-stream.test.ts`, `antigravity-failover.test.ts`, `antigravity-language-server.test.ts`, `antigravity-official-cli.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 23 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `9d13573f` (2026-11-11): fix(executor): 执行机脚本缺 git 时自动安装，重跑升级会重启守护进程到新版本
 - `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
 - `1467156b` (2026-11-11): feat(workspace): 代码留在 Mac/Windows，智能体在 Linux 执行机上跑，改动自动带回原电脑
 - `092bc2e5` (2026-11-11): test(daemon): 官方 agy 任务测试打桩 memento 运行脚本，不依赖本机构建产物
 - `5b774ddf` (2026-11-11): chore(release): 升级客户端版本至 v1.0.104，无界面 Linux 上可跑 Antigravity 任务、开机自启不随退出登录停止
 - `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
-- `a23924d8` (2026-11-09): test(web): 时间线打开文件的测试不在组件里改外部变量，过 lint
 
 ## 10. Key Environment Variables & Configuration
 

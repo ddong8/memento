@@ -287,7 +287,7 @@ node packages/daemon/dist/cli.js install-service
 
 # 4. 查看状态 / 日志
 node packages/daemon/dist/cli.js status
-journalctl --user -u memento-daemon -f
+journalctl --user-unit memento-daemon -f   # 等同 journalctl _SYSTEMD_USER_UNIT=memento-daemon.service；没有用户级日志文件的系统（如 Oracle Linux）也能看
 ```
 
 升级：`git pull` 后重跑第 1 步和 `install-service`。取消自启：`node packages/daemon/dist/cli.js uninstall-service`；彻底清理（服务、`~/.memento`、日志、写进各 AI 工具的配置）：`node scripts/install.mts uninstall-collector`。

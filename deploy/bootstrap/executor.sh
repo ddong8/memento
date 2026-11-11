@@ -54,19 +54,36 @@ case "$SERVER" in
 esac
 SERVER="${SERVER%/}"
 [ -n "$TOKEN" ] || fail "缺少 collector token：加 --token <token>（网页「设备」页的执行机卡片里可复制整条命令）"
+printf '%s\n' "${BOLD}Memento 执行机${RST}  ${DIM}$SERVER · $(uname -n)${RST}"
+
 [ "$(uname -s)" = "Linux" ] || fail "这个脚本只用于 Linux；Mac / Windows 请装桌面客户端"
 command -v systemctl >/dev/null 2>&1 || fail "需要 systemd（用户服务负责开机自启）"
-for c in git curl tar; do
-    command -v "$c" >/dev/null 2>&1 || fail "缺少 $c：sudo apt install -y $c 或 sudo dnf install -y $c"
-done
+MISSING=()
+for c in git curl tar; do command -v "$c" >/dev/null 2>&1 || MISSING+=("$c"); done
+if [ ${#MISSING[@]} -gt 0 ]; then
+    SUDO=""; [ "$(id -u)" = "0" ] || SUDO="sudo -n"
+    PM=""
+    for m in apt-get dnf yum zypper pacman; do command -v "$m" >/dev/null 2>&1 && { PM="$m"; break; }; done
+    if [ -n "$PM" ] && { [ -z "$SUDO" ] || sudo -n true 2>/dev/null; }; then
+        say "安装缺少的 ${MISSING[*]}（$PM）"
+        case "$PM" in
+            apt-get) $SUDO apt-get update -qq </dev/null >/dev/null && $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${MISSING[@]}" </dev/null >/dev/null ;;
+            dnf|yum) $SUDO "$PM" install -y -q "${MISSING[@]}" </dev/null >/dev/null ;;
+            zypper) $SUDO zypper -n install "${MISSING[@]}" </dev/null >/dev/null ;;
+            pacman) $SUDO pacman -S --noconfirm --needed "${MISSING[@]}" </dev/null >/dev/null ;;
+        esac || true
+    fi
+    for c in "${MISSING[@]}"; do
+        command -v "$c" >/dev/null 2>&1 || fail "缺少 $c：sudo apt install -y $c 或 sudo dnf install -y $c 后重跑"
+    done
+fi
 [ "$(id -u)" != "0" ] || say "${DIM}正在用 root 运行；建议换成普通用户，智能体以这个用户的身份改代码${RST}"
 
 BASE="$HOME/.memento"
 SRC="$BASE/src/memento"
 RUNTIME="$BASE/runtime/node"
-mkdir -p "$BASE/src" "$BASE/runtime" "$HOME/.local/bin"
-
-printf '%s\n' "${BOLD}Memento 执行机${RST}  ${DIM}$SERVER · $(hostname)${RST}"
+LOGS="$BASE/logs"
+mkdir -p "$BASE/src" "$BASE/runtime" "$LOGS" "$HOME/.local/bin"
 
 # ── Node.js ≥ 22.18 ───────────────────────────────────────────
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
@@ -96,6 +113,7 @@ else
     NODE="$RUNTIME/bin/node"
 fi
 export PATH="$(dirname "$NODE"):$HOME/.local/bin:$PATH"
+export npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false
 ok "Node.js $(node -v)（$NODE）"
 
 # ── Source: daemon runs from a shallow clone ──────────────────
@@ -136,16 +154,16 @@ for a in ${WANT[@]+"${WANT[@]}"}; do
         "") ;;
         claude)
             if has claude; then ok "Claude Code 已安装"; else
-                say "安装 Claude Code（官方安装脚本）"; curl -fsSL https://claude.ai/install.sh | bash >/dev/null && ok "Claude Code 已安装" || say "${RED}Claude Code 安装失败，可稍后按官方文档手动装${RST}"
+                say "安装 Claude Code（官方安装脚本）"; curl -fsSL https://claude.ai/install.sh | bash >"$LOGS/install-claude.log" 2>&1 && ok "Claude Code 已安装" || say "${RED}Claude Code 安装失败，见 $LOGS/install-claude.log${RST}"
             fi ;;
         codex)
             if has codex; then ok "Codex 已安装"; else
                 say "安装 Codex（npm @openai/codex）"
-                npm install -g --prefix "$HOME/.local" --no-audit --no-fund --loglevel=error @openai/codex </dev/null >/dev/null && ok "Codex 已安装" || say "${RED}Codex 安装失败，可稍后按官方文档手动装${RST}"
+                npm install -g --prefix "$HOME/.local" --no-audit --no-fund --loglevel=error @openai/codex </dev/null >"$LOGS/install-codex.log" 2>&1 && ok "Codex 已安装" || say "${RED}Codex 安装失败，见 $LOGS/install-codex.log${RST}"
             fi ;;
         agy|antigravity)
             if has agy; then ok "Antigravity CLI 已安装"; else
-                say "安装 Antigravity CLI（官方安装脚本）"; curl -fsSL https://antigravity.google/cli/install.sh | bash >/dev/null && ok "Antigravity CLI 已安装" || say "${RED}Antigravity CLI 安装失败，可稍后按官方文档手动装${RST}"
+                say "安装 Antigravity CLI（官方安装脚本）"; curl -fsSL https://antigravity.google/cli/install.sh | bash >"$LOGS/install-agy.log" 2>&1 && ok "Antigravity CLI 已安装" || say "${RED}Antigravity CLI 安装失败，见 $LOGS/install-agy.log${RST}"
             fi ;;
         *) say "${DIM}跳过不认识的智能体：$a（可选 claude, codex, agy）${RST}" ;;
     esac
@@ -154,8 +172,12 @@ done
 # ── systemd user service ──────────────────────────────────────
 FLAGS=()
 [ "$LOW_PRIORITY" = "1" ] && FLAGS+=(--low-priority)
+WAS_RUNNING=0
+systemctl --user is-active --quiet memento-daemon.service 2>/dev/null && WAS_RUNNING=1
 "$NODE" "$CLI" install-service ${FLAGS[@]+"${FLAGS[@]}"} </dev/null
-ok "守护进程已注册为开机自启的用户服务"
+# enable --now leaves an already running daemon on the old build
+[ "$WAS_RUNNING" = "1" ] && systemctl --user restart memento-daemon.service </dev/null
+ok "守护进程已注册为开机自启的用户服务$([ "$WAS_RUNNING" = "1" ] && echo "，已重启到新版本")"
 
 cat <<EOF
 
@@ -164,10 +186,10 @@ ${BOLD}完成。${RST}还差一步：智能体要用你自己的账号登录一�
   codex login --device-auth   （先在 ChatGPT 安全设置里打开设备码登录）
   agy             → 按提示在本地浏览器打开链接，把验证码贴回
 
-然后在网页或手机上提问时：设备选 $(hostname)，「代码在」选你的 Mac / Windows，
+然后在网页或手机上提问时：设备选 $(uname -n)，「代码在」选你的 Mac / Windows，
 智能体在这里跑，改动自动带回那台电脑的项目（冲突时放到 memento/ 开头的分支）。
 
   状态：node $CLI status
-  日志：journalctl --user -u memento-daemon -f
+  日志：journalctl --user-unit memento-daemon -f
   升级：重跑这条命令
 EOF

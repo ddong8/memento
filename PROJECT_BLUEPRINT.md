@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1467156b` · Updated: `2026-11-11`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b6bb00ff` · Updated: `2026-11-11`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 34 组 API 路由 / 222 个接口 · 35 个前端页面 · 40 个数据模型 · 35 个服务模块 · 168 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `1467156b` (2026-11-11): feat(workspace): 代码留在 Mac/Windows，智能体在 Linux 执行机上跑，改动自动带回原电脑
+- 最近改动 (Latest): `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -596,16 +596,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (9 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (10 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (8 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (8 commits)
-- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (8 commits)
-- [`server/server/api/profile.py`](server/server/api/profile.py) (8 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (8 commits)
 - [`server/server/services/user_blueprint_service.py`](server/server/services/user_blueprint_service.py) (8 commits)
-- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (6 commits)
-- [`packages/daemon/src/ingest.ts`](packages/daemon/src/ingest.ts) (6 commits)
+- [`packages/daemon/src/daemon.ts`](packages/daemon/src/daemon.ts) (7 commits)
+- [`server/server/api/profile.py`](server/server/api/profile.py) (7 commits)
 - [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
+- [`packages/daemon/src/blueprint-auto.ts`](packages/daemon/src/blueprint-auto.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -628,12 +628,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `b6bb00ff` (2026-11-11): chore(release): 升级客户端版本至 v1.0.105，代码留在原电脑、智能体在 Linux 执行机上跑，一条命令设好执行机
 - `1467156b` (2026-11-11): feat(workspace): 代码留在 Mac/Windows，智能体在 Linux 执行机上跑，改动自动带回原电脑
 - `092bc2e5` (2026-11-11): test(daemon): 官方 agy 任务测试打桩 memento 运行脚本，不依赖本机构建产物
 - `5b774ddf` (2026-11-11): chore(release): 升级客户端版本至 v1.0.104，无界面 Linux 上可跑 Antigravity 任务、开机自启不随退出登录停止
 - `1c80e13d` (2026-11-11): feat(daemon): 无界面 Linux 上可跑 Antigravity 任务，systemd 自启不随退出登录停止
 - `a23924d8` (2026-11-09): test(web): 时间线打开文件的测试不在组件里改外部变量，过 lint
-- `a684bc87` (2026-11-09): chore(release): 升级客户端版本至 v1.0.103，工作台文件各客户端都能打开、工具步骤显示文件名和更多输出
 
 ## 10. Key Environment Variables & Configuration
 

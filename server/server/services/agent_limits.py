@@ -9,8 +9,11 @@ USAGE_LIMIT = "usage_limit"
 
 # Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read
 # the same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
+# Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s.".
 # Read up to a quote too, for when it turns up inside a logged JSON line.
-_USAGE_LIMIT = re.compile(r"You(?:'|’)ve hit your [\w ]*limit[^\n\"]*|usage limit reached[^\n\"]*", re.I)
+_USAGE_LIMIT = re.compile(
+    r"You(?:'|’)ve hit your [\w ]*limit[^\n\"]*|usage limit reached[^\n\"]*|Individual quota reached[^\n\"]*", re.I
+)
 
 
 def usage_limit_message(result: dict | None) -> str | None:

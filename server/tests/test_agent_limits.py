@@ -15,6 +15,8 @@ def test_the_quota_message_is_read_from_the_agents_errors():
     assert usage_limit_message({"stderr": f"x\n{LIMIT}\n"}) == LIMIT
     assert usage_limit_message({"error": "You’ve hit your weekly limit · resets Nov 3"}) == "You’ve hit your weekly limit · resets Nov 3"
     assert usage_limit_message({"error": "Claude AI usage limit reached|1761710400"}) == "usage limit reached|1761710400"
+    agy = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 58h12m23s."
+    assert usage_limit_message({"stderr": f"error: {agy}\nAGY_ERROR: {{}}"}) == agy
     # Inside a logged JSON line: up to the quote
     assert usage_limit_message({"stderr": '{"text":"' + LIMIT + '"}'}) == LIMIT
 
@@ -23,6 +25,7 @@ def test_an_answer_about_limits_or_a_shell_task_is_not_a_quota_stop():
     assert usage_limit_message({"action": "agent", "stdout": LIMIT, "error": None}) is None
     assert usage_limit_message({"action": "shell", "stderr": LIMIT}) is None
     assert usage_limit_message({"action": "agent", "error": "API Error: 529 overloaded"}) is None
+    assert usage_limit_message({"action": "agent", "error": "RESOURCE_EXHAUSTED (code 503): No capacity available"}) is None
     assert usage_limit_message(None) is None
 
 

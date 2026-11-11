@@ -318,8 +318,10 @@ export function agentLoginHint(binary: string, text: string, device = hostname()
 
 // Claude Code: "You've hit your session limit · resets 12:10pm (Asia/Shanghai)" (weekly / Opus limits read the
 // same); Codex: "You've hit your usage limit. …"; older Claude Code: "Claude AI usage limit reached|<epoch>".
+// Antigravity: "Individual quota reached. Please upgrade your subscription … Resets in 58h12m23s." (a 429
+// RESOURCE_EXHAUSTED, like a model out of capacity, but no other model or session helps).
 // Read up to a quote too, for when it turns up inside a logged JSON line.
-const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*/i;
+const USAGE_LIMIT = /You(?:'|’)ve hit your [\w ]*limit[^\n"]*|usage limit reached[^\n"]*|Individual quota reached[^\n"]*/i;
 
 /**
  * The agent's own report that the account's quota ran out, from what it gave as errors (stderr, errors in
@@ -1227,7 +1229,8 @@ export class TaskRunner {
       if (
         exitCode !== 0 &&
         isAntigravity &&
-        /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(errScan())
+        /No capacity available|UNAVAILABLE.*503|RESOURCE_EXHAUSTED|code 503/i.test(errScan()) &&
+        !usageLimitMessage(errScan())
       ) {
         const currentModel = (model || "").toLowerCase();
         // The runner's tiers; Google's CLI names its models differently, so it falls back to its default

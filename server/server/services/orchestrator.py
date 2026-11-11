@@ -886,6 +886,23 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                     },
                 }
                 return
+            src_name = str(workspace.get("source_name") or "源设备")
+            if not _supports_workspace([workspace.get("source_device_id")], user):
+                yield {
+                    "type": "tool_result",
+                    "name": "run_on_device",
+                    "result": {
+                        "task_id": "",
+                        "device_id": device_id,
+                        "device_name": mach_name,
+                        "action": action,
+                        "status": "failed",
+                        "exit_code": 1,
+                        "error": (f"代码所在的「{src_name}」上的 Memento 还不能把代码交给其他设备（需要 1.0.105 及以上、在线且装有 git）。"
+                                  "升级它的客户端后再试。"),
+                    },
+                }
+                return
             payload["workspace"] = {k: workspace.get(k) for k in ("source_device_id", "source_path", "source_name")}
 
         # Determine timeout: shell defaults to 60s (or 300s if long), agent defaults to TASK_WAIT_SECONDS (7200s, or 14400s if long)

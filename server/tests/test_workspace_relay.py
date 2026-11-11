@@ -156,3 +156,16 @@ async def test_request_device_waits_for_the_answer_with_the_same_req_id():
     mgr._connections.clear()
     with patch.object(mgr, "_owner", AsyncMock(return_value=None)):
         assert (await mgr.request_device("tok-mac", {"type": "x"}))["code"] == "offline"
+
+
+@pytest.mark.parametrize("caps,ok", [
+    ({"environment": {"features": ["workspace_sync"]}}, True),
+    ({"environment": {"features": []}}, False),  # a client from before 1.0.105
+    ({"claude": {}}, False),
+    (None, False),  # never reported (offline)
+])
+def test_both_ends_must_have_reported_workspace_sync(caps, ok):
+    from server.services import orchestrator
+    with patch("server.services.device_reports.get_cached_device_capabilities", return_value=caps):
+        assert orchestrator._supports_workspace(["tok-mac"], None) is ok
+    assert orchestrator._supports_workspace([None, ""], None) is False

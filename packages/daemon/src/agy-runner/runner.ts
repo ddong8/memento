@@ -367,11 +367,28 @@ const TRANSIENT = [
   "quota reached", "quota", "temporarily",
 ];
 
-/** Whether an Antigravity error is an upstream retry, rate limit or temporary capacity problem. */
+/**
+ * The error a trajectory ends on (its last step an ERROR_MESSAGE the language server isn't retrying), as
+ * the user is shown it; "" while it goes on or ended otherwise.
+ */
+export function finalTrajectoryError(steps: unknown[]): string {
+  const last = obj(steps.at(-1));
+  if (last.type !== "CORTEX_STEP_TYPE_ERROR_MESSAGE" || last.status !== "CORTEX_STEP_STATUS_DONE") return "";
+  const e = obj(obj(last.errorMessage).error);
+  const msg = str(or(e.modelErrorMessage, e.userErrorMessage, e.shortError, e.fullError)) || "Antigravity 返回了错误";
+  return isTransientError(msg) ? "" : msg;
+}
+
+/**
+ * Whether an Antigravity error is an upstream retry, rate limit or temporary capacity problem. A used-up
+ * quota ("Individual quota reached … Resets in 54h11m34s") isn't, unless the server is still retrying it
+ * (an "attempt N"): waiting on it held runs for their whole 2 hours.
+ */
 export function isTransientError(errMsg: string): boolean {
   if (!errMsg) return false;
   const low = errMsg.toLowerCase();
   if (/attempt\s+\d+/.test(low)) return true;
+  if (/individual quota reached|quota_exhausted/.test(low)) return false;
   return TRANSIENT.some((kw) => low.includes(kw));
 }
 
@@ -683,12 +700,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     backgroundTools.delete(tid);
   };
 
+  // The run's last step, when it's an error the language server gave up on: it doesn't always reach the
+  // transcript. Out of quota ("Individual quota reached … Resets in 54h") the trajectory ends on that
+  // ERROR_MESSAGE 1.5 s in while the transcript keeps only the question, so the run waited out its 2 hours.
+  let trajectoryError = "";
+
   /** Shows each step Antigravity is waiting on as a question (once); false when the RPC isn't reachable. */
   const pollInteractions = async (): Promise<boolean> => {
     const traj = await lsRpc("GetCascadeTrajectory", { cascadeId: cid });
     if (traj === null) return false;
     const t = obj(traj.trajectory);
     const steps = list(t.steps);
+    trajectoryError = finalTrajectoryError(steps);
     for (let idx = 0; idx < steps.length; idx++) {
       const step = obj(steps[idx]);
       if (step.status !== "CORTEX_STEP_STATUS_WAITING" || interactions.has(idx)) continue;
@@ -908,6 +931,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         // 5 s quiet after an error that isn't a retry
         if (lastError && idle > 25) {
           err(`\nAntigravity Error: ${lastError}\n`);
+          return 1;
+        }
+        // The trajectory ended on an error the transcript never got (checked at the next poll)
+        if (trajectoryError && idle > 25 && !state.waiting) {
+          err(`\nAntigravity Error: ${trajectoryError}\n`);
           return 1;
         }
 

@@ -91,6 +91,17 @@ export function taskFinishedMessage(f: TaskFinished): Record<string, unknown> {
  * folding the middle spam to prevent ballooning WebSocket frames and losing error stacks.
  */
 /**
+ * The runner's tiers to go on with when the Antigravity app's `model` ran out of quota, lightest first:
+ * the app's default (none asked for) is its heavy model, the one that runs out.
+ */
+export function appQuotaFallbacks(model: string): string[] {
+  const m = model.toLowerCase();
+  if (m.includes("lite")) return ["flash", "pro"];
+  if (m.includes("flash")) return ["flash_lite", "pro"];
+  return ["flash", "flash_lite"];
+}
+
+/**
  * Drops Node's own runtime warnings ("(node:55188) [DEP0190] DeprecationWarning: …" and the "(Use `node
  * --trace-deprecation ...`" line after it) from an agent's stderr: they say nothing about the task, and
  * when the run failed they stood in for the real error.
@@ -1291,6 +1302,23 @@ export class TaskRunner {
         );
         agyModel = next.id;
         exitCode = await run(agyRun({ sessionId, model: agyModel, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
+      }
+
+      // Retry 0.42: the Antigravity app's model ran out of quota (each has its own; the default heavy model
+      // runs out first, Flash still answers): a new session on the runner's other tiers
+      if (exitCode !== 0 && isAntigravity && !officialAgy && agyQuotaMessage(lastErrors())) {
+        for (const tier of appQuotaFallbacks(model)) {
+          if (this.cancelledTasks.has(taskId)) break;
+          const quota = agyQuotaMessage(lastErrors())!;
+          const reset = quotaResetMs(quota);
+          this.notice(
+            taskId,
+            `\n⚡ [模型切换] ${model || "默认模型"} 的额度用完了${reset ? `（约 ${Math.ceil(reset / 3_600_000)} 小时后恢复）` : ""}，改用 ${tier.toUpperCase()} 档位继续。\n\n`,
+          );
+          model = tier;
+          exitCode = await run(agyRun({ model, effort, timeoutSeconds: task.timeoutSeconds, prompt }));
+          if (exitCode === 0 || !agyQuotaMessage(lastErrors())) break;
+        }
       }
 
       // Retry 0.45: Claude Code's or Codex's model ran out (a limit of the model, not the account's): go on with another

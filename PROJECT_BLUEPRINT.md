@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3f5c479a` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0054cc2a` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 183 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 184 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `3f5c479a` (2026-11-12): fix(plans): 发版时不再把协作任务正在跑的子任务停掉，退出的副本立刻交出调度
+- 最近改动 (Latest): `0054cc2a` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -598,7 +598,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 107 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 45 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-failover.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 46 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 25 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -608,15 +608,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (8 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (7 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (6 commits)
 - [`server/server/db/models.py`](server/server/db/models.py) (6 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
+- [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
 - [`server/server/services/dreaming_service.py`](server/server/services/dreaming_service.py) (5 commits)
 - [`server/server/services/retrospective_service.py`](server/server/services/retrospective_service.py) (5 commits)
-- [`docs/deployment-guide.md`](docs/deployment-guide.md) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0054cc2a` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
 - `3f5c479a` (2026-11-12): fix(plans): 发版时不再把协作任务正在跑的子任务停掉，退出的副本立刻交出调度
 - `52616d31` (2026-11-12): fix(plans): 手动重做的子任务原来的智能体在本计划失败过时，重新挑智能体，不再沿用
 - `ed0f401e` (2026-11-12): chore(release): 升级客户端版本至 v1.0.110，新增协作任务，修复 Windows 上 Codex 启动失败
 - `3d35398d` (2026-11-12): fix(daemon): Windows 上 Codex 装在 Program Files 时启动失败，命令路径加引号
 - `0ac55641` (2026-11-12): fix(plans): 子任务默认 30 分钟超时，失败或超时的智能体重试时靠后
-- `c8da2120` (2026-11-12): feat: 协作任务——大任务自动拆分，多设备多智能体并行执行、复查汇总
 
 ## 10. Key Environment Variables & Configuration
 

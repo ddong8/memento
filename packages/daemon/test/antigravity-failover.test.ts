@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getModelCandidates, isTransientError, thinkingHeartbeat } from "../src/agy-runner/runner.js";
+import { finalTrajectoryError, getModelCandidates, isTransientError, thinkingHeartbeat } from "../src/agy-runner/runner.js";
 
 describe("Antigravity Failover and Transient Retry Logic", () => {
   it("verifies getModelCandidates ordering for default, flash, and pro tiers", () => {
@@ -26,7 +26,10 @@ describe("Antigravity Failover and Transient Retry Logic", () => {
     expect(
       isTransientError("API error (attempt 7): UNAVAILABLE (code 503): No capacity available for model gemini-3.8-flash-tiered on the server"),
     ).toBe(true);
-    expect(isTransientError("RESOURCE_EXHAUSTED (code 429): Individual quota reached")).toBe(true);
+    // Out of quota for hours: not something to wait on, unless the server says it's retrying
+    expect(isTransientError("RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 54h11m34s.")).toBe(false);
+    expect(isTransientError("API error (attempt 2): RESOURCE_EXHAUSTED (code 429): Individual quota reached")).toBe(true);
+    expect(isTransientError("RESOURCE_EXHAUSTED (code 429): rate limit, try again")).toBe(true);
     expect(isTransientError("Service Unavailable 503")).toBe(true);
 
     // Permanent errors must return false
@@ -119,5 +122,35 @@ describe("Antigravity Failover and Transient Retry Logic", () => {
       server.close();
       await rm(tempHome, { recursive: true, force: true });
     }
+  });
+});
+
+describe("a trajectory that ends on an error", () => {
+  // As Antigravity's language server returned it on 11-12, when the transcript held only the question
+  const quotaStep = {
+    type: "CORTEX_STEP_TYPE_ERROR_MESSAGE",
+    status: "CORTEX_STEP_STATUS_DONE",
+    errorMessage: {
+      error: {
+        userErrorMessage: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 49h37m40s.",
+        modelErrorMessage: "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 49h37m40s.",
+        errorCode: 429,
+      },
+      shouldShowUser: true,
+    },
+  };
+  const question = { type: "CORTEX_STEP_TYPE_USER_INPUT", status: "CORTEX_STEP_STATUS_DONE" };
+
+  it("is the run's failure when it's the last step and not a retry", () => {
+    expect(finalTrajectoryError([question, quotaStep])).toBe(
+      "RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 49h37m40s.",
+    );
+  });
+
+  it("isn't while the run goes on, or the server retries", () => {
+    expect(finalTrajectoryError([question])).toBe("");
+    expect(finalTrajectoryError([question, quotaStep, { type: "CORTEX_STEP_TYPE_PLANNER_RESPONSE", status: "CORTEX_STEP_STATUS_DONE" }])).toBe("");
+    const retrying = { ...quotaStep, errorMessage: { error: { modelErrorMessage: "API error (attempt 2): UNAVAILABLE (code 503): No capacity available" } } };
+    expect(finalTrajectoryError([question, retrying])).toBe("");
   });
 });

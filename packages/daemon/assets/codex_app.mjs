@@ -246,12 +246,21 @@ createInterface({ input: process.stdin, crlfDelay: Infinity }).on("line", (line)
     }
   }
   if (answer(qid, ans)) return;
-  if (threadId && turnId) {
-    request("turn/steer", { threadId, input: [{ type: "text", text: ans, text_elements: [] }], expectedTurnId: turnId }).catch((e) =>
-      process.stderr.write(`Codex steer failed: ${e.message}\n`),
-    );
-  }
+  steer(ans);
 });
+
+// Follow-ups that came before the turn started wait for it; one Codex didn't take is reported back as
+// late, so the page sends it as the next message instead of it being lost.
+const earlySteers = [];
+const steerLate = (text) => out({ type: "memento_event", event: { kind: "steer", text, status: "late" } });
+function steer(text) {
+  if (finished) return steerLate(text);
+  if (!threadId || !turnId) return void earlySteers.push(text);
+  request("turn/steer", { threadId, input: [{ type: "text", text, text_elements: [] }], expectedTurnId: turnId }).catch((e) => {
+    process.stderr.write(`Codex steer failed: ${e.message}\n`);
+    steerLate(text);
+  });
+}
 
 let exiting = false;
 function shutdown(code) {
@@ -310,6 +319,7 @@ async function main() {
     ...(args.model ? { model: args.model } : {}),
   });
   turnId = turn?.turn?.id ?? "";
+  for (const text of earlySteers.splice(0)) steer(text);
   if (args.timeout > 0) {
     setTimeout(() => void interruptAndExit(124, `\n[Agent timeout: 任务执行已达到安全上限（${args.timeout}s）]\n`), args.timeout * 1000);
   }

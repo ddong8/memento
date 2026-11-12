@@ -48,6 +48,7 @@ import { modelLimitLabel, modelLimitOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
 import { isLiveConnected, onLiveEvent } from "@/lib/live-events";
 import { AGENT_TOOL_ID, type Cascade, cascadeOf, configHas, usableDevice } from "@/lib/ask/cascade";
+import { type FollowUp, queuedMessage, requeue, steerableTaskId } from "@/lib/ask/followups";
 import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interruptibleSleep, mergeFinishedTurns, normalizeEpochMs, normalizeIsoTimestamp, turnsChanged } from "@/lib/ask/turns";
 
 
@@ -186,6 +187,14 @@ function AskPageContent() {
 
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
+  // Messages sent while a reply runs: steered into the running agent, or queued for when the reply ends
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const followUpsRef = useRef<FollowUp[]>([]);
+  const followUpConvRef = useRef<string | null>(null);
+  const updateFollowUps = useCallback((fn: (items: FollowUp[]) => FollowUp[]) => {
+    followUpsRef.current = fn(followUpsRef.current);
+    setFollowUps(followUpsRef.current);
+  }, []);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
   // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（流式输出期间跳过逐帧全量正则扫描，流式结束或会话加载时立即同步）
@@ -3163,6 +3172,10 @@ function AskPageContent() {
         persistCurrentConfig(patchCfg);
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
+        if (event.kind === "steer" && (event.status === "late" || event.status === "unsupported") && event.text) {
+          const text = String(event.text);
+          updateFollowUps((items) => requeue(items, text));
+        }
         if (event.kind === "thinking" && event.text) {
           if (laLastStatus !== "thinking") {
             laLastStatus = "thinking";
@@ -3759,8 +3772,33 @@ function AskPageContent() {
     }
   }, [activeConversationId, compactMode, consumeRun, cwd, executionMode, finishStream, followRun, locale, patchLast, selectedDevice, selectedEffort, selectedModel, selectedProjectId, selectedSessionId, turns, t, worktreeMode, codeDevice]);
 
+  // A follow-up while the reply runs: into the running agent when it reads input mid-run (it sees it at its
+  // next step), else queued and sent as the next message when this reply ends. Any number, one after another.
+  const sendFollowUp = useCallback((text: string, images: string[]) => {
+    const id = `fu-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    followUpConvRef.current = activeConversationIdRef.current;
+    const taskId = images.length === 0 ? steerableTaskId(turnsRef.current) : null;
+    if (!taskId) {
+      updateFollowUps((items) => [...items, { id, text, images, status: "queued" }]);
+      return;
+    }
+    updateFollowUps((items) => [...items, { id, text, status: "sending" }]);
+    const settle = (ok: boolean) =>
+      updateFollowUps((items) =>
+        items.map((f) => (f.id === id && f.status === "sending" ? { ...f, status: ok ? "sent" : "queued" } : f)),
+      );
+    authFetch(`${getApiBase()}/api/tasks/${taskId}/input`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: text }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data: { ok?: boolean }) => settle(Boolean(data?.ok)))
+      .catch(() => settle(false));
+  }, [updateFollowUps]);
+
   const send = useCallback(() => {
-    if (streaming || (!input.trim() && attachedImages.length === 0)) return;
+    if (!input.trim() && attachedImages.length === 0) return;
     const textToSend = input.trim();
     const imgs = attachedImages.map((img) => img.dataUrl);
     setAttachedImages([]);
@@ -3770,8 +3808,33 @@ function AskPageContent() {
     }
     promptHistoryIdxRef.current = -1;
     promptDraftRef.current = "";
-    sendWithText(textToSend, { images: imgs });
-  }, [streaming, input, attachedImages, sendWithText]);
+    if (streamingRef.current) sendFollowUp(textToSend, imgs);
+    else sendWithText(textToSend, { images: imgs });
+  }, [input, attachedImages, sendWithText, sendFollowUp]);
+
+  // The reply ended: what's still queued goes out as one next message, the way Claude Code sends what was
+  // typed while it worked. Stopped by the user, or another conversation opened: back into the input instead.
+  const sendWithTextRef = useRef(sendWithText);
+  sendWithTextRef.current = sendWithText;
+  useEffect(() => {
+    if (streaming) return;
+    const items = followUpsRef.current;
+    if (!items.length) return;
+    const queued = items.filter((f) => f.status === "queued");
+    updateFollowUps(() => []);
+    const text = queuedMessage(queued);
+    const images = queued.flatMap((f) => f.images ?? []);
+    if (!text && !images.length) return;
+    if (userCancelledRef.current || followUpConvRef.current !== activeConversationIdRef.current) {
+      setInput((cur) => {
+        const next = [text, cur].filter(Boolean).join("\n\n");
+        if (askCache) askCache.input = next;
+        return next;
+      });
+      return;
+    }
+    sendWithTextRef.current(text, { images });
+  }, [streaming, updateFollowUps]);
 
   const handleRetryLastTurn = useCallback(() => {
     if (streamingRef.current) return;
@@ -6226,6 +6289,53 @@ function AskPageContent() {
               </div>
             )}
 
+            {/* Follow-ups sent while the reply runs */}
+            {followUps.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "2px 2px 10px 2px" }}>
+                {followUps.map((f) => (
+                  <div
+                    key={f.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "6px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${f.status === "queued" ? "rgba(217, 119, 6, 0.35)" : "var(--aurora-border)"}`,
+                      background: f.status === "queued" ? "rgba(217, 119, 6, 0.08)" : "var(--aurora-chip)",
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <Icon
+                      name={f.status === "queued" ? "clock" : f.status === "sent" ? "check" : "refresh"}
+                      size={12}
+                      className={f.status === "sending" ? "animate-spin" : undefined}
+                    />
+                    <span style={{ flex: 1, minWidth: 0, color: "var(--aurora-fg1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.text || (isZh ? `${f.images?.length ?? 0} 张图片` : "image")}
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: 11, color: f.status === "queued" ? "#D97706" : "var(--aurora-fg3)" }}>
+                      {f.status === "queued"
+                        ? isZh ? "这轮结束后接着发" : "Sends when this reply ends"
+                        : f.status === "sent"
+                        ? isZh ? "已送达，下一步读到" : "Delivered"
+                        : isZh ? "发送中" : "Sending"}
+                    </span>
+                    {f.status === "queued" && (
+                      <button
+                        type="button"
+                        onClick={() => updateFollowUps((items) => items.filter((x) => x.id !== f.id))}
+                        title={isZh ? "撤回" : "Remove"}
+                        style={{ border: "none", background: "transparent", color: "var(--aurora-fg3)", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0 }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Attached images preview list */}
             {attachedImages.length > 0 && (
               <div
@@ -6474,8 +6584,7 @@ function AskPageContent() {
                     setTimeout(() => setIsInputFocused(false), 200);
                   }}
                   onKeyDown={onKeyDown}
-                  placeholder={placeholderText}
-                  disabled={streaming}
+                  placeholder={streaming ? (isZh ? "继续追问，可以连着发几条…" : "Follow up; send as many as you like…") : placeholderText}
                   style={{
                     minWidth: 0,
                     width: "100%",
@@ -6540,6 +6649,17 @@ function AskPageContent() {
                   <Icon name="refresh" size={12} className="animate-spin" />
                   <span>正在恢复流式同步...</span>
                 </div>
+              )}
+              {streaming && (input.trim() || attachedImages.length > 0) && (
+                <Btn
+                  onClick={send}
+                  icon="message"
+                  title={isZh ? "追问：正在运行的智能体会在下一步读到，读不了的等这轮结束后接着发" : "Follow up"}
+                  className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
+                  style={{ flexShrink: 0 }}
+                >
+                  <span className="hidden sm:inline font-semibold text-sm">{isZh ? "追问" : "Follow up"}</span>
+                </Btn>
               )}
               {streaming ? (
                 <Btn

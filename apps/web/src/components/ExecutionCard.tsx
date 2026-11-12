@@ -6,7 +6,7 @@ import { BrandMark } from "./aurora/BrandMark";
 import MarkdownViewer from "./viewers/MarkdownViewer";
 import { useI18n } from "@/lib/i18n";
 import type { TaskEvent } from "@memento/core";
-import TaskTimeline, { SteerBox } from "./TaskTimeline";
+import TaskTimeline from "./TaskTimeline";
 import { useMediaInspector, extractMediaFromMarkdown } from "./viewers/MediaInspectorContext";
 import { deviceOfCall } from "@/lib/file-devices";
 
@@ -812,10 +812,7 @@ const ExecutionCard = memo(function ExecutionCard({
           {result?.events && result.events.length > 0 && (
             <TaskTimeline events={result.events} running={isRunning} taskId={result?.task_id} device={device} />
           )}
-          {/* Steer/Input box: any running agent with a valid task_id can take user follow-up input */}
-          {isRunning && result?.task_id && isAgent && !waitingQuestion && (
-            <SteerBox taskId={result.task_id} />
-          )}
+          {/* Follow-ups go in from the main input below: it steers the running agent or queues for the next message */}
 
           {/* Conditional Content: Markdown or Terminal Console */}
           {viewMode === "markdown" ? (

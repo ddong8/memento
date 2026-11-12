@@ -2,7 +2,6 @@
 
 import { useState, useMemo, type CSSProperties } from "react";
 import { formatTokenCount, steerNote, taskRunSummary, taskToolKind, taskToolLabel, type TaskEvent, type TaskToolKind } from "@memento/core";
-import { authFetch, getApiBase } from "@/lib/api-client";
 import type { FileDevice } from "@/lib/file-devices";
 import { fmt, useI18n } from "@/lib/i18n";
 import { Icon } from "./aurora/Icon";
@@ -421,78 +420,3 @@ export default function TaskTimeline({
   );
 }
 
-/** A follow-up for a running Claude task; it reads it at its next step. */
-export function SteerBox({ taskId }: { taskId: string }) {
-  const { t } = useI18n();
-  const tl = t.taskRun;
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-
-  const send = async () => {
-    const value = text.trim();
-    if (!value || sending) return;
-    setSending(true);
-    setNote(null);
-    try {
-      const res = await authFetch(`${getApiBase()}/api/tasks/${taskId}/input`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: value }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-      if (data.ok) setText("");
-      else setNote(tl.steerFailed);
-    } catch {
-      setNote(tl.steerFailed);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.nativeEvent.isComposing) send();
-          }}
-          placeholder={tl.steerHint}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12.5,
-            padding: "7px 10px",
-            borderRadius: 8,
-            border: "1px solid var(--aurora-border-strong)",
-            background: "var(--aurora-surface-solid)",
-            color: "var(--aurora-fg1)",
-          }}
-        />
-        <button
-          type="button"
-          disabled={sending || !text.trim()}
-          onClick={send}
-          title={tl.steerSend}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 34,
-            borderRadius: 8,
-            border: "1px solid var(--aurora-accent)",
-            background: "var(--aurora-accent-soft)",
-            color: "var(--aurora-accent)",
-            cursor: sending || !text.trim() ? "default" : "pointer",
-            opacity: sending || !text.trim() ? 0.5 : 1,
-          }}
-        >
-          <Icon name="message" size={14} />
-        </button>
-      </div>
-      {note && <div style={{ fontSize: 12, color: "#B45309", marginTop: 4 }}>{note}</div>}
-    </div>
-  );
-}

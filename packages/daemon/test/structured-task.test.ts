@@ -243,3 +243,66 @@ it.skipIf(process.platform === "win32")(
   },
   45_000,
 );
+
+it.skipIf(process.platform === "win32")(
+  "An agent that doesn't read input mid-run: a follow-up is reported unsupported, not sent",
+  async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "nosteer_"));
+    const home = join(tmp, "home");
+    execFileSync("mkdir", ["-p", home]);
+    process.env.HOME = home;
+    const fake = join(sharedBin, "plainagent-memento");
+    writeFileSync(fake, "#!/bin/sh\necho working\nsleep 1\necho done\n");
+    chmodSync(fake, 0o755);
+
+    const taskId = "feedbeef-0000-4000-8000-000000000009";
+    const received: Record<string, unknown>[] = [];
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    let resolveDone!: (m: Record<string, unknown>) => void;
+    const finished = new Promise<Record<string, unknown>>((r) => (resolveDone = r));
+    wss.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "connected", device_name: "test" }));
+      ws.send(
+        JSON.stringify({
+          type: "task_dispatch",
+          task: { id: taskId, action: "agent", timeout_seconds: 60, payload: { binary: "plainagent-memento", prompt: "干活", cwd: tmp } },
+        }),
+      );
+      let steered = false;
+      ws.on("message", (raw) => {
+        const msg = JSON.parse(raw.toString()) as Record<string, unknown>;
+        received.push(msg);
+        if (!steered && JSON.stringify(msg).includes("working")) {
+          steered = true;
+          ws.send(JSON.stringify({ type: "task_input", task_id: taskId, input: "顺便看看 README" }));
+        }
+        if (msg.type === "task_finished") resolveDone(msg);
+      });
+    });
+    await new Promise((r) => wss.once("listening", r));
+    const port = (wss.address() as { port: number }).port;
+    const client = new WsTaskClient({
+      serverUrl: `http://127.0.0.1:${port}`,
+      token: "t",
+      deviceId: "dev",
+      deviceName: "test",
+      platform: "test",
+      extraWatchDirs: [],
+    });
+    void client.start();
+    const done = await finished;
+    client.dispose();
+    await new Promise((r) => wss.close(r));
+
+    const steers = received
+      .filter((m) => m.type === "agent_event")
+      .map((m) => m.event as Record<string, unknown>)
+      .filter((e) => e.kind === "steer");
+    expect(steers.map(({ text, status }) => ({ text, status }))).toEqual([{ text: "顺便看看 README", status: "unsupported" }]);
+    expect(done).toMatchObject({ status: "succeeded" });
+    try {
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {}
+  },
+  45_000,
+);

@@ -108,9 +108,9 @@ export function taskToolLabel(name: string | undefined): string {
 export function steerNote(status: string | undefined): string {
   switch (status) {
     case "late":
-      return "任务已结束，没来得及送达";
+      return "没赶上这一轮，这轮结束后自动接着发";
     case "unsupported":
-      return "这个 agent 不支持中途补充，等它做完后续接再说";
+      return "这个智能体运行中读不了补充，这轮结束后自动接着发";
     default:
       return "已送达，会在下一步读到";
   }

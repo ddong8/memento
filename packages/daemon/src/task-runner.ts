@@ -541,6 +541,8 @@ export class TaskRunner {
   private readonly answerers = new Map<string, (questionId: string | undefined, text: string) => boolean>();
   /** Tasks run by memento's own runners (Codex, Antigravity, WorkBuddy), which take answers as memento_answer lines. */
   private readonly runnerTasks = new Set<string>();
+  /** Agents that don't read stdin while they run (Google's agy CLI, the native CodeBuddy CLI, others): follow-ups wait for the next message. */
+  private readonly noSteerTasks = new Set<string>();
   private readonly eventLogs = new Map<string, AgentEventLog>();
   /** Per running task: its agent, the session it runs and, for WorkBuddy, the file of the gateway it is on. */
   private readonly taskSessions = new Map<string, { binary: string; sessionId?: string; gatewayFile?: string }>();
@@ -657,6 +659,7 @@ export class TaskRunner {
     this.taskPids.delete(taskId);
     this.steerInputs.delete(taskId);
     this.claudeTasks.delete(taskId);
+    this.noSteerTasks.delete(taskId);
 
     // The session runs in memento's gateway, which outlives the runner (and on Windows the runner is
     // killed outright, with no chance to cancel it itself): stop just this task's session there.
@@ -698,6 +701,10 @@ export class TaskRunner {
    */
   input(taskId: string, text: string, questionId?: string): void {
     if (this.answerers.get(taskId)?.(questionId, text)) return this.echoInput(taskId, text);
+    if (this.noSteerTasks.has(taskId)) {
+      this.emitEvent(taskId, { kind: "steer", text, status: "unsupported" });
+      return;
+    }
     const sink = this.steerInputs.get(taskId) ?? this.running.get(taskId)?.stdin;
     if (!sink?.writable) {
       this.emitEvent(taskId, { kind: "steer", text, status: "late" });
@@ -1185,6 +1192,7 @@ export class TaskRunner {
             prompt,
           ];
           parser = new ClaudeStreamParser();
+          this.noSteerTasks.add(taskId);
         }
       } else if (isAntigravity) {
         args = antigravityArgs({
@@ -1205,6 +1213,7 @@ export class TaskRunner {
           prompt,
         ];
         parser = new UniversalStreamParser();
+        this.noSteerTasks.add(taskId);
       }
     }
 
@@ -1229,6 +1238,7 @@ export class TaskRunner {
           officialAgy = true;
           delete env.ELECTRON_RUN_AS_NODE;
           this.runnerTasks.delete(taskId);
+          this.noSteerTasks.add(taskId);
           // A model that ran out of quota in an earlier task: straight to one that has some
           if (isExhausted(model)) {
             const next = nextAgyModel(await listAgyModels(cli, env), model, effort);
@@ -1551,6 +1561,7 @@ export class TaskRunner {
       this.claudeTasks.delete(taskId);
       this.answerers.delete(taskId);
       this.runnerTasks.delete(taskId);
+      this.noSteerTasks.delete(taskId);
       this.steerInputs.get(taskId)?.end();
       this.steerInputs.delete(taskId);
       this.running.delete(taskId);

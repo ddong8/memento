@@ -826,6 +826,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       await runAgentapi(agentapi, "send-message", cid, ans);
     } catch (e) {
       err(`Error forwarding answer to Antigravity: ${e instanceof Error ? e.message : String(e)}\n`);
+      emit({ kind: "steer", text: ans, status: "late" });
     }
   };
   // One line at a time, in order, as they come

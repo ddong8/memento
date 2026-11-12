@@ -720,7 +720,10 @@ async function main() {
     await rpcCall("session/prompt", {
       sessionId,
       prompt: [{ type: "text", text }],
-    }).catch(() => {});
+    })
+      // Refused: the page sends it as the next message. A timeout only means the follow-up's own turn runs long.
+      .then(({ reply }) => reply?.error && emit({ kind: "steer", text, status: "late" }))
+      .catch((e) => e?.name !== "TimeoutError" && emit({ kind: "steer", text, status: "late" }));
   });
 
   try {

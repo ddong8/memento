@@ -246,30 +246,21 @@ async def update_llm_settings(
 
 
 class AgentSettingsBody(BaseModel):
-    # Claude Code's auto-compact window for memento's runs, in tokens: 100000–1000000, or 0 for Claude Code's own default
-    claude_auto_compact_window: int | None = None
     # Run Claude Code under memento's own client name (true) or `claude -p`'s sdk-cli (false)
     claude_memento_client: bool | None = None
-    # How a resumed Claude Code session continues by default: auto / native / compact (claude_session.RESUME_MODES)
-    claude_resume_mode: str | None = None
 
 
 def _agent_settings(user: User) -> dict:
-    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window, memento_client, resume_mode
+    from ..services.claude_session import memento_client
 
     return {
-        "claude_auto_compact_window": auto_compact_window(user.llm_settings),
         "claude_memento_client": memento_client(user.llm_settings),
-        "claude_resume_mode": resume_mode(user.llm_settings),
-        "default_auto_compact_window": DEFAULT_AUTO_COMPACT_WINDOW,
-        # Above this a resumed Claude Code session starts from a compacted snapshot unless the user picks raw
-        "heavy_context_tokens": HEAVY_CONTEXT_TOKENS,
     }
 
 
 @router.get("/agent")
 async def get_agent_settings(user: User = Depends(get_current_user)) -> dict:
-    """How memento runs the user's coding agents (Claude Code's auto-compact window and client name)."""
+    """How memento runs the user's coding agents (the client name Claude Code runs under)."""
     return _agent_settings(user)
 
 
@@ -279,23 +270,15 @@ async def update_agent_settings(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    from ..services.claude_session import RESUME_MODES, valid_auto_compact_window
-
-    if body.claude_auto_compact_window is None and body.claude_memento_client is None and body.claude_resume_mode is None:
+    if body.claude_memento_client is None:
         raise HTTPException(status_code=422, detail="没有要修改的设置")
-    if body.claude_resume_mode is not None and body.claude_resume_mode not in RESUME_MODES:
-        raise HTTPException(status_code=422, detail="续接方式只能是 auto、native 或 compact")
     data = dict(user.llm_settings or {})
     agent = dict(data.get("agent") or {}) if isinstance(data.get("agent"), dict) else {}
-    if body.claude_auto_compact_window is not None:
-        window = valid_auto_compact_window(body.claude_auto_compact_window)
-        if window is None:
-            raise HTTPException(status_code=422, detail="自动压缩窗口要在 100000 到 1000000 token 之间，或填 0 跟随 Claude Code 默认")
-        agent["claude_auto_compact_window"] = window
     if body.claude_memento_client is not None:
         agent["claude_memento_client"] = body.claude_memento_client
-    if body.claude_resume_mode is not None:
-        agent["claude_resume_mode"] = body.claude_resume_mode
+    # Settings that are gone: compacting is Claude Code's own, and a session goes on in place
+    agent.pop("claude_resume_mode", None)
+    agent.pop("claude_auto_compact_window", None)
     data["agent"] = agent
     user.llm_settings = data
     await db.commit()

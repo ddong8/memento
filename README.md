@@ -502,7 +502,6 @@ memento/
 | `MEMENTO_CORS_ALLOW_ORIGIN_REGEX` | `.*` | 允许跨域访问的来源,生产建议只写你的域名 |
 | `MEMENTO_REMOTE_EXEC` | — | 设 `1` 允许给设备派 shell 命令 |
 | `MEMENTO_SHUTDOWN_DRAIN_SECONDS` | 600 | 发版时旧进程最多等进行中的回答多少秒再退出 |
-| `MEMENTO_CLAUDE_AUTO_COMPACT_WINDOW` | 200000 | 经 Memento 跑 Claude Code 时,上下文到多少 token 自动压缩 |
 | `MEMENTO_GEOIP_DB` | /data/geoip/GeoLite2-City.mmdb | GeoIP 数据库路径 |
 | `MEMENTO_DEBUG` | `0` | 设 `1` 允许 dev 默认值启动 |
 | `MEMENTO_PORT` | 8000 | API 监听端口 |

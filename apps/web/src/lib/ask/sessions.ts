@@ -41,7 +41,11 @@ export function isJunkSessionTitle(val?: string): boolean {
  * What the resume banner says about cost: the first step re-caching everything (right after another
  * client, or after the hour the cache lasts), and for a heavy session what raw vs compact resume means.
  */
-export function resumeCostNotes(cost: SessionResumeCost | null | undefined, compactMode: boolean, zh: boolean): string[] {
+export function resumeCostNotes(
+  cost: SessionResumeCost | null | undefined,
+  compactMode: boolean,
+  zh: boolean,
+): string[] {
   if (!cost) return [];
   const sizeText = formatContextTokens(cost.context_tokens, zh);
   const notes: string[] = [];
@@ -53,15 +57,15 @@ export function resumeCostNotes(cost: SessionResumeCost | null | undefined, comp
     }
     if (cost.heavy) {
       notes.push(compactMode
-        ? "已默认改为智能瘦身续接：先生成核心记忆快照，再开新会话接着做；确实需要完整上下文时可切回原生接续。"
-        : `原生接续后每执行一步都要带上全部上下文（${sizeText}），额度消耗远高于新会话，建议智能瘦身续接。`);
+        ? "这次从核心记忆快照新开一个会话接着做，之后都在新会话里原样继续。"
+        : `接着在原会话里做，上下文由 Claude Code 按模型自己的大小压缩，不会新开会话；每一步都带着全部上下文（${sizeText}）。`);
     }
   } else {
     if (cost.other_client_recent) notes.push(`Used in ${cost.last_client} ${cost.minutes_since_activity ?? 0} min ago: caches aren't shared, the first step re-caches ${sizeText}.`);
     else if (cost.cache_cold && cost.heavy) notes.push(`Idle for over an hour: the cache has expired, the first step re-caches ${sizeText}.`);
     if (cost.heavy) notes.push(compactMode
-      ? "Resuming from a compacted snapshot by default; switch to raw resume when the full context is needed."
-      : `Every raw-resume step carries ${sizeText} of history; compact resume is recommended.`);
+      ? "A new session starts from a snapshot; later turns go on in it in place."
+      : `It goes on in the same session, compacted by Claude Code by its model's own context; each step carries ${sizeText}.`);
   }
   return notes;
 }

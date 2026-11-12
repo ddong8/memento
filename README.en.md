@@ -502,7 +502,6 @@ With Docker Compose, put them all in `.env` at the repo root: the api and both c
 | `MEMENTO_CORS_ALLOW_ORIGIN_REGEX` | `.*` | Origins allowed cross-origin access; in production list only your domain |
 | `MEMENTO_REMOTE_EXEC` | — | Set `1` to allow dispatching shell commands to devices |
 | `MEMENTO_SHUTDOWN_DRAIN_SECONDS` | 600 | During a release, how long the old process waits for in-flight answers before exiting |
-| `MEMENTO_CLAUDE_AUTO_COMPACT_WINDOW` | 200000 | Token count at which Claude Code run through Memento compacts its context |
 | `MEMENTO_GEOIP_DB` | /data/geoip/GeoLite2-City.mmdb | GeoIP database path |
 | `MEMENTO_DEBUG` | `0` | set `1` to allow startup with dev defaults |
 | `MEMENTO_PORT` | 8000 | API listen port |

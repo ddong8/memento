@@ -262,25 +262,22 @@ async def _prepare_agent_args(
         args["title"] = conv_title
 
     orig_session_id = session_id
-    # Not chosen by the client: the user's resume mode (个人设置) decides. By default ("auto") a Claude Code
-    # session past the heavy threshold resumes from a compacted snapshot, whichever client asked (each raw
-    # step would carry its whole context, and after an idle hour the first one re-caches all of it).
-    # An explicit False keeps the raw resume.
-    if compact_mode is None and session_id and action == "agent" and execution_mode == "claude" and not fork:
-        from ..services.claude_session import resume_mode
-        mode = resume_mode(user.llm_settings)
-        if mode == "compact":
-            compact_mode = True
-        elif mode == "auto":
-            try:
-                from ..services.session_compactor import claude_resume_cost
-                from ..services.user_filter import user_machine_ids
-                cost = await claude_resume_cost(db, session_id, await user_machine_ids(db, user))
-                if cost.get("heavy"):
-                    compact_mode = True
-                    logger.info("Session %s carries %s tokens: resuming from a compacted snapshot", session_id, cost.get("context_tokens"))
-            except Exception as e:
-                logger.warning("Failed to size session %s for resume: %s", session_id, e)
+    # A session goes on in place, as in Claude Code, and the agent compacts it itself by its model's context.
+    # Only its first continuation on a device it isn't on (it can't be resumed there) starts from a compacted
+    # snapshot, in a new session on that device that later turns resume in place. The client can still ask for
+    # compacted: retrying one that overflowed.
+    if compact_mode is None and session_id and action == "agent" and not fork and device_id:
+        try:
+            from ..services.session_compactor import session_machine_id
+            from ..services.user_filter import find_machine_by_id_or_hash, user_machine_ids
+            target = await find_machine_by_id_or_hash(db, device_id, user)
+            home = await session_machine_id(db, session_id, await user_machine_ids(db, user)) if target else None
+            if target and home and home != target.id:
+                compact_mode = True
+                args["compact_reason"] = "elsewhere"
+                logger.info("Session %s isn't on %s: its first continuation there starts from a snapshot", session_id, device_id)
+        except Exception as e:
+            logger.warning("Failed to locate session %s for resume: %s", session_id, e)
     if compact_mode and session_id and action == "agent":
         try:
             from ..services.session_compactor import build_compacted_continuation
@@ -566,8 +563,12 @@ async def direct_agent_stream(
             compacted_from=compacted_from,
         )
         if compacted_from:
-            note = (f"\n⚡ [瘦身续接] 原会话 {compacted_from[:8]} 的上下文较大，这次从它的核心记忆快照新开一个 Claude Code 会话接着做；"
-                    "之后这个对话都在新会话里继续，电脑上的原会话不会再写入。个人设置里可以改成总是原生接续。\n\n")
+            if run_args.get("compact_reason") == "elsewhere":
+                note = (f"\n⚡ [跨设备续接] 原会话 {compacted_from[:8]} 不在这台设备上，没法原样接着写；这次用它的核心记忆快照在这台设备上新开一个会话，"
+                        "之后这个对话都在新会话里原样继续。\n\n")
+            else:
+                note = (f"\n⚡ [瘦身续接] 这次从原会话 {compacted_from[:8]} 的核心记忆快照新开一个会话接着做，"
+                        "之后这个对话都在新会话里继续，原会话不会再写入。\n\n")
             yield f"data: {json.dumps({'type': 'task_chunk', 'task_id': None, 'tool_call_id': call_id, 'device_name': device_id, 'stream': 'stdout', 'text': note}, ensure_ascii=False)}\n\n"
         for old in orphans:
             asked = str((old.payload or {}).get("user_question") or "").strip().replace("\n", " ")

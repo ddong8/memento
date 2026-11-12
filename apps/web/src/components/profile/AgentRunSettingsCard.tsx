@@ -1,35 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type AgentRunSettings, type ClaudeResumeMode } from "@/lib/api-client";
+import { api, type AgentRunSettings } from "@/lib/api-client";
 import { Glass, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { SmoothToggle } from "@/components/aurora/SmoothToggle";
 
-const WINDOWS: { value: number; label: string; hint: string }[] = [
-  { value: 200_000, label: "20 万", hint: "最省额度" },
-  { value: 300_000, label: "30 万", hint: "折中" },
-  { value: 500_000, label: "50 万", hint: "保留更多细节" },
-  { value: 0, label: "跟随 Claude Code", hint: "约 96.7 万才压缩" },
-];
-
-const wan = (n: number) => `${Math.round(n / 10_000)} 万`;
-
-const RESUME_MODES: { value: ClaudeResumeMode; label: string; hint: (heavy: string) => string }[] = [
-  { value: "auto", label: "自动", hint: (heavy) => `超过 ${heavy} token 时瘦身续接` },
-  { value: "native", label: "总是原生接续", hint: () => "电脑上的原会话接着写，双端同步，更耗额度" },
-  { value: "compact", label: "总是瘦身续接", hint: () => "每次都从快照新开会话，最省额度" },
-];
-
 // Kept across tab switches so the card shows at once
 let cached: AgentRunSettings | null = null;
 
-/** Claude Code's auto-compact window and client name for memento's runs, and when a resume starts from a snapshot. */
+/** The client name Claude Code runs under in memento's runs. */
 export function AgentRunSettingsCard() {
   const [settings, setSettings] = useState<AgentRunSettings | null>(() => cached);
-  const [saving, setSaving] = useState<number | null>(null);
   const [savingClient, setSavingClient] = useState(false);
-  const [savingMode, setSavingMode] = useState<ClaudeResumeMode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,21 +24,6 @@ export function AgentRunSettingsCard() {
       })
       .catch(() => setError("没读到当前设置，稍后再试"));
   }, []);
-
-  const choose = async (value: number) => {
-    if (!settings || saving !== null || value === settings.claude_auto_compact_window) return;
-    setSaving(value);
-    setError(null);
-    try {
-      const next = await api.updateAgentRunSettings({ claude_auto_compact_window: value });
-      cached = next;
-      setSettings(next);
-    } catch {
-      setError("保存失败，请重试");
-    } finally {
-      setSaving(null);
-    }
-  };
 
   const setMementoClient = async (on: boolean) => {
     if (!settings || savingClient || on === settings.claude_memento_client) return;
@@ -72,111 +40,17 @@ export function AgentRunSettingsCard() {
     }
   };
 
-  const chooseMode = async (mode: ClaudeResumeMode) => {
-    if (!settings || savingMode || mode === settings.claude_resume_mode) return;
-    setSavingMode(mode);
-    setError(null);
-    try {
-      const next = await api.updateAgentRunSettings({ claude_resume_mode: mode });
-      cached = next;
-      setSettings(next);
-    } catch {
-      setError("保存失败，请重试");
-    } finally {
-      setSavingMode(null);
-    }
-  };
-
-  const current = settings?.claude_auto_compact_window;
-  const mode = settings?.claude_resume_mode ?? "auto";
-
   return (
     <Glass className="p-6 space-y-4">
       <div className="flex items-center gap-2">
         <Icon name="sparkles" size={16} style={{ color: "#10B981" }} />
-        <SectionLabel>Claude Code 上下文压缩</SectionLabel>
+        <SectionLabel>Claude Code 运行方式</SectionLabel>
       </div>
       <p className="text-xs text-[var(--aurora-fg3)] leading-relaxed">
-        Claude Code 每执行一步都要带上整段上下文，会话越长每步越贵。memento 用 claude -p 运行它，Claude Code
-        自带的空闲压缩不生效，1M 上下文的模型要到约 96.7 万 token 才自动压缩。这里设定上下文涨到多少时自动压缩：
-        用最近 7 个大会话回放，设为 20 万总消耗少约 22%。
+        续接和在 Claude Code 里一样：一直在原会话里接着做，上下文由 Claude Code 按模型自己的大小压缩，会话号和标题都不变；
+        只有你自己新建会话才会开新会话。唯一的例外是会话第一次换到另一台设备上续接（那台设备上没有原会话），
+        这时用它的核心记忆快照在那台设备上开一个会话，之后都在这个会话里原样继续。
       </p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {WINDOWS.map((w) => {
-          const active = current === w.value;
-          return (
-            <button
-              key={w.value}
-              type="button"
-              disabled={!settings || saving !== null}
-              onClick={() => choose(w.value)}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                textAlign: "left",
-                cursor: settings && saving === null ? "pointer" : "default",
-                background: active ? "rgba(16,185,129,0.10)" : "var(--aurora-chip)",
-                border: `1px solid ${active ? "rgba(16,185,129,0.55)" : "var(--aurora-border)"}`,
-                transition: "background .15s, border-color .15s",
-              }}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold" style={{ color: active ? "#10B981" : "var(--aurora-fg1)" }}>
-                  {w.label}
-                </span>
-                {active && <Icon name="check" size={13} style={{ color: "#10B981" }} />}
-                {saving === w.value && <span className="text-[11px] text-[var(--aurora-fg4)]">保存中…</span>}
-              </div>
-              <div className="text-[11px] text-[var(--aurora-fg4)] mt-0.5">
-                {w.hint}
-                {settings && w.value === settings.default_auto_compact_window ? " · 默认" : ""}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="text-[11px] text-[var(--aurora-fg4)] leading-relaxed space-y-1">
-        <div>设备上的 Memento 要 1.0.85 及以上才会按这里的设置压缩。</div>
-      </div>
-      <div className="space-y-2">
-        <div className="text-xs font-semibold text-[var(--aurora-fg1)]">续接历史会话</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {RESUME_MODES.map((m) => {
-            const active = mode === m.value;
-            return (
-              <button
-                key={m.value}
-                type="button"
-                disabled={!settings || savingMode !== null}
-                onClick={() => chooseMode(m.value)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  textAlign: "left",
-                  cursor: settings && savingMode === null ? "pointer" : "default",
-                  background: active ? "rgba(16,185,129,0.10)" : "var(--aurora-chip)",
-                  border: `1px solid ${active ? "rgba(16,185,129,0.55)" : "var(--aurora-border)"}`,
-                  transition: "background .15s, border-color .15s",
-                }}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-semibold" style={{ color: active ? "#10B981" : "var(--aurora-fg1)" }}>
-                    {m.label}
-                  </span>
-                  {active && <Icon name="check" size={13} style={{ color: "#10B981" }} />}
-                  {savingMode === m.value && <span className="text-[11px] text-[var(--aurora-fg4)]">保存中…</span>}
-                </div>
-                <div className="text-[11px] text-[var(--aurora-fg4)] mt-0.5">
-                  {m.hint(settings ? wan(settings.heavy_context_tokens) : "15 万")}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        <div className="text-[11px] text-[var(--aurora-fg4)] leading-relaxed">
-          瘦身续接先生成核心记忆快照，再新开一个 Claude Code 会话接着做，新会话和原会话同名，对话里会注明接续自哪个会话。对话页的续接横幅里还可以临时切换这一次的方式。
-        </div>
-      </div>
       <div
         className="flex items-center justify-between gap-4 p-3.5 rounded-xl"
         style={{ background: "var(--aurora-surface, rgba(255, 255, 255, 0.55))", border: "1px solid var(--aurora-border)" }}

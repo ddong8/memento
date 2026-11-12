@@ -10,10 +10,10 @@ or after an hour, first re-writes the whole context to the cache.
 Measured on a 276 MB session resumed from memento: about 510k tokens per step, with 320k–590k
 re-cached at every switch from VS Code and after every idle hour.
 
-Claude Code's own remedies don't reach `claude -p`: idle compaction (summarize a 200k+ conversation
-after ~54 idle minutes) only runs in the terminal / VS Code / desktop app, and on 1M-context models
-auto-compaction waits until about 967k. So memento compacts heavy sessions itself before resuming
-them, and gives each run an auto-compact window (`autoCompactWindow`, the user's setting below).
+Compacting is left to Claude Code itself, by each model's own context window, as in the terminal: memento
+sets no window of its own and never starts a new session on its own. The one exception is a session's first
+continuation where it can't go on in place (it isn't on the device that runs this turn): that starts from a
+compacted snapshot (ask_stream), and later turns resume the new session in place.
 """
 
 from __future__ import annotations
@@ -22,17 +22,13 @@ import json
 import os
 from datetime import datetime, timezone
 
-# Above this much context a resume is suggested to start from a compacted snapshot instead.
+# Above this much context the resume banner says how much each step carries.
 HEAVY_CONTEXT_TOKENS = int(os.environ.get("MEMENTO_SESSION_HEAVY_TOKENS", "150000"))
 # Claude Code writes its prompt cache for an hour.
 CACHE_TTL_MINUTES = 60
 # The client names memento's runs carry: its own, or sdk-cli (before desktop 1.0.94, or when the user keeps it)
 MEMENTO_CLIENT = "memento"
 MEMENTO_CLIENTS = frozenset({MEMENTO_CLIENT, "sdk-cli"})
-# The auto-compact window memento runs Claude Code with unless the user picks another; 0 = Claude Code's
-# own default. Replaying the 7 largest memento sessions of 2026-10-23..27, 200k cut their cost by 22%.
-DEFAULT_AUTO_COMPACT_WINDOW = int(os.environ.get("MEMENTO_CLAUDE_AUTO_COMPACT_WINDOW", "200000"))
-AUTO_COMPACT_MIN, AUTO_COMPACT_MAX = 100_000, 1_000_000
 CLIENT_NAMES = {"claude-vscode": "VS Code", "cli": "终端", "sdk-cli": "Memento", MEMENTO_CLIENT: "Memento"}
 
 
@@ -98,41 +94,12 @@ def resume_cost(meta: dict | None, now: datetime | None = None) -> dict:
     }
 
 
-def valid_auto_compact_window(value: object) -> int | None:
-    """0 (Claude Code's default) or a window Claude Code accepts, 100k–1M tokens; None otherwise."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value if value == 0 or AUTO_COMPACT_MIN <= value <= AUTO_COMPACT_MAX else None
-
-
-def auto_compact_window(llm_settings: dict | None) -> int:
-    """The window this user's Claude Code runs get (0: leave Claude Code's default)."""
-    agent = (llm_settings or {}).get("agent")
-    chosen = valid_auto_compact_window(agent.get("claude_auto_compact_window")) if isinstance(agent, dict) else None
-    if chosen is not None:
-        return chosen
-    return valid_auto_compact_window(DEFAULT_AUTO_COMPACT_WINDOW) or 0
-
-
 def memento_client(llm_settings: dict | None) -> bool:
     """Whether this user's Claude Code runs go out under memento's own client name (the default) instead of
     sdk-cli. As sdk-cli their sessions are hidden from `claude --resume` in the terminal, and the 5-hour limit
     is reported to drain faster (anthropics/claude-code#97074)."""
     agent = (llm_settings or {}).get("agent")
     return not (isinstance(agent, dict) and agent.get("claude_memento_client") is False)
-
-
-# How a resumed Claude Code session continues when the client doesn't choose: "auto" compacts the ones past
-# HEAVY_CONTEXT_TOKENS, "native" always resumes the session itself (it keeps being written on the PC, every
-# step carrying its whole context), "compact" always starts a new session from a snapshot
-RESUME_MODES = ("auto", "native", "compact")
-
-
-def resume_mode(llm_settings: dict | None) -> str:
-    """This user's choice of RESUME_MODES (auto when unset)."""
-    agent = (llm_settings or {}).get("agent")
-    mode = agent.get("claude_resume_mode") if isinstance(agent, dict) else None
-    return mode if mode in RESUME_MODES else "auto"
 
 
 def claude_entrypoint(llm_settings: dict | None) -> str:

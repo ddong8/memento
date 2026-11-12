@@ -28,7 +28,7 @@ const ShareModal = dynamic(
 );
 
 
-import type { AgentCapabilities, ClaudeResumeMode, SessionResumeCost } from "@/lib/api-client";
+import type { AgentCapabilities, SessionResumeCost } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
@@ -247,10 +247,6 @@ function AskPageContent() {
   const [compactMode, setCompactMode] = useState<boolean>(() => askCache?.compactMode || false);
   /** Real context size and resume-cost hints of Claude Code sessions, by session id */
   const [sessionCosts, setSessionCosts] = useState<Record<string, SessionResumeCost>>({});
-  /** Sessions whose compact / raw resume the user picked: the heavy-session default leaves them alone */
-  const compactChosenRef = useRef<Set<string>>(new Set());
-  /** The user's resume mode (个人设置): what a resumed session does when the banner isn't switched */
-  const [resumeMode, setResumeMode] = useState<ClaudeResumeMode>("auto");
   /** Bumped when a run ends: the session has grown, so its size is read again for the banner */
   const [sessionCostTick, setSessionCostTick] = useState(0);
   const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
@@ -758,23 +754,17 @@ function AskPageContent() {
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
 
-  useEffect(() => {
-    api.getAgentRunSettings().then((s) => setResumeMode(s.claude_resume_mode || "auto")).catch(() => {});
-  }, []);
-
-  // Each step of a resumed Claude Code session carries its whole context (one resumed from here was
-  // ~510k tokens a step). By default ("auto") above the server's threshold the resume starts from a
-  // compacted snapshot, said so in the banner; the user's resume mode can make it always raw or always
-  // compacted. Switching in the banner is remembered per session.
+  // A resumed Claude Code session goes on in the session itself, as in Claude Code, which compacts it by
+  // its model's own context: memento never starts a new session on its own (the server does only for a
+  // session's first continuation on a device it isn't on). Retrying one that overflowed asks for compacted.
   useEffect(() => {
     const sid = selectedSessionId;
     if (!sid || executionMode !== "claude") return;
-    if (resumeMode !== "auto" && !compactChosenRef.current.has(sid)) setCompactMode(resumeMode === "compact");
+    setCompactMode(false);
     let cancelled = false;
     const apply = (cost: SessionResumeCost) => {
       if (cancelled) return;
       setSessionCosts((prev) => ({ ...prev, [sid]: cost }));
-      if (resumeMode === "auto" && cost.heavy && !compactChosenRef.current.has(sid)) setCompactMode(true);
     };
     const fetchCost = () =>
       api.getSessionStats(sid)
@@ -792,7 +782,7 @@ function AskPageContent() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [selectedSessionId, sessions, executionMode, sessionCostTick, resumeMode]);
+  }, [selectedSessionId, sessions, executionMode, sessionCostTick]);
 
   const openSingleShare = useCallback((convId: string, title?: string) => {
     setShareTargetId(convId);
@@ -3643,7 +3633,6 @@ function AskPageContent() {
     isNewChatModeRef.current = false;
 
     const effectiveSessionId = options?.overrideSessionId !== undefined ? options.overrideSessionId : selectedSessionId;
-    const effectiveCompact = options?.forceCompact !== undefined ? options.forceCompact : compactMode;
 
     // Snapshot history BEFORE appending, preserving tool execution results for follow-up turns
     const history = turns
@@ -3747,12 +3736,9 @@ function AskPageContent() {
           model: selectedModel,
           effort: selectedEffort,
           session_id: effectiveSessionId,
-          // The user's own pick (the banner switch, or retrying compacted) goes as is, raw included; left
-          // out, the server compacts a session past the heavy threshold itself
-          compact_mode:
-            options?.forceCompact !== undefined || (effectiveSessionId && compactChosenRef.current.has(effectiveSessionId))
-              ? effectiveCompact
-              : effectiveCompact || undefined,
+          // Only retrying compacted asks for it; left out, the session goes on in place (the server starts
+          // one from a snapshot only on a device the session isn't on)
+          compact_mode: options?.forceCompact || undefined,
           project_id: selectedProjectId,
           worktree: worktreeMode && ["codex", "claude", "antigravity", "workbuddy"].includes(executionMode) ? true : undefined,
           // "" goes too: it clears a code device the conversation had
@@ -6107,9 +6093,7 @@ function AskPageContent() {
                       })()}
                       {sessions.map((s) => {
                         const sid = s.session_id || s.conversation_id;
-                        const isHeavy = s.resume ? s.resume.heavy : (s.compact_recommended || s.message_count > 35 || (s.file_size_bytes && s.file_size_bytes > 300_000));
                         const size = s.resume ? ` · ${formatContextTokens(s.resume.context_tokens, isZh)}` : "";
-                        const tag = isHeavy ? (isZh ? " [⚠️ 建议瘦身]" : " [⚠️ compact]") : "";
                         const matched = conversations.find((c) => c.config?.session_id === sid || c.id === sid);
                         const cleanTitle = (!isJunkSessionTitle(matched?.title) ? matched?.title : undefined)
                           || (!isJunkSessionTitle(s.title) ? s.title : undefined)
@@ -6118,7 +6102,7 @@ function AskPageContent() {
                         const display = cleanTitle || (sid ? sid.slice(0, 10) + "..." : "会话");
                         return (
                           <option key={sid} value={sid} style={{ background: "var(--aurora-surface-solid)", color: "var(--aurora-fg1)" }}>
-                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{size}{tag}
+                            💬 {display.length > 25 ? display.slice(0, 25) + "..." : display}{size}
                           </option>
                         );
                       })}
@@ -6159,12 +6143,6 @@ function AskPageContent() {
                 totalTurns={totalTurns}
                 knownCost={sessionCosts[selectedSessionId]}
                 compactMode={compactMode}
-                onToggleCompact={() => {
-                  const next = !compactMode;
-                  compactChosenRef.current.add(selectedSessionId);
-                  setCompactMode(next);
-                  persistCurrentConfig({ compact_mode: next });
-                }}
                 showContext={showSessionContext}
                 onToggleContext={() => setShowSessionContext(!showSessionContext)}
                 onExit={() => handleSelectSession("")}

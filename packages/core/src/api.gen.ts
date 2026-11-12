@@ -4094,8 +4094,6 @@ export interface components {
         };
         /** AgentSettingsBody */
         AgentSettingsBody: {
-            /** Claude Auto Compact Window */
-            claude_auto_compact_window?: number | null;
             /** Claude Memento Client */
             claude_memento_client?: boolean | null;
         };

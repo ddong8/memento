@@ -80,7 +80,7 @@ def test_claude_runs_under_mementos_name_unless_the_user_keeps_sdk_cli():
     assert not memento_client(off) and claude_entrypoint(off) == "sdk-cli"
 
 
-def test_agent_settings_save_either_field_alone():
+def test_agent_settings_save_the_client_name_and_drop_old_keys():
     import asyncio
     from types import SimpleNamespace
 
@@ -93,15 +93,10 @@ def test_agent_settings_save_either_field_alone():
         async def commit(self):
             pass
 
-    user = SimpleNamespace(llm_settings={"agent": {"claude_auto_compact_window": 300_000}})
+    # memento sets no resume mode or compaction window any more: old stored choices go on the next save
+    user = SimpleNamespace(llm_settings={"agent": {"claude_auto_compact_window": 300_000, "claude_resume_mode": "compact"}})
     out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_memento_client=False), Db(), user))
-    assert out["claude_memento_client"] is False and out["claude_auto_compact_window"] == 300_000
-    out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_auto_compact_window=500_000), Db(), user))
-    assert out["claude_memento_client"] is False and out["claude_auto_compact_window"] == 500_000
+    assert out == {"claude_memento_client": False}
+    assert user.llm_settings["agent"] == {"claude_memento_client": False}
     with pytest.raises(HTTPException):
         asyncio.run(update_agent_settings(AgentSettingsBody(), Db(), user))
-    assert out["claude_resume_mode"] == "auto"
-    out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_resume_mode="native"), Db(), user))
-    assert out["claude_resume_mode"] == "native" and out["claude_auto_compact_window"] == 500_000
-    with pytest.raises(HTTPException):
-        asyncio.run(update_agent_settings(AgentSettingsBody(claude_resume_mode="always"), Db(), user))

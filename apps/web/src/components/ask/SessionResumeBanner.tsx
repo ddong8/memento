@@ -21,7 +21,6 @@ export function SessionResumeBanner({
   totalTurns,
   knownCost,
   compactMode,
-  onToggleCompact,
   showContext,
   onToggleContext,
   onExit,
@@ -37,7 +36,6 @@ export function SessionResumeBanner({
   /** The session's size as last read for the banner; else what the session list says */
   knownCost: SessionResumeCost | undefined;
   compactMode: boolean;
-  onToggleCompact: () => void;
   showContext: boolean;
   onToggleContext: () => void;
   onExit: () => void;
@@ -72,7 +70,6 @@ export function SessionResumeBanner({
   const previewMsgs = msgs.slice(-5);
   const totalCount = activeSession?.message_count || (isCurrentActive ? (totalTurns || turns.length) : msgs.length);
   const cost = knownCost || activeSession?.resume || null;
-  const isHeavy = cost ? cost.heavy : (activeSession?.compact_recommended || totalCount > 35 || ((activeSession?.file_size_bytes || 0) > 300_000));
   const sizeText = cost ? formatContextTokens(cost.context_tokens, isZh) : "";
   const costNotes = resumeCostNotes(cost, compactMode, isZh);
 
@@ -103,35 +100,8 @@ export function SessionResumeBanner({
           <span style={{ fontSize: 11, color: "var(--aurora-fg3)", flexShrink: 0 }}>
             ({sizeText ? `${isZh ? "上下文" : "context "}${sizeText} · ` : ""}{isZh ? `共 ${totalCount} 条消息` : `${totalCount} msgs`})
           </span>
-          {isHeavy && (
-            <span style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 4, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
-              ⚠️ {isZh ? "建议瘦身" : "Long"}
-            </span>
-          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={onToggleCompact}
-            style={{
-              background: compactMode ? "rgba(16, 185, 129, 0.18)" : "var(--aurora-chip)",
-              border: `1px solid ${compactMode ? "#10b981" : "var(--aurora-border)"}`,
-              color: compactMode ? "#10b981" : "var(--aurora-fg2)",
-              cursor: "pointer",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 6,
-              fontWeight: compactMode ? 600 : 500,
-              transition: "all 0.15s ease",
-            }}
-            title={compactMode ? (isZh ? "已开启智能记忆压缩（轻装接续）" : "Smart compaction active") : (isZh ? "切换为智能瘦身模式" : "Switch to smart compact")}
-          >
-            <Icon name="sparkles" size={11} />
-            <span>{compactMode ? (isZh ? "智能瘦身接续" : "Smart Compact") : (isZh ? "原生接续" : "Raw Resume")}</span>
-          </button>
           <button
             type="button"
             onClick={onToggleContext}

@@ -532,6 +532,12 @@ async def _find_session(db: AsyncSession, session_id: str, machine_ids: list | N
     return (await db.execute(q)).scalar_one_or_none()
 
 
+async def session_machine_id(db: AsyncSession, session_id: str, machine_ids: list | None = None) -> uuid.UUID | None:
+    """The device a session memento has synced is on (where it can be resumed); None when it isn't known."""
+    doc = await _find_session(db, session_id, machine_ids)
+    return doc.machine_id if doc else None
+
+
 async def claude_resume_cost(db: AsyncSession, session_id: str, machine_ids: list | None = None) -> dict[str, Any]:
     """resume_cost of a Claude Code session memento has synced; {} when it isn't one or its size is unknown."""
     from .claude_session import resume_cost

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CLAUDE_HOST_KEYS, executionEnvironment } from "../src/exec-env.js";
-import { antigravityArgs, autoCompactWindow, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound } from "../src/task-runner.js";
+import { antigravityArgs, CLAUDE_CLIENT_NAME, claudeArgs, claudeClientEnv, codexArgs, isSessionNotFound } from "../src/task-runner.js";
 
 describe("agent launch arguments", () => {
   it("Claude Code asks its questions over stdio, with every other tool still allowed", () => {
@@ -73,13 +73,6 @@ describe("agent launch arguments", () => {
     expect(isSessionNotFound("thread not found")).toBe(true);
     expect(isSessionNotFound("session not found")).toBe(true);
     expect(isSessionNotFound("Normal response without errors")).toBe(false);
-  });
-
-  it("the auto-compact window is passed only when Claude Code accepts it (100k–1M tokens)", () => {
-    expect(autoCompactWindow(200000)).toBe(200000);
-    expect(autoCompactWindow("300000")).toBe(300000);
-    expect(autoCompactWindow(1_000_000)).toBe(1_000_000);
-    for (const v of [0, 99_999, 1_000_001, 200000.5, "", "200k", null, undefined, NaN]) expect(autoCompactWindow(v)).toBeUndefined();
   });
 
   it("Claude Code runs under memento's name unless the user keeps sdk-cli, without the Artifact tools", () => {

@@ -1,4 +1,4 @@
-"""A heavy Claude Code session resumes from a compacted snapshot unless the client asked for raw."""
+"""A resumed Claude Code session goes on in place, as in Claude Code: only its first continuation on another device starts from a snapshot."""
 
 import asyncio
 import uuid
@@ -6,12 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.db.models import User
 from server.services import ask_stream
-from server.services.claude_session import auto_compact_window, resume_mode, valid_auto_compact_window
+from types import SimpleNamespace
 
 USER = User(id=uuid.uuid4(), email="u@example.com", role="owner")
 
 
-def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None, events=None):
+MINI, PC = uuid.uuid4(), uuid.uuid4()
+
+
+def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None, events=None, home=MINI):
     """The args direct_agent_stream hands to the device, for a resume of session "sess-1"."""
     sent: dict = {}
     user = User(id=USER.id, email=USER.email, role="owner", llm_settings={"agent": {"claude_resume_mode": mode}} if mode else {})
@@ -38,6 +41,8 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None,
 
     with patch("server.services.orchestrator._tool_run_on_device", fake_run), \
          patch("server.services.user_filter.user_machine_ids", AsyncMock(return_value=["m1"])), \
+         patch("server.services.user_filter.find_machine_by_id_or_hash", AsyncMock(return_value=SimpleNamespace(id=MINI))), \
+         patch("server.services.session_compactor.session_machine_id", AsyncMock(return_value=home)), \
          patch("server.services.session_compactor.claude_resume_cost", AsyncMock(return_value=cost)) as sized, \
          patch("server.services.session_compactor.build_compacted_continuation",
                AsyncMock(return_value={"injected_context": "【前序会话核心记忆快照】……"})), \
@@ -49,75 +54,60 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None,
     return sent, sized
 
 
-def test_heavy_session_not_chosen_resumes_compacted():
-    sent, _ = _dispatch(None, {"context_tokens": 342_668, "heavy": True})
+HEAVY_COLD = {"context_tokens": 342_668, "heavy": True, "cache_cold": True, "minutes_since_activity": 600}
+
+
+def test_a_heavy_session_not_chosen_goes_on_in_place():
+    # memento never starts a new session on its own, whatever an old resume-mode setting said
+    for mode in (None, "auto", "compact"):
+        sent, sized = _dispatch(None, HEAVY_COLD, mode=mode)
+        assert sent["session_id"] == "sess-1" and "compact_mode" not in sent and "parent_session_id" not in sent, mode
+        sized.assert_not_awaited()
+
+
+def test_the_user_picking_compact_starts_from_a_snapshot():
+    sent, _ = _dispatch(True, HEAVY_COLD)
     assert "session_id" not in sent
     assert sent["compact_mode"] is True and sent["parent_session_id"] == "sess-1"
     assert sent["prompt"].startswith("【前序会话核心记忆快照】") and sent["prompt"].endswith("继续")
 
 
 def test_explicit_raw_resume_is_kept():
-    sent, sized = _dispatch(False, {"context_tokens": 342_668, "heavy": True})
+    sent, sized = _dispatch(False, HEAVY_COLD)
     assert sent["session_id"] == "sess-1" and "compact_mode" not in sent
     sized.assert_not_awaited()
 
 
-def test_light_or_unknown_session_resumes_raw():
-    for cost in ({"context_tokens": 90_000, "heavy": False}, {}):
-        sent, _ = _dispatch(None, cost)
-        assert sent["session_id"] == "sess-1"
+def test_the_first_continuation_on_another_device_starts_from_a_snapshot():
+    # the session is on the PC, the run goes to the mini: it can't be resumed there
+    events: list = []
+    sent, _ = _dispatch(None, HEAVY_COLD, home=PC, events=events)
+    assert "session_id" not in sent and sent["compact_mode"] is True and sent["parent_session_id"] == "sess-1"
+    assert sent["prompt"].startswith("【前序会话核心记忆快照】")
+    assert "[跨设备续接] 原会话 sess-1 不在这台设备上" in "".join(events)
 
 
-def test_only_claude_and_not_forks_are_sized():
-    for kwargs in ({"execution_mode": "codex"}, {"fork": True}):
-        sent, sized = _dispatch(None, {"context_tokens": 342_668, "heavy": True}, **kwargs)
-        assert sent["session_id"] == "sess-1"
-        sized.assert_not_awaited()
+def test_a_session_on_this_device_or_unknown_goes_on_in_place():
+    for home in (MINI, None):
+        sent, _ = _dispatch(None, HEAVY_COLD, home=home)
+        assert sent["session_id"] == "sess-1" and "compact_mode" not in sent, home
 
 
-def test_auto_compact_window_setting():
-    assert auto_compact_window({}) == 200_000
-    assert auto_compact_window({"agent": {"claude_auto_compact_window": 0}}) == 0
-    assert auto_compact_window({"agent": {"claude_auto_compact_window": 500_000}}) == 500_000
-    # a value Claude Code wouldn't accept falls back to the default
-    assert auto_compact_window({"agent": {"claude_auto_compact_window": 50_000}}) == 200_000
-    for bad in (99_999, 1_000_001, True, "200000", None):
-        assert valid_auto_compact_window(bad) is None
-
-
-def test_resume_mode_setting():
-    assert resume_mode({}) == "auto"
-    assert resume_mode({"agent": {"claude_resume_mode": "native"}}) == "native"
-    assert resume_mode({"agent": {"claude_resume_mode": "bogus"}}) == "auto"
-
-
-def test_always_native_never_compacts_a_heavy_session():
-    sent, sized = _dispatch(None, {"context_tokens": 342_668, "heavy": True}, mode="native")
-    assert sent["session_id"] == "sess-1" and "compact_mode" not in sent
-    sized.assert_not_awaited()
-
-
-def test_always_compact_compacts_a_light_session():
-    sent, sized = _dispatch(None, {"context_tokens": 20_000, "heavy": False}, mode="compact")
-    assert sent["compact_mode"] is True and "session_id" not in sent
-    sized.assert_not_awaited()
-
-
-def test_the_client_choice_beats_the_setting():
-    sent, _ = _dispatch(False, {}, mode="compact")
+def test_explicit_raw_resume_on_another_device_is_kept():
+    sent, _ = _dispatch(False, HEAVY_COLD, home=PC)
     assert sent["session_id"] == "sess-1" and "compact_mode" not in sent
 
 
 def test_a_compacted_resume_says_so_in_the_conversation():
     events: list = []
-    _dispatch(None, {"context_tokens": 342_668, "heavy": True}, events=events)
+    _dispatch(True, HEAVY_COLD, events=events)
     text = "".join(events)
-    assert "[瘦身续接] 原会话 sess-1" in text
+    assert "[瘦身续接] 这次从原会话 sess-1" in text
     assert "已新开会话 `new-5678`，接续自 `sess-1`" in text
 
 
 def test_a_raw_resume_says_nothing_about_a_new_session():
     events: list = []
-    _dispatch(None, {"context_tokens": 90_000, "heavy": False}, events=events)
+    _dispatch(None, HEAVY_COLD, events=events)
     text = "".join(events)
     assert "瘦身续接" not in text and "已新开会话" not in text

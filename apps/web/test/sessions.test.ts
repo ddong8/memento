@@ -29,8 +29,9 @@ describe("session resume banner", () => {
     const notes = resumeCostNotes(cost({}), true, true);
     expect(notes[0]).toContain("缓存已过期");
     expect(notes[0]).toContain("约 34 万 token");
-    expect(notes[1]).toContain("智能瘦身续接");
-    expect(resumeCostNotes(cost({}), false, true)[1]).toContain("建议智能瘦身续接");
+    expect(notes[1]).toContain("核心记忆快照新开一个会话");
+    // raw, as in Claude Code: compacted in place by the model's own context
+    expect(resumeCostNotes(cost({}), false, true)[1]).toContain("由 Claude Code 按模型自己的大小压缩");
   });
 
   it("another client just used it: its cache isn't shared", () => {
@@ -41,5 +42,14 @@ describe("session resume banner", () => {
   it("a light, warm session needs no note", () => {
     expect(resumeCostNotes(cost({ heavy: false, cache_cold: false, context_tokens: 40_000 }), false, true)).toEqual([]);
     expect(resumeCostNotes(null, false, true)).toEqual([]);
+  });
+});
+
+describe("a heavy session resumed raw", () => {
+  it("stays one session: Claude Code compacts it in place by its model's own context", () => {
+    const warm = cost({ context_tokens: 150_575, minutes_since_activity: 1, cache_cold: false });
+    expect(resumeCostNotes(warm, false, true)).toEqual([expect.stringContaining("接着在原会话里做")]);
+    expect(resumeCostNotes(warm, false, true)[0]).toContain("不会新开会话");
+    expect(resumeCostNotes(warm, false, false)).toEqual([expect.stringContaining("compacted by Claude Code by its model's own context")]);
   });
 });

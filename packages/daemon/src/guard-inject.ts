@@ -177,6 +177,8 @@ export async function trustCodexHook(hooksFile: string, command: string, home = 
   const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("codex app-server 没有响应")), 20_000).unref());
   const exited = new Promise<never>((_, reject) => {
     server.once("error", (e) => reject(e));
+    // An app-server that quits before reading fails our writes with EPIPE, which would crash the daemon unhandled
+    server.stdin.on("error", (e) => reject(e));
     server.once("exit", (code) => reject(new Error(`codex app-server 退出（${code ?? "signal"}）`)));
   });
   const work = (async () => {

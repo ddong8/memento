@@ -656,6 +656,10 @@ export async function readCodexRateLimits(timeoutMs = 10_000, now = Date.now()):
     const timer = setTimeout(() => finish(undefined), timeoutMs);
     child.on("error", () => finish(undefined));
     child.on("exit", () => finish(undefined));
+    // An app-server that quits before reading (signed out, broken install) makes the writes below fail
+    // with EPIPE; unhandled, that error would take the whole daemon down
+    child.stdin?.on("error", () => finish(undefined));
+    child.stdout?.on("error", () => finish(undefined));
     let buf = "";
     child.stdout?.on("data", (c: Buffer) => {
       buf += c.toString("utf8");

@@ -60,7 +60,7 @@ function run(file: string, args: string[], env: NodeJS.ProcessEnv, timeout = 20_
     execFile(file, args, { env, timeout, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === "number" ? Number((err as { code: number }).code) : 1) : 0;
       resolve({ code, out: plainText(`${stdout}\n${stderr}`) });
-    }).stdin?.end();
+    }).stdin?.on("error", () => {}).end();
   });
 }
 
@@ -153,6 +153,8 @@ export class AgentLogins {
     };
     proc.stdout?.on("data", onData);
     proc.stderr?.on("data", onData);
+    // A login that already quit fails the code write with EPIPE: its exit is reported, don't crash on the write
+    proc.stdin?.on("error", () => {});
     proc.on("error", (e) => {
       s.out += `\n${e.message}`;
       s.exited = true;

@@ -40,6 +40,8 @@ function git(args: string[], cwd: string, env?: NodeJS.ProcessEnv, input?: strin
         resolve({ code, stdout: String(stdout), stderr: String(stderr || (err && !stderr ? err.message : "")) });
       },
     );
+    // git can quit before reading all of a big patch; its exit code says why, the EPIPE must not crash us
+    child.stdin?.on("error", () => {});
     if (input !== undefined) child.stdin?.end(input);
   });
 }

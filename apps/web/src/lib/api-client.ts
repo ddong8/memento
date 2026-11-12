@@ -1017,7 +1017,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   getAgentRunSettings: () => fresh<AgentRunSettings>("/api/profile/llm/agent"),
-  updateAgentRunSettings: (body: { claude_auto_compact_window?: number; claude_memento_client?: boolean }) =>
+  updateAgentRunSettings: (body: { claude_auto_compact_window?: number; claude_memento_client?: boolean; claude_resume_mode?: ClaudeResumeMode }) =>
     apiFetch<AgentRunSettings>("/api/profile/llm/agent", {
       method: "PUT",
       body: JSON.stringify(body),
@@ -1507,7 +1507,13 @@ export interface AgentRunSettings {
   claude_memento_client: boolean;
   /** A resumed Claude Code session above this starts from a compacted snapshot unless raw is picked */
   heavy_context_tokens: number;
+  /** How a resumed Claude Code session continues unless the banner picks otherwise */
+  claude_resume_mode: ClaudeResumeMode;
 }
+
+/** auto: compact the sessions past heavy_context_tokens; native: always resume the session itself (it keeps
+ * being written on the PC); compact: always start a new session from a snapshot */
+export type ClaudeResumeMode = "auto" | "native" | "compact";
 
 export interface SessionResumeCost {
   /** Context the next step carries (the latest request's input + cache tokens) */

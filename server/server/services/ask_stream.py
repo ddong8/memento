@@ -262,19 +262,25 @@ async def _prepare_agent_args(
         args["title"] = conv_title
 
     orig_session_id = session_id
-    # Not chosen by the client: a Claude Code session past the heavy threshold resumes from a compacted
-    # snapshot, whichever client asked (each raw step would carry its whole context, and after an idle
-    # hour the first one re-caches all of it). An explicit False keeps the raw resume.
+    # Not chosen by the client: the user's resume mode (个人设置) decides. By default ("auto") a Claude Code
+    # session past the heavy threshold resumes from a compacted snapshot, whichever client asked (each raw
+    # step would carry its whole context, and after an idle hour the first one re-caches all of it).
+    # An explicit False keeps the raw resume.
     if compact_mode is None and session_id and action == "agent" and execution_mode == "claude" and not fork:
-        try:
-            from ..services.session_compactor import claude_resume_cost
-            from ..services.user_filter import user_machine_ids
-            cost = await claude_resume_cost(db, session_id, await user_machine_ids(db, user))
-            if cost.get("heavy"):
-                compact_mode = True
-                logger.info("Session %s carries %s tokens: resuming from a compacted snapshot", session_id, cost.get("context_tokens"))
-        except Exception as e:
-            logger.warning("Failed to size session %s for resume: %s", session_id, e)
+        from ..services.claude_session import resume_mode
+        mode = resume_mode(user.llm_settings)
+        if mode == "compact":
+            compact_mode = True
+        elif mode == "auto":
+            try:
+                from ..services.session_compactor import claude_resume_cost
+                from ..services.user_filter import user_machine_ids
+                cost = await claude_resume_cost(db, session_id, await user_machine_ids(db, user))
+                if cost.get("heavy"):
+                    compact_mode = True
+                    logger.info("Session %s carries %s tokens: resuming from a compacted snapshot", session_id, cost.get("context_tokens"))
+            except Exception as e:
+                logger.warning("Failed to size session %s for resume: %s", session_id, e)
     if compact_mode and session_id and action == "agent":
         try:
             from ..services.session_compactor import build_compacted_continuation
@@ -386,7 +392,7 @@ async def _prepare_agent_args(
             curr_spa = args.get("system_prompt_append") or ""
             args["system_prompt_append"] = f"{curr_spa}\n\n【目标设备就绪环境指纹画像】\n{env_summary}".strip()
         if orig_session_id:
-            tag = "compact" if compact_mode else ("fork" if fork else "resume")
+            tag = "compact" if args.get("compact_mode") else ("fork" if fork else "resume")
             resume_tag = f" [{tag}:{orig_session_id[:8]}]"
         else:
             resume_tag = ""
@@ -430,6 +436,14 @@ def _next_session(result: dict | None, session_id: str | None, orig_session_id: 
     if res.get("status") == "failed":
         return None
     return str(session_id or orig_session_id or "") or None
+
+
+def _continued_note(compacted_from: str | None, new_session: str | None) -> str:
+    """The line under an answer that started a new session from another one's snapshot."""
+    if not compacted_from or not new_session or new_session == compacted_from:
+        return ""
+    return (f"\n\n> 🔀 已新开会话 `{new_session[:8]}`，接续自 `{compacted_from[:8]}`。"
+            "电脑上的原会话不会再写入，在这个对话里接着问就在新会话里继续。")
 
 
 async def _append_turns_or_slim(**kw) -> None:
@@ -496,6 +510,7 @@ async def direct_agent_stream(
         call_id = ckpt["call_id"]
         tool_call_item = ckpt["call"]
         run_args = {"attach_task_id": ckpt["task_id"]}
+        compacted_from = ckpt.get("compacted_from")
     else:
         user_created_at = datetime.now(timezone.utc).isoformat()
         req_start_mono = time.monotonic()
@@ -525,6 +540,9 @@ async def direct_agent_stream(
             source_device_id,
         )
         call_id = f"direct_{uuid.uuid4().hex[:8]}"
+        # Started a new session from the snapshot of this one: said in the conversation, the run card's
+        # [compact:…] alone went unnoticed and the session on the PC silently stopped being written
+        compacted_from = orig_session_id if run_args.get("compact_mode") and orig_session_id else None
         tool_call_item = {
             "id": call_id,
             "tool_call_id": call_id,
@@ -545,7 +563,12 @@ async def direct_agent_stream(
             orig_session_id=orig_session_id,
             call_id=call_id,
             call={**tool_call_item, "args": _without_images(run_args)},
+            compacted_from=compacted_from,
         )
+        if compacted_from:
+            note = (f"\n⚡ [瘦身续接] 原会话 {compacted_from[:8]} 的上下文较大，这次从它的核心记忆快照新开一个 Claude Code 会话接着做；"
+                    "之后这个对话都在新会话里继续，电脑上的原会话不会再写入。个人设置里可以改成总是原生接续。\n\n")
+            yield f"data: {json.dumps({'type': 'task_chunk', 'task_id': None, 'tool_call_id': call_id, 'device_name': device_id, 'stream': 'stdout', 'text': note}, ensure_ascii=False)}\n\n"
         for old in orphans:
             asked = str((old.payload or {}).get("user_question") or "").strip().replace("\n", " ")
             asked = f"「{asked[:40]}{'…' if len(asked) > 40 else ''}」" if asked else ""
@@ -753,6 +776,7 @@ async def direct_agent_stream(
             summary_text = f"❌ {stream_error}"
         else:
             summary_text = "任务执行结束。"
+        summary_text += _continued_note(compacted_from, _next_session(result_dict, session_id, orig_session_id) if result_dict else None)
 
         yield f"data: {json.dumps({'type': 'delta', 'text': summary_text}, ensure_ascii=False)}\n\n"
     finally:

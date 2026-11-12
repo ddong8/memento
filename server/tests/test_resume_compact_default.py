@@ -6,14 +6,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from server.db.models import User
 from server.services import ask_stream
-from server.services.claude_session import auto_compact_window, valid_auto_compact_window
+from server.services.claude_session import auto_compact_window, resume_mode, valid_auto_compact_window
 
 USER = User(id=uuid.uuid4(), email="u@example.com", role="owner")
 
 
-def _dispatch(compact_mode, cost, execution_mode="claude", fork=None):
+def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None, events=None):
     """The args direct_agent_stream hands to the device, for a resume of session "sess-1"."""
     sent: dict = {}
+    user = User(id=USER.id, email=USER.email, role="owner", llm_settings={"agent": {"claude_resume_mode": mode}} if mode else {})
 
     mock_db = AsyncMock()
     mock_res = MagicMock()
@@ -24,11 +25,12 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None):
 
     async def fake_run(db, user, args):
         sent.update(args)
-        yield {"type": "tool_result", "result": {"status": "succeeded", "stdout": "ok", "exit_code": 0}}
+        new = "new-5678-session" if args.get("compact_mode") else args.get("session_id")
+        yield {"type": "tool_result", "result": {"status": "succeeded", "stdout": "ok", "exit_code": 0, "session_id": new}}
 
     async def collect():
         gen = ask_stream.direct_agent_stream(
-            db=mock_db, user=USER, question="继续", conv_id=uuid.uuid4(), conv_title="t",
+            db=mock_db, user=user, question="继续", conv_id=uuid.uuid4(), conv_title="t",
             execution_mode=execution_mode, device_id="mini", cwd="/w", session_id="sess-1",
             compact_mode=compact_mode, fork=fork,
         )
@@ -41,7 +43,9 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None):
                AsyncMock(return_value={"injected_context": "【前序会话核心记忆快照】……"})), \
          patch.object(ask_stream, "append_conversation_turns", AsyncMock()), \
          patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""):
-        asyncio.run(collect())
+        out = asyncio.run(collect())
+    if events is not None:
+        events.extend(out)
     return sent, sized
 
 
@@ -79,3 +83,41 @@ def test_auto_compact_window_setting():
     assert auto_compact_window({"agent": {"claude_auto_compact_window": 50_000}}) == 200_000
     for bad in (99_999, 1_000_001, True, "200000", None):
         assert valid_auto_compact_window(bad) is None
+
+
+def test_resume_mode_setting():
+    assert resume_mode({}) == "auto"
+    assert resume_mode({"agent": {"claude_resume_mode": "native"}}) == "native"
+    assert resume_mode({"agent": {"claude_resume_mode": "bogus"}}) == "auto"
+
+
+def test_always_native_never_compacts_a_heavy_session():
+    sent, sized = _dispatch(None, {"context_tokens": 342_668, "heavy": True}, mode="native")
+    assert sent["session_id"] == "sess-1" and "compact_mode" not in sent
+    sized.assert_not_awaited()
+
+
+def test_always_compact_compacts_a_light_session():
+    sent, sized = _dispatch(None, {"context_tokens": 20_000, "heavy": False}, mode="compact")
+    assert sent["compact_mode"] is True and "session_id" not in sent
+    sized.assert_not_awaited()
+
+
+def test_the_client_choice_beats_the_setting():
+    sent, _ = _dispatch(False, {}, mode="compact")
+    assert sent["session_id"] == "sess-1" and "compact_mode" not in sent
+
+
+def test_a_compacted_resume_says_so_in_the_conversation():
+    events: list = []
+    _dispatch(None, {"context_tokens": 342_668, "heavy": True}, events=events)
+    text = "".join(events)
+    assert "[瘦身续接] 原会话 sess-1" in text
+    assert "已新开会话 `new-5678`，接续自 `sess-1`" in text
+
+
+def test_a_raw_resume_says_nothing_about_a_new_session():
+    events: list = []
+    _dispatch(None, {"context_tokens": 90_000, "heavy": False}, events=events)
+    text = "".join(events)
+    assert "瘦身续接" not in text and "已新开会话" not in text

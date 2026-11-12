@@ -100,3 +100,8 @@ def test_agent_settings_save_either_field_alone():
     assert out["claude_memento_client"] is False and out["claude_auto_compact_window"] == 500_000
     with pytest.raises(HTTPException):
         asyncio.run(update_agent_settings(AgentSettingsBody(), Db(), user))
+    assert out["claude_resume_mode"] == "auto"
+    out = asyncio.run(update_agent_settings(AgentSettingsBody(claude_resume_mode="native"), Db(), user))
+    assert out["claude_resume_mode"] == "native" and out["claude_auto_compact_window"] == 500_000
+    with pytest.raises(HTTPException):
+        asyncio.run(update_agent_settings(AgentSettingsBody(claude_resume_mode="always"), Db(), user))

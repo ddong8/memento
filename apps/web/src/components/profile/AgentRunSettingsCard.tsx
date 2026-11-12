@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type AgentRunSettings } from "@/lib/api-client";
+import { api, type AgentRunSettings, type ClaudeResumeMode } from "@/lib/api-client";
 import { Glass, SectionLabel } from "@/components/aurora/primitives";
 import { Icon } from "@/components/aurora/Icon";
 import { SmoothToggle } from "@/components/aurora/SmoothToggle";
@@ -15,6 +15,12 @@ const WINDOWS: { value: number; label: string; hint: string }[] = [
 
 const wan = (n: number) => `${Math.round(n / 10_000)} 万`;
 
+const RESUME_MODES: { value: ClaudeResumeMode; label: string; hint: (heavy: string) => string }[] = [
+  { value: "auto", label: "自动", hint: (heavy) => `超过 ${heavy} token 时瘦身续接` },
+  { value: "native", label: "总是原生接续", hint: () => "电脑上的原会话接着写，双端同步，更耗额度" },
+  { value: "compact", label: "总是瘦身续接", hint: () => "每次都从快照新开会话，最省额度" },
+];
+
 // Kept across tab switches so the card shows at once
 let cached: AgentRunSettings | null = null;
 
@@ -23,6 +29,7 @@ export function AgentRunSettingsCard() {
   const [settings, setSettings] = useState<AgentRunSettings | null>(() => cached);
   const [saving, setSaving] = useState<number | null>(null);
   const [savingClient, setSavingClient] = useState(false);
+  const [savingMode, setSavingMode] = useState<ClaudeResumeMode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,7 +72,23 @@ export function AgentRunSettingsCard() {
     }
   };
 
+  const chooseMode = async (mode: ClaudeResumeMode) => {
+    if (!settings || savingMode || mode === settings.claude_resume_mode) return;
+    setSavingMode(mode);
+    setError(null);
+    try {
+      const next = await api.updateAgentRunSettings({ claude_resume_mode: mode });
+      cached = next;
+      setSettings(next);
+    } catch {
+      setError("保存失败，请重试");
+    } finally {
+      setSavingMode(null);
+    }
+  };
+
   const current = settings?.claude_auto_compact_window;
+  const mode = settings?.claude_resume_mode ?? "auto";
 
   return (
     <Glass className="p-6 space-y-4">
@@ -113,12 +136,46 @@ export function AgentRunSettingsCard() {
         })}
       </div>
       <div className="text-[11px] text-[var(--aurora-fg4)] leading-relaxed space-y-1">
-        {settings && (
-          <div>
-            续接超过 {wan(settings.heavy_context_tokens)} token 的会话时，默认先生成核心记忆快照再开新会话接着做；对话页的续接横幅里可以改回原生接续。
-          </div>
-        )}
         <div>设备上的 Memento 要 1.0.85 及以上才会按这里的设置压缩。</div>
+      </div>
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-[var(--aurora-fg1)]">续接历史会话</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {RESUME_MODES.map((m) => {
+            const active = mode === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                disabled={!settings || savingMode !== null}
+                onClick={() => chooseMode(m.value)}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  textAlign: "left",
+                  cursor: settings && savingMode === null ? "pointer" : "default",
+                  background: active ? "rgba(16,185,129,0.10)" : "var(--aurora-chip)",
+                  border: `1px solid ${active ? "rgba(16,185,129,0.55)" : "var(--aurora-border)"}`,
+                  transition: "background .15s, border-color .15s",
+                }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold" style={{ color: active ? "#10B981" : "var(--aurora-fg1)" }}>
+                    {m.label}
+                  </span>
+                  {active && <Icon name="check" size={13} style={{ color: "#10B981" }} />}
+                  {savingMode === m.value && <span className="text-[11px] text-[var(--aurora-fg4)]">保存中…</span>}
+                </div>
+                <div className="text-[11px] text-[var(--aurora-fg4)] mt-0.5">
+                  {m.hint(settings ? wan(settings.heavy_context_tokens) : "15 万")}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[11px] text-[var(--aurora-fg4)] leading-relaxed">
+          瘦身续接先生成核心记忆快照，再新开一个 Claude Code 会话接着做，新会话和原会话同名，对话里会注明接续自哪个会话。对话页的续接横幅里还可以临时切换这一次的方式。
+        </div>
       </div>
       <div
         className="flex items-center justify-between gap-4 p-3.5 rounded-xl"

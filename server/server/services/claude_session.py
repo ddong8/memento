@@ -122,6 +122,19 @@ def memento_client(llm_settings: dict | None) -> bool:
     return not (isinstance(agent, dict) and agent.get("claude_memento_client") is False)
 
 
+# How a resumed Claude Code session continues when the client doesn't choose: "auto" compacts the ones past
+# HEAVY_CONTEXT_TOKENS, "native" always resumes the session itself (it keeps being written on the PC, every
+# step carrying its whole context), "compact" always starts a new session from a snapshot
+RESUME_MODES = ("auto", "native", "compact")
+
+
+def resume_mode(llm_settings: dict | None) -> str:
+    """This user's choice of RESUME_MODES (auto when unset)."""
+    agent = (llm_settings or {}).get("agent")
+    mode = agent.get("claude_resume_mode") if isinstance(agent, dict) else None
+    return mode if mode in RESUME_MODES else "auto"
+
+
 def claude_entrypoint(llm_settings: dict | None) -> str:
     """The client name the device's Claude Code runs under, for the task payload."""
     return MEMENTO_CLIENT if memento_client(llm_settings) else "sdk-cli"

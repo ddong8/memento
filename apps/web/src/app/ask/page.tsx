@@ -28,7 +28,7 @@ const ShareModal = dynamic(
 );
 
 
-import type { AgentCapabilities, SessionResumeCost } from "@/lib/api-client";
+import type { AgentCapabilities, ClaudeResumeMode, SessionResumeCost } from "@/lib/api-client";
 import { AssistantBubble, UserBubble } from "@/components/ask/bubbles";
 import { HistoryDrawer, resolveConversationAgent } from "@/components/ask/HistoryDrawer";
 import { SourcesDrawer } from "@/components/ask/SourcesDrawer";
@@ -249,6 +249,8 @@ function AskPageContent() {
   const [sessionCosts, setSessionCosts] = useState<Record<string, SessionResumeCost>>({});
   /** Sessions whose compact / raw resume the user picked: the heavy-session default leaves them alone */
   const compactChosenRef = useRef<Set<string>>(new Set());
+  /** The user's resume mode (个人设置): what a resumed session does when the banner isn't switched */
+  const [resumeMode, setResumeMode] = useState<ClaudeResumeMode>("auto");
   /** Bumped when a run ends: the session has grown, so its size is read again for the banner */
   const [sessionCostTick, setSessionCostTick] = useState(0);
   const [hasMoreTurns, setHasMoreTurns] = useState<boolean>(() => askCache?.hasMoreTurns ?? initSnap?.hasMoreTurns ?? false);
@@ -756,17 +758,23 @@ function AskPageContent() {
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
 
+  useEffect(() => {
+    api.getAgentRunSettings().then((s) => setResumeMode(s.claude_resume_mode || "auto")).catch(() => {});
+  }, []);
+
   // Each step of a resumed Claude Code session carries its whole context (one resumed from here was
-  // ~510k tokens a step). Above the server's threshold the resume starts from a compacted snapshot
-  // by default, said so in the banner; switching back to raw resume is remembered per session.
+  // ~510k tokens a step). By default ("auto") above the server's threshold the resume starts from a
+  // compacted snapshot, said so in the banner; the user's resume mode can make it always raw or always
+  // compacted. Switching in the banner is remembered per session.
   useEffect(() => {
     const sid = selectedSessionId;
     if (!sid || executionMode !== "claude") return;
+    if (resumeMode !== "auto" && !compactChosenRef.current.has(sid)) setCompactMode(resumeMode === "compact");
     let cancelled = false;
     const apply = (cost: SessionResumeCost) => {
       if (cancelled) return;
       setSessionCosts((prev) => ({ ...prev, [sid]: cost }));
-      if (cost.heavy && !compactChosenRef.current.has(sid)) setCompactMode(true);
+      if (resumeMode === "auto" && cost.heavy && !compactChosenRef.current.has(sid)) setCompactMode(true);
     };
     const fetchCost = () =>
       api.getSessionStats(sid)
@@ -784,7 +792,7 @@ function AskPageContent() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [selectedSessionId, sessions, executionMode, sessionCostTick]);
+  }, [selectedSessionId, sessions, executionMode, sessionCostTick, resumeMode]);
 
   const openSingleShare = useCallback((convId: string, title?: string) => {
     setShareTargetId(convId);

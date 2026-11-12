@@ -250,14 +250,17 @@ class AgentSettingsBody(BaseModel):
     claude_auto_compact_window: int | None = None
     # Run Claude Code under memento's own client name (true) or `claude -p`'s sdk-cli (false)
     claude_memento_client: bool | None = None
+    # How a resumed Claude Code session continues by default: auto / native / compact (claude_session.RESUME_MODES)
+    claude_resume_mode: str | None = None
 
 
 def _agent_settings(user: User) -> dict:
-    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window, memento_client
+    from ..services.claude_session import DEFAULT_AUTO_COMPACT_WINDOW, HEAVY_CONTEXT_TOKENS, auto_compact_window, memento_client, resume_mode
 
     return {
         "claude_auto_compact_window": auto_compact_window(user.llm_settings),
         "claude_memento_client": memento_client(user.llm_settings),
+        "claude_resume_mode": resume_mode(user.llm_settings),
         "default_auto_compact_window": DEFAULT_AUTO_COMPACT_WINDOW,
         # Above this a resumed Claude Code session starts from a compacted snapshot unless the user picks raw
         "heavy_context_tokens": HEAVY_CONTEXT_TOKENS,
@@ -276,10 +279,12 @@ async def update_agent_settings(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    from ..services.claude_session import valid_auto_compact_window
+    from ..services.claude_session import RESUME_MODES, valid_auto_compact_window
 
-    if body.claude_auto_compact_window is None and body.claude_memento_client is None:
+    if body.claude_auto_compact_window is None and body.claude_memento_client is None and body.claude_resume_mode is None:
         raise HTTPException(status_code=422, detail="没有要修改的设置")
+    if body.claude_resume_mode is not None and body.claude_resume_mode not in RESUME_MODES:
+        raise HTTPException(status_code=422, detail="续接方式只能是 auto、native 或 compact")
     data = dict(user.llm_settings or {})
     agent = dict(data.get("agent") or {}) if isinstance(data.get("agent"), dict) else {}
     if body.claude_auto_compact_window is not None:
@@ -289,6 +294,8 @@ async def update_agent_settings(
         agent["claude_auto_compact_window"] = window
     if body.claude_memento_client is not None:
         agent["claude_memento_client"] = body.claude_memento_client
+    if body.claude_resume_mode is not None:
+        agent["claude_resume_mode"] = body.claude_resume_mode
     data["agent"] = agent
     user.llm_settings = data
     await db.commit()

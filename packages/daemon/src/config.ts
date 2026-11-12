@@ -137,6 +137,16 @@ export async function loadConfig(options: { home?: string; env?: NodeJS.ProcessE
   };
 }
 
+/**
+ * The config with the remote-exec key a heartbeat returned, or null when there is nothing to change (no
+ * key, or the one already held). The server only hands one out once remote execution is on, which can be
+ * long after the daemon started.
+ */
+export function withRemoteExecKey(config: CollectorConfig, key: string | undefined): CollectorConfig | null {
+  if (!key || key === config.remoteExecKey) return null;
+  return { ...config, remoteExecKey: key };
+}
+
 export async function saveConfig(config: CollectorConfig, home = homeDir()): Promise<void> {
   const paths = configPaths(home);
   await mkdir(paths.dir, { recursive: true });

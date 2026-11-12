@@ -4209,13 +4209,18 @@ function AskPageContent() {
       const gen = cascadeGenRef.current;
       const superseded = () => gen !== cascadeGenRef.current;
       setSelectedSessionId(sid);
-      persistCurrentConfig({ session_id: sid });
       if (!sid) {
+        // A new session in the conversation open here: it lets go of the one it had
+        persistCurrentConfig({ session_id: "" });
         if (!activeConversationIdRef.current) {
           startNewChat();
         }
         return;
       }
+      // An existing session is continued in its own conversation, which is opened below (found, or made
+      // for it). The conversation open here keeps its session, device and folder: writing the picked
+      // session into it first tied two conversations to that session, and the picker then showed the
+      // other one's title and could open it (seen 2026-11-12: a home-lab chat bound to a website session).
       const targetSession = sessions.find(
         (s) => (s.session_id || s.conversation_id) === sid
       );
@@ -4232,7 +4237,6 @@ function AskPageContent() {
         const folder = projectPathOn(projectsRef.current.find((p) => p.id === selectedProjectIdRef.current), folderDev(ranOn));
         setCwd(folder);
         setShowCwd(Boolean(folder));
-        persistCurrentConfig({ device_id: ranOn, cwd: folder, ...(dropCodeDev ? { source_device_id: "" } : {}) });
       }
       if (!targetSession) {
         const matchedAskConv = conversations.find(

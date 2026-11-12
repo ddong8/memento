@@ -8,7 +8,7 @@ import https from "node:https";
 
 import { type AntigravityLanguageServer, findAntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
-import { defaultModel, limitedModels, type LimitAgent, type LimitedModel } from "./model-limits.js";
+import { defaultModel, limitedModels, noteModelLimit, type LimitAgent, type LimitedModel } from "./model-limits.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 import { workbuddyProductModels } from "./workbuddy-models.js";
@@ -116,9 +116,15 @@ export async function probeAntigravityQuota(
     const rawModels: any[] = us.cascadeModelConfigData?.clientModelConfigs || [];
     const models: QuotaModelItem[] = [];
     for (const m of rawModels) {
+      if (m.disabled) continue;
       const qi = m.quotaInfo;
-      if (qi && typeof qi.remainingFraction === "number") {
-        const fraction = Math.max(0, Math.min(1, qi.remainingFraction));
+      // A spent model's remainingFraction is 0, which proto3 JSON leaves out: only resetTime is there
+      if (qi && (typeof qi.remainingFraction === "number" || qi.resetTime)) {
+        const fraction = Math.max(0, Math.min(1, typeof qi.remainingFraction === "number" ? qi.remainingFraction : 0));
+        if (fraction === 0 && m.modelId) {
+          const until = Date.parse(qi.resetTime);
+          noteModelLimit("antigravity", m.modelId, "额度用完", Number.isFinite(until) ? until : undefined);
+        }
         const pct = Math.round(fraction * 1000) / 10;
         models.push({
           label: m.label || m.modelId || "Model",
@@ -151,6 +157,8 @@ export async function probeAntigravityQuota(
     if (!primary || primary.remaining_percent === null || primary.remaining_percent === undefined) {
       primary = models.find((m) => typeof m.remaining_percent === "number") || models[0];
     }
+    // A spent default: tasks go on with the next model that has quota (task-runner), so that's what's left
+    if (primary?.remaining_percent === 0) primary = models.find((m) => (m.remaining_percent ?? 0) > 0) || primary;
 
     const planStatus = us.planStatus || {};
     const planInfo = planStatus.planInfo || {};

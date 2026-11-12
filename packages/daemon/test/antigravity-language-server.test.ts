@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { parseNetstatListeningPorts, parseWindowsLanguageServer, refreshAntigravityMcpServers, WINDOWS_LS_REPORT } from "../src/antigravity.js";
 
 const powershell = ["pwsh", "powershell"].find((exe) => spawnSync(exe, ["-NoProfile", "-Command", "exit 0"]).status === 0);
+import { isModelLimited } from "../src/model-limits.js";
 import { probeAntigravityQuota } from "../src/quotas.js";
 
 describe("Antigravity language server on Windows", () => {
@@ -90,6 +91,9 @@ describe("Antigravity quota", () => {
                 { label: "Gemini 3.8 Flash", modelId: "flash", quotaInfo: { remainingFraction: 0.42, resetTime: "2026-10-29T00:00:00Z" } },
                 { label: "Gemini 3.8 Pro", modelId: "pro", quotaInfo: { remainingFraction: 1 } },
                 { label: "Unmetered", modelId: "free" },
+                // Spent: proto3 JSON leaves the 0 fraction out, only the reset time is there (11-12 Gemini 4 Argon)
+                { label: "Gemini 4 Argon (Medium)", modelId: "gemini-4-argon-medium", quotaInfo: { resetTime: "2099-01-01T00:00:00Z" } },
+                { label: "Gemini 4 Carbon", modelId: "gemini-4-carbon-disabled", disabled: true, quotaInfo: {} },
               ],
             },
           },
@@ -110,7 +114,11 @@ describe("Antigravity quota", () => {
       ["flash", 42],
       ["pro", 100],
       ["free", null],
+      ["gemini-4-argon-medium", 0],
     ]);
+    // The spent model is skipped by later runs until it resets
+    expect(isModelLimited("antigravity", "gemini-4-argon-high")).toBe(true);
+    expect(isModelLimited("antigravity", "flash")).toBe(false);
   });
 
   it("looks the server up again when the remembered one stops answering", async () => {

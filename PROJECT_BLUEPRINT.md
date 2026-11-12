@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `b1b5ce55` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a3c6b711` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 190 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `b1b5ce55` (2026-11-12): refactor(ask): 精简问答页重复入口
+- 最近改动 (Latest): `a3c6b711` (2026-11-12): feat(ask): 回答写完后还在等后台任务时，界面说明在等什么
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -608,15 +608,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (11 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
+- [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (6 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (6 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (6 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
-- [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `a3c6b711` (2026-11-12): feat(ask): 回答写完后还在等后台任务时，界面说明在等什么
 - `b1b5ce55` (2026-11-12): refactor(ask): 精简问答页重复入口
 - `735d2506` (2026-11-12): fix(ask): 回答进行中一直显示追问按钮，不再只剩停止按钮
 - `6123e481` (2026-11-12): chore(release): 升级客户端版本至 v1.0.114，回答进行中可以连续追问
 - `4b6a723a` (2026-11-12): feat(ask): 回答进行中可以连续追问
 - `41d5fb6f` (2026-11-12): fix(web): 会话预览单独显示，不再并进对话回合、随下一条消息当 history 发出
-- `9ab43efd` (2026-11-12): fix(ask): 选已有会话时复用它所在的对话，不再每次新建同名空对话
 
 ## 10. Key Environment Variables & Configuration
 

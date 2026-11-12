@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `40e70c18` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `15d12f16` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 192 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 193 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
+- 最近改动 (Latest): `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -600,7 +600,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 108 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 51 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 27 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 28 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -608,7 +608,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
 - `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
 - `752c9386` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
 - `3fab4a0e` (2026-11-12): refactor(ask): 续接与 Claude Code 保持一致，去掉固定压缩窗口和手动瘦身开关
 - `960d4451` (2026-11-12): chore(release): 升级客户端版本至 v1.0.117，执行机提交带回源设备并由源设备推送
 - `ca58e81e` (2026-11-12): feat(workspace): 执行机上的提交原样带回源设备，推送改由源设备完成
-- `807050af` (2026-11-12): fix(daemon): 没有桌面端的执行机也注册记忆 MCP 服务
 
 ## 10. Key Environment Variables & Configuration
 

@@ -287,7 +287,6 @@ export default function ExecutionTabs({ calls, parentContent, onSmartCompactAndR
             >
               <ExecutionCard
                 call={call}
-                isVisible={isVisible}
                 parentContent={parentContent}
                 onSmartCompactAndRetry={onSmartCompactAndRetry}
               />

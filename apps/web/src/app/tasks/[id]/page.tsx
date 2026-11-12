@@ -34,7 +34,6 @@ export default function TaskPage() {
   const [task, setTask] = useState<DeviceTask | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
-  const [viewMode, setViewMode] = useState<"markdown" | "terminal">("markdown");
 
   const load = useCallback(async () => {
     invalidateApiCache(`${getApiBase()}/api/tasks/${taskId}`);
@@ -185,66 +184,11 @@ export default function TaskPage() {
               <div style={{ fontWeight: 600, color: "var(--aurora-fg1)", fontSize: 13 }}>
                 任务执行产物与输出{output.length > OUTPUT_TAIL ? "（截取尾部）" : ""}
               </div>
-              {output && (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    background: "var(--aurora-chip)",
-                    border: "1px solid var(--aurora-border)",
-                    borderRadius: 8,
-                    padding: 2,
-                    gap: 2,
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("markdown")}
-                    style={{
-                      background: viewMode === "markdown" ? "var(--aurora-accent-soft)" : "transparent",
-                      border: "none",
-                      color: viewMode === "markdown" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 6,
-                      padding: "2px 8px",
-                      fontSize: 11,
-                      fontWeight: viewMode === "markdown" ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Markdown
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("terminal")}
-                    style={{
-                      background: viewMode === "terminal" ? "var(--aurora-accent-soft)" : "transparent",
-                      border: "none",
-                      color: viewMode === "terminal" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 6,
-                      padding: "2px 8px",
-                      fontSize: 11,
-                      fontWeight: viewMode === "terminal" ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Terminal
-                  </button>
-                </div>
-              )}
             </div>
             {output ? (
-              viewMode === "markdown" ? (
-                <div className="prose prose-sm max-w-none" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
-                  <MarkdownViewer content={output.slice(-OUTPUT_TAIL)} />
-                </div>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <pre style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--aurora-fg2)", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {output.slice(-OUTPUT_TAIL)}
-                  </pre>
-                </div>
-              )
+              <div className="prose prose-sm max-w-none" style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+                <MarkdownViewer content={output.slice(-OUTPUT_TAIL)} />
+              </div>
             ) : (
               <div style={{ color: "var(--aurora-fg4)", fontSize: 12.5, fontStyle: "italic", padding: "8px 0" }}>
                 {TERMINAL.has(task.status) ? "（没有输出内容）" : "任务仍在运行中，输出将在结束后完整呈现…"}

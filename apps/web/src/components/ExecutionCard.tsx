@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { memo, useState, useEffect, useMemo } from "react";
 import { Icon } from "./aurora/Icon";
 import { BrandMark } from "./aurora/BrandMark";
 import MarkdownViewer from "./viewers/MarkdownViewer";
@@ -40,7 +40,6 @@ export interface ToolCallItem {
 
 interface ExecutionCardProps {
   call: ToolCallItem;
-  isVisible?: boolean;
   parentContent?: string;
   onSmartCompactAndRetry?: (sessionId?: string) => void;
 }
@@ -63,12 +62,10 @@ export function cleanPromptText(text?: string): string {
 
 const ExecutionCard = memo(function ExecutionCard({
   call,
-  isVisible = true,
   parentContent,
   onSmartCompactAndRetry,
 }: ExecutionCardProps) {
   const { t, locale } = useI18n();
-  const terminalRef = useRef<HTMLPreElement>(null);
   const inspector = useMediaInspector?.() || null;
   const device = deviceOfCall(call);
 
@@ -270,30 +267,9 @@ const ExecutionCard = memo(function ExecutionCard({
     }
   }, [userToggled, isSuccess, hasParentContent, isAgent, isFailed, waitingQuestion]);
 
-  // Agent (Claude Code / Codex / Antigravity) 的输出是 Markdown 富文本，默认必须保持 markdown 视图，杜绝以原始 monospace 打印；shell 默认 terminal 视图
-  const [viewMode, setViewMode] = useState<"markdown" | "terminal">(() => {
-    return isAgent ? "markdown" : "terminal";
-  });
-
   const [copied, setCopied] = useState(false);
   const [copiedResume, setCopiedResume] = useState(false);
   const [showAllLogs, setShowAllLogs] = useState(false);
-
-  const rawStdout = result?.stdout || "";
-  const stdoutLines = useMemo(() => {
-    return rawStdout ? rawStdout.split("\n") : [];
-  }, [rawStdout]);
-  const hasTooManyLines = stdoutLines.length > 400;
-  const displayedStdout = useMemo(() => {
-    if (!hasTooManyLines || showAllLogs) return rawStdout;
-    return stdoutLines.slice(-400).join("\n");
-  }, [rawStdout, stdoutLines, hasTooManyLines, showAllLogs]);
-
-  useEffect(() => {
-    if (isVisible && isRunning && terminalRef.current) {
-      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-    }
-  }, [result?.stdout, cleanStderr, isRunning, isVisible]);
 
   const copyText = () => {
     const parts: string[] = [];
@@ -599,7 +575,7 @@ const ExecutionCard = memo(function ExecutionCard({
         </div>
       </div>
 
-      {/* Terminal Content Box */}
+      {/* Content Box */}
       {expanded && (
         <div style={{ padding: "10px 12px" }}>
           {/* Safety Alerts Banner */}
@@ -721,59 +697,6 @@ const ExecutionCard = memo(function ExecutionCard({
                   </button>
                 );
               })()}
-              {(isAgent || result?.stdout) && (
-                <div
-                  style={{
-                    display: "inline-flex",
-                    background: "var(--aurora-chip)",
-                    border: "1px solid var(--aurora-border)",
-                    borderRadius: 7,
-                    padding: 1.5,
-                    gap: 1.5,
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewMode("markdown");
-                    }}
-                    style={{
-                      background: viewMode === "markdown" ? "var(--aurora-accent-soft)" : "transparent",
-                      border: "none",
-                      color: viewMode === "markdown" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 5,
-                      padding: "1.5px 6px",
-                      fontSize: 10.5,
-                      fontWeight: viewMode === "markdown" ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Markdown
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewMode("terminal");
-                    }}
-                    style={{
-                      background: viewMode === "terminal" ? "var(--aurora-accent-soft)" : "transparent",
-                      border: "none",
-                      color: viewMode === "terminal" ? "var(--aurora-accent)" : "var(--aurora-fg3)",
-                      borderRadius: 5,
-                      padding: "1.5px 6px",
-                      fontSize: 10.5,
-                      fontWeight: viewMode === "terminal" ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    Terminal
-                  </button>
-                </div>
-              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -816,9 +739,7 @@ const ExecutionCard = memo(function ExecutionCard({
           )}
           {/* Follow-ups go in from the main input below: it steers the running agent or queues for the next message */}
 
-          {/* Conditional Content: Markdown or Terminal Console */}
-          {viewMode === "markdown" ? (
-            <div
+          <div
               className="prose prose-sm max-w-none w-full"
               style={{
                 color: "var(--aurora-fg1)",
@@ -931,6 +852,20 @@ const ExecutionCard = memo(function ExecutionCard({
                 </div>
               )}
 
+              {name === "list_devices" && result?.devices && (
+                <div style={{ fontSize: 12.5, color: "var(--aurora-fg2)" }}>
+                  {result.devices.length === 0
+                    ? "没有可用设备。"
+                    : result.devices.map((d, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", margin: "2px 0" }}>
+                          <span style={{ color: d.online ? "#10b981" : "#ef4444" }}>{d.online ? "● 在线" : "○ 离线"}</span>
+                          <span style={{ color: "var(--aurora-fg1)", fontWeight: 500 }}>{d.name}</span>
+                          <span style={{ color: "var(--aurora-fg3)" }}>({d.device_id.slice(0, 8)})</span>
+                        </div>
+                      ))}
+                </div>
+              )}
+
               {result?.stdout ? (
                 isOutputInParentContent ? (
                   <div
@@ -954,38 +889,30 @@ const ExecutionCard = memo(function ExecutionCard({
                         执行产物与回复已在下方主回复区呈现
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setViewMode("terminal");
-                      }}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 2,
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--aurora-accent)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        padding: "2px 4px",
-                      }}
-                    >
-                      <span>底层日志</span>
-                      <Icon name="chevron_right" size={11} />
-                    </button>
                   </div>
                 ) : (
-                  <MarkdownViewer
-                    content={
-                      result.stdout.length > 60_000 && !showAllLogs
-                        ? `${result.stdout.slice(-40_000)}\n\n> ℹ️ *[日志输出过长（共 ${result.stdout.length.toLocaleString()} 字符），已截取最近 40,000 字符展示以保障界面流畅。可切换至 Terminal 模式查验详情]*`
-                        : result.stdout
-                    }
-                    compactMedia={true}
-                    isStreaming={isRunning}
-                  />
+                  <>
+                    <MarkdownViewer
+                      content={result.stdout.length > 60_000 && !showAllLogs ? result.stdout.slice(-40_000) : result.stdout}
+                      compactMedia={true}
+                      isStreaming={isRunning}
+                    />
+                    {result.stdout.length > 60_000 && !showAllLogs && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 8, fontSize: 11.5, color: "var(--aurora-fg3)" }}>
+                        <span>输出共 {result.stdout.length.toLocaleString()} 字符，为保持流畅只显示最近 40,000 字符</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAllLogs(true);
+                          }}
+                          style={{ background: "transparent", border: "none", color: "var(--aurora-accent)", fontSize: 11.5, cursor: "pointer", padding: "2px 4px", flexShrink: 0 }}
+                        >
+                          展开全部
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )
               ) : null}
 
@@ -1009,144 +936,6 @@ const ExecutionCard = memo(function ExecutionCard({
                 </div>
               )}
             </div>
-          ) : (
-          <pre
-            ref={terminalRef}
-            style={{
-              margin: 0,
-              padding: "12px 14px",
-              borderRadius: 10,
-              background: "#080c14",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: "#f1f5f9",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontSize: 12,
-              lineHeight: 1.55,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-              maxWidth: "100%",
-              maxHeight: "min(280px, 35vh)",
-              overflowX: "auto",
-              overflowY: "auto",
-              overscrollBehavior: "contain",
-              WebkitOverflowScrolling: "touch",
-            }}
-          >
-            {command && (
-              <div style={{ color: "#38bdf8", marginBottom: 6, fontWeight: 600 }}>
-                {isAgent ? `[prompt] ${command}` : `$ ${command}`}
-              </div>
-            )}
-
-            {isRunning && !result?.stdout && !cleanStderr && !result?.error && (
-              <div style={{ color: "#94a3b8", fontStyle: "italic", margin: "4px 0" }}>
-                {result?.status === "queued"
-                  ? (t.ask.statusWaitingPoll || "等待设备拉取任务...")
-                  : (t.ask.statusDeviceRunning || "设备已接收，命令正在运行...")}
-              </div>
-            )}
-
-            {name === "list_devices" && result?.devices && (
-              <div style={{ color: "#94a3b8" }}>
-                {result.devices.length === 0
-                  ? "没有可用设备。"
-                  : result.devices.map((d, i) => (
-                      <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", margin: "2px 0" }}>
-                        <span style={{ color: d.online ? "#10b981" : "#ef4444" }}>
-                          {d.online ? "● 在线" : "○ 离线"}
-                        </span>
-                        <span style={{ color: "#fff", fontWeight: 500 }}>{d.name}</span>
-                        <span style={{ color: "#64748b" }}>({d.device_id.slice(0, 8)})</span>
-                      </div>
-                    ))}
-              </div>
-            )}
-
-            {hasTooManyLines && !showAllLogs && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "6px 12px",
-                  marginBottom: 8,
-                  borderRadius: 6,
-                  background: "rgba(56, 189, 248, 0.1)",
-                  border: "1px solid rgba(56, 189, 248, 0.25)",
-                  color: "#38bdf8",
-                  fontSize: 11,
-                }}
-              >
-                <span>
-                  ⚡ 已折叠前序 {stdoutLines.length - 400} 行历史日志，保持界面流畅（当前展示最新 400 行）
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowAllLogs(true);
-                  }}
-                  style={{
-                    background: "rgba(56, 189, 248, 0.15)",
-                    border: "1px solid #38bdf8",
-                    color: "#38bdf8",
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  展开全部
-                </button>
-              </div>
-            )}
-
-            {displayedStdout && (
-              <div>{displayedStdout}</div>
-            )}
-
-            {shouldShowStderr && (
-              <div style={{ color: "#f87171", marginTop: 4 }}>
-                <span style={{ opacity: 0.7 }}>[stderr]</span>
-                <br />
-                {cleanStderr}
-              </div>
-            )}
-
-            {result?.error && (
-              isExit1NoMatch ? (
-                <div style={{ color: "#94a3b8", marginTop: 4 }}>
-                  ℹ️ 退出码 1：未匹配到目标内容（探查命令正常执行完毕，目标端口空闲或未检索到匹配项）
-                </div>
-              ) : (
-                <div style={{ color: "#ef4444", marginTop: 4 }}>
-                  [error] {result.error}
-                </div>
-              )
-            )}
-
-            {result?.note && (
-              <div style={{ color: "#fbbf24", marginTop: 4 }}>
-                ℹ️ {result.note}
-              </div>
-            )}
-
-            {isRunning && (
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 8,
-                  height: 14,
-                  background: "#38bdf8",
-                  verticalAlign: "text-bottom",
-                  marginLeft: 4,
-                  animation: "pulse 1s infinite",
-                }}
-              />
-            )}
-          </pre>
-          )}
 
           {isPromptTooLong && (
             <div

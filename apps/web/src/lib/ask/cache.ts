@@ -116,6 +116,9 @@ export interface CachedAskState {
   } | null;
   streaming?: boolean;
   quotasData?: AgentQuotasResponse | null;
+  /** Whether the cascade above was restored for activeConversationId (or set by the user), not a
+   *  restore still on its way when the page that started it went away */
+  cascadeDone?: boolean;
   projectTitle?: string;
 }
 

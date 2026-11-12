@@ -465,12 +465,18 @@ function AskPageContent() {
   // makes take it over: a restore still waiting on the network then writes nothing, so an older
   // conversation's device, project or session can't land on top of what is showing now.
   const cascadeGenRef = useRef(0);
+  // Whether this page's cascade is whole for the open conversation: restored here, or set by the user.
+  // Kept in askCache, so a page mounted again only keeps what it finds when that restore had finished:
+  // on the phone the page can mount twice, and the first copy's restore then filled lists nobody saw.
+  const cascadeDoneRef = useRef<boolean>(Boolean(askCache?.cascadeDone));
   const beginRestore = useCallback(() => {
     isRestoringRef.current = true;
+    cascadeDoneRef.current = false;
     return ++cascadeGenRef.current;
   }, []);
   // Effects that follow the restored state still see it as a restore for a moment
   const endRestore = useCallback((gen: number) => {
+    if (gen === cascadeGenRef.current) cascadeDoneRef.current = true;
     setTimeout(() => {
       if (gen === cascadeGenRef.current) isRestoringRef.current = false;
     }, 600);
@@ -478,6 +484,7 @@ function AskPageContent() {
   const takeOverCascade = useCallback(() => {
     ++cascadeGenRef.current;
     isRestoringRef.current = false;
+    cascadeDoneRef.current = true;
   }, []);
   const isNewChatModeRef = useRef<boolean>(false);
   const lastRestoredIdRef = useRef<string | null>(askCache?.activeConversationId || null);
@@ -670,6 +677,7 @@ function AskPageContent() {
       activeRun: askCache?.activeRun,
       streaming,
       quotasData,
+      cascadeDone: cascadeDoneRef.current,
     };
   }, [
     activeConversationId,
@@ -1972,7 +1980,15 @@ function AskPageContent() {
 
       if (streamingRef.current) return;
 
+      // Kept state is only whole when its restore finished and the picked project's list came with it. The
+      // page can mount twice on the phone: the second copy took the conversation id from askCache while the
+      // first copy's restore filled lists nobody saw, so the project picker said "no projects" and the
+      // session picker showed only the session already picked (seen 2026-11-12).
+      const cascadeKept =
+        cascadeDoneRef.current && (!selectedProjectIdRef.current || projectsRef.current.length > 0);
+
       if (
+        cascadeKept &&
         lastRestoredIdRef.current === resolvedTargetId &&
         activeConversationIdRef.current === resolvedTargetId &&
         !initialRestoredFromSnapshotRef.current &&
@@ -1983,6 +1999,7 @@ function AskPageContent() {
 
       // If already cached in memory (and not just hydrated from localStorage snapshot) with complete turns and no active background run: keep in-memory state!
       if (
+        cascadeKept &&
         !initialRestoredFromSnapshotRef.current &&
         askCache &&
         askCache.activeConversationId === resolvedTargetId &&

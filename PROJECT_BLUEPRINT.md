@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `239f0763` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `40e70c18` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 192 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `239f0763` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
+- 最近改动 (Latest): `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -26,10 +26,10 @@
 | 4. Key Entry Points & API Endpoints | L93-L461 |
 | 5. Core Domain Services & Background Schedules | L463-L503 |
 | 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints | L505-L577 |
-| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L579-L619 |
-| 8. Development & Verification Commands | L621-L638 |
-| 9. Recent Architectural Evolutions | L640-L647 |
-| 10. Key Environment Variables & Configuration | L649-L661 |
+| 7. CI/CD Pipelines, Code Hotspots & Test Suites | L579-L620 |
+| 8. Development & Verification Commands | L622-L639 |
+| 9. Recent Architectural Evolutions | L641-L648 |
+| 10. Key Environment Variables & Configuration | L650-L662 |
 
 ## 1. Project Overview & Tech Stack
 
@@ -583,6 +583,7 @@ erDiagram
 | Category | Name | Path | Details |
 | :--- | :--- | :--- | :--- |
 | GitHub Actions | `Android APK` | [`.github/workflows/android.yml`](.github/workflows/android.yml) | Jobs: apk |
+| GitHub Actions | `Auto Release` | [`.github/workflows/auto-release.yml`](.github/workflows/auto-release.yml) | Jobs: tag-and-release |
 | GitHub Actions | `CI` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Jobs: python, ts-client, ts-mobile, ts-web |
 | GitHub Actions | `Build & Deploy (k3s via Fleet)` | [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) | Jobs: changes, wait-ci, build, bump, verify |
 | GitHub Actions | `Desktop Release` | [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml) | Jobs: build-electron, android, publish-release, attach-apk |
@@ -607,16 +608,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
-- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (6 commits)
-- [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (4 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
+- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
+- [`packages/daemon/assets/codex_app.mjs`](packages/daemon/assets/codex_app.mjs) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `239f0763` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
+- `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
+- `752c9386` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
 - `3fab4a0e` (2026-11-12): refactor(ask): 续接与 Claude Code 保持一致，去掉固定压缩窗口和手动瘦身开关
 - `960d4451` (2026-11-12): chore(release): 升级客户端版本至 v1.0.117，执行机提交带回源设备并由源设备推送
 - `ca58e81e` (2026-11-12): feat(workspace): 执行机上的提交原样带回源设备，推送改由源设备完成
 - `807050af` (2026-11-12): fix(daemon): 没有桌面端的执行机也注册记忆 MCP 服务
-- `6516cb99` (2026-11-12): chore(release): 升级客户端版本至 v1.0.116，续接方式可选并修复执行机守护进程崩溃
 
 ## 10. Key Environment Variables & Configuration
 

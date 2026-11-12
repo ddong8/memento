@@ -22,6 +22,7 @@
 ### 关键约束(改 CI/部署相关时务必遵守)
 - Fleet 克隆 github 走集群内的代理 `fleet-proxy`(`cattle-fleet-system` 命名空间,gitjob 的 HTTP(S)_PROXY 指向它),不再经 Mac 上的 Clash。拉 GHCR 镜像以集群实际配置为准(2026-10-17 旧的 Mac 代理地址已不通,拉镜像照常)。代理地址等不写进公开仓库。
 - web 镜像不用 GitHub Actions 缓存(依赖层 600 多 MB,下载/导出缓存要几分钟,比直接 npm ci 慢),不要加回去。仓库的 Actions 缓存上限 10GB,tag 触发的 run 只能读 main 存的缓存,不要在发版 job 里存只有该 tag 能用的缓存。
+- 发版:提交里把 apps/desktop/package.json 的版本号升上去即可,main 上 CI 通过后 auto-release.yml 自动打 `v<版本号>` 标签并触发 desktop-release.yml(已有这个标签就不动)。不需要手动打标签,执行机上的提交也能发版。
 - Android APK 在单独的 android.yml 里构建(发版时被调用,不挡桌面端发布,APK 构建好后补传到 Release);main 上原生依赖变了或每周一会跑一次,给发版预热 Gradle 缓存。
 - Fleet 每 15 秒轮询一次(deploy/fleet/gitrepo.yaml,这个对象不归 Fleet 管,改了要在集群里同步)。
 - gitrepo 显示 `Stalled` / `GitPolling=False` 时,Fleet 其实仍在定时轮询,只是每次都经 fleet-proxy 访问 GitHub 超时(2026-10-17 查实:当时代理只用一个出口,这个出口时好时坏,连续 17 分钟全部超时)。2026-10-18 起代理的两个出口都启用,每 30 秒健康检查、自动走可用且延迟低的那个。仍遇到卡住就按下面的办法强制重同步:它另起一个任务重新连接,多数时候能立刻部署。

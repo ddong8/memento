@@ -1,0 +1,55 @@
+name: Auto Release
+
+# A release commit raises the client version (apps/desktop/package.json). Once CI has passed on main,
+# a version with no tag yet gets one, v<version>, on the commit CI checked, and Desktop Release runs
+# for it: releasing needs no one at a machine with the repository's credentials (a commit made on an
+# executor reaches GitHub through the device the code is on, which pushes branches, not tags).
+#
+# The tag is pushed with GITHUB_TOKEN, which starts no workflow (so Desktop Release doesn't run twice);
+# the release is started by workflow_dispatch, the one event GITHUB_TOKEN may start. A version already
+# tagged (released by hand, or by an earlier run) is left alone.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the commit CI passed on
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Tag a new version
+        id: tag
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          TAG="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null; then
+            echo "${TAG} is tagged already"
+            exit 0
+          fi
+          git tag "${TAG}" "${{ github.event.workflow_run.head_sha }}"
+          git push origin "refs/tags/${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Tagged ${TAG} on ${{ github.event.workflow_run.head_sha }}"
+
+      - name: Start Desktop Release
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run desktop-release.yml --repo "${{ github.repository }}" --ref "${{ steps.tag.outputs.tag }}" -f tag_name="${{ steps.tag.outputs.tag }}"

@@ -4,22 +4,22 @@
   "release_notes": "1. 续接另一台设备上的 Claude Code 会话时，会先把原会话取到这台设备上再原样接着做，会话号和标题都不变，不再新开会话\n2. 去掉了固定的压缩窗口和手动瘦身开关，上下文由 Claude Code 按模型自身大小压缩，和直接用 Claude Code 一致\n3. 跨设备同步代码时优先走设备之间的直连，同一局域网或有 IPv6 时大仓库快得多，连不上时自动经服务器中转\n4. 后台协作任务可以把一段工作交给设备上的 Claude Code，并在同一个会话里接着做；设备一完成就立即推进下一步\n5. 手机端版本号与客户端统一为 1.0.118",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.117-win-x64.zip",
-      "size": 158215713,
-      "sha256": "dfb111aa4569d96fd21f1df1188f5f1ea8d489277b29ae987f0b232202dba38a",
-      "sha512": "XE1aCglm2twST0SgQ6bswB8+Z0Ij+B1xlHUg3BNxs7s9ilx/QxvaG9h3iHQdrq1ExbfRwQNpJNqjEFWQaNTyUw=="
+      "asset_name": "Memento-1.0.118-win-x64.zip",
+      "size": 158229281,
+      "sha256": "c050f08ca2b9cf6741400269d233df96eca003d3f96ad3d809ec90126d2a1b80",
+      "sha512": "zzPbxobn8U0GoMhVAJgF5wuLui+XuHrKl2nQ8V4jvJixfmGbVaJ/h6rQ0qRZMDgE6QG1coCyBv6a6C9Tj37u+A=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.117-mac-arm64.zip",
-      "size": 132701004,
-      "sha256": "796d2221511ab225995942d54f0d33354c20f1f3cce86f58cdf4710e479ca119",
-      "sha512": "9kZgswcjzdS+OrxrrUy9FtUEGDsgSEMfg4+cz7EAGfhPAt4fJQiGdamKGNWdDYBpc/GDoPV6HTpLpx/GfDnDUA=="
+      "asset_name": "Memento-1.0.118-mac-arm64.zip",
+      "size": 132715687,
+      "sha256": "4324ee5fb7591a5e25ee2ea09f520216ebe99fa0a0512152184ddc728a4128ec",
+      "sha512": "DaHlrlKlasvEP6M676eiDfT44abHOSGATMkp9X/C1jCXEodsdnnK4hPByvAjxqOCd49V4sl8nEmcL8w6K9yaFw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.117-linux-x64.tar.gz",
-      "size": 131983059,
-      "sha256": "d0aac143b47ff1abedefffa3066513f7c8801a1c98806f1ef171fb0b2533061d",
-      "sha512": "x9P6addxhmkc8phIl+1zp/If/ol8KwIxFgsaJ8bE47kuxDdygcW6rDiBR2ldr1MPRzlW0j86f2yt3gCz+fG1vA=="
+      "asset_name": "Memento-1.0.118-linux-x64.tar.gz",
+      "size": 131995124,
+      "sha256": "3e79774d8b4427aa1fcb684d26164132603c99bcd07b39f70c22691b67702851",
+      "sha512": "tperf+SolFx37XzpVmooeAWKI/D6jB7hZNhz8FzUqPu7tVk2cXGDo1TVvr/0Yz0fgWIUbD6nn6sB8oUSHDaTgw=="
     }
   }
 }

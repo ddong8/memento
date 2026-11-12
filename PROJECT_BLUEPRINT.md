@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `53f6ddd8` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0a456167` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 191 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `0eb07805` (2026-11-12): chore(release): 升级客户端版本至 v1.0.115，回复写完后说明还在等哪些后台任务
+- 最近改动 (Latest): `0a456167` (2026-11-12): fix(daemon): 子进程提前退出时写入报 EPIPE 不再让守护进程崩溃
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -615,8 +615,8 @@ erDiagram
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (6 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (6 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (5 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
-- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (4 commits)
+- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0a456167` (2026-11-12): fix(daemon): 子进程提前退出时写入报 EPIPE 不再让守护进程崩溃
 - `0eb07805` (2026-11-12): chore(release): 升级客户端版本至 v1.0.115，回复写完后说明还在等哪些后台任务
 - `6ca5a45e` (2026-11-12): feat(ask): 回答写完后还在等后台任务时，界面说明在等什么
 - `b1b5ce55` (2026-11-12): refactor(ask): 精简问答页重复入口
 - `735d2506` (2026-11-12): fix(ask): 回答进行中一直显示追问按钮，不再只剩停止按钮
 - `6123e481` (2026-11-12): chore(release): 升级客户端版本至 v1.0.114，回答进行中可以连续追问
-- `4b6a723a` (2026-11-12): feat(ask): 回答进行中可以连续追问
 
 ## 10. Key Environment Variables & Configuration
 

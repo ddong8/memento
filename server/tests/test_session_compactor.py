@@ -266,6 +266,39 @@ class BuildContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("reply 9", res["injected_context"])
         self.assertTrue(res["new_prompt_with_context"].endswith("当前用户指令：\n继续"))
 
+    @patch("server.services.session_compactor.get_ai_providers", return_value=[])
+    async def test_a_few_long_running_prompts_still_get_a_checkpoint(self, _providers):
+        # 5 prompts, each followed by many progress notes and tool calls (issue #18): no older turns, but the
+        # recent ones keep only each final reply, so the work in between must go into a checkpoint
+        doc = SimpleNamespace(id=uuid.uuid4(), title="ops", tool_id="claude_code", content="", file_size_bytes=0)
+        rows = []
+        for t in range(5):
+            rows.append(_row("user", f"运维任务 {t}"))
+            for k in range(30):
+                rows.append(_row("assistant", f"[Tool: Bash] kubectl get pods {t}-{k}"))
+                rows.append(_row("assistant", f"第 {t} 轮第 {k} 步：检查完节点 node-{k}，发现磁盘占用 {k}0%，继续排查下一个。"))
+            rows.append(_row("assistant", f"任务 {t} 完成"))
+        db = _FakeDB(doc, rows)
+
+        res = await build_compacted_continuation(db, "aa549791-3f81-4e86-bbee-e892b7131a4f", "继续", machine_ids=[uuid.uuid4()])
+
+        self.assertIn("核心记忆快照", res["checkpoint"])
+        self.assertNotIn("前序会话较短", res["injected_context"])
+
+    @patch("server.services.session_compactor.get_ai_providers", return_value=[])
+    async def test_a_short_session_needs_no_checkpoint(self, _providers):
+        doc = SimpleNamespace(id=uuid.uuid4(), title="short", tool_id="claude_code", content="", file_size_bytes=0)
+        rows = []
+        for t in range(3):
+            rows += [_row("user", f"ask {t}"), _row("assistant", f"reply {t}")]
+        db = _FakeDB(doc, rows)
+
+        res = await build_compacted_continuation(db, "aa549791-3f81-4e86-bbee-e892b7131a4f", "继续", machine_ids=[uuid.uuid4()])
+
+        self.assertEqual(res["checkpoint"], "")
+        self.assertIn("前序会话较短", res["injected_context"])
+        self.assertIn("reply 2", res["injected_context"])
+
     async def test_a_session_not_found_gives_no_context(self):
         db = _FakeDB(None, None)
         res = await build_compacted_continuation(db, "aa549791-3f81-4e86-bbee-e892b7131a4f", "继续", machine_ids=[])

@@ -62,6 +62,9 @@ EARLIER_SUMMARY_CHARS = 12_000
 RECENT_USER_CHARS = 1_500
 RECENT_REPLY_CHARS = 1_500
 RECENT_LAST_REPLY_CHARS = 4_000
+# What the recent turns may leave out (progress notes between a prompt and its final reply, clipped text)
+# before a session counts as needing a checkpoint even when it has no older turns
+RECENT_DROPPED_CHARS = 2_000
 
 
 @dataclass
@@ -452,6 +455,14 @@ def _render_recent(messages: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _recent_drops_content(messages: list[dict[str, Any]]) -> bool:
+    """Whether rendering these turns as prompt + final reply leaves much of what was said out: a session of
+    few prompts, each running the agent for a long time, is heavy but has no older turns to checkpoint."""
+    said = sum(len(clean_text(str(m.get("content") or ""))) for m in messages if is_dialogue(m) and not _is_cc_summary(m))
+    kept = sum(len(line) for line in _render_recent(messages))
+    return said - kept > RECENT_DROPPED_CHARS
+
+
 def format_injected_context(
     checkpoint_summary: str,
     recent_messages: list[dict[str, Any]],
@@ -464,7 +475,8 @@ def format_injected_context(
     if checkpoint_summary:
         parts.append(checkpoint_summary.strip())
     else:
-        parts.append("*(前序会话未生成快照)*")
+        # Only skipped when the recent turns below carry nearly all of it
+        parts.append("*(前序会话较短，内容都在下面的最近上下文里)*")
 
     recent = _render_recent(recent_messages)
     if recent:
@@ -652,9 +664,10 @@ async def build_compacted_continuation(
     older, recent = split_sliding_window(after, recent_turns=recent_turns)
 
     # Short sessions are all in the recent turns; otherwise the checkpoint covers the whole session up to
-    # the newest message, so its "where things stand" is current
+    # the newest message, so its "where things stand" is current. Counting turns alone misses a session of
+    # a few prompts the agent worked on at length: its recent turns keep only each final reply.
     checkpoint = ""
-    if older or earlier:
+    if older or earlier or _recent_drops_content(recent):
         checkpoint = await generate_checkpoint_summary(
             after, session_title=doc_title, tool_id=tool_id,
             earlier_summary=earlier, earlier_until=earlier_until,

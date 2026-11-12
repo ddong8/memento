@@ -4,22 +4,22 @@
   "release_notes": "1. 协作任务开始前就定好每个子任务用哪台设备、哪个智能体、哪个模型，额度用完或不够的模型不会被安排，任务详情里能看到本次安排\n2. 修复 Antigravity 额度用完的模型被显示成无配额限制的问题，之后的任务会直接跳过它，直到额度恢复\n3. 手机端版本号与客户端统一为 1.0.112",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.111-win-x64.zip",
-      "size": 158186425,
-      "sha256": "9c778c7871f16c747fef73c2ecfba9551dcd9c347ec1648ab8c2858994a68dd1",
-      "sha512": "1TdUGNi9wuz4Wf5sCC9305Z8ZlDl5b90DKt1GHVPhdNTtXZRBzJDTSYqlk+NvGuRWMGt71abofRWv13HQ0HOUw=="
+      "asset_name": "Memento-1.0.112-win-x64.zip",
+      "size": 158188076,
+      "sha256": "6767e527bf5e8770feb319b59764508050e6d41d46c729186c4c1402e0f4aa15",
+      "sha512": "7T0gaXv4FbxOcBeyXUb1+ADhWeP+FNy+YzUkzC/G8jTUYNVpJYckjswbhJ+IbTUKJHJX4cynjkwTOC8Qx8bupw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.111-mac-arm64.zip",
-      "size": 132669614,
-      "sha256": "3b72f01c10198a01500eaad04786676b3f0595bb51ea4be2da3cd12e32b60433",
-      "sha512": "NdBWH7ILwztr3m0jIAKgKXY8llWuqlJOxi0VB/5NhOOVLWcPDg/MuyOdER0dtmBtv//Ga+Atj7tj3qRbF3Px8g=="
+      "asset_name": "Memento-1.0.112-mac-arm64.zip",
+      "size": 132670168,
+      "sha256": "3f35ac97e6926f6fdb7a51e838c52ae3787c88d9cf6d342c22a58dc8244abba7",
+      "sha512": "SYZUquYYjeqhChTATm3o0RBEhfMHlEQVb5H9DsxmRoVQGtl3shsJFsNEDhN6yWYABLwWp74feUAiT8KRsbfSDw=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.111-linux-x64.tar.gz",
-      "size": 131951089,
-      "sha256": "0ac92e002bbe01d3c4cb4f6049e49d419128e012a7cb2cbbe47fbe504e1b082a",
-      "sha512": "UTtKErUsQFhLGuEkWFbC46MLYOFGir+BMRHLvOFTZ9aKNr0hVwQLe3XLWxJvKYpMDW/tflRe37dGPlUMyroL6Q=="
+      "asset_name": "Memento-1.0.112-linux-x64.tar.gz",
+      "size": 131951558,
+      "sha256": "91d566f659050f707c6c6bd8f08c40668d745397804a82c306b46e14cd2e9398",
+      "sha512": "hT+eniC+Jl6O/R1er+EZN2hwxrQEuD7SZmLOGxLRPVRpKHOxMqVUssxPp09O3MrMvHjWDrhK6pALBBTY0Aw8fQ=="
     }
   }
 }

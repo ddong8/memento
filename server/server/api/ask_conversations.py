@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import delete, func, select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -671,6 +671,31 @@ class EnsureConversationBySessionRequest(BaseModel):
     cwd: str | None = None
 
 
+async def _find_session_conversation(db: AsyncSession, user: User, session_id: str) -> uuid.UUID | None:
+    """The conversation a session continues in: the latest one bound to it, else an empty one made for it
+    that let go of it since (the resume banner's 「退出」, a project switch). Without this every pick of
+    such a session made another empty conversation of the same title (seen: 5 for one session)."""
+    owned = (AskConversation.user_id == user.id) | (AskConversation.user_id.is_(None))
+    bound = (await db.execute(
+        select(AskConversation.id)
+        .where(owned & (AskConversation.config.op("->>")("session_id") == session_id))
+        .order_by(AskConversation.updated_at.desc().nulls_last())
+        .limit(1)
+    )).scalar_one_or_none()
+    if bound:
+        return bound
+    return (await db.execute(
+        select(AskConversation.id)
+        .where(
+            owned
+            & (AskConversation.config.op("->>")("origin_session_id") == session_id)
+            & (func.jsonb_array_length(AskConversation.turns) == 0)
+        )
+        .order_by(AskConversation.updated_at.desc().nulls_last())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
 @router.post("/conversations/ensure-by-session")
 async def ensure_conversation_by_session(
     body: EnsureConversationBySessionRequest,
@@ -681,19 +706,29 @@ async def ensure_conversation_by_session(
         "execution_mode": body.execution_mode or "ai",
         "project_id": body.project_id or "",
         "session_id": body.session_id,
+        # Kept when the conversation lets go of the session (session_id cleared), so picking it again finds it
+        "origin_session_id": body.session_id,
         "device_id": body.device_id or "",
         "cwd": body.cwd or "",
     }
-    conv_id, conv_title, cfg = await get_or_create_conversation(
-        conv_id_str=None,
-        user=_user,
-        question="",
-        device_id=body.device_id,
-        cwd=body.cwd,
-        session_id=body.session_id,
-        history=None,
-        config=req_config,
-    )
+    # One at a time per user and session, on any replica: two picks at once made two conversations
+    async with async_session_factory() as lock_db:
+        await lock_db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": f"ask-ensure-by-session:{_user.id}:{body.session_id}"},
+        )
+        existing = await _find_session_conversation(lock_db, _user, body.session_id)
+        conv_id, conv_title, cfg = await get_or_create_conversation(
+            conv_id_str=str(existing) if existing else None,
+            user=_user,
+            question="",
+            device_id=body.device_id,
+            cwd=body.cwd,
+            session_id=body.session_id,
+            history=None,
+            config=req_config,
+        )
+        await lock_db.commit()
     async with async_session_factory() as session:
         conv = (await session.execute(
             select(AskConversation).where(AskConversation.id == conv_id)

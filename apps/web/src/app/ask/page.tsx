@@ -36,7 +36,13 @@ import { SessionResumeBanner } from "@/components/ask/SessionResumeBanner";
 import { OfflineCapsule } from "@/components/ask/StatusCapsules";
 import { AskTopBar } from "@/components/ask/AskTopBar";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
-import { formatContextTokens, isJunkSessionTitle, type AgentSessionItem } from "@/lib/ask/sessions";
+import {
+  fetchLatestSessionMessages,
+  formatContextTokens,
+  isJunkSessionTitle,
+  sessionMessagesToTurns,
+  type AgentSessionItem,
+} from "@/lib/ask/sessions";
 import { CONVERSATIONS_CACHE_KEY, CachedAskState, FALLBACK_AGENT_MODELS, LocalConvSnapshot, QUOTAS_CACHE_KEY, conversationTurnsCache, getCachedConversations, getCachedProjects, getCachedSessions, getImmediateCapabilities, getLocalCachedQuotas, getLocalConvSnapshot, isUuidOrHash, prefetchConversationTurns, resolveSafeProjectName, saveCachedProjects, saveCachedSessions, saveCapabilitiesCache, saveLocalConvSnapshot, saveToRecentConvTurnsCache, clearLocalConvSnapshot } from "@/lib/ask/cache";
 import { modelLimitLabel, modelLimitOf } from "@/lib/ask/model-limits";
 import { cleanProjectPath, homeDeviceOf, isConcreteDevice, isDeviceOnline, pathWithin, projectPathOn } from "@/lib/ask/devices";
@@ -54,8 +60,6 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 
 // The session picker shows the latest few messages as a preview and loads the full conversation on pick
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
-/** How many of a picked session's latest messages show when its conversation has no turns of its own yet */
-const SESSION_PREVIEW_MESSAGES = 100;
 // Coming back to the page fires several wake events: within this long (or while one check runs) they're one
 const WAKE_COALESCE_MS = 3_000;
 
@@ -4210,6 +4214,19 @@ function AskPageContent() {
       takeOverCascade();
       const gen = cascadeGenRef.current;
       const superseded = () => gen !== cascadeGenRef.current;
+      // The conversation the session continues in, opened by this page: the URL change that follows is
+      // its echo. Without this the page took the new ?id= for a request to open it, reloaded it (an empty
+      // conversation's turns) over the session's messages and cut this pick short.
+      const openSessionConversation = (id: string) => {
+        activeConversationIdRef.current = id;
+        openedConvIdRef.current = id;
+        lastRestoredIdRef.current = id;
+        setActiveConversationId(id);
+        replaceAskUrl(hiddenUrlRef, `/ask?id=${id}`);
+        try {
+          localStorage.setItem("memento_last_ask_conv_id", id);
+        } catch {}
+      };
       setSelectedSessionId(sid);
       if (!sid) {
         // A new session in the conversation open here: it lets go of the one it had
@@ -4245,12 +4262,7 @@ function AskPageContent() {
           (c) => c.config?.session_id === sid || c.id === sid
         );
         if (matchedAskConv) {
-          activeConversationIdRef.current = matchedAskConv.id;
-          setActiveConversationId(matchedAskConv.id);
-          replaceAskUrl(hiddenUrlRef, `/ask?id=${matchedAskConv.id}`);
-          try {
-            localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
-          } catch {}
+          openSessionConversation(matchedAskConv.id);
           loadConversation(matchedAskConv.id);
         }
         return;
@@ -4259,179 +4271,15 @@ function AskPageContent() {
       // 先按原生接续；拿到会话真实上下文后，超过阈值的大会话会默认改为智能瘦身，并在横幅里写明原因（见上方的 effect）
       setCompactMode(false);
 
-      let rawMsgs: Array<{
-        role: string;
-        content: string;
-        images?: string[];
-        thinking?: string;
-        tool_name?: string;
-        tool_input?: string;
-        raw_type?: string;
-        timestamp?: string;
-      }> = (targetSession.messages || []) as any;
-
+      let loadedTurns = sessionMessagesToTurns(targetSession.messages || []);
       if (targetSession.conversation_id) {
         try {
-          // The session's latest messages: they come oldest first, so a long session's first page is only
-          // its opening (seen 2026-11-12: a 1021-message session showed its first evening, not today's work)
-          let full = await api.getMessages(targetSession.conversation_id, 0, SESSION_PREVIEW_MESSAGES);
-          if (superseded()) return;
-          if (full?.total > SESSION_PREVIEW_MESSAGES) {
-            full = await api.getMessages(
-              targetSession.conversation_id,
-              full.total - SESSION_PREVIEW_MESSAGES,
-              SESSION_PREVIEW_MESSAGES
-            );
-          }
+          const latest = await fetchLatestSessionMessages(api.getMessages, targetSession.conversation_id);
           // Another session or conversation was picked meanwhile
           if (superseded()) return;
-          if (full?.messages && full.messages.length > 0) {
-            rawMsgs = full.messages.map((m: any) => ({
-              role: m.role || "user",
-              content: m.content || "",
-              images: m.images || undefined,
-              thinking: m.thinking || undefined,
-              tool_name: m.tool_name || undefined,
-              tool_input: m.tool_input || undefined,
-              raw_type: m.raw_type || undefined,
-              timestamp: m.timestamp || m.created_at || undefined,
-            }));
-          }
+          if (latest.length > 0) loadedTurns = sessionMessagesToTurns(latest);
         } catch (err) {
           console.warn("Failed to load full conversation messages:", err);
-        }
-      }
-
-      // Helper to parse legacy [Tool: <name>]\n<input> blocks embedded in text
-      const parseLegacyToolContent = (text: string) => {
-        const toolIdx = text.indexOf("[Tool:");
-        if (toolIdx === -1) return null;
-        const preText = text.slice(0, toolIdx).trim();
-        const toolPart = text.slice(toolIdx);
-        const match = toolPart.match(/^\[Tool:\s*([^\]]+)\]\s*([\s\S]*)$/);
-        if (!match) return null;
-        const name = match[1].trim();
-        const inputStr = match[2].trim();
-        let command = inputStr;
-        try {
-          const parsed = JSON.parse(inputStr);
-          if (typeof parsed === "object" && parsed !== null) {
-            if (parsed.command) command = parsed.command;
-          }
-        } catch {}
-        return { preText, name, command };
-      };
-
-      const loadedTurns: Turn[] = [];
-
-      for (const m of rawMsgs) {
-        let role = m.role || "user";
-        let content = m.content || "";
-        const rawType = m.raw_type || "";
-        const msgTime = m.timestamp || (m as any).created_at || undefined;
-
-        // Detect legacy [Result] on user role -> treat as tool output
-        if (role === "user" && content.startsWith("[Result]")) {
-          role = "tool";
-          content = content.replace(/^\[Result\]\s*/, "");
-        }
-
-        // Detect legacy [Tool: ...] on assistant role
-        const legacyCall = role === "assistant" ? parseLegacyToolContent(content) : null;
-        if (legacyCall) {
-          content = legacyCall.preText;
-          role = content ? "assistant" : "tool";
-        }
-
-        if (role === "user") {
-          // Skip any residual tool/meta noise from appearing as user messages
-          if (
-            content.startsWith("[Tool:") ||
-            content.startsWith("[Result]") ||
-            content.startsWith('{"tool_use_id"')
-          ) {
-            continue;
-          }
-          loadedTurns.push({
-            role: "user",
-            content: content,
-            images: m.images || undefined,
-            created_at: msgTime,
-          });
-        } else if (role === "assistant") {
-          const toolCalls: ToolCallItem[] = [];
-          if (legacyCall) {
-            toolCalls.push({
-              name: legacyCall.name,
-              args: { command: legacyCall.command },
-            });
-          } else if (m.tool_name) {
-            toolCalls.push({
-              name: m.tool_name,
-              args: m.tool_input ? { command: m.tool_input } : {},
-            });
-          }
-          const prevTurn = loadedTurns[loadedTurns.length - 1];
-          const prevUserTime = prevTurn?.role === "user" ? prevTurn.created_at : undefined;
-          loadedTurns.push({
-            role: "assistant",
-            content: content,
-            thinking: m.thinking || undefined,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            created_at: msgTime,
-            started_at: prevUserTime,
-          });
-        } else if (role === "tool") {
-          // Attach tool call or output to the last assistant turn
-          let lastTurn = loadedTurns[loadedTurns.length - 1];
-          if (!lastTurn || lastTurn.role !== "assistant") {
-            const prevUserTime = lastTurn?.role === "user" ? lastTurn.created_at : undefined;
-            lastTurn = {
-              role: "assistant",
-              content: "",
-              toolCalls: [],
-              created_at: msgTime,
-              started_at: prevUserTime,
-            };
-            loadedTurns.push(lastTurn);
-          } else if (msgTime) {
-            lastTurn.created_at = msgTime;
-          }
-          if (!lastTurn.toolCalls) {
-            lastTurn.toolCalls = [];
-          }
-
-          if (legacyCall) {
-            lastTurn.toolCalls.push({
-              name: legacyCall.name,
-              args: { command: legacyCall.command },
-            });
-          } else if (rawType === "tool_call" || m.tool_name) {
-            lastTurn.toolCalls.push({
-              name: m.tool_name || "tool",
-              args: m.tool_input ? { command: m.tool_input } : {},
-            });
-          } else {
-            // Tool output: attach stdout to the most recent tool call if available
-            if (lastTurn.toolCalls.length > 0) {
-              const lastCall = lastTurn.toolCalls[lastTurn.toolCalls.length - 1];
-              lastCall.result = {
-                stdout: content,
-                status: "succeeded",
-                exit_code: 0,
-              };
-            } else {
-              lastTurn.toolCalls.push({
-                name: "tool",
-                args: {},
-                result: {
-                  stdout: content,
-                  status: "succeeded",
-                  exit_code: 0,
-                },
-              });
-            }
-          }
         }
       }
 
@@ -4443,12 +4291,7 @@ function AskPageContent() {
         (c) => c.config?.session_id === sid || c.id === sid
       );
       if (matchedAskConv) {
-        activeConversationIdRef.current = matchedAskConv.id;
-        setActiveConversationId(matchedAskConv.id);
-        replaceAskUrl(hiddenUrlRef, `/ask?id=${matchedAskConv.id}`);
-        try {
-          localStorage.setItem("memento_last_ask_conv_id", matchedAskConv.id);
-        } catch {}
+        openSessionConversation(matchedAskConv.id);
         try {
           const detail = await api.getAskConversation(matchedAskConv.id, 40);
           if (superseded()) return;
@@ -4472,12 +4315,7 @@ function AskPageContent() {
           });
           if (superseded()) return;
           if (ensured && ensured.id) {
-            activeConversationIdRef.current = ensured.id;
-            setActiveConversationId(ensured.id);
-            replaceAskUrl(hiddenUrlRef, `/ask?id=${ensured.id}`);
-            try {
-              localStorage.setItem("memento_last_ask_conv_id", ensured.id);
-            } catch {}
+            openSessionConversation(ensured.id);
             if (ensured.device_id && ensured.device_id !== "auto") {
               setSelectedDevice(normalizeDeviceId(ensured.device_id));
             }
@@ -4491,10 +4329,34 @@ function AskPageContent() {
         }
       }
       if (superseded()) return;
+      turnsRef.current = loadedTurns;
       setTurns(loadedTurns);
     },
     [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade]
   );
+
+  // A conversation that continues a session but has no turns of its own yet (opened from the URL or the
+  // history, or the page reloaded) shows the session's latest messages, not the empty welcome. Only the
+  // session the conversation itself is bound to: the picker can still show the last one's for a moment.
+  const sessionPreviewRunRef = useRef(0);
+  useEffect(() => {
+    // Anything this depends on changing (turns arriving included) makes a reply still on its way stale
+    const run = ++sessionPreviewRunRef.current;
+    const convId = activeConversationId;
+    const sid = selectedSessionId;
+    if (!convId || !sid || streaming || turns.length > 0) return;
+    if (conversations.find((c) => c.id === convId)?.config?.session_id !== sid) return;
+    const documentId = sessions.find((s) => s.session_id === sid)?.conversation_id;
+    if (!documentId) return;
+    fetchLatestSessionMessages(api.getMessages, documentId)
+      .then((messages) => {
+        const preview = sessionMessagesToTurns(messages);
+        if (run !== sessionPreviewRunRef.current || turnsRef.current.length > 0 || preview.length === 0) return;
+        turnsRef.current = preview;
+        setTurns(preview);
+      })
+      .catch(() => {});
+  }, [activeConversationId, selectedSessionId, streaming, turns.length, conversations, sessions, setTurns]);
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
   useEffect(() => {

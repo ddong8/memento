@@ -4,22 +4,22 @@
   "release_notes": "1. 续接历史 Claude Code 会话的方式可在个人设置里选：自动、总是原生接续、总是瘦身续接\n2. 瘦身续接时对话里会注明从快照新开了哪个会话、接续自哪个会话，会话标题各设备保持一致\n3. 提问次数少但每轮干很久的大会话，续接时也会先生成核心记忆快照\n4. 修复执行机守护进程在子进程提前退出时崩溃重启的问题\n5. 手机端版本号与客户端统一为 1.0.116",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.115-win-x64.zip",
-      "size": 158194221,
-      "sha256": "c78fa7d2588bc198ccc7ecb1c5c2ba5d3d054a9a2ad6a9e136a032db0b7edc58",
-      "sha512": "TTj2Rci04l2QR6XXDYhfQ/SdSZPBrz2F5fhR5qEDev9iEBnhYNAyWn96iVZCuoGdW5Ppldad09usphdzBMtH4Q=="
+      "asset_name": "Memento-1.0.116-win-x64.zip",
+      "size": 158194831,
+      "sha256": "e02f5feaedc61cbcd2d11ecdc406c82013a1d8f67e9796927a234313dcd016ef",
+      "sha512": "8M4sK8VFJ4aOwZ9mgUgcpx2Sc7RfMI8OK9C2qDjn4BgOmhbBO48E6T/uO3k0Rbpkn13qQ9/9y4zFUNTJM9W1vg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.115-mac-arm64.zip",
-      "size": 132678247,
-      "sha256": "6eab866c3d1fc7b4378eee625f0204d0e4a616e0b1c2d12f5112e8a20dc64d87",
-      "sha512": "gV3rLElIsLVvk8Yds5uInbu667xndjlbOVLbtl1Wu2HWHFTF98CGMjiW+if1QhTf7Vg5wVxp9CGukXE8SWhjvQ=="
+      "asset_name": "Memento-1.0.116-mac-arm64.zip",
+      "size": 132678814,
+      "sha256": "1d86c43609ab1dc80f805ecef0f65d04f4c6d1ca867a686dc327c3abd09bfedd",
+      "sha512": "45YTh+cG1gEUeKb5TvRdos320mcsdqIEIxqejgsaw0QLVqfrjEQS7Oe9shdFvTEPrX1lf62+VjjD55Op0iIvfQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.115-linux-x64.tar.gz",
-      "size": 131961346,
-      "sha256": "77d9f858bf83d98e953f2f2b3749bf79a7bb1d59acb0d44831756c9c7ca3e7af",
-      "sha512": "aXJZby5lzAQEnXr/1Zivds+TkVpOJf9fCYDcdX7LPARd9d9G1gnokC/9DY39igJDVe5k2AdtOYJ0vPZSY0+iYw=="
+      "asset_name": "Memento-1.0.116-linux-x64.tar.gz",
+      "size": 131961941,
+      "sha256": "799f2ffa3bd9c2e4dd0943952dd9628754f435ff1c21336318bb0dabc5d8f588",
+      "sha512": "gZ8SydrIGMk3JIMKUh+g5yj5wjjZCTFJzE33vyFFMFn7kMVbTTIuw2PFKQ7EETWQoEQeKgoJzTQsO0AKkXwQ5g=="
     }
   }
 }

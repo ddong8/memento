@@ -4,22 +4,22 @@
   "release_notes": "1. 跨设备执行时，智能体在执行机上做的提交会原样带回源设备，合到源设备分支或单独保留在新分支\n2. 智能体在执行机上要推送时，改由源设备用自己的账号推送，任务时间线里显示推送结果\n3. 没有桌面端的执行机（如无界面 Linux）也会自动注册记忆 MCP 服务\n4. 手机端版本号与客户端统一为 1.0.117",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.116-win-x64.zip",
-      "size": 158194831,
-      "sha256": "e02f5feaedc61cbcd2d11ecdc406c82013a1d8f67e9796927a234313dcd016ef",
-      "sha512": "8M4sK8VFJ4aOwZ9mgUgcpx2Sc7RfMI8OK9C2qDjn4BgOmhbBO48E6T/uO3k0Rbpkn13qQ9/9y4zFUNTJM9W1vg=="
+      "asset_name": "Memento-1.0.117-win-x64.zip",
+      "size": 158215713,
+      "sha256": "dfb111aa4569d96fd21f1df1188f5f1ea8d489277b29ae987f0b232202dba38a",
+      "sha512": "XE1aCglm2twST0SgQ6bswB8+Z0Ij+B1xlHUg3BNxs7s9ilx/QxvaG9h3iHQdrq1ExbfRwQNpJNqjEFWQaNTyUw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.116-mac-arm64.zip",
-      "size": 132678814,
-      "sha256": "1d86c43609ab1dc80f805ecef0f65d04f4c6d1ca867a686dc327c3abd09bfedd",
-      "sha512": "45YTh+cG1gEUeKb5TvRdos320mcsdqIEIxqejgsaw0QLVqfrjEQS7Oe9shdFvTEPrX1lf62+VjjD55Op0iIvfQ=="
+      "asset_name": "Memento-1.0.117-mac-arm64.zip",
+      "size": 132701004,
+      "sha256": "796d2221511ab225995942d54f0d33354c20f1f3cce86f58cdf4710e479ca119",
+      "sha512": "9kZgswcjzdS+OrxrrUy9FtUEGDsgSEMfg4+cz7EAGfhPAt4fJQiGdamKGNWdDYBpc/GDoPV6HTpLpx/GfDnDUA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.116-linux-x64.tar.gz",
-      "size": 131961941,
-      "sha256": "799f2ffa3bd9c2e4dd0943952dd9628754f435ff1c21336318bb0dabc5d8f588",
-      "sha512": "gZ8SydrIGMk3JIMKUh+g5yj5wjjZCTFJzE33vyFFMFn7kMVbTTIuw2PFKQ7EETWQoEQeKgoJzTQsO0AKkXwQ5g=="
+      "asset_name": "Memento-1.0.117-linux-x64.tar.gz",
+      "size": 131983059,
+      "sha256": "d0aac143b47ff1abedefffa3066513f7c8801a1c98806f1ef171fb0b2533061d",
+      "sha512": "x9P6addxhmkc8phIl+1zp/If/ol8KwIxFgsaJ8bE47kuxDdygcW6rDiBR2ldr1MPRzlW0j86f2yt3gCz+fG1vA=="
     }
   }
 }

@@ -4,22 +4,22 @@
   "release_notes": "1. 回复写完后智能体还在等后台任务（构建、部署等）时，输入框上方显示在等哪几个任务，结束后本轮才算完成，点停止会一起结束\n2. 回答进行中追问按钮常驻在停止按钮旁边\n3. 问答页精简：去掉只清页面、刷新又回来的清空按钮，导出只留顶栏一处，回答底部只保留回复时间、耗时和模型\n4. 手机端版本号与客户端统一为 1.0.115",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.114-win-x64.zip",
-      "size": 158193640,
-      "sha256": "7a29226b9701a9ce49488208d9aadfec10b9e6937585601c648a25b6adaceb8f",
-      "sha512": "VNsevbpErGAllWXCO0U2zYBRMausr7FNvLELhMjsH9X5ZAJ5QrVphXH4Uyx6PC1EACdWHgquyXKe/oJqEsvnjQ=="
+      "asset_name": "Memento-1.0.115-win-x64.zip",
+      "size": 158194221,
+      "sha256": "c78fa7d2588bc198ccc7ecb1c5c2ba5d3d054a9a2ad6a9e136a032db0b7edc58",
+      "sha512": "TTj2Rci04l2QR6XXDYhfQ/SdSZPBrz2F5fhR5qEDev9iEBnhYNAyWn96iVZCuoGdW5Ppldad09usphdzBMtH4Q=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.114-mac-arm64.zip",
-      "size": 132677746,
-      "sha256": "391fe49bebf1f7f160537dc985298ced663d4d7c25889c1bcce0a079c6f8d4b9",
-      "sha512": "RYokkCogddu6cyYmPqGCIiHzdOlBWu2VHHlylq/EKP8RmrRZ7korl/9dOWFEMu9eYK6vQgsIFYczlJUhuNExWg=="
+      "asset_name": "Memento-1.0.115-mac-arm64.zip",
+      "size": 132678247,
+      "sha256": "6eab866c3d1fc7b4378eee625f0204d0e4a616e0b1c2d12f5112e8a20dc64d87",
+      "sha512": "gV3rLElIsLVvk8Yds5uInbu667xndjlbOVLbtl1Wu2HWHFTF98CGMjiW+if1QhTf7Vg5wVxp9CGukXE8SWhjvQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.114-linux-x64.tar.gz",
-      "size": 131961196,
-      "sha256": "fb0e6da1f719f172d442158f556536d57c1d69590abf5ac44c44d5bcf50d2247",
-      "sha512": "LndUjH/Fr8r9vjw/WXUwk/rvE214TpcImTXiMHyeW4c5jYzdxFHNEP2EX/Zm4lWtfi6dJE4+TkaZMzVGliZ2ng=="
+      "asset_name": "Memento-1.0.115-linux-x64.tar.gz",
+      "size": 131961346,
+      "sha256": "77d9f858bf83d98e953f2f2b3749bf79a7bb1d59acb0d44831756c9c7ca3e7af",
+      "sha512": "aXJZby5lzAQEnXr/1Zivds+TkVpOJf9fCYDcdX7LPARd9d9G1gnokC/9DY39igJDVe5k2AdtOYJ0vPZSY0+iYw=="
     }
   }
 }

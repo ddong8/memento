@@ -1,8 +1,8 @@
-version: 1.0.114
+version: 1.0.115
 files:
-  - url: Memento-1.0.114-win-x64.exe
-    sha512: bAeoFDFuXGvHxO9vCGbHsp4Y4KOjDb4Oq/vNS7SBXl2Z+fPESaXEqy9ua6PthCLQEA1Ba65P0BY26C7pY2Zaig==
-    size: 115538180
-path: Memento-1.0.114-win-x64.exe
-sha512: bAeoFDFuXGvHxO9vCGbHsp4Y4KOjDb4Oq/vNS7SBXl2Z+fPESaXEqy9ua6PthCLQEA1Ba65P0BY26C7pY2Zaig==
-releaseDate: '2026-11-12T11:57:28.520Z'
+  - url: Memento-1.0.115-win-x64.exe
+    sha512: LkFeMizswtNrCdKd+i8syAkPM/qtz8rXz3pPECmpft6i7iehtEX/U3Yz4ns6A/qY1E1NcuWeSAvzGVZ+2iFIQg==
+    size: 115538757
+path: Memento-1.0.115-win-x64.exe
+sha512: LkFeMizswtNrCdKd+i8syAkPM/qtz8rXz3pPECmpft6i7iehtEX/U3Yz4ns6A/qY1E1NcuWeSAvzGVZ+2iFIQg==
+releaseDate: '2026-11-12T12:56:39.210Z'

@@ -1,9 +1,9 @@
-version: 1.0.112
+version: 1.0.113
 files:
-  - url: Memento-1.0.112-linux-x86_64.AppImage
-    sha512: v1XjvD9+MMwM37kmwrcZU+c+Ep3lYChSylE1wEE8G7aO9GFJiLOO+AOaBlDjYy7uo01+rdl9niycvD+Iwsg5dA==
-    size: 138779963
-    blockMapSize: 146767
-path: Memento-1.0.112-linux-x86_64.AppImage
-sha512: v1XjvD9+MMwM37kmwrcZU+c+Ep3lYChSylE1wEE8G7aO9GFJiLOO+AOaBlDjYy7uo01+rdl9niycvD+Iwsg5dA==
-releaseDate: '2026-11-12T00:58:53.445Z'
+  - url: Memento-1.0.113-linux-x86_64.AppImage
+    sha512: FwawOlZ4OzVWubLrHeyRvQ4MYBjr3fsJIkmnCuK3i9XvtQIwXOUta/6jN14nPd02Se2bHN8+E9MsVNVYiu/3ZA==
+    size: 138788043
+    blockMapSize: 146655
+path: Memento-1.0.113-linux-x86_64.AppImage
+sha512: FwawOlZ4OzVWubLrHeyRvQ4MYBjr3fsJIkmnCuK3i9XvtQIwXOUta/6jN14nPd02Se2bHN8+E9MsVNVYiu/3ZA==
+releaseDate: '2026-11-12T01:32:27.368Z'

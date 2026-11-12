@@ -4,22 +4,22 @@
   "release_notes": "1. Codex 接入实时额度：直接向 Codex 查询账号和各模型剩余额度与恢复时间，额度卡片显示剩余百分比，协作任务据此排除额度不足的模型\n2. 模型额度用完后提前恢复时，按最新查询结果自动重新启用，不再死等记录里的恢复时间\n3. 服务端后来才开启远程执行时，客户端不用重启也能接收任务\n4. 手机端版本号与客户端统一为 1.0.113",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.112-win-x64.zip",
-      "size": 158188076,
-      "sha256": "6767e527bf5e8770feb319b59764508050e6d41d46c729186c4c1402e0f4aa15",
-      "sha512": "7T0gaXv4FbxOcBeyXUb1+ADhWeP+FNy+YzUkzC/G8jTUYNVpJYckjswbhJ+IbTUKJHJX4cynjkwTOC8Qx8bupw=="
+      "asset_name": "Memento-1.0.113-win-x64.zip",
+      "size": 158193175,
+      "sha256": "018ce350b9891d6aa689eb8b8823959e4355d65c5a087f5637b9bc24d79074de",
+      "sha512": "k9BxibXtuSKyxFtZmE5i5KYEus3cPFTUiOd08krOaoSa6O47kJpNOqJVVIQyQkUsmyshApEokkGGRpbqyp2sZw=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.112-mac-arm64.zip",
-      "size": 132670168,
-      "sha256": "3f35ac97e6926f6fdb7a51e838c52ae3787c88d9cf6d342c22a58dc8244abba7",
-      "sha512": "SYZUquYYjeqhChTATm3o0RBEhfMHlEQVb5H9DsxmRoVQGtl3shsJFsNEDhN6yWYABLwWp74feUAiT8KRsbfSDw=="
+      "asset_name": "Memento-1.0.113-mac-arm64.zip",
+      "size": 132677094,
+      "sha256": "04e636f34d6dbd3ae5e43b14cfe7d7a351d7541d8552328bc9f286ee61942892",
+      "sha512": "HC1CBVdrPPYNA3WM9b/fogUh99NOnNyV2873+S1j8ljy+F6fBR892/SfnOu5AfoWDU9Um1f2Kw4SCBknl15wNg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.112-linux-x64.tar.gz",
-      "size": 131951558,
-      "sha256": "91d566f659050f707c6c6bd8f08c40668d745397804a82c306b46e14cd2e9398",
-      "sha512": "hT+eniC+Jl6O/R1er+EZN2hwxrQEuD7SZmLOGxLRPVRpKHOxMqVUssxPp09O3MrMvHjWDrhK6pALBBTY0Aw8fQ=="
+      "asset_name": "Memento-1.0.113-linux-x64.tar.gz",
+      "size": 131960494,
+      "sha256": "c0256aa0959eac59603d53ee2761a4fc39cec53e8b4b3bba63920fa9f291877b",
+      "sha512": "1jAPrd3rq9/gqe2+dYp0ZOAxyQ6uYc/QvrAEITJaiY0rgDRsCOEmHqnPhP5B1STzy2bulSrF+K+EhrnXEFjo4A=="
     }
   }
 }

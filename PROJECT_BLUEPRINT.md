@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `41d5fb6f` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `4b6a723a` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 190 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `41d5fb6f` (2026-11-12): fix(web): 会话预览单独显示，不再并进对话回合、随下一条消息当 history 发出
+- 最近改动 (Latest): `4b6a723a` (2026-11-12): feat(ask): 回答进行中可以连续追问
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -607,16 +607,16 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
-- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (7 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (8 commits)
+- [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (6 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (6 commits)
 - [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
-- [`server/server/services/retrospective_service.py`](server/server/services/retrospective_service.py) (5 commits)
-- [`docs/deployment-guide.md`](docs/deployment-guide.md) (4 commits)
+- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (4 commits)
+- [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `4b6a723a` (2026-11-12): feat(ask): 回答进行中可以连续追问
 - `41d5fb6f` (2026-11-12): fix(web): 会话预览单独显示，不再并进对话回合、随下一条消息当 history 发出
 - `9ab43efd` (2026-11-12): fix(ask): 选已有会话时复用它所在的对话，不再每次新建同名空对话
 - `1837031e` (2026-11-12): fix(blueprint): Windows 上生成的蓝图里路径统一用 /，不再每次提交改动上百行
 - `3011a9e4` (2026-11-12): fix(web): AI 执事选会话、打开续接会话的对话时，主区域显示会话内容
 - `e5d17193` (2026-11-12): fix(web): AI 执事选已有会话时显示会话最新的消息，而不是开头 (#15)
-- `e6917dd9` (2026-11-12): chore(release): 升级客户端版本至 v1.0.113，Codex 实时额度与远程执行密钥免重启
 
 ## 10. Key Environment Variables & Configuration
 

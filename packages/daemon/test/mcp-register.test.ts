@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import { antigravityMcpFile, applyMcpRegistration, convergeCodex, defaultMcpTargets, isOurEntry, type McpLauncher, type McpTarget } from "../src/mcp-register.js";
+import { antigravityMcpFile, applyMcpRegistration, bundledMcpLauncher, convergeCodex, defaultMcpTargets, isOurEntry, standaloneMcpLauncher, type McpLauncher, type McpTarget } from "../src/mcp-register.js";
 
 const EXE = "C:\\Users\\Admin\\AppData\\Local\\Programs\\@mementodesktop\\Memento.exe";
 const MJS = "C:\\Users\\Admin\\AppData\\Local\\Programs\\@mementodesktop\\resources\\app.asar.unpacked\\dist\\mcp.mjs";
@@ -271,4 +271,37 @@ it("accepts the snippet the app shows (inline env), adds to a config without one
   expect(await run(["codex"])).toEqual({ codex: "added" });
   expect(readFileSync(targets.codex!.file, "utf8")).toBe(added.next);
   expect(await run(["codex"])).toEqual({ codex: "unchanged" });
+});
+
+it("a daemon without the desktop app registers the packages/mcp built next to it, started with its own Node", async () => {
+  // The source checkout executor.sh builds: packages/daemon/dist and packages/mcp/dist, deps hoisted to the root
+  const repo = join(home, "src", "memento");
+  const daemonDist = join(repo, "packages", "daemon", "dist");
+  const cli = join(repo, "packages", "mcp", "dist", "cli.js");
+  mkdirSync(daemonDist, { recursive: true });
+  expect(standaloneMcpLauncher(daemonDist, "/opt/node/bin/node")).toBeNull();
+  mkdirSync(join(repo, "packages", "mcp", "dist"), { recursive: true });
+  writeFileSync(cli, "");
+  // Built but its SDK not installed: the entry would fail to start
+  expect(standaloneMcpLauncher(daemonDist, "/opt/node/bin/node")).toBeNull();
+  mkdirSync(join(repo, "node_modules", "@modelcontextprotocol", "sdk"), { recursive: true });
+  writeFileSync(join(repo, "node_modules", "@modelcontextprotocol", "sdk", "package.json"), "{}");
+  const standalone = standaloneMcpLauncher(daemonDist, "/opt/node/bin/node")!;
+  expect(standalone).toEqual({ command: "/opt/node/bin/node", args: [cli], env: {} });
+
+  // The desktop app's launcher wins; a half-set one means none rather than a guess
+  expect(bundledMcpLauncher({ MEMENTO_MCP_COMMAND: cli, MEMENTO_MCP_ENTRY: cli })).toEqual({ command: cli, args: [cli], env: { ELECTRON_RUN_AS_NODE: "1" } });
+  expect(bundledMcpLauncher({ MEMENTO_MCP_COMMAND: cli })).toBeNull();
+
+  // An entry added by hand under our name, and an old desktop one: both become the plain Node entry, no env
+  mkdirSync(join(home, ".claude"));
+  writeFileSync(targets.claude_code!.file, JSON.stringify({ mcpServers: { "memento-memory": { type: "stdio", command: EXE, args: [MJS], env: { ELECTRON_RUN_AS_NODE: "1" } } } }));
+  mkdirSync(join(home, ".codex"));
+  writeFileSync(targets.codex!.file, `[mcp_servers.memento-memory]\ncommand = "node"\nargs = ["/home/u/.memento/mcp-server/dist/cli.js"]\n`);
+  const sync = () => applyMcpRegistration({ launcher: standalone, add: ["claude_code", "codex"], home, targets });
+  expect(await sync()).toEqual({ claude_code: "repaired", codex: "repaired" });
+  expect(readJson(targets.claude_code!.file).mcpServers["memento-memory"]).toEqual({ type: "stdio", command: "/opt/node/bin/node", args: [cli] });
+  expect(readFileSync(targets.codex!.file, "utf8")).toBe(`[mcp_servers.memento-memory]\ncommand = "/opt/node/bin/node"\nargs = [${JSON.stringify(cli)}]\n`);
+  expect(await sync()).toEqual({ claude_code: "unchanged", codex: "unchanged" });
+  expect(isOurEntry("my-memory", "/usr/bin/node", [cli])).toBe(true);
 });

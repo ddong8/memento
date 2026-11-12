@@ -264,8 +264,8 @@ git clone https://github.com/ddong8/memento.git && cd memento
 
 ```bash
 git clone https://github.com/ddong8/memento.git && cd memento
-npm ci --workspace @memento/daemon --workspace @memento/core --include-workspace-root
-npm run build -w @memento/daemon
+npm ci --workspace @memento/daemon --workspace @memento/core --workspace @memento/mcp --include-workspace-root
+npm run build -w @memento/daemon -w @memento/mcp
 
 # 登录并注册为系统服务（自动开机自启）
 node packages/daemon/dist/cli.js login <collector token> https://mem.ihasy.com

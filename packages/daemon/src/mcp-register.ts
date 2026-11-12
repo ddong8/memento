@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { homeDir, mementoDir } from "./config.js";
 
@@ -25,8 +26,11 @@ import { homeDir, mementoDir } from "./config.js";
  * - Nothing else is touched or removed; a file is only written when something
  *   changes, after a timestamped copy in ~/.memento/backups/mcp.
  *
- * Only the desktop app knows the launcher (its own binary run as Node plus
- * mcp.mjs, see daemon-host.ts); a standalone daemon leaves the entries alone.
+ * The desktop app passes its launcher (its own binary run as Node plus mcp.mjs,
+ * see daemon-host.ts). A standalone daemon (executor.sh on a Linux server, no
+ * desktop app) runs from a source checkout that also builds packages/mcp, and
+ * starts that with its own Node. Before 2026-11-12 it had no launcher and left
+ * the entries alone, so the AI tools on those machines had no memory at all.
  */
 
 export const MCP_SERVER_NAME = "memento-memory";
@@ -40,12 +44,37 @@ export interface McpLauncher {
   env: Record<string, string>;
 }
 
-/** The bundled MCP server as the desktop app starts it; null outside the packaged app. */
+/**
+ * The MCP server this daemon registers: the desktop app's bundled one when it
+ * passes it in, otherwise the one built next to this daemon in the same source
+ * checkout (standaloneMcpLauncher); null when neither is there.
+ */
 export function bundledMcpLauncher(env: NodeJS.ProcessEnv = process.env): McpLauncher | null {
   const command = env.MEMENTO_MCP_COMMAND;
   const entry = env.MEMENTO_MCP_ENTRY;
-  if (!command || !entry || !existsSync(command) || !existsSync(entry)) return null;
-  return { command, args: [entry], env: { ELECTRON_RUN_AS_NODE: "1" } };
+  if (command || entry) {
+    if (!command || !entry || !existsSync(command) || !existsSync(entry)) return null;
+    return { command, args: [entry], env: { ELECTRON_RUN_AS_NODE: "1" } };
+  }
+  if (process.versions.electron) return null;
+  return standaloneMcpLauncher();
+}
+
+/**
+ * packages/mcp/dist/cli.js of the checkout this daemon runs from, started with
+ * this daemon's Node. Only when it was built and its SDK installed, or the tools
+ * would get an entry that fails to start.
+ */
+export function standaloneMcpLauncher(
+  daemonDist: string = dirname(fileURLToPath(import.meta.url)),
+  node: string = process.execPath,
+): McpLauncher | null {
+  const mcpPackage = resolve(daemonDist, "..", "..", "mcp");
+  const entry = join(mcpPackage, "dist", "cli.js");
+  if (!existsSync(entry)) return null;
+  const sdk = join("node_modules", "@modelcontextprotocol", "sdk", "package.json");
+  if (!existsSync(join(mcpPackage, sdk)) && !existsSync(resolve(mcpPackage, "..", "..", sdk))) return null;
+  return { command: node, args: [entry], env: {} };
 }
 
 export type McpFormat = "claude" | "json" | "codex";
@@ -97,9 +126,9 @@ const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(
 
 /** Names our entries went by. */
 const LEGACY_NAME = /^(memento|daily[-_]?report)([-_]?memory)?$/i;
-/** Launchers of ours, past and present: the Python server, the sidecar .exe, the npm package, the bundled mcp.mjs. */
+/** Launchers of ours, past and present: the Python server, the sidecar .exe, the npm package, the bundled mcp.mjs, a checkout's packages/mcp. */
 const LEGACY_LAUNCHER = /memento-mcp-sidecar|memento[-_]mcp|@memento[\\/]mcp|(^|\s)-m\s+mcp_server(\s|$)/i;
-const BUNDLED_LAUNCHER = /app\.asar\.unpacked[\\/]dist[\\/]mcp\.mjs/i;
+const BUNDLED_LAUNCHER = /app\.asar\.unpacked[\\/]dist[\\/]mcp\.mjs|[\\/]packages[\\/]mcp[\\/]dist[\\/]cli\.js/i;
 /** How an entry is started or reached; the rest (disabled, timeouts, approvals) is the user's and stays. */
 const LAUNCH_KEYS = new Set(["command", "args", "env", "type", "url", "serverUrl", "httpUrl", "headers", "cwd", "transport"]);
 
@@ -115,7 +144,8 @@ export function isOurEntry(name: string, command: unknown, args: unknown): boole
 }
 
 function canonicalEntry(launcher: McpLauncher, format: McpFormat): Json {
-  const base = { command: launcher.command, args: [...launcher.args], env: { ...launcher.env } };
+  const base: Json = { command: launcher.command, args: [...launcher.args] };
+  if (Object.keys(launcher.env).length) base.env = { ...launcher.env };
   return format === "claude" ? { type: "stdio", ...base } : base;
 }
 
@@ -369,6 +399,7 @@ const tomlStr = (s: string) => JSON.stringify(s);
 const asStrings = (v: TomlValue | undefined): string[] | null => (Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null);
 const sameStrings = (a: string[] | null, b: string[]) => !!a && a.length === b.length && a.every((x, i) => x === b[i]);
 function sameEnv(v: unknown, env: Record<string, string>): boolean {
+  if (v === undefined && !Object.keys(env).length) return true;
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   const e = v as Record<string, unknown>;
   return Object.keys(e).length === Object.keys(env).length && Object.entries(env).every(([k, x]) => e[k] === x);
@@ -441,9 +472,10 @@ export function convergeCodex(text: string, launcher: McpLauncher, add: boolean)
     `command = ${tomlStr(launcher.command)}`,
     `args = [${launcher.args.map(tomlStr).join(", ")}]`,
     ...extraLines,
-    "",
-    `[mcp_servers.${MCP_SERVER_NAME}.env]`,
-    ...Object.entries(launcher.env).map(([k, v]) => `${k} = ${tomlStr(v)}`),
+    // The standalone launcher (plain Node) needs no env table
+    ...(Object.keys(launcher.env).length
+      ? ["", `[mcp_servers.${MCP_SERVER_NAME}.env]`, ...Object.entries(launcher.env).map(([k, v]) => `${k} = ${tomlStr(v)}`)]
+      : []),
     ...extraTables,
   ];
 

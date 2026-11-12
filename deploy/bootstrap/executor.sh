@@ -128,10 +128,11 @@ else
 fi
 ok "源码 $(git -C "$SRC" rev-parse --short HEAD)"
 
-say "安装依赖并构建守护进程（首次约 1～3 分钟）"
-(cd "$SRC" && npm ci --no-audit --no-fund --loglevel=error -w @memento/daemon -w @memento/core --include-workspace-root </dev/null >/dev/null \
-    && npm run build -w @memento/daemon </dev/null >/dev/null)
-ok "守护进程已构建"
+say "安装依赖并构建守护进程和记忆 MCP 服务（首次约 1～3 分钟）"
+# The daemon registers packages/mcp with Claude Code / Codex / Antigravity (mcp-register.ts)
+(cd "$SRC" && npm ci --no-audit --no-fund --loglevel=error -w @memento/daemon -w @memento/core -w @memento/mcp --include-workspace-root </dev/null >/dev/null \
+    && npm run build -w @memento/daemon -w @memento/mcp </dev/null >/dev/null)
+ok "守护进程和记忆 MCP 服务已构建"
 
 CLI="$SRC/packages/daemon/dist/cli.js"
 "$NODE" "$CLI" login "$TOKEN" "$SERVER" </dev/null >/dev/null

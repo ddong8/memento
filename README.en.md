@@ -264,8 +264,8 @@ For servers, headless setups, or CLI enthusiasts; requires Node.js ≥ 20. Uses 
 
 ```bash
 git clone https://github.com/ddong8/memento.git && cd memento
-npm ci --workspace @memento/daemon --workspace @memento/core --include-workspace-root
-npm run build -w @memento/daemon
+npm ci --workspace @memento/daemon --workspace @memento/core --workspace @memento/mcp --include-workspace-root
+npm run build -w @memento/daemon -w @memento/mcp
 
 # Log in and install as a background system service (starts automatically at boot)
 node packages/daemon/dist/cli.js login <collector token> https://mem.ihasy.com

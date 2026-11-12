@@ -7,7 +7,9 @@ import { homeDir } from "./config.js";
 import {
   dropPending,
   listPending,
+  commitsMessage,
   mirrorBase,
+  mirrorCommits,
   mirrorHave,
   mirrorPatch,
   packPatch,
@@ -16,8 +18,11 @@ import {
   savePending,
   WorkspaceError,
   type AppliedFile,
+  type CarriedCommit,
   type ExportResult,
+  type IncomingCommits,
   type Mirror,
+  type PushResult,
 } from "./workspace.js";
 
 /**
@@ -104,7 +109,9 @@ async function download(relay: Relay, token: string, size: number, home?: string
   return file;
 }
 
-function exportInfo(r: Record<string, unknown>): Pick<ExportResult, "head" | "branch" | "snapshot" | "tree" | "root" | "rel" | "upToDate"> & { token: string; size: number } {
+function exportInfo(
+  r: Record<string, unknown>,
+): Pick<ExportResult, "head" | "branch" | "snapshot" | "tree" | "root" | "rel" | "upToDate" | "upstream" | "userName" | "userEmail"> & { token: string; size: number } {
   return {
     token: String(r.token ?? ""),
     size: Number(r.size ?? 0),
@@ -115,6 +122,9 @@ function exportInfo(r: Record<string, unknown>): Pick<ExportResult, "head" | "br
     root: String(r.root ?? ""),
     rel: String(r.rel ?? ""),
     upToDate: r.up_to_date === true,
+    upstream: String(r.upstream ?? ""),
+    userName: String(r.user_name ?? ""),
+    userEmail: String(r.user_email ?? ""),
   };
 }
 
@@ -170,6 +180,14 @@ export interface WorkspaceOutcome extends Record<string, unknown> {
   branch?: string;
   patch_path?: string;
   error?: string;
+  /** The agent's commits, as they are on the source now (newest first). */
+  commits?: CarriedCommit[];
+  /** `branch`: the source's branch ends in them; `kept`: they're on `commit_branch`. */
+  committed?: "branch" | "kept";
+  commit_branch?: string;
+  /** Commits the agent made that didn't go back as commits, and why. */
+  commits_error?: string;
+  push?: PushResult;
 }
 
 /**
@@ -188,29 +206,36 @@ export async function finishWorkspace(
   const source = run.spec.sourceName;
   try {
     const made = await mirrorPatch(run.mirror, { env, home });
-    if (!made.patch.length) return { kind: "workspace", status: "unchanged", source };
+    const carried = await mirrorCommits(run.mirror, { env, home });
+    const commits = carried.commits;
+    const note = carried.note ? { commits_error: carried.note } : {};
+    if (!made.patch.length && !commits) return { kind: "workspace", status: "unchanged", source, ...note };
     const packed = await packPatch(made.patch);
-    if (packed.length > PATCH_LIMIT) {
-      const kept = await savePending({ taskId, sourceDeviceId: run.spec.sourceDeviceId, sourcePath: run.spec.sourcePath, baseTree: run.mirror.baseTree, mode: "save" }, made.patch, home);
+    const pending = { taskId, sourceDeviceId: run.spec.sourceDeviceId, sourcePath: run.spec.sourcePath, baseTree: run.mirror.baseTree };
+    const size = packed.length + Math.ceil(((commits?.bundle.length ?? 0) * 4) / 3);
+    if (size > PATCH_LIMIT) {
+      const kept = await savePending({ ...pending, mode: "save" }, made.patch, home, commits);
       return {
         kind: "workspace",
         status: "failed",
         source,
         files: made.files.slice(0, 200),
         patch_path: kept.patchFile,
-        error: `改动太大（压缩后 ${Math.round(packed.length / 1048576)}MB），没有传回；补丁留在执行机 ${kept.patchFile}`,
+        error: `改动太大（压缩后 ${Math.round(size / 1048576)}MB），没有传回；补丁留在执行机 ${kept.patchFile}`,
       };
     }
     try {
-      return await sendPatch(relay, { taskId, spec: run.spec, baseTree: run.mirror.baseTree, mode, packed, files: made.files });
+      const out = await sendPatch(relay, { taskId, spec: run.spec, baseTree: run.mirror.baseTree, mode, packed, files: made.files, commits });
+      return out.commits_error ? out : { ...out, ...note };
     } catch (e) {
-      await savePending({ taskId, sourceDeviceId: run.spec.sourceDeviceId, sourcePath: run.spec.sourcePath, baseTree: run.mirror.baseTree, mode }, made.patch, home);
+      await savePending({ ...pending, mode }, made.patch, home, commits);
       return {
         kind: "workspace",
         status: "pending",
         source,
         files: made.files.slice(0, 200),
         error: `${source} 暂时收不到改动（${e instanceof Error ? e.message : String(e)}），它上线后自动补发`,
+        ...note,
       };
     }
   } catch (e) {
@@ -222,7 +247,7 @@ export async function finishWorkspace(
 
 async function sendPatch(
   relay: Relay,
-  p: { taskId: string; spec: WorkspaceSpec; baseTree: string; mode: "apply" | "save"; packed: string; files: AppliedFile[] },
+  p: { taskId: string; spec: WorkspaceSpec; baseTree: string; mode: "apply" | "save"; packed: string; files: AppliedFile[]; commits?: IncomingCommits },
 ): Promise<WorkspaceOutcome> {
   const r = await relay(
     "apply",
@@ -234,10 +259,16 @@ async function sendPatch(
       mode: p.mode,
       patch_b64: p.packed,
       files: p.files.slice(0, 2000),
+      ...(p.commits ? { commits: commitsMessage(p.commits) } : {}),
     },
-    180_000,
+    // A push from the source (and a rebase onto what the remote got meanwhile) can take a while
+    p.commits?.push ? 330_000 : 180_000,
   );
   const files = Array.isArray(r.files) ? (r.files as AppliedFile[]).slice(0, 200) : p.files.slice(0, 200);
+  // A source on an older version takes the files and ignores the commits
+  const old = `${p.spec.sourceName} 上的 Memento 版本较旧，升级后才能带回提交和推送`;
+  if (p.commits?.bundle.length && !r.committed && !r.commits_error) r.commits_error = `${old}（文件改动已带回）`;
+  if (p.commits?.push && !r.push) r.push = { status: "skipped", detail: old };
   const status = r.applied === true ? "applied" : r.conflict === true ? "conflict" : "saved";
   return {
     kind: "workspace",
@@ -247,6 +278,11 @@ async function sendPatch(
     ...(r.branch ? { branch: String(r.branch) } : {}),
     ...(r.patch_path ? { patch_path: String(r.patch_path) } : {}),
     ...(r.detail ? { error: String(r.detail) } : {}),
+    ...(Array.isArray(r.commits) ? { commits: (r.commits as CarriedCommit[]).slice(0, 50) } : {}),
+    ...(r.committed === "branch" || r.committed === "kept" ? { committed: r.committed } : {}),
+    ...(r.commit_branch ? { commit_branch: String(r.commit_branch) } : {}),
+    ...(r.commits_error ? { commits_error: String(r.commits_error) } : {}),
+    ...(r.push && typeof r.push === "object" ? { push: r.push as PushResult } : {}),
   };
 }
 
@@ -264,7 +300,10 @@ export async function flushPendingPatches(relay: Relay, log: (m: string) => void
         const packed = await packPatch(patch);
         if (packed.length > PATCH_LIMIT) continue;
         const spec: WorkspaceSpec = { sourceDeviceId: p.sourceDeviceId, sourcePath: p.sourcePath, sourceName: "源设备" };
-        const out = await sendPatch(relay, { taskId: p.taskId, spec, baseTree: p.baseTree, mode: p.mode, packed, files: [] });
+        const commits: IncomingCommits | undefined = p.commits
+          ? { bundle: await readFile(p.commits.file), head: p.commits.head, baseHead: p.commits.baseHead, branch: p.commits.branch, push: p.commits.push }
+          : undefined;
+        const out = await sendPatch(relay, { taskId: p.taskId, spec, baseTree: p.baseTree, mode: p.mode, packed, files: [], commits });
         await dropPending(p, home);
         sent++;
         log(`Delivered pending workspace patch of task ${p.taskId} to ${p.sourceDeviceId}: ${out.status}`);

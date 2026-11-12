@@ -294,6 +294,15 @@ def test_result_of_reads_workspace_and_failures():
         {"kind": "workspace", "status": "conflict", "branch": "memento/abc", "files": [{"path": "a"}]},
     ]})
     assert ok and kept["workspace"] == {"status": "conflict", "branch": "memento/abc", "patch_path": None, "files": 1, "error": None}
+    _, kept = ps._result_of({"status": "succeeded", "exit_code": 0, "events": [
+        {"kind": "workspace", "status": "applied", "files": [], "commits": [{"sha": "c", "subject": "s"}] * 2,
+         "committed": "branch", "commit_branch": "main", "push": {"status": "pushed", "remote": "origin", "branch": "main"}},
+    ]})
+    note = ps._workspace_note(kept["workspace"])
+    assert "2 个提交已接到源目录的分支上" in note and "已推送到 origin/main" in note
+    ws = {"status": "conflict", "branch": "memento/x", "commits": 1, "committed": "kept", "commit_branch": "memento/x",
+          "push": {"status": "skipped", "detail": "提交放在了分支 memento/x，没有推送"}}
+    assert "没有推送：提交放在了分支 memento/x" in ps._workspace_note(ws)
     ok, kept = ps._result_of({"error": "设备离线"})
     assert not ok and kept["error"] == "设备离线"
     ok, _ = ps._result_of({"status": "succeeded", "exit_code": 1})

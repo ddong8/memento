@@ -39,6 +39,8 @@ export type TaskEvent = { at?: string } & (
    * The code is on another device: synced from it before the run (`syncing` → `synced`), what the
    * agent changed sent back after it (`applied` into its working tree, `conflict` → kept on `branch`,
    * `saved` as a patch only, `pending` until that device is online again, `unchanged`, `failed`).
+   * The commits the agent made go back as commits: onto that device's branch (`committed: "branch"`)
+   * or kept on `commit_branch`; when the agent pushed, that device pushes them (`push`).
    */
   | {
       kind: "workspace";
@@ -51,6 +53,11 @@ export type TaskEvent = { at?: string } & (
       files?: Array<{ path: string; status?: string }>;
       patch_path?: string;
       error?: string;
+      commits?: Array<{ sha: string; subject: string }>;
+      committed?: "branch" | "kept";
+      commit_branch?: string;
+      commits_error?: string;
+      push?: { status: "pushed" | "rejected" | "failed" | "skipped"; remote?: string; branch?: string; detail?: string; rebased?: number };
     }
   | {
       kind: "question";

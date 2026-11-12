@@ -11,7 +11,7 @@ import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
-import { applyWorkspacePatch, exportWorkspace, unpackPatch, WorkspaceError, type AppliedFile } from "./workspace.js";
+import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
 
 type Log = (message: string) => void;
@@ -471,6 +471,9 @@ export class WsTaskClient {
         root: r.root,
         rel: r.rel,
         up_to_date: r.upToDate,
+        upstream: r.upstream ?? "",
+        user_name: r.userName ?? "",
+        user_email: r.userEmail ?? "",
       });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
@@ -503,29 +506,15 @@ export class WsTaskClient {
     }
   }
 
-  /** What an agent on another device changed in a directory here. */
+  /** What an agent on another device changed in a directory here, and the commits it made. */
   private async handleWorkspaceApply(data: Record<string, unknown>): Promise<void> {
     const reqId = String(data.req_id ?? "");
     try {
-      const patch = await unpackPatch(String(data.patch_b64 ?? ""));
-      const files = Array.isArray(data.files) ? (data.files as AppliedFile[]).filter((f) => f && typeof f.path === "string") : undefined;
-      const r = await applyWorkspacePatch(deviceFilePath(String(data.path ?? "")), patch, {
-        taskId: String(data.task_id ?? ""),
-        baseTree: String(data.base_tree ?? ""),
-        mode: data.mode === "save" ? "save" : "apply",
-        ...(files?.length ? { files } : {}),
-      });
-      this.log(`Workspace patch of task ${String(data.task_id ?? "")}: ${r.applied ? "applied" : r.conflict ? `conflict, kept on ${r.branch ?? "patch file"}` : "saved"}`);
-      this.sendJson({
-        type: "workspace_resp",
-        req_id: reqId,
-        applied: r.applied,
-        conflict: r.conflict === true,
-        ...(r.branch ? { branch: r.branch } : {}),
-        files: r.files.slice(0, 200),
-        patch_path: r.patchPath,
-        ...(r.error ? { detail: r.error } : {}),
-      });
+      const { result: r, reply } = await applyWorkspaceRequest(deviceFilePath(String(data.path ?? "")), data);
+      const commits = r.commits?.length ? `, ${r.commits.length} commit(s) ${r.committed === "branch" ? "on the branch" : `kept on ${r.commitBranch}`}` : "";
+      const push = r.push ? `, push ${r.push.status}` : "";
+      this.log(`Workspace patch of task ${String(data.task_id ?? "")}: ${r.applied ? "applied" : r.conflict ? `conflict, kept on ${r.branch ?? "patch file"}` : "saved"}${commits}${push}`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...reply });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
     }

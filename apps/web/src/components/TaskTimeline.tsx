@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, type CSSProperties } from "react";
+import { useState, useMemo, type CSSProperties, type ReactNode } from "react";
 import { formatTokenCount, steerNote, taskRunSummary, taskToolKind, taskToolLabel, type TaskEvent, type TaskToolKind } from "@memento/core";
 import type { FileDevice } from "@/lib/file-devices";
 import { fmt, useI18n } from "@/lib/i18n";
@@ -126,6 +126,53 @@ export default function TaskTimeline({
         {files.length > 6 && `  ${fmt(tl.wsMoreFiles, { n: files.length - 6 })}`}
       </div>
     );
+    // The agent's commits and its push, done from the device the code is on
+    const commits = Array.isArray(ev.commits) ? (ev.commits as Array<{ sha?: string; subject?: string }>).filter((c) => c && c.sha) : [];
+    const push = ev.push && typeof ev.push === "object" ? (ev.push as Record<string, unknown>) : null;
+    const commitsError = str(ev.commits_error) || null;
+    const commitRows = (
+      <>
+        {commits.length > 0 &&
+          plain(
+            "code",
+            ev.committed === "branch"
+              ? fmt(tl.wsCommitted, { source, n: commits.length, branch: str(ev.commit_branch) || "HEAD" })
+              : fmt(tl.wsCommitsKept, { source, n: commits.length, branch: str(ev.commit_branch) }),
+            commits
+              .slice(0, 3)
+              .map((c) => `${str(c.sha).slice(0, 8)} ${str(c.subject)}`)
+              .join(" · "),
+            ev.committed === "branch" ? "#10B981" : "#D97706",
+          )}
+        {commitsError && plain("code", tl.wsCommitsNot, commitsError, "#D97706")}
+        {push &&
+          (push.status === "pushed"
+            ? plain(
+                "arrow_up",
+                fmt(tl.wsPushed, { source, remote: str(push.remote) || "origin", branch: str(push.branch) }),
+                Number(push.rebased) > 0 ? fmt(tl.wsPushRebased, { n: Number(push.rebased) }) : null,
+                "#10B981",
+              )
+            : plain("arrow_up", tl.wsPushFailed, str(push.detail) || str(push.status), push.status === "skipped" ? "#D97706" : "#DC2626"))}
+      </>
+    );
+    const body = workspaceStatus(ev, source, files, error, patch, fileList);
+    return (
+      <>
+        {body}
+        {commitRows}
+      </>
+    );
+  };
+
+  const workspaceStatus = (
+    ev: Record<string, unknown>,
+    source: string,
+    files: Array<{ path?: string; status?: string }>,
+    error: string | null,
+    patch: string,
+    fileList: ReactNode,
+  ) => {
     switch (ev.status) {
       case "syncing":
         return plain("refresh", fmt(tl.wsSyncing, { source }), str(ev.path) || null, "var(--aurora-accent)");

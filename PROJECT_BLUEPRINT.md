@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6516cb99` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8eafa8fb` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 191 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `6516cb99` (2026-11-12): chore(release): 升级客户端版本至 v1.0.116，续接方式可选并修复执行机守护进程崩溃
+- 最近改动 (Latest): `8eafa8fb` (2026-11-12): fix(daemon): 没有桌面端的执行机也注册记忆 MCP 服务
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -607,7 +607,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8eafa8fb` (2026-11-12): fix(daemon): 没有桌面端的执行机也注册记忆 MCP 服务
 - `6516cb99` (2026-11-12): chore(release): 升级客户端版本至 v1.0.116，续接方式可选并修复执行机守护进程崩溃
 - `f776375a` (2026-11-12): feat(compact): 续接方式可在个人设置里选，瘦身续接时在对话里注明新开了哪个会话
 - `118fbba5` (2026-11-12): fix(compact): 提问少但每轮干很久的重会话，续接时也生成快照
 - `0a456167` (2026-11-12): fix(daemon): 子进程提前退出时写入报 EPIPE 不再让守护进程崩溃
 - `0eb07805` (2026-11-12): chore(release): 升级客户端版本至 v1.0.115，回复写完后说明还在等哪些后台任务
-- `6ca5a45e` (2026-11-12): feat(ask): 回答写完后还在等后台任务时，界面说明在等什么
 
 ## 10. Key Environment Variables & Configuration
 

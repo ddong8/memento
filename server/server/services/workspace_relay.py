@@ -6,7 +6,9 @@ server passes each request on to the device holding the code (the source) over t
 - ``export``: the source packs the directory into a git bundle (history + a snapshot of the
   working tree); the server keeps where it is under a token, for the executor to fetch;
 - ``chunk``: one piece of that bundle, read from the source like any other device file;
-- ``apply``: what the agent changed, as a patch for the source to apply to its working tree.
+- ``apply``: what the agent changed, as a patch for the source to apply to its working tree, plus
+  the commits it made (a bundle) for the source to put on its branch, and push when the agent
+  pushed: the executor holds no credentials, the source does.
 
 Neither device has to reach the other: both only hold their connection to the server. Only
 devices of the same account can reach each other this way.
@@ -34,10 +36,14 @@ _local_tokens: dict[str, tuple[float, dict[str, Any]]] = {}
 
 EXPORT_TIMEOUT = 150.0
 APPLY_TIMEOUT = 150.0
+# The source pushes too (and may first rebase onto what the remote got meanwhile)
+PUSH_TIMEOUT = 300.0
 CHUNK_TIMEOUT = 60.0
 CHUNK_MAX = 8 * 1024 * 1024
 # gzip+base64 of a patch, as the executor caps it
 PATCH_MAX = 10 * 1024 * 1024 + 1024
+# Patch and commit bundle together: the bundle is only base64, a third bigger than the executor counts it
+CARRY_MAX = PATCH_MAX * 3 // 2
 
 
 async def _source_device(source_id: str, user_id: Any) -> tuple[str | None, str | None]:
@@ -89,7 +95,9 @@ async def _export(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     )
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
-    out = {k: res.get(k) for k in ("size", "head", "branch", "snapshot", "tree", "root", "rel", "up_to_date")}
+    out = {k: res.get(k) for k in (
+        "size", "head", "branch", "snapshot", "tree", "root", "rel", "up_to_date", "upstream", "user_name", "user_email",
+    )}
     if not res.get("up_to_date"):
         out["token"] = await _put_token({
             "device": source, "path": res.get("bundle_path"), "size": int(res.get("size") or 0), "user": str(user_id),
@@ -121,6 +129,9 @@ async def _apply(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     if len(patch) > PATCH_MAX:
         return {"error": "补丁太大", "code": "too_big"}
     files = data.get("files") if isinstance(data.get("files"), list) else []
+    commits = _commits(data.get("commits"))
+    if commits and len(patch) + len(commits["bundle_b64"]) > CARRY_MAX:
+        return {"error": "改动和提交太大", "code": "too_big"}
     res = await ws_manager.request_device(source, {
         "type": "workspace_apply_req",
         "path": str(data.get("path") or ""),
@@ -129,10 +140,30 @@ async def _apply(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
         "mode": "save" if data.get("mode") == "save" else "apply",
         "patch_b64": patch,
         "files": files[:2000],
-    }, APPLY_TIMEOUT)
+        **({"commits": commits} if commits else {}),
+    }, PUSH_TIMEOUT if commits and commits["push"] else APPLY_TIMEOUT)
     if res.get("error"):
         return {"error": res["error"], "code": res.get("code") or "failed"}
-    return {k: res[k] for k in ("applied", "conflict", "branch", "files", "patch_path", "detail") if k in res}
+    return {k: res[k] for k in _APPLY_REPLY if k in res}
+
+
+_APPLY_REPLY = (
+    "applied", "conflict", "branch", "files", "patch_path", "detail",
+    "commits", "committed", "commit_branch", "commits_error", "push",
+)
+
+
+def _commits(raw: Any) -> dict[str, Any] | None:
+    """The agent's commits as the executor sent them, passed on as they are (only the shape checked)."""
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "bundle_b64": str(raw.get("bundle_b64") or ""),
+        "head": str(raw.get("head") or ""),
+        "base_head": str(raw.get("base_head") or ""),
+        "branch": str(raw.get("branch") or ""),
+        "push": raw.get("push") is True,
+    }
 
 
 _OPS = {"export": _export, "chunk": _chunk, "apply": _apply}

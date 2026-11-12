@@ -738,10 +738,18 @@ def _workspace_note(ws: dict | None) -> str:
     if not ws:
         return ""
     st = ws.get("status")
+    extra = ""
+    if ws.get("commits"):
+        extra += f"，{ws['commits']} 个提交" + ("已接到源目录的分支上" if ws.get("committed") == "branch" else f"放在分支 {ws.get('commit_branch') or '?'}")
+    push = ws.get("push") or {}
+    if push.get("status") == "pushed":
+        extra += f"，已推送到 {push.get('remote') or '远端'}/{push.get('branch') or ''}"
+    elif push.get("status"):
+        extra += f"，没有推送：{push.get('detail') or push.get('status')}"
     if st == "applied":
-        return f"已合回源目录（{ws.get('files') or 0} 个文件）"
+        return f"已合回源目录（{ws.get('files') or 0} 个文件）{extra}"
     if st == "conflict":
-        return f"和源目录有冲突，改动放在分支 {ws.get('branch') or '?'}"
+        return f"和源目录有冲突，改动放在分支 {ws.get('branch') or '?'}{extra}"
     if st == "saved":
         return f"改动另存在 {ws.get('branch') or ws.get('patch_path') or '源设备'}"
     if st == "pending":
@@ -759,6 +767,10 @@ def _workspace_outcome(events: list | None) -> dict | None:
                 "status": e.get("status"), "branch": e.get("branch"), "patch_path": e.get("patch_path"),
                 "files": len(e.get("files") or []), "error": e.get("error"),
             }
+            if e.get("commits"):
+                out.update(commits=len(e["commits"]), committed=e.get("committed"), commit_branch=e.get("commit_branch"))
+            if isinstance(e.get("push"), dict):
+                out["push"] = e["push"]
     return out
 
 

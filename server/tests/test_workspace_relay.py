@@ -115,6 +115,32 @@ async def test_apply_passes_the_patch_on_and_returns_what_the_source_did():
 
 
 @pytest.mark.asyncio
+async def test_apply_carries_the_agents_commits_and_the_push_with_a_longer_wait():
+    pushed = {"status": "pushed", "remote": "origin", "branch": "main", "rebased": 2}
+    patches, ws = _env(_machine(), answer={
+        "applied": True, "files": [], "patch_path": "/r/.git/p", "committed": "branch",
+        "commits": [{"sha": "c" * 40, "subject": "feat: x"}], "push": pushed, "ignored": 1,
+    })
+    commits = {"bundle_b64": "QlVORExF", "head": "c" * 40, "base_head": "b" * 40, "branch": "main", "push": True, "extra": 1}
+
+    async def go():
+        out = await wr._apply({"source_device_id": "mac", "path": "/r", "task_id": "t", "patch_b64": "UEFUQ0g=", "commits": commits}, USER)
+        payload, timeout = ws.request_device.await_args.args[1:3]
+        assert payload["commits"] == {k: v for k, v in commits.items() if k != "extra"}
+        assert timeout == wr.PUSH_TIMEOUT
+        assert out == {"applied": True, "files": [], "patch_path": "/r/.git/p", "committed": "branch",
+                       "commits": [{"sha": "c" * 40, "subject": "feat: x"}], "push": pushed}
+        await wr._apply({"source_device_id": "mac", "patch_b64": "UEFUQ0g=", "commits": {**commits, "push": False}}, USER)
+        assert ws.request_device.await_args.args[2] == wr.APPLY_TIMEOUT
+        await wr._apply({"source_device_id": "mac", "patch_b64": "UEFUQ0g="}, USER)
+        assert "commits" not in ws.request_device.await_args.args[1]
+        big = {**commits, "bundle_b64": "x" * wr.CARRY_MAX}
+        assert (await wr._apply({"source_device_id": "mac", "patch_b64": "UEFUQ0g=", "commits": big}, USER))["code"] == "too_big"
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
 async def test_the_executor_always_gets_a_reply_even_when_the_relay_blows_up():
     patches, ws = _env(_machine())
 

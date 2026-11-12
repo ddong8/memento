@@ -274,9 +274,11 @@ Memento 桌面客户端已将采集守护进程（`DaemonHost`）原生打包集
 # 0. 需要 Node.js 22.18+ 和 git
 git clone https://github.com/ddong8/memento.git ~/memento && cd ~/memento
 
-# 1. 只构建守护进程（不装服务端）
-npm ci -w @memento/daemon -w @memento/core --include-workspace-root
-npm run build -w @memento/daemon
+# 1. 只构建守护进程和记忆 MCP 服务（不装服务端）
+#    守护进程会把 packages/mcp 注册成 Claude Code / Codex / Antigravity 的 memento-memory，
+#    不构建 @memento/mcp 的话这台机器上的智能体用不了记忆
+npm ci -w @memento/daemon -w @memento/core -w @memento/mcp --include-workspace-root
+npm run build -w @memento/daemon -w @memento/mcp
 
 # 2. 绑定服务端：collector token 在网页「个人设置」或「本机采集」页复制
 node packages/daemon/dist/cli.js login <collector_token> https://mem.yourdomain.com
@@ -332,9 +334,11 @@ curl -fsSL https://mem.yourdomain.com/install/executor.sh | bash -s -- --token <
 
 1) 发送时，服务器上的守护进程经 memento 向你的电脑要一份 git bundle：包含当前分支和所有未提交、未跟踪的改动（`.gitignore` 忽略的文件不带），用临时索引打快照，不碰你的暂存区。第二次起只传增量，代码没变就不传。
 2) 服务器上的副本在 `~/.memento/workspaces/<编号>/<仓库名>`，`node_modules` 这类被忽略的文件保留，下次不用重装；同一项目同时跑多个任务各用一份副本。
-3) 智能体跑完，把它的改动（包括它自己做的提交）打成补丁带回你的电脑：你的电脑上的代码在运行期间没变就直接写回工作区；变了就不覆盖，改动放到 `memento/<任务号>` 分支上，自己合并。任务失败或被停止时补丁只保存到 `.git/memento/patches/`，不写回。
-4) 带回时你的电脑不在线，补丁先存在服务器上，你的电脑上线后自动补交（7 天内）。
-5) 两边的守护进程都要是支持这个功能的版本（v1.0.105+）；代码所在目录必须是 git 仓库且至少有一个提交。任务详情里能看到同步、写回、冲突分支和改动的文件。
+3) 智能体跑完，把它的改动打成补丁带回你的电脑：你的电脑上的代码在运行期间没变就直接写回工作区；变了就不覆盖，改动放到 `memento/<任务号>` 分支上，自己合并。任务失败或被停止时补丁只保存到 `.git/memento/patches/`，不写回。
+4) 智能体做的提交原样带回（说明、作者、几个提交都不变；副本里的 `user.name` / `user.email` 用你电脑上的）：你的电脑上 HEAD 和分支在运行期间没变，就直接接到当前分支上，暂存区只更新这些提交改到的文件，`git status` 里只剩还没提交的改动；变了就放到 `memento/<任务号>` 分支。只在原分支上、接着原来的 HEAD 做的提交才这样带回；智能体切了分支或改写了历史（rebase / reset），只带回文件改动。
+5) 推送由你的电脑来做，执行机上不放任何凭证：副本的 `origin` 是旁边的一个本地裸仓库（分支起点和你电脑上的上游一致，`git status` 的领先/落后照常），智能体 `git push` 推到它；带回时发现它被推过，你的电脑就用自己的远端和凭证推送当前分支（`branch.<分支>.pushRemote` / `remote.pushDefault` / 上游 / `origin`，和你在那边执行 `git push` 一样，不强推）。远端在这期间有了新提交（比如 CI 回写的提交）被拒时，先把这些提交接到远端最新提交之后再推，相当于 `git pull --rebase`；有冲突、远端改到的文件你那边正在改、或 git 低于 2.38 时不动你的文件，提示你自己处理。所以在执行机上说一句「提交并推送」，推送就会从你的电脑发出，接着跑 CI。
+6) 带回时你的电脑不在线，补丁（连同提交）先存在执行机上，你的电脑上线后自动补交（7 天内）。
+7) 两边的守护进程都要是支持这个功能的版本（v1.0.105+，带回提交和推送要 v1.0.116+；你的电脑上版本旧时只带回文件改动，任务详情里会说明）；代码所在目录必须是 git 仓库且至少有一个提交。任务详情里能看到同步、写回、冲突分支、改动的文件、带回的提交和推送结果。
 
 ---
 

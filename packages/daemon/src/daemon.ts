@@ -17,7 +17,7 @@ import {
   setBlueprintAutoEnabled,
   syncLocalUserBlueprint,
 } from "./blueprint-auto.js";
-import { homeDir, loadConfig, mementoDir, saveConfig, type CollectorConfig } from "./config.js";
+import { homeDir, loadConfig, mementoDir, saveConfig, withRemoteExecKey, type CollectorConfig } from "./config.js";
 import { discoverAll, toolReport, type DiscoveredTool } from "./discovery.js";
 import { checkStop, GUARD_TOOLS, type GuardTool, type StopInput, type Verdict } from "./guard.js";
 import { applyGuards } from "./guard-inject.js";
@@ -136,21 +136,16 @@ export class Daemon extends EventEmitter {
     this.log(`Discovered ${Object.keys(this.tools).length} tools: ${Object.keys(this.tools).join(", ")}`);
 
     this.log(`Connecting to server ${config.serverUrl}...`);
-    const key = await ingest.sendHeartbeat();
-    if (key && key !== config.remoteExecKey) {
-      config = { ...config, remoteExecKey: key };
-      this.config = config;
-      ingest.updateConfig(config);
-      await saveConfig(config).catch(() => {});
-      this.log("Enrolled for remote execution (key verified)");
-    }
+    config = (await this.adoptExecKey(await ingest.sendHeartbeat())) ?? config;
     await ingest.reportDiscovery(this.tools);
 
     this.watcher = new FileWatcher(config, ingest, this.log);
     void this.watcher.start(this.tools);
     this.timers.push(
       setInterval(() => {
-        void ingest.sendHeartbeat(this.watcher?.stats());
+        // Remote execution turned on after this started: the key comes with a later heartbeat, and the task
+        // socket (refused without one, retried with backoff) connects with it at its next attempt
+        void ingest.sendHeartbeat(this.watcher?.stats()).then((key) => this.adoptExecKey(key));
         this.notify();
       }, HEARTBEAT_MS),
     );
@@ -194,6 +189,19 @@ export class Daemon extends EventEmitter {
 
     this.log("Memento daemon is running.");
     this.notify();
+  }
+
+  /** Takes a remote-exec key a heartbeat returned; the new config when it was a new key, else null. */
+  private async adoptExecKey(key: string | undefined): Promise<CollectorConfig | null> {
+    if (!this.config) return null;
+    const next = withRemoteExecKey(this.config, key);
+    if (!next) return null;
+    this.config = next;
+    this.ingest?.updateConfig(next);
+    this.ws?.updateConfig(next);
+    await saveConfig(next).catch(() => {});
+    this.log("Enrolled for remote execution (key verified)");
+    return next;
   }
 
   async stop(): Promise<void> {

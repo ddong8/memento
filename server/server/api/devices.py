@@ -885,9 +885,7 @@ async def p2p_offer(
 
 def _has_feature(name: str | None, feature: str, user: User) -> bool:
     from ..services import device_reports
-    caps = device_reports.get_cached_device_capabilities(name, user=user) if name else None
-    env = caps.get("environment") if isinstance(caps, dict) else None
-    return isinstance(env, dict) and feature in (env.get("features") or [])
+    return device_reports.device_has_feature(name, feature, user)
 
 
 class AgentLoginBody(BaseModel):

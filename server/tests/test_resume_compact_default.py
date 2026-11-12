@@ -14,7 +14,7 @@ USER = User(id=uuid.uuid4(), email="u@example.com", role="owner")
 MINI, PC = uuid.uuid4(), uuid.uuid4()
 
 
-def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None, events=None, home=MINI):
+def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None, events=None, home=MINI, carry=False):
     """The args direct_agent_stream hands to the device, for a resume of session "sess-1"."""
     sent: dict = {}
     user = User(id=USER.id, email=USER.email, role="owner", llm_settings={"agent": {"claude_resume_mode": mode}} if mode else {})
@@ -25,6 +25,7 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None,
     mock_res.scalars.return_value.first.return_value = None
     mock_res.scalar_one_or_none.return_value = None
     mock_db.execute.return_value = mock_res
+    mock_db.get = AsyncMock(return_value=SimpleNamespace(id=home, name="PC", collector_token_hash="tok-pc"))
 
     async def fake_run(db, user, args):
         sent.update(args)
@@ -46,6 +47,7 @@ def _dispatch(compact_mode, cost, execution_mode="claude", fork=None, mode=None,
          patch("server.services.session_compactor.claude_resume_cost", AsyncMock(return_value=cost)) as sized, \
          patch("server.services.session_compactor.build_compacted_continuation",
                AsyncMock(return_value={"injected_context": "【前序会话核心记忆快照】……"})), \
+         patch.object(ask_stream, "_can_carry_session", lambda *a: carry), \
          patch.object(ask_stream, "append_conversation_turns", AsyncMock()), \
          patch.object(ask_stream, "get_device_environment_summary", lambda *a: ""):
         out = asyncio.run(collect())
@@ -78,8 +80,17 @@ def test_explicit_raw_resume_is_kept():
     sized.assert_not_awaited()
 
 
+def test_a_session_on_another_device_is_fetched_and_resumed_as_is():
+    # the session is on the PC, the run goes to the mini: the mini fetches it from the PC and resumes it
+    sent, _ = _dispatch(None, HEAVY_COLD, home=PC, carry=True)
+    assert sent["session_id"] == "sess-1" and sent["session_home"] == str(PC) and "compact_mode" not in sent
+    # another agent's session can't be carried: a snapshot
+    sent, _ = _dispatch(None, HEAVY_COLD, home=PC, carry=True, execution_mode="codex")
+    assert sent.get("compact_mode") is True and "session_home" not in sent
+
+
 def test_the_first_continuation_on_another_device_starts_from_a_snapshot():
-    # the session is on the PC, the run goes to the mini: it can't be resumed there
+    # the session is on the PC, which is offline (or its Memento too old): it can't be fetched
     events: list = []
     sent, _ = _dispatch(None, HEAVY_COLD, home=PC, events=events)
     assert "session_id" not in sent and sent["compact_mode"] is True and sent["parent_session_id"] == "sess-1"

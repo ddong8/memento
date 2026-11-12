@@ -6,6 +6,12 @@ server passes each request on to the device holding the code (the source) over t
 - ``export``: the source packs the directory into a git bundle (history + a snapshot of the
   working tree); the server keeps where it is under a token, for the executor to fetch;
 - ``chunk``: one piece of that bundle, read from the source like any other device file;
+- ``p2p``: the executor's WebRTC offer for that bundle, answered by the source: the bundle then goes
+  straight between the two (same LAN, IPv6, a punched NAT) instead of through the server's few-Mbps
+  entry; ``chunk`` fetches whatever didn't arrive that way;
+- ``session``: a Claude Code session's transcript on the device it is on, for the executor to continue it
+  as is: the source says where the file is and how far it goes; the server keeps that under a token,
+  read like a bundle with ``chunk``;
 - ``apply``: what the agent changed, as a patch for the source to apply to its working tree, plus
   the commits it made (a bundle) for the source to put on its branch, and push when the agent
   pushed: the executor holds no credentials, the source does.
@@ -39,6 +45,7 @@ APPLY_TIMEOUT = 150.0
 # The source pushes too (and may first rebase onto what the remote got meanwhile)
 PUSH_TIMEOUT = 300.0
 CHUNK_TIMEOUT = 60.0
+SESSION_TIMEOUT = 30.0
 CHUNK_MAX = 8 * 1024 * 1024
 # gzip+base64 of a patch, as the executor caps it
 PATCH_MAX = 10 * 1024 * 1024 + 1024
@@ -102,13 +109,49 @@ async def _export(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
         out["token"] = await _put_token({
             "device": source, "path": res.get("bundle_path"), "size": int(res.get("size") or 0), "user": str(user_id),
         })
+        # The executor may try the source directly first (op p2p)
+        out["ice_servers"] = _ice_servers()
+    return out
+
+
+def _ice_servers() -> list[str]:
+    from ..config import settings
+    return [u.strip() for u in (settings.stun_urls or "").split(",") if u.strip()]
+
+
+async def _p2p(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    entry = await _get_token(str(data.get("token") or ""))
+    if not entry or entry.get("user") != str(user_id):
+        return {"error": "传输已过期，重新开始任务", "code": "expired"}
+    sdp = str(data.get("sdp") or "")
+    if not sdp or len(sdp) > 64 * 1024:
+        return {"error": "bad offer"}
+    res = await ws_manager.request_p2p_answer(entry["device"], sdp, _ice_servers())
+    if not res.get("sdp"):
+        return {"error": res.get("error") or "源设备没有应答直连", "code": "no_direct"}
+    return {"sdp": res["sdp"], "path": entry["path"]}
+
+
+async def _session(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    source, why = await _source_device(str(data.get("source_device_id") or ""), user_id)
+    if not source:
+        return {"error": why, "code": "source_unavailable"}
+    res = await ws_manager.request_device(
+        source, {"type": "session_export_req", "session_id": str(data.get("session_id") or "")}, SESSION_TIMEOUT,
+    )
+    if res.get("error"):
+        return {"error": res["error"], "code": res.get("code") or "failed"}
+    size = int(res.get("size") or 0)
+    out: dict[str, Any] = {"size": size, "last_uuid": str(res.get("last_uuid") or "")}
+    if size > 0:
+        out["token"] = await _put_token({"device": source, "path": res.get("path"), "size": size, "user": str(user_id)})
     return out
 
 
 async def _chunk(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     entry = await _get_token(str(data.get("token") or ""))
     if not entry or entry.get("user") != str(user_id):
-        return {"error": "代码包已过期，重新开始任务", "code": "expired"}
+        return {"error": "传输已过期，重新开始任务", "code": "expired"}
     offset = max(0, int(data.get("offset") or 0))
     length = max(1, min(int(data.get("length") or CHUNK_MAX), CHUNK_MAX, int(entry["size"]) - offset))
     if offset >= int(entry["size"]):
@@ -166,7 +209,7 @@ def _commits(raw: Any) -> dict[str, Any] | None:
     }
 
 
-_OPS = {"export": _export, "chunk": _chunk, "apply": _apply}
+_OPS = {"export": _export, "chunk": _chunk, "p2p": _p2p, "session": _session, "apply": _apply}
 
 
 async def handle(data: dict[str, Any], executor_id: str, user_id: Any) -> None:

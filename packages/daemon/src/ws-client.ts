@@ -10,6 +10,7 @@ import { deviceFilePath } from "./file-path.js";
 import { P2PHost } from "./p2p.js";
 import { probeAllQuotas } from "./quotas.js";
 import type { ServerRoute } from "./server-route.js";
+import { exportClaudeSession } from "./session-sync.js";
 import { computeBackoffWithJitter, parseTaskDispatch, TaskRunner } from "./task-runner.js";
 import { applyWorkspaceRequest, exportWorkspace, WorkspaceError } from "./workspace.js";
 import { flushPendingPatches, type Relay } from "./workspace-sync.js";
@@ -283,6 +284,9 @@ export class WsTaskClient {
         case "workspace_apply_req":
           void this.handleWorkspaceApply(data);
           break;
+        case "session_export_req":
+          void this.handleSessionExport(data);
+          break;
         case "agent_login_req":
           void this.handleAgentLogin(data);
           break;
@@ -477,6 +481,18 @@ export class WsTaskClient {
       });
     } catch (e) {
       this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: e instanceof WorkspaceError ? e.code : "failed" });
+    }
+  }
+
+  /** Another device is about to continue a Claude Code session that is here: where its transcript is, for the server to fetch. */
+  private async handleSessionExport(data: Record<string, unknown>): Promise<void> {
+    const reqId = String(data.req_id ?? "");
+    try {
+      const r = await exportClaudeSession(String(data.session_id ?? ""));
+      this.log(`Session export of ${String(data.session_id ?? "")}: ${r.size} bytes`);
+      this.sendJson({ type: "workspace_resp", req_id: reqId, ...r });
+    } catch (e) {
+      this.sendJson({ type: "workspace_resp", req_id: reqId, error: e instanceof Error ? e.message : String(e), code: "not_found" });
     }
   }
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import nodeDataChannel from "node-datachannel";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { P2PHost } from "../src/p2p.js";
+import { DirectPullError, P2PHost, pullDirect } from "../src/p2p.js";
 
 const host = new P2PHost();
 afterAll(() => {
@@ -73,5 +73,37 @@ describe("direct (WebRTC) file transfer", () => {
 
     pc.close();
     await rm(dir, { recursive: true, force: true });
+  }, 20_000);
+
+  it("a device pulls a file from another directly, in order, across more than one read window", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "p2p-"));
+    const file = join(dir, "ws.bundle");
+    const data = randomBytes(17 * 1024 * 1024 + 123);
+    await writeFile(file, data);
+    const got = Buffer.alloc(data.length);
+    const size = await pullDirect({
+      size: data.length,
+      iceServers: [],
+      // The server's part: carries the offer to the device holding the file, and says where it is there
+      signal: async (sdp) => ({ sdp: (await host.answer(sdp, [])).sdp!, path: file }),
+      write: async (chunk, at) => chunk.copy(got, at),
+    });
+    expect(size).toBe(data.length);
+    expect(got.equals(data)).toBe(true);
+    await rm(dir, { recursive: true, force: true });
+  }, 60_000);
+
+  it("a pull that can't connect says how much arrived (nothing), for the rest to come through the server", async () => {
+    const err = await pullDirect({
+      size: 10,
+      iceServers: [],
+      signal: async () => {
+        throw new Error("source offline");
+      },
+      write: async () => {},
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DirectPullError);
+    expect((err as DirectPullError).written).toBe(0);
+    expect((err as DirectPullError).message).toContain("source offline");
   }, 20_000);
 });

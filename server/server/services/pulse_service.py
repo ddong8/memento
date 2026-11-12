@@ -185,7 +185,7 @@ async def _advance_user_missions(db: AsyncSession, user: User) -> None:
 
     for m in missions:
         try:
-            await mission_service.step_mission(db, m)
+            await mission_service.step_mission_locked(db, m)
         except Exception as e:
             await db.rollback()
             logger.warning("Failed to step mission %s: %s", m.id, e)

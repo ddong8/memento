@@ -49,6 +49,8 @@ export type TaskEvent = { at?: string } & (
       path?: string;
       branch?: string;
       bytes?: number;
+      /** Of those, what came straight from the source over a direct (WebRTC) channel */
+      direct_bytes?: number;
       seconds?: number;
       files?: Array<{ path: string; status?: string }>;
       patch_path?: string;
@@ -59,6 +61,8 @@ export type TaskEvent = { at?: string } & (
       commits_error?: string;
       push?: { status: "pushed" | "rejected" | "failed" | "skipped"; remote?: string; branch?: string; detail?: string; rebased?: number };
     }
+  /** The session's latest copy was on another device: fetched before resuming (`fetched`), or the one here was up to date (`current`). */
+  | { kind: "session_sync"; status: "fetched" | "current"; bytes?: number }
   | {
       kind: "question";
       id?: string;

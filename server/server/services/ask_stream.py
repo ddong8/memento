@@ -196,6 +196,30 @@ async def _workspace_spec(db: AsyncSession, user: User, device_id: str | None, s
     }
 
 
+async def _session_elsewhere(db: AsyncSession, user: User, session_id: str, device_id: str):
+    """(device the session's latest copy is on, the device the run goes to) when those differ; else None."""
+    from ..db.models import Machine
+    from ..services.session_compactor import session_machine_id
+    from ..services.user_filter import find_machine_by_id_or_hash, user_machine_ids
+    target = await find_machine_by_id_or_hash(db, device_id, user)
+    if not target:
+        return None
+    home_id = await session_machine_id(db, session_id, await user_machine_ids(db, user))
+    if not home_id or home_id == target.id:
+        return None
+    home = await db.get(Machine, home_id)
+    return (home, target) if home else None
+
+
+def _can_carry_session(home, target, user: User) -> bool:
+    """The session file can go from home to target now: home is online and both can (daemon 1.0.118+)."""
+    from ..services.device_reports import device_has_feature
+    from ..services.ws_manager import ws_manager
+    if not home.collector_token_hash or not ws_manager.is_online(home.collector_token_hash):
+        return False
+    return all(device_has_feature(m.name, "session_sync", user) for m in (home, target))
+
+
 async def _prepare_agent_args(
     db: AsyncSession,
     user: User,
@@ -263,19 +287,23 @@ async def _prepare_agent_args(
 
     orig_session_id = session_id
     # A session goes on in place, as in Claude Code, and the agent compacts it itself by its model's context.
-    # Only its first continuation on a device it isn't on (it can't be resumed there) starts from a compacted
-    # snapshot, in a new session on that device that later turns resume in place. The client can still ask for
+    # Continued on a device it isn't on (or whose copy is older), the device fetches the session file from
+    # the one that has it and resumes it as is (session_home). Only when that can't be done (that device is
+    # offline or its Memento too old, or another agent's session) the first continuation there starts from a
+    # compacted snapshot, in a new session that later turns resume in place. The client can still ask for
     # compacted: retrying one that overflowed.
     if compact_mode is None and session_id and action == "agent" and not fork and device_id:
         try:
-            from ..services.session_compactor import session_machine_id
-            from ..services.user_filter import find_machine_by_id_or_hash, user_machine_ids
-            target = await find_machine_by_id_or_hash(db, device_id, user)
-            home = await session_machine_id(db, session_id, await user_machine_ids(db, user)) if target else None
-            if target and home and home != target.id:
-                compact_mode = True
-                args["compact_reason"] = "elsewhere"
-                logger.info("Session %s isn't on %s: its first continuation there starts from a snapshot", session_id, device_id)
+            home_id = await _session_elsewhere(db, user, session_id, device_id)
+            if home_id is not None:
+                home, target = home_id
+                if execution_mode == "claude" and _can_carry_session(home, target, user):
+                    args["session_home"] = str(home.id)
+                    logger.info("Session %s is on %s: %s fetches it and resumes it", session_id, home.name, target.name)
+                else:
+                    compact_mode = True
+                    args["compact_reason"] = "elsewhere"
+                    logger.info("Session %s isn't on %s: its first continuation there starts from a snapshot", session_id, device_id)
         except Exception as e:
             logger.warning("Failed to locate session %s for resume: %s", session_id, e)
     if compact_mode and session_id and action == "agent":
@@ -564,8 +592,8 @@ async def direct_agent_stream(
         )
         if compacted_from:
             if run_args.get("compact_reason") == "elsewhere":
-                note = (f"\n⚡ [跨设备续接] 原会话 {compacted_from[:8]} 不在这台设备上，没法原样接着写；这次用它的核心记忆快照在这台设备上新开一个会话，"
-                        "之后这个对话都在新会话里原样继续。\n\n")
+                note = (f"\n⚡ [跨设备续接] 原会话 {compacted_from[:8]} 不在这台设备上，它所在的设备现在取不到（不在线、Memento 版本低于 1.0.118，或不是 Claude Code 的会话）；"
+                        "这次用它的核心记忆快照在这台设备上新开一个会话，之后这个对话都在新会话里原样继续。\n\n")
             else:
                 note = (f"\n⚡ [瘦身续接] 这次从原会话 {compacted_from[:8]} 的核心记忆快照新开一个会话接着做，"
                         "之后这个对话都在新会话里继续，原会话不会再写入。\n\n")

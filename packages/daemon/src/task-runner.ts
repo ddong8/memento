@@ -39,6 +39,7 @@ import {
   workbuddyCliDir,
   type WorkbuddyGatewayHandle,
 } from "./workbuddy.js";
+import { fetchClaudeSession } from "./session-sync.js";
 import { TaskWorktree } from "./worktree.js";
 import { finishWorkspace, parseWorkspaceSpec, prepareWorkspace, toSourcePaths, type Relay, type WorkspaceRun } from "./workspace-sync.js";
 
@@ -294,6 +295,9 @@ export function antigravityArgs(o: {
   args.push("-p", o.prompt);
   return args;
 }
+
+/** Starts the error of a run whose session couldn't be fetched from the device it is on (the page offers compacted retry on it). */
+export const SESSION_UNAVAILABLE = "没能取到原会话";
 
 /** Errors that mean the session to resume isn't on this device (or the CLI didn't take the resume flags). */
 export function isSessionNotFound(text: string): boolean {
@@ -1135,6 +1139,18 @@ export class TaskRunner {
         if (hooks) settings.hooks = hooks;
         claudeSettings = Object.keys(settings).length ? JSON.stringify(settings) : undefined;
         model = this.skipLimitedModel(taskId, "claude", model, CLAUDE_MODELS, effort);
+        // The session's latest copy is on another device: fetched first, so it goes on here as is
+        const sessionHome = text("session_home");
+        if (sessionId && sessionHome && workDir) {
+          try {
+            if (!this.relay) throw new Error("和服务器的连接还没建立");
+            const got = await fetchClaudeSession({ sessionId, sourceDeviceId: sessionHome, workDir, relay: this.relay });
+            this.emitEvent(taskId, { kind: "session_sync", status: got.status, ...(got.bytes ? { bytes: got.bytes } : {}) } as unknown as AgentEvent);
+            this.log(`Session ${sessionId} from ${sessionHome}: ${got.status}${got.bytes ? ` (${got.bytes} bytes)` : ""}`);
+          } catch (e) {
+            throw new Error(`${SESSION_UNAVAILABLE} ${sessionId.slice(0, 8)}：${e instanceof Error ? e.message : e}。可以点「瘦身后重试」，用它的核心记忆快照在这台设备上接着做`);
+          }
+        }
         const sessionName = claudeSessionName(text("title"), text("user_question"), prompt);
         args = claudeArgs({ sessionId, sysAppend, model, settingsJson: claudeSettings, sessionName });
         parser = new ClaudeStreamParser();

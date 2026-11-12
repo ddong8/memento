@@ -803,6 +803,9 @@ async def _tool_run_on_device(db: AsyncSession, user: User, args: dict, *, class
                 payload["binary"] = args["binary"]
             if args.get("session_id"):
                 payload["session_id"] = args["session_id"]
+                # The device with the session's latest copy: this one fetches it from there before resuming
+                if args.get("session_home"):
+                    payload["session_home"] = args["session_home"]
             if args.get("model"):
                 payload["model"] = args["model"]
             if args.get("effort"):

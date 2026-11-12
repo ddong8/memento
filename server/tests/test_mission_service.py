@@ -267,3 +267,107 @@ async def test_rejection_cancels_the_mission():
     assert await ms.reject_mission(_db(_result(one=mission)), mission.id, None, user.id, "不要删") is True
     assert mission.status == "cancelled" and mission.pending_action is None
     assert mission.steps[-1]["type"] == "rejected" and mission.steps[-1]["reason"] == "不要删"
+
+
+@pytest.mark.asyncio
+async def test_work_for_an_agent_goes_to_claude_code_and_the_next_step_resumes_its_session():
+    user = _user()
+    mission = _mission(user)
+    laptop = _machine(user, "laptop", "tok-a")
+    mini = _machine(user, "mac-mini", "tok-b")
+    db = _db(_result(one=user), _result(all_items=[laptop, mini]))
+    reply = '{"action": "run_agent", "prompt": "修好失败的测试", "cwd": "/Users/me/repo", "device_id": "mac-mini"}'
+    chat = AsyncMock(return_value=reply)
+    with patch.object(ms, "call_plain_chat", chat), patch.object(ms, "ws_alias", _online("tok-a", "tok-b")), \
+            patch.object(ms, "deliver_task", AsyncMock(return_value=True)):
+        assert await ms.step_mission(db, mission) is True
+    # The model is told which devices it can use
+    assert "laptop, mac-mini" in chat.await_args.args[0][0]["content"]
+    task = db.add.call_args.args[0]
+    assert task.action == "agent" and task.device_id == "tok-b" and task.timeout_seconds == ms.AGENT_TIMEOUT_SECONDS
+    assert task.payload["prompt"] == "修好失败的测试" and task.payload["binary"] == "claude"
+    assert task.payload["cwd"] == "/Users/me/repo" and task.payload["mission_id"] == str(mission.id)
+    assert "session_id" not in task.payload
+    assert mission.steps[-1]["type"] == "run_agent" and mission.steps[-1]["device_name"] == "mac-mini"
+
+    # Its result: the answer's end is kept, and the session it ran in
+    task.status, task.exit_code, task.stdout, task.session_id = "succeeded", 0, "x" * 5000 + "全部通过", "sess-9"
+    db = _db(_result(one=user), _result(one=task), _result(all_items=[laptop, mini]))
+    reply = '{"action": "run_agent", "prompt": "再跑一遍确认"}'
+    with patch.object(ms, "call_plain_chat", AsyncMock(return_value=reply)), \
+            patch.object(ms, "ws_alias", _online("tok-a", "tok-b")), patch.object(ms, "deliver_task", AsyncMock(return_value=True)):
+        assert await ms.step_mission(db, mission) is True
+    result = next(s for s in mission.steps if s["type"] == "device_task_result")
+    assert result["output_preview"].endswith("全部通过") and len(result["output_preview"]) == ms.AGENT_OUTPUT_PREVIEW
+    nxt = db.add.call_args.args[0]
+    # Same session, on the device it is on (no device named)
+    assert nxt.payload["session_id"] == "sess-9" and nxt.device_id == "tok-b" and "session_home" not in nxt.payload
+
+
+@pytest.mark.asyncio
+async def test_an_agent_step_on_another_device_fetches_the_session_from_where_it_is():
+    user = _user()
+    laptop = _machine(user, "laptop", "tok-a")
+    mini = _machine(user, "mac-mini", "tok-b")
+    mission = _mission(user, {"agent_session_id": "sess-9", "agent_machine_id": str(mini.id)})
+    db = _db(_result(all_items=[laptop, mini]))
+    with patch.object(ms, "ws_alias", _online("tok-a", "tok-b")), patch.object(ms, "deliver_task", AsyncMock(return_value=True)):
+        await ms._dispatch_agent(db, mission, user, "继续", None, "", "laptop")
+    task = db.add.call_args.args[0]
+    assert task.device_id == "tok-a" and task.payload["session_id"] == "sess-9" and task.payload["session_home"] == str(mini.id)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_step_waits_for_approval_when_auto_approve_is_off():
+    user = _user({"auto_approve_safe": False})
+    mission = _mission(user)
+    notify = AsyncMock()
+    with patch.object(ms, "call_plain_chat", AsyncMock(return_value='{"action": "run_agent", "prompt": "重构登录"}')), \
+            patch.object(ms, "notify_user", notify), patch.object(ms, "_dispatch_agent", AsyncMock()) as dispatch:
+        assert await ms.step_mission(_db(_result(one=user)), mission) is True
+    dispatch.assert_not_awaited()
+    assert mission.status == "waiting_approval" and mission.pending_action["action"] == "run_agent"
+    assert mission.steps[-1]["prompt"] == "重构登录"
+    db = _db(_result(one=mission), _result(one=user))
+    with patch.object(ms, "_dispatch_agent", AsyncMock(return_value=True)) as dispatch:
+        assert await ms.approve_mission(db, mission.id, mission.approval_token, None) is True
+    dispatch.assert_awaited_once()
+    assert dispatch.await_args.args[3] == "重构登录"
+
+
+@pytest.mark.asyncio
+async def test_a_device_reporting_the_task_steps_its_mission_right_away():
+    user = _user()
+    task = DeviceTask(id=uuid.uuid4(), status="succeeded", payload={"mission_id": ""})
+    mission = _mission(user, {"active_device_task_id": str(task.id)})
+    task.payload = {"mission_id": str(mission.id)}
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def factory():
+        yield _db(_result(one=task), _result(one=mission))
+
+    with patch("server.db.session.async_session_factory", factory), \
+            patch.object(ms, "step_mission_locked", AsyncMock(return_value=True)) as step:
+        await ms.wake_for_task(str(task.id))
+        step.assert_awaited_once()
+        # Another task (or one no mission waits on) wakes nothing
+        mission.context = {"active_device_task_id": str(uuid.uuid4())}
+        await ms.wake_for_task(str(task.id))
+        step.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_steps_of_one_mission_never_overlap():
+    user = _user()
+    mission = _mission(user)
+    lock = MagicMock()
+    lock.release = AsyncMock()
+    with patch.object(ms.cluster, "mutex", AsyncMock(side_effect=[None, lock])), \
+            patch.object(ms, "step_mission", AsyncMock(return_value=True)) as step:
+        assert await ms.step_mission_locked(_db(), mission) is False
+        step.assert_not_awaited()
+        assert await ms.step_mission_locked(_db(), mission) is True
+    step.assert_awaited_once()
+    lock.release.assert_awaited_once()

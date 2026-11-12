@@ -194,3 +194,119 @@ export class P2PHost {
     }
   }
 }
+
+/** A pull that broke off: how much of the file had arrived, in order, before it did. */
+export class DirectPullError extends Error {
+  constructor(
+    message: string,
+    readonly written: number,
+  ) {
+    super(message);
+  }
+}
+
+/** No byte for this long: the direct path is gone, the rest goes through the server. */
+const PULL_IDLE_MS = 20_000;
+const PULL_OPEN_MS = 10_000;
+
+/**
+ * The other side of P2PHost, for a device fetching a file from another device directly (a workspace
+ * bundle): offers a channel, has `signal` carry the offer to the device holding the file and bring its
+ * answer back (through the server: a few KB), with the file's path there when only the server knows it,
+ * then reads the file over the channel in order, writing each
+ * piece at its offset. Resolves with the size once all of it arrived; a pull that can't connect or
+ * breaks off rejects with DirectPullError, saying how much arrived so the rest can come another way.
+ */
+export async function pullDirect(o: {
+  path?: string;
+  size: number;
+  iceServers: string[];
+  signal: (offerSdp: string) => Promise<{ sdp: string; path?: string }>;
+  write: (data: Buffer, offset: number) => Promise<unknown>;
+  log?: (message: string) => void;
+}): Promise<number> {
+  const nd = await loadLib(o.log ?? (() => {}));
+  if (!nd) throw new DirectPullError("direct transfer is not available on this device", 0);
+  let pc: PeerConnection;
+  try {
+    pc = new nd.PeerConnection(`memento-pull-${randomUUID().slice(0, 8)}`, { iceServers: o.iceServers });
+  } catch (e) {
+    throw new DirectPullError(`could not open a peer connection: ${e instanceof Error ? e.message : e}`, 0);
+  }
+  let written = 0;
+  try {
+    const gathered = new Promise<void>((resolve) => {
+      pc.onGatheringStateChange((state) => {
+        if (state === "complete") resolve();
+      });
+      setTimeout(resolve, GATHER_MS);
+    });
+    const dc = pc.createDataChannel("files");
+    const opened = new Promise<void>((resolve, reject) => {
+      dc.onOpen(() => resolve());
+      dc.onError((err) => reject(new Error(err)));
+      setTimeout(() => reject(new Error("no direct path to the other device")), PULL_OPEN_MS);
+    });
+    await gathered;
+    const offer = pc.localDescription();
+    if (!offer?.sdp) throw new Error("no offer was generated");
+    const answer = await o.signal(offer.sdp);
+    const path = answer.path || o.path;
+    if (!answer.sdp || !path) throw new Error("the other device gave no answer");
+    pc.setRemoteDescription(answer.sdp, "answer" as never);
+    await opened;
+
+    // One read per window (the host serves at most MAX_READ a request); frames come in order
+    let id = 0;
+    while (written < o.size) {
+      id += 1;
+      const start = written;
+      const end = Math.min(o.size, start + MAX_READ) - 1;
+      await new Promise<void>((resolve, reject) => {
+        let writing: Promise<unknown> = Promise.resolve();
+        let idle: NodeJS.Timeout;
+        const touch = () => {
+          clearTimeout(idle);
+          idle = setTimeout(() => reject(new Error("the direct transfer stalled")), PULL_IDLE_MS);
+        };
+        touch();
+        dc.onClosed(() => reject(new Error("the direct channel closed")));
+        dc.onMessage((msg) => {
+          touch();
+          if (typeof msg === "string") {
+            let r: { id?: number; done?: boolean; error?: string };
+            try {
+              r = JSON.parse(msg) as typeof r;
+            } catch {
+              return;
+            }
+            if (r.id !== id) return;
+            clearTimeout(idle);
+            if (r.error) reject(new Error(r.error));
+            else if (r.done) void writing.then(() => resolve(), reject);
+            return;
+          }
+          const frame = Buffer.from(msg as ArrayBuffer);
+          if (frame.length < 4 || frame.readUInt32BE(0) !== id) return;
+          const data = Buffer.from(frame.subarray(4));
+          writing = writing.then(async () => {
+            await o.write(data, written);
+            written += data.length;
+          });
+          writing.catch((e) => reject(e as Error));
+        });
+        dc.sendMessage(JSON.stringify({ id, op: "read", path, start, end }));
+      });
+      if (written <= start) throw new Error("the other device sent nothing");
+    }
+    return written;
+  } catch (e) {
+    throw new DirectPullError(e instanceof Error ? e.message : String(e), written);
+  } finally {
+    try {
+      pc.close();
+    } catch {
+      // already closed
+    }
+  }
+}

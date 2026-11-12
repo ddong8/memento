@@ -204,6 +204,8 @@ const ExecutionCard = memo(function ExecutionCard({
     (result?.stdout && result.stdout.includes("Prompt is too long")) ||
     (cleanStderr && cleanStderr.includes("Prompt is too long"))
   );
+  // The session's latest copy is on another device and couldn't be fetched from it (the device says why)
+  const sessionUnavailable = String(result?.error || "").includes("没能取到原会话");
 
   const isFailed = !isExit1NoMatch && !isStillRunning && (
     result?.status === "failed" ||
@@ -1198,7 +1200,50 @@ const ExecutionCard = memo(function ExecutionCard({
             </div>
           )}
 
-          {isFailed && !isPromptTooLong && (
+          {sessionUnavailable && onSmartCompactAndRetry && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "rgba(245, 158, 11, 0.12)",
+                border: "1px solid rgba(245, 158, 11, 0.35)",
+                fontSize: 12,
+                color: "var(--aurora-fg2)",
+                lineHeight: 1.5,
+              }}
+            >
+              原会话在另一台设备上，这次没能取过来。打开那台设备上的 Memento 后重发，会在原会话里原样接着做；
+              也可以用它的核心记忆快照在这台设备上新开一个会话接着做。
+              <div style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSmartCompactAndRetry((args?.session_id as string) || "");
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    padding: "5px 12px",
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <Icon name="sparkles" size={12} />
+                  <span>用快照接着做</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isFailed && !isPromptTooLong && !sessionUnavailable && (
             <div
               style={{
                 marginTop: 10,

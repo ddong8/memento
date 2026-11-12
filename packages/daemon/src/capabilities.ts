@@ -673,7 +673,7 @@ export async function probeEnvironmentFingerprint(home = homeDir()): Promise<Rec
     workspaces: devDirs,
     // What this daemon can do beyond running agents: work on code that lives on another device (needs git),
     // sign agent CLIs in from the web page
-    features: [...(gitExe ? ["workspace_sync"] : []), "agent_login"],
+    features: [...(gitExe ? ["workspace_sync"] : []), "agent_login", "session_sync"],
     probed_at: new Date().toISOString(),
   };
 }

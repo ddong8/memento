@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.models import DeviceTask, Machine, User
 from ..db.session import async_session_factory, get_db
 from ..middleware.auth import get_current_user
-from ..services import device_reports, notify_service, task_alerts, workspace_relay
+from ..services import device_reports, mission_service, notify_service, task_alerts, workspace_relay
 from ..services.agent_limits import mark_usage_limit
 from ..services.ws_manager import ws_manager
 from ..services.device_dispatch import deliver_task
@@ -419,6 +419,8 @@ async def _recover_turn(tid_str: str) -> None:
             if not t:
                 return
             pl = t.payload or {}
+            if pl.get("mission_id"):
+                return  # a background mission's step: recorded in the mission, not in a conversation
             pl_conv = str(pl.get("conversation_id") or "").strip()
             pl_sess = str(pl.get("session_id") or "").strip()
             conv_obj = None
@@ -573,6 +575,8 @@ async def device_websocket_endpoint(
                     notify_service.spawn(task_alerts.handle_task_finished(
                         tid_str, data.get("status"), machine.name, watched,
                     ))
+                    # A mission waiting on it takes its next step now
+                    notify_service.spawn(mission_service.wake_for_task(tid_str))
     except WebSocketDisconnect:
         logger.info("Device WebSocket disconnected: %s", real_device_id)
     except Exception as e:

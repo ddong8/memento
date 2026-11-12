@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { AgentEvent } from "./agent-stream.js";
+import { DirectPullError, pullDirect } from "./p2p.js";
 import { homeDir } from "./config.js";
 import {
   dropPending,
@@ -86,13 +87,44 @@ function takeSlot(spec: WorkspaceSpec, home?: string): { base: string; release: 
   }
 }
 
-async function download(relay: Relay, token: string, size: number, home?: string): Promise<string> {
+/** Smaller bundles aren't worth setting up a direct channel for. */
+const DIRECT_MIN = 1024 * 1024;
+
+/**
+ * The bundle, straight from the source over a direct (WebRTC) channel when one can be opened (same
+ * LAN, IPv6, a punched NAT: the server's public entry is only a few Mbps), else (or for whatever
+ * hadn't arrived when it broke off) piece by piece through the server.
+ */
+async function download(
+  relay: Relay,
+  token: string,
+  size: number,
+  home?: string,
+  iceServers?: string[],
+): Promise<{ file: string; direct: number }> {
   const dir = join(home ?? homeDir(), ".memento", "tmp");
   await mkdir(dir, { recursive: true });
   const file = join(dir, `ws-${randomBytes(6).toString("hex")}.bundle`);
   const handle = await open(file, "w");
+  let direct = 0;
   try {
     let offset = 0;
+    if (iceServers && size >= DIRECT_MIN) {
+      try {
+        offset = await pullDirect({
+          size,
+          iceServers,
+          signal: async (sdp) => {
+            const r = await relay("p2p", { token, sdp }, 30_000);
+            return { sdp: String(r.sdp ?? ""), path: String(r.path ?? "") };
+          },
+          write: (data, at) => handle.write(data, 0, data.length, at),
+        });
+      } catch (e) {
+        offset = e instanceof DirectPullError ? e.written : 0;
+      }
+      direct = offset;
+    }
     while (offset < size) {
       const r = await relay("chunk", { token, offset, length: Math.min(CHUNK, size - offset) }, 120_000);
       const data = Buffer.from(String(r.data_b64 ?? ""), "base64");
@@ -106,13 +138,19 @@ async function download(relay: Relay, token: string, size: number, home?: string
     throw e;
   }
   await handle.close();
-  return file;
+  return { file, direct };
 }
 
 function exportInfo(
   r: Record<string, unknown>,
-): Pick<ExportResult, "head" | "branch" | "snapshot" | "tree" | "root" | "rel" | "upToDate" | "upstream" | "userName" | "userEmail"> & { token: string; size: number } {
+): Pick<ExportResult, "head" | "branch" | "snapshot" | "tree" | "root" | "rel" | "upToDate" | "upstream" | "userName" | "userEmail"> & {
+  token: string;
+  size: number;
+  /** The server can set up a direct channel to the source (and these are its STUN servers) */
+  iceServers?: string[];
+} {
   return {
+    ...(Array.isArray(r.ice_servers) ? { iceServers: r.ice_servers.map(String) } : {}),
     token: String(r.token ?? ""),
     size: Number(r.size ?? 0),
     head: String(r.head ?? ""),
@@ -142,8 +180,9 @@ export async function prepareWorkspace(
     for (let attempt = 0; ; attempt++) {
       const info = exportInfo(await relay("export", { source_device_id: spec.sourceDeviceId, path: spec.sourcePath, have }, 180_000));
       let bundle: string | undefined;
+      let direct = 0;
       try {
-        if (!info.upToDate) bundle = await download(relay, info.token, info.size, home);
+        if (!info.upToDate) ({ file: bundle, direct } = await download(relay, info.token, info.size, home, info.iceServers));
         const mirror = await prepareMirror(slot.base, info, bundle, { env });
         emit?.({
           kind: "workspace",
@@ -152,6 +191,7 @@ export async function prepareWorkspace(
           path: spec.sourcePath,
           branch: info.branch,
           bytes: info.size,
+          ...(direct ? { direct_bytes: direct } : {}),
           seconds: Math.round((Date.now() - started) / 100) / 10,
         } as AgentEvent);
         return { spec, mirror, release: slot.release };

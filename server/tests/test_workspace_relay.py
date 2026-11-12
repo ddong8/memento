@@ -195,3 +195,48 @@ def test_both_ends_must_have_reported_workspace_sync(caps, ok):
     with patch("server.services.device_reports.get_cached_device_capabilities", return_value=caps):
         assert orchestrator._supports_workspace(["tok-mac"], None) is ok
     assert orchestrator._supports_workspace([None, ""], None) is False
+
+
+@pytest.mark.asyncio
+async def test_a_session_on_another_device_is_handed_out_like_a_bundle():
+    answer = {"path": "/Users/me/.claude/projects/-Users-me-repo/s1.jsonl", "size": 20, "last_uuid": "u-9"}
+    patches, ws = _env(_machine(), answer=answer, chunk=b'{"uuid":"u-9"}')
+
+    async def go():
+        out = await wr._session({"source_device_id": "mac", "session_id": "s1"}, USER)
+        assert ws.request_device.await_args.args[:2] == ("tok-mac", {"type": "session_export_req", "session_id": "s1"})
+        assert out["size"] == 20 and out["last_uuid"] == "u-9" and out["token"] and "path" not in out
+        await wr._chunk({"token": out["token"], "offset": 0, "length": 999}, USER)
+        assert ws.request_file_chunk.await_args.args[:4] == ("tok-mac", answer["path"], 0, 20)
+
+    await _run(patches, go)
+
+
+@pytest.mark.asyncio
+async def test_a_session_the_source_lacks_or_an_offline_source_says_why():
+    patches, _ = _env(_machine(), answer={"error": "这台设备上没有会话 s1", "code": "not_found"})
+    out = await _run(patches, lambda: wr._session({"source_device_id": "mac", "session_id": "s1"}, USER))
+    assert out == {"error": "这台设备上没有会话 s1", "code": "not_found"}
+    patches, _ = _env(_machine(), online=False)
+    out = await _run(patches, lambda: wr._session({"source_device_id": "mac", "session_id": "s1"}, USER))
+    assert out["code"] == "source_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_the_executor_can_pull_the_bundle_directly_with_the_sources_answer():
+    answer = {"bundle_path": "/Users/me/.memento/workspace-out/a.bundle", "size": 12, "up_to_date": False}
+    patches, ws = _env(_machine(), answer=answer)
+    ws.request_p2p_answer = AsyncMock(return_value={"sdp": "v=0 answer"})
+
+    async def go():
+        out = await wr._export({"source_device_id": "mac", "path": "/Users/me/repo"}, USER)
+        assert isinstance(out["ice_servers"], list)
+        got = await wr._p2p({"token": out["token"], "sdp": "v=0 offer"}, USER)
+        assert ws.request_p2p_answer.await_args.args[:2] == ("tok-mac", "v=0 offer")
+        # The path on the source only comes from the token, never from the executor
+        assert got == {"sdp": "v=0 answer", "path": answer["bundle_path"]}
+        assert (await wr._p2p({"token": out["token"], "sdp": "x"}, uuid.uuid4()))["code"] == "expired"
+        ws.request_p2p_answer.return_value = {"error": "direct transfer is not available on this device"}
+        assert (await wr._p2p({"token": out["token"], "sdp": "x"}, USER))["code"] == "no_direct"
+
+    await _run(patches, go)

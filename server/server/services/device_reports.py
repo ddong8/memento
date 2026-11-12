@@ -70,6 +70,13 @@ def get_cached_device_capabilities(
     return caps
 
 
+def device_has_feature(name: str | None, feature: str, user: User | None = None) -> bool:
+    """The device reported it can do feature (capabilities.environment.features)."""
+    caps = get_cached_device_capabilities(name, user=user) if name else None
+    env = caps.get("environment") if isinstance(caps, dict) else None
+    return isinstance(env, dict) and feature in (env.get("features") or [])
+
+
 def get_device_environment_summary(device_id: str | None = None, user: User | None = None) -> str | None:
     """Format a compact environment profile string for system prompts and tool contexts."""
     caps = get_cached_device_capabilities(device_id, user=user)

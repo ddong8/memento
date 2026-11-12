@@ -720,7 +720,11 @@ export function ProactiveAgentView() {
                 {m.status === "waiting_approval" && m.pending_action && (
                   <div className="mt-3.5 pt-3.5 border-t border-[var(--aurora-border)] flex items-center justify-between flex-wrap gap-2">
                     <div className="text-[11px] text-amber-600 dark:text-amber-400 font-mono">
-                      拟执行命令: <code>{m.pending_action.command}</code>
+                      {m.pending_action.action === "run_agent" ? (
+                        <>拟交给智能体: <code>{String(m.pending_action.prompt || "").slice(0, 160)}</code></>
+                      ) : (
+                        <>拟执行命令: <code>{m.pending_action.command}</code></>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button

@@ -179,7 +179,9 @@ export default function TaskTimeline({
       case "synced": {
         const bytes = Number(ev.bytes) || 0;
         const size = bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)}MB` : bytes > 0 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : "";
-        const note = [str(ev.branch), size, Number(ev.seconds) > 0 ? `${ev.seconds}s` : ""].filter(Boolean).join(" · ");
+        // Straight from the source over a direct channel (all of it, or the part before it broke off)
+        const direct = Number(ev.direct_bytes) > 0 ? (Number(ev.direct_bytes) >= bytes ? tl.wsDirect : tl.wsPartlyDirect) : "";
+        const note = [str(ev.branch), size, Number(ev.seconds) > 0 ? `${ev.seconds}s` : "", direct].filter(Boolean).join(" · ");
         return plain("refresh", fmt(tl.wsSynced, { source }), note || null, "#10B981");
       }
       case "applied":
@@ -394,6 +396,11 @@ export default function TaskTimeline({
         const pre = Number(ev.pre_tokens);
         const text = pre > 0 ? fmt(tl.compacted, { n: formatTokenCount(pre) }) : tl.compactedPlain;
         return <div key={i}>{plain("sparkles", text, null, "#10B981")}</div>;
+      }
+      case "session_sync": {
+        const bytes = Number(ev.bytes);
+        const size = bytes > 0 ? (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`) : "";
+        return <div key={i}>{plain("clock", ev.status === "fetched" ? fmt(tl.sessionFetched, { n: size }) : tl.sessionCurrent, null)}</div>;
       }
       case "question":
         return (

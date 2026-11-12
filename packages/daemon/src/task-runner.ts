@@ -90,6 +90,17 @@ export function taskFinishedMessage(f: TaskFinished): Record<string, unknown> {
  * Keeps initial context (first ~40K chars) and final diagnostic/error traces (last ~100K chars),
  * folding the middle spam to prevent ballooning WebSocket frames and losing error stacks.
  */
+/**
+ * Drops Node's own runtime warnings ("(node:55188) [DEP0190] DeprecationWarning: …" and the "(Use `node
+ * --trace-deprecation ...`" line after it) from an agent's stderr: they say nothing about the task, and
+ * when the run failed they stood in for the real error.
+ */
+export function stripRuntimeWarnings(stderr: string): string {
+  return stderr
+    .replace(/^\(node:\d+\) (?:\[[A-Z0-9]+\] )?\w*Warning: .*(?:\r?\n|$)/gm, "")
+    .replace(/^\(Use `[^`]*--trace-(?:deprecation|warnings)[^`]*` to show where the warning was created\)(?:\r?\n|$)/gm, "");
+}
+
 export function smartTruncateOutput(text: string, maxChars = 150_000, headChars = 40_000, tailChars = 100_000): string {
   if (!text || text.length <= maxChars) return text;
   const head = text.slice(0, headChars);
@@ -1300,7 +1311,9 @@ export class TaskRunner {
         const hours = hit.until ? Math.ceil((hit.until - Date.now()) / 3_600_000) : 0;
         this.notice(
           taskId,
-          `\n⚡ [模型切换] ${hit.model || current || "默认模型"} 的额度用完了${hours > 0 ? `（约 ${hours} 小时后恢复）` : ""}，改用 ${next.label} 继续。\n\n`,
+          hit.unsupported
+            ? `\n⚡ [模型切换] 这个账号用不了 ${hit.model || current || "默认模型"}，改用 ${next.label} 继续。\n\n`
+            : `\n⚡ [模型切换] ${hit.model || current || "默认模型"} 的额度用完了${hours > 0 ? `（约 ${hours} 小时后恢复）` : ""}，改用 ${next.label} 继续。\n\n`,
         );
         model = next.id;
         if (limitAgent === "claude") {
@@ -1414,7 +1427,7 @@ export class TaskRunner {
       if (loginHint) this.notice(taskId, `\n🔑 [登录失效] ${loginHint}\n`);
 
       let fullOut = out.stdout.trim();
-      const fullErr = out.stderr.trim();
+      const fullErr = stripRuntimeWarnings(out.stderr).trim();
       // A structured run's answer includes all intermediate thoughts and final conclusions from the parser
       const answer = parser?.finalText?.trim();
       if (answer) {

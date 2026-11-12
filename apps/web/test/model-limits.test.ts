@@ -29,3 +29,8 @@ it("says roughly when it's back", () => {
   expect(modelLimitLabel(limit, true, NOW + 3 * 3_600_000 - 20 * 60_000)).toBe("额度用完·约 20 分钟后恢复");
   expect(modelLimitLabel(limit, false, NOW)).toBe("out of quota · ~3h");
 });
+
+it("a model the account can't use says so, not when it's back", () => {
+  const limit = { family: "gpt-6-astra", model: "gpt-6-astra", until: new Date(NOW + 86_400_000).toISOString(), message: "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account." };
+  expect(modelLimitLabel(limit, true, NOW)).toBe("账号不支持");
+});

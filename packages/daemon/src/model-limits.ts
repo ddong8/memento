@@ -169,6 +169,8 @@ export interface ModelLimitHit {
   model: string;
   message: string;
   until?: number;
+  /** The account can't use the model at all, rather than having used it up. */
+  unsupported?: boolean;
 }
 
 /**
@@ -194,7 +196,11 @@ export function claudeModelLimit(errors: string, current: string, rejected?: { t
  * another model now, or try again at 3:05 PM." The name is the limit's, matched to a model when one has
  * it, else the model the run used.
  */
-export function codexModelLimit(errors: string, current: string, models: ModelChoice[]): ModelLimitHit | undefined {
+export function codexModelLimit(errors: string, current: string, models: ModelChoice[], now = Date.now()): ModelLimitHit | undefined {
+  // A model the account can't use at all (config.toml names one the plan doesn't have): "The 'gpt-6-astra'
+  // model is not supported when using Codex with a ChatGPT account." Skipped for a day, the plan may change.
+  const unsupported = /The '([^']+)' model is not supported[^\n"]*/i.exec(errors);
+  if (unsupported) return { model: unsupported[1]!, message: unsupported[0].trim(), until: now + UNSUPPORTED_MS, unsupported: true };
   const m = /You(?:'|’)ve hit your usage limit for (.+?)\. Switch to another model[^\n"]*/i.exec(errors);
   if (!m) return undefined;
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]+/g, "");
@@ -202,6 +208,9 @@ export function codexModelLimit(errors: string, current: string, models: ModelCh
   const model = models.find((x) => norm(x.id) === name || norm(x.label) === name)?.id ?? current;
   return { model, message: m[0].trim() };
 }
+
+/** How long a model the account doesn't support is skipped. */
+export const UNSUPPORTED_MS = 24 * 3_600_000;
 
 /** The models Codex lists for this account (models_cache.json, its own order), the hidden ones left out. */
 export async function codexModels(home = homeDir()): Promise<ModelChoice[]> {

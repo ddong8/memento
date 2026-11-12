@@ -400,3 +400,15 @@ describe("Google's agy CLI stream-json", () => {
     expect(p.feed("Warning: something on stdout")).toBeNull();
   });
 });
+
+describe("Codex errors", () => {
+  it("shows the API's message, once, rather than its JSON body twice", () => {
+    const body = JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.", code: "model_not_found" } });
+    const parser = new CodexStreamParser();
+    const first = parser.feed(JSON.stringify({ type: "error", message: body }));
+    const again = parser.feed(JSON.stringify({ type: "turn.failed", error: { message: body } }));
+    expect(first).toEqual([{ kind: "error", message: "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account." }]);
+    expect(again).toEqual([]);
+    expect(parser.errors.trim()).toBe("The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.");
+  });
+});

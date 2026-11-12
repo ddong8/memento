@@ -17,6 +17,7 @@ import {
   noteDefaultModel,
   noteModelLimit,
   resetModelLimits,
+  UNSUPPORTED_MS,
 } from "../src/model-limits.js";
 import { WsTaskClient } from "../src/ws-client.js";
 
@@ -43,6 +44,16 @@ it("Codex: the limit's name is matched to a model, else the one the run used", (
   expect(codexModelLimit("You've hit your usage limit for GPT-6-Luna. Switch to another model now, or try again at 3:05 PM.", "", models)?.model).toBe("gpt-6-luna");
   expect(codexModelLimit("You've hit your usage limit for Luna Max. Switch to another model now.", "gpt-6", models)?.model).toBe("gpt-6");
   expect(codexModelLimit("You've hit your usage limit. Upgrade to Pro or try again at 3:05 PM.", "gpt-6", models)).toBeUndefined();
+});
+
+it("Codex: a model the account can't use is skipped for a day, like one that ran out", () => {
+  const msg = "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.";
+  const hit = codexModelLimit(msg, "", [{ id: "gpt-6-luna", label: "GPT-6-Luna" }], NOW);
+  expect(hit).toEqual({ model: "gpt-6-astra", message: msg, until: NOW + UNSUPPORTED_MS, unsupported: true });
+  noteDefaultModel("codex", "gpt-6-astra");
+  noteModelLimit("codex", hit!.model, hit!.message, hit!.until, NOW);
+  expect(isModelLimited("codex", "", NOW + 3_600_000)).toBe(true);
+  expect(nextModel("codex", [{ id: "gpt-6-astra", label: "x" }, { id: "gpt-6-luna", label: "GPT-6-Luna" }], "", "", NOW)?.id).toBe("gpt-6-luna");
 });
 
 it("next model: skips the family that ran out and ones still out, never Fable for Claude", () => {

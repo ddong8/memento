@@ -27,8 +27,9 @@ export function modelLimitOf(quotas: AgentQuotasResponse | null | undefined, mod
   return tool.limited_models.find((l) => l.family === family && Date.parse(l.until) > now);
 }
 
-/** "额度用完·约 3 小时后恢复" for the picker. */
+/** "额度用完·约 3 小时后恢复" for the picker; "账号不支持" for a model the account can't use (Codex's "not supported"). */
 export function modelLimitLabel(limit: LimitedModelInfo, isZh: boolean, now = Date.now()): string {
+  if (/model is not supported/i.test(limit.message ?? "")) return isZh ? "账号不支持" : "not on this account";
   const mins = Math.max(1, Math.ceil((Date.parse(limit.until) - now) / 60_000));
   const span = mins < 60 ? (isZh ? `${mins} 分钟` : `${mins}m`) : mins < 48 * 60 ? (isZh ? `${Math.round(mins / 60)} 小时` : `${Math.round(mins / 60)}h`) : isZh ? `${Math.round(mins / 1440)} 天` : `${Math.round(mins / 1440)}d`;
   return isZh ? `额度用完·约 ${span}后恢复` : `out of quota · ~${span}`;

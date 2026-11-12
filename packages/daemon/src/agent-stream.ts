@@ -428,7 +428,24 @@ export function claudeToolDetail(name: string, input: Json): string {
   return clip(firstLine(detail ?? ""), 200);
 }
 
+/**
+ * Codex passes the API's error body on as the message: `{"type":"error","status":400,"error":{"message":"The
+ * 'gpt-6-astra' model is not supported …"}}`. The message inside is what to show.
+ */
+export function codexErrorText(message: string): string {
+  const raw = message.trim();
+  if (!raw.startsWith("{")) return message;
+  try {
+    const body = JSON.parse(raw) as { error?: { message?: unknown }; message?: unknown };
+    const inner = body?.error?.message ?? body?.message;
+    return typeof inner === "string" && inner.trim() ? inner.trim() : message;
+  } catch {
+    return message;
+  }
+}
+
 export class CodexStreamParser extends AgentStreamParser {
+  private lastError = "";
   private messages: string[] = [];
 
   get finalText(): string | undefined {
@@ -603,7 +620,10 @@ export class CodexStreamParser extends AgentStreamParser {
       }
       case "turn.failed":
       case "error": {
-        const message = String((isObject(d.error) ? d.error.message : undefined) ?? d.message ?? "error");
+        const message = codexErrorText(String((isObject(d.error) ? d.error.message : undefined) ?? d.message ?? "error"));
+        // Codex sends the same failure as an error and then as turn.failed
+        if (message === this.lastError) break;
+        this.lastError = message;
         this.addError(message);
         events.push({ kind: "error", message: clip(message, 400) });
         break;

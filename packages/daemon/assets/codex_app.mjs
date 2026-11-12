@@ -36,13 +36,12 @@ const fail = (message, code = 1) => {
 // Without the flag Codex refuses request_user_input outside Plan mode ("unavailable in Default mode").
 // npm installs Codex on Windows as codex.cmd, which only a shell can start. The shell gets the command
 // line joined as is, so a path with spaces (C:\Program Files\...) has to be quoted or cmd stops at the space.
+// The whole line goes in as one string: with shell:true, Node warns (DEP0190) about any args passed apart.
 const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(args.codex);
-const server = spawn(viaShell ? `"${args.codex}"` : args.codex, ["app-server", "--enable", "default_mode_request_user_input"], {
-  cwd: args.cwd || undefined,
-  stdio: ["pipe", "pipe", "pipe"],
-  windowsHide: true,
-  shell: viaShell,
-});
+const serverArgs = ["app-server", "--enable", "default_mode_request_user_input"];
+const server = viaShell
+  ? spawn(`"${args.codex}" ${serverArgs.join(" ")}`, { cwd: args.cwd || undefined, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: true })
+  : spawn(args.codex, serverArgs, { cwd: args.cwd || undefined, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 server.on("error", (e) => fail(`Codex app-server failed to start: ${e.message}`));
 server.on("exit", (code) => {
   if (!finished && !exiting) fail(`Codex app-server exited (${code ?? "signal"}) before the turn finished`);

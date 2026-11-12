@@ -238,7 +238,6 @@ export interface UserBubbleProps {
   content: string;
   images?: string[];
   createdAt?: string;
-  onShareTurn?: (index: number) => void;
 }
 
 export function cleanUserMessage(raw: string): string {
@@ -265,11 +264,9 @@ function areUserPropsEqual(prev: UserBubbleProps, next: UserBubbleProps) {
 }
 
 export const UserBubble = memo(function UserBubble({
-  index,
   content,
   images,
   createdAt,
-  onShareTurn,
 }: UserBubbleProps) {
   const displayContent = useMemo(() => cleanUserMessage(content), [content]);
   const [copied, setCopied] = useState(false);
@@ -387,19 +384,6 @@ export const UserBubble = memo(function UserBubble({
                 <Icon name="clock" size={10.5} />
                 <span>{timeInfo.short}</span>
               </span>
-            )}
-            {onShareTurn && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onShareTurn(index);
-                }}
-                className="opacity-60 group-hover/user:opacity-100 transition-opacity p-0.5 text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] rounded hover:bg-white/10 select-none shrink-0 cursor-pointer"
-                title="分享此问答"
-              >
-                <Icon name="share" size={12} />
-              </button>
             )}
             {content && (
               <button
@@ -703,9 +687,9 @@ export const AssistantBubble = memo(function AssistantBubble({
             {durationText && (
               <span
                 className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10px] sm:text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"
-                title={`本轮响应耗时: ${durationText}${startTime ? ` (提问于 ${startTime.full})` : ""}`}
+                title={[`本轮响应耗时: ${durationText}`, speedLabel && `生成速度: ${speedLabel}`, turn.cached && "命中语义缓存", startTime && `提问于 ${startTime.full}`].filter(Boolean).join("\n")}
               >
-                <Icon name="zap" size={9.5} style={{ color: "var(--aurora-accent)" }} />
+                <Icon name="zap" size={9.5} style={{ color: turn.cached ? "#34d399" : "var(--aurora-accent)" }} />
                 <span>{durationText}</span>
               </span>
             )}
@@ -727,33 +711,6 @@ export const AssistantBubble = memo(function AssistantBubble({
                 </span>
               );
             })()}
-            {turn.cached && (
-              <span
-                className="inline-flex items-center gap-0.5 sm:gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] sm:text-[10.5px] text-emerald-400 whitespace-nowrap shrink-0 font-medium"
-                title="命中语义缓存网关，毫秒级瞬时响应"
-              >
-                <Icon name="zap" size={9.5} style={{ color: "#34d399" }} />
-                <span>{isZh ? "极速缓存" : "Cached"}</span>
-              </span>
-            )}
-            {speedLabel && (
-              <span
-                className={isInspectorOpen ? "hidden" : "ask-bar-speed-label inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--aurora-chip)] border border-[var(--aurora-border)]/60 text-[10.5px] text-[var(--aurora-fg2)] whitespace-nowrap shrink-0 font-medium"}
-                title="文字生成速率"
-              >
-                <Icon name="activity" size={10} style={{ color: "var(--aurora-accent)" }} />
-                <span>{speedLabel}</span>
-              </span>
-            )}
-            {!isInspectorOpen && startTime && (
-              <span
-                className="ask-bar-start-time inline-flex items-center gap-1 opacity-75 whitespace-nowrap shrink-0"
-                title={`发出提问时间: ${startTime.full}`}
-              >
-                <Icon name="clock" size={10.5} />
-                <span>提问于 {startTime.short}</span>
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0">
             {onShareTurn && (
@@ -764,10 +721,9 @@ export const AssistantBubble = memo(function AssistantBubble({
                   onShareTurn(index);
                 }}
                 className="inline-flex items-center justify-center gap-1 p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] active:bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="分享与多平台分发 (微信公众号/知乎/微博/小红书)"
+                title="分享这组问答（可发布到公众号、知乎、微博、小红书）"
               >
                 <Icon name="share" size={12} />
-                <span className={isInspectorOpen ? "hidden" : "ask-bar-btn-text"}>分享</span>
               </button>
             )}
             {content && (
@@ -787,10 +743,9 @@ export const AssistantBubble = memo(function AssistantBubble({
                 onClick={handleSaveToTodo}
                 disabled={savedTodo}
                 className="inline-flex items-center justify-center gap-1 p-1 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-xs font-medium text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)] active:bg-[var(--aurora-chip)] hover:bg-[var(--aurora-chip)] transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                title="一键将回答要点存入工作待办"
+                title={savedTodo ? "已存为待办" : "存为待办"}
               >
                 <Icon name={savedTodo ? "check" : "inbox"} size={12.5} style={{ color: savedTodo ? "#10b981" : undefined }} />
-                <span className={isInspectorOpen ? "hidden" : "ask-bar-btn-text"}>{savedTodo ? "已存待办" : "存为待办"}</span>
               </button>
             )}
           </div>

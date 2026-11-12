@@ -32,7 +32,6 @@ export function AskTopBar({
   onToggleSelectTurns,
   onExportMarkdown,
   onShare,
-  onClear,
 }: {
   conversationCount: number;
   turnCount: number;
@@ -51,7 +50,6 @@ export function AskTopBar({
   onToggleSelectTurns: () => void;
   onExportMarkdown: () => void;
   onShare: () => void;
-  onClear: () => void;
 }) {
   const { t, locale } = useI18n();
   const isZh = locale.startsWith("zh");
@@ -255,7 +253,7 @@ export function AskTopBar({
               size="sm"
               icon="download"
               onClick={onExportMarkdown}
-              title={isZh ? "导出 Markdown 研报记录" : "Export Markdown report"}
+              title={isZh ? "导出 Markdown" : "Export Markdown report"}
               className="shrink-0"
             >
               <span className="hidden 2xl:inline">{isZh ? "导出" : "Export"}</span>
@@ -272,21 +270,6 @@ export function AskTopBar({
             </Btn>
           </div>
         )}
-        {turnCount > 0 && !inspector?.isOpen && (
-          <div className="hidden xl:inline-flex">
-            <Btn
-              variant="ghost"
-              size="sm"
-              icon="trash"
-              title={t.ask.clear}
-              onClick={onClear}
-              className="shrink-0"
-            >
-              <span className="hidden 2xl:inline">{t.ask.clear}</span>
-            </Btn>
-          </div>
-        )}
-
         {/* 更多菜单：移动端常驻，大屏收纳 */}
         <div className={`relative shrink-0 ${inspector?.isOpen ? "block" : "block xl:hidden"}`}>
           <Btn
@@ -402,7 +385,7 @@ export function AskTopBar({
                       className="px-3 py-2 text-xs flex items-center gap-2.5 text-[var(--aurora-fg1)] hover:bg-[var(--aurora-chip)] transition-colors text-left"
                     >
                       <Icon name="download" size={14} />
-                      <span>{isZh ? "导出 Markdown 研报" : "Export Markdown"}</span>
+                      <span>{isZh ? "导出 Markdown" : "Export Markdown"}</span>
                     </button>
                     <button
                       type="button"
@@ -415,21 +398,7 @@ export function AskTopBar({
                       <Icon name="share" size={14} />
                       <span>{isZh ? "分享完整会话" : "Share conversation"}</span>
                     </button>
-                    <div className="my-1 border-t border-[var(--aurora-border)]" />
                   </>
-                )}
-                {turnCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClear();
-                      setMoreMenuOpen(false);
-                    }}
-                    className="px-3 py-2 text-xs flex items-center gap-2.5 text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
-                  >
-                    <Icon name="trash" size={14} />
-                    <span>{isZh ? "清空当前消息" : "Clear conversation"}</span>
-                  </button>
                 )}
               </div>
             </>

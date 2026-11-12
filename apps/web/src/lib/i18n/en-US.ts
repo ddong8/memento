@@ -297,7 +297,6 @@ const enUS: Translations = {
     executing: "AI Butler is executing task on device…",
     sources: "Sources",
     empty: "I am your all-in-one AI Butler, ready to dispatch device commands, retrieve long-term memories, and evolve personas.",
-    clear: "Clear",
     historyTitle: "Chat History",
     newChat: "New Chat",
     deleteConfirm: "Are you sure you want to delete this conversation?",

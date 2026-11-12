@@ -45,7 +45,6 @@ describe("AskTopBar button placement", () => {
           onToggleSelectTurns={vi.fn()}
           onExportMarkdown={vi.fn()}
           onShare={vi.fn()}
-          onClear={vi.fn()}
         />
       );
     });

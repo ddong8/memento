@@ -1587,11 +1587,8 @@ function AskPageContent() {
     setSourcesOpen(false);
   }, [detachStream, router, takeOverCascade]);
 
-  const [exportingMd, setExportingMd] = useState(false);
-
   const handleExportMarkdown = useCallback(() => {
     if (!turns || turns.length === 0) return;
-    setExportingMd(true);
 
     const activeConv = conversations.find((c) => c.id === activeConversationIdRef.current);
     const title = activeConv?.title || (turns[0]?.content ? turns[0].content.trim().slice(0, 30) : "Memento 执行研报");
@@ -1662,8 +1659,6 @@ function AskPageContent() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-
-    setTimeout(() => setExportingMd(false), 1200);
   }, [turns, conversations, executionMode, selectedDevice]);
 
   // Rename conversation
@@ -4648,24 +4643,6 @@ function AskPageContent() {
     setShareModalOpen(true);
   }, [getTurnAbsIndex]);
 
-  const handleShareUserTurn = useCallback((userIndex: number) => {
-    const convId = activeConversationIdRef.current;
-    if (!convId) return;
-    const curTurns = turnsRef.current;
-    const localIndices =
-      userIndex + 1 < curTurns.length && curTurns[userIndex + 1]?.role === "assistant"
-        ? [userIndex, userIndex + 1]
-        : [userIndex];
-    const turnIndices = localIndices.map(getTurnAbsIndex);
-    const excerpt = curTurns[userIndex]?.content?.trim().slice(0, 36) || "问答";
-    const shareTitle = `${displayConvTitleRef.current || "Memento"} · 提问：${excerpt}${curTurns[userIndex]?.content?.trim().length > 36 ? "..." : ""}`;
-    setShareTargetId(`${convId}:${turnIndices.join(",")}`);
-    setShareTitle(shareTitle);
-    setShareContent(curTurns[userIndex]?.content || "");
-    setShareInitialTab("link");
-    setShareModalOpen(true);
-  }, [getTurnAbsIndex]);
-
   const renderedTurns = useMemo(() => {
     return turns.map((turn, i) => {
       const prevUserCreatedAt =
@@ -4707,7 +4684,6 @@ function AskPageContent() {
                 content={turn.content}
                 images={turn.images}
                 createdAt={turn.created_at}
-                onShareTurn={handleShareUserTurn}
               />
             ) : (
               <AssistantBubble
@@ -4738,7 +4714,6 @@ function AskPageContent() {
     selectedTurnIndices,
     toggleSelectTurn,
     handleShareAssistantTurn,
-    handleShareUserTurn,
     t,
   ]);
 
@@ -4775,10 +4750,6 @@ function AskPageContent() {
           }}
           onExportMarkdown={handleExportMarkdown}
           onShare={() => activeConversationId && openSingleShare(activeConversationId, displayConvTitle)}
-          onClear={() => {
-            abortRef.current?.abort();
-            setTurns([]);
-          }}
         />
 
         {/* 中栏消息滚动列表 */}
@@ -5478,33 +5449,6 @@ function AskPageContent() {
                       );
                     })}
                   </div>
-
-                  {/* Export Markdown button */}
-                  {turns.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleExportMarkdown}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 3,
-                        background: "var(--aurora-chip)",
-                        border: "1px solid var(--aurora-border)",
-                        borderRadius: 8,
-                        padding: "3px 8px",
-                        color: exportingMd ? "#10b981" : "var(--aurora-fg3)",
-                        fontSize: 11.5,
-                        fontWeight: 500,
-                        cursor: "pointer",
-                        flexShrink: 0,
-                        transition: "all 0.15s ease",
-                      }}
-                      title={isZh ? "将当前对话与执行结果导出为 Markdown 研报" : "Export conversation to Markdown report"}
-                    >
-                      <Icon name={exportingMd ? "check" : "download"} size={12} style={{ color: exportingMd ? "#10b981" : undefined }} />
-                      <span>{exportingMd ? (isZh ? "已导出" : "Exported") : (isZh ? "导出研报" : "Export")}</span>
-                    </button>
-                  )}
 
                   {/* Collapse button */}
                   <button

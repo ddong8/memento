@@ -305,7 +305,6 @@ const zhCN = {
     executing: "AI 执事正在设备上执行任务…",
     sources: "参考资料",
     empty: "我是你的全能 AI 执事，可随时调度终端设备执行命令、查询长期记忆与画像自进化。",
-    clear: "清空对话",
     historyTitle: "历史对话",
     newChat: "新建对话",
     deleteConfirm: "确定要删除这条对话记录吗？",

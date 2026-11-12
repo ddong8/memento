@@ -6650,15 +6650,17 @@ function AskPageContent() {
                   <span>正在恢复流式同步...</span>
                 </div>
               )}
-              {streaming && (input.trim() || attachedImages.length > 0) && (
+              {/* Always shown while the reply runs, so it's clear the input still sends: next to Stop, not instead of it */}
+              {streaming && (
                 <Btn
                   onClick={send}
+                  disabled={!input.trim() && attachedImages.length === 0}
                   icon="message"
                   title={isZh ? "追问：正在运行的智能体会在下一步读到，读不了的等这轮结束后接着发" : "Follow up"}
                   className="!h-[44px] sm:!h-[42px] !px-3.5 sm:!px-4 !rounded-xl"
                   style={{ flexShrink: 0 }}
                 >
-                  <span className="hidden sm:inline font-semibold text-sm">{isZh ? "追问" : "Follow up"}</span>
+                  <span className="font-semibold text-xs sm:text-sm">{isZh ? "追问" : "Follow up"}</span>
                 </Btn>
               )}
               {streaming ? (

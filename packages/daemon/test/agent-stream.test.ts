@@ -222,6 +222,19 @@ describe("Background task detection", () => {
     expect(parser.isStillRunning).toBe(false);
   });
 
+  it("Claude: reports what is still running in the background each time it changes, once per task", () => {
+    const parser = new ClaudeStreamParser();
+    expect(parser.feed(started("b1"))).toEqual([{ kind: "background", tasks: [{ id: "b1", description: "npm run build" }] }]);
+    expect(parser.feed(started("b1"))).toEqual([]);
+    expect(parser.feed('{"type":"system","subtype":"task_started","task_id":"b2"}')).toEqual([
+      { kind: "background", tasks: [{ id: "b1", description: "npm run build" }, { id: "b2" }] },
+    ]);
+    expect(parser.feed(notified("b1"))).toEqual([{ kind: "background", tasks: [{ id: "b2" }] }]);
+    expect(parser.feed('{"type":"system","subtype":"task_updated","task_id":"b2","patch":{"status":"killed"}}')).toEqual([{ kind: "background", tasks: [] }]);
+    // An end reported twice says nothing new
+    expect(parser.feed(notified("b2"))).toEqual([]);
+  });
+
   it("Claude: task_updated with a final status ends the task", () => {
     const parser = new ClaudeStreamParser();
     parser.feed(started("a1"));

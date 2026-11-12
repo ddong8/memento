@@ -12,6 +12,8 @@ export function mergeTaskEvent(events: readonly TaskEvent[], event: TaskEvent): 
       return [...events.slice(0, i), merged, ...events.slice(i + 1)];
     }
   }
+  // A snapshot of what's still running in the background: the latest one replaces the last
+  if (event.kind === "background") return [...events.filter((e) => e.kind !== "background"), event];
   return [...events, event];
 }
 

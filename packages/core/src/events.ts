@@ -22,6 +22,8 @@ export type TaskEvent = { at?: string } & (
   | { kind: "compact"; trigger?: string; pre_tokens?: number }
   /** A follow-up the user sent to a running task: sent, too late, or not supported by that agent. */
   | { kind: "steer"; text: string; status: "sent" | "late" | "unsupported" }
+  /** The background tasks (shells, subagents) still running, the whole list each time it changes; the run lasts until they end */
+  | { kind: "background"; tasks: Array<{ id: string; description?: string }> }
   | {
       kind: "worktree";
       status: "created" | "kept" | "removed" | "skipped";

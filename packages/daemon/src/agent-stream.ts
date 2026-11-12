@@ -154,16 +154,32 @@ export class ClaudeStreamParser extends AgentStreamParser {
   }
 
   private readonly endedTasks = new Set<string>();
+  private readonly taskDescriptions = new Map<string, string>();
 
-  private startTask(id: string): void {
-    if (!this.endedTasks.has(id)) this.activeBackgroundTasks.add(id);
+  /** What's still running in the background, for the page to say what the run waits on. */
+  private backgroundEvent(): AgentEvent {
+    return {
+      kind: "background",
+      tasks: [...this.activeBackgroundTasks].map((id) => {
+        const description = this.taskDescriptions.get(id);
+        return description ? { id, description } : { id };
+      }),
+    };
   }
 
-  private endTask(id: string): void {
+  private startTask(id: string, description: string | undefined): AgentEvent | null {
+    if (this.endedTasks.has(id) || this.activeBackgroundTasks.has(id)) return null;
+    this.activeBackgroundTasks.add(id);
+    if (description) this.taskDescriptions.set(id, clip(description, 160));
+    return this.backgroundEvent();
+  }
+
+  private endTask(id: string): AgentEvent | null {
     this.endedTasks.add(id);
-    this.activeBackgroundTasks.delete(id);
+    if (!this.activeBackgroundTasks.delete(id)) return null;
     // Ended after the answer (it waited on the task): nothing is left running any more
     if (this.finished) this.isStillRunning = this.activeBackgroundTasks.size > 0;
+    return this.backgroundEvent();
   }
 
   /** Control responses for the CLI's stdin, in order; each is handed out once. */
@@ -208,12 +224,17 @@ export class ClaudeStreamParser extends AgentStreamParser {
         } else if (d.subtype === "task_started" && d.task_id != null) {
           // Background shells, subagents and the like; each one's end comes as task_notification
           // (or task_updated). A task still open when the agent exits is left running.
-          this.startTask(String(d.task_id));
+          const started = this.startTask(String(d.task_id), str(d.description));
+          if (started) events.push(started);
         } else if (d.subtype === "task_notification" && d.task_id != null) {
-          this.endTask(String(d.task_id));
+          const ended = this.endTask(String(d.task_id));
+          if (ended) events.push(ended);
         } else if (d.subtype === "task_updated" && d.task_id != null) {
           const patch = isObject(d.patch) ? d.patch : {};
-          if (TASK_ENDED.has(String(patch.status ?? "")) || patch.end_time != null) this.endTask(String(d.task_id));
+          if (TASK_ENDED.has(String(patch.status ?? "")) || patch.end_time != null) {
+            const ended = this.endTask(String(d.task_id));
+            if (ended) events.push(ended);
+          }
         } else if (d.subtype === "compact_boundary") {
           // Claude Code summarized the conversation so far (auto at the compact window, or /compact)
           const meta = isObject(d.compact_metadata) ? d.compact_metadata : {};
@@ -263,7 +284,8 @@ export class ClaudeStreamParser extends AgentStreamParser {
               /Command running in background with ID:\s*([\w-]+)/i.exec(resText) ??
               /Task running in background with ID:\s*([\w-]+)/i.exec(resText);
             // CLIs without task events; with them it's the same id, already counted
-            if (bgMatch && bgMatch[1] && !this.endedTasks.has(bgMatch[1])) this.startTask(bgMatch[1]);
+            const bgStarted = bgMatch?.[1] ? this.startTask(bgMatch[1], undefined) : null;
+            if (bgStarted) events.push(bgStarted);
             events.push({
               kind: "tool",
               id: toolUseId,

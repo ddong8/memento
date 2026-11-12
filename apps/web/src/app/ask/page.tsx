@@ -195,6 +195,11 @@ function AskPageContent() {
     followUpsRef.current = fn(followUpsRef.current);
     setFollowUps(followUpsRef.current);
   }, []);
+  // Background tasks the running agent still waits on (its reply can be written already): the run ends when they do
+  const [backgroundTasks, setBackgroundTasks] = useState<Array<{ id: string; description?: string }>>([]);
+  useEffect(() => {
+    if (!streaming) setBackgroundTasks([]);
+  }, [streaming]);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
   // 自动将当前对话所有轮次中的媒体同步至右侧独立视窗列表中（流式输出期间跳过逐帧全量正则扫描，流式结束或会话加载时立即同步）
@@ -3167,6 +3172,9 @@ function AskPageContent() {
         persistCurrentConfig(patchCfg);
       } else if (evt.type === "task_event" && evt.event) {
         const event = evt.event;
+        if (event.kind === "background" && Array.isArray(event.tasks)) {
+          setBackgroundTasks(event.tasks as Array<{ id: string; description?: string }>);
+        }
         if (event.kind === "steer" && (event.status === "late" || event.status === "unsupported") && event.text) {
           const text = String(event.text);
           updateFollowUps((items) => requeue(items, text));
@@ -6230,6 +6238,35 @@ function AskPageContent() {
                 >
                   ✕
                 </button>
+              </div>
+            )}
+
+            {/* What the run still waits on: background tasks keep it going after the reply is written */}
+            {streaming && backgroundTasks.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  margin: "0 2px 8px 2px",
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid var(--aurora-border)",
+                  background: "var(--aurora-chip)",
+                  fontSize: 12.5,
+                  color: "var(--aurora-fg2)",
+                }}
+                title={backgroundTasks.map((b) => b.description || b.id).join("\n")}
+              >
+                <Icon name="refresh" size={12} className="animate-spin" />
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {isZh
+                    ? `还在等 ${backgroundTasks.length} 个后台任务：${backgroundTasks.map((b) => b.description || b.id).join("、")}`
+                    : `Waiting on ${backgroundTasks.length} background task(s): ${backgroundTasks.map((b) => b.description || b.id).join(", ")}`}
+                </span>
+                <span style={{ flexShrink: 0, fontSize: 11, color: "var(--aurora-fg3)" }}>
+                  {isZh ? "结束后本轮才完成，点停止会一起结束" : "The reply ends with them; Stop ends them too"}
+                </span>
               </div>
             )}
 

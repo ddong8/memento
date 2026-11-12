@@ -383,6 +383,15 @@ export function AgentQuotaCard({ deviceId, activeTool, recentTools }: AgentQuota
             {codex?.quota_type === "token_payg" ? "API Key 结算" : (codex?.tier === "FREE" ? "动态队列" : "Plus 动态速率")}
           </span>
         </div>
+        {codex?.remaining_percent != null && (
+          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--aurora-fg3)" }}>
+            <span>剩余额度</span>
+            <span style={{ fontWeight: 600, color: codex.remaining_percent > 30 ? "var(--aurora-accent)" : "#F59E0B" }}>
+              {`${codex.remaining_percent}% 剩余`}
+              {codex.reset_time ? ` · ${new Date(codex.reset_time).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 恢复` : ""}
+            </span>
+          </div>
+        )}
         {codex?.models && codex.models.length > 0 && (
           <div style={{ borderTop: "1px dashed var(--aurora-border)", paddingTop: 6, marginTop: 2, display: "flex", flexDirection: "column", gap: 3 }}>
             {codex.models.map((m, idx) => (

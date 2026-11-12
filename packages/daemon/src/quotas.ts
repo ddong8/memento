@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -8,7 +8,7 @@ import https from "node:https";
 
 import { type AntigravityLanguageServer, findAntigravityLanguageServer } from "./antigravity.js";
 import { homeDir } from "./config.js";
-import { defaultModel, limitedModels, noteModelLimit, type LimitAgent, type LimitedModel } from "./model-limits.js";
+import { clearModelLimit, defaultModel, limitedModels, modelFamily, noteModelLimit, type LimitAgent, type LimitedModel } from "./model-limits.js";
 import { executionEnvironment, findExecutable } from "./exec-env.js";
 import { discoverWorkbuddyGateway, isWorkbuddyInstalled } from "./workbuddy.js";
 import { workbuddyProductModels } from "./workbuddy-models.js";
@@ -571,6 +571,116 @@ function jwtExpired(jwt: string | undefined): boolean {
   }
 }
 
+interface CodexWindow {
+  usedPercent?: number;
+  windowDurationMins?: number | null;
+  resetsAt?: number | null;
+}
+
+interface CodexLimit {
+  limitId?: string;
+  normalModelSlug?: string | null;
+  primary?: CodexWindow | null;
+  secondary?: CodexWindow | null;
+  rateLimitReachedType?: string | null;
+}
+
+/** What `account/rateLimits/read` answers (codex app-server, checked on codex-cli 0.163). */
+export interface CodexRateLimits {
+  ordinaryUsageAllowed?: boolean;
+  rateLimits?: CodexLimit | null;
+  rateLimitsByLimitId?: Record<string, CodexLimit> | null;
+}
+
+/** Percent left and when it resets, by the window used the most; 0 once Codex says the limit is reached. */
+function codexLeft(l: CodexLimit | null | undefined): { percent: number; reset: string | null } | undefined {
+  const windows = [l?.primary, l?.secondary].filter((w): w is CodexWindow => typeof w?.usedPercent === "number");
+  if (!l || !windows.length) return undefined;
+  const top = windows.reduce((a, b) => ((b.usedPercent ?? 0) > (a.usedPercent ?? 0) ? b : a));
+  const percent = l.rateLimitReachedType ? 0 : Math.max(0, Math.round((100 - (top.usedPercent ?? 0)) * 10) / 10);
+  return { percent, reset: top.resetsAt ? new Date(top.resetsAt * 1000).toISOString() : null };
+}
+
+/** The account's quota left, and each model's that has a limit of its own (by its slug). */
+export function codexQuotaFromLimits(r: CodexRateLimits): { percent: number | null; reset: string | null; models: Map<string, { percent: number; reset: string | null }> } {
+  const account = codexLeft(r.rateLimits ?? r.rateLimitsByLimitId?.codex);
+  const models = new Map<string, { percent: number; reset: string | null }>();
+  for (const l of Object.values(r.rateLimitsByLimitId ?? {})) {
+    const left = l?.normalModelSlug ? codexLeft(l) : undefined;
+    if (left) models.set(l.normalModelSlug!, left);
+  }
+  return { percent: account?.percent ?? null, reset: account?.reset ?? null, models };
+}
+
+let codexLimitsCache: { at: number; value: CodexRateLimits | undefined } | undefined;
+
+/** For tests: reads Codex again next time. */
+export function resetCodexRateLimits(): void {
+  codexLimitsCache = undefined;
+}
+
+/**
+ * Codex's rate limits right now, as its own app-server reads them from the account (JSON-RPC over stdio:
+ * initialize, then account/rateLimits/read). Kept 30 seconds; undefined when Codex isn't there or doesn't answer.
+ */
+export async function readCodexRateLimits(timeoutMs = 10_000, now = Date.now()): Promise<CodexRateLimits | undefined> {
+  if (codexLimitsCache && now - codexLimitsCache.at < 30_000) return codexLimitsCache.value;
+  // Tests don't start the real Codex
+  const exe = process.env.MEMENTO_CODEX_BIN || (process.env.VITEST ? undefined : await findExecutable(["codex", "codex-cli"]).catch(() => undefined));
+  if (!exe) return undefined;
+  const value = await new Promise<CodexRateLimits | undefined>((resolve) => {
+    // npm installs Codex on Windows as codex.cmd, which only a shell starts; the path may have spaces
+    const viaShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(exe);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = viaShell
+        ? spawn(`"${exe}" app-server`, { stdio: ["pipe", "pipe", "ignore"], windowsHide: true, shell: true })
+        : spawn(exe, ["app-server"], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    let done = false;
+    const finish = (v: CodexRateLimits | undefined) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        child.stdin?.end();
+        child.kill();
+      } catch {
+        // gone already
+      }
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(undefined), timeoutMs);
+    child.on("error", () => finish(undefined));
+    child.on("exit", () => finish(undefined));
+    let buf = "";
+    child.stdout?.on("data", (c: Buffer) => {
+      buf += c.toString("utf8");
+      let i: number;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line);
+          if (msg.id === 2) finish(msg.result && typeof msg.result === "object" ? (msg.result as CodexRateLimits) : undefined);
+        } catch {
+          // not JSON
+        }
+      }
+    });
+    const send = (m: unknown) => child.stdin?.write(`${JSON.stringify(m)}\n`);
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "memento", version: process.env.MEMENTO_DESKTOP_VERSION || "0.0.0" } } });
+    send({ jsonrpc: "2.0", method: "initialized" });
+    send({ jsonrpc: "2.0", id: 2, method: "account/rateLimits/read" });
+  });
+  codexLimitsCache = { at: now, value };
+  return value;
+}
+
 /** Probe OpenAI Codex for active subscription & account info. */
 export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> {
   try {
@@ -646,6 +756,20 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
         } catch {}
       }
 
+      // The real quota left, from Codex itself (a ChatGPT sign-in; an API key is billed per token instead)
+      const live = hasApiKey ? undefined : await readCodexRateLimits();
+      const left = live ? codexQuotaFromLimits(live) : undefined;
+      if (left) {
+        for (const m of models) {
+          const own = left.models.get(m.model_id);
+          if (!own) continue;
+          m.remaining_percent = own.percent;
+          m.remaining_fraction = own.percent / 100;
+          m.status_text = `${own.percent}% 剩余`;
+          if (own.reset) m.reset_time = own.reset;
+        }
+      }
+
       return {
         tool: "codex",
         name: "OpenAI Codex",
@@ -661,9 +785,11 @@ export async function probeCodexQuota(home = homeDir()): Promise<ToolQuotaInfo> 
           : isFree
             ? "ChatGPT Free 动态速率限制 (高峰期受限)"
             : "ChatGPT Plus 动态速率限制 (3小时滑动窗口限频保障)",
-        probe_source: hasApiKey ? "OPENAI_API_KEY" : "~/.codex/auth.json (ChatGPT Plus OAuth)",
-        remaining_percent: null,
-        reset_time: null,
+        probe_source: hasApiKey
+          ? "OPENAI_API_KEY"
+          : left ? "Codex app-server 实时额度 (account/rateLimits/read)" : "~/.codex/auth.json (ChatGPT Plus OAuth)",
+        remaining_percent: left?.percent ?? null,
+        reset_time: left?.reset ?? null,
         models,
         details: {
           is_free_tier: isFree,
@@ -814,6 +940,14 @@ export async function probeAllQuotas(home = homeDir(), options?: { force?: boole
   ]);
 
   const withLimits = (info: ToolQuotaInfo, agent: LimitAgent): ToolQuotaInfo => {
+    // A model this read shows has quota again is no longer held back (reset early, or the plan changed);
+    // one the account doesn't support stays out, no quota read says otherwise
+    for (const m of info.models ?? []) {
+      if (agent === "claude" || typeof m.remaining_percent !== "number" || m.remaining_percent < 10) continue;
+      const fam = modelFamily(agent, m.model_id);
+      const held = limitedModels(agent).find((l) => l.family === fam);
+      if (held && !/not supported/i.test(held.message)) clearModelLimit(agent, fam);
+    }
     const def = defaultModel(agent);
     return { ...info, limited_models: limitedModels(agent), ...(def ? { default_model: def } : {}) };
   };

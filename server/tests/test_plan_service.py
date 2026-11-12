@@ -149,6 +149,64 @@ def test_model_roster_claude_account_quota_and_codex_unsupported():
     assert ps.model_roster("codex", [], {})["model"] == ""
 
 
+def test_model_roster_a_fresh_quota_read_outranks_a_noted_limit():
+    from datetime import datetime, timezone
+    noted = "2026-11-12T08:00:00Z"
+    after, before = datetime(2026, 11, 12, 8, 5, tzinfo=timezone.utc), datetime(2026, 11, 12, 7, 55, tzinfo=timezone.utc)
+    lim = {"limited_models": [{"family": "gemini-4-argon", "model": "gemini-4-argon-medium", "until": _LATER, "since": noted}],
+           "models": [{"model_id": "gemini-4-argon-medium", "remaining_percent": 80}, {"model_id": "gemini-4-argon-high", "remaining_percent": 80}]}
+    models = ["gemini-4-argon-medium", "gemini-4-argon-high", "gemini-3.8-flash-medium"]
+    # Read after the run that ran out: the quota came back (reset early), the model is planned again
+    info = ps.model_roster("antigravity", models, lim, default="gemini-4-argon-medium", as_of=after)
+    assert not info["out"] and info["model"] == "gemini-4-argon-medium"
+    # Read before it: the note stands
+    info = ps.model_roster("antigravity", models, lim, default="gemini-4-argon-medium", as_of=before)
+    assert set(info["out"]) == {"gemini-4-argon-medium", "gemini-4-argon-high"} and info["model"] == "gemini-3.8-flash-medium"
+    # A read under MIN_QUOTA doesn't free it
+    low = {**lim, "models": [{"model_id": "gemini-4-argon-medium", "remaining_percent": 3}]}
+    assert "gemini-4-argon-medium" in ps.model_roster("antigravity", models, low, as_of=after)["out"]
+    # Not supported by the account: no quota read changes that
+    unsup = {"limited_models": [{"family": "gpt-6-astra", "until": _LATER, "since": noted, "message": "The 'gpt-6-astra' model is not supported"}],
+             "models": [{"model_id": "gpt-6-astra", "remaining_percent": 90}]}
+    assert ps.model_roster("codex", ["gpt-6-astra", "gpt-5.5"], unsup, as_of=after)["out"]["gpt-6-astra"] == "账号不支持"
+    # Claude's per-model weekly limits show in no read: the note stands
+    cl = {"limited_models": [{"family": "opus", "until": _LATER, "since": noted}], "remaining_percent": 70,
+          "models": [{"model_id": "opus", "remaining_percent": 70}]}
+    assert "opus" in ps.model_roster("claude", ["opus", "sonnet"], cl, as_of=after)["out"]
+
+
+def test_model_roster_codex_account_quota_from_its_live_read():
+    # Codex's app-server: the account's windows, and a model's own limit by its slug
+    low = ps.model_roster("codex", ["gpt-6-luna", "gpt-5.5"], {"remaining_percent": 5})
+    assert not low["usable"] and set(low["out"]) == {"gpt-6-luna", "gpt-5.5"}
+    one = ps.model_roster("codex", ["gpt-6-luna", "gpt-5.5"], {"remaining_percent": 63, "models": [
+        {"model_id": "gpt-6-luna", "remaining_percent": 0}, {"model_id": "gpt-5.5", "remaining_percent": None}]}, default="gpt-6-luna")
+    assert set(one["out"]) == {"gpt-6-luna"} and one["model"] == "gpt-5.5" and one["usable"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_quotas_asks_stale_devices_and_waits_for_their_reports(monkeypatch):
+    from server.services import device_reports, ws_manager as wsm
+    reports = {"fresh": {"updated_at": ps._iso(ps._now())}, "stale": {"updated_at": "2026-01-01T00:00:00+00:00"}, "mute": {}}
+    sent = []
+
+    async def send_json(dev, msg):
+        sent.append((dev, msg["type"]))
+        if dev == "stale":
+            reports["stale"] = {"updated_at": ps._iso(ps._now())}
+        return True
+
+    monkeypatch.setattr(device_reports, "get_cached_device_quotas", lambda dev, user=None: reports.get(dev))
+    monkeypatch.setattr(wsm.ws_manager, "send_json", send_json)
+    monkeypatch.setattr(ps, "_quota_asked", {})
+    await ps.refresh_quotas(["fresh", "stale", "mute"], SimpleNamespace(), wait=0.6)
+    assert sent == [("stale", "get_agent_quotas"), ("mute", "get_agent_quotas")]
+    # Asked a moment ago: not again (a device that doesn't answer doesn't hold up every pass)
+    sent.clear()
+    await ps.refresh_quotas(["mute"], SimpleNamespace(), wait=0.6)
+    assert sent == []
+
+
 def test_plan_lists_who_takes_part_and_what_was_left_out():
     snap = _snapshot()
     steps = ps.normalize_steps(

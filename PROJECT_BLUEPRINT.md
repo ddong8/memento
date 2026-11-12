@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `99029a80` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `8798dba6` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 184 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 185 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `99029a80` (2026-11-12): fix(daemon): Antigravity 额度用完的模型不再报成无配额限制
+- 最近改动 (Latest): `8798dba6` (2026-11-12): fix(ask): 在独立会话里选已有会话，不再把它改绑到当前打开的对话上
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -598,7 +598,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 107 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 46 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 47 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 25 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -607,7 +607,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `8798dba6` (2026-11-12): fix(ask): 在独立会话里选已有会话，不再把它改绑到当前打开的对话上
+- `e73ddf9b` (2026-11-12): fix(ask): 手机上打开对话后，项目和会话下拉框不再是空的
+- `e579cf72` (2026-11-12): chore(release): 升级客户端版本至 v1.0.112，协作任务开始前定好设备、智能体和模型
 - `99029a80` (2026-11-12): fix(daemon): Antigravity 额度用完的模型不再报成无配额限制
 - `91fd62cd` (2026-11-12): feat(plans): 协作任务开始前定好每个子任务的设备、智能体和模型，额度不够的模型不用
 - `3b68d985` (2026-11-12): chore(release): 升级客户端版本至 v1.0.111，Codex 与 Antigravity 模型不可用时自动换模型
-- `7c9282b3` (2026-11-12): fix(antigravity): 默认模型额度用完时不再干等 2 小时，自动换 Flash 继续
-- `02fdc6e8` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
-- `3f5c479a` (2026-11-12): fix(plans): 发版时不再把协作任务正在跑的子任务停掉，退出的副本立刻交出调度
 
 ## 10. Key Environment Variables & Configuration
 

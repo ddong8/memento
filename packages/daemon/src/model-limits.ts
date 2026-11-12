@@ -24,6 +24,8 @@ interface Entry {
   until: number;
   model: string;
   message: string;
+  /** When it ran out; a quota read after this outranks it. */
+  since?: number;
 }
 
 export interface LimitedModel {
@@ -31,6 +33,7 @@ export interface LimitedModel {
   model: string;
   until: string;
   message: string;
+  since?: string;
 }
 
 /** A model limit reported without a time it resets: tried again after an hour. */
@@ -97,7 +100,7 @@ export function defaultModel(agent: LimitAgent): string {
 export function noteModelLimit(agent: LimitAgent, model: string, message: string, until?: number, now = Date.now()): void {
   const id = model || defaultModel(agent);
   if (!id) return;
-  load().set(`${agent}:${modelFamily(agent, id)}`, { until: until && until > now ? until : now + DEFAULT_LIMIT_MS, model: id, message });
+  load().set(`${agent}:${modelFamily(agent, id)}`, { until: until && until > now ? until : now + DEFAULT_LIMIT_MS, model: id, message, since: now });
   save();
 }
 
@@ -113,12 +116,22 @@ export function isModelLimited(agent: LimitAgent, model: string, now = Date.now(
   return false;
 }
 
+/** Forgets a limit a fresh quota read shows is over (reset early, or the plan was upgraded). */
+export function clearModelLimit(agent: LimitAgent, family: string): boolean {
+  if (!load().delete(`${agent}:${family}`)) return false;
+  save();
+  return true;
+}
+
 /** The agent's models still out of quota, for the model picker. */
 export function limitedModels(agent: LimitAgent, now = Date.now()): LimitedModel[] {
   const out: LimitedModel[] = [];
   for (const [key, e] of load()) {
     const [a, family] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
-    if (a === agent && e.until > now) out.push({ family, model: e.model, until: new Date(e.until).toISOString(), message: e.message });
+    if (a === agent && e.until > now) out.push({
+      family, model: e.model, until: new Date(e.until).toISOString(), message: e.message,
+      ...(e.since ? { since: new Date(e.since).toISOString() } : {}),
+    });
   }
   return out;
 }

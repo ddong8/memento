@@ -99,13 +99,51 @@ def _tail(text: str | None, limit: int) -> str:
 
 
 # ── what the devices can do ─────────────────────────────────────────────────
-async def capability_snapshot(db, user: User) -> dict:
-    """Devices online right now with the agents they can run, and how each device/agent did lately."""
+# Quotas older than this are read again before planning or starting a step (devices report on their own
+# every 5 minutes); how long to wait for the answers, and the last time each device was asked (a
+# throttle: lost on restart, no harm)
+QUOTA_MAX_AGE = float(os.environ.get("MEMENTO_PLAN_QUOTA_MAX_AGE", "60"))
+QUOTA_WAIT = 8.0
+_quota_asked: dict[str, float] = {}
+
+
+async def refresh_quotas(device_ids: list[str], user: User, *, max_age: float = QUOTA_MAX_AGE, wait: float = QUOTA_WAIT) -> None:
+    """Has the devices whose quota report is older than max_age read their agents' quotas again (Claude's
+    usage API, Antigravity's language server, Codex's app-server), and waits up to `wait` seconds for them."""
+    from . import device_reports
+    from .ws_manager import ws_manager
+
+    now = _now()
+    asked: list[tuple[str, Any]] = []
+    for dev in device_ids:
+        rep = device_reports.get_cached_device_quotas(dev, user=user) or {}
+        at = _parse_time(rep.get("updated_at"))
+        if at and (now - at).total_seconds() < max_age:
+            continue
+        if now.timestamp() - _quota_asked.get(dev, 0) < max_age:
+            continue
+        _quota_asked[dev] = now.timestamp()
+        try:
+            if await ws_manager.send_json(dev, {"type": "get_agent_quotas"}):
+                asked.append((dev, rep.get("updated_at")))
+        except Exception as e:
+            logger.debug("Quota refresh request to %s failed: %s", dev, e)
+    deadline = asyncio.get_running_loop().time() + wait
+    while asked and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.25)
+        asked = [(d, u) for d, u in asked if (device_reports.get_cached_device_quotas(d, user=user) or {}).get("updated_at") == u]
+
+
+async def capability_snapshot(db, user: User, *, fresh: bool = False) -> dict:
+    """Devices online right now with the agents they can run, and how each device/agent did lately.
+    fresh: the quotas read again first where the last report is older than QUOTA_MAX_AGE."""
     from . import device_reports
     from .orchestrator import _tool_list_devices
     from .task_alerts import display_device_name
 
     listing = (await _tool_list_devices(db, user)).get("devices") or []
+    if fresh:
+        await refresh_quotas([d["device_id"] for d in listing if d.get("device_id") and d.get("online")], user)
     since = _now() - timedelta(days=30)
 
     running: dict[str, int] = {}
@@ -142,7 +180,9 @@ async def capability_snapshot(db, user: User) -> dict:
         if not dev_id or not d.get("online"):
             continue
         caps = device_reports.get_cached_device_capabilities(dev_id, user=user) or {}
-        quotas = (device_reports.get_cached_device_quotas(dev_id, user=user) or {}).get("tools") or {}
+        report = device_reports.get_cached_device_quotas(dev_id, user=user) or {}
+        quotas = report.get("tools") or {}
+        as_of = _parse_time(report.get("timestamp") or report.get("updated_at"))
         env = caps.get("environment") if isinstance(caps.get("environment"), dict) else {}
         agents = {}
         for agent in AGENTS:
@@ -153,13 +193,14 @@ async def capability_snapshot(db, user: User) -> dict:
             if q.get("logged_in") is False:
                 continue
             models = [str(m.get("id")) for m in (c.get("models") or []) if isinstance(m, dict) and m.get("id")]
-            agents[agent] = model_roster(agent, models, q, default=str(q.get("default_model") or c.get("default_model") or ""))
+            agents[agent] = model_roster(agent, models, q, default=str(q.get("default_model") or c.get("default_model") or ""), as_of=as_of)
         devices.append({
             "device_id": dev_id,
             "name": display_device_name(d.get("name") or "") or d.get("name") or dev_id,
             "platform": env.get("platform") or "",
             "workspace": "workspace_sync" in (env.get("features") or []),
             "running": running.get(dev_id, 0),
+            "quota_at": _iso(as_of),
             "agents": agents,
         })
     return {"devices": devices, "stats": stats}
@@ -187,14 +228,25 @@ def _until_text(until: datetime | None) -> str:
     return f"额度用完，约 {span}后恢复"
 
 
-def model_roster(agent: str, models: list[str], quota: dict, *, default: str = "") -> dict:
+def model_roster(agent: str, models: list[str], quota: dict, *, default: str = "", as_of: datetime | None = None) -> dict:
     """What an agent on one device can answer with right now: its models, the ones out of quota (or
     below MIN_QUOTA, or not on the account) with why, and the model a step should use: the default
-    when it still has quota, else the next one with quota (same effort when the names carry one)."""
+    when it still has quota, else the next one with quota (same effort when the names carry one).
+
+    A model the device noted as spent after a failed run is free again once a quota read taken after
+    that (as_of, the report's time) shows it has MIN_QUOTA left: the note only stands in for a real read.
+    Not for Claude, whose per-model weekly limits no read shows, nor for a model the account can't use."""
     now = _now()
     models = [m for m in dict.fromkeys(models) if m and not m.endswith("-disabled")]
     per_model = {str(m.get("model_id")): m for m in (quota.get("models") or []) if isinstance(m, dict) and m.get("model_id")}
     some_numeric = any(isinstance(m.get("remaining_percent"), (int, float)) for m in per_model.values())
+
+    def read_ok(fam: str, since: datetime | None) -> bool:
+        if agent == "claude" or (since and (not as_of or as_of <= since)):
+            return False
+        pcts = [m.get("remaining_percent") for mid, m in per_model.items() if model_family(agent, mid) == fam]
+        return bool(pcts) and all(isinstance(p, (int, float)) and p >= MIN_QUOTA for p in pcts)
+
     limits: dict[str, str] = {}
     for lim in quota.get("limited_models") or []:
         if not isinstance(lim, dict):
@@ -203,7 +255,10 @@ def model_roster(agent: str, models: list[str], quota: dict, *, default: str = "
         if until and until <= now:
             continue
         fam = str(lim.get("family") or model_family(agent, str(lim.get("model") or "")))
-        limits[fam] = "账号不支持" if re.search(r"model is not supported", str(lim.get("message") or ""), re.I) else _until_text(until)
+        if re.search(r"model is not supported", str(lim.get("message") or ""), re.I):
+            limits[fam] = "账号不支持"
+        elif not read_ok(fam, _parse_time(lim.get("since"))):
+            limits[fam] = _until_text(until)
     out: dict[str, str] = {}
     rem = quota.get("remaining_percent")
     for m in models + ([default] if default and default not in models else []):
@@ -217,7 +272,8 @@ def model_roster(agent: str, models: list[str], quota: dict, *, default: str = "
         elif agent == "antigravity" and pm and pct is None and some_numeric:
             # Older clients: Antigravity leaves out a spent model's remaining fraction (0 in proto3 JSON)
             out[m] = "额度用完"
-        elif agent == "claude" and isinstance(rem, (int, float)) and rem < MIN_QUOTA:
+        elif agent in ("claude", "codex") and isinstance(rem, (int, float)) and rem < MIN_QUOTA:
+            # The account's own quota (Claude: 5-hour and weekly; Codex: its rate-limit windows), all models share it
             out[m] = "额度用完" if rem <= 0 else f"账号额度只剩 {rem:g}%"
     usable = [m for m in models if m not in out]
     pick = ""
@@ -571,7 +627,7 @@ async def make_plan(plan_id: uuid.UUID) -> None:
         user = await db.get(User, plan.user_id)
         if not user:
             return
-        snapshot = await capability_snapshot(db, user)
+        snapshot = await capability_snapshot(db, user, fresh=True)
         source_name = None
         if plan.source_device_id:
             src = await find_machine_by_id_or_hash(db, plan.source_device_id, user)
@@ -934,7 +990,7 @@ async def _advance(plan_id: uuid.UUID) -> None:
         running = sum(1 for s in steps if s["status"] == "running")
         if running >= parallel:
             return
-        snapshot = await capability_snapshot(db, user)
+        snapshot = await capability_snapshot(db, user, fresh=True)
         # The code's own device works right in its directory: one step there at a time
         direct_busy = any(s["status"] == "running" and plan.cwd and s.get("device_id") == plan.source_device_id for s in steps)
         load: dict[str, int] = {}

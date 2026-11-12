@@ -80,7 +80,7 @@ it("limits are kept on disk, reported with their reset, and dropped once over", 
   noteModelLimit("claude", "claude-opus-5-5", "You've hit your Opus limit", now + 7_200_000, now);
   resetModelLimits(); // as after a restart
   expect(isModelLimited("claude", "opus", now)).toBe(true);
-  expect(limitedModels("claude", now)).toEqual([{ family: "opus", model: "claude-opus-5-5", until: new Date(now + 7_200_000).toISOString(), message: "You've hit your Opus limit" }]);
+  expect(limitedModels("claude", now)).toEqual([{ family: "opus", model: "claude-opus-5-5", until: new Date(now + 7_200_000).toISOString(), message: "You've hit your Opus limit", since: new Date(now).toISOString() }]);
   expect(limitedModels("codex", now)).toEqual([]);
   expect(isModelLimited("claude", "opus", now + 7_200_001)).toBe(false);
   resetModelLimits();

@@ -1,7 +1,7 @@
 {
-  "version": "1.0.110",
+  "version": "1.0.111",
   "title": "Memento v1.0.110",
-  "release_notes": "1. 新增「协作任务」：把一个大任务交给 Memento，自动拆成几个子任务，按各设备上 Claude Code、Codex、Antigravity 的特点、模型、额度和忙闲分派到多台设备同时做，最后复查并汇总结果\n2. 子任务失败或超时会自动换别的智能体或设备重做，每次最多 30 分钟，不会被一个卡住的智能体拖住\n3. 修复 Windows 上 Codex 装在 Program Files 时一启动就失败的问题\n4. 手机端版本号与客户端统一为 1.0.110",
+  "release_notes": "1. Codex 配置的默认模型当前账号用不了时，自动换成可用的模型继续，不再直接失败\n2. Antigravity 默认模型额度用完时自动换 Flash 档位继续做，不再卡在「模型仍在生成」干等 2 小时\n3. 任务失败时显示真正的失败原因，不再被无用的运行警告盖住\n4. 网页模型选择器标出当前账号不支持的模型\n5. 手机端版本号与客户端统一为 1.0.111",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.110-win-x64.zip",

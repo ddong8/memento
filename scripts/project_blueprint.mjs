@@ -4620,9 +4620,8 @@ function unparse(node) {
 }
 
 // packages/daemon/src/blueprint/scan.ts
-var rs = toNative;
 function rel(p, root) {
-  return toNative(relTo(p, root));
+  return relTo(p, root);
 }
 function pathKey(p) {
   const n = normPath(p);
@@ -5106,7 +5105,7 @@ function scanFrontendRoutes(root) {
   const appDir = candidates.find((c) => isDir(c));
   if (appDir) {
     for (const pageFile of sortedPaths(pglob(appDir, "**/page.[tj]s*"))) {
-      const r = rs(relTo(pparent(pageFile), appDir));
+      const r = relTo(pparent(pageFile), appDir);
       let routePath = r === "." ? "/" : `/${r}`;
       routePath = reSub(R`/\([^)]+\)`, "", routePath) || "/";
       routes.push(routePath);
@@ -5116,7 +5115,7 @@ function scanFrontendRoutes(root) {
     if (!isDir(pagesCand)) continue;
     for (const pf of [...sortedPaths(pglob(pagesCand, "**/*.[tvj]s*")), ...sortedPaths(pglob(pagesCand, "**/*.vue"))]) {
       if (pstem(pf).startsWith("_") || pname(pparent(pf)) === "api") continue;
-      const r = rs(withoutSuffix(relTo(pf, pagesCand)));
+      const r = withoutSuffix(relTo(pf, pagesCand));
       const rpath = "/" + pyLstrip(replaceAll(r, "/index", ""), "/");
       routes.push(rpath || "/");
     }
@@ -5213,7 +5212,7 @@ function scanApiRoutes(root) {
   for (const appCand of [pjoin(root, "apps", "web", "src", "app", "api"), pjoin(root, "src", "app", "api"), pjoin(root, "app", "api")]) {
     if (!isDir(appCand)) continue;
     for (const routeFile of sortedPaths(pglob(appCand, "**/route.[tj]s*"))) {
-      const prefix = `/${rs(relTo(pparent(routeFile), pparent(appCand)))}`;
+      const prefix = `/${relTo(pparent(routeFile), pparent(appCand))}`;
       const content = readCode(routeFile);
       const methods = reFindall(R`export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b`, content);
       routes.push(route(pname(pparent(routeFile)), pname(routeFile), prefix, uniq(methods).map((mm) => `\`${mm} ${prefix}\``)));
@@ -6127,7 +6126,7 @@ function detectVerificationCommands(root) {
 }
 
 // packages/daemon/src/blueprint/meta.ts
-var BLUEPRINT_SCRIPT_VERSION = 20261120;
+var BLUEPRINT_SCRIPT_VERSION = 20261121;
 var BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 var SCRIPT_NAME = "project_blueprint.mjs";
 var LEGACY_SCRIPT_NAME = "project_blueprint.py";

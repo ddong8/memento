@@ -3,7 +3,7 @@
 
 // Monotonically increasing generator version for cross-device OTA synchronization. Bump it with
 // every change to what the generator writes: the daemon regenerates blueprints from older versions.
-export const BLUEPRINT_SCRIPT_VERSION = 20261120;
+export const BLUEPRINT_SCRIPT_VERSION = 20261121;
 
 export const BLUEPRINT_FILE = "PROJECT_BLUEPRINT.md";
 /** The generator's file name: scripts/ in a repo, ~/.memento/scripts, the app's assets */

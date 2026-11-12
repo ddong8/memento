@@ -22,7 +22,6 @@ import {
   runGit,
   samePath,
   sortedPaths,
-  toNative,
   uniqPaths,
   withoutSuffix,
   IS_WIN,
@@ -64,12 +63,13 @@ import { unparse } from "./pyunparse.js";
 
 // ---------------------------------------------------------------- shared helpers
 
-/** str(path): the OS form (backslashes on Windows), as Python printed paths. */
-const rs = toNative;
-
-/** str(p.relative_to(root)) */
+/**
+ * A path relative to root as the blueprint writes it: always "/"-separated. It goes into Markdown links
+ * and route names, so the OS form (backslashes on Windows) broke the links and made a blueprint generated
+ * on Windows differ from one generated elsewhere on every path (issue #13).
+ */
 export function rel(p: string, root: string): string {
-  return toNative(relTo(p, root));
+  return relTo(p, root);
 }
 
 function pathKey(p: string): string {
@@ -669,7 +669,7 @@ export function scanFrontendRoutes(root: string): string[] {
   const appDir = candidates.find((c) => isDir(c));
   if (appDir) {
     for (const pageFile of sortedPaths(pglob(appDir, "**/page.[tj]s*"))) {
-      const r = rs(relTo(pparent(pageFile), appDir));
+      const r = relTo(pparent(pageFile), appDir);
       let routePath = r === "." ? "/" : `/${r}`;
       routePath = reSub(R`/\([^)]+\)`, "", routePath) || "/";
       routes.push(routePath);
@@ -681,7 +681,7 @@ export function scanFrontendRoutes(root: string): string[] {
     if (!isDir(pagesCand)) continue;
     for (const pf of [...sortedPaths(pglob(pagesCand, "**/*.[tvj]s*")), ...sortedPaths(pglob(pagesCand, "**/*.vue"))]) {
       if (pstem(pf).startsWith("_") || pname(pparent(pf)) === "api") continue;
-      const r = rs(withoutSuffix(relTo(pf, pagesCand)));
+      const r = withoutSuffix(relTo(pf, pagesCand));
       const rpath = "/" + pyLstrip(replaceAll(r, "/index", ""), "/");
       routes.push(rpath || "/");
     }
@@ -803,7 +803,7 @@ export function scanApiRoutes(root: string): ApiRoute[] {
   for (const appCand of [pjoin(root, "apps", "web", "src", "app", "api"), pjoin(root, "src", "app", "api"), pjoin(root, "app", "api")]) {
     if (!isDir(appCand)) continue;
     for (const routeFile of sortedPaths(pglob(appCand, "**/route.[tj]s*"))) {
-      const prefix = `/${rs(relTo(pparent(routeFile), pparent(appCand)))}`;
+      const prefix = `/${relTo(pparent(routeFile), pparent(appCand))}`;
       const content = readCode(routeFile);
       const methods = reFindall(R`export\s+(?:async\s+)?function\s+(GET|POST|PUT|DELETE|PATCH)\b`, content);
       routes.push(route(pname(pparent(routeFile)), pname(routeFile), prefix, uniq(methods).map((mm) => `\`${mm} ${prefix}\``)));

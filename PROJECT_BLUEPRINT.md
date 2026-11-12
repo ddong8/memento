@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d9d52b83` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `99029a80` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 184 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `d9d52b83` (2026-11-12): feat(plans): 协作任务开始前定好每个子任务的设备、智能体和模型，额度不够的模型不用
+- 最近改动 (Latest): `99029a80` (2026-11-12): fix(daemon): Antigravity 额度用完的模型不再报成无配额限制
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -607,7 +607,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `d9d52b83` (2026-11-12): feat(plans): 协作任务开始前定好每个子任务的设备、智能体和模型，额度不够的模型不用
+- `99029a80` (2026-11-12): fix(daemon): Antigravity 额度用完的模型不再报成无配额限制
+- `91fd62cd` (2026-11-12): feat(plans): 协作任务开始前定好每个子任务的设备、智能体和模型，额度不够的模型不用
 - `3b68d985` (2026-11-12): chore(release): 升级客户端版本至 v1.0.111，Codex 与 Antigravity 模型不可用时自动换模型
 - `7c9282b3` (2026-11-12): fix(antigravity): 默认模型额度用完时不再干等 2 小时，自动换 Flash 继续
 - `02fdc6e8` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
 - `3f5c479a` (2026-11-12): fix(plans): 发版时不再把协作任务正在跑的子任务停掉，退出的副本立刻交出调度
-- `52616d31` (2026-11-12): fix(plans): 手动重做的子任务原来的智能体在本计划失败过时，重新挑智能体，不再沿用
 
 ## 10. Key Environment Variables & Configuration
 

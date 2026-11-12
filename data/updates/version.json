@@ -4,22 +4,22 @@
   "release_notes": "1. 回答进行中可以连续追问：Claude Code、Codex、Antigravity、WorkBuddy 正在运行时，追问直接送进去，下一步就读到；暂时送不进的排队，这轮结束后自动接着发\n2. 输入框上方显示每条追问是已送达还是排队中，排队的可以撤回；点停止时排队内容放回输入框\n3. 运行中读不了输入的智能体如实提示，不再显示已送达\n4. 手机端版本号与客户端统一为 1.0.114",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.113-win-x64.zip",
-      "size": 158193175,
-      "sha256": "018ce350b9891d6aa689eb8b8823959e4355d65c5a087f5637b9bc24d79074de",
-      "sha512": "k9BxibXtuSKyxFtZmE5i5KYEus3cPFTUiOd08krOaoSa6O47kJpNOqJVVIQyQkUsmyshApEokkGGRpbqyp2sZw=="
+      "asset_name": "Memento-1.0.114-win-x64.zip",
+      "size": 158193640,
+      "sha256": "7a29226b9701a9ce49488208d9aadfec10b9e6937585601c648a25b6adaceb8f",
+      "sha512": "VNsevbpErGAllWXCO0U2zYBRMausr7FNvLELhMjsH9X5ZAJ5QrVphXH4Uyx6PC1EACdWHgquyXKe/oJqEsvnjQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.113-mac-arm64.zip",
-      "size": 132677094,
-      "sha256": "04e636f34d6dbd3ae5e43b14cfe7d7a351d7541d8552328bc9f286ee61942892",
-      "sha512": "HC1CBVdrPPYNA3WM9b/fogUh99NOnNyV2873+S1j8ljy+F6fBR892/SfnOu5AfoWDU9Um1f2Kw4SCBknl15wNg=="
+      "asset_name": "Memento-1.0.114-mac-arm64.zip",
+      "size": 132677746,
+      "sha256": "391fe49bebf1f7f160537dc985298ced663d4d7c25889c1bcce0a079c6f8d4b9",
+      "sha512": "RYokkCogddu6cyYmPqGCIiHzdOlBWu2VHHlylq/EKP8RmrRZ7korl/9dOWFEMu9eYK6vQgsIFYczlJUhuNExWg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.113-linux-x64.tar.gz",
-      "size": 131960494,
-      "sha256": "c0256aa0959eac59603d53ee2761a4fc39cec53e8b4b3bba63920fa9f291877b",
-      "sha512": "1jAPrd3rq9/gqe2+dYp0ZOAxyQ6uYc/QvrAEITJaiY0rgDRsCOEmHqnPhP5B1STzy2bulSrF+K+EhrnXEFjo4A=="
+      "asset_name": "Memento-1.0.114-linux-x64.tar.gz",
+      "size": 131961196,
+      "sha256": "fb0e6da1f719f172d442158f556536d57c1d69590abf5ac44c44d5bcf50d2247",
+      "sha512": "LndUjH/Fr8r9vjw/WXUwk/rvE214TpcImTXiMHyeW4c5jYzdxFHNEP2EX/Zm4lWtfi6dJE4+TkaZMzVGliZ2ng=="
     }
   }
 }

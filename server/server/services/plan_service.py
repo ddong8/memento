@@ -44,6 +44,8 @@ DEFAULT_PARALLEL = int(os.environ.get("MEMENTO_PLAN_PARALLEL", "4"))
 # One attempt at a step; past it the device stops the agent and the step goes to another one. Small
 # steps take minutes; an agent stuck far longer (a remote model queueing for hours) holds up the whole plan.
 STEP_TIMEOUT = int(os.environ.get("MEMENTO_PLAN_STEP_TIMEOUT", "1800"))
+# A model with less quota left than this (percent) is not given work
+MIN_QUOTA = float(os.environ.get("MEMENTO_PLAN_MIN_QUOTA", "10"))
 # No device/agent can take a step: wait this long for one to come online before giving up on it
 WAIT_FOR_DEVICE = timedelta(minutes=30)
 # A step marked running whose device task never got made (the replica went away mid-dispatch)
@@ -151,14 +153,7 @@ async def capability_snapshot(db, user: User) -> dict:
             if q.get("logged_in") is False:
                 continue
             models = [str(m.get("id")) for m in (c.get("models") or []) if isinstance(m, dict) and m.get("id")]
-            limited = [str(m.get("model")) for m in (q.get("limited_models") or []) if isinstance(m, dict) and m.get("model")]
-            agents[agent] = {
-                "models": models[:12],
-                "default_model": q.get("default_model") or c.get("default_model") or "",
-                "limited": limited,
-                "remaining_percent": q.get("remaining_percent"),
-                "reset_time": q.get("reset_time"),
-            }
+            agents[agent] = model_roster(agent, models, q, default=str(q.get("default_model") or c.get("default_model") or ""))
         devices.append({
             "device_id": dev_id,
             "name": display_device_name(d.get("name") or "") or d.get("name") or dev_id,
@@ -170,18 +165,93 @@ async def capability_snapshot(db, user: User) -> dict:
     return {"devices": devices, "stats": stats}
 
 
+_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def model_family(agent: str, model: str) -> str:
+    """The family a quota is counted for, as the device counts it (daemon model-limits.ts)."""
+    m = (model or "").strip().lower()
+    if agent == "claude":
+        return next((f for f in ("fable", "opus", "sonnet", "haiku") if f in m), m)
+    if agent == "antigravity":
+        parts = m.split("-")
+        return "-".join(parts[:-1]) if len(parts) > 1 and parts[-1] in _EFFORTS else m
+    return m
+
+
+def _until_text(until: datetime | None) -> str:
+    if not until:
+        return "额度用完"
+    mins = max(1, int((until - _now()).total_seconds() // 60))
+    span = f"{mins} 分钟" if mins < 60 else f"{round(mins / 60)} 小时" if mins < 48 * 60 else f"{round(mins / 1440)} 天"
+    return f"额度用完，约 {span}后恢复"
+
+
+def model_roster(agent: str, models: list[str], quota: dict, *, default: str = "") -> dict:
+    """What an agent on one device can answer with right now: its models, the ones out of quota (or
+    below MIN_QUOTA, or not on the account) with why, and the model a step should use: the default
+    when it still has quota, else the next one with quota (same effort when the names carry one)."""
+    now = _now()
+    models = [m for m in dict.fromkeys(models) if m and not m.endswith("-disabled")]
+    per_model = {str(m.get("model_id")): m for m in (quota.get("models") or []) if isinstance(m, dict) and m.get("model_id")}
+    some_numeric = any(isinstance(m.get("remaining_percent"), (int, float)) for m in per_model.values())
+    limits: dict[str, str] = {}
+    for lim in quota.get("limited_models") or []:
+        if not isinstance(lim, dict):
+            continue
+        until = _parse_time(lim.get("until"))
+        if until and until <= now:
+            continue
+        fam = str(lim.get("family") or model_family(agent, str(lim.get("model") or "")))
+        limits[fam] = "账号不支持" if re.search(r"model is not supported", str(lim.get("message") or ""), re.I) else _until_text(until)
+    out: dict[str, str] = {}
+    rem = quota.get("remaining_percent")
+    for m in models + ([default] if default and default not in models else []):
+        fam = model_family(agent, m)
+        pm = per_model.get(m) or {}
+        pct = pm.get("remaining_percent")
+        if fam in limits:
+            out[m] = limits[fam]
+        elif isinstance(pct, (int, float)) and pct < MIN_QUOTA:
+            out[m] = _until_text(_parse_time(pm.get("reset_time"))) if pct <= 0 else f"额度只剩 {pct:g}%"
+        elif agent == "antigravity" and pm and pct is None and some_numeric:
+            # Older clients: Antigravity leaves out a spent model's remaining fraction (0 in proto3 JSON)
+            out[m] = "额度用完"
+        elif agent == "claude" and isinstance(rem, (int, float)) and rem < MIN_QUOTA:
+            out[m] = "额度用完" if rem <= 0 else f"账号额度只剩 {rem:g}%"
+    usable = [m for m in models if m not in out]
+    pick = ""
+    if default and default not in out:
+        pick = default
+    elif default or out:
+        effort = default.rsplit("-", 1)[-1] if default and default.rsplit("-", 1)[-1] in _EFFORTS else ""
+        same = [m for m in usable if effort and m.endswith(f"-{effort}")]
+        pick = (same or usable or [""])[0]
+    no_model = bool(models) and not usable
+    account_out = isinstance(rem, (int, float)) and rem <= 0 and not models
+    return {
+        "models": usable[:12],
+        "default_model": default,
+        "model": pick,
+        "out": out,
+        "limited": list(out),
+        "usable": not (no_model or account_out or (bool(out) and default in out and not pick)),
+        "remaining_percent": rem,
+        "reset_time": quota.get("reset_time"),
+    }
+
+
 def agent_usable(info: dict | None) -> bool:
     """The agent has a model left to answer with."""
-    if not info:
-        return False
-    rem = info.get("remaining_percent")
-    models = info.get("models") or []
-    limited = set(info.get("limited") or [])
-    if models and all(m in limited for m in models):
-        return False
-    if isinstance(rem, (int, float)) and rem <= 0 and not models:
-        return False
-    return True
+    return bool(info) and info.get("usable", True) is not False
+
+
+def step_model(info: dict | None, wanted: str | None = None) -> str:
+    """The model a step runs with on this agent: the asked-for one while it has quota, else the agent's pick."""
+    info = info or {}
+    if wanted and wanted not in (info.get("out") or {}) and (wanted in (info.get("models") or []) or not info.get("models")):
+        return wanted
+    return info.get("model") or ""
 
 
 def _device(snapshot: dict, device_id: str | None) -> dict | None:
@@ -275,14 +345,17 @@ def _snapshot_text(snapshot: dict) -> str:
         agents = []
         for a, info in (d.get("agents") or {}).items():
             bits = [AGENT_NAMES[a]]
-            if info.get("models"):
-                bits.append("模型 " + "、".join(info["models"][:6]))
-            if info.get("limited"):
-                bits.append("额度用完的模型 " + "、".join(info["limited"]))
+            if not agent_usable(info):
+                bits.append("暂不可用（没有额度够用的模型）")
+            else:
+                if info.get("model"):
+                    bits.append(f"默认用 {info['model']}")
+                if info.get("models"):
+                    bits.append("可用模型 " + "、".join(info["models"][:8]))
+            if info.get("out"):
+                bits.append("不能用的模型 " + "、".join(f"{m}（{why}）" for m, why in list(info["out"].items())[:6]))
             if isinstance(info.get("remaining_percent"), (int, float)):
                 bits.append(f"额度剩 {info['remaining_percent']}%")
-            if not agent_usable(info):
-                bits.append("暂不可用")
             st = (snapshot.get("stats") or {}).get(f"{d['device_id']}/{a}")
             if st and st["runs"]:
                 bits.append(f"近 30 天 {st['runs']} 次成功 {st['ok']} 次、平均 {st['avg_seconds'] // 60} 分钟")
@@ -301,10 +374,10 @@ def _planning_messages(goal: str, snapshot: dict, *, cwd: str | None, source_nam
 2) 每个子任务写清楚：要做什么（prompt，给智能体看的完整指令，说明范围和要改的文件或模块，不要假设它知道别的子任务）、验收标准（acceptance，可检查的结果，比如哪些测试通过）。
 3) 按智能体特点分配 agent，按设备情况分配 device（填设备名）：
 {strengths}
-   额度用完或暂不可用的不要分配；同一台设备不要堆太多任务。
+   暂不可用的智能体、不能用的模型（额度用完或不够）一律不要分配；同一台设备不要堆太多任务。
 4) 任务本身不大、拆开反而更慢时，只输出 1 个子任务。
 5) 最多 {MAX_STEPS} 个子任务。不要单独安排「汇总」或「复查」子任务，系统会在最后自动做合并复查。
-6) model 一般留空（用该智能体的默认模型），只有任务特别难时才给 claude 指定最强的模型。
+6) model 只能从该设备该智能体的「可用模型」里选；一般留空，系统会用它后面写的「默认用」的模型；只有任务特别难时才指定更强的模型。
 
 输出格式：
 {{"title": "整个任务的短标题", "note": "为什么这样拆（一两句）", "steps": [{{"id": "s1", "title": "子任务短标题", "prompt": "...", "acceptance": "...", "depends_on": [], "agent": "codex", "device": "设备名", "model": ""}}]}}"""
@@ -391,10 +464,6 @@ def normalize_steps(raw: list, snapshot: dict, *, source_device_id: str | None, 
         if dev and agent and not can_run(snapshot, dev, agent, source_device_id=source_device_id, code=code):
             device_id = ""
         model = str(r.get("model") or "").strip()
-        if model and dev and agent:
-            info = dev["agents"].get(agent) or {}
-            if model in (info.get("limited") or []) or (info.get("models") and model not in info["models"]):
-                model = ""
         step = _new_step(
             sid, str(r.get("title") or "").strip(), prompt,
             acceptance=str(r.get("acceptance") or "").strip(),
@@ -420,7 +489,62 @@ def normalize_steps(raw: list, snapshot: dict, *, source_device_id: str | None, 
             acceptance="各子任务的改动完整、相互一致，项目的类型检查和测试通过",
             depends_on=[s["id"] for s in steps], kind="review",
         ))
+    assign_steps(steps, snapshot, source_device_id=source_device_id, code=code)
     return steps
+
+
+def assign_steps(steps: list[dict], snapshot: dict, *, source_device_id: str | None, code: bool) -> None:
+    """Device, agent and model for every step not started yet, decided up front: the planner's (or the
+    user's) choice when that agent and model can take it, else the best one left, steps spread over the
+    devices. A model out of quota (or below MIN_QUOTA) is never picked. Checked again when each step
+    starts, in case a quota ran out meanwhile."""
+    load: dict[str, int] = {}
+    for s in steps:
+        if s["status"] != "pending":
+            continue
+        dev = _device(snapshot, s.get("device_id"))
+        if not (dev and s.get("agent") and can_run(snapshot, dev, s["agent"], source_device_id=source_device_id, code=code)):
+            pick = choose_assignment(
+                snapshot, prefer_agent=s.get("agent") or ("claude" if s.get("kind") == "review" else None),
+                prefer_device=s.get("device_id") or None, exclude=s.get("tried"),
+                source_device_id=source_device_id, code=code, load=load,
+            )
+            if not pick:
+                s["device_id"], s["device_name"], s["model"] = "", "", ""
+                continue
+            if pick[1] != s.get("agent"):
+                s["model"] = ""
+            dev = _device(snapshot, pick[0])
+            s["device_id"], s["agent"] = pick
+        s["device_name"] = dev["name"]
+        s["model"] = step_model(dev["agents"].get(s["agent"]), s.get("model"))
+        if s.get("kind") != "review":
+            load[dev["device_id"]] = load.get(dev["device_id"], 0) + 1
+
+
+def excluded_models(snapshot: dict) -> list[dict]:
+    """Models left out of this plan for quota, one line per agent and model family, with the devices."""
+    rows: dict[tuple[str, str], dict] = {}
+    for d in snapshot.get("devices") or []:
+        for a, info in (d.get("agents") or {}).items():
+            for m, why in (info.get("out") or {}).items():
+                key = (a, model_family(a, m))
+                row = rows.setdefault(key, {"agent": a, "model": key[1], "reason": why, "devices": []})
+                if d["name"] not in row["devices"]:
+                    row["devices"].append(d["name"])
+    return list(rows.values())
+
+
+def plan_roster(steps: list[dict]) -> list[dict]:
+    """Who takes part: one line per device, agent and model, with its steps."""
+    rows: dict[tuple, dict] = {}
+    for s in steps:
+        if not s.get("agent") or not s.get("device_id"):
+            continue
+        key = (s["device_id"], s["agent"], s.get("model") or "")
+        row = rows.setdefault(key, {"device_id": key[0], "device_name": s.get("device_name") or "", "agent": key[1], "model": key[2], "steps": []})
+        row["steps"].append(s["id"])
+    return list(rows.values())
 
 
 async def _blueprint(db, user: User, cwd: str | None) -> str:
@@ -483,6 +607,7 @@ async def make_plan(plan_id: uuid.UUID) -> None:
         s[:] = steps
         p.title = p.title or title or goal[:60]
         p.plan_note = note
+        p.options = {**(p.options or {}), "excluded_models": excluded_models(snapshot), "planned_at": _iso(_now())}
         if p.auto_start:
             p.status = "running"
             p.started_at = _now()
@@ -643,7 +768,7 @@ async def _finish_step(plan_id: uuid.UUID, sid: str, attempt: int, res: dict | N
         s["error"] = kept["error"]
         s["history"] = (s.get("history") or []) + [{
             "attempt": attempt, "device_id": s["device_id"], "device_name": s.get("device_name"), "agent": s["agent"],
-            "task_id": s.get("task_id"), "error": kept["error"], "error_type": kept["error_type"], "status": kept["status"],
+            "model": s.get("model") or "", "task_id": s.get("task_id"), "error": kept["error"], "error_type": kept["error_type"], "status": kept["status"],
             "at": s["finished_at"],
         }]
         s["tried"] = (s.get("tried") or []) + [[s["device_id"], s["agent"]]]
@@ -840,8 +965,11 @@ async def _advance(plan_id: uuid.UUID) -> None:
                     continue
                 direct_busy = True
             load[pick[0]] = load.get(pick[0], 0) + 1
-            name = (_device(snapshot, pick[0]) or {}).get("name") or ""
-            starts.append((sid, pick[0], pick[1], name))
+            picked = _device(snapshot, pick[0]) or {}
+            same = pick[0] == s.get("device_id") and pick[1] == s.get("agent")
+            # The planned model, unless its quota ran out since; another agent gets its own pick
+            model = step_model((picked.get("agents") or {}).get(pick[1]), s.get("model") if same else None)
+            starts.append((sid, pick[0], pick[1], picked.get("name") or "", model))
 
     if waiting:
         def wait(p: AgentPlan, st: list) -> bool:
@@ -862,14 +990,12 @@ async def _advance(plan_id: uuid.UUID) -> None:
 
         await _mutate(plan_id, wait)
 
-    for sid, device_id, agent, name in starts:
-        def start(p: AgentPlan, st: list, sid=sid, device_id=device_id, agent=agent, name=name) -> bool:
+    for sid, device_id, agent, name, model in starts:
+        def start(p: AgentPlan, st: list, sid=sid, device_id=device_id, agent=agent, name=name, model=model) -> bool:
             x = _step(st, sid)
             if p.status != "running" or not x or x["status"] != "pending":
                 return False
-            if x.get("device_id") != device_id or x.get("agent") != agent:
-                x["model"] = ""  # chosen for another agent
-            x.update(status="running", device_id=device_id, agent=agent, device_name=name, task_id=None,
+            x.update(status="running", device_id=device_id, agent=agent, device_name=name, model=model, task_id=None,
                      attempts=x["attempts"] + 1, started_at=_iso(_now()), finished_at=None, error=None)
             x.pop("waiting_since", None)
             return True
@@ -1191,6 +1317,7 @@ def plan_out(plan: AgentPlan, *, full: bool = True) -> dict:
         "started_at": _iso(plan.started_at),
         "finished_at": _iso(plan.finished_at),
     }
+    out["roster"] = plan_roster(steps)
     if full:
         out["steps"] = steps
     return out

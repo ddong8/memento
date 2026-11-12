@@ -426,6 +426,7 @@ export interface PlanStepAttempt {
   device_id: string;
   device_name?: string | null;
   agent: string;
+  model?: string | null;
   task_id?: string | null;
   error?: string | null;
   error_type?: string | null;
@@ -474,7 +475,25 @@ export interface AgentPlan {
   updated_at: string | null;
   started_at: string | null;
   finished_at: string | null;
+  /** Who takes part, decided when the plan was made: one row per device, agent and model. */
+  roster?: PlanRosterRow[];
   steps?: PlanStep[];
+}
+
+export interface PlanRosterRow {
+  device_id: string;
+  device_name: string;
+  agent: string;
+  model: string;
+  steps: string[];
+}
+
+/** options.excluded_models: models left out when planning, for quota (or not on the account). */
+export interface PlanExcludedModel {
+  agent: string;
+  model: string;
+  reason: string;
+  devices: string[];
 }
 
 export interface CreatePlanInput {

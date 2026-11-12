@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { api, AgentPlan, PlanStep } from "@/lib/api-client";
+import { api, AgentPlan, PlanExcludedModel, PlanStep } from "@/lib/api-client";
 import { Icon } from "@/components/aurora/Icon";
 import { Btn, Chip, Glass, TopBar } from "@/components/aurora/primitives";
 import MarkdownViewer from "@/components/viewers/MarkdownViewer";
@@ -109,6 +109,7 @@ function StepCard({
           {step.history.map((h) => (
             <div key={`${h.attempt}-${h.at}`} className="truncate">
               第 {h.attempt} 次 {agentName(h.agent)}
+              {h.model ? `（${h.model}）` : ""}
               {h.device_name ? `@${h.device_name}` : ""} 没成功：{h.error_type === "usage_limit" ? "额度用完" : h.status === "timeout" ? "超时没做完" : h.error}
             </div>
           ))}
@@ -208,6 +209,7 @@ export default function PlanPage() {
   const stages = planStages(steps);
   const st = plan ? PLAN_STATUS[plan.status] || { text: plan.status, tone: "neutral" as const } : null;
   const prog = plan ? planProgress(plan) : null;
+  const excluded = (Array.isArray(plan?.options?.excluded_models) ? plan.options.excluded_models : []) as PlanExcludedModel[];
 
   return (
     <div className="w-full max-w-5xl mx-auto pb-16 min-w-0">
@@ -281,6 +283,53 @@ export default function PlanPage() {
               </div>
             )}
           </Glass>
+
+          {!!plan.roster?.length && plan.status !== "planning" && (
+            <Glass padding="clamp(14px, 3vw, 20px)" radius={16}>
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--aurora-fg1)", marginBottom: 10 }}>本次安排</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {plan.roster.map((r) => {
+                  const agent = AGENTS.find((a) => a.id === r.agent);
+                  return (
+                    <div
+                      key={`${r.device_id}/${r.agent}/${r.model}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "8px 12px",
+                        borderRadius: 12,
+                        background: "var(--aurora-chip)",
+                        border: "1px solid var(--aurora-border)",
+                        minWidth: 0,
+                      }}
+                    >
+                      <Icon name={agent?.icon || "sparkles"} size={14} style={{ color: "var(--aurora-accent)", flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: "var(--aurora-fg1)" }} className="truncate">
+                          {r.device_name || "待定设备"} · {agentName(r.agent)}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "var(--aurora-fg4)" }} className="truncate">
+                          {r.model || "默认模型"} · {r.steps.length} 个子任务
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {excluded.length > 0 && (
+                <div style={{ fontSize: 12, color: "var(--aurora-fg4)", marginTop: 10, lineHeight: 1.7 }}>
+                  没有安排的模型：
+                  {excluded.map((e, i) => (
+                    <span key={`${e.agent}/${e.model}`}>
+                      {i > 0 ? "；" : ""}
+                      {agentName(e.agent)} {e.model}（{e.reason}，{e.devices.join("、")}）
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Glass>
+          )}
 
           {(plan.summary || plan.error) && (
             <Glass padding="clamp(14px, 3vw, 20px)" radius={16} style={{ border: `1px solid ${plan.status === "succeeded" ? "rgba(16,185,129,0.35)" : "rgba(245,158,11,0.35)"}` }}>

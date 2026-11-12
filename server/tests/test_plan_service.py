@@ -10,18 +10,22 @@ import pytest
 from server.services import plan_service as ps
 
 
+_LATER = "2099-01-01T00:00:00Z"
+
+
 def _snapshot():
+    r = ps.model_roster
     return {
         "devices": [
             {"device_id": "mac", "name": "MacBook", "platform": "darwin", "workspace": True, "running": 0,
-             "agents": {"claude": {"models": ["opus"], "limited": [], "remaining_percent": 60},
-                        "codex": {"models": ["gpt"], "limited": [], "remaining_percent": None}}},
+             "agents": {"claude": r("claude", ["opus"], {"remaining_percent": 60}),
+                        "codex": r("codex", ["gpt"], {})}},
             {"device_id": "vps3", "name": "vps3", "platform": "linux", "workspace": True, "running": 0,
-             "agents": {"claude": {"models": [], "limited": []},
-                        "codex": {"models": [], "limited": []},
-                        "antigravity": {"models": ["g4", "g3"], "limited": ["g4"]}}},
+             "agents": {"claude": r("claude", [], {}),
+                        "codex": r("codex", [], {}),
+                        "antigravity": r("antigravity", ["g4", "g3"], {"limited_models": [{"family": "g4", "model": "g4", "until": _LATER}]}, default="g4")}},
             {"device_id": "win", "name": "Windows", "platform": "win32", "workspace": False, "running": 2,
-             "agents": {"codex": {"models": ["gpt"], "limited": ["gpt"]}}},
+             "agents": {"codex": r("codex", ["gpt"], {"limited_models": [{"family": "gpt", "model": "gpt", "until": _LATER}]})}},
         ],
         "stats": {},
     }
@@ -74,9 +78,11 @@ def test_normalize_steps_fixes_ids_deps_cycles_and_adds_review():
     # Cycle broken: a step only waits on earlier ones
     assert a["depends_on"] == [] and b["depends_on"] == ["a"]
     assert a["agent"] == "codex" and a["device_id"] == "vps3"
-    # Antigravity is not on the Mac: the device is left to be picked when it starts
-    assert b["agent"] == "antigravity" and b["device_id"] == ""
-    assert ax["agent"] == ""
+    # Antigravity is not on the Mac: planned up front on the device that has it, with a model that has quota
+    assert b["agent"] == "antigravity" and b["device_id"] == "vps3" and b["model"] == "g3"
+    # No agent asked for: one picked up front too, never one without quota
+    assert ax["agent"] and ax["device_id"] and (ax["device_id"], ax["agent"]) != ("win", "codex")
+    assert review["agent"] == "claude" and review["device_id"]
     assert review["kind"] == "review" and review["depends_on"] == ["a", "b", "ax"]
     assert all(s["status"] == "pending" and s["attempts"] == 0 for s in steps)
 
@@ -95,13 +101,66 @@ def test_normalize_drops_limited_or_unknown_model():
          {"prompt": "y", "agent": "antigravity", "device": "vps3", "model": "g3"}],
         _snapshot(), source_device_id=None, code=False, review=False,
     )
-    assert steps[0]["model"] == "" and steps[1]["model"] == "g3"
+    # The spent model is swapped for one with quota, not left to the agent's (spent) default
+    assert steps[0]["model"] == "g3" and steps[1]["model"] == "g3"
 
 
 def test_agent_usable_when_every_model_is_spent():
-    assert ps.agent_usable({"models": ["g4", "g3"], "limited": ["g4"]})
-    assert not ps.agent_usable({"models": ["gpt"], "limited": ["gpt"]})
+    r = ps.model_roster
+    assert ps.agent_usable(r("antigravity", ["g4", "g3"], {"limited_models": [{"family": "g4", "until": _LATER}]}))
+    assert not ps.agent_usable(r("codex", ["gpt"], {"limited_models": [{"family": "gpt", "until": _LATER}]}))
     assert not ps.agent_usable(None)
+    # A limit that's over counts no more
+    assert r("codex", ["gpt"], {"limited_models": [{"family": "gpt", "until": "2000-01-01T00:00:00Z"}]})["usable"]
+
+
+def test_model_roster_reads_antigravity_quotas_like_the_devices_report_them():
+    # 11-12 live report: Argon's remaining fraction left out (0 in proto3 JSON), Flash at 98%
+    models = ["gemini-4-argon-medium", "gemini-4-argon-high", "gemini-3.8-flash-high", "gemini-3.8-flash-medium",
+              "claude-opus-5-5-medium", "gemini-4-carbon-disabled"]
+    quota = {"remaining_percent": 98, "models": [
+        {"model_id": "gemini-4-argon-medium", "remaining_percent": None},
+        {"model_id": "gemini-4-argon-high", "remaining_percent": None},
+        {"model_id": "gemini-3.8-flash-high", "remaining_percent": 98},
+        {"model_id": "gemini-3.8-flash-medium", "remaining_percent": 98},
+        {"model_id": "claude-opus-5-5-medium", "remaining_percent": 5},
+    ]}
+    info = ps.model_roster("antigravity", models, quota, default="gemini-4-argon-medium")
+    assert set(info["out"]) == {"gemini-4-argon-medium", "gemini-4-argon-high", "claude-opus-5-5-medium"}
+    assert "5%" in info["out"]["claude-opus-5-5-medium"]
+    # Same effort as the spent default; the disabled model never offered
+    assert info["model"] == "gemini-3.8-flash-medium" and info["usable"]
+    assert "gemini-4-carbon-disabled" not in info["models"]
+    # A model the device reported spent (with a reset time) says when it's back
+    info = ps.model_roster("antigravity", ["g4", "g3"], {"limited_models": [{"family": "g4", "until": _LATER}]}, default="g4")
+    assert info["out"]["g4"].startswith("额度用完") and info["model"] == "g3"
+
+
+def test_model_roster_claude_account_quota_and_codex_unsupported():
+    low = ps.model_roster("claude", ["opus", "sonnet"], {"remaining_percent": 4})
+    assert not low["usable"] and not ps.agent_usable(low)
+    ok = ps.model_roster("claude", ["opus", "sonnet"], {"remaining_percent": 71}, default="claude-opus-5-5")
+    assert ok["usable"] and ok["model"] == "claude-opus-5-5" and not ok["out"]
+    unsupported = ps.model_roster("codex", ["gpt-reserve", "gpt-6-luna"], {"limited_models": [
+        {"family": "gpt-6-astra", "model": "gpt-6-astra", "until": _LATER, "message": "The 'gpt-6-astra' model is not supported"}]},
+        default="gpt-6-astra")
+    assert unsupported["out"]["gpt-6-astra"] == "账号不支持" and unsupported["model"] == "gpt-reserve"
+    # Nothing known about the default: left to the agent
+    assert ps.model_roster("codex", [], {})["model"] == ""
+
+
+def test_plan_lists_who_takes_part_and_what_was_left_out():
+    snap = _snapshot()
+    steps = ps.normalize_steps(
+        [{"id": "a", "prompt": "x", "agent": "antigravity", "device": "vps3"},
+         {"id": "b", "prompt": "y", "agent": "codex", "device": "MacBook"}],
+        snap, source_device_id=None, code=False,
+    )
+    roster = ps.plan_roster(steps)
+    assert {"device_id": "vps3", "device_name": "vps3", "agent": "antigravity", "model": "g3", "steps": ["a"]} in roster
+    assert any(r["agent"] == "claude" and r["steps"] == ["review"] for r in roster)
+    out = {(e["agent"], e["model"]): e for e in ps.excluded_models(snap)}
+    assert out[("antigravity", "g4")]["devices"] == ["vps3"] and ("codex", "gpt") in out
 
 
 def test_choose_assignment_prefers_asked_agent_and_skips_tried_and_spent():
@@ -313,6 +372,34 @@ async def test_advance_reassigns_a_retried_step_whose_agent_timed_out(monkeypatc
     await ps._advance(plan.id)
     s = plan.steps[0]
     assert s["status"] == "running" and s["agent"] != "antigravity" and spawned == [f"{plan.id}/s2"]
+
+
+@pytest.mark.asyncio
+async def test_advance_swaps_a_planned_model_whose_quota_ran_out_since(monkeypatch):
+    # Planned with g3; by the time it starts g3 is spent too and only g2 has quota left
+    step = ps._new_step("s1", "界面", "写界面", agent="antigravity", device_id="vps3", model="g3")
+    plan = _plan([step])
+    snap = _snapshot()
+    snap["devices"][1]["agents"]["antigravity"] = ps.model_roster(
+        "antigravity", ["g4", "g3", "g2"], {"limited_models": [{"family": f, "until": _LATER} for f in ("g4", "g3")]}, default="g4")
+    monkeypatch.setattr(ps, "_mutate", _mutate_on(plan))
+    monkeypatch.setattr(ps, "capability_snapshot", AsyncMock(return_value=snap))
+    monkeypatch.setattr(ps, "_spawn", lambda key, coro: coro.close())
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, model, _id):
+            return plan if model is ps.AgentPlan else SimpleNamespace(id=plan.user_id)
+
+    monkeypatch.setattr(ps, "async_session_factory", Session)
+    await ps._advance(plan.id)
+    s = plan.steps[0]
+    assert (s["status"], s["device_id"], s["agent"], s["model"]) == ("running", "vps3", "antigravity", "g2")
 
 
 @pytest.mark.asyncio

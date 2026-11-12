@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c8a3e7de` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `3b68d985` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 184 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `c8a3e7de` (2026-11-12): fix(antigravity): 默认模型额度用完时不再干等 2 小时，自动换 Flash 继续
+- 最近改动 (Latest): `3b68d985` (2026-11-12): chore(release): 升级客户端版本至 v1.0.111，Codex 与 Antigravity 模型不可用时自动换模型
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -607,7 +607,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (13 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (9 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (8 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (6 commits)
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `c8a3e7de` (2026-11-12): fix(antigravity): 默认模型额度用完时不再干等 2 小时，自动换 Flash 继续
-- `0054cc2a` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
+- `3b68d985` (2026-11-12): chore(release): 升级客户端版本至 v1.0.111，Codex 与 Antigravity 模型不可用时自动换模型
+- `7c9282b3` (2026-11-12): fix(antigravity): 默认模型额度用完时不再干等 2 小时，自动换 Flash 继续
+- `02fdc6e8` (2026-11-12): fix(daemon): Codex 配置的模型账号用不了时自动换模型，失败原因不再被 Node 警告盖住
 - `3f5c479a` (2026-11-12): fix(plans): 发版时不再把协作任务正在跑的子任务停掉，退出的副本立刻交出调度
 - `52616d31` (2026-11-12): fix(plans): 手动重做的子任务原来的智能体在本计划失败过时，重新挑智能体，不再沿用
 - `ed0f401e` (2026-11-12): chore(release): 升级客户端版本至 v1.0.110，新增协作任务，修复 Windows 上 Codex 启动失败
-- `3d35398d` (2026-11-12): fix(daemon): Windows 上 Codex 装在 Program Files 时启动失败，命令路径加引号
 
 ## 10. Key Environment Variables & Configuration
 

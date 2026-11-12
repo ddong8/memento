@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `daa54792` · Updated: `2026-11-12`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `5c69dc60` · Updated: `2026-11-12`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 233 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 188 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `daa54792` (2026-11-12): fix(blueprint): Windows 上生成的蓝图里路径统一用 /，不再每次提交改动上百行
+- 最近改动 (Latest): `5c69dc60` (2026-11-12): fix(ask): 选已有会话时复用它所在的对话，不再每次新建同名空对话
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -616,7 +616,7 @@ erDiagram
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (6 commits)
 - [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
 - [`server/server/services/retrospective_service.py`](server/server/services/retrospective_service.py) (5 commits)
-- [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (4 commits)
+- [`docs/deployment-guide.md`](docs/deployment-guide.md) (4 commits)
 
 ## 8. Development & Verification Commands
 
@@ -639,12 +639,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `5c69dc60` (2026-11-12): fix(ask): 选已有会话时复用它所在的对话，不再每次新建同名空对话
 - `daa54792` (2026-11-12): fix(blueprint): Windows 上生成的蓝图里路径统一用 /，不再每次提交改动上百行
 - `3011a9e4` (2026-11-12): fix(web): AI 执事选会话、打开续接会话的对话时，主区域显示会话内容
 - `e5d17193` (2026-11-12): fix(web): AI 执事选已有会话时显示会话最新的消息，而不是开头 (#15)
 - `e6917dd9` (2026-11-12): chore(release): 升级客户端版本至 v1.0.113，Codex 实时额度与远程执行密钥免重启
 - `43db1887` (2026-11-12): fix(daemon): 服务端后来才开启远程执行时，守护进程不用重启也能领到密钥
-- `e1b9d81e` (2026-11-12): feat(plans): 规划和派发前现查各设备额度，Codex 接入实时额度
 
 ## 10. Key Environment Variables & Configuration
 

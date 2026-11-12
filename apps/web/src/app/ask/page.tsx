@@ -60,6 +60,7 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 
 // The session picker shows the latest few messages as a preview and loads the full conversation on pick
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
+const NO_TURNS: Turn[] = [];
 // Coming back to the page fires several wake events: within this long (or while one check runs) they're one
 const WAKE_COALESCE_MS = 3_000;
 
@@ -179,6 +180,9 @@ function AskPageContent() {
   const [staticTurns, setStaticTurns] = useState<Turn[]>(() => askCache?.turns || initSnap?.turns || []);
   const turns = staticTurns;
   const setTurns = setStaticTurns;
+  // A session's latest messages, shown while the conversation continuing it has none of its own yet. Kept
+  // apart from turns: those go out as the next question's history and read as this conversation's own.
+  const [sessionPreview, setSessionPreview] = useState<{ convId: string; sid: string; turns: Turn[] } | null>(null);
 
   const [input, setInput] = useState(() => askCache?.input || "");
   const [streaming, setStreaming] = useState<boolean>(() => Boolean(askCache?.streaming || askCache?.activeRun));
@@ -4329,8 +4333,9 @@ function AskPageContent() {
         }
       }
       if (superseded()) return;
-      turnsRef.current = loadedTurns;
-      setTurns(loadedTurns);
+      turnsRef.current = [];
+      setTurns([]);
+      setSessionPreview({ convId: activeConversationIdRef.current || "", sid, turns: loadedTurns });
     },
     [conversations, normalizeDeviceId, sessions, startNewChat, takeOverCascade]
   );
@@ -4345,6 +4350,7 @@ function AskPageContent() {
     const convId = activeConversationId;
     const sid = selectedSessionId;
     if (!convId || !sid || streaming || turns.length > 0) return;
+    if (sessionPreview?.convId === convId && sessionPreview.sid === sid) return;
     if (conversations.find((c) => c.id === convId)?.config?.session_id !== sid) return;
     const documentId = sessions.find((s) => s.session_id === sid)?.conversation_id;
     if (!documentId) return;
@@ -4352,11 +4358,39 @@ function AskPageContent() {
       .then((messages) => {
         const preview = sessionMessagesToTurns(messages);
         if (run !== sessionPreviewRunRef.current || turnsRef.current.length > 0 || preview.length === 0) return;
-        turnsRef.current = preview;
-        setTurns(preview);
+        setSessionPreview({ convId, sid, turns: preview });
       })
       .catch(() => {});
-  }, [activeConversationId, selectedSessionId, streaming, turns.length, conversations, sessions, setTurns]);
+  }, [activeConversationId, selectedSessionId, streaming, turns.length, conversations, sessions, sessionPreview]);
+
+  // Only the open conversation's, for the session it continues
+  const previewTurns =
+    sessionPreview && sessionPreview.convId === (activeConversationId || "") && sessionPreview.sid === selectedSessionId
+      ? sessionPreview.turns
+      : NO_TURNS;
+  const renderedPreview = useMemo(
+    () =>
+      previewTurns.map((turn, i) => (
+        <div key={`preview-${turn.role}-${turn.created_at || ""}-${i}`} style={{ contentVisibility: "auto", containIntrinsicSize: "0 140px" }}>
+          {turn.role === "user" ? (
+            <UserBubble index={i} content={turn.content} images={turn.images} createdAt={turn.created_at} />
+          ) : (
+            <AssistantBubble
+              index={i}
+              turn={turn}
+              isLast={false}
+              streaming={false}
+              isReconnecting={false}
+              prevUserCreatedAt={i > 0 && previewTurns[i - 1]?.role === "user" ? previewTurns[i - 1].created_at : undefined}
+              onSourcesClick={handleSourcesClick}
+              onSmartCompactAndRetry={handleSmartCompactAndRetry}
+              t={t}
+            />
+          )}
+        </div>
+      )),
+    [previewTurns, handleSourcesClick, handleSmartCompactAndRetry, t]
+  );
 
   // Sync projects on initial load if starting in agent mode (ONLY when no conversation is active/restoring)
   useEffect(() => {
@@ -4729,7 +4763,17 @@ function AskPageContent() {
           >
           <div className="w-full max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto space-y-2 sm:space-y-4 select-text" style={{ userSelect: "text", WebkitUserSelect: "text" }}>
 
-      {turns.length === 0 && <AskEmptyState onPick={(q) => sendWithText(q)} />}
+      {turns.length === 0 && previewTurns.length === 0 && <AskEmptyState onPick={(q) => sendWithText(q)} />}
+
+      {previewTurns.length > 0 && (
+        <div className="flex flex-col gap-2 sm:gap-4 max-w-full min-w-0">
+          <div className="text-center text-xs text-[var(--aurora-fg4)] py-1">
+            {isZh ? `会话最近 ${previewTurns.length} 条消息（仅供查看，不算在本对话里）` : `The session's latest ${previewTurns.length} messages (preview only, not part of this conversation)`}
+          </div>
+          {renderedPreview}
+          {turns.length > 0 && <div className="border-t border-[var(--aurora-border)] my-1" />}
+        </div>
+      )}
 
       {/* Conversation turns list */}
       <div className="flex flex-col gap-2 sm:gap-4 max-w-full min-w-0">

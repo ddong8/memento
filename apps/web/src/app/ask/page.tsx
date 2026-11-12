@@ -54,6 +54,8 @@ import { ExecutionMode, RunCursor, Source, Turn, compressImageToDataUrl, interru
 
 // The session picker shows the latest few messages as a preview and loads the full conversation on pick
 const SESSION_PICKER_LIST = { messagesPerSession: 5, artifacts: false };
+/** How many of a picked session's latest messages show when its conversation has no turns of its own yet */
+const SESSION_PREVIEW_MESSAGES = 100;
 // Coming back to the page fires several wake events: within this long (or while one check runs) they're one
 const WAKE_COALESCE_MS = 3_000;
 
@@ -4270,7 +4272,17 @@ function AskPageContent() {
 
       if (targetSession.conversation_id) {
         try {
-          const full = await api.getMessages(targetSession.conversation_id, 0, 100);
+          // The session's latest messages: they come oldest first, so a long session's first page is only
+          // its opening (seen 2026-11-12: a 1021-message session showed its first evening, not today's work)
+          let full = await api.getMessages(targetSession.conversation_id, 0, SESSION_PREVIEW_MESSAGES);
+          if (superseded()) return;
+          if (full?.total > SESSION_PREVIEW_MESSAGES) {
+            full = await api.getMessages(
+              targetSession.conversation_id,
+              full.total - SESSION_PREVIEW_MESSAGES,
+              SESSION_PREVIEW_MESSAGES
+            );
+          }
           // Another session or conversation was picked meanwhile
           if (superseded()) return;
           if (full?.messages && full.messages.length > 0) {

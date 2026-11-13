@@ -4,22 +4,22 @@
   "release_notes": "1. Claude Code 额度不再时有时无：令牌过期或网络慢时显示最近一次读到的额度，订阅显示 PRO/MAX，不再是 DEFAULT_CLAUDE_AI\n2. 没装 Antigravity 桌面应用、只装了 agy 命令行的机器（如服务器）也能显示 Antigravity 各模型额度，不再一直显示未启动\n3. 工作台切回窗口不再反复读取已不存在的文件，历史抽屉轮询降频\n4. 手机端版本号与客户端统一为 1.0.124",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.123-win-x64.zip",
-      "size": 158262253,
-      "sha256": "39123427f378c0e3feba1b7c1f666d1a9d5dcd8a2ab2cdf4a98f0688106140dd",
-      "sha512": "XWmNUJBIXJuCova3GKxESsdy17LGNzDxBa/xzyAUu970ElnO0ydbkFemQ8VhU+JFuZaOi9IcNPfYFB4aiU0UqA=="
+      "asset_name": "Memento-1.0.124-win-x64.zip",
+      "size": 158270551,
+      "sha256": "ca71218b1ca1e1839b4475db94c96bf028bf342d09eb02844349f095e343a840",
+      "sha512": "dNamFV38Npwv/b03yVggKv6c2MuoE0cdCAz5nmO3ki7GqXE5Tqaa6v+3mI6vvlXxM4VmXSS4wGAQU1MqszIEkQ=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.123-mac-arm64.zip",
-      "size": 132749288,
-      "sha256": "3d791a58386ccc10d879bc9a23d52614cc2afde9128730043e518cc94e2a1bb6",
-      "sha512": "7vyrYTgy5WWoqvgk17ZaI7D2OV2zPJlW3m9Bpj/IsdRczVoaBwYDDje12o2NMyg1/4a2J/K1Hi1xXvWyS3pRAg=="
+      "asset_name": "Memento-1.0.124-mac-arm64.zip",
+      "size": 132757778,
+      "sha256": "46cd17447fe24a8985984b49cfadee953ccba739a263c0ea8f5fc4c699328ea6",
+      "sha512": "/yCm3Kaz00ryO8rrJ6Akh7w3NR88Cq4DyesTPDTALJy3m3SgovAMbe5veZeHdW8wbGukJrYmGgJRWC90/MV/pA=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.123-linux-x64.tar.gz",
-      "size": 132029475,
-      "sha256": "18f115ad0bec0a04f6ee3b2747efa1d7a5b38c0a2234b1f390145d79db522540",
-      "sha512": "Lad8NQU+9fwVyd4h9xP327PZzU8Z9qBk8ZfoHbpi7K18XzW/iKl8RTYkmVFSK9l9JAXpalIwFoTmpyY1VAjDsg=="
+      "asset_name": "Memento-1.0.124-linux-x64.tar.gz",
+      "size": 132036195,
+      "sha256": "6a086ed3be7070861cbbb28bbfbee8b192588368108121a0b198db20e490f537",
+      "sha512": "XF9jISgjABUCYjSYBU7k7iyaoSrkr0kmYH2Mu3WpEX/Gm9vP/6FGIEfRIGeOBIJF11hnkIkDHHGUxMbDIvg1Rg=="
     }
   }
 }

@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `52fb3f53` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9f70c85e` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 196 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 198 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `52fb3f53` (2026-11-13): feat(workspace): 跨设备任务里的测试、构建可在代码所在的设备上执行
+- 最近改动 (Latest): `9f70c85e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.121，跨设备任务的测试和构建可在代码所在的设备上执行
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -600,7 +600,7 @@ erDiagram
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 109 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 53 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
-| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 28 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
+| apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 30 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
 | apps/desktop/test (vitest / jest) | [`apps/desktop/test`](apps/desktop/test) | 1 | `helpers.test.ts` |
@@ -608,7 +608,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (15 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (16 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (13 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `52fb3f53` (2026-11-13): feat(workspace): 跨设备任务里的测试、构建可在代码所在的设备上执行
+- `9f70c85e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.121，跨设备任务的测试和构建可在代码所在的设备上执行
+- `d485c81b` (2026-11-13): feat(workspace): 跨设备任务里的测试、构建可在代码所在的设备上执行
 - `44675f35` (2026-11-13): chore(release): 升级客户端版本至 v1.0.120，续接 Claude Code 会话保住缓存
 - `a94225e0` (2026-11-13): feat(daemon): 续接 Claude Code 会话保住缓存：用上次运行它的同版本，闲置 54 分钟前先压缩
 - `0f5afcce` (2026-11-13): chore(release): 升级客户端版本至 v1.0.119，追问不再丢失并去掉终端接力
 - `e5d6ee34` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
-- `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
 
 ## 10. Key Environment Variables & Configuration
 

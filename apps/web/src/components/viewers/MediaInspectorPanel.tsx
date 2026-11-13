@@ -33,11 +33,12 @@ import {
   FiSearch,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
-import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath } from "./MediaPreview";
+import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath, dirOfPath } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
 import { WeChatPublishModal } from "./WeChatPublishModal";
 import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
+import { OfficePreview, canPreviewOffice } from "./OfficePreview";
 import { deviceRelayUrl, fileDevice, onThisDevice } from "@/lib/file-devices";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 
@@ -626,6 +627,8 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const [reloadTick, setReloadTick] = useState<number>(0);
 
   const isLocal = isLocalFilePath(item.url);
+  // Its relative links and pictures are next to it
+  const docDir = isLocal ? dirOfPath(item.url) : null;
   const isModified = content !== originalContent;
   const isModifiedRef = useRef(false);
   isModifiedRef.current = isModified;
@@ -932,18 +935,19 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
       <div className="p-6 text-center text-xs text-red-400 bg-red-500/10 rounded-xl border border-red-500/20">
         <p className="font-semibold mb-1">文档加载异常</p>
         <p className="opacity-80 font-mono text-[11px] mb-3">{error}</p>
-        {item.url && (
+        {item.url && (isLocal ? !!desktop()?.openPath && onThisDevice(fileDevice(safeDecodePath(item.url).replace(/^file:\/\//, ""))) !== false : /^https?:\/\//.test(item.url)) && (
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 const d = desktop();
-                const clean = safeDecodePath(item.url).replace(/^file:\/\//, "");
-                if (d && typeof (d as any).openPath === "function") {
-                  (d as any).openPath(clean);
-                } else {
-                  window.open(item.url, "_blank");
+                if (!isLocal) {
+                  window.open(item.url, "_blank", "noopener,noreferrer");
+                  return;
                 }
+                const clean = safeDecodePath(item.url).replace(/^file:\/\//, "");
+                const err = await d?.openPath?.(clean);
+                if (err) showInAppToast("打不开这个文件", err);
               }}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-[11px] font-medium transition-colors cursor-pointer"
             >
@@ -1259,7 +1263,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
                 ["--aurora-chip" as any]: "#f1f5f9",
               }}
             >
-              <MarkdownViewer content={content} />
+              <MarkdownViewer content={content} baseDir={docDir} />
             </div>
 
             {/* 微信底部互动工具栏 */}
@@ -1282,7 +1286,7 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         </div>
       ) : (
         <div className="p-4 sm:p-5 bg-[var(--aurora-surface-solid)]/95 rounded-xl border border-[var(--aurora-border)] overflow-x-hidden text-left">
-          <MarkdownViewer content={content} />
+          <MarkdownViewer content={content} baseDir={docDir} />
         </div>
       )}
 
@@ -1298,12 +1302,38 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   );
 }
 
+/**
+ * The file itself in the workbench: Word / PowerPoint / Excel read in the page; the older binary formats
+ * (doc, ppt, xls, key …) can't be, and say so. Never an iframe on the file: a browser downloads what it
+ * can't show, which in the desktop app popped up a save dialog by itself.
+ */
+function OfficeInline({ url, ext, fullscreen = false, onOpenNative }: { url: string; ext: string; fullscreen?: boolean; onOpenNative?: () => void }) {
+  if (canPreviewOffice(ext)) return <OfficePreview url={url} ext={ext} fullscreen={fullscreen} />;
+  return (
+    <div className="p-6 text-center text-xs text-[var(--aurora-fg3)] flex flex-col items-center gap-2">
+      <p className="font-semibold text-[var(--aurora-fg1)]">{ext.toUpperCase()} 是旧版二进制格式，不能在应用内预览</p>
+      <p>可以用系统应用打开或下载；另存为 {ext === "doc" || ext === "rtf" ? "docx" : ext === "xls" ? "xlsx" : "pptx"} 后就能直接在这里看。</p>
+      {onOpenNative && (
+        <button
+          type="button"
+          onClick={onOpenNative}
+          className="mt-1 px-3 py-1.5 rounded-lg bg-[var(--aurora-accent)] text-white text-[11px] font-medium cursor-pointer"
+        >
+          用系统应用打开
+        </button>
+      )}
+    </div>
+  );
+}
+
 function OfficeDocViewer({ item }: { item: MediaItem }) {
   const inspector = useMediaInspector();
   const resolved = resolveMediaUrl(item.url);
   const displayTitle = item.title || resolved.filename || "办公文档";
   const ext = (displayTitle.split(".").pop() || item.type).toLowerCase();
   const isLocal = isLocalFilePath(item.url);
+  // Office's online viewer fetches the file itself: only a public web address works there
+  const officeOnline = /^https?:\/\//.test(item.url) && !isOwnUrl(item.url);
 
   const [textData, setTextData] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(["csv", "tsv", "txt", "log"].includes(ext));
@@ -1613,15 +1643,17 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
                 >
                   原生
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setViewEngine("office")}
-                  className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                    viewEngine === "office" ? "bg-[var(--aurora-accent)] text-white font-semibold" : "text-white/70 hover:text-white"
-                  }`}
-                >
-                  微软
-                </button>
+                {officeOnline && (
+                  <button
+                    type="button"
+                    onClick={() => setViewEngine("office")}
+                    className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                      viewEngine === "office" ? "bg-[var(--aurora-accent)] text-white font-semibold" : "text-white/70 hover:text-white"
+                    }`}
+                  >
+                    微软
+                  </button>
+                )}
               </div>
             )}
 
@@ -1729,12 +1761,9 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
               allowFullScreen
             />
           ) : (
-            <iframe
-              src={resolved.playUrl}
-              className="w-full h-full border-0 bg-white"
-              title={displayTitle}
-              allowFullScreen
-            />
+            <div className="w-full h-full overflow-hidden bg-[var(--aurora-surface-solid)] p-2">
+              <OfficeInline url={item.url} ext={ext} fullscreen onOpenNative={resolved.localPath ? handleOpenNative : undefined} />
+            </div>
           )}
         </div>
 
@@ -2078,17 +2107,19 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
             >
               原生视窗
             </button>
-            <button
-              type="button"
-              onClick={() => setViewEngine("office")}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                viewEngine === "office"
-                  ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
-                  : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
-              }`}
-            >
-              微软引擎
-            </button>
+            {officeOnline && (
+              <button
+                type="button"
+                onClick={() => setViewEngine("office")}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                  viewEngine === "office"
+                    ? "bg-[var(--aurora-accent)] text-white shadow-xs font-semibold"
+                    : "text-[var(--aurora-fg3)] hover:text-[var(--aurora-fg1)]"
+                }`}
+              >
+                微软引擎
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setViewEngine("meta")}
@@ -2137,12 +2168,9 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
       {viewEngine === "embed" && (
         <div className="w-full rounded-2xl overflow-hidden border border-[var(--aurora-border)] bg-black/80 shadow-2xl relative flex flex-col">
           {!isDocFullscreen ? (
-            <iframe
-              src={resolved.playUrl}
-              className="w-full h-[520px] sm:h-[620px] border-0 bg-white"
-              title={displayTitle}
-              allowFullScreen
-            />
+            <div className="w-full bg-[var(--aurora-surface-solid)] p-2">
+              <OfficeInline url={item.url} ext={ext} onOpenNative={resolved.localPath ? handleOpenNative : undefined} />
+            </div>
           ) : (
             <div className="w-full h-[280px] flex flex-col items-center justify-center bg-black/60 text-white gap-2 text-xs">
               <span className="p-2.5 rounded-full bg-white/10 text-[var(--aurora-accent)] animate-pulse">

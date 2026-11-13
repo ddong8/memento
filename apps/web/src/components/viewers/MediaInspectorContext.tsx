@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { desktop } from "@/lib/desktop";
 import { deviceOfCall, rememberFileDevice, setLocalDeviceName, type FileDevice } from "@/lib/file-devices";
-import { detectMediaType, getFilenameFromUrl, isLocalFilePath, safeDecodePath, type MediaType } from "./MediaPreview";
+import { detectMediaType, dirOfPath, getFilenameFromUrl, isLocalFilePath, resolveRelativeLink, safeDecodePath, type MediaType } from "./MediaPreview";
 
 /** The device a local path in a chat belongs to, so the workbench opens it from there. */
 function rememberPathDevice(url: string, device: FileDevice | undefined) {
@@ -41,8 +41,10 @@ const MediaInspectorContext = createContext<MediaInspectorContextType | null>(nu
 
 /**
  * Scan Markdown string to discover media links (video, audio, image, pdf, markdown).
+ * `baseDir`: the folder of the file the text is from, for its relative links; without it they are left
+ * out (they'd open nothing).
  */
-export function extractMediaFromMarkdown(text: string): Array<{ url: string; title: string; type: MediaType }> {
+export function extractMediaFromMarkdown(text: string, baseDir?: string | null): Array<{ url: string; title: string; type: MediaType }> {
   const list: Array<{ url: string; title: string; type: MediaType }> = [];
   if (!text) return list;
 
@@ -55,7 +57,8 @@ export function extractMediaFromMarkdown(text: string): Array<{ url: string; tit
     const rawTitle = match[1]?.trim();
     const rawUrl = match[2]?.trim();
     if (!rawUrl) continue;
-    const cleanUrl = rawUrl.split(" ")[0]; // handle possible markdown titles like (url "title")
+    const cleanUrl = resolveRelativeLink(rawUrl.split(" ")[0], baseDir); // handle possible markdown titles like (url "title")
+    if (!cleanUrl) continue;
     const type = detectMediaType(cleanUrl);
     if (type !== "unknown" && !seenUrls.has(cleanUrl)) {
       seenUrls.add(cleanUrl);
@@ -234,9 +237,10 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
     const seen = new Set<string>();
 
     // `device`: the device of the task whose call this text is in (its files are on it)
-    const scanAndAdd = (text?: string | null, device?: FileDevice) => {
+    // `baseDir`: the folder of the file the text was read from (an agent's Read of a Markdown file)
+    const scanAndAdd = (text?: string | null, device?: FileDevice, baseDir?: string) => {
       if (!text || typeof text !== "string") return;
-      const extracted = extractMediaFromMarkdown(text);
+      const extracted = extractMediaFromMarkdown(text, baseDir);
       for (const item of extracted) {
         rememberPathDevice(item.url, device);
         const key = safeDecodePath(item.url);
@@ -253,17 +257,20 @@ export function MediaInspectorProvider({ children }: { children: React.ReactNode
       }
     };
 
-    const scanDeep = (obj: any, device?: FileDevice) => {
+    const scanDeep = (obj: any, device?: FileDevice, baseDir?: string) => {
       if (!obj) return;
       if (typeof obj === "string") {
-        scanAndAdd(obj, device);
+        scanAndAdd(obj, device, baseDir);
       } else if (Array.isArray(obj)) {
-        for (const item of obj) scanDeep(item, device);
+        for (const item of obj) scanDeep(item, device, baseDir);
       } else if (typeof obj === "object") {
         const own = deviceOfCall(obj) ?? device;
+        // A step of an agent run on a file ({kind: "tool", detail: <its path>, output}): links in what it
+        // printed are relative to that file's folder
+        const base = obj.kind === "tool" && typeof obj.detail === "string" && isLocalFilePath(obj.detail) ? dirOfPath(obj.detail) : baseDir;
         for (const [k, val] of Object.entries(obj)) {
           if (k === "image_base64" || k === "bytes") continue;
-          scanDeep(val, own);
+          scanDeep(val, own, base);
         }
       }
     };

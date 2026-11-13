@@ -225,6 +225,40 @@ export function isLocalFilePath(url: string | null | undefined): boolean {
   return false;
 }
 
+/**
+ * A link as written in a Markdown file, made absolute against the folder of that file (baseDir, a
+ * local path). Links with a scheme, absolute paths, anchors and the article's `assets/` pictures stay as
+ * they are. A relative link with no folder to resolve it against (`reply-in-chinese.md` in a MEMORY.md
+ * read out in a chat) is null: it names no file anyone can open, so it is not offered as one.
+ */
+export function resolveRelativeLink(href: string, baseDir?: string | null): string | null {
+  const raw = href.trim();
+  if (!raw) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw) && !/^[a-zA-Z]:[/\\]/.test(raw)) return raw; // http:, file:, mailto: …
+  if (raw.startsWith("/") || raw.startsWith("#") || raw.startsWith("?") || /^[a-zA-Z]:[/\\]/.test(raw)) return raw;
+  if (!baseDir && /^(?:\.\.?\/)*assets\//.test(raw)) return raw;
+  if (!baseDir) return null;
+  const path = safeDecodePath(raw.split("#")[0].split("?")[0]);
+  if (!path) return null;
+  const windows = /^[a-zA-Z]:[/\\]/.test(baseDir) || baseDir.startsWith("\\\\");
+  const sep = windows ? "\\" : "/";
+  const parts = baseDir.replace(/[\\/]+$/, "").split(/[\\/]/);
+  for (const seg of path.split(/[\\/]/)) {
+    if (seg === "..") {
+      if (parts.length > 1) parts.pop();
+    } else if (seg && seg !== ".") parts.push(seg);
+  }
+  const joined = parts.join(sep);
+  return windows || joined.startsWith("/") ? joined : `/${joined}`;
+}
+
+/** The folder of a local file path. */
+export function dirOfPath(path: string): string {
+  const clean = safeDecodePath(path).replace(/^file:\/\//, "");
+  const i = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
+  return i > 0 ? clean.slice(0, i) : clean.slice(0, i + 1);
+}
+
 /** Resolve media path into a streamable/playable URL and local path */
 export function resolveMediaUrl(rawUrl: string | null | undefined): ResolvedMedia {
   if (!rawUrl) {

@@ -14,6 +14,7 @@ import {
   getFilenameFromUrl,
   isLocalFilePath,
   resolveMediaUrl,
+  resolveRelativeLink,
   safeDecodePath,
 } from "./MediaPreview";
 import { useMediaInspector, extractMediaFromMarkdown } from "./MediaInspectorContext";
@@ -25,6 +26,8 @@ interface MarkdownViewerProps {
   compactMedia?: boolean;
   compactText?: boolean;
   isStreaming?: boolean;
+  /** The folder of the file this Markdown is from: its relative links and pictures are resolved against it. */
+  baseDir?: string | null;
 }
 
 function PreBlock({ children, ...props }: any) {
@@ -349,6 +352,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
   compactMedia = false,
   compactText = false,
   isStreaming = false,
+  baseDir = null,
 }: MarkdownViewerProps) {
   const inspector = useMediaInspector();
   const renderedVideos = useRef<Set<string>>(new Set<string>());
@@ -406,7 +410,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
   const components = useMemo(
     () => ({
           pre: PreBlock,
-          img: ({ node, src, alt, ...props }: any) => {
+          img: ({ node, src: rawSrc, alt, ...props }: any) => {
+            const src = rawSrc ? resolveRelativeLink(String(rawSrc), baseDir) : null;
             if (!src) return null;
             const type = detectMediaType(src);
             if (type === "video") {
@@ -451,7 +456,10 @@ const MarkdownViewer = memo(function MarkdownViewer({
             }
             return <ImagePreview src={src} alt={alt} className={compactText ? "my-1.5" : "my-2.5"} />;
           },
-          a: ({ node, children, href, ...props }: any) => {
+          a: ({ node, children, href: rawHref, ...props }: any) => {
+            // A relative link with nothing to resolve it against opens no file: plain text, not a link
+            // that would open the site's 404 (or the system browser)
+            const href = rawHref ? resolveRelativeLink(String(rawHref), baseDir) : null;
             if (!href) return <span {...props}>{children}</span>;
             const type = detectMediaType(href);
 
@@ -547,7 +555,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
                 return (
                   <a
                     href={resolvedHref}
-                    target="_blank"
+                    target={isLocal ? undefined : "_blank"}
+                    download={isLocal ? getFilenameFromUrl(href) || true : undefined}
                     rel="noopener noreferrer"
                     className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
                     {...props}
@@ -655,7 +664,8 @@ const MarkdownViewer = memo(function MarkdownViewer({
             return (
               <a
                 href={resolvedHref}
-                target="_blank"
+                target={isLocal ? undefined : "_blank"}
+                download={isLocal ? getFilenameFromUrl(href) || true : undefined}
                 rel="noopener noreferrer"
                 className="text-[var(--aurora-accent)] hover:underline underline-offset-2 break-all font-medium transition-colors"
                 {...props}
@@ -859,7 +869,7 @@ const MarkdownViewer = memo(function MarkdownViewer({
             </kbd>
           ),
     }),
-    [compactMedia, compactText, inspector]
+    [compactMedia, compactText, inspector, baseDir]
   );
 
   return (

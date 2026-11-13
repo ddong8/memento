@@ -202,8 +202,10 @@ function createWindow(show: boolean): void {
   });
 
   // Links to other sites open in the browser; GitHub sign-in stays in the window.
+  // Only web and mail links leave the app: a file:// or memento-media:// one handed to the system opened
+  // Finder / Explorer (or the file in some other app) by itself; the workbench opens those.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (event, url) => {

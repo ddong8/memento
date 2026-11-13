@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9f70c85e` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `0fa16c24` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 198 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `9f70c85e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.121，跨设备任务的测试和构建可在代码所在的设备上执行
+- 最近改动 (Latest): `0fa16c24` (2026-11-13): fix(workbench): Word/PPT/Excel 在工作台里直接预览，不再自己弹出文件窗口
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `0fa16c24` (2026-11-13): fix(workbench): Word/PPT/Excel 在工作台里直接预览，不再自己弹出文件窗口
 - `9f70c85e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.121，跨设备任务的测试和构建可在代码所在的设备上执行
 - `d485c81b` (2026-11-13): feat(workspace): 跨设备任务里的测试、构建可在代码所在的设备上执行
 - `44675f35` (2026-11-13): chore(release): 升级客户端版本至 v1.0.120，续接 Claude Code 会话保住缓存
 - `a94225e0` (2026-11-13): feat(daemon): 续接 Claude Code 会话保住缓存：用上次运行它的同版本，闲置 54 分钟前先压缩
 - `0f5afcce` (2026-11-13): chore(release): 升级客户端版本至 v1.0.119，追问不再丢失并去掉终端接力
-- `e5d6ee34` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
 
 ## 10. Key Environment Variables & Configuration
 

@@ -120,7 +120,9 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
   const currentIndex = mediaList.findIndex((m) => m.id === activeMedia.id);
   const resolved = resolveMediaUrl(activeMedia.url);
   const displayTitle = activeMedia.title || resolved.filename || "媒体预览";
-  const ext = displayTitle.split(".").pop()?.toUpperCase() || activeMedia.type.toUpperCase();
+  // A title like "回复用中文" has no extension: take the file's (the whole title came out as the "extension")
+  const extOf = (name: string | null | undefined) => /\.([a-z0-9]{1,8})$/i.exec(name || "")?.[1];
+  const ext = (extOf(displayTitle) ?? extOf(resolved.filename) ?? activeMedia.type).toUpperCase();
 
   const handleCopy = async () => {
     try {
@@ -328,12 +330,13 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
         )}
 
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 border-b border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shrink-0 gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        {/* Two rows: the name gets the whole width (beside the buttons it was squeezed under them), the tools below */}
+        <div className="flex flex-col px-3 sm:px-4 pt-2.5 pb-2 border-b border-[var(--aurora-border)] bg-[var(--aurora-chip)]/40 shrink-0 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-[var(--aurora-accent)]/15 text-[var(--aurora-accent)] shrink-0">
               {getItemIcon(activeMedia.type)}
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="text-xs font-semibold text-[var(--aurora-fg1)] truncate" title={displayTitle}>
                   {displayTitle}
@@ -342,24 +345,26 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                   {ext}
                 </span>
               </div>
-              <div className="text-[10.5px] text-[var(--aurora-fg3)] flex items-center gap-1.5 mt-0.5 truncate">
-                <span className="shrink-0">独立视窗</span>
-                {mediaList.length > 1 && (
-                  <>
-                    <span>•</span>
-                    <span className="text-[var(--aurora-accent)] font-medium shrink-0">
-                      第 {currentIndex + 1} / {mediaList.length} 个媒体
-                    </span>
-                  </>
-                )}
-              </div>
+              {resolved.localPath && (
+                <div className="text-[10.5px] text-[var(--aurora-fg3)] mt-0.5 truncate font-mono" title={resolved.localPath}>
+                  {resolved.localPath}
+                </div>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={closeInspector}
+              title="关闭独立窗"
+              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+            >
+              <FiX className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Action Tools */}
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center justify-end gap-1 min-w-0 flex-wrap">
             {mediaList.length > 1 && (
-              <div className="flex items-center gap-0.5 mr-1 bg-[var(--aurora-chip)] rounded-lg p-0.5 border border-[var(--aurora-border)]">
+              <div className="flex items-center gap-0.5 mr-auto bg-[var(--aurora-chip)] rounded-lg p-0.5 border border-[var(--aurora-border)] shrink-0">
                 <button
                   type="button"
                   onClick={prevMedia}
@@ -368,6 +373,9 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                 >
                   <FiChevronLeft className="w-3.5 h-3.5" />
                 </button>
+                <span className="px-1 text-[10.5px] font-medium text-[var(--aurora-fg2)] tabular-nums">
+                  {currentIndex + 1} / {mediaList.length}
+                </span>
                 <button
                   type="button"
                   onClick={nextMedia}
@@ -483,14 +491,6 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
               {isExpandedFull ? <FiMinimize2 className="w-3.5 h-3.5" /> : <FiMaximize2 className="w-3.5 h-3.5" />}
             </button>
 
-            <button
-              type="button"
-              onClick={closeInspector}
-              title="关闭独立窗"
-              className="p-1.5 rounded-lg text-[var(--aurora-fg3)] hover:text-red-400 hover:bg-red-500/10 transition-colors ml-0.5"
-            >
-              <FiX className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
@@ -530,7 +530,7 @@ export function MediaInspectorPanel({ className = "", mode = "overlay" }: MediaI
                 {mediaList.map((item, idx) => {
                   const isCurrent = item.id === activeMedia.id;
                   const itemTitle = item.title || getFilenameFromUrl(item.url);
-                  const itemExt = itemTitle.split(".").pop()?.toUpperCase() || item.type.toUpperCase();
+                  const itemExt = (/\.([a-z0-9]{1,8})$/i.exec(itemTitle)?.[1] ?? /\.([a-z0-9]{1,8})$/i.exec(getFilenameFromUrl(item.url) || "")?.[1] ?? item.type).toUpperCase();
 
                   return (
                     <button
@@ -1330,7 +1330,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const inspector = useMediaInspector();
   const resolved = resolveMediaUrl(item.url);
   const displayTitle = item.title || resolved.filename || "办公文档";
-  const ext = (displayTitle.split(".").pop() || item.type).toLowerCase();
+  const ext = (/\.([a-z0-9]{1,8})$/i.exec(displayTitle)?.[1] ?? /\.([a-z0-9]{1,8})$/i.exec(resolved.filename || "")?.[1] ?? item.type).toLowerCase();
   const isLocal = isLocalFilePath(item.url);
   // Office's online viewer fetches the file itself: only a public web address works there
   const officeOnline = /^https?:\/\//.test(item.url) && !isOwnUrl(item.url);

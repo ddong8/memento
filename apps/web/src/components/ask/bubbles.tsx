@@ -17,7 +17,6 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
   const { t } = useI18n();
   const [userToggled, setUserToggled] = useState<boolean>(false);
   const [manualExpanded, setManualExpanded] = useState<boolean>(false);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [elapsedSec, setElapsedSec] = useState<number>(0);
   const [finalDuration, setFinalDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -39,7 +38,7 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
     }
   }, [isLive, finalDuration]);
 
-  // 当正在流式推演时（isLive），默认完全舒展铺满；推演完成后平滑收拢为精致指标胶囊（用户可点击胶囊手动展开或全屏查看）
+  // 当正在流式推演时（isLive），默认完全舒展铺满；推演完成后平滑收拢为精致指标胶囊（用户可点击胶囊手动展开）
   const expanded = userToggled ? manualExpanded : Boolean(isLive);
 
   if (!thinking && !isLive) return null;
@@ -110,17 +109,6 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--aurora-fg4)", flexShrink: 0 }}>
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsFullscreen(true);
-              }}
-              className="hover:text-[var(--aurora-accent)] transition-colors p-1 rounded hover:bg-white/5 cursor-pointer flex items-center gap-1"
-              title="沉浸式全屏查看完整思考推演"
-            >
-              <Icon name="maximize" size={12} />
-              <span className="hidden sm:inline">全屏查看</span>
-            </span>
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               <span>{expanded ? t.ask.hideThinking : t.ask.showThinking}</span>
               <Icon name={expanded ? "chevron_up" : "chevron_down"} size={13} />
@@ -153,83 +141,6 @@ function ThinkingBlock({ thinking, isLive }: { thinking: string; isLive?: boolea
         )}
       </div>
 
-      {/* 沉浸式全屏思考推演弹层 */}
-      {isFullscreen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 99999,
-            background: "rgba(10, 15, 29, 0.96)",
-            backdropFilter: "blur(18px)",
-            WebkitBackdropFilter: "blur(18px)",
-            display: "flex",
-            flexDirection: "column",
-            padding: "clamp(12px, 3vw, 24px)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              paddingBottom: 12,
-              borderBottom: "1px solid var(--aurora-border)",
-              marginBottom: 14,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Icon
-                name="zap"
-                size={18}
-                style={{
-                  color: isLive ? "var(--aurora-accent)" : "#F59E0B",
-                  animation: isLive ? "pulse 1.5s infinite" : "none",
-                }}
-              />
-              <span style={{ fontSize: 16, fontWeight: 600, color: "var(--aurora-fg1)" }}>
-                {isLive ? "深度心智思考推演中..." : "深度心智思考推演记录"}
-              </span>
-              <span style={{ fontSize: 12, color: "var(--aurora-fg3)" }}>
-                {durLabel ? `(耗时 ${durLabel})` : ""} {countLabel ? `· ${countLabel}` : ""} {speedLabel ? `· ${speedLabel}` : ""}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsFullscreen(false)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 12px",
-                borderRadius: 8,
-                background: "var(--aurora-chip)",
-                border: "1px solid var(--aurora-border)",
-                color: "var(--aurora-fg1)",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              <Icon name="close" size={14} />
-              <span>退出全屏</span>
-            </button>
-          </div>
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "16px 20px",
-              background: "rgba(0, 0, 0, 0.2)",
-              borderRadius: 14,
-              border: "1px solid var(--aurora-border)",
-            }}
-          >
-            <div className="prose prose-base max-w-4xl mx-auto w-full text-sm leading-relaxed" style={{ color: "var(--aurora-fg2)" }}>
-              <MarkdownViewer content={thinking || "..."} isStreaming={Boolean(isLive)} />
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

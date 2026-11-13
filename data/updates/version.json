@@ -4,22 +4,22 @@
   "release_notes": "1. 工作台打开别的设备上的文档、表格、Word/PPT/Excel、图片、音频和 PDF 时，能直连就从那台设备直接传输（同一局域网接近内网速度），打不通自动走服务器中转\n2. 跨设备续接 Claude Code 会话时，会话文件优先从原设备直连拉取，时间线会标出「设备直连」\n3. 去掉思考过程的全屏查看；工作台标题栏改为两行，文件名不再和按钮重叠\n4. 手机端版本号与客户端统一为 1.0.123",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.122-win-x64.zip",
-      "size": 158261389,
-      "sha256": "f2d14792b257eb04d99a1b73bc47d3765bc6d4f95bb0a4d288ec67dfb0aa3fe8",
-      "sha512": "uY51YRwrC9MpiaoIAgQ13t/49P42/FLt0njXelKQcwl7W2NPn/hxBaiqIsMhoTJp3fuC00C+9YrIBi5NWE7Lbg=="
+      "asset_name": "Memento-1.0.123-win-x64.zip",
+      "size": 158262253,
+      "sha256": "39123427f378c0e3feba1b7c1f666d1a9d5dcd8a2ab2cdf4a98f0688106140dd",
+      "sha512": "XWmNUJBIXJuCova3GKxESsdy17LGNzDxBa/xzyAUu970ElnO0ydbkFemQ8VhU+JFuZaOi9IcNPfYFB4aiU0UqA=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.122-mac-arm64.zip",
-      "size": 132748180,
-      "sha256": "200374f5eff66c0e482bed0d3e69438545f59f73e53467c7dbaff84aeca4f38b",
-      "sha512": "/F/x+n988Q2nk94q4bz2PJBSV+fuJyz+Vubsv9rdOV7+4V7rsbd3GrFgZ/3FS4qiEBy8kYQMsAsbbD8mttBBGQ=="
+      "asset_name": "Memento-1.0.123-mac-arm64.zip",
+      "size": 132749288,
+      "sha256": "3d791a58386ccc10d879bc9a23d52614cc2afde9128730043e518cc94e2a1bb6",
+      "sha512": "7vyrYTgy5WWoqvgk17ZaI7D2OV2zPJlW3m9Bpj/IsdRczVoaBwYDDje12o2NMyg1/4a2J/K1Hi1xXvWyS3pRAg=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.122-linux-x64.tar.gz",
-      "size": 132028411,
-      "sha256": "520dd61de9c549c0e63f959c2fe46ba265f044e57f9bb1bcac3164094582d79d",
-      "sha512": "+7SHJD74u2lvSoBPBnPibpxsz2poOMKij/aEiAroMCZb4LTK8S3y6LE7y0sWNPIse6I4ippPr3Wx/6yRGJusYA=="
+      "asset_name": "Memento-1.0.123-linux-x64.tar.gz",
+      "size": 132029475,
+      "sha256": "18f115ad0bec0a04f6ee3b2747efa1d7a5b38c0a2234b1f390145d79db522540",
+      "sha512": "Lad8NQU+9fwVyd4h9xP327PZzU8Z9qBk8ZfoHbpi7K18XzW/iKl8RTYkmVFSK9l9JAXpalIwFoTmpyY1VAjDsg=="
     }
   }
 }

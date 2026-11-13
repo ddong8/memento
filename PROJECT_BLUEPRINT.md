@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `f3b2b89a` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `7186b1e4` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 194 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
+- 最近改动 (Latest): `7186b1e4` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -609,15 +609,15 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (14 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (12 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
 - [`server/server/services/orchestrator.py`](server/server/services/orchestrator.py) (7 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
-- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (6 commits)
 - [`apps/web/src/lib/i18n/en-US.ts`](apps/web/src/lib/i18n/en-US.ts) (5 commits)
 - [`apps/web/src/lib/i18n/zh-CN.ts`](apps/web/src/lib/i18n/zh-CN.ts) (5 commits)
-- [`packages/daemon/assets/codex_app.mjs`](packages/daemon/assets/codex_app.mjs) (4 commits)
+- [`packages/daemon/src/agent-stream.ts`](packages/daemon/src/agent-stream.ts) (5 commits)
 
 ## 8. Development & Verification Commands
 
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `7186b1e4` (2026-11-13): fix(ask): 追问不再丢失：等后台任务时仍能送进会话，没送到的由服务端保管到下一条消息
 - `f3b2b89a` (2026-11-13): refactor(web): 去掉执行卡片和任务详情的 Terminal 视图，输出统一按 Markdown 渲染
 - `15d12f16` (2026-11-12): ci(release): CI 通过后按客户端版本号自动打标签并触发发版
 - `40e70c18` (2026-11-12): chore(release): 升级客户端版本至 v1.0.118，跨设备续接原样接着原会话、代码包直连、协作任务可派智能体
 - `752c9386` (2026-11-12): feat(remote): 跨设备续接原样接着原会话，代码包设备直连，协作任务可派智能体并即时推进
 - `3fab4a0e` (2026-11-12): refactor(ask): 续接与 Claude Code 保持一致，去掉固定压缩窗口和手动瘦身开关
-- `960d4451` (2026-11-12): chore(release): 升级客户端版本至 v1.0.117，执行机提交带回源设备并由源设备推送
 
 ## 10. Key Environment Variables & Configuration
 

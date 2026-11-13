@@ -4,22 +4,22 @@
   "release_notes": "1. 工作台里的 Word、PPT、Excel 直接在应用内预览：文档显示标题、列表、表格和图片，幻灯片按原位置排版并带备注，表格分工作表、可搜索\n2. 修复打开 Word/PPT/Excel 时自动弹出保存窗口、像是打开了文件管理器的问题；文件和本地链接不再交给系统打开\n3. 智能体读的 Markdown 文件里的相对链接能在工作台打开；打不开的链接不再列进媒体清单\n4. 手机端版本号与客户端统一为 1.0.122",
   "platforms": {
     "windows": {
-      "asset_name": "Memento-1.0.121-win-x64.zip",
-      "size": 158262129,
-      "sha256": "3d4aa9b3f576e1f37fc139ad070e8c569dbb1adf58291ba169c5414df94b8eae",
-      "sha512": "NylN2IDM+i9FSIWhBuHUaZbMw6EELF2UKqYrfJvHPXsnMW5AGrpOf0vTTAHo4fqjLxTXWX+YkX1XLaFuWQQJyg=="
+      "asset_name": "Memento-1.0.122-win-x64.zip",
+      "size": 158261389,
+      "sha256": "f2d14792b257eb04d99a1b73bc47d3765bc6d4f95bb0a4d288ec67dfb0aa3fe8",
+      "sha512": "uY51YRwrC9MpiaoIAgQ13t/49P42/FLt0njXelKQcwl7W2NPn/hxBaiqIsMhoTJp3fuC00C+9YrIBi5NWE7Lbg=="
     },
     "macos": {
-      "asset_name": "Memento-1.0.121-mac-arm64.zip",
-      "size": 132748043,
-      "sha256": "5e0225f4f1f9e1690ea69ee317d231951a60c93d51043dbc2710839e3996f5df",
-      "sha512": "bnMHjKgaiAXm8PchQt417UHU6z+A6he6YBBJMARLTsiTxhh0ELXQYlRnnTCfIxAuwB73Fd+YM/5s8tr9tT1cnQ=="
+      "asset_name": "Memento-1.0.122-mac-arm64.zip",
+      "size": 132748180,
+      "sha256": "200374f5eff66c0e482bed0d3e69438545f59f73e53467c7dbaff84aeca4f38b",
+      "sha512": "/F/x+n988Q2nk94q4bz2PJBSV+fuJyz+Vubsv9rdOV7+4V7rsbd3GrFgZ/3FS4qiEBy8kYQMsAsbbD8mttBBGQ=="
     },
     "linux": {
-      "asset_name": "Memento-1.0.121-linux-x64.tar.gz",
-      "size": 132028263,
-      "sha256": "10a100434804c2c428fb7eeb65292a574c675ffeaac623457334cc47d69ba047",
-      "sha512": "rscYBtUXJ+tQTmJ237Yz0rEQe8XfA+aGCFlDAPmi6ueoj3M+lqTzpiNZ7WNNww4ujVbmncskI2Ojx8pMNcoxWg=="
+      "asset_name": "Memento-1.0.122-linux-x64.tar.gz",
+      "size": 132028411,
+      "sha256": "520dd61de9c549c0e63f959c2fe46ba265f044e57f9bb1bcac3164094582d79d",
+      "sha512": "+7SHJD74u2lvSoBPBnPibpxsz2poOMKij/aEiAroMCZb4LTK8S3y6LE7y0sWNPIse6I4ippPr3Wx/6yRGJusYA=="
     }
   }
 }

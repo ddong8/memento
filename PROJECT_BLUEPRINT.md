@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `6f272688` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `d65066c8` · Updated: `2026-11-14`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 201 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `2bb299ca` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，界面去渐变、按系统选字体、截图不再找不到
+- 最近改动 (Latest): `d65066c8` (2026-11-14): feat(native): 英文字体按系统选用，客户端交互更接近原生应用
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -609,9 +609,9 @@ erDiagram
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
 - [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (18 commits)
-- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (14 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (11 commits)
-- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
+- [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (10 commits)
+- [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (7 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
 - [`apps/web/src/components/TaskTimeline.tsx`](apps/web/src/components/TaskTimeline.tsx) (6 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `d65066c8` (2026-11-14): feat(native): 英文字体按系统选用，客户端交互更接近原生应用
 - `2bb299ca` (2026-11-14): chore(release): 升级客户端版本至 v1.0.125，界面去渐变、按系统选字体、截图不再找不到
 - `88093675` (2026-11-14): fix(images): 工作台里用户上传的截图不再找不到或显示成别的图
 - `3f6aeefc` (2026-11-14): style(web): 去掉按钮与界面装饰性渐变，统一按各系统最佳中文字体排版
 - `bd1c349f` (2026-11-13): feat(daemon): 执行机守护进程自动跟随新版本升级，不用再登录每台服务器重跑安装脚本
 - `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
-- `227cf1a6` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
 
 ## 10. Key Environment Variables & Configuration
 

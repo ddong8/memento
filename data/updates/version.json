@@ -1,7 +1,7 @@
 {
-  "version": "1.0.123",
-  "title": "Memento v1.0.123",
-  "release_notes": "1. 工作台打开别的设备上的文档、表格、Word/PPT/Excel、图片、音频和 PDF 时，能直连就从那台设备直接传输（同一局域网接近内网速度），打不通自动走服务器中转\n2. 跨设备续接 Claude Code 会话时，会话文件优先从原设备直连拉取，时间线会标出「设备直连」\n3. 去掉思考过程的全屏查看；工作台标题栏改为两行，文件名不再和按钮重叠\n4. 手机端版本号与客户端统一为 1.0.123",
+  "version": "1.0.124",
+  "title": "Memento v1.0.124",
+  "release_notes": "1. Claude Code 额度不再时有时无：令牌过期或网络慢时显示最近一次读到的额度，订阅显示 PRO/MAX，不再是 DEFAULT_CLAUDE_AI\n2. 没装 Antigravity 桌面应用、只装了 agy 命令行的机器（如服务器）也能显示 Antigravity 各模型额度，不再一直显示未启动\n3. 工作台切回窗口不再反复读取已不存在的文件，历史抽屉轮询降频\n4. 手机端版本号与客户端统一为 1.0.124",
   "platforms": {
     "windows": {
       "asset_name": "Memento-1.0.123-win-x64.zip",

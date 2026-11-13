@@ -90,7 +90,7 @@ export function ToolMatrix() {
               style={{
                 fontSize: 11,
                 color: "var(--aurora-fg4)",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: "var(--font-mono)",
               }}
             >
               {tool.format}

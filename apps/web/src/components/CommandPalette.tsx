@@ -646,7 +646,7 @@ export default function CommandPalette() {
                         background: "var(--aurora-surface)",
                         border: "1px solid var(--aurora-border)",
                         color: "var(--aurora-fg4)",
-                        fontFamily: "monospace",
+                        fontFamily: "var(--font-mono)",
                       }}
                     >
                       {jump.badge}

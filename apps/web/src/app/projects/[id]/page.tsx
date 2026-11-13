@@ -77,7 +77,7 @@ export default function ProjectDetailPage() {
             {project.title}
           </span>
         }
-        subtitle={<span style={{ fontFamily: "ui-monospace,monospace" }}>{project.source_path}</span>}
+        subtitle={<span style={{ fontFamily: "var(--font-mono)" }}>{project.source_path}</span>}
         right={
           <>
             <Btn
@@ -223,7 +223,7 @@ function DocRow({
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--aurora-fg1)", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {title}
         </div>
-        <div style={{ fontSize: 11, color: "var(--aurora-fg4)", fontFamily: "ui-monospace,monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 11, color: "var(--aurora-fg4)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {path}
         </div>
       </div>

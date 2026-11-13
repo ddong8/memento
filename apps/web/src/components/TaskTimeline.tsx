@@ -12,7 +12,7 @@ import { detectMediaType, isLocalFilePath } from "./viewers/MediaPreview";
 type IconName = Parameters<typeof Icon>[0]["name"];
 
 const COLLAPSED = 6;
-const mono: CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 };
+const mono: CSSProperties = { fontFamily: "var(--font-mono)", fontSize: 12 };
 
 const KIND_ICON: Record<TaskToolKind, IconName> = {
   command: "terminal",

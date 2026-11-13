@@ -483,7 +483,7 @@ export const ChatBubble = memo(function ChatBubble({
         >
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--aurora-fg3)", marginBottom: displayInput || content ? 6 : 0, flexWrap: "wrap" }}>
             <Icon name="terminal" size={13} style={{ color: "var(--aurora-accent)" }} />
-            <span style={{ fontFamily: "ui-monospace,monospace", fontWeight: 600, fontSize: 11.5 }}>{toolName || "Tool"}</span>
+            <span style={{ fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11.5 }}>{toolName || "Tool"}</span>
             {msg.status && (
               <span
                 style={{
@@ -558,7 +558,7 @@ export const ChatBubble = memo(function ChatBubble({
                 border: "1px solid rgba(239, 68, 68, 0.2)",
                 fontSize: 11,
                 color: "#EF4444",
-                fontFamily: "ui-monospace,monospace",
+                fontFamily: "var(--font-mono)",
               }}
             >
               ⚠️ {msg.error}
@@ -575,7 +575,7 @@ export const ChatBubble = memo(function ChatBubble({
                 border: "1px solid var(--aurora-border)",
                 borderRadius: 8,
                 padding: 8,
-                fontFamily: "ui-monospace,monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 11,
                 color: "var(--aurora-fg2)",
               }}
@@ -596,7 +596,7 @@ export const ChatBubble = memo(function ChatBubble({
                   border: "1px solid var(--aurora-border)",
                   borderRadius: 8,
                   padding: 8,
-                  fontFamily: "ui-monospace,monospace",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 11,
                   color: "var(--aurora-fg3)",
                 }}

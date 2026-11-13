@@ -210,7 +210,7 @@ export function DevicesView({ hideTopBar = false }: { hideTopBar?: boolean }) {
               lineHeight: 1.6,
               maxWidth: 580,
               margin: "0 auto",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontFamily: "var(--font-mono)",
               textAlign: "left",
               whiteSpace: "pre-wrap",
               overflow: "auto",
@@ -299,13 +299,13 @@ node packages/daemon/dist/cli.js install-service`}
                         <b style={{ color: "var(--aurora-fg1)" }}>{d.document_count}</b> {t.files}
                       </span>
                       <span style={{ color: "var(--aurora-fg5)" }}>·</span>
-                      <span style={{ fontFamily: "ui-monospace,monospace", color: "var(--aurora-fg4)" }}>
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--aurora-fg4)" }}>
                         {d.device_id.slice(0, 8)}
                       </span>
                       {versionLabel(d.collector_version, t.devices.versionOld) && (
                         <>
                           <span style={{ color: "var(--aurora-fg5)" }}>·</span>
-                          <span style={{ fontFamily: "ui-monospace,monospace", color: "var(--aurora-fg4)" }}>
+                          <span style={{ fontFamily: "var(--font-mono)", color: "var(--aurora-fg4)" }}>
                             {versionLabel(d.collector_version, t.devices.versionOld)}
                           </span>
                         </>
@@ -395,7 +395,7 @@ node packages/daemon/dist/cli.js install-service`}
                       </span>
                     )}
                     {d.collect?.last_error && (d.collect.failing ?? 0) > 0 && (
-                      <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
                         {fmt(t.devices.collectError, { msg: d.collect.last_error })}
                       </span>
                     )}
@@ -430,7 +430,7 @@ node packages/daemon/dist/cli.js install-service`}
                         <code
                           style={{
                             color: "var(--aurora-fg4)",
-                            fontFamily: "ui-monospace,monospace",
+                            fontFamily: "var(--font-mono)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
@@ -595,7 +595,7 @@ function McpStatusLine({ results, t }: { results: Record<string, string>; t: Ret
         ))}
       </span>
       {errors.map(([tool, r]) => (
-        <span key={`${tool}-error`} style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+        <span key={`${tool}-error`} style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
           {MCP_TOOL_LABELS[tool] ?? tool}: {r.replace(/^error:\s*/, "")}
         </span>
       ))}
@@ -620,7 +620,7 @@ function BlueprintStatusLine({ bp, t }: { bp: NonNullable<Device["blueprint"]>; 
         )}
       </span>
       {bp.failed.slice(0, 3).map((f, i) => (
-        <span key={`${f.name}-${i}`} style={{ fontFamily: "ui-monospace,monospace", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
+        <span key={`${f.name}-${i}`} style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--aurora-fg4)", overflowWrap: "anywhere" }}>
           {f.name}: {blueprintReason(f.reason, t)}
         </span>
       ))}

@@ -38,7 +38,7 @@ function time(iso: unknown): string {
   return `${d.getMonth() + 1}-${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-const mono: CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" };
+const mono: CSSProperties = { fontFamily: "var(--font-mono)" };
 const field: CSSProperties = {
   width: "100%",
   fontSize: 13,
@@ -713,7 +713,7 @@ export default function SkillsPage() {
         {!isPanelCollapsed && (
           <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
             {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
-            <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
+            <div className="p-3 bg-[var(--aurora-surface-solid)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
               {/* Mobile Back Button to 3D */}
               <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
                 <button

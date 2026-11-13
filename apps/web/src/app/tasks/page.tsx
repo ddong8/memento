@@ -221,7 +221,7 @@ export default function TasksPage() {
                   style={{
                     fontSize: 12,
                     color: "var(--aurora-fg2)",
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontFamily: "var(--font-mono)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",

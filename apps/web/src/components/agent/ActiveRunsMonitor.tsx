@@ -595,8 +595,8 @@ export default function ActiveRunsMonitor() {
                   className="group cursor-pointer rounded-2xl p-3.5 shadow-2xl backdrop-blur-xl transition-all duration-200 hover:scale-[1.02] w-full"
                   style={{
                     background: isError
-                      ? "linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(15, 23, 42, 0.95))"
-                      : "linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(15, 23, 42, 0.95))",
+                      ? "rgba(42, 20, 26, 0.96)"
+                      : "rgba(14, 36, 38, 0.96)",
                     border: isError
                       ? "1px solid rgba(239, 68, 68, 0.4)"
                       : "1px solid rgba(16, 185, 129, 0.4)",
@@ -655,7 +655,7 @@ export default function ActiveRunsMonitor() {
                 onClick={() => setCollapsed(false)}
                 className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-full shadow-2xl backdrop-blur-2xl border transition-all duration-200 hover:scale-[1.04] ml-auto group"
                 style={{
-                  background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))",
+                  background: "rgba(15, 23, 42, 0.95)",
                   borderColor: "rgba(56, 189, 248, 0.45)",
                   boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.25)",
                 }}
@@ -684,7 +684,7 @@ export default function ActiveRunsMonitor() {
               <div
                 className="rounded-2xl shadow-2xl backdrop-blur-2xl transition-all duration-300 overflow-hidden w-full flex flex-col"
                 style={{
-                  background: "linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94))",
+                  background: "rgba(15, 23, 42, 0.96)",
                   border: "1px solid rgba(56, 189, 248, 0.35)",
                   boxShadow: "0 20px 45px -10px rgba(0, 0, 0, 0.7), 0 0 25px rgba(56, 189, 248, 0.2)",
                   maxHeight: "min(480px, 70vh)",
@@ -807,7 +807,7 @@ export default function ActiveRunsMonitor() {
                               style={{
                                 background: isCurrentChat
                                   ? "rgba(255, 255, 255, 0.1)"
-                                  : "linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(99, 102, 241, 0.2))",
+                                  : "rgba(56, 189, 248, 0.18)",
                                 border: "1px solid rgba(56, 189, 248, 0.4)",
                                 color: isCurrentChat ? "#94a3b8" : "#38bdf8",
                               }}

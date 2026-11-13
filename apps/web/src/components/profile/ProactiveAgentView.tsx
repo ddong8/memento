@@ -253,7 +253,7 @@ export function ProactiveAgentView() {
                   height: 48,
                   borderRadius: 16,
                   background: settings.enabled
-                    ? "linear-gradient(135deg, #6D28D9 0%, #EC4899 50%, #06B6D4 100%)"
+                    ? "var(--aurora-accent)"
                     : "var(--aurora-chip)",
                   display: "flex",
                   alignItems: "center",
@@ -382,7 +382,7 @@ export function ProactiveAgentView() {
                     width: 34,
                     height: 34,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #F59E0B 0%, #EF4444 100%)",
+                    background: "#F59E0B",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -458,7 +458,7 @@ export function ProactiveAgentView() {
                     width: 34,
                     height: 34,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
+                    background: "#4F46E5",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -624,7 +624,7 @@ export function ProactiveAgentView() {
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white transition-all duration-200 cursor-pointer shadow-sm disabled:opacity-50"
             style={{
-              background: "linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)",
+              background: "var(--aurora-accent)",
               boxShadow: "0 4px 14px -3px rgba(124, 58, 237, 0.4)",
             }}
           >

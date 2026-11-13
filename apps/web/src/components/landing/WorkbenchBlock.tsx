@@ -180,7 +180,7 @@ export function WorkbenchBlock() {
                       { id: 4, caseName: "Codex本地技能自动灌入", tool: "Codex", hit: "97.8%", status: "PASSED" },
                     ].map((row) => (
                       <tr key={row.id} style={{ borderBottom: "1px solid var(--aurora-border)" }}>
-                        <td style={{ padding: "8px 12px", color: "var(--aurora-fg4)", borderRight: "1px solid var(--aurora-border)", fontFamily: "monospace" }}>{row.id}</td>
+                        <td style={{ padding: "8px 12px", color: "var(--aurora-fg4)", borderRight: "1px solid var(--aurora-border)", fontFamily: "var(--font-mono)" }}>{row.id}</td>
                         <td style={{ padding: "8px 12px", color: "var(--aurora-fg2)", borderRight: "1px solid var(--aurora-border)", fontWeight: 500 }}>{row.caseName}</td>
                         <td style={{ padding: "8px 12px", color: "var(--aurora-fg3)", borderRight: "1px solid var(--aurora-border)" }}>{row.tool}</td>
                         <td style={{ padding: "8px 12px", color: "#10B981", borderRight: "1px solid var(--aurora-border)", fontWeight: 600 }}>{row.hit}</td>
@@ -231,7 +231,7 @@ export function WorkbenchBlock() {
                   borderRadius: 14,
                   aspectRatio: "16 / 9",
                   maxHeight: 320,
-                  background: "radial-gradient(circle at 50% 40%, rgba(124,58,237,0.18), transparent 70%), var(--aurora-surface-solid)",
+                  background: "var(--aurora-surface-solid)",
                   border: "1px solid var(--aurora-border)",
                   display: "flex",
                   flexDirection: "column",
@@ -350,7 +350,7 @@ export function WorkbenchBlock() {
                     width: 130,
                     height: 80,
                     borderRadius: 10,
-                    background: "linear-gradient(135deg, #10B981, #047857)",
+                    background: "#059669",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",

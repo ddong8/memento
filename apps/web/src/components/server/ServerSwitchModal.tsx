@@ -350,7 +350,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                   fontSize: 14,
                   fontWeight: 600,
                   color: "var(--aurora-fg1)",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontFamily: "var(--font-mono)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -364,7 +364,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                   <span
                     style={{
                       fontSize: 11.5,
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                       color: currentLatency.ok ? "#10B981" : "#DC2626",
                     }}
                   >
@@ -431,7 +431,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 3, fontFamily: "monospace" }}>
+                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 3, fontFamily: "var(--font-mono)" }}>
                     {DEFAULT_OFFICIAL_SERVER}
                   </div>
                 </div>
@@ -466,7 +466,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 3, fontFamily: "monospace" }}>
+                  <div style={{ fontSize: 11, color: "var(--aurora-fg4)", marginTop: 3, fontFamily: "var(--font-mono)" }}>
                     {DEFAULT_LOCAL_SERVER}
                   </div>
                 </div>
@@ -577,7 +577,7 @@ export function ServerSwitchModal({ open: externalOpen, onClose: externalClose }
                           fontSize: 12.5,
                           fontWeight: 500,
                           color: "var(--aurora-fg1)",
-                          fontFamily: "monospace",
+                          fontFamily: "var(--font-mono)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",

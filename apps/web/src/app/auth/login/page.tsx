@@ -247,7 +247,7 @@ export default function LoginPage() {
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--aurora-border)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11, color: "var(--aurora-fg4)" }}>
           <Icon name="server" size={13} style={{ color: "var(--aurora-fg3)" }} />
           <span>服务器:</span>
-          <span style={{ color: "var(--aurora-fg2)", fontFamily: "monospace", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ color: "var(--aurora-fg2)", fontFamily: "var(--font-mono)", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {currentServer || "..."}
           </span>
           <button

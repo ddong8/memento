@@ -673,7 +673,7 @@ function AuditTab({ headers }: { headers: Headers }) {
             <code style={codeStyle}>{row.user_id ? row.user_id.slice(0, 8) + "…" : "—"}</code>
             <Chip>{row.action}</Chip>
             <code style={codeStyle}>{row.document_id ? row.document_id.slice(0, 8) + "…" : "—"}</code>
-            <span style={{ color: "var(--aurora-fg4)", fontFamily: "ui-monospace, monospace" }}>{row.ip_address || "—"}</span>
+            <span style={{ color: "var(--aurora-fg4)", fontFamily: "var(--font-mono)" }}>{row.ip_address || "—"}</span>
           </div>
         ))}
         {hasMore && items.length >= LIMIT && (
@@ -795,7 +795,7 @@ function fieldInputStyle(width?: number): React.CSSProperties {
 
 const codeStyle: React.CSSProperties = {
   fontSize: 11,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  fontFamily: "var(--font-mono)",
   color: "var(--aurora-fg3)",
   background: "var(--aurora-surface-mute)",
   padding: "2px 6px",

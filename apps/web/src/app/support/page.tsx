@@ -46,7 +46,7 @@ export default function SupportPage() {
               </span>
               <span className="text-xs text-[var(--aurora-fg4,#9CA3AF)]">7×24小时在线支持</span>
             </div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-cyan-400 via-teal-300 to-indigo-300 bg-clip-text text-transparent">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-[var(--aurora-fg1)]">
               Memento 支持中心 (Support)
             </h1>
           </div>
@@ -67,7 +67,7 @@ export default function SupportPage() {
         </div>
 
         {/* Contact Banner */}
-        <div className="mb-10 p-6 rounded-2xl bg-gradient-to-r from-purple-900/20 via-indigo-900/20 to-blue-900/20 border border-purple-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="mb-10 p-6 rounded-2xl bg-[var(--aurora-accent-soft)] border border-purple-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="text-lg font-bold text-white mb-1">需要一对一人工技术支持？</div>
             <div className="text-xs text-[var(--aurora-fg3,#9CA3AF)]">我们的工程师团队将全天候响应您的技术咨询与功能反馈</div>

@@ -270,7 +270,7 @@ export default function PlanPage() {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
               {st && <Chip tone={st.tone}>{st.text}</Chip>}
               {plan.cwd && (
-                <span style={{ fontSize: 12, color: "var(--aurora-fg4)", fontFamily: "monospace" }} className="truncate">
+                <span style={{ fontSize: 12, color: "var(--aurora-fg4)", fontFamily: "var(--font-mono)" }} className="truncate">
                   {plan.cwd}
                 </span>
               )}

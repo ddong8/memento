@@ -768,7 +768,7 @@ export default function MemoryPage() {
         {!isPanelCollapsed && (
           <div className="max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:rounded-none max-lg:border-none lg:col-span-7 h-full flex flex-col min-h-0 bg-[var(--aurora-surface)] rounded-3xl border border-[var(--aurora-border)] shadow-2xl overflow-hidden animate-in fade-in max-lg:slide-in-from-bottom-6 duration-300">
             {/* A. 顶部仪表盘概览与 Tab 导航区 (Sticky Header) */}
-            <div className="p-3 bg-gradient-to-r from-[var(--aurora-surface-solid)] via-[var(--aurora-surface)] to-[var(--aurora-chip)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
+            <div className="p-3 bg-[var(--aurora-surface-solid)] border-b border-[var(--aurora-border)] shrink-0 space-y-2.5">
               {/* Mobile Back Button to 3D */}
               <div className="flex items-center justify-between lg:hidden pb-1 border-b border-white/10">
                 <button
@@ -1271,7 +1271,7 @@ export default function MemoryPage() {
             {/* ── TAB 3: 梦境夜间提炼 (Dreaming Panel) ── */}
             {activeTab === "dreaming" && (
               <div className="space-y-3 animate-in fade-in">
-                <div className="p-3 rounded-2xl bg-gradient-to-r from-[rgba(168,85,247,0.12)] via-[var(--aurora-surface-solid)] to-transparent border border-[var(--aurora-border)] flex items-center justify-between">
+                <div className="p-3 rounded-2xl bg-[var(--aurora-accent-soft)] border border-[var(--aurora-border)] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-base">🌙</span>
                     <div>

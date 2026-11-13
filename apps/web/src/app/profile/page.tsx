@@ -130,7 +130,7 @@ function ProfileContent() {
                 className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap cursor-pointer select-none"
                 style={{
                   background: active
-                    ? "linear-gradient(135deg, rgba(124, 58, 237, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%)"
+                    ? "var(--aurora-accent-soft)"
                     : "transparent",
                   color: active ? "var(--aurora-accent)" : "var(--aurora-fg3)",
                   border: active
@@ -454,7 +454,7 @@ function AccountTab() {
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--aurora-fg1)", marginBottom: 3 }}>
               当前连接服务器节点
             </div>
-            <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {currentServerUrl || getApiBase()}
             </div>
           </div>

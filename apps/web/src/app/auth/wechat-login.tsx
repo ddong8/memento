@@ -355,7 +355,7 @@ export function WechatLoginSection() {
             gap: 10,
             fontSize: 26,
             fontWeight: 700,
-            fontFamily: "var(--font-mono, ui-monospace, monospace)",
+            fontFamily: "var(--font-mono)",
             color: "var(--aurora-accent)",
             letterSpacing: "0.15em",
             padding: "2px 0",

@@ -701,7 +701,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
                 display: "flex", gap: 6, alignItems: "center",
                 padding: "8px 10px", border: "1px solid var(--aurora-border)",
                 background: "var(--aurora-surface)", borderRadius: 10,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 12, color: "var(--aurora-fg2)",
                 wordBreak: "break-all", marginBottom: 10,
               }}>
@@ -764,7 +764,7 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
                             <td style={{ padding: "6px 10px", color: "var(--aurora-fg2)" }}>
                               {[v.country, v.region, v.city].filter(Boolean).join(" / ") || "—"}
                             </td>
-                            <td style={{ padding: "6px 10px", fontFamily: "monospace", color: "var(--aurora-fg3)" }}>
+                            <td style={{ padding: "6px 10px", fontFamily: "var(--font-mono)", color: "var(--aurora-fg3)" }}>
                               {v.ip || "—"}
                             </td>
                             <td style={{ padding: "6px 10px", color: "var(--aurora-fg4)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={v.user_agent}>

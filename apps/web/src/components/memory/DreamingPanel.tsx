@@ -297,7 +297,7 @@ export default function DreamingPanel({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <Chip tone="neutral">{statusLabel(m.status)}</Chip>
-                    <span style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "ui-monospace, monospace" }}>{str(m.tree_path)}</span>
+                    <span style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "var(--font-mono)" }}>{str(m.tree_path)}</span>
                   </div>
                   <div style={{ fontSize: 13, color: "var(--aurora-fg2)", marginTop: 4, lineHeight: 1.45 }}>{str(m.content).slice(0, 300)}</div>
                   {str(m.status_reason) && <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", marginTop: 2 }}>{str(m.status_reason)}</div>}

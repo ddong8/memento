@@ -23,7 +23,7 @@ function RenderTodoTitle({ title }: { title: string }) {
                   borderRadius: 4,
                   background: "rgba(255, 255, 255, 0.08)",
                   fontSize: "0.92em",
-                  fontFamily: "monospace",
+                  fontFamily: "var(--font-mono)",
                   color: "var(--aurora-accent)",
                 }}
               >

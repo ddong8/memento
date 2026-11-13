@@ -546,8 +546,8 @@ function ConversationItemCard({
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold shadow-sm ${
                   isUser
-                    ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white"
-                    : "bg-gradient-to-br from-cyan-400 to-blue-600 text-slate-900"
+                    ? "bg-indigo-600 text-white"
+                    : "bg-sky-500 text-white"
                 }`}
               >
                 {isUser ? "你" : "AI"}
@@ -557,7 +557,7 @@ function ConversationItemCard({
               <div
                 className={`max-w-[88%] sm:max-w-[84%] rounded-2xl p-3.5 sm:p-4 border transition-all ${
                   isUser
-                    ? "bg-gradient-to-br from-indigo-600/20 to-purple-600/15 border-indigo-500/30 text-[var(--aurora-fg1)] shadow-sm"
+                    ? "bg-indigo-600/15 border-indigo-500/30 text-[var(--aurora-fg1)] shadow-sm"
                     : "bg-[var(--aurora-surface-solid)] border-[var(--aurora-border)] text-[var(--aurora-fg1)] shadow-md"
                 }`}
               >

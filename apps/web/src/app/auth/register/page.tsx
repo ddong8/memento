@@ -83,7 +83,7 @@ export default function RegisterPage() {
           <div
             style={{
               width: 56, height: 56, borderRadius: 16,
-              background: "linear-gradient(135deg,#10B981,#34D399)",
+              background: "#10B981",
               display: "flex", alignItems: "center", justifyContent: "center",
               margin: hasToken ? "0 0 16px" : "0 auto 16px",
               boxShadow: "0 12px 40px -10px rgba(16,185,129,0.5)",

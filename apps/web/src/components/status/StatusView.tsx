@@ -327,7 +327,7 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
                   <div style={{ fontSize: 15, fontWeight: 600, color: "var(--aurora-fg1)" }}>
                     当前服务器节点
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "monospace", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: 12, color: "var(--aurora-fg3)", fontFamily: "var(--font-mono)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {activeServerUrl || "..."}
                   </div>
                 </div>
@@ -335,7 +335,7 @@ export function StatusView({ hideTopBar = false }: { hideTopBar?: boolean }) {
 
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                 {serverLatencyMs !== null && (
-                  <span style={{ fontSize: 12, fontFamily: "monospace", color: SUCCESS }}>
+                  <span style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: SUCCESS }}>
                     {serverLatencyMs}ms
                   </span>
                 )}

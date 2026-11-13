@@ -169,7 +169,7 @@ export default function TaskPage() {
                         </div>
                         {a.at && <span style={{ color: "var(--aurora-fg4)", fontSize: 11.5 }}>{formatTime(a.at)}</span>}
                       </div>
-                      <code style={{ display: "block", marginTop: 4, color: "var(--aurora-fg2)", fontSize: 11.5, wordBreak: "break-all", fontFamily: "monospace" }}>
+                      <code style={{ display: "block", marginTop: 4, color: "var(--aurora-fg2)", fontSize: 11.5, wordBreak: "break-all", fontFamily: "var(--font-mono)" }}>
                         {a.detail}
                       </code>
                     </div>

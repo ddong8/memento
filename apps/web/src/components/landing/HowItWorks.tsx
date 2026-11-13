@@ -42,7 +42,7 @@ export function HowItWorks() {
                   fontWeight: 600,
                   color: "var(--aurora-fg4)",
                   letterSpacing: "0.12em",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontFamily: "var(--font-mono)",
                   marginBottom: 10,
                 }}
               >

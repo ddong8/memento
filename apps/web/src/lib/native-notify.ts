@@ -111,7 +111,7 @@ export function showInAppToast(title: string, body: string, url?: string): void 
 
   toast.innerHTML = `
     <div style="display:flex;align-items:flex-start;gap:10px;">
-      <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#7C3AED,#3B82F6);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">
+      <div style="width:28px;height:28px;border-radius:8px;background:#7C3AED;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;">
         🔔
       </div>
       <div style="flex:1;">

@@ -373,7 +373,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             {!collapsed && (
               <kbd
                 style={{
-                  fontFamily: "var(--font-mono, monospace)",
+                  fontFamily: "var(--font-mono)",
                   fontSize: 10,
                   fontWeight: 600,
                   background: "var(--aurora-surface)",
@@ -579,7 +579,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                 color: "var(--aurora-fg4)",
                 textAlign: "center",
                 paddingTop: 6,
-                fontFamily: "var(--font-mono, ui-monospace, monospace)",
+                fontFamily: "var(--font-mono)",
                 letterSpacing: "0.03em",
                 display: "flex",
                 alignItems: "center",

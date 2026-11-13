@@ -93,7 +93,7 @@ export function TokenDisplay({
           border: "1px solid var(--aurora-border)",
           color: "var(--aurora-fg1)",
           fontSize: compact ? 11 : 13,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           letterSpacing: "0.02em",
           overflow: "hidden",
           textOverflow: "ellipsis",

@@ -81,7 +81,7 @@ function CommandCard({ label, cmd }: { label: string; cmd: string }) {
           background: "#0A0A12",
           color: "#E4E4F0",
           padding: "18px 52px 18px 18px",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 13,
           whiteSpace: "pre",
           overflowX: "auto",

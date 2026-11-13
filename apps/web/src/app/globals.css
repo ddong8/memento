@@ -1,12 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Cascadia Code", "Liberation Mono", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
+  /* System fonts only (nothing fetched from abroad), Latin before Chinese so each script gets its best face:
+     macOS / iOS: SF + PingFang SC; Windows 11/10: Segoe UI Variable / Segoe UI + Microsoft YaHei UI;
+     Android: Roboto + the vendor's CJK font (HarmonyOS Sans SC, MiSans) or stock Noto Sans CJK SC;
+     Linux: Noto Sans CJK SC / Source Han Sans SC, WenQuanYi last. Code keeps Chinese out of SimSun. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Microsoft YaHei UI", "Microsoft YaHei", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", "Source Han Sans SC", "Noto Sans SC", "WenQuanYi Micro Hei", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "Cascadia Code", Consolas, "JetBrains Mono", "Roboto Mono", "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "HarmonyOS Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", monospace;
 }
 
 html, body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -18,7 +22,7 @@ button, a, input, textarea, select, [role="button"] {
 }
 
 code, kbd, samp, pre, .font-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Cascadia Code", "Liberation Mono", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace;
+  font-family: var(--font-mono);
 }
 
 /* =========================================================================
@@ -50,9 +54,10 @@ code, kbd, samp, pre, .font-mono {
   --aurora-accent: #6D28D9;
   --aurora-accent-soft: rgba(109, 40, 217, 0.10);
   --aurora-chip: rgba(15, 15, 30, 0.05);
-  --aurora-primary-grad: linear-gradient(135deg, #6D28D9, #DB2777);
-  --aurora-primary-grad-hover: linear-gradient(135deg, #7C3AED, #EC4899);
-  --aurora-brand-grad: linear-gradient(135deg, #6D28D9, #EC4899, #06B6D4);
+  /* Solid, not gradients: buttons and brand marks read plainer and less "AI" (the names stay for their users) */
+  --aurora-primary-grad: #6D28D9;
+  --aurora-primary-grad-hover: #5B21B6;
+  --aurora-brand-grad: #6D28D9;
   --aurora-card-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
     0 0 0 1px rgba(255, 255, 255, 0.4) inset,
@@ -71,8 +76,8 @@ code, kbd, samp, pre, .font-mono {
     0 2px 10px rgba(15, 15, 40, 0.06);
   --aurora-radius-card: 20px;
   --aurora-radius-btn: 12px;
-  --aurora-btn-shadow: 0 4px 14px -4px rgba(109, 40, 217, 0.4);
-  --aurora-btn-shadow-hover: 0 8px 24px -8px rgba(109, 40, 217, 0.55);
+  --aurora-btn-shadow: 0 1px 2px rgba(15, 15, 40, 0.12);
+  --aurora-btn-shadow-hover: 0 2px 6px rgba(15, 15, 40, 0.16);
 }
 
 :root[data-skin="aurora"][data-theme="dark"] {
@@ -96,9 +101,9 @@ code, kbd, samp, pre, .font-mono {
   --aurora-accent: #A78BFA;
   --aurora-accent-soft: rgba(167, 139, 250, 0.16);
   --aurora-chip: rgba(255, 255, 255, 0.06);
-  --aurora-primary-grad: linear-gradient(135deg, #A78BFA, #F472B6);
-  --aurora-primary-grad-hover: linear-gradient(135deg, #C4B5FD, #F9A8D4);
-  --aurora-brand-grad: linear-gradient(135deg, #A78BFA, #F472B6, #67E8F9);
+  --aurora-primary-grad: #8B5CF6;
+  --aurora-primary-grad-hover: #7C3AED;
+  --aurora-brand-grad: #8B5CF6;
   /* Dual Inner Bevel: top micro-highlight (0 1px) + subtle rim (0 0 0 1px) + ambient drop shadow */
   --aurora-card-shadow:
     0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
@@ -408,8 +413,8 @@ body {
 .aurora-btn-sm { padding: 6px 12px; font-size: 12px; }
 .aurora-btn-lg { padding: 14px 22px; font-size: 14px; }
 .aurora-btn-danger {
-  background: linear-gradient(135deg, #EF4444, #EC4899);
-  box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.4);
+  background: #DC2626;
+  box-shadow: 0 1px 2px rgba(15, 15, 40, 0.12);
 }
 html[data-skin="arc"] .aurora-btn-danger,
 html[data-skin="baseline"] .aurora-btn-danger {
@@ -417,8 +422,8 @@ html[data-skin="baseline"] .aurora-btn-danger {
   box-shadow: none;
 }
 .aurora-btn-danger:hover {
-  background: linear-gradient(135deg, #F87171, #F472B6);
-  box-shadow: 0 8px 24px -8px rgba(239, 68, 68, 0.5);
+  background: #B91C1C;
+  box-shadow: 0 2px 6px rgba(15, 15, 40, 0.16);
 }
 html[data-skin="arc"] .aurora-btn-danger:hover,
 html[data-skin="baseline"] .aurora-btn-danger:hover {
@@ -616,7 +621,7 @@ html[data-skin="baseline"] .aurora-btn-danger:hover {
 }
 .prose code {
   font-size: 0.85em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 /* Fallback & universal styles for markdown tables */

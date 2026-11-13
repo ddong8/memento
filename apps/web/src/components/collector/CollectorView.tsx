@@ -95,7 +95,7 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
         {status && (
           <div style={{ marginTop: 12, fontSize: 13, color: "var(--aurora-fg2)", lineHeight: 1.7 }}>
             <div>{fmt(c.device, { name: status.deviceName })}</div>
-            <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, color: "var(--aurora-fg3)" }}>{status.deviceId}</div>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--aurora-fg3)" }}>{status.deviceId}</div>
             {status.runningTasks.length > 0 && <div>{fmt(c.runningTasks, { n: status.runningTasks.length })}</div>}
           </div>
         )}
@@ -124,7 +124,7 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
               <BrandMark id={id} size={18} colored />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, color: "var(--aurora-fg1)" }}>{id}</div>
-                <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", fontFamily: "ui-monospace, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ fontSize: 11.5, color: "var(--aurora-fg3)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {String(tool.root ?? "")}
                 </div>
               </div>
@@ -197,7 +197,7 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
                     lineHeight: 1.5,
                     background: "var(--aurora-surface-mute)",
                     color: "var(--aurora-fg2)",
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    fontFamily: "var(--font-mono)",
                     whiteSpace: "pre-wrap",
                     overflowWrap: "anywhere",
                   }}
@@ -224,7 +224,7 @@ export function CollectorView({ hideTopBar = false }: { hideTopBar?: boolean }) 
             borderRadius: 10,
             background: "var(--aurora-surface-mute)",
             color: "var(--aurora-fg2)",
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontFamily: "var(--font-mono)",
             whiteSpace: "pre-wrap",
             overflowWrap: "anywhere",
           }}
@@ -285,7 +285,7 @@ function CollectCard({ stats }: { stats: CollectStats | null }) {
             {stats.last_reconcile_at ? fmt(c.collectLastReconcile, { time: ago(stats.last_reconcile_at) }) : c.collectNeverReconciled}
           </div>
           {stats.last_error && (
-            <div style={{ ...muted, marginTop: 4, fontFamily: "ui-monospace, monospace", fontSize: 11.5, overflowWrap: "anywhere" }}>
+            <div style={{ ...muted, marginTop: 4, fontFamily: "var(--font-mono)", fontSize: 11.5, overflowWrap: "anywhere" }}>
               {fmt(c.collectLastError, { time: ago(stats.last_error_at), msg: stats.last_error })}
             </div>
           )}

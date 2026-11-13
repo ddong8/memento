@@ -119,7 +119,7 @@ export function ExecutorGuide() {
                 padding: "14px 96px 14px 14px",
                 fontSize: 12,
                 lineHeight: 1.6,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: "var(--font-mono)",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-all",
               }}

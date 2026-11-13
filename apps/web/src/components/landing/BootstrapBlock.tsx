@@ -218,7 +218,7 @@ function CopyBox({ label, body }: { label: string; body: string }) {
           padding: 12,
           background: "#0A0A12",
           color: "#E4E4F0",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: 11.5,
           lineHeight: 1.55,
           whiteSpace: "pre-wrap",

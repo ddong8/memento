@@ -91,7 +91,7 @@ function DownloadCard({ os, ext }: { os: string; ext: string }) {
                 fontSize: 12,
                 color: "var(--aurora-fg4)",
                 marginTop: 3,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: "var(--font-mono)",
               }}
             >
               {ext}

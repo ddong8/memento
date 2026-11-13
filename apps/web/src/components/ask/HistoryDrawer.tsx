@@ -675,7 +675,7 @@ const ConversationItem = memo(function ConversationItem({
                     background: "var(--aurora-chip)",
                     border: "1px solid var(--aurora-border)",
                     fontSize: 10,
-                    fontFamily: "ui-monospace, monospace",
+                    fontFamily: "var(--font-mono)",
                     color: "var(--aurora-fg3)",
                     maxWidth: 110,
                     overflow: "hidden",

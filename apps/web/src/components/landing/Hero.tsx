@@ -121,7 +121,7 @@ function StatPiece({ value, label }: { value: number; label: string }) {
           color: "var(--aurora-fg1)",
           fontSize: 15,
           fontWeight: 600,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontFamily: "var(--font-mono)",
           letterSpacing: "-0.02em",
         }}
       >

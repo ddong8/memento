@@ -54,7 +54,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                 lineColor: "#9CA3AF",
                 secondaryColor: "#1E1E2E",
                 tertiaryColor: "#181825",
-                fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+                fontFamily: "var(--font-sans)",
               }
             : {
                 primaryColor: "#8B5CF6",
@@ -63,7 +63,7 @@ export function MermaidBlock({ code, className }: MermaidBlockProps) {
                 lineColor: "#4B5563",
                 secondaryColor: "#F3F4F6",
                 tertiaryColor: "#E5E7EB",
-                fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+                fontFamily: "var(--font-sans)",
               },
         });
 

@@ -383,7 +383,7 @@ const ExecutionCard = memo(function ExecutionCard({
             <span
               className={isAgent ? "hidden md:inline" : "inline"}
               style={{
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                fontFamily: "var(--font-mono)",
                 fontSize: 12,
                 color: "var(--aurora-fg2)",
                 overflow: "hidden",
@@ -607,7 +607,7 @@ const ExecutionCard = memo(function ExecutionCard({
                         {isCrit ? "【核心高危指令】" : isDanger ? "【高危操作风险】" : "【操作提醒】"} {alt.label}
                       </div>
                       {alt.detail && (
-                        <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--aurora-fg2)", wordBreak: "break-all", marginTop: 2 }}>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--aurora-fg2)", wordBreak: "break-all", marginTop: 2 }}>
                           {alt.detail}
                         </div>
                       )}
@@ -636,7 +636,7 @@ const ExecutionCard = memo(function ExecutionCard({
               {cwd && (
                 <span
                   style={{
-                    fontFamily: "monospace",
+                    fontFamily: "var(--font-mono)",
                     color: "var(--aurora-fg2)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -781,7 +781,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     </div>
                   ) : null
                 ) : (
-                  <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "monospace", fontSize: 12, fontWeight: 600, wordBreak: "break-all" }}>
+                  <div style={{ color: "#38bdf8", marginBottom: 10, fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, wordBreak: "break-all" }}>
                     $ {command}
                   </div>
                 )
@@ -872,7 +872,7 @@ const ExecutionCard = memo(function ExecutionCard({
               ) : null}
 
               {shouldShowStderr && (
-                <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "monospace", fontSize: 12 }}>
+                <div style={{ color: "#f87171", marginTop: 12, borderTop: "1px solid var(--aurora-border)", paddingTop: 8, fontFamily: "var(--font-mono)", fontSize: 12 }}>
                   <span style={{ opacity: 0.7 }}>[stderr]</span>
                   <br />
                   {cleanStderr}
@@ -880,7 +880,7 @@ const ExecutionCard = memo(function ExecutionCard({
               )}
 
               {result?.error && !isExit1NoMatch && (
-                <div style={{ color: "#ef4444", marginTop: 8, fontFamily: "monospace", fontSize: 12 }}>
+                <div style={{ color: "#ef4444", marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 12 }}>
                   [error] {result.error}
                 </div>
               )}
@@ -925,7 +925,7 @@ const ExecutionCard = memo(function ExecutionCard({
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
-                      background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                      background: "#d97706",
                       color: "#fff",
                       border: "none",
                       borderRadius: 6,
@@ -970,7 +970,7 @@ const ExecutionCard = memo(function ExecutionCard({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
-                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    background: "#d97706",
                     color: "#fff",
                     border: "none",
                     borderRadius: 6,
@@ -1024,7 +1024,7 @@ const ExecutionCard = memo(function ExecutionCard({
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 5,
-                  background: "linear-gradient(135deg, #ef4444, #dc2626)",
+                  background: "#dc2626",
                   color: "#fff",
                   border: "none",
                   borderRadius: 6,

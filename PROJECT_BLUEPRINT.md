@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2b0c623e` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `c3672ddd` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 199 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 200 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
+- 最近改动 (Latest): `bd1c349f` (2026-11-13): feat(daemon): 执行机守护进程自动跟随新版本升级，不用再登录每台服务器重跑安装脚本
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -478,6 +478,7 @@ erDiagram
 | `ask_stream` | [`server/server/services/ask_stream.py`](server/server/services/ask_stream.py) | Streaming for /api/ask: the direct-agent SSE stream and the response that |
 | `blueprint_pick` | [`server/server/services/blueprint_pick.py`](server/server/services/blueprint_pick.py) | Which of several devices' copies of a project's PROJECT_BLUEPRINT.md describes the newest code. |
 | `cache` | [`server/server/services/cache.py`](server/server/services/cache.py) | Tiered L1 (in-process memory) and L2 (Redis-backed) JSON cache for hot read endpoints. |
+| `chat_images` | [`server/server/services/chat_images.py`](server/server/services/chat_images.py) | Images the user pasted into a question, as the agent on the device sees them and the workbench shows them. |
 | `claude_session` | [`server/server/services/claude_session.py`](server/server/services/claude_session.py) | What resuming a Claude Code session will cost, read from its own transcript. |
 | `cluster` | [`server/server/services/cluster.py`](server/server/services/cluster.py) | Coordination between api replicas over Redis. |
 | `content_staging` | [`server/server/services/content_staging.py`](server/server/services/content_staging.py) | Appending to a big conversation without rewriting it on every sync. |
@@ -500,7 +501,6 @@ erDiagram
 | `guidance_service` | [`server/server/services/guidance_service.py`](server/server/services/guidance_service.py) | What an AI should know before it acts: the user's rules, past pitfalls, and learned skills. |
 | `health_service` | [`server/server/services/health_service.py`](server/server/services/health_service.py) | System health overview: is the learning loop actually working? |
 | `import_service` | [`server/server/services/import_service.py`](server/server/services/import_service.py) | Account-level data import — restore a memento-export ZIP into the |
-| `ingest_service` | [`server/server/services/ingest_service.py`](server/server/services/ingest_service.py) | Ingest service — processes incoming files from the collector. |
 
 ## 6.5. AST Call Graph, DTO Schemas & CLI Entrypoints
 
@@ -598,7 +598,7 @@ erDiagram
 
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
-| server/tests (pytest) | [`server/tests`](server/tests) | 109 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
+| server/tests (pytest) | [`server/tests`](server/tests) | 110 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
 | packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 54 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 30 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
+- `bd1c349f` (2026-11-13): feat(daemon): 执行机守护进程自动跟随新版本升级，不用再登录每台服务器重跑安装脚本
 - `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
 - `227cf1a6` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
 - `7c7ee405` (2026-11-13): perf(web): 工作台切回窗口不再反复读取已不存在的文件，历史抽屉轮询随推送降频；修复不带 limit 打开对话返回 500
 - `e1874360` (2026-11-13): chore(release): 升级客户端版本至 v1.0.123，工作台文件和续接会话也走设备直连
 - `b735ba87` (2026-11-13): perf(p2p): 工作台的文档、图片、音频、PDF 和续接时的会话文件也走设备直连
-- `324fab11` (2026-11-13): fix(web): 去掉思考过程的全屏查看，工作台标题栏不再和按钮重叠
 
 ## 10. Key Environment Variables & Configuration
 

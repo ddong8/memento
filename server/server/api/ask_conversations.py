@@ -528,14 +528,11 @@ async def get_conversation(
         offset = max(0, total_turns - len(raw_turns))
         has_more = offset > 0
     else:
-        if conv.turns is not None:
-            raw_turns = list(conv.turns or [])
-        else:
-            try:
-                await db.refresh(conv, ["turns"])
-            except Exception:
-                pass
-            raw_turns = list(conv.turns or [])
+        # Deferred unless a row was materialized with it: load it explicitly (a plain read would lazy-load
+        # in the async session, MissingGreenlet -> 500 for every request without a limit)
+        if not _turns_loaded(conv):
+            await db.refresh(conv, ["turns"])
+        raw_turns = list(conv.turns or [])
         true_count = total_turns = len(raw_turns)
         offset, has_more = 0, False
 

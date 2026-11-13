@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `9f8cdf5b` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `1ea2f43e` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -16,7 +16,7 @@
 - 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 198 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `9f8cdf5b` (2026-11-13): perf(p2p): 工作台的文档、图片、音频、PDF 和续接时的会话文件也走设备直连
+- 最近改动 (Latest): `e1874360` (2026-11-13): chore(release): 升级客户端版本至 v1.0.123，工作台文件和续接会话也走设备直连
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -608,7 +608,7 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (16 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (17 commits)
 - [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (14 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `9f8cdf5b` (2026-11-13): perf(p2p): 工作台的文档、图片、音频、PDF 和续接时的会话文件也走设备直连
+- `e1874360` (2026-11-13): chore(release): 升级客户端版本至 v1.0.123，工作台文件和续接会话也走设备直连
+- `b735ba87` (2026-11-13): perf(p2p): 工作台的文档、图片、音频、PDF 和续接时的会话文件也走设备直连
 - `324fab11` (2026-11-13): fix(web): 去掉思考过程的全屏查看，工作台标题栏不再和按钮重叠
 - `9a70d38e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.122，工作台直接预览 Word/PPT/Excel，不再自动弹出文件窗口
 - `76e9681f` (2026-11-13): fix(workbench): Word/PPT/Excel 在工作台里直接预览，不再自己弹出文件窗口
 - `9f70c85e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.121，跨设备任务的测试和构建可在代码所在的设备上执行
-- `d485c81b` (2026-11-13): feat(workspace): 跨设备任务里的测试、构建可在代码所在的设备上执行
 
 ## 10. Key Environment Variables & Configuration
 

@@ -632,6 +632,8 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
   const docDir = isLocal ? dirOfPath(item.url) : null;
   const isModified = content !== originalContent;
   const isModifiedRef = useRef(false);
+  /** The last load: when it finished, and whether the file wasn't there (404) — coming back to the window doesn't retry that. */
+  const lastLoadRef = useRef<{ at: number; missing: boolean }>({ at: 0, missing: false });
   isModifiedRef.current = isModified;
 
   // 章节目录快速索引提取
@@ -848,12 +850,14 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
         }
 
         const text = await res.text();
+        lastLoadRef.current = { at: Date.now(), missing: false };
         if (active) {
           setContent(text);
           setOriginalContent(text);
           setLoading(false);
         }
       } catch (err: any) {
+        lastLoadRef.current = { at: Date.now(), missing: /\b404\b/.test(String(err?.message ?? "")) };
         if (active) {
           setError(err?.message || "无法加载文档内容");
           setLoading(false);
@@ -869,7 +873,10 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
 
   useEffect(() => {
     const handleFocus = () => {
-      // 窗口切回时若当前未进行本地润色修改，自动同步磁盘最新状态
+      // 窗口切回时若当前未进行本地润色修改，自动同步磁盘最新状态。文件已确认不存在时不再自动重试（每次切窗口都会
+      // 经服务器去设备上白跑一趟），15 秒内刚读过的也不重复读；要读点「重试」
+      const last = lastLoadRef.current;
+      if (last.missing || Date.now() - last.at < 15_000) return;
       if (!isModifiedRef.current && isLocal) {
         setReloadTick((t) => t + 1);
       }

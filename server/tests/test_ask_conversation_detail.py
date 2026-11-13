@@ -455,6 +455,43 @@ class TestConversationWithoutTurns(unittest.TestCase):
         self.assertEqual(out["total_turns"], 0)
         self.assertIn("turns", sa_inspect(conv).unloaded)  # never touched
 
+    def test_whole_conversation_without_a_limit_loads_turns_explicitly(self):
+        conv = _row_with_deferred_turns()
+        turns = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
+
+        async def refresh(obj, attrs=None):
+            # what db.refresh(conv, ["turns"]) does: the column is loaded, no lazy load on read
+            obj.__dict__["turns"] = turns
+            sa_inspect(obj).committed_state.pop("turns", None)
+
+        db_refresh = AsyncMock(side_effect=refresh)
+        out, _response, _db = asyncio.run(_get_with_refresh(conv, db_refresh))
+        db_refresh.assert_awaited()
+        self.assertEqual(out["total_turns"], 2)
+
+
+async def _get_with_refresh(conv, refresh):
+    db = AsyncMock()
+    res = MagicMock()
+    res.scalars.return_value.first.return_value = conv
+    db.execute.return_value = res
+    db.refresh = refresh
+    request = MagicMock()
+    request.headers.get.return_value = ""
+    response = MagicMock()
+    response.headers = {}
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    with patch.object(ask_conversations, "infer_conversation_config", return_value=({}, {})), \
+         patch.object(ask_conversations, "recover_orphaned_tasks_for_conv", AsyncMock(return_value=None)), \
+         patch.object(ask_conversations, "resolve_concrete_device_for_conv", AsyncMock(return_value=None)), \
+         patch.object(ask_conversations, "lookup_project_title", AsyncMock(return_value="")), \
+         patch.object(ask_conversations, "sanitize_turns_for_response", side_effect=lambda t, **_: t):
+        out = await ask_conversations.get_conversation(
+            conv_id=str(conv.id), request=request, response=response, limit=0, db=db, _user=user,
+        )
+    return out, response, db
+
 
 if __name__ == "__main__":
     unittest.main()

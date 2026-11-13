@@ -979,8 +979,13 @@ export const HistoryDrawer = memo(function HistoryDrawer({
     const interval = setInterval(() => {
       if (!isLiveConnected() && shown()) void fetchActiveRuns();
     }, 2500);
+    // A safety net only: starts and ends are pushed, so with the push connection up once every 2 minutes
+    let lastSlow = 0;
     const slowInterval = setInterval(() => {
-      if (shown()) void fetchActiveRuns();
+      if (!shown()) return;
+      if (isLiveConnected() && Date.now() - lastSlow < 120_000) return;
+      lastSlow = Date.now();
+      void fetchActiveRuns();
     }, 30_000);
 
     // 监听实时任务启动、完成和全局广播事件，达成 0ms 零延迟更新

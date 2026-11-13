@@ -1,7 +1,7 @@
 # Project Blueprint: memento
 
 > [!NOTE]
-> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `a4fe284e` · Updated: `2026-11-13`
+> **Living Blueprint Auto-Generated** · Branch: `main` · Commit: `2b0c623e` · Updated: `2026-11-13`
 > An architectural map of the codebase for AI coding agents (Claude Code, Codex, Antigravity, Cursor, ...).
 > Read section 0 first; open other sections by the line ranges it lists instead of reading the whole file.
 
@@ -13,10 +13,10 @@
 - 类型 (Type): Monorepo (Workspaces)
 - 技术栈 (Stack): TypeScript/JavaScript, Python, Shell / Bash · React, Electron, Next.js, TailwindCSS, Model Context Protocol (MCP), FastAPI, SQLAlchemy, Celery
 - 基础设施 (Infra): PostgreSQL, pgvector (Vector DB), Redis, MinIO / S3 Object Storage, Celery Task Queue
-- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 198 个测试文件
+- 规模 (Scale): 9 个子系统 · 35 组 API 路由 / 236 个接口 · 37 个前端页面 · 41 个数据模型 · 35 个服务模块 · 199 个测试文件
 - 子系统 (Subsystems): `apps/desktop`, `apps/mobile`, `apps/web`, `packages/core`, `packages/daemon`, `packages/mcp`, `server`, `embedding`, `deploy`
 - 自测命令 (Verify): `cd server && uv run pytest -W error::RuntimeWarning` ; `uvx ruff check --isolated --select F server/server` ; `cd apps/web && npx tsc --noEmit && npm test` ; `cd packages/daemon && npm test`
-- 最近改动 (Latest): `a4fe284e` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
+- 最近改动 (Latest): `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
 
 | 章节 (Section) | 行号 (Lines) |
 | :--- | :--- |
@@ -599,7 +599,7 @@ erDiagram
 | Suite | Directory | Files | Sample Tests |
 | :--- | :--- | :--- | :--- |
 | server/tests (pytest) | [`server/tests`](server/tests) | 109 | `test_agent_limits.py`, `test_agent_login.py`, `test_agent_run_states.py`, `test_ai_provider.py`, `test_artifact_media_stream.py` |
-| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 53 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
+| packages/daemon/test (vitest / jest) | [`packages/daemon/test`](packages/daemon/test) | 54 | `agent-args.test.ts`, `agent-login.test.ts`, `agent-stream.test.ts`, `agy-models.test.ts`, `antigravity-app-quota.test.ts` |
 | apps/web/test (vitest / jest) | [`apps/web/test`](apps/web/test) | 30 | `api-client.test.ts`, `ask-top-bar.test.tsx`, `auth-fetch.test.ts`, `build-update.test.ts`, `cache-writes.test.ts` |
 | apps/mobile/test (vitest / jest) | [`apps/mobile/test`](apps/mobile/test) | 2 | `deeplink.test.ts`, `webview-props.test.ts` |
 | packages/core/test (vitest / jest) | [`packages/core/test`](packages/core/test) | 2 | `ask-stream.test.ts`, `task-events.test.ts` |
@@ -608,9 +608,9 @@ erDiagram
 
 ### Architectural Hotspots (Top Modified Files in Recent 40 Commits)
 
-- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (16 commits)
-- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (14 commits)
+- [`packages/daemon/assets/workbuddy_cli.mjs`](packages/daemon/assets/workbuddy_cli.mjs) (17 commits)
 - [`apps/web/src/app/ask/page.tsx`](apps/web/src/app/ask/page.tsx) (13 commits)
+- [`packages/daemon/src/task-runner.ts`](packages/daemon/src/task-runner.ts) (13 commits)
 - [`apps/web/src/lib/api-client.ts`](apps/web/src/lib/api-client.ts) (8 commits)
 - [`server/server/services/plan_service.py`](server/server/services/plan_service.py) (7 commits)
 - [`server/tests/test_plan_service.py`](server/tests/test_plan_service.py) (7 commits)
@@ -640,12 +640,12 @@ npm --prefix apps/desktop run typecheck && npm --prefix apps/desktop test
 
 ## 9. Recent Architectural Evolutions
 
-- `a4fe284e` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
+- `2b0c623e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.124，修复 Claude 额度时有时无和服务器上 Antigravity 额度显示未启动
+- `227cf1a6` (2026-11-13): fix(quota): vps3 上 Claude 额度不再时有时无，没有桌面应用的机器也能看到 Antigravity 额度
 - `7c7ee405` (2026-11-13): perf(web): 工作台切回窗口不再反复读取已不存在的文件，历史抽屉轮询随推送降频；修复不带 limit 打开对话返回 500
 - `e1874360` (2026-11-13): chore(release): 升级客户端版本至 v1.0.123，工作台文件和续接会话也走设备直连
 - `b735ba87` (2026-11-13): perf(p2p): 工作台的文档、图片、音频、PDF 和续接时的会话文件也走设备直连
 - `324fab11` (2026-11-13): fix(web): 去掉思考过程的全屏查看，工作台标题栏不再和按钮重叠
-- `9a70d38e` (2026-11-13): chore(release): 升级客户端版本至 v1.0.122，工作台直接预览 Word/PPT/Excel，不再自动弹出文件窗口
 
 ## 10. Key Environment Variables & Configuration
 

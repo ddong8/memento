@@ -6,6 +6,7 @@ import { acquirePidFile, ensureLinger, installService, isServiceInstalled, runni
 import { loadConfig, saveConfig } from "./config.js";
 import { Daemon } from "./daemon.js";
 import { LocalApi, readLocalApiInfo } from "./local-api.js";
+import { RESTART_EXIT_CODE, startSelfUpdate } from "./self-update.js";
 
 const USAGE = `memento-daemon <command>
 
@@ -31,13 +32,15 @@ async function run(): Promise<void> {
   daemon.log(`Local API on 127.0.0.1:${info.port}`);
 
   let stopping = false;
-  const shutdown = async (signal: string) => {
+  let stopUpdates = () => {};
+  const shutdown = async (signal: string, code = 0) => {
     if (stopping) return;
     stopping = true;
+    stopUpdates();
     daemon.log(`${signal}: shutting down`);
     await daemon.stop();
     await api.stop();
-    process.exit(0);
+    process.exit(code);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
@@ -49,6 +52,12 @@ async function run(): Promise<void> {
     await api.stop();
     process.exit(1);
   }
+  // An executor's daemon follows releases by itself (only under its systemd service; see self-update.ts)
+  stopUpdates = startSelfUpdate({
+    log: daemon.log,
+    busy: () => daemon.status.runningTasks.length > 0,
+    restart: () => void shutdown("自动升级", RESTART_EXIT_CODE),
+  });
 }
 
 async function status(): Promise<void> {

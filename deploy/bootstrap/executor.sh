@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Memento — turn a Linux server into an executor: agents (Claude Code / Codex / Antigravity)
-# run here on code that stays on your Mac or Windows. Re-running upgrades in place.
+# run here on code that stays on your Mac or Windows. Re-running upgrades in place; after that the
+# daemon follows new releases by itself (builds beside the running one, swaps once no task runs).
 #
 # Usage:  curl -fsSL https://mem.example.com/install/executor.sh | bash -s -- --token <collector token> [--agents claude,codex,agy]
 #
@@ -11,6 +12,7 @@
 #   --no-low-priority     don't run agents at lower CPU / IO priority than other services on this host
 # Environment:
 #   MEMENTO_REF           git ref to build (default: main)
+#   MEMENTO_AUTO_UPDATE=0 in the service's environment turns the daemon's own upgrades off
 #   NODE_MIRROR           Node.js download mirror (default: nodejs.org, falls back to npmmirror)
 
 if [ -z "${BASH_VERSION:-}" ]; then

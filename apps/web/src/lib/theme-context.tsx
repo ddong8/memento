@@ -51,6 +51,14 @@ function applyAttrs(skin: Skin, theme: Theme) {
   }
   meta.content = headerBg;
 
+  // The desktop app: what the system draws (title bar on Windows, scroll bars, menus) in the same light/dark
+  const dt = (window as unknown as { mementoDesktop?: { setTheme?: (t: string) => Promise<unknown> } }).mementoDesktop;
+  // Not chosen in the app: "system", so the page keeps seeing the system's changes (Electron's
+  // prefers-color-scheme follows nativeTheme.themeSource)
+  let chosen: string | null = null;
+  try { chosen = localStorage.getItem("dr_theme"); } catch {}
+  void dt?.setTheme?.(chosen === "light" || chosen === "dark" ? theme : "system")?.catch?.(() => {});
+
   const bridge = (window as unknown as { ReactNativeWebView?: { postMessage: (msg: string) => void } }).ReactNativeWebView;
   if (bridge?.postMessage) {
     try {
@@ -76,6 +84,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme);
   const [skin, setSkinState] = useState<Skin>(readInitialSkin);
 
+  // Not chosen in the app: follow the system's light/dark as it changes, like a native app does
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const onChange = (e: MediaQueryListEvent) => {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem("dr_theme"); } catch {}
+      if (saved === "light" || saved === "dark") return;
+      setThemeState(e.matches ? "dark" : "light");
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   // Sync <html data-*> attrs + favicon link on mount and whenever theme/skin change.
   useEffect(() => {
     applyAttrs(skin, theme);
@@ -89,9 +111,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [skin, theme]);
 
   const setTheme = (t: Theme) => {
+    try { localStorage.setItem("dr_theme", t); } catch {}
     setThemeState(t);
     applyAttrs(skin, t);
-    try { localStorage.setItem("dr_theme", t); } catch {}
   };
 
   const setSkin = (s: Skin) => {

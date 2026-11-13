@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import ClientLayout from "./client-layout";
+import { PLATFORM_SCRIPT } from "@/lib/platform-script";
 
 // Without this, Next.js 16 omits <meta name="viewport">, so iOS Safari and
 // Android Chrome render at ~980px desktop width and then scale to fit —
@@ -43,7 +44,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh" className="h-full antialiased">
+    <html lang="zh" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PLATFORM_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <ClientLayout>{children}</ClientLayout>
       </body>

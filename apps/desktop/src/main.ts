@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, shell, Tray } from "electron";
 import { autoUpdater } from "electron-updater";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -177,7 +177,9 @@ function createWindow(show: boolean): void {
     },
   });
 
-  win.webContents.session.clearCache().catch(() => {});
+  // The page's scripts are content-hashed and cached for a year, so a start reuses them like a native app
+  // instead of downloading ~1.4 MB again; only the first start of a new version clears the cache once.
+  clearCacheOnNewVersion();
 
   // Native context menu for text copying, pasting, and selection in Desktop app
   win.webContents.on("context-menu", (_e, params) => {
@@ -1220,6 +1222,22 @@ async function runsWhenOpened(filePath: string): Promise<boolean> {
   }
 }
 
+/** Clears the web cache on the first start of each app version (it used to be cleared on every start). */
+function clearCacheOnNewVersion(): void {
+  const marker = join(app.getPath("userData"), "cache-version");
+  let last = "";
+  try {
+    last = readFileSync(marker, "utf8").trim();
+  } catch {
+    // first start
+  }
+  if (last === app.getVersion() || !win) return;
+  win.webContents.session
+    .clearCache()
+    .then(() => writeFileSync(marker, app.getVersion()))
+    .catch(() => {});
+}
+
 function setupIpc(): void {
   // Every channel answers memento's own page only: the window also shows github.com during sign-in,
   // and nothing else loaded there may reach the daemon, local files, the login or the shell.
@@ -1261,6 +1279,11 @@ function setupIpc(): void {
       env: { ELECTRON_RUN_AS_NODE: "1" },
     },
   }));
+  // The page's light/dark choice for what the system draws: the title bar (Windows), scroll bars, menus, dialogs
+  handle("app:set-theme", (_e, theme: unknown) => {
+    nativeTheme.themeSource = theme === "dark" || theme === "light" ? theme : "system";
+    return nativeTheme.themeSource;
+  });
   handle("app:set-open-at-login", (_e, on: unknown) => {
     return setOpenAtLogin(on === true);
   });

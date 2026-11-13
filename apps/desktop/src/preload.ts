@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("mementoDesktop", {
   isDesktop: true,
   info: () => ipcRenderer.invoke("app:info"),
   setOpenAtLogin: (on: boolean) => ipcRenderer.invoke("app:set-open-at-login", on),
+  setTheme: (theme: "light" | "dark" | "system") => ipcRenderer.invoke("app:set-theme", theme),
   checkForUpdates: () => ipcRenderer.invoke("app:check-updates"),
   notify: (options: { title: string; body: string; url?: string }) =>
     ipcRenderer.invoke("app:notify", options),

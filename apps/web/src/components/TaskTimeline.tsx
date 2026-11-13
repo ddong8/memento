@@ -409,7 +409,9 @@ export default function TaskTimeline({
       case "session_sync": {
         const bytes = Number(ev.bytes);
         const size = bytes > 0 ? (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`) : "";
-        return <div key={i}>{plain("clock", ev.status === "fetched" ? fmt(tl.sessionFetched, { n: size }) : tl.sessionCurrent, null)}</div>;
+        // Came straight from that device (WebRTC), all of it or part
+        const direct = Number(ev.direct_bytes) > 0 ? ` · ${tl.wsDirect}` : "";
+        return <div key={i}>{plain("clock", ev.status === "fetched" ? fmt(tl.sessionFetched, { n: size + direct }) : tl.sessionCurrent, null)}</div>;
       }
       case "question":
         return (

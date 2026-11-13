@@ -3,6 +3,7 @@ import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "nod
 import { join } from "node:path";
 
 import { homeDir } from "./config.js";
+import { DirectPullError, pullDirect } from "./p2p.js";
 
 /**
  * A Claude Code session continued on another device, as is. Claude Code keeps a session only on the
@@ -125,10 +126,14 @@ export interface SessionFetch {
   status: "fetched" | "current";
   path: string;
   bytes?: number;
+  /** Of those, the bytes that came straight from the source over WebRTC rather than through the server. */
+  direct?: number;
 }
 
 /** Pieces of the session file per request: base64 makes it a third bigger on the wire. */
 const CHUNK = 4 * 1024 * 1024;
+/** Smaller transcripts aren't worth setting up a direct channel for. */
+const DIRECT_MIN = 256 * 1024;
 /** Bigger than any transcript worth resuming (Claude Code compacts long before). */
 const MAX_SESSION_BYTES = 512 * 1024 * 1024;
 
@@ -164,18 +169,36 @@ export async function fetchClaudeSession(o: {
     }
   }
 
-  const parts: Buffer[] = [];
+  // Straight from the source over WebRTC when the server offers it and a direct path exists (the
+  // server's public entry is a few Mbps); the rest, or all of it, piece by piece through the server
+  const buf = Buffer.alloc(size);
   let offset = 0;
+  const iceServers = Array.isArray(info.ice_servers) ? info.ice_servers.map(String) : null;
+  if (iceServers && size >= DIRECT_MIN) {
+    try {
+      offset = await pullDirect({
+        size,
+        iceServers,
+        signal: async (sdp) => {
+          const r = await o.relay("p2p", { token, sdp }, 30_000);
+          return { sdp: String(r.sdp ?? ""), path: String(r.path ?? "") };
+        },
+        write: async (data, at) => data.copy(buf, at),
+      });
+    } catch (e) {
+      offset = e instanceof DirectPullError ? e.written : 0;
+    }
+  }
+  const direct = offset;
   while (offset < size) {
     const r = await o.relay("chunk", { token, offset, length: Math.min(CHUNK, size - offset) }, 120_000);
     const data = Buffer.from(String(r.data_b64 ?? ""), "base64");
     if (!data.length) throw new Error("会话文件读取中断");
-    parts.push(data);
+    data.copy(buf, offset);
     offset += data.length;
   }
-  const text = Buffer.concat(parts).toString("utf8");
-  await placeCopy(moveSessionCwd(text, o.workDir), target, local);
-  return { status: "fetched", path: target, bytes: size };
+  await placeCopy(moveSessionCwd(buf.toString("utf8"), o.workDir), target, local);
+  return { status: "fetched", path: target, bytes: size, ...(direct ? { direct } : {}) };
 }
 
 /** Writes the transcript to target (whole, then renamed in) and sets an older copy elsewhere aside. */

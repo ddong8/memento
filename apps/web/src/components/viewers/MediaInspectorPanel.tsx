@@ -33,13 +33,14 @@ import {
   FiSearch,
 } from "react-icons/fi";
 import { useMediaInspector, type MediaItem } from "./MediaInspectorContext";
-import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath, dirOfPath } from "./MediaPreview";
+import { VideoPlayer, AudioPlayer, ImagePreview, MediaAttachmentCard, resolveMediaUrl, safeDecodePath, getFilenameFromUrl, isLocalFilePath, dirOfPath, useDirectSrc } from "./MediaPreview";
 import MarkdownViewer from "./MarkdownViewer";
 import { WeChatPublishModal } from "./WeChatPublishModal";
 import { getApiBase, authFetch, isOwnUrl } from "@/lib/api-client";
 import { desktop } from "@/lib/desktop";
 import { OfficePreview, canPreviewOffice } from "./OfficePreview";
 import { deviceRelayUrl, fileDevice, onThisDevice } from "@/lib/file-devices";
+import { directFetch, viaRelay } from "@/lib/p2p";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 
 /**
@@ -789,6 +790,23 @@ function MarkdownDocViewer({ item }: { item: MediaItem }) {
           fetchUrl = "/article/memento_introduction_article.md";
         }
 
+        // Another device's file straight from it over WebRTC when a direct path exists, else the relay below
+        if (clean) {
+          const r = resolveMediaUrl(rawUrl);
+          if (viaRelay(r)) {
+            const direct = await directFetch(r.relayUrl, 64 * 1024 * 1024);
+            if (direct) {
+              const text = new TextDecoder("utf-8").decode(direct);
+              if (active) {
+                setContent(text);
+                setOriginalContent(text);
+                setLoading(false);
+              }
+              return;
+            }
+          }
+        }
+
         let res: Response | null = null;
         try {
           const bustUrl = fetchUrl.includes("?") ? `${fetchUrl}&_t=${Date.now()}` : `${fetchUrl}?_t=${Date.now()}`;
@@ -1332,6 +1350,8 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
   const displayTitle = item.title || resolved.filename || "办公文档";
   const ext = (/\.([a-z0-9]{1,8})$/i.exec(displayTitle)?.[1] ?? /\.([a-z0-9]{1,8})$/i.exec(resolved.filename || "")?.[1] ?? item.type).toLowerCase();
   const isLocal = isLocalFilePath(item.url);
+  // A PDF on another device straight from it (lib/p2p) when a direct path exists
+  const { src: pdfSrc } = useDirectSrc(resolved, ext === "pdf" || item.type === "pdf");
   // Office's online viewer fetches the file itself: only a public web address works there
   const officeOnline = /^https?:\/\//.test(item.url) && !isOwnUrl(item.url);
 
@@ -1378,6 +1398,16 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
           if (res && typeof res.content === "string") {
             if (active) {
               setTextData(res.content);
+              setLoading(false);
+            }
+            return;
+          }
+        }
+        if (viaRelay(resolved)) {
+          const direct = await directFetch(resolved.relayUrl, 64 * 1024 * 1024);
+          if (direct) {
+            if (active) {
+              setTextData(new TextDecoder("utf-8").decode(direct));
               setLoading(false);
             }
             return;
@@ -1703,7 +1733,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
         <div className="flex-1 w-full h-full min-h-0 bg-white relative overflow-hidden flex flex-col">
           {ext === "pdf" ? (
             <iframe
-              src={resolved.playUrl}
+              src={pdfSrc ?? undefined}
               className="w-full h-full border-0 bg-white"
               title={displayTitle}
               allowFullScreen
@@ -1845,7 +1875,7 @@ function OfficeDocViewer({ item }: { item: MediaItem }) {
         </div>
         {!isDocFullscreen ? (
           <iframe
-            src={resolved.playUrl}
+            src={pdfSrc ?? undefined}
             className="w-full h-[600px] rounded-xl border border-[var(--aurora-border)] bg-white shadow-inner"
             title={displayTitle}
           />

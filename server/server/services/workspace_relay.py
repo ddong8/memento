@@ -156,6 +156,8 @@ async def _session(data: dict[str, Any], user_id: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"size": size, "last_uuid": str(res.get("last_uuid") or "")}
     if size > 0:
         out["token"] = await _put_token({"device": source, "path": res.get("path"), "size": size, "user": str(user_id)})
+        # The device may fetch it from the source directly first (op p2p), as a workspace bundle
+        out["ice_servers"] = _ice_servers()
     return out
 
 

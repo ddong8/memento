@@ -1178,7 +1178,7 @@ export class TaskRunner {
           try {
             if (!this.relay) throw new Error("和服务器的连接还没建立");
             const got = await fetchClaudeSession({ sessionId, sourceDeviceId: sessionHome, workDir, relay: this.relay });
-            this.emitEvent(taskId, { kind: "session_sync", status: got.status, ...(got.bytes ? { bytes: got.bytes } : {}) } as unknown as AgentEvent);
+            this.emitEvent(taskId, { kind: "session_sync", status: got.status, ...(got.bytes ? { bytes: got.bytes } : {}), ...(got.direct ? { direct_bytes: got.direct } : {}) } as unknown as AgentEvent);
             this.log(`Session ${sessionId} from ${sessionHome}: ${got.status}${got.bytes ? ` (${got.bytes} bytes)` : ""}`);
           } catch (e) {
             throw new Error(`${SESSION_UNAVAILABLE} ${sessionId.slice(0, 8)}：${e instanceof Error ? e.message : e}。可以点「瘦身后重试」，用它的核心记忆快照在这台设备上接着做`);

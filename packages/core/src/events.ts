@@ -64,7 +64,7 @@ export type TaskEvent = { at?: string } & (
   /** The agent ran a command on the device the code is on (memento-source): sent (`running`), then its exit code or why it couldn't run. */
   | { kind: "source_exec"; status: "running" | "done" | "failed"; command: string; source?: string; exit_code?: number; error?: string; seconds?: number }
   /** The session's latest copy was on another device: fetched before resuming (`fetched`), or the one here was up to date (`current`). */
-  | { kind: "session_sync"; status: "fetched" | "current"; bytes?: number }
+  | { kind: "session_sync"; status: "fetched" | "current"; bytes?: number; direct_bytes?: number }
   | {
       kind: "question";
       id?: string;

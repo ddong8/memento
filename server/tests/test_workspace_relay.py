@@ -206,6 +206,8 @@ async def test_a_session_on_another_device_is_handed_out_like_a_bundle():
         out = await wr._session({"source_device_id": "mac", "session_id": "s1"}, USER)
         assert ws.request_device.await_args.args[:2] == ("tok-mac", {"type": "session_export_req", "session_id": "s1"})
         assert out["size"] == 20 and out["last_uuid"] == "u-9" and out["token"] and "path" not in out
+        # The device may fetch it straight from the source over WebRTC first
+        assert isinstance(out["ice_servers"], list)
         await wr._chunk({"token": out["token"], "offset": 0, "length": 999}, USER)
         assert ws.request_file_chunk.await_args.args[:4] == ("tok-mac", answer["path"], 0, 20)
 

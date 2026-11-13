@@ -31,3 +31,14 @@ describe("relative links in the workbench", () => {
     ]);
   });
 });
+
+import { viaRelay } from "../src/lib/p2p";
+
+describe("which workbench files are tried straight from their device", () => {
+  it("those that come through the server's relay, not the desktop app's own disk or other sites", () => {
+    const relay = "https://mem.example/api/devices/mac/files/stream/a.md?path=%2Fa.md";
+    expect(viaRelay({ playUrl: relay, relayUrl: relay })).toBe(true);
+    expect(viaRelay({ playUrl: "memento-media://local/a.md", relayUrl: relay })).toBe(false);
+    expect(viaRelay({ playUrl: "https://example.com/a.pdf" })).toBe(false);
+  });
+});

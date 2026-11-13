@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+
+import { P2PHost } from "../src/p2p.js";
 
 import {
   claudeProjectDirName,
@@ -31,8 +33,12 @@ function put(h: string, cwd: string, text: string): string {
   return path;
 }
 
+/** The source device's side of a direct (WebRTC) transfer, over loopback. */
+const p2pHost = new P2PHost();
+afterAll(() => p2pHost.dispose());
+
 /** The server and the source device behind it, as the executor's relay sees them. */
-function relayTo(sourceHome: string): SessionRelay & { ops: string[] } {
+function relayTo(sourceHome: string, direct?: "works" | "declined"): SessionRelay & { ops: string[] } {
   const ops: string[] = [];
   let file = "";
   const fn = (async (op: string, body: Record<string, unknown>) => {
@@ -40,7 +46,11 @@ function relayTo(sourceHome: string): SessionRelay & { ops: string[] } {
     if (op === "session") {
       const r = await exportClaudeSession(String(body.session_id), sourceHome);
       file = r.path;
-      return { size: r.size, last_uuid: r.last_uuid, token: "t1" };
+      return { size: r.size, last_uuid: r.last_uuid, token: "t1", ...(direct ? { ice_servers: [] } : {}) };
+    }
+    if (op === "p2p") {
+      if (direct === "declined") throw new Error("源设备没有应答直连");
+      return { sdp: (await p2pHost.answer(String(body.sdp), [])).sdp, path: file };
     }
     if (op === "chunk") {
       const buf = readFileSync(file).subarray(Number(body.offset), Number(body.offset) + Number(body.length));
@@ -83,6 +93,35 @@ describe("a Claude Code session continued on another device", () => {
     expect(lines.slice(1).map((l) => [l.uuid, l.cwd])).toEqual([["u1", "/home/opc/ws/repo"], ["u2", "/home/opc/ws/repo"]]);
     expect(await findClaudeSession(SID, vps)).toBe(got.path);
   });
+
+  it("fetches a big session straight from the source over WebRTC when the server offers it", async () => {
+    const mac = home();
+    const vps = home();
+    const uuids = Array.from({ length: 4000 }, (_, i) => `u${i}-${"x".repeat(80)}`);
+    put(mac, "/Users/me/repo", transcript("/Users/me/repo", uuids));
+    const relay = relayTo(mac, "works");
+    const got = await fetchClaudeSession({ sessionId: SID, sourceDeviceId: "mac", workDir: "/home/opc/ws/repo", relay, home: vps });
+    expect(got.status).toBe("fetched");
+    expect(got.direct).toBe(got.bytes);
+    expect(relay.ops).toEqual(["session", "p2p"]);
+    const lines = readFileSync(got.path, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(uuids.length + 1);
+    expect(JSON.parse(lines[lines.length - 1]!).cwd).toBe("/home/opc/ws/repo");
+  }, 30_000);
+
+  it("falls back to the server when no direct path comes up", async () => {
+    const mac = home();
+    const vps = home();
+    const uuids = Array.from({ length: 4000 }, (_, i) => `u${i}-${"x".repeat(80)}`);
+    put(mac, "/Users/me/repo", transcript("/Users/me/repo", uuids));
+    const relay = relayTo(mac, "declined");
+    const got = await fetchClaudeSession({ sessionId: SID, sourceDeviceId: "mac", workDir: "/home/opc/ws/repo", relay, home: vps });
+    expect(got.direct).toBeUndefined();
+    expect(relay.ops[0]).toBe("session");
+    expect(relay.ops[1]).toBe("p2p");
+    expect(relay.ops.slice(2).every((o) => o === "chunk")).toBe(true);
+    expect(readFileSync(got.path, "utf8").trim().split("\n")).toHaveLength(uuids.length + 1);
+  }, 30_000);
 
   it("keeps a copy here that already has the source's last entry (the session went on here)", async () => {
     const mac = home();

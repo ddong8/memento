@@ -50,13 +50,20 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+interface Located {
+  device: string;
+  path: string;
+  size: number;
+  filename: string;
+  session: Session;
+}
+
 /**
- * A /p2p/media/… URL serving the same file as `streamUrl` (a /api/devices/…/files/stream URL) straight
- * from the device, or null when that isn't possible here and now (no service worker in control, the
- * server has the file itself, no direct path to the device, or it failed recently).
+ * The device holding the file behind a /api/devices/…/files/stream URL, with a direct connection to it
+ * open, or null (the server has the file itself, no direct path, or it failed recently).
  */
-export async function directMediaUrl(streamUrl: string): Promise<string | null> {
-  if (typeof window === "undefined" || typeof RTCPeerConnection === "undefined" || !navigator.serviceWorker?.controller) return null;
+async function locate(streamUrl: string): Promise<Located | null> {
+  if (typeof window === "undefined" || typeof RTCPeerConnection === "undefined") return null;
   let url: URL;
   try {
     url = new URL(streamUrl, window.location.href);
@@ -79,16 +86,66 @@ export async function directMediaUrl(streamUrl: string): Promise<string | null> 
     if (loc.local || !loc.device || !loc.size) return null;
     device = loc.device;
     if (Date.now() - (failedAt.get(device) ?? 0) < FAILED_TTL_MS) return null;
-    await withTimeout(session(device, loc.ice_servers ?? []), deadline - Date.now());
-    listen();
-    const key = crypto.randomUUID();
-    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-    media.set(key, { device, path, size: loc.size, mime: MIME[ext] ?? "application/octet-stream" });
-    return `/p2p/media/${key}/${encodeURIComponent(filename)}`;
+    const s = await withTimeout(session(device, loc.ice_servers ?? []), deadline - Date.now());
+    return { device, path, size: loc.size, filename, session: s };
   } catch {
     if (device) failedAt.set(device, Date.now());
     return null;
   }
+}
+
+/**
+ * A /p2p/media/… URL serving the same file as `streamUrl` (a /api/devices/…/files/stream URL) straight
+ * from the device, or null when that isn't possible here and now (no service worker in control, the
+ * server has the file itself, no direct path to the device, or it failed recently).
+ */
+export async function directMediaUrl(streamUrl: string): Promise<string | null> {
+  if (typeof navigator === "undefined" || !navigator.serviceWorker?.controller) return null;
+  const loc = await locate(streamUrl);
+  if (!loc) return null;
+  listen();
+  const key = crypto.randomUUID();
+  const ext = loc.filename.split(".").pop()?.toLowerCase() ?? "";
+  media.set(key, { device: loc.device, path: loc.path, size: loc.size, mime: MIME[ext] ?? "application/octet-stream" });
+  return `/p2p/media/${key}/${encodeURIComponent(loc.filename)}`;
+}
+
+/** Bigger files than this aren't read whole into the page (they're downloads, not previews). */
+const MAX_FETCH = 256 * 1024 * 1024;
+/** The device reads at most 16 MB per request. */
+const FETCH_PIECE = 8 * 1024 * 1024;
+
+/**
+ * The whole file behind a stream URL straight from its device over WebRTC (no service worker needed),
+ * or null when there's no direct path or it broke off: the caller then fetches it through the server.
+ * For what the workbench reads into the page: Markdown, text, tables, Word/PowerPoint/Excel.
+ */
+export async function directFetch(streamUrl: string, maxBytes = MAX_FETCH): Promise<Uint8Array | null> {
+  const loc = await locate(streamUrl);
+  if (!loc || loc.size > maxBytes) return null;
+  try {
+    const out = new Uint8Array(loc.size);
+    for (let at = 0; at < loc.size; ) {
+      const end = Math.min(loc.size, at + FETCH_PIECE) - 1;
+      const piece = await read(loc.session, loc.path, at, end);
+      if (!piece.byteLength) throw new Error("short read");
+      out.set(piece.subarray(0, Math.min(piece.byteLength, loc.size - at)), at);
+      at += piece.byteLength;
+    }
+    return out;
+  } catch {
+    failedAt.set(loc.device, Date.now());
+    return null;
+  }
+}
+
+/**
+ * Whether a resolved workbench file is worth trying directly: it comes through the server's relay
+ * (the browser; the desktop app for another device's file). A file the desktop app reads off its own
+ * disk is quicker still that way.
+ */
+export function viaRelay(r: { playUrl: string; relayUrl?: string | null }): r is { playUrl: string; relayUrl: string } {
+  return !!r.relayUrl && r.relayUrl.includes("/files/stream") && r.playUrl === r.relayUrl;
 }
 
 /** The direct path to a device broke mid-play: don't try it again for a while. */

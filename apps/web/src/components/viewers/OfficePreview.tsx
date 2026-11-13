@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { authFetch } from "@/lib/api-client";
+import { directFetch, viaRelay } from "@/lib/p2p";
 import {
   colName,
   imageMime,
@@ -30,6 +31,11 @@ type Model = { kind: "docx"; doc: DocxModel } | { kind: "pptx"; deck: PptxModel 
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const resolved = resolveMediaUrl(url);
+  // Straight from its device over WebRTC when a direct path exists (the server's relay is slow)
+  if (viaRelay(resolved)) {
+    const direct = await directFetch(resolved.relayUrl);
+    if (direct) return direct;
+  }
   const tries = [resolved.playUrl, resolved.relayUrl].filter((u, i, a): u is string => !!u && a.indexOf(u) === i);
   let last = "";
   for (const u of tries) {

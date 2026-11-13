@@ -41,7 +41,7 @@ import {
 import { desktop } from "@/lib/desktop";
 import { showInAppToast, triggerHapticFeedback } from "@/lib/native-notify";
 import { deviceRelayUrl, fileDevice, foreignPathStyle, onThisDevice } from "@/lib/file-devices";
-import { directMediaUrl, markDirectFailed } from "@/lib/p2p";
+import { directMediaUrl, markDirectFailed, viaRelay as isRelayed } from "@/lib/p2p";
 import { useMediaInspector } from "./MediaInspectorContext";
 import { ImageViewerModal } from "./ImageViewerModal";
 
@@ -257,6 +257,34 @@ export function dirOfPath(path: string): string {
   const clean = safeDecodePath(path).replace(/^file:\/\//, "");
   const i = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
   return i > 0 ? clean.slice(0, i) : clean.slice(0, i + 1);
+}
+
+/**
+ * A relayed file's URL straight from its device over WebRTC (lib/p2p) when a direct path comes up, else
+ * the relay URL; null while finding out (a few seconds at most, at once when the device recently had no
+ * direct path). `fail` goes back to the relay when the direct URL breaks.
+ */
+export function useDirectSrc(r: ResolvedMedia, enabled = true): { src: string | null; fail: () => void } {
+  const relayed = enabled && isRelayed(r);
+  const [got, setGot] = useState<{ for: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!relayed) return;
+    let cancelled = false;
+    void directMediaUrl(r.playUrl).then((u) => {
+      if (!cancelled) setGot({ for: r.playUrl, url: u ?? r.playUrl });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [relayed, r.playUrl]);
+  const src = !relayed ? r.playUrl : got?.for === r.playUrl ? got.url : null;
+  const fail = useCallback(() => {
+    if (src && src.startsWith("/p2p/")) {
+      markDirectFailed(src);
+      setGot({ for: r.playUrl, url: r.playUrl });
+    }
+  }, [src, r.playUrl]);
+  return { src, fail };
 }
 
 /** Resolve media path into a streamable/playable URL and local path */
@@ -2825,7 +2853,10 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
     setResolved(resolveMediaUrl(src));
   }, [src]);
 
-  const { playUrl, downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
+  const { downloadUrl: resolvedDownload, localPath, filename: resolvedFilename } = resolved;
+  // Straight from its device when it can be (lib/p2p), else through the server
+  const { src: directSrc, fail: directFailed } = useDirectSrc(resolved);
+  const playUrl = directSrc ?? "";
   const displayTitle = (title && title.includes(".") ? title : "") || resolvedFilename || title || "audio-file";
   const finalDownloadUrl = downloadUrl || resolvedDownload || playUrl;
 
@@ -2905,7 +2936,8 @@ export function AudioPlayer({ src, title, downloadUrl, className = "" }: AudioPl
     >
       <audio
         ref={audioRef}
-        src={playUrl}
+        src={playUrl || undefined}
+        onError={() => playUrl.startsWith("/p2p/") && directFailed()}
         preload="metadata"
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -3016,7 +3048,8 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
   const resolved = useMemo(() => resolveMediaUrl(src), [src]);
 
   const { filename: resolvedFilename } = resolved;
-  const playUrl = viaRelay && resolved.relayUrl ? resolved.relayUrl : resolved.playUrl;
+  const { src: directSrc, fail: directFailed } = useDirectSrc(resolved);
+  const playUrl = viaRelay && resolved.relayUrl ? resolved.relayUrl : directSrc;
   const displayTitle = alt || resolvedFilename || "image-preview";
 
   if (loadError) {
@@ -3042,12 +3075,13 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={playUrl}
+          src={playUrl ?? undefined}
           alt={displayTitle}
           loading="lazy"
           decoding="async"
           onError={() => {
-            if (!viaRelay && resolved.relayUrl && playUrl !== resolved.relayUrl) setViaRelay(true);
+            if (playUrl?.startsWith("/p2p/")) directFailed();
+            else if (!viaRelay && resolved.relayUrl && playUrl !== resolved.relayUrl) setViaRelay(true);
             else setLoadError(true);
           }}
           className="max-h-96 w-auto object-contain rounded-xl transition-transform duration-300 group-hover:scale-[1.01]"
@@ -3060,7 +3094,7 @@ export function ImagePreview({ src, alt, className = "" }: ImagePreviewProps) {
       </div>
 
       <ImageViewerModal
-        images={[{ src: playUrl, alt: displayTitle, title: displayTitle }]}
+        images={[{ src: playUrl ?? resolved.playUrl, alt: displayTitle, title: displayTitle }]}
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
       />
